@@ -482,6 +482,24 @@ describe('Brand Vault draft orchestrator', () => {
     expect(uploadCandidates.find((candidate) => candidate.sourceField === 'sourceEvidence.1.uploaded_asset.logoAsset')?.signalPath).toBe(
       'assets.logoCandidates',
     );
+    expect(result.profile.palette.supporting.value).toEqual(expect.arrayContaining(['#102033', '#ffcc33', '#f7f7f7']));
+    expect(result.profile.palette.supporting.trustLevel).toBe('uploaded_brand_guideline');
+    expect(result.profile.voice.killList.value).toEqual(
+      expect.arrayContaining(['Do not use stock-photo language', 'Avoid neon gradients.']),
+    );
+    expect(result.profile.voice.killList.trustLevel).toBe('uploaded_brand_guideline');
+    expect(result.profile.voice.recurringPhrases.value).toEqual(
+      expect.arrayContaining(['Tone: precise, editorial, operator-first']),
+    );
+    expect(result.profile.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalPath: 'voice.killList',
+          trustLevel: 'uploaded_brand_guideline',
+          authorityClass: 'brand_constraint',
+        }),
+      ]),
+    );
     expect(result.job.warnings).toContain('7 additional Brand Vault sources staged for enrichment and evidence review.');
     expect(result.reviewPayload.intake.uploads).toMatchObject({
       status: 'complete',

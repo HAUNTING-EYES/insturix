@@ -237,6 +237,19 @@ describe('Brand Vault refinery API boundary', () => {
     );
     expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.proofStyle'))?.normalizedValue).toBe('community');
     expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.ctaDirectness'))?.normalizedValue).toBeGreaterThan(0.5);
+    expect(created.body.record.profile.voice.recurringPhrases.value).toEqual(
+      expect.arrayContaining(['Stop losing brand consistency between strategy and delivery', '#BrandOps']),
+    );
+    expect(created.body.record.profile.voice.hookArchetypes.value).toEqual(expect.arrayContaining(['statement-led']));
+    expect(created.body.record.profile.identity.proofStyle.trustLevel).toBe('public_social_page');
+    expect(created.body.record.profile.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalPath: 'voice.recurringPhrases',
+          trustLevel: 'public_social_page',
+        }),
+      ]),
+    );
   });
 
   it('lets Brand Vault-owned providers add connected social capability evidence without accepting it as profile truth', async () => {
@@ -447,6 +460,18 @@ describe('Brand Vault refinery API boundary', () => {
       ]),
     );
     expect(created.body.record.profile.evidence.some((item) => String(item.sourceType) === 'connected_social_post')).toBe(false);
+    expect(created.body.record.profile.voice.recurringPhrases.trustLevel).toBe('connected_social_account');
+    expect(created.body.record.profile.voice.recurringPhrases.value).toEqual(
+      expect.arrayContaining(['Stop losing brand consistency between strategy and delivery']),
+    );
+    expect(created.body.record.profile.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalPath: 'voice.recurringPhrases',
+          trustLevel: 'connected_social_account',
+        }),
+      ]),
+    );
   });
 
   it('does not leak jobs or profiles across users', async () => {

@@ -102,7 +102,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.voicePhrases`,
         signalPath: 'voice.recurringPhrases',
-        rawValue: text,
+        rawValue: socialRawValue(args.source, text),
         normalizedValue: voicePhrases,
         excerpt: voicePhrases.join(' | '),
         confidence: args.source.pinned ? 0.74 : 0.62,
@@ -118,7 +118,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.hookArchetypes`,
         signalPath: 'voice.hookArchetypes',
-        rawValue: firstMeaningfulSentence(text),
+        rawValue: socialRawValue(args.source, firstMeaningfulSentence(text)),
         normalizedValue: hookArchetypes,
         excerpt: firstMeaningfulSentence(text),
         confidence: args.source.pinned ? 0.68 : 0.56,
@@ -134,7 +134,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.proofStyle`,
         signalPath: 'identity.proofStyle',
-        rawValue: text,
+        rawValue: socialRawValue(args.source, text),
         normalizedValue: proofStyle,
         excerpt: firstMeaningfulSentence(text),
         confidence: args.source.pinned ? 0.66 : 0.52,
@@ -150,7 +150,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.ctaDirectness`,
         signalPath: 'voice.ctaDirectness',
-        rawValue: ctas,
+        rawValue: socialRawValue(args.source, ctas),
         normalizedValue: scoreSocialCtaDirectness(ctas),
         excerpt: ctas.join(' | '),
         confidence: args.source.pinned ? 0.64 : 0.5,
@@ -159,6 +159,15 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
   }
 
   return candidates;
+}
+
+function socialRawValue(source: BrandVaultSourceInput, value: unknown): unknown {
+  if (!source.evidenceOrigin && !source.connection) return value;
+  return {
+    value,
+    evidenceOrigin: source.evidenceOrigin,
+    connection: source.connection,
+  };
 }
 
 export function parseBrandVaultSocialUrl(

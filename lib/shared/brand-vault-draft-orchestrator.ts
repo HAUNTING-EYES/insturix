@@ -1,8 +1,14 @@
 import { load } from 'cheerio';
-import type { BrandSignalProfile } from './brand-signal-profile';
+import type {
+  BrandSignal,
+  BrandSignalEvidence,
+  BrandSignalProfile,
+  BrandSignalTrustLevel,
+} from './brand-signal-profile';
 import { isBrandSignalActionable, sanitizeEvidenceExcerpt } from './brand-signal-profile';
 import {
   collectBrandSignals,
+  getReviewReasons,
   type BrandSignalLifecycleOptions,
   type BrandSignalProfileRecord,
 } from './brand-signal-lifecycle';
@@ -312,10 +318,6 @@ export async function createBrandVaultWebsiteDraftJob(
       ...dependencies.fetchOptions,
       allowDefaultFetch: !dependencies.fetchSnapshot,
     });
-    const savedRecord = await dependencies.repository.saveRecord(draft.record, {
-      now: snapshot.fetchedAt,
-      actorId: input.actorId,
-    });
     const stagedCandidates = createStagedSourceCandidates({
       input,
       jobId,
@@ -328,6 +330,11 @@ export async function createBrandVaultWebsiteDraftJob(
       jobId,
       snapshots: crawl.snapshots,
       observedAt: snapshot.fetchedAt,
+    });
+    const enrichedRecord = applyReviewCandidatesToDraftRecord(draft.record, stagedCandidates, snapshot.fetchedAt);
+    const savedRecord = await dependencies.repository.saveRecord(enrichedRecord, {
+      now: snapshot.fetchedAt,
+      actorId: input.actorId,
     });
     const candidates = [...assetProbe.candidates, ...stagedCandidates, ...crawlCandidates];
     const warnings = mergeWarnings(
@@ -1459,6 +1466,205 @@ function uploadCandidate(args: {
     observedAt: args.observedAt,
     extractorId: UPLOAD_EXTRACTOR,
   };
+}
+
+function applyReviewCandidatesToDraftRecord(
+  record: BrandSignalProfileRecord,
+  candidates: BrandEvidenceCandidate[],
+  observedAt: string,
+): BrandSignalProfileRecord {
+  const profile = cloneBrandSignalProfile(record.profile);
+  let changed = false;
+
+  for (const candidate of candidates) {
+    if (!isPromotableReviewCandidate(candidate)) continue;
+    changed = promoteCandidateToProfile(profile, candidate, observedAt) || changed;
+  }
+
+  if (!changed) return record;
+  return {
+    ...record,
+    profile,
+    review: {
+      ...record.review,
+      reasons: getReviewReasons(profile),
+    },
+  };
+}
+
+function isPromotableReviewCandidate(candidate: BrandEvidenceCandidate): boolean {
+  if (candidate.extractorId !== UPLOAD_EXTRACTOR && candidate.extractorId !== 'brand-vault-social-evidence.v1') return false;
+  return [
+    'palette.supporting',
+    'voice.killList',
+    'voice.recurringPhrases',
+    'voice.hookArchetypes',
+    'identity.proofStyle',
+    'voice.ctaDirectness',
+  ].includes(candidate.signalPath);
+}
+
+function promoteCandidateToProfile(
+  profile: BrandSignalProfile,
+  candidate: BrandEvidenceCandidate,
+  observedAt: string,
+): boolean {
+  const evidence = promotedEvidenceFromCandidate(profile, candidate, observedAt);
+  if (!evidence) return false;
+
+  if (candidate.signalPath === 'palette.supporting') {
+    return mergeStringArraySignal(profile.palette.supporting, candidate, evidence, profile);
+  }
+  if (candidate.signalPath === 'voice.killList') {
+    return mergeStringArraySignal(profile.voice.killList, candidate, evidence, profile);
+  }
+  if (candidate.signalPath === 'voice.recurringPhrases') {
+    return mergeStringArraySignal(profile.voice.recurringPhrases, candidate, evidence, profile);
+  }
+  if (candidate.signalPath === 'voice.hookArchetypes') {
+    return mergeStringArraySignal(profile.voice.hookArchetypes, candidate, evidence, profile);
+  }
+  if (candidate.signalPath === 'identity.proofStyle') {
+    const proofStyle = normalizeProofStyleCandidate(candidate.normalizedValue);
+    return proofStyle ? replaceSignalValue(profile.identity.proofStyle, proofStyle, candidate, evidence, profile) : false;
+  }
+  if (candidate.signalPath === 'voice.ctaDirectness') {
+    const directness = normalizeNumberCandidate(candidate.normalizedValue);
+    return directness === undefined
+      ? false
+      : replaceSignalValue(profile.voice.ctaDirectness, directness, candidate, evidence, profile);
+  }
+
+  return false;
+}
+
+function mergeStringArraySignal(
+  signal: BrandSignal<string[]>,
+  candidate: BrandEvidenceCandidate,
+  evidence: BrandSignalEvidence,
+  profile: BrandSignalProfile,
+): boolean {
+  const values = normalizeStringArrayCandidate(candidate.normalizedValue);
+  if (values.length === 0) return false;
+
+  const merged = uniqueStrings([...values, ...signal.value]);
+  const hasNewValues = merged.length !== signal.value.length;
+  const hasStrongerEvidence = candidate.confidence > signal.confidence;
+  if (!hasNewValues && !hasStrongerEvidence) return false;
+
+  profile.evidence.push(evidence);
+  signal.value = merged;
+  signal.evidenceIds = uniqueStrings([...signal.evidenceIds, evidence.id]);
+  adoptCandidateSignalAuthority(signal, candidate, evidence);
+  return true;
+}
+
+function replaceSignalValue<T>(
+  signal: BrandSignal<T>,
+  value: T,
+  candidate: BrandEvidenceCandidate,
+  evidence: BrandSignalEvidence,
+  profile: BrandSignalProfile,
+): boolean {
+  if (candidate.confidence < signal.confidence && signal.trustLevel !== 'fallback_default') return false;
+
+  profile.evidence.push(evidence);
+  signal.value = value;
+  signal.evidenceIds = uniqueStrings([...signal.evidenceIds, evidence.id]);
+  adoptCandidateSignalAuthority(signal, candidate, evidence);
+  return true;
+}
+
+function adoptCandidateSignalAuthority<T>(
+  signal: BrandSignal<T>,
+  candidate: BrandEvidenceCandidate,
+  evidence: BrandSignalEvidence,
+): void {
+  if (candidate.confidence >= signal.confidence || signal.trustLevel === 'fallback_default') {
+    signal.confidence = candidate.confidence;
+    signal.trustLevel = evidence.trustLevel;
+    signal.authorityClass = evidence.authorityClass;
+    delete signal.fallbackReason;
+    return;
+  }
+  signal.confidence = Math.max(signal.confidence, candidate.confidence);
+}
+
+function promotedEvidenceFromCandidate(
+  profile: BrandSignalProfile,
+  candidate: BrandEvidenceCandidate,
+  observedAt: string,
+): BrandSignalEvidence | undefined {
+  const trustLevel = trustLevelForPromotedCandidate(candidate);
+  if (!trustLevel) return undefined;
+  const id = `source_e${profile.evidence.length + 1}_${candidate.signalPath.replace(/[^a-z0-9]+/gi, '_')}`;
+  return {
+    id,
+    signalPath: candidate.signalPath,
+    sourceType: trustLevel,
+    sourceField: candidate.sourceField,
+    excerpt: candidate.excerpt ? sanitizeEvidenceExcerpt(candidate.excerpt) : undefined,
+    confidence: candidate.confidence,
+    trustLevel,
+    authorityClass: authorityClassForPromotedCandidate(candidate),
+    observedAt: candidate.observedAt || observedAt,
+    extractor: candidate.extractorId,
+  };
+}
+
+function trustLevelForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalTrustLevel | undefined {
+  if (candidate.sourceType === 'uploaded_guideline') return 'uploaded_brand_guideline';
+  if (candidate.sourceType === 'social_post' || candidate.sourceType === 'social_profile') {
+    return candidateEvidenceOrigin(candidate) === 'connected_fetch' ? 'connected_social_account' : 'public_social_page';
+  }
+  return undefined;
+}
+
+function candidateEvidenceOrigin(candidate: BrandEvidenceCandidate): string | undefined {
+  for (const value of [candidate.normalizedValue, candidate.rawValue]) {
+    if (isRecord(value) && typeof value.evidenceOrigin === 'string') return value.evidenceOrigin;
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function authorityClassForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalEvidence['authorityClass'] {
+  if (candidate.signalPath === 'voice.killList') return 'brand_constraint';
+  if (candidate.signalPath === 'identity.proofStyle' || candidate.signalPath === 'voice.ctaDirectness') return 'inferred_hint';
+  if (candidate.sourceType === 'uploaded_guideline') return 'brand_preference';
+  return 'voice_default';
+}
+
+function normalizeStringArrayCandidate(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  return [];
+}
+
+function normalizeProofStyleCandidate(value: unknown): BrandSignalProfile['identity']['proofStyle']['value'] | undefined {
+  if (
+    value === 'testimonial' ||
+    value === 'metrics' ||
+    value === 'authority' ||
+    value === 'community' ||
+    value === 'demo' ||
+    value === 'editorial' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeNumberCandidate(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : undefined;
+}
+
+function cloneBrandSignalProfile(profile: BrandSignalProfile): BrandSignalProfile {
+  return JSON.parse(JSON.stringify(profile)) as BrandSignalProfile;
 }
 
 function colorsFromText(text: string): string[] {
