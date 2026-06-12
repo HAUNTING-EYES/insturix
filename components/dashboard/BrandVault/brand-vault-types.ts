@@ -1,0 +1,128 @@
+/**
+ * Brand Vault — UI types
+ *
+ * Re-exports the canonical contract types from lib/shared (single source of
+ * truth — never redefine the signal contract here) and adds the small set of
+ * view-model types the Brand Vault review UI needs.
+ */
+
+import type {
+  BrandSignal,
+  BrandSignalAuthorityClass,
+  BrandSignalEvidence,
+  BrandSignalProfile,
+  BrandSignalTrustLevel,
+} from '@/lib/shared/brand-signal-profile';
+import type { BrandSignalProfileRecord } from '@/lib/shared/brand-signal-lifecycle';
+import type {
+  BrandEvidenceCandidate,
+  BrandRefineryJob,
+  BrandVaultSourceInput,
+} from '@/lib/shared/brand-website-refinery-types';
+import type {
+  BrandVaultSignalGroup,
+  BrandVaultSignalGroupCoverage,
+  BrandVaultWebsiteDraftReviewPayload,
+} from '@/lib/shared/brand-vault-draft-orchestrator';
+
+export type {
+  BrandSignal,
+  BrandSignalAuthorityClass,
+  BrandSignalEvidence,
+  BrandSignalProfile,
+  BrandSignalTrustLevel,
+  BrandSignalProfileRecord,
+  BrandEvidenceCandidate,
+  BrandRefineryJob,
+  BrandVaultSourceInput,
+  BrandVaultSignalGroup,
+  BrandVaultSignalGroupCoverage,
+  BrandVaultWebsiteDraftReviewPayload,
+};
+
+/* ------------------------------------------------------------------ */
+/*  API envelope (the four /api/brand-vault routes)                    */
+/* ------------------------------------------------------------------ */
+
+export interface BrandVaultApiError {
+  ok: false;
+  error?: { code?: string; message?: string };
+}
+
+/** Shape shared by job create/reload, profile load, and review responses. */
+export interface BrandVaultApiSuccess {
+  ok: true;
+  job?: BrandRefineryJob | null;
+  record?: BrandSignalProfileRecord | null;
+  reviewPayload?: BrandVaultWebsiteDraftReviewPayload | null;
+  candidates?: BrandEvidenceCandidate[];
+  superseded?: BrandSignalProfileRecord[];
+}
+
+export type BrandVaultApiResult = BrandVaultApiSuccess | BrandVaultApiError;
+
+/** Normalized snapshot the UI renders from, regardless of which route filled it. */
+export interface BrandVaultSnapshot {
+  job: BrandRefineryJob | null;
+  record: BrandSignalProfileRecord | null;
+  reviewPayload: BrandVaultWebsiteDraftReviewPayload | null;
+  candidates: BrandEvidenceCandidate[];
+}
+
+export interface CreateBrandVaultDraftInput {
+  websiteUrl: string;
+  companyName?: string;
+  socialLinks?: string[];
+  sourceEvidence?: BrandVaultSourceInput[];
+}
+
+/* ------------------------------------------------------------------ */
+/*  View models                                                        */
+/* ------------------------------------------------------------------ */
+
+/** Signal facets + a synthetic "warnings" lane for fallback/low-confidence. */
+export type SignalGroupId = BrandVaultSignalGroup | 'warnings';
+
+export interface SignalGroupMeta {
+  id: SignalGroupId;
+  label: string;
+  color: string;
+}
+
+export type SignalTone = 'good' | 'warn' | 'risk' | 'neutral';
+
+/** A flattened, evidence-backed signal ready for the review table. */
+export interface SignalRow {
+  path: string;
+  group: SignalGroupId;
+  label: string;
+  value: unknown;
+  confidence: number;
+  trustLevel: string;
+  authorityClass: string;
+  evidenceIds: string[];
+  fallbackReason?: string;
+}
+
+export type SourceLaneStatus = 'live' | 'pending' | 'mocked' | 'failed';
+
+/** A provenance lane (website / socials / uploads / crawler / legacy). */
+export interface SourceLane {
+  id: string;
+  label: string;
+  detail: string;
+  status: SourceLaneStatus;
+  count: number;
+  /** Tabler icon name, e.g. "world". */
+  icon: string;
+}
+
+/** Two or more candidates disagree for the same signal path. */
+export interface SignalConflict {
+  path: string;
+  label: string;
+  group: SignalGroupId;
+  candidates: BrandEvidenceCandidate[];
+}
+
+export type EvidenceItem = BrandSignalEvidence | BrandEvidenceCandidate;
