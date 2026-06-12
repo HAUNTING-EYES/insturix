@@ -229,7 +229,7 @@ export function useExportPipeline(
   const [clickatronVisualChoices, setClickatronVisualChoices] = useState<ThinkToClickUserVisualChoices>({
     kind: "single_post_visual",
     platform: "linkedin",
-    aspectRatio: "4:5",
+    aspectRatio: "1:1",
     visualMode: "text_forward_graphic",
     textDensity: "medium",
   });

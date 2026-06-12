@@ -37,7 +37,7 @@ interface ClickatronHandoffDialogProps {
 const DEFAULT_VISUAL_CHOICES: ThinkToClickUserVisualChoices = {
   kind: "single_post_visual",
   platform: "linkedin",
-  aspectRatio: "4:5",
+  aspectRatio: "1:1",
   visualMode: "text_forward_graphic",
   textDensity: "medium",
 };

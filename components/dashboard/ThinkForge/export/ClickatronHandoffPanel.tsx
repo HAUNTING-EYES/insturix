@@ -10,7 +10,8 @@ interface ClickatronHandoffPanelProps {
 }
 
 const PLATFORMS = ["linkedin", "instagram", "x", "facebook", "youtube", "tiktok", "pinterest", "generic"];
-const ASPECT_RATIOS = ["4:5", "1:1", "9:16", "16:9", "3:2"];
+const DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO = "1:1";
+const ASPECT_RATIOS = [DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO, "16:9", "9:16", "4:3", "3:4"];
 
 export function ClickatronHandoffPanel({
   handoffState,
@@ -50,7 +51,7 @@ export function ClickatronHandoffPanel({
         <select value={visualChoices.platform || "linkedin"} onChange={(e) => setVisualChoice("platform", e.target.value)} style={fieldStyle}>
           {PLATFORMS.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
         </select>
-        <select value={visualChoices.aspectRatio || "4:5"} onChange={(e) => setVisualChoice("aspectRatio", e.target.value)} style={fieldStyle}>
+        <select value={visualChoices.aspectRatio || DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO} onChange={(e) => setVisualChoice("aspectRatio", e.target.value)} style={fieldStyle}>
           {ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
         </select>
       </div>

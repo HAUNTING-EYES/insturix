@@ -68,6 +68,7 @@ export type ClickatronDefaultGenerationType = Extract<ModelType, 'text-to-image'
 
 export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/imagen4/preview';
 export const DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID = 'fal-ai/flux-kontext/dev';
+export const IMAGEN4_PREVIEW_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 
 /**
  * A map of all available models, keyed by their unique ID.
@@ -87,7 +88,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     },
     constraints: {
       promptMaxLength: 2048,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      allowedAspectRatios: [...IMAGEN4_PREVIEW_ASPECT_RATIOS],
       minImages: 0,
       maxImages: 0,
     },
@@ -584,6 +585,10 @@ export function generateImagen4PreviewPayload(
   ratio: string,
   numImages: number
 ): Record<string, any> {
+  if (!IMAGEN4_PREVIEW_ASPECT_RATIOS.includes(ratio as typeof IMAGEN4_PREVIEW_ASPECT_RATIOS[number])) {
+    throw new Error(`Imagen4 Preview does not support aspect ratio ${ratio}. Supported ratios: ${IMAGEN4_PREVIEW_ASPECT_RATIOS.join(', ')}`);
+  }
+
   return {
     prompt: job.prompt,
     aspect_ratio: ratio,

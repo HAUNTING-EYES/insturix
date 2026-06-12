@@ -4,6 +4,8 @@ import {
   DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID,
   DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
   getDefaultClickatronModelIdForInput,
+  generateImagen4PreviewPayload,
+  IMAGEN4_PREVIEW_ASPECT_RATIOS,
 } from '../../lib/config/clickatron-models';
 
 describe('Clickatron model selection', () => {
@@ -37,5 +39,21 @@ describe('Clickatron model selection', () => {
     });
 
     expect(CLICKATRON_MODELS[modelId].types).toContain('image-to-image');
+  });
+
+  it('keeps Imagen4 aspect ratios aligned with the live Fal contract', () => {
+    expect(CLICKATRON_MODELS['fal-ai/imagen4/preview'].constraints.allowedAspectRatios).toEqual([
+      '1:1',
+      '16:9',
+      '9:16',
+      '4:3',
+      '3:4',
+    ]);
+    expect(IMAGEN4_PREVIEW_ASPECT_RATIOS).not.toContain('4:5');
+    expect(generateImagen4PreviewPayload({ prompt: 'Create a post visual' }, '3:4', 1)).toMatchObject({
+      aspect_ratio: '3:4',
+      resolution: '1K',
+    });
+    expect(() => generateImagen4PreviewPayload({ prompt: 'Create a post visual' }, '4:5', 1)).toThrow(/does not support aspect ratio 4:5/);
   });
 });
