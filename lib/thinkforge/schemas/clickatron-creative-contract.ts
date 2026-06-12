@@ -20,6 +20,9 @@ export type ClickatronTextRole = typeof CLICKATRON_TEXT_ROLES[number];
 export type ClickatronValidationStatus = typeof CLICKATRON_VALIDATION_STATUSES[number];
 export type ClickatronValidationSeverity = typeof CLICKATRON_VALIDATION_SEVERITIES[number];
 
+const DEFAULT_CLICKATRON_TEXT_POLICY: ClickatronTextPolicy = 'editable_text_layers';
+const RENDER_PLAN_TEXT_POLICY_DEFAULTED_ISSUE_CODE = 'render_plan_text_policy_defaulted';
+
 export interface ClickatronCreativeSource {
   sourceService?: 'thinkforge';
   sourceSessionId?: string;
@@ -171,6 +174,18 @@ function readEnum<T extends readonly string[]>(value: unknown, allowed: T, field
   return next as T[number];
 }
 
+function readRenderPlanTextPolicy(value: unknown): ClickatronTextPolicy {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return DEFAULT_CLICKATRON_TEXT_POLICY;
+  }
+  return readEnum(value, CLICKATRON_TEXT_POLICIES, 'renderPlan.textPolicy');
+}
+
+function renderPlanTextPolicyNeedsDefault(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return typeof value.textPolicy !== 'string' || value.textPolicy.trim().length === 0;
+}
+
 function readOptionalStringArray(value: unknown, field: string): string[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
@@ -306,7 +321,7 @@ function normalizeSlides(value: unknown): ClickatronCarouselSlideSpec[] | undefi
 function normalizeRenderPlan(value: unknown): ClickatronCreativeRenderPlan {
   const input = requireRecord(value, 'renderPlan');
   return {
-    textPolicy: readEnum(input.textPolicy, CLICKATRON_TEXT_POLICIES, 'renderPlan.textPolicy'),
+    textPolicy: readRenderPlanTextPolicy(input.textPolicy),
     imagePrompt: readString(input.imagePrompt, 'renderPlan.imagePrompt'),
     ...(readOptionalString(input.negativePrompt, 'renderPlan.negativePrompt') ? { negativePrompt: readString(input.negativePrompt, 'renderPlan.negativePrompt') } : {}),
     ...(readOptionalString(input.layoutIntent, 'renderPlan.layoutIntent') ? { layoutIntent: readString(input.layoutIntent, 'renderPlan.layoutIntent') } : {}),
@@ -338,6 +353,28 @@ function normalizeValidation(value: unknown): ClickatronCreativeValidation {
   };
 }
 
+function withRenderPlanTextPolicyRepairIssue(
+  validation: ClickatronCreativeValidation,
+  textPolicyWasDefaulted: boolean,
+): ClickatronCreativeValidation {
+  if (!textPolicyWasDefaulted) return validation;
+  const issues = validation.issues ?? [];
+  if (issues.some(issue => issue.code === RENDER_PLAN_TEXT_POLICY_DEFAULTED_ISSUE_CODE)) {
+    return validation;
+  }
+  return {
+    ...validation,
+    issues: [
+      ...issues,
+      {
+        code: RENDER_PLAN_TEXT_POLICY_DEFAULTED_ISSUE_CODE,
+        message: `renderPlan.textPolicy was missing and was defaulted to ${DEFAULT_CLICKATRON_TEXT_POLICY}.`,
+        severity: 'warning',
+      },
+    ],
+  };
+}
+
 export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreativeSpec {
   const value = requireRecord(input, 'exportMeta.clickatron');
   const schemaVersion = readNumber(value.schemaVersion, 'schemaVersion');
@@ -346,10 +383,15 @@ export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreat
   }
 
   const kind = readEnum(value.kind, CLICKATRON_CREATIVE_KINDS, 'kind');
+  const textPolicyWasDefaulted = renderPlanTextPolicyNeedsDefault(value.renderPlan);
   const renderPlan = normalizeRenderPlan(value.renderPlan);
   if (kind === 'carousel' && (!renderPlan.slides || renderPlan.slides.length === 0)) {
     throw new Error('carousel specs require at least one renderPlan.slides item');
   }
+  const validation = withRenderPlanTextPolicyRepairIssue(
+    normalizeValidation(value.validation),
+    textPolicyWasDefaulted,
+  );
 
   return {
     schemaVersion: CLICKATRON_CREATIVE_SPEC_VERSION,
@@ -363,7 +405,7 @@ export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreat
     creativeBrief: normalizeCreativeBrief(value.creativeBrief),
     ...(normalizeBrand(value.brand) ? { brand: normalizeBrand(value.brand) } : {}),
     renderPlan,
-    validation: normalizeValidation(value.validation),
+    validation,
   };
 }
 

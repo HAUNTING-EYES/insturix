@@ -79,6 +79,52 @@ describe('Clickatron creative contract', () => {
     expect(spec.brand?.hardConstraints).toContain('Do not invent logo placement');
   });
 
+  it('repairs missing model-authored renderPlan text policy with a warning', () => {
+    const base = singlePostSpec();
+    const spec = normalizeClickatronCreativeSpec({
+      ...base,
+      renderPlan: {
+        imagePrompt: base.renderPlan.imagePrompt,
+        negativePrompt: base.renderPlan.negativePrompt,
+        layoutIntent: base.renderPlan.layoutIntent,
+        textLayers: base.renderPlan.textLayers,
+      },
+    });
+
+    expect(spec.renderPlan.textPolicy).toBe('editable_text_layers');
+    expect(spec.validation.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'render_plan_text_policy_defaulted',
+        severity: 'warning',
+      }),
+    );
+  });
+
+  it('repairs blank model-authored renderPlan text policy with the same default', () => {
+    const spec = normalizeClickatronCreativeSpec({
+      ...singlePostSpec(),
+      renderPlan: {
+        ...singlePostSpec().renderPlan,
+        textPolicy: '   ',
+      },
+    });
+
+    expect(spec.renderPlan.textPolicy).toBe('editable_text_layers');
+    expect(spec.validation.issues?.some(issue => issue.code === 'render_plan_text_policy_defaulted')).toBe(true);
+  });
+
+  it('keeps rejecting unknown explicit renderPlan text policies', () => {
+    expect(() =>
+      normalizeClickatronCreativeSpec({
+        ...singlePostSpec(),
+        renderPlan: {
+          ...singlePostSpec().renderPlan,
+          textPolicy: 'editable',
+        },
+      }),
+    ).toThrow(/renderPlan\.textPolicy/);
+  });
+
   it('requires carousel specs to include slide render plans', () => {
     const invalid = {
       ...singlePostSpec(),
