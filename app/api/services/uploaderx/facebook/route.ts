@@ -178,7 +178,7 @@ export async function POST(req: Request) {
                     "metadata.facebook.pageId": targetPage.pageId,
                     "metadata.facebook.pageName": targetPage.pageName,
                     "metadata.facebook.lastUploadedAt": new Date(),
-                    "metadata.facebook.postType": postType || "reel",
+                    "metadata.facebook.postType": postType || "video",
                   },
                 }
               );
@@ -200,7 +200,7 @@ export async function POST(req: Request) {
               facebookUrl,
               videoId: simpleData.id,
               pageName: targetPage.pageName,
-              postType: postType || "reel",
+              postType: postType || "video",
             });
           }
         } catch (simpleError: any) {
@@ -211,6 +211,7 @@ export async function POST(req: Request) {
 
     let uploadSessionId: string;
     let videoId: string;
+    let uploadUrl: string | undefined;
 
     if (isReel) {
       const initUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/video_reels?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
@@ -234,6 +235,7 @@ export async function POST(req: Request) {
       }
 
       videoId = initData.video_id;
+      uploadUrl = initData.upload_url;
       uploadSessionId = videoId;
     } else {
       const initUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
@@ -263,45 +265,88 @@ export async function POST(req: Request) {
 
     const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
 
-    const transferFormData = new FormData();
-    transferFormData.append("upload_phase", "transfer");
-    transferFormData.append("upload_session_id", uploadSessionId);
-    transferFormData.append("start_offset", "0");
-    transferFormData.append("video_file_chunk", fileBuffer, {
-      filename: fileName,
-      contentType,
-    });
+    if (isReel && uploadUrl) {
+      try {
+        const transferRes = await axios.post(uploadUrl, fileBuffer, {
+          headers: {
+            "Authorization": `OAuth ${targetPage.pageAccessToken}`,
+            "offset": "0",
+            "file_size": String(fileSize),
+            "Content-Type": "application/octet-stream",
+          },
+          timeout: 120000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        });
 
-    const transferUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
-
-    try {
-      const transferRes = await axios.post(transferUrl, transferFormData, {
-        headers: transferFormData.getHeaders(),
-        timeout: 120000,
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
+        if (transferRes.data?.error) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: transferRes.data.error.message || "Failed to transfer Reel to Facebook",
+            },
+            { status: 500 }
+          );
+        }
+      } catch (transferError: any) {
+        if (transferError.code === "ECONNABORTED") {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Reel upload timed out. Please try again with a smaller video or better connection.",
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Failed to transfer Reel to Facebook: ${transferError.message}`,
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      const transferFormData = new FormData();
+      transferFormData.append("upload_phase", "transfer");
+      transferFormData.append("upload_session_id", uploadSessionId);
+      transferFormData.append("start_offset", "0");
+      transferFormData.append("video_file_chunk", fileBuffer, {
+        filename: fileName,
+        contentType,
       });
 
-      if (transferRes.data?.error) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: transferRes.data.error.message || "Failed to transfer video to Facebook",
-          },
-          { status: 500 }
-        );
+      const transferUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
+
+      try {
+        const transferRes = await axios.post(transferUrl, transferFormData, {
+          headers: transferFormData.getHeaders(),
+          timeout: 120000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        });
+
+        if (transferRes.data?.error) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: transferRes.data.error.message || "Failed to transfer video to Facebook",
+            },
+            { status: 500 }
+          );
+        }
+      } catch (transferError: any) {
+        if (transferError.code === "ECONNABORTED") {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Upload timed out. Please try again with a smaller video or better connection.",
+            },
+            { status: 500 }
+          );
+        }
+        throw transferError;
       }
-    } catch (transferError: any) {
-      if (transferError.code === "ECONNABORTED") {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Upload timed out. Please try again with a smaller video or better connection.",
-          },
-          { status: 500 }
-        );
-      }
-      throw transferError;
     }
 
     try {
@@ -375,7 +420,7 @@ export async function POST(req: Request) {
             "metadata.facebook.pageId": targetPage.pageId,
             "metadata.facebook.pageName": targetPage.pageName,
             "metadata.facebook.lastUploadedAt": new Date(),
-            "metadata.facebook.postType": postType || "reel",
+            "metadata.facebook.postType": postType || (isReel ? "reel" : "video"),
           },
         }
       );
@@ -397,7 +442,7 @@ export async function POST(req: Request) {
       facebookUrl,
       videoId,
       pageName: targetPage.pageName,
-      postType: postType || "reel",
+      postType: postType || (isReel ? "reel" : "video"),
     });
   } catch (error: any) {
     console.error("Facebook operation failed:", error);
