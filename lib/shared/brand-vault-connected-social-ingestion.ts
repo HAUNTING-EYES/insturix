@@ -70,8 +70,19 @@ export async function createBrandVaultConnectedSocialEvidence(
     warnings.push(...fetched.warnings);
   }
 
-  if (sources.length > 0) {
-    warnings.push(`Brand Vault added ${sources.length} connected social evidence source${sources.length === 1 ? '' : 's'} from existing platform integrations.`);
+  const connectedSourceCount = sources.filter((source) =>
+    source.evidenceOrigin === 'connected_metadata' || source.evidenceOrigin === 'connected_fetch',
+  ).length;
+  const publicFallbackSourceCount = sources.filter((source) => source.evidenceOrigin === 'public_fallback').length;
+  if (connectedSourceCount > 0) {
+    warnings.push(
+      `Brand Vault added ${connectedSourceCount} connected social evidence source${connectedSourceCount === 1 ? '' : 's'} from existing platform integrations.`,
+    );
+  }
+  if (publicFallbackSourceCount > 0) {
+    warnings.push(
+      `Brand Vault staged ${publicFallbackSourceCount} public social fallback source${publicFallbackSourceCount === 1 ? '' : 's'} for review-only enrichment.`,
+    );
   }
 
   return { sourceEvidence: sources.slice(0, 20), warnings };

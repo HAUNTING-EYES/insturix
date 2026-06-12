@@ -339,6 +339,30 @@ describe('Brand Vault refinery API boundary', () => {
     expect(created.body.record.profile.evidence.some((item) => item.sourceType === 'connected_social_account')).toBe(false);
   });
 
+  it('labels Apify public fallback social evidence separately from connected evidence', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/vaultline'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      now: NOW,
+    });
+
+    expect(result.sourceEvidence).toEqual([
+      expect.objectContaining({
+        kind: 'social_profile',
+        platform: 'instagram',
+        evidenceOrigin: 'public_fallback',
+        connection: expect.objectContaining({
+          provider: 'alyzitron_apify',
+          status: 'public_fallback_available',
+        }),
+      }),
+    ]);
+    expect(result.warnings).toContain('Brand Vault staged 1 public social fallback source for review-only enrichment.');
+    expect(result.warnings.some((warning) => /connected social evidence source/.test(warning))).toBe(false);
+  });
+
   it('fetches connected X post samples as draft-only social evidence when tweet.read is available', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const fetchedUrls: string[] = [];

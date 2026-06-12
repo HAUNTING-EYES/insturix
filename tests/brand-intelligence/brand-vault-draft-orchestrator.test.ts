@@ -167,6 +167,48 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.reviewPayload.warnings).toContain('1 website asset candidate was unreachable and downgraded before review.');
   });
 
+  it('preserves primary audience and typography evidence from mixed website fonts', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const mixedFontHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - One platform for production</title>
+    <meta name="description" content="Insturix is built for agencies producing content at scale.">
+    <style>
+      body { font-family: "Plus Jakarta Sans", "JetBrains Mono", sans-serif; }
+    </style>
+  </head>
+  <body>
+    <h1>One platform. Entire production.</h1>
+    <p>Built for agencies producing content at scale.</p>
+  </body>
+</html>
+`;
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'insturix.example',
+        jobId: 'job_mixed_font',
+        profileRecordId: 'draft_mixed_font',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async () => new Response(mixedFontHtml, { status: 200, headers: { 'content-type': 'text/html' } }),
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['agencies producing content at scale']));
+    expect(result.profile.typography.category.value).toBe('sans');
+  });
+
   it('crawls prioritized same-origin pages across depth with policy caps', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const pages: Record<string, string> = {
@@ -256,6 +298,87 @@ describe('Brand Vault draft orchestrator', () => {
       status: 'complete',
       sourceCount: 3,
     });
+  });
+
+  it('keeps crawler skips out of social intake and filters low-value crawl pages', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const fetchCalls: string[] = [];
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        socialLinks: ['https://www.instagram.com/signalhouse'],
+        jobId: 'job_crawl_noise',
+        profileRecordId: 'draft_crawl_noise',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/resources/blogs/1',
+            platform: 'website',
+            crawl: {
+              maxPages: 2,
+              maxDepth: 1,
+              includePaths: ['/about', '/resources', '/legal'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          fetchCalls.push(url);
+          if (url === 'https://signal.example/') {
+            return {
+              normalizedUrl: url,
+              html: pageHtml(
+                'Signal House',
+                [
+                  '<a href="/about">About</a>',
+                  '<a href="/resources/blogs/1">Missing post</a>',
+                  '<a href="/legal/privacy">Privacy</a>',
+                ].join(''),
+              ),
+              contentType: 'text/html',
+              fetchedAt: NOW,
+            };
+          }
+          if (url === 'https://signal.example/about') {
+            return {
+              normalizedUrl: url,
+              html: pageHtml('About Signal House', '<h1>About Signal House</h1>'),
+              contentType: 'text/html',
+              fetchedAt: NOW,
+            };
+          }
+          if (url === 'https://signal.example/resources/blogs/1') {
+            return {
+              normalizedUrl: url,
+              html: pageHtml('Post Not Found | Signal House', '<h1>Post Not Found</h1>'),
+              contentType: 'text/html',
+              fetchedAt: NOW,
+            };
+          }
+          throw new Error('not found');
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(fetchCalls).not.toContain('https://signal.example/legal/privacy');
+    expect(result.warnings).toContain(
+      'Brand Vault crawler skipped https://signal.example/resources/blogs/1: page appeared to be a soft 404 or low-value placeholder.',
+    );
+    expect(result.candidates.some((candidate) =>
+      candidate.sourceField === 'crawl.page' && candidate.sourceUrl === 'https://signal.example/resources/blogs/1',
+    )).toBe(false);
+    expect(result.reviewPayload.intake.social.skippedCount).toBe(0);
+    expect(result.reviewPayload.intake.social.notes).not.toEqual(
+      expect.arrayContaining(['1 social enrichment step skipped.']),
+    );
   });
 
   it('normalizes bare-domain crawl seeds against the final website origin', async () => {

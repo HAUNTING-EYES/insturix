@@ -212,8 +212,13 @@ const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
 const HARD_CRAWL_MAX_DEPTH = 3;
 const DEFAULT_CRAWL_EXCLUDE_PATHS = [
+  '/legal',
   '/privacy',
+  '/privacy-policy',
   '/terms',
+  '/terms-and-conditions',
+  '/refund-policy',
+  '/cancellation-policy',
   '/login',
   '/sign-in',
   '/signin',
@@ -587,10 +592,11 @@ function createSocialIntakeSummary(args: {
   const postSourceCount = args.sources.filter((source) => source.kind === 'social_post').length;
   const connectedAccountCount = args.sources.filter((source) => source.connection?.status === 'connected').length;
   const fetchedPostCount = args.sources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch').length;
+  const socialWarnings = args.warnings.filter(isSocialWarning);
   const needsAuthCount = args.sources.filter((source) =>
     source.connection?.status === 'scope_missing' || source.connection?.status === 'connected_different_account',
-  ).length + args.warnings.filter(isAuthWarning).length;
-  const skippedCount = args.warnings.filter((warning) => /\bskipped\b/i.test(warning)).length;
+  ).length + socialWarnings.filter(isAuthWarning).length;
+  const skippedCount = socialWarnings.filter((warning) => /\bskipped\b/i.test(warning)).length;
   const status = socialStatus({
     linksProvided: args.socialLinks.length,
     sourceCount: args.sources.length,
@@ -826,6 +832,11 @@ function isAuthWarning(warning: string): boolean {
   return /\b(?:auth|scope|permission|token|connect|reconnect|expired|account)\b/i.test(warning);
 }
 
+function isSocialWarning(warning: string): boolean {
+  if (/\bcrawler\b/i.test(warning)) return false;
+  return /\b(?:social|uploaderx|x post|x api|twitter|linkedin|instagram|facebook|youtube|apify|token|scope|account|pinned)\b/i.test(warning);
+}
+
 function topValues(values: string[], limit: number): string[] {
   const counts = new Map<string, number>();
   for (const value of values.filter(Boolean)) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -955,6 +966,10 @@ async function fetchCrawlSnapshots(args: {
       if (isSitemapPath(next.url)) continue;
       if (!isHtmlSnapshot(snapshot)) {
         warnings.push(`Brand Vault crawler skipped ${next.url}: non-HTML response${snapshot.contentType ? ` (${snapshot.contentType})` : ''}.`);
+        continue;
+      }
+      if (isSoftNotFoundSnapshot(snapshot)) {
+        warnings.push(`Brand Vault crawler skipped ${next.url}: page appeared to be a soft 404 or low-value placeholder.`);
         continue;
       }
       snapshots.push(snapshot);
@@ -1124,6 +1139,16 @@ function crawlPriority(url: string, explicitSeed: boolean): number {
 
 function isHtmlSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
   return !snapshot.contentType || /text\/html|application\/xhtml\+xml/i.test(snapshot.contentType);
+}
+
+function isSoftNotFoundSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
+  const $ = load(snapshot.html);
+  const marker = [
+    $('title').first().text(),
+    $('h1').first().text(),
+    $('[role="heading"]').first().text(),
+  ].join(' ');
+  return /\b(?:404|page not found|post not found|not found)\b/i.test(marker);
 }
 
 function isSitemapSnapshot(snapshot: BrandWebsiteSnapshot): boolean {

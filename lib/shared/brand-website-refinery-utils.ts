@@ -350,7 +350,7 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
   phrase = phrase.replace(/^(?:the|a|an|our|your)\s+/i, '');
   phrase = phrase.replace(/^[\d,.]+\+?\s+/, '');
   phrase = phrase.split(/\s+(?:to|who|that|with|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
-  phrase = phrase.split(/\s+(?:turn|build|launch|improve|ship|create|grow|scale|manage|make|cut|drive|unlock)\b/i)[0] ?? phrase;
+  phrase = splitAudienceActionPhrase(phrase);
   phrase = phrase.replace(/\b(?:fast|faster|trusted|simple|easy|better)\s*$/i, '');
   phrase = cleanText(phrase);
   if (!phrase || phrase.length < 4 || phrase.length > 64) return undefined;
@@ -360,6 +360,10 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
   if (isGenericAudiencePhrase(phrase)) return undefined;
 
   return phrase;
+}
+
+function splitAudienceActionPhrase(phrase: string): string {
+  return phrase.split(/\s+(?:turn|build|launch|improve|ship|create|grow|manage|make|cut|drive|unlock)\b/i)[0] ?? phrase;
 }
 
 function rankAudiencePhrases(values: string[]): string[] {
@@ -425,6 +429,22 @@ function isPureCtaPhrase(value: string): boolean {
 }
 
 export function inferTypographyCategory(text: string): BrandSignalProfile['typography']['category']['value'] {
+  const primaryCategory = inferTypographyCategoryFromText(primaryFontFamily(text) ?? '');
+  if (primaryCategory !== 'unknown') return primaryCategory;
+  return inferTypographyCategoryFromText(text);
+}
+
+function primaryFontFamily(text: string): string | undefined {
+  return text
+    .split(',')
+    .map((part) => cleanText(part.trim().replace(/^['"]|['"]$/g, '')))
+    .find((part): part is string => {
+      if (!part) return false;
+      return !/^inherit$/i.test(part);
+    });
+}
+
+function inferTypographyCategoryFromText(text: string): BrandSignalProfile['typography']['category']['value'] {
   const lower = text.toLowerCase();
   if (!lower) return 'unknown';
   if (/mono|code|console/.test(lower)) return 'mono';
