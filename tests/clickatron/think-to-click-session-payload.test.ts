@@ -134,7 +134,9 @@ describe("ThinkForge to Clickatron session payload", () => {
 
     expect(state.status).toBe("ready");
     expect(state.canSendToClickatron).toBe(true);
-    expect(formData.get("prompt")).toContain("Launch one idea once");
+    expect(formData.get("prompt")).toContain("Create a text-free linkedin single-post visual background");
+    expect(formData.get("prompt")).toContain("Do not render any readable words");
+    expect(formData.get("prompt")).not.toContain("Launch one idea once");
     expect(formData.get("sourceSessionId")).toBe("tf_session_123");
     expect(formData.get("sourceScriptId")).toBe("script_456");
     expect(metadata.clickatronHandoff.sourceBlockIds).toEqual(["blk_intro"]);

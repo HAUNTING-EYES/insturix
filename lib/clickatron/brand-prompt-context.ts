@@ -33,6 +33,48 @@ const PROJECT_META_FIELDS = [
   ["calendarItemId", "Calendar item"],
   ["contentCardId", "Content card"],
 ] as const;
+const PROMPT_CONTEXT_KEYWORD_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "against",
+  "all",
+  "and",
+  "are",
+  "because",
+  "been",
+  "but",
+  "can",
+  "current",
+  "every",
+  "for",
+  "from",
+  "has",
+  "have",
+  "how",
+  "into",
+  "just",
+  "more",
+  "not",
+  "now",
+  "one",
+  "our",
+  "out",
+  "that",
+  "the",
+  "their",
+  "this",
+  "was",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "with",
+  "without",
+  "you",
+  "your",
+]);
 
 function asRecord(value: unknown): MetadataRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -54,14 +96,49 @@ function pushField(lines: string[], label: string, value: unknown): void {
   if (text) lines.push(`${label}: ${text}`);
 }
 
-function summarizeTextLayers(value: unknown): string | undefined {
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function conceptKeywords(value: unknown, limit = 12): string | undefined {
+  const text = cleanText(value);
+  if (!text) return undefined;
+
+  const counts = new Map<string, number>();
+  for (const match of text.toLowerCase().matchAll(/\b[a-z][a-z0-9-]{2,}\b/g)) {
+    const word = match[0];
+    if (PROMPT_CONTEXT_KEYWORD_STOPWORDS.has(word)) continue;
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+
+  const keywords = [...counts.entries()]
+    .sort(([leftWord, leftCount], [rightWord, rightCount]) =>
+      rightCount - leftCount || leftWord.localeCompare(rightWord),
+    )
+    .slice(0, limit)
+    .map(([word]) => word);
+
+  return keywords.length > 0 ? keywords.join(", ") : undefined;
+}
+
+function pushConceptField(lines: string[], label: string, value: unknown): void {
+  const keywords = conceptKeywords(value);
+  if (keywords) lines.push(`${label}: ${keywords}`);
+}
+
+function summarizeTextLayers(value: unknown, textPolicy: unknown): string | undefined {
   if (!Array.isArray(value)) return undefined;
+  const exposeExactCopy = cleanText(textPolicy) === "minimal_generated_text";
   const layers = value
     .map((entry) => {
       const layer = asRecord(entry);
       const text = cleanText(layer?.text);
       if (!text) return undefined;
-      const role = cleanText(layer?.role);
+      const role = cleanText(layer?.role) || "text";
+      if (!exposeExactCopy) {
+        const maxLines = typeof layer?.maxLines === "number" ? `, max ${layer.maxLines} lines` : "";
+        return `${role} layer planned (${countWords(text)} words${maxLines}; exact copy withheld from raster prompt)`;
+      }
       return role ? `${role}: ${text}` : text;
     })
     .filter(Boolean);
@@ -140,17 +217,21 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Platform", creativeSpec?.platform);
   pushField(lines, "Validation status", validation?.status);
   pushField(lines, "Creative objective", creativeBrief?.objective);
-  pushField(lines, "Core message", creativeBrief?.coreMessage);
-  pushField(lines, "Hook", creativeBrief?.hook);
+  pushConceptField(lines, "Core message concepts", creativeBrief?.coreMessage);
+  pushConceptField(lines, "Hook concepts", creativeBrief?.hook);
   pushField(lines, "Audience", creativeBrief?.audience);
-  pushField(lines, "CTA", creativeBrief?.cta);
+  pushConceptField(lines, "CTA concepts", creativeBrief?.cta);
   pushField(lines, "Visual metaphor", creativeBrief?.visualMetaphor);
   pushField(lines, "Visual mode", userIntent?.visualMode);
   pushField(lines, "Text density", userIntent?.textDensity);
   pushField(lines, "Image prompt", renderPlan?.imagePrompt);
   pushField(lines, "Layout intent", renderPlan?.layoutIntent);
   pushField(lines, "Text policy", renderPlan?.textPolicy);
-  pushField(lines, "Text layers", summarizeTextLayers(renderPlan?.textLayers));
+  const textLayerSummary = summarizeTextLayers(renderPlan?.textLayers, renderPlan?.textPolicy);
+  pushField(lines, "Text layers", textLayerSummary);
+  if (textLayerSummary) {
+    lines.push("Text-layer copy handling: exact copy is metadata only; do not rasterize it in the generated image.");
+  }
   pushField(lines, "Carousel slides", summarizeSlides(renderPlan?.slides));
 
   if (projectMeta) {
@@ -178,9 +259,11 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
     prompt,
     "</clickatron_thumbnail_request>",
     "<clickatron_generation_rules>",
-    "Use source and brand context for concept, composition, typography, color, tone, and audience fit.",
-    "Treat Clickatron text layers as planned editable overlay copy; reserve clean readable areas for them instead of rasterizing long exact text into the image.",
-    "If short text must appear in the generated image, keep it high-contrast, mobile-readable, and faithful to the provided text layers.",
+    "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
+    "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
+    "Do not render readable words, letters, numbers, headings, body copy, CTA text, labels, UI text, watermarks, signatures, or logo text.",
+    "Use Clickatron text-layer summaries only to reserve safe zones; exact copy is added later as editable overlays.",
+    "If the request contains long post, caption, or script copy, treat it as meaning and layout intent, not as words to draw.",
     "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
     "Do not render source IDs or internal metadata text in the thumbnail.",
     "</clickatron_generation_rules>",

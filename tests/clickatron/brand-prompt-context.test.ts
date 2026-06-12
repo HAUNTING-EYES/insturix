@@ -138,6 +138,7 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("<clickatron_thumbnail_request>");
     expect(prompt).toContain("Create a high-click thumbnail.");
     expect(prompt).toContain("Do not invent logos");
+    expect(prompt).toContain("Do not render readable words");
     expect(prompt).not.toContain("tf_session_secret");
     expect(prompt).not.toContain("script_secret");
     expect(prompt).not.toContain("plink_secret");
@@ -204,9 +205,15 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("Creative kind: carousel");
     expect(prompt).toContain("Asset intent: carousel");
     expect(prompt).toContain("Image prompt: Editorial carousel system");
-    expect(prompt).toContain("Text layers: headline: Stop rebuilding context for every tool.");
+    expect(prompt).toContain("Core message concepts:");
+    expect(prompt).toContain("Text layers: headline layer planned");
+    expect(prompt).toContain("exact copy withheld from raster prompt");
+    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
     expect(prompt).toContain("Carousel slides: Slide 1 (Hook): Bold opening slide");
-    expect(prompt).toContain("reserve clean readable areas");
+    expect(prompt).toContain("Generate the raster image as a text-free visual/background");
+    expect(prompt).toContain("Use Clickatron text-layer summaries only to reserve safe zones");
+    expect(prompt).not.toContain("Stop rebuilding context for every tool.");
+    expect(prompt).not.toContain("Design this in Clickatron");
     expect(prompt).not.toContain("tf_session_secret");
     expect(prompt).not.toContain("script_secret");
     expect(prompt).not.toContain("blk_secret");
