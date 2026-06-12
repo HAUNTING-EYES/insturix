@@ -1,7 +1,7 @@
 # ThinkForge To Clickatron Product Handoff Plan
 
 Date: 2026-06-11
-Status: PLANNED_NOT_IMPLEMENTED
+Status: IMPLEMENTED_AND_VERIFIED_ON_INFRA_BRANCH
 Review: CEO_REVIEWED_AND_ENG_REVIEWED
 Scope owner: cross-service integration only
 
@@ -326,6 +326,43 @@ The bridge is acceptable only when:
 - Debug/admin view exposes raw metadata when needed.
 - Clickatron receives full source context and metadata.
 - No Clickatron service-internal carousel editor/rendering code is changed in this phase.
+
+## Implementation Evidence
+
+Branch:
+
+- Local branch: `codex/infra-creative-chain`
+- Remote target: `origin/infrastructure-improvs-+Editron`
+- Ahead/behind after fetch: `0 0`
+
+Committed phases:
+
+- `b46c48c3 docs: plan thinkforge clickatron handoff`
+- `b168418c feat: wire thinkforge clickatron handoff`
+- `2ae4bb20 feat: add thinkforge clickatron handoff debug panel`
+- `bcceb81f fix: declare uploaderx facebook form-data dependency`
+
+Verified producer to consumer path:
+
+- `lib/thinkforge/clickatron-handoff-state.ts` builds a sendable handoff only when the creative sidecar and session draft are valid. It marks missing sidecar, invalid metadata, stale content hash, missing source blocks, and needs-input cases as blocked.
+- `components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts` resolves `/api/services/thinkforge/clickatron-context` before creating a Clickatron session, builds the Clickatron prompt from the handoff payload, appends visual choices, and sends `brandId`, `projectId`, `universalId`, `sourceService`, `sourceSessionId`, `sourceScriptId`, and JSON metadata.
+- `components/dashboard/ThinkForge/export/ClickatronHandoffPanel.tsx` shows handoff status, post/carousel choice, platform, aspect ratio, vibe, image style, the image prompt, readable source snippet, blocker text, and a collapsed debug payload.
+- `app/api/services/clickatron/session/route.ts` persists the source context and creation metadata on the Clickatron task, first variation, and queued generation job.
+- `lib/clickatron/brand-prompt-context.ts` consumes `metadata.sourceContext` and `metadata.clickatron.creativeSpec` in Clickatron prompt context, while explicitly instructing the image model not to render source IDs or internal metadata text.
+
+Verification run on 2026-06-12:
+
+- `npx vitest run tests/thinkforge/clickatron-creative-contract.test.ts tests/thinkforge/clickatron-creative-sidecar.test.ts tests/clickatron/think-to-click-context.test.ts tests/clickatron/think-to-click-handoff-state.test.ts`: passed, 4 test files and 22 tests.
+- `npm run test:creative-chain`: passed, 19 test files and 96 tests.
+- `npx eslint . --quiet`: passed.
+- `npx tsc --noEmit --pretty false`: failed on existing repo-wide baseline errors outside the ThinkForge to Clickatron touched files.
+- Touched-file TypeScript filter for `lib/thinkforge/clickatron-handoff-state.ts`, `components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts`, `components/dashboard/ThinkForge/export/ExportCompletePanel.tsx`, `components/dashboard/ThinkForge/export/ClickatronHandoffPanel.tsx`, `tests/clickatron/think-to-click-handoff-state.test.ts`, `app/api/services/uploaderx/facebook/route.ts`, and `form-data`: clean.
+
+Known residuals:
+
+- Full repo TypeScript remains baseline-red in unrelated admin, ThinkForge editor, Clickatron canvas, UploaderX UI, Editron, and script/test utility areas. This phase did not hide or fix those broader errors.
+- Browser QA was not completed in this phase because the relevant panel is inside authenticated ThinkForge export state and needs a seeded session/output to inspect honestly. Static source inspection and route/test coverage were used instead.
+- Clickatron's real carousel editor/rendering is still out of scope. This integration preserves carousel intent and metadata into Clickatron; it does not make Clickatron's internal carousel renderer first-class.
 
 ## Stop Conditions
 
