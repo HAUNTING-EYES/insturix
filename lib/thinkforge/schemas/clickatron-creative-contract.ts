@@ -20,7 +20,9 @@ export type ClickatronTextRole = typeof CLICKATRON_TEXT_ROLES[number];
 export type ClickatronValidationStatus = typeof CLICKATRON_VALIDATION_STATUSES[number];
 export type ClickatronValidationSeverity = typeof CLICKATRON_VALIDATION_SEVERITIES[number];
 
+const DEFAULT_SINGLE_POST_ASSET_INTENT: ClickatronAssetIntent = 'post_graphic';
 const DEFAULT_CLICKATRON_TEXT_POLICY: ClickatronTextPolicy = 'editable_text_layers';
+const ASSET_INTENT_DEFAULTED_ISSUE_CODE = 'asset_intent_defaulted';
 const RENDER_PLAN_TEXT_POLICY_DEFAULTED_ISSUE_CODE = 'render_plan_text_policy_defaulted';
 
 export interface ClickatronCreativeSource {
@@ -172,6 +174,21 @@ function readEnum<T extends readonly string[]>(value: unknown, allowed: T, field
     throw new Error(`${field} must be one of: ${allowed.join(', ')}`);
   }
   return next as T[number];
+}
+
+function defaultAssetIntentForKind(kind: ClickatronCreativeKind): ClickatronAssetIntent {
+  return kind === 'carousel' ? 'carousel' : DEFAULT_SINGLE_POST_ASSET_INTENT;
+}
+
+function readAssetIntent(value: unknown, kind: ClickatronCreativeKind): ClickatronAssetIntent {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return defaultAssetIntentForKind(kind);
+  }
+  return readEnum(value, CLICKATRON_ASSET_INTENTS, 'assetIntent');
+}
+
+function assetIntentNeedsDefault(value: unknown): boolean {
+  return typeof value !== 'string' || value.trim().length === 0;
 }
 
 function readRenderPlanTextPolicy(value: unknown): ClickatronTextPolicy {
@@ -353,6 +370,29 @@ function normalizeValidation(value: unknown): ClickatronCreativeValidation {
   };
 }
 
+function withAssetIntentRepairIssue(
+  validation: ClickatronCreativeValidation,
+  assetIntentWasDefaulted: boolean,
+  assetIntent: ClickatronAssetIntent,
+): ClickatronCreativeValidation {
+  if (!assetIntentWasDefaulted) return validation;
+  const issues = validation.issues ?? [];
+  if (issues.some(issue => issue.code === ASSET_INTENT_DEFAULTED_ISSUE_CODE)) {
+    return validation;
+  }
+  return {
+    ...validation,
+    issues: [
+      ...issues,
+      {
+        code: ASSET_INTENT_DEFAULTED_ISSUE_CODE,
+        message: `assetIntent was missing and was defaulted to ${assetIntent}.`,
+        severity: 'warning',
+      },
+    ],
+  };
+}
+
 function withRenderPlanTextPolicyRepairIssue(
   validation: ClickatronCreativeValidation,
   textPolicyWasDefaulted: boolean,
@@ -383,20 +423,26 @@ export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreat
   }
 
   const kind = readEnum(value.kind, CLICKATRON_CREATIVE_KINDS, 'kind');
+  const assetIntentWasDefaulted = assetIntentNeedsDefault(value.assetIntent);
+  const assetIntent = readAssetIntent(value.assetIntent, kind);
   const textPolicyWasDefaulted = renderPlanTextPolicyNeedsDefault(value.renderPlan);
   const renderPlan = normalizeRenderPlan(value.renderPlan);
   if (kind === 'carousel' && (!renderPlan.slides || renderPlan.slides.length === 0)) {
     throw new Error('carousel specs require at least one renderPlan.slides item');
   }
   const validation = withRenderPlanTextPolicyRepairIssue(
-    normalizeValidation(value.validation),
+    withAssetIntentRepairIssue(
+      normalizeValidation(value.validation),
+      assetIntentWasDefaulted,
+      assetIntent,
+    ),
     textPolicyWasDefaulted,
   );
 
   return {
     schemaVersion: CLICKATRON_CREATIVE_SPEC_VERSION,
     kind,
-    assetIntent: readEnum(value.assetIntent, CLICKATRON_ASSET_INTENTS, 'assetIntent'),
+    assetIntent,
     platform: readEnum(value.platform, CLICKATRON_PLATFORMS, 'platform'),
     aspectRatio: readString(value.aspectRatio, 'aspectRatio'),
     source: normalizeSource(value.source),

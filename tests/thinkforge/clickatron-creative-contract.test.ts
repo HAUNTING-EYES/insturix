@@ -79,6 +79,66 @@ describe('Clickatron creative contract', () => {
     expect(spec.brand?.hardConstraints).toContain('Do not invent logo placement');
   });
 
+  it('repairs missing model-authored asset intent from single-post kind with a warning', () => {
+    const base = singlePostSpec();
+    const spec = normalizeClickatronCreativeSpec({
+      schemaVersion: base.schemaVersion,
+      kind: base.kind,
+      platform: base.platform,
+      aspectRatio: base.aspectRatio,
+      source: base.source,
+      calendar: base.calendar,
+      userIntent: base.userIntent,
+      creativeBrief: base.creativeBrief,
+      brand: base.brand,
+      renderPlan: base.renderPlan,
+      validation: base.validation,
+    });
+
+    expect(spec.assetIntent).toBe('post_graphic');
+    expect(spec.validation.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'asset_intent_defaulted',
+        severity: 'warning',
+      }),
+    );
+  });
+
+  it('repairs blank model-authored asset intent from carousel kind', () => {
+    const base = singlePostSpec();
+    const spec = normalizeClickatronCreativeSpec({
+      ...base,
+      kind: 'carousel',
+      assetIntent: '   ',
+      userIntent: {
+        ...base.userIntent,
+        wantsCarousel: true,
+      },
+      renderPlan: {
+        ...base.renderPlan,
+        slides: [
+          {
+            id: 'slide_1',
+            index: 0,
+            imagePrompt: 'A crisp carousel cover slide about connected creative tools.',
+          },
+        ],
+      },
+    });
+
+    expect(spec.assetIntent).toBe('carousel');
+    expect(spec.validation.issues?.some(issue => issue.code === 'asset_intent_defaulted')).toBe(true);
+  });
+
+  it('keeps rejecting unknown explicit asset intents', () => {
+    expect(() =>
+      normalizeClickatronCreativeSpec({
+        ...singlePostSpec(),
+        assetIntent: 'poster',
+      }),
+    ).toThrow(/assetIntent/);
+  });
+
   it('repairs missing model-authored renderPlan text policy with a warning', () => {
     const base = singlePostSpec();
     const spec = normalizeClickatronCreativeSpec({
