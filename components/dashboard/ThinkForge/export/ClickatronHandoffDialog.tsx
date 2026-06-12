@@ -12,6 +12,7 @@ import {
 import useClickatronStore from "@/stores/useCanvasStore";
 import {
   buildThinkToClickContext,
+  buildVisibleContentClickatronCreativeSpec,
   findClickatronCreativeSpecInBlocks,
   type ThinkToClickContext,
 } from "@/lib/thinkforge/clickatron-context";
@@ -67,18 +68,28 @@ export function ClickatronHandoffDialog({
     if (!sessionId) return null;
     try {
       const typedBlocks = blocks as ThinkForgeBlock[];
-      const creativeSpec = findClickatronCreativeSpecInBlocks(typedBlocks);
+      const creativeSpec = findClickatronCreativeSpecInBlocks(typedBlocks)
+        || buildVisibleContentClickatronCreativeSpec({
+          sessionId,
+          scriptId,
+          blocks: typedBlocks,
+          userVisualChoices: visualChoices,
+          title,
+          aspectRatio: visualChoices.aspectRatio,
+        });
       return buildThinkToClickContext({
         sessionId,
         scriptId,
         creativeSpec,
+        blocks: typedBlocks,
+        userVisualChoices: visualChoices,
         title,
         aspectRatio: visualChoices.aspectRatio,
       });
     } catch {
       return null;
     }
-  }, [blocks, scriptId, sessionId, title, visualChoices.aspectRatio]);
+  }, [blocks, scriptId, sessionId, title, visualChoices]);
 
   const resolveContext = useCallback(async (): Promise<ThinkToClickContext | null> => {
     if (!sessionId) {
@@ -97,7 +108,14 @@ export function ClickatronHandoffDialog({
           sessionId,
           scriptId,
           title,
+          kind: visualChoices.kind,
+          platform: visualChoices.platform,
           aspectRatio: visualChoices.aspectRatio,
+          visualMode: visualChoices.visualMode,
+          textDensity: visualChoices.textDensity,
+          vibe: visualChoices.vibe,
+          imageStyle: visualChoices.imageStyle,
+          notes: visualChoices.notes,
         }),
       });
       const contextData = await contextRes.json().catch(() => ({}));
@@ -115,7 +133,7 @@ export function ClickatronHandoffDialog({
     } finally {
       setContextLoading(false);
     }
-  }, [scriptId, sessionId, title, visualChoices.aspectRatio]);
+  }, [scriptId, sessionId, title, visualChoices]);
 
   useEffect(() => {
     if (!open) {

@@ -104,6 +104,45 @@ describe("ThinkForge to Clickatron session payload", () => {
     expect(metadata.clickatron.creativeSpec.renderPlan.textPolicy).toBe("editable_text_layers");
   });
 
+  it("builds Clickatron FormData from visible ThinkForge content when no hidden sidecar exists", () => {
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_123",
+      scriptId: "script_456",
+      blocks: sourceBlocks(),
+      userVisualChoices: {
+        kind: "single_post_visual",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        vibe: "sharp",
+        imageStyle: "editorial",
+      },
+      projectMeta: {
+        brandId: "brand_current",
+      },
+    });
+    const state = buildThinkToClickHandoffState({
+      context,
+      blocks: sourceBlocks(),
+      userVisualChoices: {
+        vibe: "sharp",
+        imageStyle: "editorial",
+      },
+    });
+    const formData = buildClickatronSessionFormData(state);
+    const metadata = JSON.parse(String(formData.get("metadata")));
+
+    expect(state.status).toBe("ready");
+    expect(state.canSendToClickatron).toBe(true);
+    expect(formData.get("prompt")).toContain("Launch one idea once");
+    expect(formData.get("sourceSessionId")).toBe("tf_session_123");
+    expect(formData.get("sourceScriptId")).toBe("script_456");
+    expect(metadata.clickatronHandoff.sourceBlockIds).toEqual(["blk_intro"]);
+    expect(metadata.clickatron.creativeSpec.validation.issues).toEqual([
+      expect.objectContaining({ code: "derived_from_visible_content" }),
+    ]);
+  });
+
   it("throws instead of building a fallback payload when no session payload exists", () => {
     const state = buildThinkToClickHandoffState({
       context: buildThinkToClickContext({ sessionId: "tf_session_123" }),
