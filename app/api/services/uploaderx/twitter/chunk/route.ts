@@ -187,20 +187,31 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: "Missing mediaId" }, { status: 400 });
       }
 
-      const finalizeResponse = await fetch(`https://api.x.com/2/media/upload/${mediaId}/finalize`, {
+      const finalizeRes = await fetch(`https://api.x.com/2/media/upload/${mediaId}/finalize`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
       });
-
-      const finalizeData = await finalizeResponse.json();
-      if (!finalizeResponse.ok || finalizeData.error) {
-        return NextResponse.json(
-          { success: false, error: "Failed to finalize Twitter upload", details: finalizeData },
-          { status: 500 }
-        );
+      let finalizeData: any = {};
+      const finalizeText = await finalizeRes.text();
+      if (finalizeText) {
+        try {
+          finalizeData = JSON.parse(finalizeText);
+        } catch (e) {
+          console.error("Twitter finalize JSON parse error:", e, "Response text:", finalizeText);
+          // Twitter may return empty response or malformed JSON, treat as success if status is 200
+          if (finalizeRes.ok) {
+            finalizeData = {};
+          } else {
+            throw new Error("Failed to parse Twitter finalize response");
+          }
+        }
+      }
+      if (!finalizeRes.ok || finalizeData.error) {
+        console.error("Twitter finalize failed:", finalizeData.error || finalizeRes.statusText);
+        throw new Error(finalizeData.error || "Failed to finalize Twitter chunked upload");
       }
 
       return NextResponse.json({

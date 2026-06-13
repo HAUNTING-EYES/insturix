@@ -215,6 +215,7 @@ export async function POST(req: Request) {
       const initData = await initResponse.json();
       if (!initResponse.ok || initData.error) {
         const errorDetails = initData.error || initData.message || JSON.stringify(initData);
+        console.error("LinkedIn init failed:", errorDetails);
         return NextResponse.json(
           { success: false, error: "Failed to initialize LinkedIn upload", details: errorDetails },
           { status: 500 }
@@ -249,6 +250,7 @@ export async function POST(req: Request) {
       });
 
       if (!uploadResponse.ok) {
+        console.error("LinkedIn transfer failed: status", uploadResponse.status);
         return NextResponse.json(
           { success: false, error: "Failed to upload chunk to LinkedIn" },
           { status: 500 }
@@ -266,10 +268,14 @@ export async function POST(req: Request) {
 
     // ─── PHASE: FINISH ───
     if (phase === "finish") {
-      if (!videoUrn || !uploadToken || !Array.isArray(uploadedPartIds)) {
+      if (!videoUrn || !uploadToken) {
+        console.error("LinkedIn finalize missing parameters:", { videoUrn, uploadToken });
         return NextResponse.json({ success: false, error: "Missing finalize parameters" }, { status: 400 });
       }
 
+      // For LinkedIn, the finish phase doesn't need uploadedPartIds
+      // The video is already uploaded in the transfer phase
+      // We just need to finalize the upload
       const finalizeResponse = await fetch("https://api.linkedin.com/rest/videos?action=finalizeUpload", {
         method: "POST",
         headers: linkedInRestHeaders(accessToken),
@@ -277,14 +283,25 @@ export async function POST(req: Request) {
           finalizeUploadRequest: {
             video: videoUrn,
             uploadToken,
-            uploadedPartIds,
+            uploadedPartIds: [], // Empty array for LinkedIn single PUT upload
           },
         }),
       });
 
-      const finalizeData = await finalizeResponse.json();
+      let finalizeData: any = {};
+      const finalizeText = await finalizeResponse.text();
+      if (finalizeText) {
+        try {
+          finalizeData = JSON.parse(finalizeText);
+        } catch (e) {
+          console.error("LinkedIn finalize JSON parse error:", e, "Response text:", finalizeText);
+          finalizeData = { raw: finalizeText };
+        }
+      }
+
       if (!finalizeResponse.ok || finalizeData.error) {
         const errorDetails = finalizeData.error || finalizeData.message || JSON.stringify(finalizeData);
+        console.error("LinkedIn finalize failed:", errorDetails);
         return NextResponse.json(
           { success: false, error: "Failed to finalize LinkedIn video upload", details: errorDetails },
           { status: 500 }
