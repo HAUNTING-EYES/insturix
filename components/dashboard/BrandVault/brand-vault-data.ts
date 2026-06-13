@@ -57,6 +57,30 @@ const SOCIAL_SOURCE_TYPES = new Set(['social_profile', 'social_post']);
 const UPLOAD_SOURCE_TYPES = new Set(['uploaded_guideline', 'uploaded_asset']);
 const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
 
+type IntakeStageStatus = NonNullable<BrandVaultSnapshot['reviewPayload']>['intake']['evidenceLanes'][number]['status'];
+type IntakeLaneId = NonNullable<BrandVaultSnapshot['reviewPayload']>['intake']['evidenceLanes'][number]['id'];
+
+export interface BrandVaultGuidanceLane {
+  id: SourceLane['id'];
+  label: string;
+  status: SourceLane['status'];
+  count: number;
+  notes: string[];
+  topSignalPaths: string[];
+}
+
+export interface BrandVaultGuidanceAction {
+  id: string;
+  label: string;
+  priority: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+export interface BrandVaultIntakeGuidance {
+  lanes: BrandVaultGuidanceLane[];
+  actions: BrandVaultGuidanceAction[];
+}
+
 /* ------------------------------------------------------------------ */
 /*  Snapshot normalization                                             */
 /* ------------------------------------------------------------------ */
@@ -237,7 +261,7 @@ export function buildSourceLanes(snapshot: BrandVaultSnapshot): SourceLane[] {
   const websiteCount =
     intakeCount('website') ||
     candidates.filter((c) => WEBSITE_SOURCE_TYPES.has(c.sourceType) && !isCrawlCandidate(c)).length ||
-    reviewPayload?.intake.website.evidenceCount ||
+    reviewPayload?.intake.website?.evidenceCount ||
     0;
   const socialCount = job?.inputs.socialLinks?.length ?? 0;
   const sourceInputs = job?.inputs.sourceEvidence ?? [];
@@ -325,7 +349,7 @@ function isCrawlCandidate(candidate: BrandEvidenceCandidate): boolean {
 }
 
 function sourceLaneStatus(args: {
-  intakeStatus?: 'complete' | 'needs_review' | 'needs_auth' | 'not_provided' | 'skipped' | 'failed';
+  intakeStatus?: IntakeStageStatus;
   liveCount: number;
   stagedCount: number;
   failed: boolean;
@@ -334,6 +358,50 @@ function sourceLaneStatus(args: {
   if (args.intakeStatus === 'complete' || args.liveCount > 0) return 'live';
   if (args.intakeStatus === 'needs_review' || args.intakeStatus === 'needs_auth' || args.stagedCount > 0) return 'pending';
   return 'not_provided';
+}
+
+export function buildIntakeGuidance(
+  snapshot: BrandVaultSnapshot,
+  sourceLanes: SourceLane[],
+): BrandVaultIntakeGuidance {
+  const intake = snapshot.reviewPayload?.intake;
+  if (!intake) return { lanes: [], actions: [] };
+
+  const lanes = intake.evidenceLanes
+    .map((lane): BrandVaultGuidanceLane => {
+      const sourceLane = sourceLanes.find((item) => item.id === sourceLaneIdForIntakeLane(lane.id));
+      const status = sourceLane?.status ?? sourceLaneStatus({
+        intakeStatus: lane.status,
+        liveCount: lane.evidenceCount || lane.candidateCount,
+        stagedCount: lane.sourceCount,
+        failed: false,
+      });
+      const count = sourceLane?.count ?? Math.max(lane.sourceCount, lane.evidenceCount, lane.candidateCount);
+      return {
+        id: sourceLane?.id ?? lane.id,
+        label: sourceLane?.label ?? lane.label,
+        status,
+        count,
+        notes: lane.notes.slice(0, 3),
+        topSignalPaths: lane.topSignalPaths.slice(0, 4),
+      };
+    })
+    .filter((lane) => lane.count > 0 || lane.status === 'live' || lane.status === 'pending' || lane.status === 'failed');
+
+  const actions = intake.nextActions.slice(0, 6).map((action) => ({
+    id: action.id,
+    label: action.label,
+    priority: action.priority,
+    reason: action.reason,
+  }));
+
+  return { lanes, actions };
+}
+
+function sourceLaneIdForIntakeLane(id: IntakeLaneId): SourceLane['id'] {
+  if (id === 'social') return 'socials';
+  if (id === 'crawl') return 'crawler';
+  return id;
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSourceLanes, groupConflicts } from '../../components/dashboard/BrandVault/brand-vault-data';
+import { buildIntakeGuidance, buildSourceLanes, groupConflicts } from '../../components/dashboard/BrandVault/brand-vault-data';
 import type { BrandVaultSnapshot } from '../../components/dashboard/BrandVault/brand-vault-types';
 import type {
   BrandEvidenceCandidate,
@@ -126,5 +126,66 @@ describe('Brand Vault review data helpers', () => {
     expect(lanes.find((lane) => lane.id === 'socials')).toMatchObject({ status: 'not_provided', count: 0 });
     expect(lanes.find((lane) => lane.id === 'uploads')).toMatchObject({ status: 'not_provided', count: 0 });
     expect(lanes.find((lane) => lane.id === 'crawler')).toMatchObject({ status: 'not_provided', count: 0 });
+  });
+
+  it('surfaces intake next actions and evidence lane notes for the review UI', () => {
+    const snapshot = {
+      job: null,
+      record: null,
+      candidates: [],
+      reviewPayload: {
+        intake: {
+          evidenceLanes: [
+            {
+              id: 'social',
+              label: 'Social Evidence',
+              status: 'needs_auth',
+              sourceCount: 1,
+              candidateCount: 2,
+              evidenceCount: 1,
+              topSignalPaths: ['voice.recurringPhrases', 'voice.proofStyle'],
+              notes: ['1 social link provided.', '1 social source needs auth, scopes, or account matching.'],
+            },
+            {
+              id: 'uploads',
+              label: 'Uploads',
+              status: 'not_provided',
+              sourceCount: 0,
+              candidateCount: 0,
+              evidenceCount: 0,
+              topSignalPaths: [],
+              notes: ['No brand books, docs, PDFs, images, or assets were uploaded for this draft.'],
+            },
+          ],
+          nextActions: [
+            {
+              id: 'connect_social',
+              label: 'Connect or refresh social read access',
+              priority: 'medium',
+              reason: 'Social links are present, but Brand Vault does not yet have enough connected post evidence.',
+            },
+            {
+              id: 'add_uploads',
+              label: 'Add brand books, docs, PDFs, or assets',
+              priority: 'low',
+              reason: 'Official uploads improve color, logo, voice, and constraint evidence.',
+            },
+          ],
+        },
+      } as NonNullable<BrandVaultSnapshot['reviewPayload']>,
+    } satisfies BrandVaultSnapshot;
+
+    const guidance = buildIntakeGuidance(snapshot, buildSourceLanes(snapshot));
+
+    expect(guidance.actions.map((action) => action.id)).toEqual(['connect_social', 'add_uploads']);
+    expect(guidance.lanes).toHaveLength(1);
+    expect(guidance.lanes[0]).toMatchObject({
+      id: 'socials',
+      label: 'Socials',
+      status: 'pending',
+      count: 2,
+      notes: ['1 social link provided.', '1 social source needs auth, scopes, or account matching.'],
+      topSignalPaths: ['voice.recurringPhrases', 'voice.proofStyle'],
+    });
   });
 });

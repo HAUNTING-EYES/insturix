@@ -27,6 +27,7 @@ import { BrandVaultStats } from './BrandVaultStats';
 import { ConflictCard } from './ConflictCard';
 import { SignalTable } from './SignalTable';
 import {
+  buildIntakeGuidance,
   buildSourceLanes,
   collectSignals,
   coveragePercent,
@@ -40,6 +41,7 @@ import {
   profileBrandName,
   summarize,
 } from './brand-vault-data';
+import type { BrandVaultIntakeGuidance } from './brand-vault-data';
 import type {
   BrandVaultSignalGroup,
   BrandVaultSnapshot,
@@ -127,6 +129,10 @@ export function BrandVaultReview() {
   const sourceLanes = useMemo(
     () => augmentSourceLanes(buildSourceLanes(snapshot), socialLinksText, uploadedSources, snapshot),
     [snapshot, socialLinksText, uploadedSources],
+  );
+  const intakeGuidance = useMemo(
+    () => buildIntakeGuidance(snapshot, sourceLanes),
+    [snapshot, sourceLanes],
   );
   const brandName = profileBrandName(snapshot);
   const facets = useMemo(() => buildFacets(snapshot, signals), [signals, snapshot]);
@@ -311,6 +317,7 @@ export function BrandVaultReview() {
 
         <main className="mx-auto max-w-[1180px] px-10">
           <SourceStrip lanes={sourceLanes} />
+          <IntakeGuidancePanel guidance={intakeGuidance} />
           <BrandVaultStats summary={summary} />
 
           {!snapshot.record && (
@@ -401,6 +408,67 @@ export function BrandVaultReview() {
         </div>
       </div>
     </>
+  );
+}
+
+function IntakeGuidancePanel({ guidance }: { guidance: BrandVaultIntakeGuidance }) {
+  if (guidance.actions.length === 0 && guidance.lanes.length === 0) return null;
+
+  return (
+    <section className="bv-c1-intake-panel" aria-label="Brand Vault intake guidance">
+      <div className="bv-c1-intake-column">
+        <div className="bv-c1-intake-header">
+          <span className="bv-c1-mono">Next actions</span>
+          <span>{guidance.actions.length} queued</span>
+        </div>
+        <div className="bv-c1-intake-list">
+          {guidance.actions.length > 0 ? (
+            guidance.actions.map((action) => (
+              <div key={action.id} className={`bv-c1-intake-action ${action.priority}`}>
+                <span>{action.priority}</span>
+                <strong>{action.label}</strong>
+                <em>{action.reason}</em>
+              </div>
+            ))
+          ) : (
+            <div className="bv-c1-intake-empty">No follow-up actions from Brand Vault yet.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="bv-c1-intake-column">
+        <div className="bv-c1-intake-header">
+          <span className="bv-c1-mono">Evidence notes</span>
+          <span>{guidance.lanes.length} lanes</span>
+        </div>
+        <div className="bv-c1-intake-list">
+          {guidance.lanes.map((lane) => (
+            <div key={lane.id} className="bv-c1-intake-lane">
+              <div>
+                <strong>{lane.label}</strong>
+                <span>
+                  {lane.status.replace('_', ' ')} / {lane.count}
+                </span>
+              </div>
+              {lane.notes.length > 0 && (
+                <ul>
+                  {lane.notes.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              )}
+              {lane.topSignalPaths.length > 0 && (
+                <div className="bv-c1-intake-paths">
+                  {lane.topSignalPaths.map((path) => (
+                    <span key={path}>{path}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1107,6 +1175,124 @@ const baseStyles = `
   color: #7A776E;
   font-size: 12px;
 }
+.bv-c1-intake-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 14px;
+  padding: 18px 0 22px;
+  border-bottom: 1px solid #1C1B19;
+}
+.bv-c1-intake-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+.bv-c1-intake-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #5F5E5A;
+  font-size: 11px;
+}
+.bv-c1-intake-list {
+  display: grid;
+  gap: 8px;
+}
+.bv-c1-intake-action,
+.bv-c1-intake-lane,
+.bv-c1-intake-empty {
+  min-width: 0;
+  border: 1px solid #1C1B19;
+  border-radius: 8px;
+  background: #0F0F0E;
+  padding: 11px 12px;
+}
+.bv-c1-intake-action {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 5px 10px;
+}
+.bv-c1-intake-action span {
+  grid-row: span 2;
+  align-self: start;
+  justify-self: start;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: rgba(122, 119, 110, 0.12);
+  color: #7A776E;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.bv-c1-intake-action.high span {
+  background: rgba(212, 106, 92, 0.12);
+  color: #D46A5C;
+}
+.bv-c1-intake-action.medium span {
+  background: rgba(212, 166, 82, 0.12);
+  color: #D4A652;
+}
+.bv-c1-intake-action strong,
+.bv-c1-intake-lane strong {
+  min-width: 0;
+  color: #ECE9E1;
+  font-size: 12px;
+  font-weight: 750;
+}
+.bv-c1-intake-action em {
+  min-width: 0;
+  color: #7A776E;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+}
+.bv-c1-intake-lane {
+  display: grid;
+  gap: 8px;
+}
+.bv-c1-intake-lane > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bv-c1-intake-lane > div:first-child span {
+  color: #7A776E;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.bv-c1-intake-lane ul {
+  margin: 0;
+  padding-left: 16px;
+  color: #7A776E;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.bv-c1-intake-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bv-c1-intake-paths span {
+  max-width: 100%;
+  border: 1px solid #282724;
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: #B5B2A8;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.bv-c1-intake-empty {
+  color: #7A776E;
+  font-size: 12px;
+}
 .bv-c1-mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
@@ -1164,6 +1350,15 @@ const baseStyles = `
   .bv-c1-social-entry,
   .bv-c1-social-row {
     grid-template-columns: 1fr;
+  }
+  .bv-c1-intake-panel {
+    grid-template-columns: 1fr;
+  }
+  .bv-c1-intake-action {
+    grid-template-columns: 1fr;
+  }
+  .bv-c1-intake-action span {
+    grid-row: auto;
   }
   .bv-c1-social-row .bv-c1-icon-button {
     width: 100%;
