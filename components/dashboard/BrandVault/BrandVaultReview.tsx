@@ -2,7 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { AlertTriangle, Check, FileText, Loader2, RefreshCw, Search, Upload, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  ExternalLink,
+  FileText,
+  Link2,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   extractBrandVaultUploadEvidence,
   type BrandVaultUploadSourceEvidence,
@@ -47,6 +60,20 @@ const BRAND_GROUPS: BrandVaultSignalGroup[] = [
   'motion',
   'voice',
 ];
+
+const SOCIAL_PLATFORM_META = [
+  { id: 'youtube', label: 'YouTube', color: '#FF4D4D', pattern: /(?:youtube\.com|youtu\.be)/i },
+  { id: 'instagram', label: 'Instagram', color: '#D088B4', pattern: /instagram\.com/i },
+  { id: 'tiktok', label: 'TikTok', color: '#5CB8CC', pattern: /tiktok\.com/i },
+  { id: 'x', label: 'X', color: '#8FB7FF', pattern: /(?:twitter\.com|x\.com)/i },
+  { id: 'linkedin', label: 'LinkedIn', color: '#5EA8D4', pattern: /linkedin\.com/i },
+  { id: 'facebook', label: 'Facebook', color: '#6F8FFF', pattern: /(?:facebook\.com|fb\.com)/i },
+  { id: 'github', label: 'GitHub', color: '#E6EDF3', pattern: /github\.com/i },
+  { id: 'reddit', label: 'Reddit', color: '#D46A5C', pattern: /reddit\.com/i },
+  { id: 'discord', label: 'Discord', color: '#9088D4', pattern: /discord\.(?:com|gg)/i },
+] as const;
+
+const GENERIC_SOCIAL_META = { id: 'website', label: 'Website', color: '#D4A652' } as const;
 
 export function BrandVaultReview() {
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -468,15 +495,11 @@ function FastSetupPanel({
               className="bv-c1-input"
             />
           </label>
-          <label className="grid gap-2">
-            <span className="bv-c1-mono">Social links</span>
-            <textarea
-              value={socialLinksText}
-              onChange={(event) => onSocialLinksTextChange(event.target.value)}
-              placeholder="One link per line"
-              className="bv-c1-input min-h-[92px] resize-y"
-            />
-          </label>
+          <SocialLinksReceiver
+            value={socialLinksText}
+            disabled={busy}
+            onChange={onSocialLinksTextChange}
+          />
         </div>
 
         <div className="grid gap-3">
@@ -542,6 +565,214 @@ function FastSetupPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function SocialLinksReceiver({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const links = useMemo(() => parseSocialLinks(value), [value]);
+  const [draftUrl, setDraftUrl] = useState('');
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const platform = detectSocialPlatform(draftUrl);
+  const isEditing = editingIndex !== null;
+
+  function writeLinks(nextLinks: string[]) {
+    onChange(uniqueStrings(nextLinks).slice(0, 10).join('\n'));
+  }
+
+  function commitDraft() {
+    const rawValues = isEditing ? [draftUrl] : parseSocialLinks(draftUrl);
+    if (rawValues.length === 0) {
+      setError('Paste a social profile or post link first.');
+      return;
+    }
+
+    const normalized = rawValues.map(normalizeSocialLink).filter((link): link is string => Boolean(link));
+    if (normalized.length !== rawValues.length) {
+      setError('Use a valid http or https social URL.');
+      return;
+    }
+
+    if (isEditing) {
+      const nextLink = normalized[0];
+      if (!nextLink) return;
+      const duplicateIndex = links.findIndex((link, index) => link === nextLink && index !== editingIndex);
+      if (duplicateIndex !== -1) {
+        setError('That link is already staged.');
+        return;
+      }
+      const nextLinks = [...links];
+      nextLinks[editingIndex] = nextLink;
+      writeLinks(nextLinks);
+      setEditingIndex(null);
+      setDraftUrl('');
+      setError(null);
+      return;
+    }
+
+    const existing = new Set(links);
+    const additions = normalized.filter((link) => !existing.has(link));
+    if (additions.length === 0) {
+      setError('Those links are already staged.');
+      return;
+    }
+    if (links.length >= 10) {
+      setError('Brand Vault can receive up to 10 social links per draft.');
+      return;
+    }
+
+    const remainingSlots = Math.max(0, 10 - links.length);
+    writeLinks([...links, ...additions.slice(0, remainingSlots)]);
+    setDraftUrl('');
+    setEditingIndex(null);
+    setError(additions.length > remainingSlots ? 'Only the first 10 links were staged.' : null);
+  }
+
+  function startEdit(index: number) {
+    setEditingIndex(index);
+    setDraftUrl(links[index] ?? '');
+    setError(null);
+  }
+
+  function removeLink(index: number) {
+    writeLinks(links.filter((_, itemIndex) => itemIndex !== index));
+    if (editingIndex === index) {
+      setEditingIndex(null);
+      setDraftUrl('');
+    }
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null);
+    setDraftUrl('');
+    setError(null);
+  }
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="bv-c1-mono">Social links</span>
+        <span className="bv-c1-social-count">{links.length}/10 staged</span>
+      </div>
+
+      <div className="bv-c1-social-panel">
+        <div className="bv-c1-social-entry">
+          <span
+            className="bv-c1-platform-chip"
+            style={{
+              borderColor: `${platform.color}66`,
+              background: `${platform.color}14`,
+              color: platform.color,
+            }}
+          >
+            <span style={{ background: platform.color }} />
+            {platform.label}
+          </span>
+          <input
+            value={draftUrl}
+            onChange={(event) => {
+              setDraftUrl(event.target.value);
+              setError(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              commitDraft();
+            }}
+            placeholder="https://instagram.com/client or https://x.com/client/status/..."
+            className="bv-c1-input"
+            disabled={disabled}
+          />
+          <button
+            type="button"
+            className="bv-c1-button"
+            disabled={disabled || !draftUrl.trim()}
+            onClick={commitDraft}
+          >
+            {isEditing ? <Pencil size={13} /> : <Plus size={13} />}
+            {isEditing ? 'Update' : 'Add'}
+          </button>
+          {isEditing && (
+            <button type="button" className="bv-c1-icon-button" disabled={disabled} onClick={cancelEdit} aria-label="Cancel social link edit">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+
+        {error && <span className="bv-c1-social-error">{error}</span>}
+
+        <div className="bv-c1-social-list">
+          {links.length > 0 ? (
+            links.map((link, index) => (
+              <SocialLinkRow
+                key={link}
+                link={link}
+                index={index}
+                disabled={disabled}
+                onEdit={startEdit}
+                onRemove={removeLink}
+              />
+            ))
+          ) : (
+            <div className="bv-c1-social-empty">
+              <Link2 size={16} />
+              <span>Add profile links, pinned posts, or launch posts for voice and proof evidence.</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SocialLinkRow({
+  link,
+  index,
+  disabled,
+  onEdit,
+  onRemove,
+}: {
+  link: string;
+  index: number;
+  disabled: boolean;
+  onEdit: (index: number) => void;
+  onRemove: (index: number) => void;
+}) {
+  const platform = detectSocialPlatform(link);
+  return (
+    <div className="bv-c1-social-row" style={{ borderLeftColor: platform.color }}>
+      <span className="bv-c1-social-platform" style={{ color: platform.color }}>
+        {platform.label}
+      </span>
+      <span className="min-w-0">
+        <strong className="block truncate text-[12px] font-semibold text-[#B5B2A8]">{platform.label} evidence</strong>
+        <em className="mt-0.5 block truncate text-[10px] not-italic text-[#5F5E5A]">{link}</em>
+      </span>
+      <a
+        href={link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="bv-c1-icon-button"
+        aria-label={`Open ${platform.label} link`}
+      >
+        <ExternalLink size={13} />
+      </a>
+      <button type="button" className="bv-c1-icon-button" disabled={disabled} onClick={() => onEdit(index)} aria-label={`Edit ${platform.label} link`}>
+        <Pencil size={13} />
+      </button>
+      <button type="button" className="bv-c1-icon-button" disabled={disabled} onClick={() => onRemove(index)} aria-label={`Remove ${platform.label} link`}>
+        <Trash2 size={13} />
+      </button>
+    </div>
   );
 }
 
@@ -640,6 +871,25 @@ function mergeUploadedSources(
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function normalizeSocialLink(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function detectSocialPlatform(value: string): (typeof SOCIAL_PLATFORM_META)[number] | typeof GENERIC_SOCIAL_META {
+  const normalized = value.trim();
+  return SOCIAL_PLATFORM_META.find((platform) => platform.pattern.test(normalized)) ?? GENERIC_SOCIAL_META;
 }
 
 function errorMessage(error: unknown): string | null {
@@ -772,6 +1022,91 @@ const baseStyles = `
   outline: none;
   box-shadow: 0 0 0 2px rgba(212, 166, 82, 0.25);
 }
+.bv-c1-social-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #1C1B19;
+  border-radius: 8px;
+  background: #0B0B0A;
+}
+.bv-c1-social-entry {
+  display: grid;
+  grid-template-columns: minmax(92px, auto) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.bv-c1-social-entry .bv-c1-input {
+  min-width: 0;
+}
+.bv-c1-social-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: #7A776E;
+}
+.bv-c1-platform-chip {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid;
+  border-radius: 7px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.bv-c1-platform-chip span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+}
+.bv-c1-social-error {
+  border: 1px solid rgba(212, 106, 92, 0.28);
+  border-radius: 8px;
+  background: rgba(212, 106, 92, 0.06);
+  color: #D46A5C;
+  padding: 8px 10px;
+  font-size: 11px;
+}
+.bv-c1-social-list {
+  display: grid;
+  gap: 8px;
+}
+.bv-c1-social-row {
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 32px 32px 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid #1C1B19;
+  border-left: 4px solid #D4A652;
+  border-radius: 8px;
+  background: #131312;
+}
+.bv-c1-social-platform {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.bv-c1-social-empty {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed #282724;
+  border-radius: 8px;
+  color: #7A776E;
+  font-size: 12px;
+}
 .bv-c1-mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
@@ -825,6 +1160,13 @@ const baseStyles = `
   main {
     padding-left: 16px !important;
     padding-right: 16px !important;
+  }
+  .bv-c1-social-entry,
+  .bv-c1-social-row {
+    grid-template-columns: 1fr;
+  }
+  .bv-c1-social-row .bv-c1-icon-button {
+    width: 100%;
   }
 }
 `;
