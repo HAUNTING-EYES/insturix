@@ -174,6 +174,42 @@ describe('Brand website refinery', () => {
     expect(paletteColors).toEqual(expect.arrayContaining(['#5b8def', '#9088d4', '#21c9a4']));
   });
 
+  it('ignores CSS variable fallback chains when extracting brand typography', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://insturix.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Creative operating system</title>
+    <meta name="description" content="Insturix helps agencies run content production at scale.">
+    <style>
+      :root {
+        --font-sans: "Plus Jakarta Sans";
+        --font-mono: "JetBrains Mono";
+        --default-font-family: var(--font-sans), var(--font-mono), sans-serif;
+      }
+      body { font-family: var(--font-sans), "Plus Jakarta Sans", system-ui, sans-serif; }
+      code { font-family: var(--font-mono), "JetBrains Mono", monospace; }
+      .wordmark { font-family: Blanka, var(--font-caveat), cursive; }
+    </style>
+  </head>
+  <body>
+    <h1>One platform for agency production</h1>
+  </body>
+</html>
+`,
+      brandId: 'brand_insturix',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_font_variable_noise',
+    });
+
+    expect(result.profile.typography.raw?.value).toBe('Plus Jakarta Sans, JetBrains Mono, Blanka');
+    expect(result.profile.typography.raw?.value).not.toContain('var(');
+    expect(result.profile.typography.raw?.value).not.toContain('default-font-family');
+  });
+
   it('ranks logo assets separately from social preview images', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://northstar.example',

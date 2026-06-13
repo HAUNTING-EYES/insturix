@@ -713,6 +713,85 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'voice.ctaDirectness')?.candidateCount).toBeGreaterThan(1);
   });
 
+  it('promotes useful crawler candidates into weak draft signals without inflating confidence', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, string> = {
+      'https://signal.example/': pageHtml(
+        'Signal House',
+        [
+          '<h1>Signal House</h1>',
+          '<p>Planning software for service teams.</p>',
+          '<a href="/customers">Customers</a>',
+        ].join(''),
+      ),
+      'https://signal.example/customers': pageHtml(
+        'Signal House Customers',
+        [
+          '<h1>One operating system for agency production</h1>',
+          '<p>Built for B2B agency operators scaling video production.</p>',
+          '<p>120 agency teams ship weekly with the system.</p>',
+          '<a href="/demo">Book a demo</a>',
+        ].join(''),
+      ),
+    };
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_crawl_signal_enrichment',
+        profileRecordId: 'draft_crawl_signal_enrichment',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/customers',
+            platform: 'website',
+            crawl: {
+              maxPages: 1,
+              maxDepth: 0,
+              includePaths: ['/customers'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          const html = pages[url];
+          if (!html) throw new Error(`Unexpected crawl URL: ${url}`);
+          return {
+            normalizedUrl: url,
+            html,
+            contentType: 'text/html',
+            fetchedAt: NOW,
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    const audienceCandidate = result.candidates.find((candidate) =>
+      candidate.extractorId === 'brand-vault-crawler.v1' && candidate.signalPath === 'identity.audience'
+    );
+    expect(audienceCandidate?.normalizedValue).toEqual(
+      expect.arrayContaining(['B2B agency operators scaling video production', 'agency teams']),
+    );
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['agency teams']));
+    expect(result.profile.identity.proofStyle).toMatchObject({
+      value: 'metrics',
+      confidence: 0.58,
+      trustLevel: 'first_party_website',
+    });
+    expect(result.profile.voice.hookArchetypes.value).toEqual(expect.arrayContaining(['system']));
+    expect(result.profile.voice.hookArchetypes.confidence).toBe(0.48);
+    expect(result.profile.voice.hookArchetypes.confidence).toBeLessThan(0.55);
+    expect(result.profile.voice.hookArchetypes.evidenceIds.length).toBeGreaterThan(1);
+  });
+
   it('turns uploaded brand books and assets into reviewable draft signal evidence', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
 

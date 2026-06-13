@@ -16,9 +16,10 @@ export const LIGHT_SURFACE = '#ffffff';
 
 const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn|download|subscribe|apply|schedule|request)\b/i;
 const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
-const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agency|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprise|startup|client|customer|support|finance|founder|operator|creator|editorial|content)\b/i;
+const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agency|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprise|startup|client|customer|support|finance|founder|operator|creator|creator house|in-house|studio|filmmaker|editorial|content|production|video|social|brand)\b/i;
 const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
 const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
+const FONT_FAMILY_DECLARATION_PATTERN = /(?:^|[;{]\s*)font-family\s*:\s*([^;}]+)/gi;
 const MAX_EXTRACTED_WEBSITE_COLORS = 32;
 const COLOR_CONTEXT_RADIUS = 96;
 const STRONG_BRAND_COLOR_CONTEXT =
@@ -365,8 +366,11 @@ export function inferCategory(text: string): string {
 export function inferAudience(text: string): string[] {
   const matches = [
     ...text.matchAll(/\bfor\s+([^.!?\n,;:]{4,100})/gi),
+    ...text.matchAll(/\b(?:built|made|designed|created|engineered)\s+for\s+([^.!?\n,;:]{4,100})/gi),
     ...text.matchAll(/\bhelps\s+([^.!?\n,;:]{4,100})/gi),
+    ...text.matchAll(/\bused by\s+([^.!?\n,;:]{4,100})/gi),
     ...text.matchAll(/\btrusted by\s+(?:[\d,.]+\+?\s+)?([^.!?\n,;:]{4,100})/gi),
+    ...text.matchAll(/\b\d[\d,.]*\+?\s+((?:[a-z0-9&-]+\s+){0,4}(?:teams?|agencies|operators|creators|studios|houses|filmmakers|leaders|businesses|companies|clients|customers))\b/gi),
   ]
     .map((match) => cleanAudiencePhrase(match[1]))
     .filter((value): value is string => Boolean(value));
@@ -394,7 +398,7 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
 }
 
 function splitAudienceActionPhrase(phrase: string): string {
-  return phrase.split(/\s+(?:turn|build|launch|improve|ship|create|grow|manage|make|cut|drive|unlock)\b/i)[0] ?? phrase;
+  return phrase.split(/\s+(?:turn|build|launch|run|improve|ship|create|grow|manage|make|cut|drive|unlock)\b/i)[0] ?? phrase;
 }
 
 function rankAudiencePhrases(values: string[]): string[] {
@@ -649,12 +653,51 @@ function extractFonts($: ReturnType<typeof load>, stylesheetCss: string[] = []):
   ];
   const fonts: string[] = [];
   for (const chunk of chunks) {
-    for (const match of chunk.matchAll(/font-family\s*:\s*([^;}]+)/gi)) {
-      const family = cleanText(match[1]?.split(',')[0]?.replace(/["']/g, ''));
-      if (family && !/^(system-ui|sans-serif|serif|monospace)$/i.test(family)) fonts.push(family);
+    for (const match of chunk.matchAll(FONT_FAMILY_DECLARATION_PATTERN)) {
+      const family = firstUsableFontFamily(match[1] ?? '');
+      if (family) fonts.push(family);
     }
   }
   return uniqueText(fonts).slice(0, 8);
+}
+
+function firstUsableFontFamily(value: string): string | undefined {
+  return splitCssList(value)
+    .map(cleanFontFamily)
+    .find((family): family is string => Boolean(family));
+}
+
+function splitCssList(value: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let depth = 0;
+  for (const char of value) {
+    if (char === '(') depth += 1;
+    if (char === ')') depth = Math.max(0, depth - 1);
+    if (char === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current);
+  return parts;
+}
+
+function cleanFontFamily(value: string | undefined): string | undefined {
+  const family = cleanText(value?.trim().replace(/^['"]|['"]$/g, ''));
+  if (!family || isIgnoredFontFamily(family)) return undefined;
+  return family;
+}
+
+function isIgnoredFontFamily(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    /^var\(/.test(lower) ||
+    lower.startsWith('--') ||
+    /^(?:system-ui|sans-serif|serif|monospace|cursive|fantasy|emoji|math|fangsong|inherit|initial|unset|revert|revert-layer)$/i.test(value)
+  );
 }
 
 function colorsFromText(text: string): string[] {

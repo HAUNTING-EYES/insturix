@@ -20,6 +20,7 @@ import {
   verifyWebsiteBrandAssetCandidates,
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
+import { inferAudience } from './brand-website-refinery-utils';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -264,6 +265,17 @@ const SOCIAL_LINKS_STAGED_WARNING =
 const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
 const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
 const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
+const SOCIAL_EVIDENCE_EXTRACTOR = 'brand-vault-social-evidence.v1';
+const PROMOTABLE_REVIEW_EXTRACTORS = new Set([UPLOAD_EXTRACTOR, SOCIAL_EVIDENCE_EXTRACTOR, CRAWL_EXTRACTOR]);
+const PROMOTABLE_REVIEW_SIGNAL_PATHS = new Set([
+  'palette.supporting',
+  'voice.killList',
+  'voice.recurringPhrases',
+  'voice.hookArchetypes',
+  'identity.audience',
+  'identity.proofStyle',
+  'voice.ctaDirectness',
+]);
 const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
@@ -396,7 +408,11 @@ export async function createBrandVaultWebsiteDraftJob(
       snapshots: crawl.snapshots,
       observedAt: snapshot.fetchedAt,
     });
-    const enrichedRecord = applyReviewCandidatesToDraftRecord(draft.record, stagedCandidates, snapshot.fetchedAt);
+    const enrichedRecord = applyReviewCandidatesToDraftRecord(
+      draft.record,
+      [...stagedCandidates, ...crawlCandidates],
+      snapshot.fetchedAt,
+    );
     const savedRecord = await dependencies.repository.saveRecord(enrichedRecord, {
       now: snapshot.fetchedAt,
       actorId: input.actorId,
@@ -1619,12 +1635,13 @@ function crawlSignalCandidates(args: {
       confidence: 0.58,
     });
   }
-  if (args.content.bodyText) {
+  const audience = args.content.bodyText ? inferAudience(args.content.bodyText) : [];
+  if (audience.length > 0 && args.content.bodyText) {
     add({
       sourceField: 'copy',
       signalPath: 'identity.audience',
       rawValue: args.content.bodyText,
-      normalizedValue: args.content.bodyText,
+      normalizedValue: audience,
       excerpt: args.content.bodyText,
       confidence: 0.42,
     });
@@ -1651,7 +1668,7 @@ function extractCrawlPageContent(snapshot: BrandWebsiteSnapshot): CrawlPageConte
   ]).slice(0, 8);
 
   $('script,style,noscript,svg').remove();
-  const bodyText = sanitizeEvidenceExcerpt($('body').text().replace(/\s+/g, ' ').trim(), 900);
+  const bodyText = crawlBodyText($);
   return {
     title: pageTitle(snapshot.html),
     headings,
@@ -1659,6 +1676,20 @@ function extractCrawlPageContent(snapshot: BrandWebsiteSnapshot): CrawlPageConte
     proofSnippets,
     bodyText: bodyText || undefined,
   };
+}
+
+function crawlBodyText($: ReturnType<typeof load>): string {
+  const chunks = $('body')
+    .find('h1,h2,h3,p,li,blockquote,a,button,section,article')
+    .map((_, element) => {
+      const clone = $(element).clone();
+      clone.children().remove();
+      return sanitizeEvidenceExcerpt(clone.text().replace(/\s+/g, ' ').trim(), 180);
+    })
+    .get()
+    .filter((text) => text.length >= 3);
+  const text = chunks.length > 0 ? chunks.join('. ') : $('body').text().replace(/\s+/g, ' ').trim();
+  return sanitizeEvidenceExcerpt(text, 900);
 }
 
 function crawlTexts($: ReturnType<typeof load>, selector: string, limit: number): string[] {
@@ -1990,15 +2021,8 @@ function applyReviewCandidatesToDraftRecord(
 }
 
 function isPromotableReviewCandidate(candidate: BrandEvidenceCandidate): boolean {
-  if (candidate.extractorId !== UPLOAD_EXTRACTOR && candidate.extractorId !== 'brand-vault-social-evidence.v1') return false;
-  return [
-    'palette.supporting',
-    'voice.killList',
-    'voice.recurringPhrases',
-    'voice.hookArchetypes',
-    'identity.proofStyle',
-    'voice.ctaDirectness',
-  ].includes(candidate.signalPath);
+  if (!PROMOTABLE_REVIEW_EXTRACTORS.has(candidate.extractorId)) return false;
+  return PROMOTABLE_REVIEW_SIGNAL_PATHS.has(candidate.signalPath);
 }
 
 function promoteCandidateToProfile(
@@ -2020,6 +2044,9 @@ function promoteCandidateToProfile(
   }
   if (candidate.signalPath === 'voice.hookArchetypes') {
     return mergeStringArraySignal(profile.voice.hookArchetypes, candidate, evidence, profile);
+  }
+  if (candidate.signalPath === 'identity.audience') {
+    return mergeStringArraySignal(profile.identity.audience, candidate, evidence, profile);
   }
   if (candidate.signalPath === 'identity.proofStyle') {
     const proofStyle = normalizeProofStyleCandidate(candidate.normalizedValue);
@@ -2111,6 +2138,7 @@ function promotedEvidenceFromCandidate(
 
 function trustLevelForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalTrustLevel | undefined {
   if (candidate.sourceType === 'uploaded_guideline') return 'uploaded_brand_guideline';
+  if (candidate.extractorId === CRAWL_EXTRACTOR && candidate.sourceType === 'website') return 'first_party_website';
   if (candidate.sourceType === 'social_post' || candidate.sourceType === 'social_profile') {
     return candidateEvidenceOrigin(candidate) === 'connected_fetch' ? 'connected_social_account' : 'public_social_page';
   }
@@ -2130,6 +2158,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function authorityClassForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalEvidence['authorityClass'] {
   if (candidate.signalPath === 'voice.killList') return 'brand_constraint';
+  if (candidate.extractorId === CRAWL_EXTRACTOR) return 'inferred_hint';
   if (candidate.signalPath === 'identity.proofStyle' || candidate.signalPath === 'voice.ctaDirectness') return 'inferred_hint';
   if (candidate.sourceType === 'uploaded_guideline') return 'brand_preference';
   return 'voice_default';
