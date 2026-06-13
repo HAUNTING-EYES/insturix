@@ -216,6 +216,7 @@ export async function POST(req: Request) {
         );
       }
 
+      // Upload video in chunks
       const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
       for (let i = 0; i < totalChunks; i++) {
         const start = i * CHUNK_SIZE;
@@ -256,6 +257,7 @@ export async function POST(req: Request) {
         }
       }
 
+      // Finalize upload - handle empty or malformed JSON response
       const finalizeResponse = await fetch(`https://api.x.com/2/media/upload/${mediaId}/finalize`, {
         method: "POST",
         headers: {
@@ -270,7 +272,14 @@ export async function POST(req: Request) {
         try {
           finalizeData = JSON.parse(finalizeResponseText);
         } catch {
-          finalizeData = {};
+          // Twitter may return empty response or malformed JSON
+          // If status is OK, treat as success
+          if (!finalizeResponse.ok) {
+            return NextResponse.json(
+              { success: false, error: "Failed to finalize Twitter upload", details: { raw: finalizeResponseText } },
+              { status: 500 }
+            );
+          }
         }
       }
 

@@ -113,6 +113,134 @@ export async function POST(req: Request) {
     const mediaType = isVideo ? "REELS" : "IMAGE";
     const fullCaption = finalCaption ? `${finalCaption}\n\n${finalDescription}`.trim() : finalDescription;
 
+    // For videos > 2 minutes (120 seconds) or > 100MB, use chunked upload instead of direct upload
+    // Instagram's direct upload (video_url parameter) has limitations for large videos
+    const shouldUseChunkedUpload = videoAsset.duration > 120 || (videoAsset.size && videoAsset.size > 100 * 1024 * 1024);
+
+    let containerId: string;
+    if (shouldUseChunkedUpload && isVideo) {
+      // Use chunked upload flow for large videos
+      const createContainerUrl = `https://graph.instagram.com/v21.0/me/media`;
+      const containerParams = new URLSearchParams();
+      containerParams.set("caption", fullCaption || "Uploaded via UploaderX");
+      containerParams.set("access_token", igUserAccessToken);
+
+      const containerRes = await fetch(`${createContainerUrl}?${containerParams.toString()}`, {
+        method: "POST",
+      });
+      const containerData = await containerRes.json();
+
+      if (containerData.error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: containerData.error.message || "Failed to initialize Instagram upload container",
+          },
+          { status: 500 }
+        );
+      }
+
+      containerId = containerData.id;
+
+      // Now transfer the video in chunks using direct binary upload
+      const fileSize = Number(videoAsset.size || 0);
+      const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+      const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const startOffset = chunkIndex * CHUNK_SIZE;
+        const endOffset = Math.min(startOffset + CHUNK_SIZE - 1, fileSize - 1);
+
+        const chunkBuffer = await fetch(videoAsset.publicUrl, {
+          headers: {
+            Range: `bytes=${startOffset}-${endOffset}`,
+          },
+        }).then(res => res.arrayBuffer());
+
+        const ruploadUrl = `https://rupload.facebook.com/ig-api-upload/v21.0/${containerId}`;
+        const transferRes = await fetch(ruploadUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `OAuth ${igUserAccessToken}`,
+            "offset": String(startOffset),
+            "file_size": String(fileSize),
+            "Content-Type": "application/octet-stream",
+          },
+          body: Buffer.from(chunkBuffer),
+        });
+
+        if (!transferRes.ok) {
+          const errorData = await transferRes.json().catch(() => ({}));
+          return NextResponse.json(
+            {
+              success: false,
+              error: errorData.error?.message || `Failed to upload chunk ${chunkIndex + 1} to Instagram`,
+            },
+            { status: 500 }
+          );
+        }
+      }
+
+      // Finalize by publishing
+      const publishUrl = `https://graph.instagram.com/v21.0/me/media_publish`;
+      const publishParams = new URLSearchParams();
+      publishParams.set("creation_id", containerId);
+      publishParams.set("access_token", igUserAccessToken);
+
+      const publishRes = await fetch(`${publishUrl}?${publishParams.toString()}`, { method: "POST" });
+      const publishData = await publishRes.json();
+
+      if (publishData.error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: publishData.error.message || "Failed to publish Instagram media container",
+          },
+          { status: 500 }
+        );
+      }
+
+      const mediaId = publishData.id;
+      const instagramUrl = `https://www.instagram.com/p/${mediaId}`;
+
+      if (videoUuid) {
+        await UploaderXVideo.updateOne(
+          { userId: session.userId, videoUuid },
+          {
+            $set: {
+              "metadata.instagram.mediaId": mediaId,
+              "metadata.instagram.url": instagramUrl,
+              "metadata.instagram.instagramAccountId": igAccountId,
+              "metadata.instagram.instagramUsername": targetAccount.instagramUsername,
+              "metadata.instagram.lastUploadedAt": new Date(),
+              "metadata.instagram.postType": postType || "reel",
+            },
+          }
+        );
+        await emitUploaderXVideoPublished({
+          userId: session.userId,
+          videoUuid,
+          platform: "instagram",
+          platformPostId: mediaId,
+          platformUrl: instagramUrl,
+          accountUsername: targetAccount.instagramUsername,
+          mediaType,
+        }).catch((eventErr) =>
+          console.warn("[UploaderX:Instagram] video_published event failed:", eventErr),
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        instagramUrl,
+        mediaId,
+        accountUsername: targetAccount.instagramUsername,
+        mediaType,
+        postType: postType || "reel",
+      });
+    }
+
+    // Use direct upload for small videos
     const createContainerUrl = `https://graph.instagram.com/v21.0/me/media`;
     const containerParams = new URLSearchParams();
     containerParams.set(isVideo ? "video_url" : "image_url", mediaUrl);
@@ -137,7 +265,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const containerId = containerData.id;
+    containerId = containerData.id;
 
     if (isVideo) {
       let containerStatus = "IN_PROGRESS";
