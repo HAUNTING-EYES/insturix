@@ -5,6 +5,7 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from "@/lib/clickatron/brand-prompt-context";
+import { generateModelPayload } from "@/lib/config/clickatron-models";
 import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 
@@ -97,6 +98,7 @@ describe("Clickatron brand prompt context", () => {
       thinkforge: {
         script: { title: "Launch Story" },
         projectMeta: {
+          brandId: "brand_1",
           idea: "Launch the new analytics workflow",
           platform: "YouTube",
           brandBrief: "Use uploaded logo only. Keep copy terse.",
@@ -142,6 +144,7 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).not.toContain("tf_session_secret");
     expect(prompt).not.toContain("script_secret");
     expect(prompt).not.toContain("plink_secret");
+    expect(prompt).not.toContain("brand_1");
     expect(prompt).not.toContain("project_secret");
     expect(prompt).not.toContain("doNotLeak");
   });
@@ -241,5 +244,40 @@ describe("Clickatron brand prompt context", () => {
     });
 
     expect(brandBlock).toBe("BrandVault: Signal Supply");
+  });
+
+  it("carries resolved BrandVault context into the final model payload prompt", async () => {
+    const brandContextBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct", {
+      getBrand: async () => unifiedBrand,
+      formatBrand: (brand) => [
+        "<brand_context>",
+        `Brand: ${brand?.name}`,
+        `Voice: ${brand?.voice.voiceLock}`,
+        "</brand_context>",
+      ].join("\n"),
+    });
+    const enrichedPrompt = buildClickatronGenerationPrompt({
+      prompt: "Create a Clickatron visual.",
+      metadata: {
+        sourceContext: {
+          sourceService: "thinkforge",
+          brandId: "brand_direct",
+        },
+      },
+      brandContextBlock,
+    });
+    const payload = generateModelPayload(
+      "fal-ai/imagen4/preview",
+      { num_images: 1 },
+      { prompt: enrichedPrompt },
+      "1:1",
+      1024,
+      1024,
+    );
+
+    expect(payload.prompt).toContain("<brand_context>");
+    expect(payload.prompt).toContain("Brand: Signal Supply");
+    expect(payload.prompt).toContain("Voice: Plainspoken, sharp, no hype.");
+    expect(payload.prompt).toContain("<clickatron_thumbnail_request>");
   });
 });

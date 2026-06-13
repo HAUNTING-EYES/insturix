@@ -5,6 +5,8 @@ Status: IMPLEMENTED_AND_VERIFIED_ON_INFRA_BRANCH
 Review: CEO_REVIEWED_AND_ENG_REVIEWED
 Scope owner: cross-service integration only
 
+Related verification: `docs/agents/reference/general/thinkforge_clickatron_integration_verification_2026_06_13.md`
+
 ## Goal
 
 Make "Send to Clickatron" a production-grade service handoff from ThinkForge to Clickatron.
