@@ -93,7 +93,7 @@ const DIRECTOR_MSGS: { at: number; side: "user" | "ai"; text: string }[] = [
   { at: 0.45, side: "ai", text: "Cuts locked to beat drops at 0:08 and 0:22." },
   { at: 0.65, side: "ai", text: "91. CTA needs 0.5s more hold — fixing." },
   { at: 0.78, side: "ai", text: "B wins. 5.1% predicted CTR." },
-  { at: 0.86, side: "ai", text: "Live everywhere. 8 minutes total." },
+  { at: 0.86, side: "ai", text: "Ready for review across every selected channel." },
 ];
 
 // ─── Analysis scores ────────────────────────────────────────────
@@ -1302,7 +1302,7 @@ function Preview({ phase, pct }: { phase: Phase; pct: number }) {
                 opacity: 0,
               }}
             >
-              8 minutes. $47 spent. $2,353 saved.
+              One workflow. Brand-safe. Ready to publish.
             </p>
             <p
               style={{
@@ -1496,10 +1496,10 @@ function MarketingSection() {
           }}
         >
           {[
-            { value: "40%", label: "Lower cost", sub: "vs. agencies" },
-            { value: "10x", label: "Faster", sub: "prompt to published" },
-            { value: "$2,353", label: "Saved per video", sub: "vs. traditional" },
-            { value: "8 min", label: "Average production", sub: "complete video" },
+            { value: "One", label: "Production layer", sub: "plan to publish" },
+            { value: "Faster", label: "Workflow cycles", sub: "less handoff drag" },
+            { value: "On-brand", label: "Every output", sub: "profile-led consistency" },
+            { value: "Complete", label: "Production flow", sub: "script, edit, publish" },
           ].map((stat, i) => (
             <div
               key={i}
@@ -1580,14 +1580,14 @@ function MarketingSection() {
               title: "Insturix",
               color: C.green,
               steps: [
-                ["Type your prompt", "30 seconds"],
-                ["AI writes script", "48 seconds"],
-                ["AI produces video", "4 minutes"],
-                ["AI analyzes + optimizes", "45 seconds"],
-                ["Published to 6 platforms", "1 minute"],
+                ["Type your prompt", "Brief"],
+                ["AI writes script", "Draft"],
+                ["AI produces video", "Assembly"],
+                ["AI analyzes + optimizes", "Review"],
+                ["Published to 6 platforms", "Distribution"],
               ],
-              total: "~8 minutes",
-              cost: "$47",
+              total: "End-to-end",
+              cost: "One workspace",
             },
           ].map((side, i) => (
             <div
@@ -1717,7 +1717,7 @@ function MarketingSection() {
           {[
             {
               t: "For brand teams",
-              d: "Produce 10x more content without growing headcount.",
+              d: "Produce more campaign variants without rebuilding the workflow.",
               items: [
                 "Chat-based editing — no skills needed",
                 "Every output matches your brand",
@@ -1727,11 +1727,11 @@ function MarketingSection() {
             },
             {
               t: "For agencies",
-              d: "Scale across every client. 40% lower cost.",
+              d: "Scale across every client with one repeatable production system.",
               items: [
                 "Separate brand config per client",
                 "White-label delivery",
-                "40% below market rate",
+                "Consistent delivery workflows",
               ],
               c: C.green,
             },

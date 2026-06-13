@@ -68,13 +68,13 @@ export type ShipStickyHeaderProps = {
 
 function WordHeroSection({
   items = [
-    "Ideate with ThinkForge.",
-    "Generate with Clickatron.",
-    "Edit with Editron.",
-    "Compose with Musitron.",
-    "Analyze with Alyzitron.",
-    "Distribute with Socialize.",
-    "Collaborate with Meditron.",
+    "Plan your content.",
+    "Generate creative assets.",
+    "Edit finished media.",
+    "Add music and sound.",
+    "Analyze performance signals.",
+    "Publish and share.",
+    "Collaborate across teams.",
     "Ship with Insturix."
   ],
   theme = "system",
@@ -86,13 +86,13 @@ function WordHeroSection({
 }: ShipStickyHeaderProps) {
   // Product colors mapping
   const productColors = [
-    "#ef4444", // ThinkForge - Red
-    "#9333EA", // Clickatron - Purple
-    "#14B8A6", // Editron - Teal
-    "#EAB308", // Musitron - Amber
-    "#3B81F5", // Alyzitron - Blue
-    "#0EA5E9", // Socialize - Sky
-    "#22c55e", // Meditron - Green
+    "#ef4444", // Planning - Red
+    "#9333EA", // Creative assets - Purple
+    "#14B8A6", // Editing - Teal
+    "#EAB308", // Music and sound - Amber
+    "#3B81F5", // Analysis - Blue
+    "#0EA5E9", // Publishing - Sky
+    "#22c55e", // Collaboration - Green
     "#ff5722", // Insturix - Orange
   ];
 

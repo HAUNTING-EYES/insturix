@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
     // =========================
     const response = await axios.get(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; SocializeLinkPreview/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; InsturixLinkPreview/1.0)",
       },
       timeout: 5000, // 5 second timeout
     });
