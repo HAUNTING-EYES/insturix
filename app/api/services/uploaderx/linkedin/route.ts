@@ -11,10 +11,13 @@ import {
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 export const maxDuration = 900;
 
 >>>>>>> parent of f7e2f2cb (chnage upload duration from 800->500 acc. to vercel plans)
+=======
+>>>>>>> parent of 20c2481e (fix:failed to fetch errors)
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
 
 type LinkedInMediaType = "image" | "video" | "document";

@@ -5,7 +5,10 @@ import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+<<<<<<< HEAD
 export const maxDuration = 300;
+=======
+>>>>>>> parent of 20c2481e (fix:failed to fetch errors)
 export async function POST(req: Request) {
   try {
     const session = await auth();
