@@ -36,6 +36,11 @@ type SocialFetchResult = {
   warnings: string[];
 };
 
+type XUserIdentity = {
+  userId?: string;
+  pinnedTweetId?: string;
+};
+
 export async function createBrandVaultConnectedSocialEvidence(
   args: BrandVaultConnectedSocialEvidenceArgs,
 ): Promise<BrandVaultConnectedSocialEvidenceResult> {
@@ -137,10 +142,30 @@ async function fetchConnectedXPostSources(args: {
     return { sources: [], warnings: ['Brand Vault skipped X post samples: UploaderX X token is expired and must be refreshed before read enrichment.'] };
   }
 
-  const userId = stringValue(args.tokens?.userId) ?? await fetchXUserId(accessToken, args.fetchFn);
-  if (!userId) return { sources: [], warnings: ['Brand Vault skipped X post samples: connected X user id could not be resolved.'] };
+  const identity = await resolveXUserIdentity({
+    accessToken,
+    tokens: args.tokens,
+    fetchFn: args.fetchFn,
+    shouldReadPinned: Boolean(connection.canReadPinned),
+  });
+  if (!identity.userId) return { sources: [], warnings: ['Brand Vault skipped X post samples: connected X user id could not be resolved.'] };
 
-  const url = new URL(`https://api.x.com/2/users/${encodeURIComponent(userId)}/tweets`);
+  const sources: BrandVaultSourceInput[] = [];
+  const warnings: string[] = [];
+
+  if (identity.pinnedTweetId && connection.canReadPinned) {
+    const pinned = await fetchConnectedXPostById({
+      accessToken,
+      postId: identity.pinnedTweetId,
+      connection,
+      parsed: args.parsed,
+      fetchFn: args.fetchFn,
+    });
+    sources.push(...pinned.sources);
+    warnings.push(...pinned.warnings);
+  }
+
+  const url = new URL(`https://api.x.com/2/users/${encodeURIComponent(identity.userId)}/tweets`);
   url.searchParams.set('max_results', '5');
   url.searchParams.set('exclude', 'retweets,replies');
   url.searchParams.set('tweet.fields', 'created_at,public_metrics,lang');
@@ -151,40 +176,101 @@ async function fetchConnectedXPostSources(args: {
   const payload = await readJsonObject(response);
   if (!response.ok) {
     return {
-      sources: [],
-      warnings: [`Brand Vault skipped X post samples: X API returned ${response.status}${apiErrorMessage(payload)}.`],
+      sources,
+      warnings: [...warnings, `Brand Vault skipped X post samples: X API returned ${response.status}${apiErrorMessage(payload)}.`],
     };
   }
 
   const posts = Array.isArray(payload.data) ? payload.data : [];
-  const sources = posts
-    .map((post) => xPostSource(post, connection, args.parsed))
+  const recentSources = posts
+    .map((post) => xPostSource(post, connection, args.parsed, false))
     .filter((source): source is BrandVaultSourceInput => Boolean(source))
-    .slice(0, 5);
+    .filter((source) => !sources.some((existing) => existing.url === source.url))
+    .slice(0, Math.max(0, 5 - sources.length));
+  sources.push(...recentSources);
 
   if (sources.length === 0) {
-    return { sources: [], warnings: ['Brand Vault found X post read access, but no recent authored posts were returned.'] };
+    return {
+      sources: [],
+      warnings: warnings.length > 0 ? warnings : ['Brand Vault found X post read access, but no recent authored posts were returned.'],
+    };
+  }
+
+  if (recentSources.length > 0) {
+    warnings.push(`Brand Vault fetched ${recentSources.length} recent X post${recentSources.length === 1 ? '' : 's'} for draft social evidence review.`);
   }
 
   return {
     sources,
-    warnings: [`Brand Vault fetched ${sources.length} recent X post${sources.length === 1 ? '' : 's'} for draft social evidence review.`],
+    warnings,
   };
 }
 
-async function fetchXUserId(accessToken: string, fetchFn: BrandVaultSocialFetch): Promise<string | undefined> {
-  const response = await fetchFn('https://api.x.com/2/users/me', {
-    headers: { Authorization: `Bearer ${accessToken}` },
+async function resolveXUserIdentity(args: {
+  accessToken: string;
+  tokens: Record<string, unknown> | null | undefined;
+  fetchFn: BrandVaultSocialFetch;
+  shouldReadPinned: boolean;
+}): Promise<XUserIdentity> {
+  const tokenIdentity: XUserIdentity = {
+    userId: stringValue(args.tokens?.userId),
+    pinnedTweetId: pinnedTweetIdFromTokens(args.tokens),
+  };
+  if (tokenIdentity.userId && (tokenIdentity.pinnedTweetId || !args.shouldReadPinned)) return tokenIdentity;
+
+  const url = new URL('https://api.x.com/2/users/me');
+  url.searchParams.set('user.fields', 'pinned_tweet_id,username');
+  const response = await args.fetchFn(url.href, {
+    headers: { Authorization: `Bearer ${args.accessToken}` },
   });
   const payload = await readJsonObject(response);
-  if (!response.ok) return undefined;
-  return stringValue(asRecord(payload.data)?.id);
+  if (!response.ok) return tokenIdentity;
+  const data = asRecord(payload.data);
+  return {
+    userId: tokenIdentity.userId ?? stringValue(data.id),
+    pinnedTweetId: tokenIdentity.pinnedTweetId ?? stringValue(data.pinned_tweet_id),
+  };
+}
+
+async function fetchConnectedXPostById(args: {
+  accessToken: string;
+  postId: string;
+  connection: BrandVaultSocialConnectionEvidence;
+  parsed: BrandVaultParsedSocialUrl;
+  fetchFn: BrandVaultSocialFetch;
+}): Promise<SocialFetchResult> {
+  const url = new URL(`https://api.x.com/2/tweets/${encodeURIComponent(args.postId)}`);
+  url.searchParams.set('tweet.fields', 'created_at,public_metrics,lang');
+  const response = await args.fetchFn(url.href, {
+    headers: { Authorization: `Bearer ${args.accessToken}` },
+  });
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    return {
+      sources: [],
+      warnings: [`Brand Vault skipped pinned X post: X API returned ${response.status}${apiErrorMessage(payload)}.`],
+    };
+  }
+
+  const source = xPostSource(payload.data, args.connection, args.parsed, true);
+  if (!source) {
+    return {
+      sources: [],
+      warnings: ['Brand Vault skipped pinned X post: X API did not return readable post text.'],
+    };
+  }
+
+  return {
+    sources: [source],
+    warnings: ['Brand Vault fetched pinned X post for draft social evidence review.'],
+  };
 }
 
 function xPostSource(
   post: unknown,
   connection: BrandVaultSocialConnectionEvidence,
   parsed: BrandVaultParsedSocialUrl,
+  pinned: boolean,
 ): BrandVaultSourceInput | null {
   const record = asRecord(post);
   const id = stringValue(record.id);
@@ -197,11 +283,16 @@ function xPostSource(
     kind: 'social_post',
     url: handle ? `https://x.com/${handle}/status/${id}` : parsed.normalizedUrl,
     platform: 'x',
-    name: `X post ${id}`,
-    note: ['Fetched from connected UploaderX X account via tweet.read for Brand Vault draft review.', metrics].filter(Boolean).join(' '),
+    name: `${pinned ? 'Pinned ' : ''}X post ${id}`,
+    note: [
+      pinned
+        ? 'Fetched pinned post from connected UploaderX X account via tweet.read for Brand Vault draft review.'
+        : 'Fetched from connected UploaderX X account via tweet.read for Brand Vault draft review.',
+      metrics,
+    ].filter(Boolean).join(' '),
     text,
     evidenceOrigin: 'connected_fetch',
-    pinned: false,
+    pinned,
     connection,
   };
 }
@@ -354,6 +445,24 @@ function stringList(value: unknown): string[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function pinnedTweetIdFromTokens(tokens: Record<string, unknown> | null | undefined): string | undefined {
+  if (!tokens) return undefined;
+  const profile = asRecord(tokens.profile);
+  const user = asRecord(tokens.user);
+  const data = asRecord(tokens.data);
+  return (
+    stringValue(tokens.pinnedTweetId) ??
+    stringValue(tokens.pinned_tweet_id) ??
+    stringValue(tokens.pinnedPostId) ??
+    stringValue(tokens.pinned_post_id) ??
+    stringValue(profile.pinnedTweetId) ??
+    stringValue(profile.pinned_tweet_id) ??
+    stringValue(user.pinnedTweetId) ??
+    stringValue(user.pinned_tweet_id) ??
+    stringValue(data.pinned_tweet_id)
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

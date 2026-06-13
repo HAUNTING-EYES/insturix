@@ -369,6 +369,14 @@ describe('Brand Vault refinery API boundary', () => {
     const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
       fetchedUrls.push(url);
       expect(init?.headers).toEqual({ Authorization: 'Bearer token_x' });
+      if (url.includes('/2/users/me')) {
+        return new Response(
+          JSON.stringify({
+            data: { id: 'x_123', username: 'vaultline' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
       return new Response(
         JSON.stringify({
           data: [
@@ -421,8 +429,9 @@ describe('Brand Vault refinery API boundary', () => {
     expect(created.status).toBe(201);
     expect(created.body.ok).toBe(true);
     if (!created.body.ok) throw new Error(created.body.error.message);
-    expect(fetchedUrls).toHaveLength(1);
-    expect(fetchedUrls[0]).toContain('https://api.x.com/2/users/x_123/tweets');
+    expect(fetchedUrls).toHaveLength(2);
+    expect(fetchedUrls[0]).toContain('https://api.x.com/2/users/me');
+    expect(fetchedUrls[1]).toContain('https://api.x.com/2/users/x_123/tweets');
     expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent X post for draft social evidence review.');
     expect(created.body.job.warnings).not.toContain(
       'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
@@ -493,6 +502,150 @@ describe('Brand Vault refinery API boundary', () => {
         expect.objectContaining({
           signalPath: 'voice.recurringPhrases',
           trustLevel: 'connected_social_account',
+        }),
+      ]),
+    );
+  });
+
+  it('fetches connected X pinned posts as stronger draft-only social language evidence', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const fetchedUrls: string[] = [];
+    const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
+      fetchedUrls.push(url);
+      expect(init?.headers).toEqual({ Authorization: 'Bearer token_x' });
+      if (url.includes('/2/users/me')) {
+        return new Response(
+          JSON.stringify({
+            data: { id: 'x_123', username: 'vaultline', pinned_tweet_id: 'tweet_pin' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('/2/tweets/tweet_pin')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              id: 'tweet_pin',
+              text: 'Stop guessing brand voice from stale decks. Build one reviewed brand system before the edit starts. Trusted by 80 creative teams. Book a demo.',
+              created_at: '2026-06-08T09:00:00.000Z',
+              public_metrics: { like_count: 44, reply_count: 6, retweet_count: 9, quote_count: 2 },
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'tweet_1',
+              text: 'One brand system should guide the brief, the edit, and the final client review. Try Vaultline this week.',
+              created_at: '2026-06-08T10:00:00.000Z',
+              public_metrics: { like_count: 12, reply_count: 2, retweet_count: 3, quote_count: 1 },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://x.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) =>
+          createBrandVaultConnectedSocialEvidence({
+            socialLinks,
+            uploaderXUser: {
+              twitterTokens: {
+                accessToken: 'token_x',
+                userId: 'x_123',
+                userName: 'vaultline',
+                scopes: ['tweet.read', 'users.read'],
+                missingScopes: [],
+                expiresAt: '2026-06-10T00:00:00.000Z',
+              },
+            },
+            youtubeConnection: null,
+            apifyApiKey: '',
+            fetchFn,
+            now: NOW,
+          }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(fetchedUrls).toHaveLength(3);
+    expect(fetchedUrls[0]).toContain('https://api.x.com/2/users/me');
+    expect(fetchedUrls[1]).toContain('https://api.x.com/2/tweets/tweet_pin');
+    expect(fetchedUrls[2]).toContain('https://api.x.com/2/users/x_123/tweets');
+    expect(created.body.job.warnings).toContain('Brand Vault fetched pinned X post for draft social evidence review.');
+    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent X post for draft social evidence review.');
+    expect(created.body.reviewPayload.intake.social).toMatchObject({
+      status: 'complete',
+      linksProvided: 1,
+      connectedAccountCount: 3,
+      fetchedPostCount: 2,
+      needsAuthCount: 0,
+    });
+    expect(created.body.reviewPayload.intake.sources.byOrigin).toMatchObject({
+      connected_metadata: 1,
+      connected_fetch: 2,
+    });
+    expect(created.body.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'social')).toMatchObject({
+      status: 'complete',
+      sourceCount: 3,
+    });
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'x',
+          pinned: true,
+          text: 'Stop guessing brand voice from stale decks. Build one reviewed brand system before the edit starts. Trusted by 80 creative teams. Book a demo.',
+          evidenceOrigin: 'connected_fetch',
+        }),
+      ]),
+    );
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.socialIdentity',
+          normalizedValue: expect.objectContaining({
+            pinned: true,
+            evidenceOrigin: 'connected_fetch',
+            capability: expect.objectContaining({
+              evidenceAccess: 'connected_post_sample',
+              liveFetchStatus: 'available_with_connected_account',
+              connectedAccountStatus: 'connected',
+              pinnedContentStatus: 'connected_pinned_read',
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.voicePhrases',
+          normalizedValue: expect.arrayContaining(['Stop guessing brand voice from stale decks']),
+        }),
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.2.social_post.socialIdentity',
+          normalizedValue: expect.objectContaining({
+            pinned: false,
+            evidenceOrigin: 'connected_fetch',
+          }),
         }),
       ]),
     );

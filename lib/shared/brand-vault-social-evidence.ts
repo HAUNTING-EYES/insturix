@@ -44,7 +44,7 @@ export interface BrandVaultSocialCapability {
     | 'not_connected'
     | 'scope_audit_required';
   publicFallbackStatus: 'review_only';
-  pinnedContentStatus: 'manual_selected_pinned' | 'platform_pinned_supported' | 'not_assumed';
+  pinnedContentStatus: 'manual_selected_pinned' | 'connected_pinned_read' | 'platform_pinned_supported' | 'not_assumed';
 }
 
 export function createBrandVaultSocialEvidenceCandidates(args: {
@@ -365,7 +365,9 @@ function socialCapability(
       connectedAccountStatus,
       publicFallbackStatus: 'review_only',
       pinnedContentStatus: source.pinned
-        ? 'manual_selected_pinned'
+        ? source.evidenceOrigin === 'connected_fetch'
+          ? 'connected_pinned_read'
+          : 'manual_selected_pinned'
         : connection.canReadPinned
           ? 'platform_pinned_supported'
           : 'not_assumed',
