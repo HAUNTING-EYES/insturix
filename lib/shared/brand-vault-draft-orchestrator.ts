@@ -26,6 +26,7 @@ import type {
   BrandRefineryJob,
   BrandVaultSourceInput,
   BrandWebsiteSnapshot,
+  BrandWebsiteStylesheetSnapshot,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 
@@ -37,6 +38,60 @@ export interface BrandVaultSignalGroupCoverage {
   signalCount: number;
   actionableSignalCount: number;
   evidenceCount: number;
+}
+
+export type BrandVaultSignalDiagnosticStatus = 'ready' | 'weak' | 'missing' | 'fallback';
+
+export type BrandVaultSignalEvidenceNeed =
+  | 'website_crawl'
+  | 'connected_social'
+  | 'pinned_posts'
+  | 'brand_uploads'
+  | 'visual_scan'
+  | 'prior_examples'
+  | 'manual_review';
+
+export interface BrandVaultSignalDiagnosticItem {
+  path: string;
+  group: BrandVaultSignalGroup;
+  status: BrandVaultSignalDiagnosticStatus;
+  confidence: number;
+  trustLevel: BrandSignalTrustLevel;
+  authorityClass: BrandSignalEvidence['authorityClass'];
+  actionable: boolean;
+  evidenceCount: number;
+  candidateCount: number;
+  valuePreview: string;
+  reasons: string[];
+  recommendedEvidence: BrandVaultSignalEvidenceNeed[];
+}
+
+export interface BrandVaultSignalDiagnosticGroupSummary {
+  signalCount: number;
+  readyCount: number;
+  weakCount: number;
+  missingCount: number;
+  fallbackCount: number;
+  evidenceCount: number;
+  candidateCount: number;
+}
+
+export interface BrandVaultSignalDiagnosticsSummary {
+  signalCount: number;
+  readyCount: number;
+  weakCount: number;
+  missingCount: number;
+  fallbackCount: number;
+  reviewOnlyCount: number;
+  evidenceCount: number;
+  candidateCount: number;
+  byGroup: Record<BrandVaultSignalGroup, BrandVaultSignalDiagnosticGroupSummary>;
+}
+
+export interface BrandVaultSignalDiagnostics {
+  summary: BrandVaultSignalDiagnosticsSummary;
+  items: BrandVaultSignalDiagnosticItem[];
+  priorityItems: BrandVaultSignalDiagnosticItem[];
 }
 
 export type BrandVaultIntakeStageStatus =
@@ -134,6 +189,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
   reviewReasons: string[];
   generatedAt: string;
   coverage: Record<BrandVaultSignalGroup, BrandVaultSignalGroupCoverage>;
+  signalDiagnostics: BrandVaultSignalDiagnostics;
   intake: BrandVaultIntakeSummary;
 }
 
@@ -211,6 +267,8 @@ const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
 const HARD_CRAWL_MAX_DEPTH = 3;
+const SIGNAL_ACTION_CONFIDENCE = 0.55;
+const MAX_SIGNAL_DIAGNOSTIC_PRIORITY_ITEMS = 12;
 const DEFAULT_CRAWL_EXCLUDE_PATHS = [
   '/legal',
   '/privacy',
@@ -307,6 +365,7 @@ export async function createBrandVaultWebsiteDraftJob(
       {
         websiteUrl: snapshot.normalizedUrl,
         html: combineSnapshotHtml(snapshot, crawl.snapshots),
+        stylesheets: combineSnapshotStylesheets(snapshot, crawl.snapshots),
         brandId: input.brandId,
         userId: input.userId,
         companyName: input.companyName,
@@ -344,6 +403,7 @@ export async function createBrandVaultWebsiteDraftJob(
     const candidates = [...assetProbe.candidates, ...stagedCandidates, ...crawlCandidates];
     const warnings = mergeWarnings(
       draft.warnings,
+      stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),
       assetProbe.warnings,
       crawl.warnings,
       shouldWarnForStagedSocialLinks(socialLinks, sourceEvidence) ? [SOCIAL_LINKS_STAGED_WARNING] : [],
@@ -415,6 +475,7 @@ export function createBrandVaultDraftReviewPayload(args: {
     reviewReasons: args.record.review.reasons,
     generatedAt: args.record.profile.generatedAt,
     coverage: createSignalCoverage(args.record.profile),
+    signalDiagnostics: createSignalDiagnostics(args.record.profile, args.candidates),
     intake: createIntakeSummary({
       job: args.job,
       profile: args.record.profile,
@@ -474,6 +535,203 @@ function coverageForGroup(
     actionableSignalCount: groupSignals.filter((item) => isBrandSignalActionable(item.signal)).length,
     evidenceCount: profile.evidence.filter((item) => item.signalPath.startsWith(prefix)).length,
   };
+}
+
+function createSignalDiagnostics(
+  profile: BrandSignalProfile,
+  candidates: BrandEvidenceCandidate[],
+): BrandVaultSignalDiagnostics {
+  const evidenceById = new Map(profile.evidence.map((item) => [item.id, item]));
+  const candidateCounts = countCandidatesBySignalPath(candidates);
+  const items = collectBrandSignals(profile).map(({ path, signal }) => {
+    const evidenceCount = signal.evidenceIds.filter((id) => evidenceById.has(id)).length;
+    const candidateCount = candidateCounts.get(path) ?? 0;
+    const group = signalGroupForPath(path);
+    const actionable = isBrandSignalActionable(signal, SIGNAL_ACTION_CONFIDENCE);
+    const status = diagnosticStatusForSignal(signal, actionable);
+    const reasons = diagnosticReasons({ signal, status, actionable, evidenceCount, candidateCount });
+    return {
+      path,
+      group,
+      status,
+      confidence: signal.confidence,
+      trustLevel: signal.trustLevel,
+      authorityClass: signal.authorityClass,
+      actionable,
+      evidenceCount,
+      candidateCount,
+      valuePreview: signalValuePreview(signal.value),
+      reasons,
+      recommendedEvidence: recommendedEvidenceForSignal(path, group, status),
+    };
+  });
+  return {
+    summary: signalDiagnosticSummary(items),
+    items,
+    priorityItems: items
+      .filter((item) => item.status !== 'ready')
+      .sort(compareSignalDiagnostics)
+      .slice(0, MAX_SIGNAL_DIAGNOSTIC_PRIORITY_ITEMS),
+  };
+}
+
+function countCandidatesBySignalPath(candidates: BrandEvidenceCandidate[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const candidate of candidates) counts.set(candidate.signalPath, (counts.get(candidate.signalPath) ?? 0) + 1);
+  return counts;
+}
+
+function signalGroupForPath(path: string): BrandVaultSignalGroup {
+  const group = path.split('.', 1)[0];
+  if (group === 'identity' || group === 'palette' || group === 'typography' || group === 'visual' || group === 'motion' || group === 'voice') {
+    return group;
+  }
+  return 'identity';
+}
+
+function diagnosticStatusForSignal(
+  signal: BrandSignal<unknown>,
+  actionable: boolean,
+): BrandVaultSignalDiagnosticStatus {
+  if (signal.trustLevel === 'fallback_default') return 'fallback';
+  if (isMissingSignalValue(signal.value)) return 'missing';
+  if (!actionable || signal.confidence < SIGNAL_ACTION_CONFIDENCE) return 'weak';
+  return 'ready';
+}
+
+function isMissingSignalValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  if (value === 'unknown') return true;
+  return Array.isArray(value) && value.length === 0;
+}
+
+function diagnosticReasons(args: {
+  signal: BrandSignal<unknown>;
+  status: BrandVaultSignalDiagnosticStatus;
+  actionable: boolean;
+  evidenceCount: number;
+  candidateCount: number;
+}): string[] {
+  const reasons: string[] = [];
+  if (args.status === 'fallback') {
+    reasons.push(args.signal.fallbackReason ?? 'Signal is still using fallback/default evidence.');
+  }
+  if (args.status === 'missing') {
+    reasons.push('No concrete value was found for this signal.');
+  }
+  if (args.status === 'weak') {
+    reasons.push(`Confidence ${formatConfidence(args.signal.confidence)} is below the ${formatConfidence(SIGNAL_ACTION_CONFIDENCE)} action threshold.`);
+  }
+  if (!args.actionable && args.status !== 'fallback') {
+    reasons.push('Signal is review-only until stronger evidence is provided.');
+  }
+  if (args.evidenceCount === 0) {
+    reasons.push('No linked profile evidence was found for this signal.');
+  }
+  if (args.candidateCount === 0) {
+    reasons.push('No review candidate currently maps to this signal.');
+  }
+  return [...new Set(reasons)];
+}
+
+function recommendedEvidenceForSignal(
+  path: string,
+  group: BrandVaultSignalGroup,
+  status: BrandVaultSignalDiagnosticStatus,
+): BrandVaultSignalEvidenceNeed[] {
+  if (status === 'ready') return [];
+  if (path === 'voice.killList') return ['brand_uploads', 'manual_review'];
+  if (path === 'voice.hookArchetypes') return ['connected_social', 'pinned_posts', 'prior_examples'];
+  if (path === 'identity.proofStyle') return ['website_crawl', 'connected_social', 'pinned_posts'];
+  if (group === 'palette' || group === 'typography') return ['brand_uploads', 'visual_scan'];
+  if (group === 'visual') return ['visual_scan', 'brand_uploads', 'prior_examples'];
+  if (group === 'motion') return ['visual_scan', 'prior_examples', 'brand_uploads'];
+  if (group === 'voice') return ['connected_social', 'pinned_posts', 'brand_uploads', 'prior_examples'];
+  return ['website_crawl', 'brand_uploads', 'manual_review'];
+}
+
+function signalDiagnosticSummary(items: BrandVaultSignalDiagnosticItem[]): BrandVaultSignalDiagnosticsSummary {
+  const byGroup = emptySignalDiagnosticGroups();
+  for (const item of items) {
+    const group = byGroup[item.group];
+    group.signalCount += 1;
+    group.evidenceCount += item.evidenceCount;
+    group.candidateCount += item.candidateCount;
+    if (item.status === 'ready') group.readyCount += 1;
+    if (item.status === 'weak') group.weakCount += 1;
+    if (item.status === 'missing') group.missingCount += 1;
+    if (item.status === 'fallback') group.fallbackCount += 1;
+  }
+  const readyCount = items.filter((item) => item.status === 'ready').length;
+  const weakCount = items.filter((item) => item.status === 'weak').length;
+  const missingCount = items.filter((item) => item.status === 'missing').length;
+  const fallbackCount = items.filter((item) => item.status === 'fallback').length;
+  return {
+    signalCount: items.length,
+    readyCount,
+    weakCount,
+    missingCount,
+    fallbackCount,
+    reviewOnlyCount: weakCount + missingCount + fallbackCount,
+    evidenceCount: items.reduce((sum, item) => sum + item.evidenceCount, 0),
+    candidateCount: items.reduce((sum, item) => sum + item.candidateCount, 0),
+    byGroup,
+  };
+}
+
+function emptySignalDiagnosticGroups(): Record<BrandVaultSignalGroup, BrandVaultSignalDiagnosticGroupSummary> {
+  return {
+    identity: emptySignalDiagnosticGroup(),
+    palette: emptySignalDiagnosticGroup(),
+    typography: emptySignalDiagnosticGroup(),
+    visual: emptySignalDiagnosticGroup(),
+    motion: emptySignalDiagnosticGroup(),
+    voice: emptySignalDiagnosticGroup(),
+  };
+}
+
+function emptySignalDiagnosticGroup(): BrandVaultSignalDiagnosticGroupSummary {
+  return {
+    signalCount: 0,
+    readyCount: 0,
+    weakCount: 0,
+    missingCount: 0,
+    fallbackCount: 0,
+    evidenceCount: 0,
+    candidateCount: 0,
+  };
+}
+
+function compareSignalDiagnostics(
+  left: BrandVaultSignalDiagnosticItem,
+  right: BrandVaultSignalDiagnosticItem,
+): number {
+  return diagnosticSeverityRank(right.status) - diagnosticSeverityRank(left.status) ||
+    left.confidence - right.confidence ||
+    right.evidenceCount - left.evidenceCount ||
+    left.path.localeCompare(right.path);
+}
+
+function diagnosticSeverityRank(status: BrandVaultSignalDiagnosticStatus): number {
+  if (status === 'fallback') return 3;
+  if (status === 'missing') return 2;
+  if (status === 'weak') return 1;
+  return 0;
+}
+
+function signalValuePreview(value: unknown): string {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'No value found';
+    return sanitizeEvidenceExcerpt(value.slice(0, 5).map(String).join(', '), 160);
+  }
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(2) : 'No value found';
+  if (typeof value === 'string') return sanitizeEvidenceExcerpt(value || 'No value found', 160);
+  if (value === undefined || value === null) return 'No value found';
+  return sanitizeEvidenceExcerpt(JSON.stringify(value), 160);
+}
+
+function formatConfidence(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function createIntakeSummary(args: {
@@ -1210,6 +1468,20 @@ function combineSnapshotHtml(root: BrandWebsiteSnapshot, snapshots: BrandWebsite
   return [root, ...snapshots]
     .map((snapshot) => `<!-- Brand Vault source: ${snapshot.normalizedUrl} -->\n${snapshot.html}`)
     .join('\n');
+}
+
+function combineSnapshotStylesheets(root: BrandWebsiteSnapshot, snapshots: BrandWebsiteSnapshot[]): BrandWebsiteStylesheetSnapshot[] {
+  const stylesheets = new Map<string, BrandWebsiteStylesheetSnapshot>();
+  for (const snapshot of [root, ...snapshots]) {
+    for (const stylesheet of snapshot.stylesheets ?? []) {
+      if (!stylesheets.has(stylesheet.url)) stylesheets.set(stylesheet.url, stylesheet);
+    }
+  }
+  return [...stylesheets.values()];
+}
+
+function stylesheetWarningsForSnapshots(snapshots: BrandWebsiteSnapshot[]): string[] {
+  return snapshots.flatMap((snapshot) => snapshot.stylesheetWarnings ?? []);
 }
 
 function createCrawlCandidates(args: {

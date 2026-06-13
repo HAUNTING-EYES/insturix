@@ -136,6 +136,7 @@ export interface BrandRefineryJob {
 export interface BrandWebsiteDraftInput {
   websiteUrl: string;
   html: string;
+  stylesheets?: BrandWebsiteStylesheetSnapshot[];
   brandId?: string;
   userId?: string;
   companyName?: string;
@@ -144,11 +145,19 @@ export interface BrandWebsiteDraftInput {
   jobId?: string;
 }
 
+export interface BrandWebsiteStylesheetSnapshot {
+  url: string;
+  css: string;
+  contentType?: string;
+}
+
 export interface BrandWebsiteSnapshot {
   normalizedUrl: string;
   html: string;
   fetchedAt: string;
   contentType?: string;
+  stylesheets?: BrandWebsiteStylesheetSnapshot[];
+  stylesheetWarnings?: string[];
 }
 
 export interface FetchWebsiteBrandSnapshotOptions {
@@ -156,6 +165,10 @@ export interface FetchWebsiteBrandSnapshotOptions {
   timeoutMs?: number;
   now?: string;
   userAgent?: string;
+  fetchLinkedStylesheets?: boolean;
+  maxLinkedStylesheets?: number;
+  maxStylesheetBytes?: number;
+  stylesheetTimeoutMs?: number;
 }
 
 export type BrandWebsiteAssetAvailabilityStatus = 'available' | 'unavailable' | 'unknown';

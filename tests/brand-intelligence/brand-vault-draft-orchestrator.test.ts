@@ -127,6 +127,170 @@ describe('Brand Vault draft orchestrator', () => {
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
   });
 
+  it('surfaces weak, missing, and fallback signal diagnostics for review UI', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const sparseHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Quiet Co</title>
+    <meta name="description" content="Quiet Co provides planning software for service teams.">
+    <meta property="og:site_name" content="Quiet Co">
+    <meta name="theme-color" content="#101820">
+    <style>
+      :root { --ink: #101820; --paper: #f6f5f1; }
+      body { color: #101820; background: #f6f5f1; font-family: Arial, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <p>Planning software for service teams.</p>
+    <a href="/contact">Contact</a>
+  </body>
+</html>
+`;
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'quiet.example',
+        jobId: 'job_signal_diagnostics',
+        profileRecordId: 'draft_signal_diagnostics',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async () => new Response(sparseHtml, { status: 200, headers: { 'content-type': 'text/html' } }),
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    const diagnostics = result.reviewPayload.signalDiagnostics;
+    const byPath = new Map(diagnostics.items.map((item) => [item.path, item]));
+
+    expect(diagnostics.summary.signalCount).toBe(diagnostics.items.length);
+    expect(diagnostics.summary.readyCount).toBeGreaterThan(0);
+    expect(diagnostics.summary.weakCount).toBeGreaterThan(0);
+    expect(diagnostics.summary.missingCount).toBeGreaterThan(0);
+    expect(diagnostics.summary.fallbackCount).toBeGreaterThan(0);
+    expect(diagnostics.summary.reviewOnlyCount).toBe(
+      diagnostics.summary.weakCount + diagnostics.summary.missingCount + diagnostics.summary.fallbackCount,
+    );
+    expect(diagnostics.summary.byGroup.voice.fallbackCount).toBeGreaterThan(0);
+    expect(diagnostics.summary.byGroup.motion.weakCount).toBeGreaterThan(0);
+
+    expect(byPath.get('identity.brandName')).toMatchObject({
+      group: 'identity',
+      status: 'ready',
+      actionable: true,
+      recommendedEvidence: [],
+    });
+    expect(byPath.get('voice.killList')).toMatchObject({
+      group: 'voice',
+      status: 'fallback',
+      recommendedEvidence: expect.arrayContaining(['brand_uploads', 'manual_review']),
+    });
+    expect(byPath.get('voice.hookArchetypes')).toMatchObject({
+      group: 'voice',
+      status: 'missing',
+      recommendedEvidence: expect.arrayContaining(['connected_social', 'pinned_posts']),
+    });
+    expect(byPath.get('motion.motionEnergy')).toMatchObject({
+      group: 'motion',
+      status: 'weak',
+      recommendedEvidence: expect.arrayContaining(['visual_scan']),
+    });
+    expect(diagnostics.priorityItems.map((item) => item.path)).toEqual(
+      expect.arrayContaining(['voice.killList', 'voice.hookArchetypes', 'motion.motionEnergy']),
+    );
+  });
+
+  it('pulls first-party linked CSS into draft palette and typography evidence', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const calls: string[] = [];
+    const neutralCss = Array.from({ length: 40 }, (_, index) => {
+      const channel = (30 + index * 4).toString(16).padStart(2, '0').slice(-2);
+      return `--gray-${index}: #${channel}${channel}${channel};`;
+    }).join('\n');
+    const html = `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Creative operating system</title>
+    <meta name="description" content="Insturix helps agencies run content production at scale.">
+    <meta property="og:site_name" content="Insturix">
+    <link rel="stylesheet" href="/_next/static/css/app.css">
+    <link rel="stylesheet" href="https://cdn.example.com/brand.css">
+  </head>
+  <body>
+    <h1>One platform for agency production</h1>
+    <a class="hero-cta" href="/start">Start producing</a>
+  </body>
+</html>
+`;
+    const css = `
+:root {
+  ${neutralCss}
+  --brand-blue: #5B8DEF;
+  --brand-lavender: #9088D4;
+  --brand-mint: rgb(33 201 164 / 0.9);
+}
+.hero-cta {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  background: linear-gradient(135deg, var(--brand-blue), #9088D4);
+  border-color: rgb(91 141 239 / 0.8);
+}
+`;
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'insturix.example',
+        jobId: 'job_linked_css',
+        profileRecordId: 'draft_linked_css',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async (url) => {
+            calls.push(url);
+            if (url === 'https://insturix.example/') {
+              return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+            }
+            if (url === 'https://insturix.example/_next/static/css/app.css') {
+              return new Response(css, { status: 200, headers: { 'content-type': 'text/css' } });
+            }
+            return new Response('missing', { status: 404, headers: { 'content-type': 'text/html' } });
+          },
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    const paletteColors = [
+      result.profile.palette.primary?.value,
+      result.profile.palette.accent?.value,
+      ...result.profile.palette.supporting.value,
+      ...result.profile.palette.neutrals.value,
+    ].filter((color): color is string => Boolean(color));
+
+    expect(calls).toContain('https://insturix.example/_next/static/css/app.css');
+    expect(calls).not.toContain('https://cdn.example.com/brand.css');
+    expect(paletteColors).toEqual(expect.arrayContaining(['#5b8def', '#9088d4', '#21c9a4']));
+    expect(result.profile.typography.raw?.value).toBe('Plus Jakarta Sans');
+    expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'palette.accent')).toMatchObject({
+      status: 'ready',
+    });
+  });
+
   it('downgrades unreachable website asset candidates before review payload assembly', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
 

@@ -17,6 +17,7 @@ import type {
   BrandWebsiteDraftResult,
   BrandWebsiteSignalProfileResult,
   BrandWebsiteSnapshot,
+  BrandWebsiteStylesheetSnapshot,
   FallbackSignal,
   FetchWebsiteBrandSnapshotOptions,
   MakeSignal,
@@ -35,6 +36,7 @@ export type {
   BrandWebsiteDraftResult,
   BrandWebsiteSignalProfileResult,
   BrandWebsiteSnapshot,
+  BrandWebsiteStylesheetSnapshot,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 import {
@@ -44,6 +46,7 @@ import {
   candidateOnly,
   DARK_SURFACE,
   domainBrand,
+  extractLinkedStylesheetUrls,
   firstDefined,
   inferAudience,
   inferCasingBias,
@@ -71,6 +74,9 @@ const ASSET_SIGNAL_PATHS = new Set(['assets.logoCandidates', 'assets.socialPrevi
 const DEFAULT_ASSET_PROBE_MAX_CANDIDATES = 16;
 const UNAVAILABLE_ASSET_CONFIDENCE_CEILING = 0.18;
 const UNKNOWN_ASSET_CONFIDENCE_CEILING = 0.38;
+const DEFAULT_LINKED_STYLESHEET_MAX_COUNT = 8;
+const DEFAULT_LINKED_STYLESHEET_MAX_BYTES = 320_000;
+const DEFAULT_LINKED_STYLESHEET_TIMEOUT_MS = 4_000;
 
 export async function fetchWebsiteBrandSnapshot(
   websiteUrl: string,
@@ -94,15 +100,113 @@ export async function fetchWebsiteBrandSnapshot(
       throw new Error(`Website fetch failed with HTTP ${response.status}.`);
     }
 
+    const resolvedUrl = normalizeBrandWebsiteUrl(response.url || normalizedUrl);
+    const html = await response.text();
+    const contentType = response.headers.get('content-type') ?? undefined;
+    const stylesheetResult = await fetchLinkedWebsiteStylesheets({
+      normalizedUrl: resolvedUrl,
+      html,
+      contentType,
+      fetchFn,
+      options,
+    });
+
     return {
-      normalizedUrl: normalizeBrandWebsiteUrl(response.url || normalizedUrl),
-      html: await response.text(),
+      normalizedUrl: resolvedUrl,
+      html,
       fetchedAt: options.now ?? new Date().toISOString(),
-      contentType: response.headers.get('content-type') ?? undefined,
+      contentType,
+      stylesheets: stylesheetResult.stylesheets,
+      stylesheetWarnings: stylesheetResult.warnings,
     };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchLinkedWebsiteStylesheets(args: {
+  normalizedUrl: string;
+  html: string;
+  contentType?: string;
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['fetchFn']>;
+  options: FetchWebsiteBrandSnapshotOptions;
+}): Promise<{ stylesheets: BrandWebsiteStylesheetSnapshot[]; warnings: string[] }> {
+  if (args.options.fetchLinkedStylesheets === false || !isHtmlPayload(args.contentType, args.html)) {
+    return { stylesheets: [], warnings: [] };
+  }
+
+  const urls = extractLinkedStylesheetUrls(
+    args.html,
+    args.normalizedUrl,
+    args.options.maxLinkedStylesheets ?? DEFAULT_LINKED_STYLESHEET_MAX_COUNT,
+  );
+  const stylesheets: BrandWebsiteStylesheetSnapshot[] = [];
+  const warnings: string[] = [];
+
+  for (const url of urls) {
+    try {
+      const result = await fetchLinkedWebsiteStylesheet(url, args.fetchFn, args.options);
+      if (result.stylesheet) stylesheets.push(result.stylesheet);
+      if (result.warning) warnings.push(result.warning);
+    } catch (error) {
+      warnings.push(`Brand Vault skipped stylesheet ${url}: ${formatUnknownError(error)}`);
+    }
+  }
+
+  return { stylesheets, warnings };
+}
+
+async function fetchLinkedWebsiteStylesheet(
+  url: string,
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['fetchFn']>,
+  options: FetchWebsiteBrandSnapshotOptions,
+): Promise<{ stylesheet?: BrandWebsiteStylesheetSnapshot; warning?: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.stylesheetTimeoutMs ?? DEFAULT_LINKED_STYLESHEET_TIMEOUT_MS);
+  const maxBytes = options.maxStylesheetBytes ?? DEFAULT_LINKED_STYLESHEET_MAX_BYTES;
+
+  try {
+    const response = await fetchFn(url, {
+      signal: controller.signal,
+      headers: {
+        'user-agent': options.userAgent ?? 'InsturixBrandVault/1.0',
+        accept: 'text/css,*/*;q=0.8',
+      },
+    });
+    const contentType = response.headers.get('content-type') ?? undefined;
+    if (!response.ok) {
+      return { warning: `Brand Vault skipped stylesheet ${url}: HTTP ${response.status}.` };
+    }
+    if (!isStylesheetPayload(url, contentType)) {
+      return { warning: `Brand Vault skipped stylesheet ${url}: non-CSS response${contentType ? ` (${contentType})` : ''}.` };
+    }
+    const declaredLength = Number(response.headers.get('content-length') ?? 0);
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      return { warning: `Brand Vault skipped stylesheet ${url}: declared size exceeded ${maxBytes} bytes.` };
+    }
+    const css = await response.text();
+    const clipped = css.slice(0, maxBytes);
+    return {
+      stylesheet: { url, css: clipped, contentType },
+      warning: css.length > maxBytes ? `Brand Vault clipped stylesheet ${url} to ${maxBytes} characters for draft extraction.` : undefined,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isHtmlPayload(contentType: string | undefined, html: string): boolean {
+  return !contentType || /text\/html|application\/xhtml\+xml/i.test(contentType) || /^\s*(?:<!doctype html|<html[\s>])/i.test(html);
+}
+
+function isStylesheetPayload(url: string, contentType: string | undefined): boolean {
+  if (/\.css$/i.test(new URL(url).pathname)) return true;
+  return !contentType || /text\/css|text\/plain|application\/octet-stream/i.test(contentType);
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return 'unknown error';
 }
 
 export async function verifyWebsiteBrandAssetCandidates(

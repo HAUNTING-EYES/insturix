@@ -124,6 +124,56 @@ describe('Brand website refinery', () => {
     expect(validation.warnings.some((issue) => issue.path === 'voice.killList')).toBe(true);
   });
 
+  it('keeps distinctive brand colors from noisy compiled frontend CSS', () => {
+    const neutralCss = Array.from({ length: 48 }, (_, index) => {
+      const channel = (24 + index * 3).toString(16).padStart(2, '0').slice(-2);
+      return `--gray-${index}: #${channel}${channel}${channel};`;
+    }).join('\n');
+
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://insturix.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Creative operating system</title>
+    <meta name="description" content="Insturix helps agencies run content production at scale.">
+    <style>
+      :root {
+        ${neutralCss}
+        --brand-blue: #5B8DEF;
+        --brand-lavender: #9088D4;
+        --brand-mint: rgb(33 201 164 / 0.9);
+      }
+      .hero-cta {
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--brand-blue), #9088D4);
+        border-color: rgb(91 141 239 / 0.8);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>One platform for agency production</h1>
+    <a class="hero-cta" href="/start">Start producing</a>
+  </body>
+</html>
+`,
+      brandId: 'brand_insturix',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_compiled_css_colors',
+    });
+
+    const paletteColors = [
+      result.profile.palette.primary?.value,
+      result.profile.palette.accent?.value,
+      ...result.profile.palette.supporting.value,
+      ...result.profile.palette.neutrals.value,
+    ].filter((color): color is string => Boolean(color));
+
+    expect(paletteColors).toEqual(expect.arrayContaining(['#5b8def', '#9088d4', '#21c9a4']));
+  });
+
   it('ranks logo assets separately from social preview images', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://northstar.example',

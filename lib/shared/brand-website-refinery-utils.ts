@@ -19,6 +19,12 @@ const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|c
 const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agency|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprise|startup|client|customer|support|finance|founder|operator|creator|editorial|content)\b/i;
 const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
 const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
+const MAX_EXTRACTED_WEBSITE_COLORS = 32;
+const COLOR_CONTEXT_RADIUS = 96;
+const STRONG_BRAND_COLOR_CONTEXT =
+  /\b(?:brand|primary|secondary|accent|highlight|cta|button|link|hero|gradient|logo|mark|selected|active|focus|theme)\b|--[a-z0-9-]*(?:brand|primary|secondary|accent|highlight|cta|gradient|logo|theme)[a-z0-9-]*/i;
+const COLOR_PROPERTY_CONTEXT = /\b(?:color|background|border|fill|stroke|shadow|ring|outline|decoration)\b|#[a-z0-9_-]+/i;
+const NEUTRAL_COLOR_CONTEXT = /\b(?:neutral|gray|grey|slate|zinc|stone|surface|paper|white|black|muted|subtle|border|shadow)\b/i;
 
 const CATEGORY_RULES: Array<{
   label: string;
@@ -92,6 +98,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const normalizedUrl = normalizeBrandWebsiteUrl(input.websiteUrl);
   const host = new URL(normalizedUrl).hostname.replace(/^www\./, '');
   const $ = load(input.html);
+  const stylesheetCss = input.stylesheets?.map((stylesheet) => stylesheet.css) ?? [];
   const jsonLd = extractJsonLd($('script[type="application/ld+json"]').map((_, el) => $(el).text()).get());
   const schema = chooseSchemaObject(jsonLd);
   const title = cleanText($('title').first().text());
@@ -100,8 +107,8 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const schemaName = readString(schema, 'name');
   const schemaDescription = readString(schema, 'description');
   const schemaTypes = readTypes(schema);
-  const colors = extractColors($);
-  const fonts = extractFonts($);
+  const colors = extractColors($, stylesheetCss);
+  const fonts = extractFonts($, stylesheetCss);
   const headings = uniqueText($('h1,h2,h3').map((_, el) => cleanText($(el).text())).get()).slice(0, 16);
   const ctas = uniqueText($('a,button').map((_, el) => cleanText($(el).text())).get())
     .filter((text) => text.length <= 80 && CTA_PATTERN.test(text))
@@ -209,6 +216,30 @@ function extractSocialPreviewImages($: ReturnType<typeof load>, normalizedUrl: s
   return uniqueText([meta($, ['og:image']), meta($, ['twitter:image'])]
     .map((value) => (value ? resolveWebsiteAssetUrl(value, baseUrl) : undefined)))
     .slice(0, 4);
+}
+
+export function extractLinkedStylesheetUrls(html: string, normalizedUrl: string, limit = 8): string[] {
+  const $ = load(html);
+  const baseUrl = new URL(normalizedUrl);
+  const urls: string[] = [];
+  const add = (rawValue: string | undefined): void => {
+    const clean = cleanText(rawValue);
+    const url = clean ? resolveWebsiteAssetUrl(clean, baseUrl) : undefined;
+    if (!url) return;
+    const parsed = new URL(url);
+    if (parsed.origin !== baseUrl.origin) return;
+    urls.push(url);
+  };
+
+  $('link[href]').each((_, el) => {
+    const rel = $(el).attr('rel') ?? '';
+    const as = ($(el).attr('as') ?? '').toLowerCase();
+    if (/\bstylesheet\b/i.test(rel) || (/\bpreload\b/i.test(rel) && as === 'style')) {
+      add($(el).attr('href'));
+    }
+  });
+
+  return uniqueText(urls).slice(0, limit);
 }
 
 function resolveWebsiteAssetUrl(value: string, baseUrl: URL): string | undefined {
@@ -583,26 +614,37 @@ function chooseSchemaObject(objects: Record<string, unknown>[]): Record<string, 
   return objects.find((obj) => readTypes(obj).some((type) => /organization|localbusiness|corporation|product|brand/i.test(type))) ?? objects[0];
 }
 
-function extractColors($: ReturnType<typeof load>): string[] {
-  const scores = new Map<string, number>();
+function extractColors($: ReturnType<typeof load>, stylesheetCss: string[] = []): string[] {
+  const scores = new Map<string, { score: number; order: number }>();
+  let order = 0;
   const add = (value: string | undefined, weight: number): void => {
     if (!value) return;
-    for (const color of colorsFromText(value)) scores.set(color, (scores.get(color) ?? 0) + weight);
+    for (const occurrence of colorOccurrencesFromText(value)) {
+      const existing = scores.get(occurrence.color);
+      const score = weight + occurrence.contextWeight + saturation(occurrence.color) * 2;
+      scores.set(occurrence.color, {
+        score: (existing?.score ?? 0) + score,
+        order: existing?.order ?? order,
+      });
+      order += 1;
+    }
   };
 
-  $('meta[name="theme-color"],meta[property="theme-color"]').each((_, el) => add($(el).attr('content'), 10));
+  $('meta[name="theme-color"],meta[property="theme-color"]').each((_, el) => add($(el).attr('content'), 12));
   $('style').each((_, el) => add($(el).text(), 2));
+  for (const css of stylesheetCss) add(css, 2);
   $('[style]').each((_, el) => add($(el).attr('style'), 3));
 
   return [...scores.entries()]
-    .sort((a, b) => b[1] - a[1])
+    .sort((a, b) => b[1].score - a[1].score || saturation(b[0]) - saturation(a[0]) || a[1].order - b[1].order)
     .map(([color]) => color)
-    .slice(0, 16);
+    .slice(0, MAX_EXTRACTED_WEBSITE_COLORS);
 }
 
-function extractFonts($: ReturnType<typeof load>): string[] {
+function extractFonts($: ReturnType<typeof load>, stylesheetCss: string[] = []): string[] {
   const chunks = [
     ...$('style').map((_, el) => $(el).text()).get(),
+    ...stylesheetCss,
     ...$('[style]').map((_, el) => $(el).attr('style') ?? '').get(),
   ];
   const fonts: string[] = [];
@@ -616,15 +658,35 @@ function extractFonts($: ReturnType<typeof load>): string[] {
 }
 
 function colorsFromText(text: string): string[] {
-  const colors: string[] = [];
+  return uniqueText(colorOccurrencesFromText(text).map((occurrence) => occurrence.color));
+}
+
+function colorOccurrencesFromText(text: string): Array<{ color: string; contextWeight: number }> {
+  const colors: Array<{ color: string; contextWeight: number }> = [];
+  const add = (color: string | undefined, index: number): void => {
+    if (!color) return;
+    colors.push({ color, contextWeight: colorContextWeight(text, index) });
+  };
+
   for (const match of text.matchAll(/#[0-9a-f]{3,8}\b/gi)) {
-    const normalized = normalizeHex(match[0]);
-    if (normalized) colors.push(normalized);
+    add(normalizeHex(match[0]), match.index ?? 0);
   }
-  for (const match of text.matchAll(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+)?\s*\)/gi)) {
-    colors.push(rgbToHex(Number(match[1]), Number(match[2]), Number(match[3])));
+  for (const match of text.matchAll(/rgba?\(\s*([^)]+)\)/gi)) {
+    add(parseRgbFunction(match[1] ?? ''), match.index ?? 0);
   }
-  return uniqueText(colors);
+  for (const match of text.matchAll(/hsla?\(\s*([^)]+)\)/gi)) {
+    add(parseHslFunction(match[1] ?? ''), match.index ?? 0);
+  }
+  return colors;
+}
+
+function colorContextWeight(text: string, index: number): number {
+  const context = text.slice(Math.max(0, index - COLOR_CONTEXT_RADIUS), index + COLOR_CONTEXT_RADIUS);
+  let weight = 0;
+  if (STRONG_BRAND_COLOR_CONTEXT.test(context)) weight += 10;
+  if (COLOR_PROPERTY_CONTEXT.test(context)) weight += 3;
+  if (NEUTRAL_COLOR_CONTEXT.test(context)) weight -= 2;
+  return weight;
 }
 
 function readString(obj: Record<string, unknown> | undefined, key: string): string | undefined {
@@ -661,6 +723,69 @@ function normalizeHex(value: string): string | undefined {
 
 function rgbToHex(r: number, g: number, b: number): string {
   return `#${[r, g, b].map((channel) => Math.max(0, Math.min(255, channel)).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function parseRgbFunction(value: string): string | undefined {
+  const channels = value
+    .split('/')[0]
+    ?.trim()
+    .split(value.includes(',') ? /\s*,\s*/ : /\s+/)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (!channels || channels.length < 3) return undefined;
+  const parsed = channels.map(parseRgbChannel);
+  if (parsed.some((channel) => channel === undefined)) return undefined;
+  return rgbToHex(parsed[0]!, parsed[1]!, parsed[2]!);
+}
+
+function parseRgbChannel(value: string): number | undefined {
+  if (value.endsWith('%')) {
+    const percent = Number(value.slice(0, -1));
+    return Number.isFinite(percent) ? Math.round((Math.max(0, Math.min(100, percent)) / 100) * 255) : undefined;
+  }
+  const channel = Number(value);
+  return Number.isFinite(channel) ? Math.round(channel) : undefined;
+}
+
+function parseHslFunction(value: string): string | undefined {
+  const channels = value
+    .split('/')[0]
+    ?.trim()
+    .split(value.includes(',') ? /\s*,\s*/ : /\s+/)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (!channels || channels.length < 3) return undefined;
+  const hueValue = parseHueChannel(channels[0]!);
+  const saturationValue = parsePercentChannel(channels[1]!);
+  const lightnessValue = parsePercentChannel(channels[2]!);
+  if (hueValue === undefined || saturationValue === undefined || lightnessValue === undefined) return undefined;
+  return hslToHex(hueValue, saturationValue, lightnessValue);
+}
+
+function parseHueChannel(value: string): number | undefined {
+  const trimmed = value.trim().toLowerCase();
+  const number = Number(trimmed.replace(/deg$/, ''));
+  return Number.isFinite(number) ? ((number % 360) + 360) % 360 : undefined;
+}
+
+function parsePercentChannel(value: string): number | undefined {
+  if (!value.endsWith('%')) return undefined;
+  const percent = Number(value.slice(0, -1));
+  return Number.isFinite(percent) ? clamp01(percent / 100) : undefined;
+}
+
+function hslToHex(hueValue: number, saturationValue: number, lightnessValue: number): string {
+  const chroma = (1 - Math.abs(2 * lightnessValue - 1)) * saturationValue;
+  const x = chroma * (1 - Math.abs(((hueValue / 60) % 2) - 1));
+  const match = lightnessValue - chroma / 2;
+  const [r, g, b] =
+    hueValue < 60 ? [chroma, x, 0] :
+      hueValue < 120 ? [x, chroma, 0] :
+        hueValue < 180 ? [0, chroma, x] :
+          hueValue < 240 ? [0, x, chroma] :
+            hueValue < 300 ? [x, 0, chroma] :
+              [chroma, 0, x];
+  return rgbToHex(Math.round((r + match) * 255), Math.round((g + match) * 255), Math.round((b + match) * 255));
 }
 
 function hue(hex: string): number {
