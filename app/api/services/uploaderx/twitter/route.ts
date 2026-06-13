@@ -6,6 +6,10 @@ import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-event
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
 export const maxDuration = 300;
+<<<<<<< HEAD
+=======
+
+>>>>>>> 466415eb6e0af58a8be898d3e8a511b05237769c
 export async function POST(req: Request) {
   try {
     const session = await auth();
