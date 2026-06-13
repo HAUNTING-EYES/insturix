@@ -633,15 +633,18 @@ describe('Brand Vault draft orchestrator', () => {
       },
       'https://signal.example/about': {
         contentType: 'text/html',
-        html: pageHtml('About Signal House', '<h1>About the team</h1>'),
+        html: pageHtml(
+          'About Signal House',
+          '<h1>About the team</h1><p>Built for B2B agency operators scaling video production.</p><a href="/demo">Book a demo</a>',
+        ),
       },
       'https://signal.example/mission': {
         contentType: 'text/html',
-        html: pageHtml('Signal House Mission', '<h1>Operator-first mission</h1>'),
+        html: pageHtml('Signal House Mission', '<h1>Operator-first mission</h1><blockquote>Trusted by 120 agency teams.</blockquote>'),
       },
       'https://signal.example/customers': {
         contentType: 'text/html',
-        html: pageHtml('Signal House Customers', '<h1>Customer proof</h1>'),
+        html: pageHtml('Signal House Customers', '<h1>Customer proof</h1><section class="case-study">120 agency teams ship weekly.</section>'),
       },
     };
 
@@ -682,6 +685,32 @@ describe('Brand Vault draft orchestrator', () => {
     expect(crawledUrls.some((url) => /privacy|logo\.png|other\.example|brand-sitemap/.test(url ?? ''))).toBe(false);
     expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
     expect(result.reviewPayload.intake.website.crawledPageCount).toBe(3);
+    const crawlLane = result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'crawl');
+    const crawlSignalCandidates = result.candidates.filter((candidate) =>
+      candidate.extractorId === 'brand-vault-crawler.v1' && candidate.sourceField !== 'crawl.page',
+    );
+    expect(crawlLane).toMatchObject({
+      status: 'complete',
+      sourceCount: 3,
+      topSignalPaths: expect.arrayContaining(['identity.proofStyle', 'voice.recurringPhrases', 'voice.ctaDirectness']),
+    });
+    expect(crawlLane?.candidateCount).toBeGreaterThan(3);
+    expect(crawlLane?.notes).toEqual([
+      'Crawled 3 additional pages and extracted 15 page-level candidates.',
+    ]);
+    expect(crawlSignalCandidates.map((candidate) => candidate.sourceField)).toEqual(
+      expect.arrayContaining([
+        'crawl.page.1.headings',
+        'crawl.page.1.ctas',
+        'crawl.page.2.proof',
+        'crawl.page.3.proof',
+      ]),
+    );
+    expect(crawlSignalCandidates.map((candidate) => candidate.signalPath)).toEqual(
+      expect.arrayContaining(['identity.audience', 'identity.proofStyle', 'voice.recurringPhrases', 'voice.hookArchetypes', 'voice.ctaDirectness']),
+    );
+    expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'identity.proofStyle')?.candidateCount).toBeGreaterThan(3);
+    expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'voice.ctaDirectness')?.candidateCount).toBeGreaterThan(1);
   });
 
   it('turns uploaded brand books and assets into reviewable draft signal evidence', async () => {

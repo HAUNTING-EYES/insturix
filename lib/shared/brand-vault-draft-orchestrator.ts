@@ -263,6 +263,7 @@ const SOCIAL_LINKS_STAGED_WARNING =
   'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.';
 const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
 const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
+const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
 const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
@@ -743,8 +744,9 @@ function createIntakeSummary(args: {
   reviewRequired: boolean;
 }): BrandVaultIntakeSummary {
   const sourceEvidence = args.job.inputs.sourceEvidence ?? [];
-  const websiteCandidates = args.candidates.filter((candidate) => isWebsiteCandidate(candidate) && candidate.sourceField !== 'crawl.page');
-  const crawlCandidates = args.candidates.filter((candidate) => candidate.sourceField === 'crawl.page');
+  const websiteCandidates = args.candidates.filter((candidate) => isWebsiteCandidate(candidate) && !isCrawlCandidate(candidate));
+  const crawlCandidates = args.candidates.filter(isCrawlCandidate);
+  const crawlPageCandidates = crawlCandidates.filter(isCrawlPageCandidate);
   const socialSources = sourceEvidence.filter((source) => source.kind === 'social_profile' || source.kind === 'social_post');
   const socialCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'social_profile' || candidate.sourceType === 'social_post');
   const uploadSources = sourceEvidence.filter((source) => source.kind === 'uploaded_guideline' || source.kind === 'uploaded_asset');
@@ -776,11 +778,13 @@ function createIntakeSummary(args: {
     createEvidenceLane({
       id: 'crawl',
       label: 'Crawled Pages',
-      status: crawlCandidates.length > 0 ? 'complete' : 'skipped',
-      sourceCount: crawlCandidates.length,
+      status: crawlPageCandidates.length > 0 ? 'complete' : 'skipped',
+      sourceCount: crawlPageCandidates.length,
       candidates: crawlCandidates,
       evidenceCount: crawlCandidates.length,
-      notes: crawlCandidates.length > 0 ? [`Crawled ${crawlCandidates.length} additional page${crawlCandidates.length === 1 ? '' : 's'}.`] : [],
+      notes: crawlPageCandidates.length > 0
+        ? [`Crawled ${crawlPageCandidates.length} additional page${crawlPageCandidates.length === 1 ? '' : 's'} and extracted ${crawlCandidates.length} page-level candidate${crawlCandidates.length === 1 ? '' : 's'}.`]
+        : [],
     }),
     createEvidenceLane({
       id: 'social',
@@ -819,7 +823,7 @@ function createIntakeSummary(args: {
       sourceCount: 1,
       candidateCount: websiteCandidates.length,
       evidenceCount: args.profile.evidence.filter((item) => isWebsiteEvidenceSource(item.sourceType)).length,
-      crawledPageCount: crawlCandidates.length,
+      crawledPageCount: crawlPageCandidates.length,
       notes: [`Website evidence fetched from ${args.normalizedUrl}.`],
     },
     social,
@@ -835,7 +839,7 @@ function createIntakeSummary(args: {
       reviewRequired: args.reviewRequired,
       social,
       uploads,
-      crawlCount: crawlCandidates.length,
+      crawlCount: crawlPageCandidates.length,
     }),
   };
 }
@@ -1080,6 +1084,14 @@ function shouldWarnForStagedSocialLinks(socialLinks: string[], sourceEvidence: B
 
 function isWebsiteCandidate(candidate: BrandEvidenceCandidate): boolean {
   return isWebsiteEvidenceSource(candidate.sourceType);
+}
+
+function isCrawlCandidate(candidate: BrandEvidenceCandidate): boolean {
+  return candidate.extractorId === CRAWL_EXTRACTOR || candidate.sourceField === 'crawl.page';
+}
+
+function isCrawlPageCandidate(candidate: BrandEvidenceCandidate): boolean {
+  return candidate.extractorId === CRAWL_EXTRACTOR && candidate.sourceField === 'crawl.page';
 }
 
 function isWebsiteEvidenceSource(sourceType: string): boolean {
@@ -1490,22 +1502,210 @@ function createCrawlCandidates(args: {
   snapshots: BrandWebsiteSnapshot[];
   observedAt: string;
 }): BrandEvidenceCandidate[] {
-  return args.snapshots.map((snapshot, index) => ({
-    id: `candidate_crawled_page_${index + 1}_${idPart(snapshot.normalizedUrl, 'page')}`,
+  return args.snapshots.flatMap((snapshot, index) => createCrawlSnapshotCandidates({ ...args, snapshot, index }));
+}
+
+function createCrawlSnapshotCandidates(args: {
+  input: BrandVaultWebsiteDraftJobInput;
+  jobId: string;
+  snapshot: BrandWebsiteSnapshot;
+  index: number;
+  observedAt: string;
+}): BrandEvidenceCandidate[] {
+  const pageNumber = args.index + 1;
+  const pageId = idPart(args.snapshot.normalizedUrl, 'page');
+  const content = extractCrawlPageContent(args.snapshot);
+  const pageCandidate: BrandEvidenceCandidate = {
+    id: `candidate_crawled_page_${pageNumber}_${pageId}`,
     brandId: args.input.brandId,
     jobId: args.jobId,
     sourceType: 'website',
-    sourceUrl: snapshot.normalizedUrl,
+    sourceUrl: args.snapshot.normalizedUrl,
     sourceField: 'crawl.page',
     signalPath: 'identity.proofStyle',
-    rawValue: { url: snapshot.normalizedUrl, contentType: snapshot.contentType },
-    normalizedValue: { url: snapshot.normalizedUrl, title: pageTitle(snapshot.html), contentType: snapshot.contentType },
-    excerpt: sanitizeEvidenceExcerpt(`Crawled page included in Brand Vault draft: ${snapshot.normalizedUrl}`),
+    rawValue: { url: args.snapshot.normalizedUrl, contentType: args.snapshot.contentType },
+    normalizedValue: { url: args.snapshot.normalizedUrl, title: content.title, contentType: args.snapshot.contentType },
+    excerpt: sanitizeEvidenceExcerpt(`Crawled page included in Brand Vault draft: ${args.snapshot.normalizedUrl}`),
     confidence: 0.45,
     authorityClass: 'owned',
     observedAt: args.observedAt,
-    extractorId: 'brand-vault-crawler.v1',
-  }));
+    extractorId: CRAWL_EXTRACTOR,
+  };
+  return [
+    pageCandidate,
+    ...crawlSignalCandidates({
+      input: args.input,
+      jobId: args.jobId,
+      snapshot: args.snapshot,
+      pageNumber,
+      pageId,
+      content,
+      observedAt: args.observedAt,
+    }),
+  ];
+}
+
+function crawlSignalCandidates(args: {
+  input: BrandVaultWebsiteDraftJobInput;
+  jobId: string;
+  snapshot: BrandWebsiteSnapshot;
+  pageNumber: number;
+  pageId: string;
+  content: CrawlPageContent;
+  observedAt: string;
+}): BrandEvidenceCandidate[] {
+  const candidates: BrandEvidenceCandidate[] = [];
+  const add = (item: {
+    sourceField: string;
+    signalPath: string;
+    rawValue: unknown;
+    normalizedValue: unknown;
+    excerpt: string;
+    confidence: number;
+  }): void => {
+    candidates.push({
+      id: `candidate_crawled_signal_${args.pageNumber}_${candidates.length + 1}_${args.pageId}`,
+      brandId: args.input.brandId,
+      jobId: args.jobId,
+      sourceType: 'website',
+      sourceUrl: args.snapshot.normalizedUrl,
+      sourceField: `crawl.page.${args.pageNumber}.${item.sourceField}`,
+      signalPath: item.signalPath,
+      rawValue: item.rawValue,
+      normalizedValue: item.normalizedValue,
+      excerpt: sanitizeEvidenceExcerpt(item.excerpt),
+      confidence: item.confidence,
+      authorityClass: 'owned',
+      observedAt: args.observedAt,
+      extractorId: CRAWL_EXTRACTOR,
+    });
+  };
+
+  if (args.content.headings.length > 0) {
+    add({
+      sourceField: 'headings',
+      signalPath: 'voice.recurringPhrases',
+      rawValue: args.content.headings,
+      normalizedValue: args.content.headings,
+      excerpt: `Crawled page headings: ${args.content.headings.join(' | ')}`,
+      confidence: 0.52,
+    });
+    add({
+      sourceField: 'hooks',
+      signalPath: 'voice.hookArchetypes',
+      rawValue: args.content.headings,
+      normalizedValue: crawlHookArchetypes(args.content.headings),
+      excerpt: `Crawled page hook language: ${args.content.headings.join(' | ')}`,
+      confidence: 0.48,
+    });
+  }
+  if (args.content.ctas.length > 0) {
+    add({
+      sourceField: 'ctas',
+      signalPath: 'voice.ctaDirectness',
+      rawValue: args.content.ctas,
+      normalizedValue: crawlCtaDirectness(args.content.ctas),
+      excerpt: `Crawled page CTAs: ${args.content.ctas.join(' | ')}`,
+      confidence: 0.58,
+    });
+  }
+  if (args.content.proofSnippets.length > 0) {
+    add({
+      sourceField: 'proof',
+      signalPath: 'identity.proofStyle',
+      rawValue: args.content.proofSnippets,
+      normalizedValue: crawlProofStyle(args.content.proofSnippets.join(' ')),
+      excerpt: `Crawled proof evidence: ${args.content.proofSnippets.join(' | ')}`,
+      confidence: 0.58,
+    });
+  }
+  if (args.content.bodyText) {
+    add({
+      sourceField: 'copy',
+      signalPath: 'identity.audience',
+      rawValue: args.content.bodyText,
+      normalizedValue: args.content.bodyText,
+      excerpt: args.content.bodyText,
+      confidence: 0.42,
+    });
+  }
+
+  return candidates.slice(0, 6);
+}
+
+interface CrawlPageContent {
+  title?: string;
+  headings: string[];
+  ctas: string[];
+  proofSnippets: string[];
+  bodyText?: string;
+}
+
+function extractCrawlPageContent(snapshot: BrandWebsiteSnapshot): CrawlPageContent {
+  const $ = load(snapshot.html);
+  const headings = crawlTexts($, 'h1,h2,h3', 8);
+  const ctas = crawlTexts($, 'a,button', 8).filter((text) => /\b(?:book|start|get|try|request|contact|demo|buy|talk|schedule|join|download|learn)\b/i.test(text));
+  const proofSnippets = uniqueStrings([
+    ...crawlTexts($, '[class*="testimonial"],[class*="case"],[class*="customer"],[class*="proof"],blockquote', 8),
+    ...crawlMetricSnippets($.text()),
+  ]).slice(0, 8);
+
+  $('script,style,noscript,svg').remove();
+  const bodyText = sanitizeEvidenceExcerpt($('body').text().replace(/\s+/g, ' ').trim(), 900);
+  return {
+    title: pageTitle(snapshot.html),
+    headings,
+    ctas,
+    proofSnippets,
+    bodyText: bodyText || undefined,
+  };
+}
+
+function crawlTexts($: ReturnType<typeof load>, selector: string, limit: number): string[] {
+  return uniqueStrings($(selector)
+    .map((_, element) => sanitizeEvidenceExcerpt($(element).text().replace(/\s+/g, ' ').trim(), 180))
+    .get()
+    .filter((text) => text.length >= 3))
+    .slice(0, limit);
+}
+
+function crawlMetricSnippets(text: string): string[] {
+  return uniqueStrings(text
+    .split(/(?<=[.!?])\s+/)
+    .map((line) => sanitizeEvidenceExcerpt(line.replace(/\s+/g, ' ').trim(), 180))
+    .filter((line) => /\b(?:trusted by|customers?|clients?|teams?|case stud|results?|roi|growth|revenue|\d+[%x+]|\d+\s*(?:k|m|b)?\+?)\b/i.test(line)))
+    .slice(0, 6);
+}
+
+function crawlHookArchetypes(headings: string[]): string[] {
+  const joined = headings.join(' ').toLowerCase();
+  const hooks: string[] = [];
+  if (/\b(?:how|why|what|when)\b/.test(joined)) hooks.push('question');
+  if (/\b(?:fast|quick|days?|minutes?|instant|speed)\b/.test(joined)) hooks.push('speed');
+  if (/\b(?:trusted|proof|results?|case|customers?)\b/.test(joined)) hooks.push('proof');
+  if (/\b(?:one|platform|system|all-in-one|operating system)\b/.test(joined)) hooks.push('system');
+  if (/\b(?:stop|avoid|without|instead)\b/.test(joined)) hooks.push('contrast');
+  return hooks.length > 0 ? hooks : headings.slice(0, 4);
+}
+
+function crawlCtaDirectness(ctas: string[]): number {
+  const text = ctas.join(' ').toLowerCase();
+  const direct = scoreKeywordHits(text, ['start', 'get', 'book', 'buy', 'request', 'schedule', 'talk']);
+  const soft = scoreKeywordHits(text, ['learn', 'explore', 'read', 'discover']);
+  return Math.max(0, Math.min(1, 0.5 + direct * 0.12 - soft * 0.08));
+}
+
+function crawlProofStyle(text: string): BrandSignalProfile['identity']['proofStyle']['value'] {
+  const lower = text.toLowerCase();
+  if (/\b(?:\d+[%x+]|\d+\s*(?:k|m|b)?\+?|roi|revenue|growth|faster|saved)\b/.test(lower)) return 'metrics';
+  if (/\b(?:testimonial|quote|said|loved|review)\b/.test(lower)) return 'testimonial';
+  if (/\b(?:trusted by|customers?|clients?|community|teams?)\b/.test(lower)) return 'community';
+  if (/\b(?:case stud|results?|portfolio|work)\b/.test(lower)) return 'demo';
+  return 'editorial';
+}
+
+function scoreKeywordHits(text: string, keywords: string[]): number {
+  return keywords.reduce((sum, keyword) => sum + (text.includes(keyword) ? 1 : 0), 0);
 }
 
 function pageTitle(html: string): string | undefined {
