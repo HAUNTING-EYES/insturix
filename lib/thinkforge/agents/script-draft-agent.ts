@@ -15,7 +15,7 @@ import type { SectionOutput } from './script-section-agent';
 import { ScriptContractAgent, type NarrativeContract } from './script-contract-agent';
 import { ScriptAuthorAgent, type ScriptAuthorInput } from './script-author-agent';
 import type { AgentConfig } from './base-agent';
-import { quickAssembleContext } from '../context';
+import { quickAssembleContext, type RetrievedContext } from '../context';
 import type { SessionState } from '../state/types';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
@@ -23,6 +23,14 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import { scoreContent } from '../data/quality-scorer';
 import { StylistAgent } from './stylist-agent';
 import {
+  evaluateContentProfileCompliance,
+  formatContentProfileComplianceViolations,
+  formatContentSignalProfileForPrompt,
+  resolveContentSignalProfile,
+  shouldAutoRepairContentProfileViolations,
+} from '../signals';
+import {
+  applyContentSignalProfileToClickatronExportMeta,
   appendClickatronCreativeSidecarInstruction,
   attachClickatronCreativeExportMeta,
   extractRequiredClickatronCreativeSidecar,
@@ -85,16 +93,36 @@ export class ScriptDraftAgent {
     this.applyAbortSignal(abortSignal);
     const generationMode = input.generationMode ?? 'manual';
     const modeAwareInput: AgentInput = { ...input, generationMode };
-    const shouldAuthorClickatronCreative = shouldRequestClickatronCreativeSidecar(modeAwareInput);
+    const contentSignalProfile = resolveContentSignalProfile({
+      userPrompt: modeAwareInput.userPrompt,
+      project: modeAwareInput.project,
+      context: modeAwareInput.context,
+      documentType: modeAwareInput.project?.format,
+      platform: modeAwareInput.project?.platform,
+      brandId: modeAwareInput.brandId ?? modeAwareInput.project?.brandId,
+      sessionId: modeAwareInput.sessionId,
+      retrievedContext: modeAwareInput.retrievedContext,
+    });
+    const signalProfileBlock = formatContentSignalProfileForPrompt(contentSignalProfile);
+    const signalAwareInput: AgentInput = {
+      ...modeAwareInput,
+      context: {
+        ...modeAwareInput.context,
+        systemBrief: [modeAwareInput.context.systemBrief, signalProfileBlock]
+          .filter(Boolean)
+          .join('\n\n'),
+      },
+    };
+    const shouldAuthorClickatronCreative = shouldRequestClickatronCreativeSidecar(modeAwareInput, contentSignalProfile);
     const authorInput = shouldAuthorClickatronCreative
-      ? appendClickatronCreativeSidecarInstruction(modeAwareInput)
+      ? appendClickatronCreativeSidecarInstruction(modeAwareInput, contentSignalProfile)
       : modeAwareInput;
 
     if (callbacks?.onProgress) {
       await callbacks.onProgress({ progress: 0.02, message: 'Analyzing brief' });
     }
 
-    const contract = await this.contractAgent.generateContract(modeAwareInput, {
+    const contract = await this.contractAgent.generateContract(signalAwareInput, {
       maxTokens: 400,
       temperature: 0.2,
     });
@@ -103,7 +131,7 @@ export class ScriptDraftAgent {
       await callbacks.onProgress({ progress: 0.1, message: 'Building outline' });
     }
 
-    const outlineRaw = await this.outlineAgent.generateOutline(modeAwareInput, {
+    const outlineRaw = await this.outlineAgent.generateOutline(signalAwareInput, {
       maxTokens: 500,
       temperature: 0.2,
     });
@@ -118,6 +146,7 @@ export class ScriptDraftAgent {
       ...authorInput,
       outline,
       contract,
+      contentSignalProfile,
     };
 
     const { stream } = await this.authorAgent.run(authorRunInput);
@@ -162,6 +191,13 @@ export class ScriptDraftAgent {
       ? extractRequiredClickatronCreativeSidecar(markdown)
       : { visibleMarkdown: stripClickatronCreativeSidecarText(markdown), exportMeta: undefined };
     let clickatronExportMeta = clickatronExtraction.exportMeta;
+    if (clickatronExportMeta) {
+      clickatronExportMeta = applyContentSignalProfileToClickatronExportMeta(
+        clickatronExportMeta,
+        modeAwareInput,
+        contentSignalProfile,
+      );
+    }
     let clickatronStaleReason: string | undefined;
     const visibleMarkdown = clickatronExtraction.visibleMarkdown;
     const parsedBlocks = parseMarkdownToBlocks(visibleMarkdown);
@@ -181,10 +217,23 @@ export class ScriptDraftAgent {
     // ─── Post-generation: Quality Scoring + Stylist Review ────────
     let qualityScore = 100;
     let qualityViolations: string[] = [];
+    let shouldRunStylistReview = false;
     try {
       const score = scoreContent(content);
       qualityScore = score.score;
       qualityViolations = score.violations.map(v => v.message);
+      shouldRunStylistReview = score.score < 90;
+      const profileCompliance = evaluateContentProfileCompliance(content, contentSignalProfile);
+      if (profileCompliance.violations.length > 0) {
+        const shouldRepairProfile = shouldAutoRepairContentProfileViolations(profileCompliance.violations);
+        qualityScore = Math.min(qualityScore, profileCompliance.score);
+        shouldRunStylistReview = shouldRunStylistReview || shouldRepairProfile;
+        qualityViolations = [
+          ...qualityViolations,
+          ...formatContentProfileComplianceViolations(profileCompliance.violations),
+        ];
+        console.log(`[ThinkForge:ProfileCompliance] Score: ${profileCompliance.score}/100. Violations: ${profileCompliance.violations.map(v => v.id).join(', ')}`);
+      }
       if (score.violations.length > 0) {
         console.log(`[ThinkForge:Quality] Score: ${score.score}/100 (${score.status}). Violations: ${score.violations.map(v => v.constraintId).join(', ')}`);
       }
@@ -193,14 +242,14 @@ export class ScriptDraftAgent {
     }
 
     let stylistFlags: string[] = [];
-    if (qualityScore < 90) {
+    if (shouldRunStylistReview) {
       try {
         if (callbacks?.onProgress) {
           await callbacks.onProgress({ progress: 0.9, message: 'Reviewing voice quality' });
         }
         const stylist = new StylistAgent();
         const review = await stylist.checkVoice({
-          context: modeAwareInput.context,
+          context: signalAwareInput.context,
           userPrompt: content,
         });
         stylistFlags = review.flags.filter(f => f.severity === 'high').map(f => `${f.issue}: ${f.suggestion}`);
@@ -215,12 +264,14 @@ export class ScriptDraftAgent {
             content,
             violations: qualityViolations,
             flags: stylistFlags,
-            brandContext: modeAwareInput.context.systemBrief,
+            brandContext: signalAwareInput.context.systemBrief,
           });
           if (rewritten) {
             const newScore = scoreContent(rewritten);
-            if (newScore.score > qualityScore) {
-              console.log(`[ThinkForge:Stylist] Rewrite improved quality: ${qualityScore} → ${newScore.score}`);
+            const newProfileCompliance = evaluateContentProfileCompliance(rewritten, contentSignalProfile);
+            const combinedRewriteScore = Math.min(newScore.score, newProfileCompliance.score);
+            if (combinedRewriteScore > qualityScore) {
+              console.log(`[ThinkForge:Stylist] Rewrite improved quality: ${qualityScore} → ${combinedRewriteScore}`);
               content = rewritten;
               const newParsed = parseMarkdownToBlocks(rewritten);
               blocks = validateThinkForgeBlocks(
@@ -231,10 +282,13 @@ export class ScriptDraftAgent {
               if (clickatronExportMeta) {
                 clickatronStaleReason = 'source_content_rewritten_by_stylist';
               }
-              qualityScore = newScore.score;
-              qualityViolations = newScore.violations.map(v => v.message);
+              qualityScore = combinedRewriteScore;
+              qualityViolations = [
+                ...newScore.violations.map(v => v.message),
+                ...formatContentProfileComplianceViolations(newProfileCompliance.violations),
+              ];
             } else {
-              console.log(`[ThinkForge:Stylist] Rewrite did not improve (${qualityScore} → ${newScore.score}), keeping original`);
+              console.log(`[ThinkForge:Stylist] Rewrite did not improve (${qualityScore} → ${combinedRewriteScore}), keeping original`);
             }
           }
         }
@@ -291,6 +345,7 @@ export async function generateScriptDraft(
   abortSignal?: AbortSignal,
   callbacks?: ScriptDraftCallbacks,
   systemBrief?: string | null,
+  retrievedContext?: RetrievedContext | null,
 ): Promise<ScriptDraftResult> {
   const context = quickAssembleContext(
     'script_draft',
@@ -302,6 +357,13 @@ export async function generateScriptDraft(
   );
 
   const agent = createScriptDraftAgent();
-  return agent.generateScript({ context, userPrompt: instruction }, abortSignal, callbacks);
+  return agent.generateScript({
+    context,
+    project: sessionState.metadata,
+    sessionId: sessionState.sessionId,
+    brandId: sessionState.metadata.brandId,
+    retrievedContext,
+    userPrompt: instruction,
+  }, abortSignal, callbacks);
 }
 

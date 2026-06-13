@@ -1,3 +1,5 @@
+import type { RetrievedContext } from '../context/fetchContextSources';
+
 /**
  * ThinkForge AI Agent Types
  * 
@@ -32,6 +34,14 @@ export interface AssembledContext {
 export interface AgentInput {
   /** Assembled context from the context layer */
   context: AssembledContext;
+  /** Stable session provenance for downstream handoffs */
+  sessionId?: string;
+  /** Active brand provenance for deterministic signal/profile resolution */
+  brandId?: string;
+  /** Raw project metadata used by deterministic resolvers before prompt assembly */
+  project?: ProjectContextData | null;
+  /** Structured BrandDNA, DataBank facts, and interaction memory fetched before prompt assembly */
+  retrievedContext?: RetrievedContext | null;
   /** The user's prompt/instruction */
   userPrompt: string;
   /** Generation mode selector */
@@ -143,6 +153,9 @@ export interface ProjectContextData {
   platform?: string;
   tone?: string;
   projectName?: string;
+  sessionName?: string;
+  brandId?: string;
+  brandBrief?: string;
 }
 
 /**

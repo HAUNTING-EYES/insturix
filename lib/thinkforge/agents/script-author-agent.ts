@@ -7,11 +7,16 @@ import { ScriptIntent, type AgentScriptResponse } from '../protocol/intent';
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { selectAllTechniques, selectTechniques, getConstraints, type TechniqueResult } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
+import {
+  formatContentSignalProfileForPrompt,
+  type ThinkForgeContentSignalProfile,
+} from '../signals';
 
 export interface ScriptAuthorInput extends AgentInput {
   outline?: ScriptOutline;
   contract?: NarrativeContract;
   documentType?: string;
+  contentSignalProfile?: ThinkForgeContentSignalProfile;
 }
 
 export interface ScriptAuthorIntentInput extends AgentInput {
@@ -20,6 +25,7 @@ export interface ScriptAuthorIntentInput extends AgentInput {
   currentScript?: ThinkForgeBlock[];
   recentBlocks?: ThinkForgeBlock[];
   documentType?: string;
+  contentSignalProfile?: ThinkForgeContentSignalProfile;
 }
 
 interface DocumentRoleProfile {
@@ -286,6 +292,18 @@ export class ScriptAuthorAgent extends BaseAgent {
     }
   }
 
+  private buildContentSignalProfileBlock(profile?: ThinkForgeContentSignalProfile): string {
+    if (!profile) return '';
+    return `${formatContentSignalProfileForPrompt(profile)}
+
+<signal_execution_rules>
+- Treat content_signal_profile as the source of truth for format, platform, audience, goal, tone, proof, constraints, and visual/export needs.
+- Use brand_context for supporting evidence and voice texture, but do not override explicit resolved signals.
+- If the user's request conflicts with a resolved hard constraint, obey the hard constraint and keep the output useful.
+- Do not mention the content_signal_profile or these internal rules in the final output.
+</signal_execution_rules>`;
+  }
+
   // ─── Output Format (RC1+RC2: signal-driven, not hardcoded) ────────
   private buildOutputFormatBlock(params: {
     documentType?: string;
@@ -293,8 +311,9 @@ export class ScriptAuthorAgent extends BaseAgent {
     signals: Partial<import('../../shared/signals/types').CreativeSignals>;
     userPrompt?: string;
     projectSummary?: string;
+    platform?: string;
   }): string {
-    const { documentType, medium, signals, userPrompt, projectSummary } = params;
+    const { documentType, medium, signals, userPrompt, projectSummary, platform: resolvedPlatform } = params;
     const docType = (documentType || medium || '').toLowerCase();
 
     const isVideo = /video|film|ad|commercial|reel|short.?form|youtube|tiktok|ugc/i.test(docType);
@@ -303,7 +322,7 @@ export class ScriptAuthorAgent extends BaseAgent {
       /\b(linkedin|twitter|tweet|instagram|facebook|post)\b/i.test(userPrompt || '');
 
     if (!isVideo && !isShotList && isPost) {
-      const platform = detectPlatform(userPrompt || '', docType, projectSummary);
+      const platform = detectPlatform([userPrompt, resolvedPlatform].filter(Boolean).join(' '), docType, projectSummary);
       const config = PLATFORM_CONFIGS[platform];
       console.log(`[ThinkForge:Platform] Detected: ${platform} from ${userPrompt ? 'userPrompt' : 'docType'}`);
 
@@ -445,8 +464,9 @@ VERIFY BEFORE OUTPUT:
     outlineSummary: string;
     outlineTitle?: string;
     brandBlock?: string; // XML brand context from buildBrandContextBlock()
+    signalBlock?: string;
   }): string {
-    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, outlineTitle, brandBlock } = params;
+    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, outlineTitle, brandBlock, signalBlock } = params;
 
     const contractBlock = contract
       ? `<contract>
@@ -473,6 +493,7 @@ User request: ${userRequest}
 
 ${contractBlock}
 
+${signalBlock || ''}
 ${brandBlock || ''}
 <rules>
 RULE 1 — CONTENT QUALITY:
@@ -538,7 +559,10 @@ ${outlineSummary}
       ? outline.sections.map((s) => `- ${s.title}: ${s.goal}`).join('\n')
       : 'None';
 
-    const roleProfile = inferRoleFromContext(context.projectSummary || '', instruction, input.documentType);
+    const contentSignalProfile = input.contentSignalProfile;
+    const resolvedDocumentType = input.documentType ?? contentSignalProfile?.profile.constraints.output_format;
+    const roleProfile = inferRoleFromContext(context.projectSummary || '', instruction, resolvedDocumentType);
+    const signalBlock = this.buildContentSignalProfileBlock(contentSignalProfile);
 
     // Brand context: use systemBrief from ThinkForge's 3-tier retrieval (BrandDNA, facts, patterns)
     const brandBlock = context.systemBrief
@@ -553,6 +577,7 @@ ${outlineSummary}
       outlineSummary,
       outlineTitle: outline?.title,
       brandBlock,
+      signalBlock,
     });
 
     return `${core}
@@ -621,13 +646,16 @@ Final rule: This must feel like something a professional would use immediately �
     const roleProfile = inferRoleFromContext(
       context.projectSummary || '',
       userPrompt,
-      (input as ScriptAuthorInput).documentType
+      (input as ScriptAuthorInput).documentType ?? (input as ScriptAuthorInput).contentSignalProfile?.profile.constraints.output_format
     );
 
     // Brand context: use systemBrief from ThinkForge's 3-tier retrieval
     const brandBlock = context.systemBrief
       ? `<brand_context>\n${context.systemBrief}\n</brand_context>`
       : '';
+
+    const contentSignalProfile = (input as ScriptAuthorInput).contentSignalProfile;
+    const signalBlock = this.buildContentSignalProfileBlock(contentSignalProfile);
 
     const core = this.buildCorePromptBlock({
       roleProfile,
@@ -637,11 +665,12 @@ Final rule: This must feel like something a professional would use immediately �
       outlineSummary,
       outlineTitle: outline?.title,
       brandBlock,
+      signalBlock,
     });
 
-    const documentType = (input as ScriptAuthorInput).documentType;
-    const medium = contract?.medium;
-    const signals = extractSignalsFromContext({
+    const documentType = (input as ScriptAuthorInput).documentType ?? contentSignalProfile?.profile.constraints.output_format;
+    const medium = contract?.medium ?? contentSignalProfile?.profile.constraints.output_format;
+    const signals = contentSignalProfile?.profile.signals ?? extractSignalsFromContext({
       documentType,
       medium,
       projectSummary: context.projectSummary,
@@ -649,7 +678,14 @@ Final rule: This must feel like something a professional would use immediately �
     });
 
     const writingBlock = this.buildWritingKnowledgeBlock(signals);
-    const outputFormat = this.buildOutputFormatBlock({ documentType, medium, signals, userPrompt, projectSummary: context.projectSummary });
+    const outputFormat = this.buildOutputFormatBlock({
+      documentType,
+      medium,
+      signals,
+      userPrompt,
+      projectSummary: context.projectSummary,
+      platform: contentSignalProfile?.intent.platform,
+    });
 
     return `${writingBlock}
 

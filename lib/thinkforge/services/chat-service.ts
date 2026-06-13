@@ -383,7 +383,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
                   });
                 },
               },
-              systemBrief
+              systemBrief,
+              retrievedCtx
             );
 
             // Save document
@@ -852,7 +853,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
               await emitEvent('script_update', partialUpdate);
             }
           },
-          systemBrief
+          systemBrief,
+          retrievedCtx
         );
 
         // Save new script with richText (Tiptap JSON AST)
