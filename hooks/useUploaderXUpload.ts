@@ -374,9 +374,82 @@ export function useUploaderXUpload() {
     categoryId?: string,
     publishAt?: string,
     thumbnailPublicUrl?: string,
-    postType?: string
+    postType?: string,
+    duration?: number
   ): Promise<UploaderXPublishReceipt> => {
     try {
+      if (duration !== undefined && duration > 120) {
+        // Phase 1: Start
+        const startRes = await fetch("/api/services/uploaderx/youtube/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "start",
+            videoUuid,
+            title,
+            description,
+            privacyStatus,
+            categoryId,
+            publishAt,
+            postType,
+          }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok || !startData.success) {
+          throw new Error(startData.error || "Failed to start YouTube chunked upload");
+        }
+
+        const { uploadUrl, fileSize } = startData;
+
+        // Phase 2: Transfer Loop
+        let startOffset = 0;
+        const chunkSize = 10 * 1024 * 1024; // 10MB Chunks
+        let finalVideoId = "";
+
+        while (startOffset < fileSize) {
+          const transferRes = await fetch("/api/services/uploaderx/youtube/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase: "transfer",
+              videoUuid,
+              uploadUrl,
+              startOffset,
+              chunkSize,
+            }),
+          });
+          const transferData = await transferRes.json();
+          if (!transferRes.ok || !transferData.success) {
+            throw new Error(transferData.error || "Failed to upload YouTube chunk");
+          }
+
+          if (transferData.finished) {
+            finalVideoId = transferData.videoId;
+            break;
+          }
+          startOffset = transferData.nextOffset;
+        }
+
+        // Phase 3: Finish
+        const finishRes = await fetch("/api/services/uploaderx/youtube/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "finish",
+            videoUuid,
+            videoId: finalVideoId,
+            thumbnailPublicUrl,
+            postType,
+          }),
+        });
+        const finishData = await finishRes.json();
+        if (!finishRes.ok || !finishData.success) {
+          throw new Error(finishData.error || "Failed to finalize YouTube chunked upload");
+        }
+
+        return normalizePublishSuccess("youtube", finishData);
+      }
+
       const payload: YouTubePublishPayload = {
         gcsPath,
         filename,
@@ -463,9 +536,73 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     pageId?: string,
-    postType?: string
+    postType?: string,
+    duration?: number
   ): Promise<UploaderXPublishReceipt> => {
     try {
+      if (duration !== undefined && duration > 120) {
+        // Phase 1: Start
+        const startRes = await fetch("/api/services/uploaderx/facebook/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phase: "start", videoUuid, postType, pageId }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok || !startData.success) {
+          throw new Error(startData.error || "Failed to start Facebook chunked upload");
+        }
+
+        const { uploadSessionId, videoId, uploadUrl, fileSize } = startData;
+
+        // Phase 2: Transfer Loop
+        let startOffset = 0;
+        const chunkSize = 10 * 1024 * 1024; // 10MB Chunks
+        while (startOffset < fileSize) {
+          const transferRes = await fetch("/api/services/uploaderx/facebook/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase: "transfer",
+              videoUuid,
+              postType,
+              pageId,
+              uploadSessionId,
+              videoId,
+              uploadUrl,
+              startOffset,
+              chunkSize,
+            }),
+          });
+          const transferData = await transferRes.json();
+          if (!transferRes.ok || !transferData.success) {
+            throw new Error(transferData.error || "Failed to upload Facebook chunk");
+          }
+          startOffset = transferData.nextOffset;
+        }
+
+        // Phase 3: Finish
+        const finishRes = await fetch("/api/services/uploaderx/facebook/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "finish",
+            videoUuid,
+            postType,
+            pageId,
+            uploadSessionId,
+            videoId,
+            title,
+            description,
+          }),
+        });
+        const finishData = await finishRes.json();
+        if (!finishRes.ok || !finishData.success) {
+          throw new Error(finishData.error || "Failed to finalize Facebook chunked upload");
+        }
+
+        return normalizePublishSuccess("facebook", finishData);
+      }
+
       const payload: FacebookPublishPayload = {
         gcsPath,
         videoUuid,
@@ -505,9 +642,95 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     accountId?: string,
-    postType?: string
+    postType?: string,
+    duration?: number
   ): Promise<UploaderXPublishReceipt> => {
     try {
+      if (duration !== undefined && duration > 120) {
+        // Phase 1: Start
+        const startRes = await fetch("/api/services/uploaderx/instagram/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phase: "start", videoUuid, postType, accountId, title, description }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok || !startData.success) {
+          throw new Error(startData.error || "Failed to start Instagram chunked upload");
+        }
+
+        const { uploadSessionId, fileSize } = startData;
+
+        // Phase 2: Transfer Loop
+        let startOffset = 0;
+        const chunkSize = 10 * 1024 * 1024; // 10MB Chunks
+        while (startOffset < fileSize) {
+          const transferRes = await fetch("/api/services/uploaderx/instagram/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase: "transfer",
+              videoUuid,
+              uploadSessionId,
+              startOffset,
+              chunkSize,
+            }),
+          });
+          const transferData = await transferRes.json();
+          if (!transferRes.ok || !transferData.success) {
+            throw new Error(transferData.error || "Failed to upload Instagram chunk");
+          }
+          startOffset = transferData.nextOffset;
+        }
+
+        // Phase 3: Poll
+        let containerStatus = "IN_PROGRESS";
+        let attempts = 0;
+        const maxAttempts = 60;
+        while (containerStatus === "IN_PROGRESS" && attempts < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          attempts++;
+
+          const statusRes = await fetch("/api/services/uploaderx/instagram/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phase: "poll", videoUuid, uploadSessionId }),
+          });
+          const statusData = await statusRes.json();
+          if (!statusRes.ok || !statusData.success) {
+            throw new Error(statusData.error || "Failed to query Instagram status");
+          }
+          containerStatus = statusData.statusCode;
+          if (containerStatus === "ERROR") {
+            throw new Error("Instagram Reel processing status is ERROR");
+          }
+        }
+
+        if (containerStatus !== "FINISHED") {
+          throw new Error("Instagram Reel processing timed out.");
+        }
+
+        // Phase 4: Publish
+        const publishRes = await fetch("/api/services/uploaderx/instagram/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "publish",
+            videoUuid,
+            uploadSessionId,
+            accountId,
+            title,
+            description,
+            postType,
+          }),
+        });
+        const publishData = await publishRes.json();
+        if (!publishRes.ok || !publishData.success) {
+          throw new Error(publishData.error || "Failed to publish Instagram media container");
+        }
+
+        return normalizePublishSuccess("instagram", publishData);
+      }
+
       const payload: InstagramPublishPayload = {
         gcsPath,
         videoUuid,
@@ -547,9 +770,109 @@ export function useUploaderXUpload() {
     title?: string,
     description?: string,
     replySettings?: TwitterPublishPayload["replySettings"],
-    postType?: string
+    postType?: string,
+    duration?: number
   ): Promise<UploaderXPublishReceipt> => {
     try {
+      if (duration !== undefined && duration > 120 && videoUuid) {
+        // Phase 1: Start
+        const startRes = await fetch("/api/services/uploaderx/twitter/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phase: "start", videoUuid }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok || !startData.success) {
+          throw new Error(startData.error || "Failed to start Twitter chunked upload");
+        }
+
+        const { mediaId, fileSize } = startData;
+
+        // Phase 2: Transfer Loop
+        let startOffset = 0;
+        const chunkSize = 5 * 1024 * 1024; // 5MB Chunks (Twitter strict limit)
+        let segmentIndex = 0;
+        while (startOffset < fileSize) {
+          const transferRes = await fetch("/api/services/uploaderx/twitter/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase: "transfer",
+              videoUuid,
+              mediaId,
+              segmentIndex,
+              startOffset,
+              chunkSize,
+            }),
+          });
+          const transferData = await transferRes.json();
+          if (!transferRes.ok || !transferData.success) {
+            throw new Error(transferData.error || "Failed to upload Twitter chunk");
+          }
+          startOffset = transferData.nextOffset;
+          segmentIndex++;
+        }
+
+        // Phase 3: Finalize
+        const finalizeRes = await fetch("/api/services/uploaderx/twitter/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phase: "finalize", videoUuid, mediaId }),
+        });
+        const finalizeData = await finalizeRes.json();
+        if (!finalizeRes.ok || !finalizeData.success) {
+          throw new Error(finalizeData.error || "Failed to finalize Twitter chunked upload");
+        }
+
+        // Phase 4: Poll
+        let xStatus = "in_progress";
+        let attempts = 0;
+        const maxAttempts = 60;
+        while ((xStatus === "in_progress" || xStatus === "pending") && attempts < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          attempts++;
+
+          const statusRes = await fetch("/api/services/uploaderx/twitter/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phase: "poll", videoUuid, mediaId }),
+          });
+          const statusData = await statusRes.json();
+          if (!statusRes.ok || !statusData.success) {
+            throw new Error(statusData.error || "Failed to query Twitter media status");
+          }
+          xStatus = statusData.state;
+          if (xStatus === "failed") {
+            throw new Error("Twitter video processing status is FAILED");
+          }
+        }
+
+        if (xStatus !== "succeeded") {
+          throw new Error("Twitter video processing timed out.");
+        }
+
+        // Phase 5: Publish
+        const publishRes = await fetch("/api/services/uploaderx/twitter/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "publish",
+            videoUuid,
+            mediaId,
+            title,
+            description,
+            replySettings,
+            postType,
+          }),
+        });
+        const publishData = await publishRes.json();
+        if (!publishRes.ok || !publishData.success) {
+          throw new Error(publishData.error || "Failed to create tweet");
+        }
+
+        return normalizePublishSuccess("twitter", publishData);
+      }
+
       const payload: TwitterPublishPayload = {
         gcsPath,
         videoUuid,
@@ -590,9 +913,70 @@ export function useUploaderXUpload() {
     description?: string,
     postType?: 'personal' | 'organization',
     organizationId?: string,
-    videoPostType?: string
+    videoPostType?: string,
+    duration?: number
   ): Promise<UploaderXPublishReceipt> => {
     try {
+      if (duration !== undefined && duration > 120 && videoUuid) {
+        // Phase 1: Start
+        const startRes = await fetch("/api/services/uploaderx/linkedin/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phase: "start", videoUuid, postType, organizationId, videoPostType }),
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok || !startData.success) {
+          throw new Error(startData.error || "Failed to start LinkedIn chunked upload");
+        }
+
+        const { videoUrn, uploadToken, uploadInstructions } = startData;
+
+        // Phase 2: Transfer Loop
+        const uploadedPartIds: string[] = [];
+        for (const instruction of uploadInstructions) {
+          const transferRes = await fetch("/api/services/uploaderx/linkedin/chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase: "transfer",
+              videoUuid,
+              uploadUrl: instruction.uploadUrl,
+              firstByte: Number(instruction.firstByte),
+              lastByte: Number(instruction.lastByte),
+            }),
+          });
+          const transferData = await transferRes.json();
+          if (!transferRes.ok || !transferData.success) {
+            throw new Error(transferData.error || "Failed to upload LinkedIn chunk");
+          }
+          uploadedPartIds.push(transferData.etag);
+        }
+
+        // Phase 3: Finish
+        const finishRes = await fetch("/api/services/uploaderx/linkedin/chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "finish",
+            videoUuid,
+            videoUrn,
+            uploadToken,
+            uploadedPartIds,
+            title,
+            description,
+            postType,
+            organizationId,
+            videoPostType,
+          }),
+        });
+        const finishData = await finishRes.json();
+        if (!finishRes.ok || !finishData.success) {
+          throw new Error(finishData.error || "Failed to finalize LinkedIn chunked upload");
+        }
+
+        return normalizePublishSuccess("linkedin", finishData);
+      }
+
       const payload: LinkedInPublishPayload = {
         gcsPath,
         videoUuid,

@@ -718,6 +718,7 @@ export function UploaderXClientWrapper() {
               metaSchedule ? new Date(metaSchedule).toISOString() : undefined,
               thumbnailPublicUrl,
               selectedPostTypes["youtube"] || "video",
+              videoMetadata?.duration,
             );
             break;
           }
@@ -729,6 +730,7 @@ export function UploaderXClientWrapper() {
               fbMessage || description,
               undefined,
               selectedPostTypes["facebook"] || "reel",
+              videoMetadata?.duration,
             );
             break;
           case "instagram":
@@ -739,6 +741,7 @@ export function UploaderXClientWrapper() {
               igCaption || description,
               undefined,
               selectedPostTypes["instagram"] || "reel",
+              videoMetadata?.duration,
             );
             break;
           case "twitter":
@@ -749,6 +752,7 @@ export function UploaderXClientWrapper() {
               description,
               xReplySettings,
               selectedPostTypes["twitter"] || "video",
+              videoMetadata?.duration,
             );
             break;
           case "linkedin":
@@ -760,6 +764,7 @@ export function UploaderXClientWrapper() {
               liPostType,
               undefined,
               selectedPostTypes["linkedin"] || "video",
+              videoMetadata?.duration,
             );
             break;
           default:
