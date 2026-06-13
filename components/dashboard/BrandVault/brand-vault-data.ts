@@ -355,8 +355,10 @@ function sourceLaneStatus(args: {
   failed: boolean;
 }): SourceLane['status'] {
   if (args.failed || args.intakeStatus === 'failed') return 'failed';
-  if (args.intakeStatus === 'complete' || args.liveCount > 0) return 'live';
-  if (args.intakeStatus === 'needs_review' || args.intakeStatus === 'needs_auth' || args.stagedCount > 0) return 'pending';
+  if (args.intakeStatus === 'complete') return 'live';
+  if (args.intakeStatus === 'needs_review' || args.intakeStatus === 'needs_auth') return 'pending';
+  if (args.liveCount > 0) return 'live';
+  if (args.stagedCount > 0) return 'pending';
   return 'not_provided';
 }
 

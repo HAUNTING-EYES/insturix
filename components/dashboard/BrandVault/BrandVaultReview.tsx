@@ -726,8 +726,8 @@ function FastSetupPanel({
         </div>
       </div>
 
-      <form onSubmit={onCreateDraft} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
-        <div className="grid gap-3">
+      <form onSubmit={onCreateDraft} className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
+        <div className="grid content-start gap-3">
           <label className="grid gap-2">
             <span className="bv-c1-mono">Client website</span>
             <input
@@ -753,17 +753,24 @@ function FastSetupPanel({
           />
         </div>
 
-        <div className="grid gap-3">
+        <div className="grid content-start gap-3">
           <label className="grid gap-2">
             <span className="bv-c1-mono">Brand files</span>
-            <input
-              type="file"
-              multiple
-              accept={BRAND_VAULT_UPLOAD_ACCEPT}
-              onChange={onUploadFiles}
-              disabled={busy}
-              className="bv-c1-input"
-            />
+            <span className="bv-c1-file-picker">
+              <input
+                type="file"
+                multiple
+                accept={BRAND_VAULT_UPLOAD_ACCEPT}
+                onChange={onUploadFiles}
+                disabled={busy}
+                className="bv-c1-file-input"
+              />
+              <span>
+                <FileText size={14} />
+                Choose brand files
+              </span>
+              <em>PDF, docs, slides, images, CSS, SVG</em>
+            </span>
           </label>
           <label className="grid gap-2">
             <span className="bv-c1-mono">Source notes</span>
@@ -774,7 +781,7 @@ function FastSetupPanel({
               className="bv-c1-input min-h-[92px] resize-y"
             />
           </label>
-          <button type="submit" className="bv-c1-primary min-h-10" disabled={busy}>
+          <button type="submit" className="bv-c1-primary min-h-10 w-full" disabled={busy}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
             {uploadStatus === 'extracting' ? 'Reading files' : 'Start scan'}
           </button>
@@ -1272,6 +1279,48 @@ const baseStyles = `
 .bv-c1-icon-button:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(212, 166, 82, 0.25);
+}
+.bv-c1-file-picker {
+  position: relative;
+  min-height: 74px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed #282724;
+  border-radius: 8px;
+  background: #131312;
+  color: #ECE9E1;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+}
+.bv-c1-file-picker:hover {
+  border-color: rgba(212, 166, 82, 0.55);
+  background: rgba(212, 166, 82, 0.06);
+}
+.bv-c1-file-picker > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 750;
+}
+.bv-c1-file-picker em {
+  color: #7A776E;
+  font-size: 11px;
+  font-style: normal;
+}
+.bv-c1-file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.bv-c1-file-input:disabled,
+.bv-c1-file-input:disabled + span,
+.bv-c1-file-input:disabled ~ em {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .bv-c1-social-panel {
   display: grid;

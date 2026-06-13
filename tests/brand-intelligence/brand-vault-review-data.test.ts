@@ -172,7 +172,7 @@ describe('Brand Vault review data helpers', () => {
             },
           ],
         },
-      } as NonNullable<BrandVaultSnapshot['reviewPayload']>,
+      } as unknown as NonNullable<BrandVaultSnapshot['reviewPayload']>,
     } satisfies BrandVaultSnapshot;
 
     const guidance = buildIntakeGuidance(snapshot, buildSourceLanes(snapshot));
@@ -187,5 +187,60 @@ describe('Brand Vault review data helpers', () => {
       notes: ['1 social link provided.', '1 social source needs auth, scopes, or account matching.'],
       topSignalPaths: ['voice.recurringPhrases', 'voice.proofStyle'],
     });
+  });
+
+  it('keeps social lanes pending when intake still needs connected read access', () => {
+    const snapshot = {
+      job: {
+        id: 'brand_refinery_job_social_needs_auth',
+        userId: 'user_truth',
+        status: 'needs_review',
+        inputs: {
+          websiteUrl: 'https://signal.example',
+          socialLinks: ['https://instagram.com/signal'],
+          sourceEvidence: [
+            source('social_profile', {
+              platform: 'instagram',
+              url: 'https://instagram.com/signal',
+              evidenceOrigin: 'public_fallback',
+            }),
+          ],
+        },
+        warnings: [],
+        createdAt: OBSERVED_AT,
+        updatedAt: OBSERVED_AT,
+      },
+      record: null,
+      candidates: [
+        candidate('voice.recurringPhrases', ['launch weekly'], 0.52, {
+          sourceType: 'social_profile',
+          sourceField: 'sourceEvidence.0.social_profile.profile',
+          extractorId: 'brand-vault-social-evidence.v1',
+        }),
+      ],
+      reviewPayload: {
+        intake: {
+          evidenceLanes: [
+            {
+              id: 'social',
+              label: 'Social Evidence',
+              status: 'needs_auth',
+              sourceCount: 1,
+              candidateCount: 1,
+              evidenceCount: 1,
+              topSignalPaths: ['voice.recurringPhrases'],
+              notes: ['1 social source needs auth, scopes, or account matching.'],
+            },
+          ],
+          nextActions: [],
+        },
+      } as unknown as NonNullable<BrandVaultSnapshot['reviewPayload']>,
+    } satisfies BrandVaultSnapshot;
+
+    const lanes = buildSourceLanes(snapshot);
+    const guidance = buildIntakeGuidance(snapshot, lanes);
+
+    expect(lanes.find((lane) => lane.id === 'socials')).toMatchObject({ status: 'pending', count: 1 });
+    expect(guidance.lanes[0]).toMatchObject({ status: 'pending', count: 1 });
   });
 });
