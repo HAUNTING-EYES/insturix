@@ -10,6 +10,11 @@ import {
 } from "@/lib/uploaderx/linkedin-publish-state";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+<<<<<<< HEAD
+=======
+export const maxDuration = 900;
+
+>>>>>>> parent of f7e2f2cb (chnage upload duration from 800->500 acc. to vercel plans)
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
 
 type LinkedInMediaType = "image" | "video" | "document";

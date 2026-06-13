@@ -7,6 +7,8 @@ import FormData from "form-data";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   try {
     const session = await auth();

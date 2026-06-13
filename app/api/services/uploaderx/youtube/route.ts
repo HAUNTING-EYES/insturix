@@ -12,6 +12,8 @@ const debugYouTubeUpload = (...args: unknown[]) => {
   }
 };
 
+
+export const maxDuration = 300;
 export async function POST(req: Request) {
   try {
     const session = await auth();
