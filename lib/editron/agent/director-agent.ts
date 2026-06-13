@@ -36,7 +36,13 @@ import {
   type UnifiedDecisionBundle,
   type UnifiedDecisionProducerCandidate,
 } from '@/lib/editron/services/unified-decision-bundle';
-import { shouldRunPostEdlUtilityScoring } from '@/lib/editron/agent/post-edl-action-policy';
+import { enforceCanonicalDecisionTimeline } from '@/lib/editron/services/decision-timeline-guard';
+import {
+  shouldInjectGlobalCaptionAction,
+  shouldRunPostBundleProfileAction,
+  shouldRunPostEdlUtilityScoring,
+  shouldRunUtilityLiveProducer,
+} from '@/lib/editron/agent/post-edl-action-policy';
 import {
   LEGACY_INTELLIGENCE_FALLBACK_ENV,
   formatVjepaCoverageAuditWarning,
@@ -50,6 +56,68 @@ function densityFromGenreParams(graphicDensity: number | undefined): 'heavy' | '
   if (graphicDensity < 2) return 'minimal';
   if (graphicDensity < 5) return 'moderate';
   return 'heavy';
+}
+
+function summarizeUnifiedDecisionBundle(bundle: UnifiedDecisionBundle) {
+  const byType: Record<string, number> = {};
+  for (const decision of bundle.edl.decisions) {
+    byType[decision.type] = (byType[decision.type] || 0) + 1;
+  }
+
+  return {
+    version: 1,
+    source: bundle.source,
+    authority: bundle.authority,
+    totalDecisions: bundle.edl.totalDecisions,
+    expectedExecuted: bundle.expectedExecuted,
+    expectedSkipped: bundle.expectedSkipped,
+    graphicsDensity: bundle.graphicsDensity ?? null,
+    byType,
+    canonicalTimeline: summarizeCanonicalTimelineFromDecisions(bundle.edl.decisions),
+    evidence: bundle.evidence,
+  };
+}
+
+function summarizeCanonicalTimelineFromDecisions(decisions: UnifiedDecisionBundle['edl']['decisions']) {
+  const stamps = decisions
+    .map((decision) => decision.params?.canonicalTimeline)
+    .filter((stamp): stamp is Record<string, unknown> => typeof stamp === 'object' && stamp !== null);
+
+  if (stamps.length === 0) return null;
+
+  return {
+    version: 'canonical-decision-timeline-v1',
+    frameSpace: 'cut',
+    stampedDecisionCount: stamps.length,
+    sourceMappedCount: stamps.filter((stamp) => stamp.sourceMapped === true).length,
+    invalidDecisionCount: stamps.filter((stamp) => stamp.status !== 'ok').length,
+  };
+}
+
+async function persistUnifiedDecisionBundleSummary(
+  projectId: string,
+  summary: ReturnType<typeof summarizeUnifiedDecisionBundle>,
+): Promise<void> {
+  try {
+    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+    await bundleDb.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: {
+          'intelligence.unifiedDecisionBundle': {
+            ...summary,
+            persistedAt: new Date().toISOString(),
+          },
+        },
+      },
+    );
+  } catch (err: unknown) {
+    console.warn('[Director] non-fatal unified decision bundle persistence:', err instanceof Error ? err.message : err);
+  }
+}
+
+function isCanonicalDecisionTimelineError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('canonical decision timeline');
 }
 
 
@@ -398,7 +466,8 @@ export async function executeDirectorPlan(
           `${editedTimelineContext.evidence.inputClipCount} video clips are missing source mapping`
         );
       }
-      if (process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage) {
+      const creativeBriefRawFootageActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;
+      if (creativeBriefRawFootageActive) {
         try {
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
@@ -935,6 +1004,14 @@ export async function executeDirectorPlan(
               let utilityAboveMin = 0;
               const sampleLogs: string[] = [];
               const gridPointDecisions: GridPointDecision[] = [];
+              const utilityLiveProducer = shouldRunUtilityLiveProducer({
+                utilityLiveEnabled: useUtilityLive,
+                creativeBriefEnabled: process.env.USE_CREATIVE_BRIEF === 'true',
+                hasRawFootage,
+              });
+              if (useUtilityLive && !utilityLiveProducer.run) {
+                console.log(`[Director] Utility AI LIVE producer disabled (${utilityLiveProducer.reason}); scoring remains shadow evidence`);
+              }
               for (const frame of gridFrames) {
                 const snap = signalTimeline.gridSignals.get(frame)!;
                 const numericSnap: Record<string, number> = {};
@@ -946,7 +1023,7 @@ export async function executeDirectorPlan(
                 const results = scoreAllOverlays(overlayDefs, numericSnap);
                 utilityTotal += overlayDefs.length;
                 utilityAboveMin += results.length;
-                if (useUtilityLive) {
+                if (utilityLiveProducer.run) {
                   const winners = selectWinners(results, recentUtilityDecisions, frame);
                   for (const [category, winner] of Object.entries(winners) as Array<[OverlayCategory, GridPointDecision['winners'][OverlayCategory]]>) {
                     if (winner) recentUtilityDecisions.set(category, frame);
@@ -958,11 +1035,11 @@ export async function executeDirectorPlan(
                   sampleLogs.push(formatInspectorLog(inspectGridPoint(decision)));
                 }
               }
-              console.log(`[Director] Utility AI ${useUtilityLive ? 'LIVE' : 'shadow'}: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
+              console.log(`[Director] Utility AI ${utilityLiveProducer.run ? 'LIVE' : 'shadow'}: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
               if (sampleLogs.length > 0) {
                 console.log(`[Director] Utility AI sample decisions:\n${sampleLogs.slice(0, 3).join('\n')}`);
               }
-              if (useUtilityLive && gridPointDecisions.length > 0) {
+              if (utilityLiveProducer.run && gridPointDecisions.length > 0) {
                 const { overlayResultsToEditDecisions } = await import('@/lib/editron/engine/overlay-bridge');
                 const utilityEdl = overlayResultsToEditDecisions(gridPointDecisions, signalTimeline, pathDFps);
                 const merged = [...signalEdl.decisions.filter(d => d.type === 'graphic'), ...utilityEdl.decisions.filter(d => d.type !== 'graphic')];
@@ -1164,6 +1241,18 @@ export async function executeDirectorPlan(
           const analysesMap = new Map<string, any>();
           for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
 
+          if (editedTimelineContext) {
+            const canonicalTimelineEvidence = enforceCanonicalDecisionTimeline(
+              unifiedDecisionBundle.edl.decisions,
+              editedTimelineContext,
+            );
+            (result as any).canonicalDecisionTimeline = canonicalTimelineEvidence;
+            console.log(
+              `[Director] Canonical decision timeline: ${canonicalTimelineEvidence.stampedDecisionCount}/` +
+              `${canonicalTimelineEvidence.decisionCount} decisions stamped as cut-frame decisions`
+            );
+          }
+
           await executeEDL(
             unifiedDecisionBundle.edl,
             projectId,
@@ -1181,6 +1270,10 @@ export async function executeDirectorPlan(
             edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
           }
 
+          const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle);
+          (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
+          await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
+
           pathDHandled = true;
           unifiedDecisionBundleExecuted = true;
           console.log(
@@ -1188,6 +1281,10 @@ export async function executeDirectorPlan(
             `${unifiedDecisionBundle.edl.totalDecisions} decisions applied`
           );
         } catch (bundleErr: any) {
+          if (isCanonicalDecisionTimelineError(bundleErr)) {
+            result.warnings.push(bundleErr.message);
+            throw bundleErr;
+          }
           console.error(`[Director] Unified decision bundle execution failed (${bundleErr.message}), falling through to legacy intelligence fallback gate`);
           result.warnings.push(`Unified decision bundle: ${bundleErr.message}`);
           pipelineWarnings.errorSwallowed('director', bundleErr, 'unified decision bundle execution');
@@ -1539,8 +1636,23 @@ export async function executeDirectorPlan(
     const hasCaptionAction = false; // standard actions never include captions — injection below handles it
     // Utility AI output takes priority → brief output → profile fallback.
     const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
+    const captionVideoOverlays = overlays.filter((overlay: any) => overlay?.type === 'video');
+    const mappedCaptionVideoOverlays = captionVideoOverlays.filter((overlay: any) => {
+      const sourceStartFrame = overlay?.sourceStartFrame ?? overlay?.videoStartTime;
+      return typeof sourceStartFrame === 'number' && Number.isFinite(sourceStartFrame);
+    });
+    const hasRawFootageForGlobalCaptions = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
+    const hasCanonicalEditedTimelineForGlobalCaptions = hasRawFootageForGlobalCaptions
+      && captionVideoOverlays.length > 0
+      && mappedCaptionVideoOverlays.length === captionVideoOverlays.length;
 
-    if (resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
+    const globalCaptionAction = shouldInjectGlobalCaptionAction({
+      captionStyle: resolvedCaptionStyle,
+      hasRawFootage: hasRawFootageForGlobalCaptions,
+      hasCanonicalEditedTimeline: hasCanonicalEditedTimelineForGlobalCaptions,
+    });
+
+    if (globalCaptionAction.run) {
       const style = resolvedCaptionStyle === 'fancy' ? 'kinetic' : resolvedCaptionStyle;
       const tool = resolvedCaptionStyle === 'fancy' ? 'add_fancy_captions' : 'add_captions';
       profileActions.push({
@@ -1553,7 +1665,7 @@ export async function executeDirectorPlan(
       });
       console.log(`[Director] Caption injection: ${tool}(${style}) from ${briefCaptionStyle ? 'Utility AI' : 'profile fallback'}`);
     } else {
-      console.log(`[Director] No captions (resolvedCaptionStyle=${resolvedCaptionStyle || 'unset'})`);
+      console.log(`[Director] No global caption action (${globalCaptionAction.reason}, resolvedCaptionStyle=${resolvedCaptionStyle || 'unset'})`);
     }
 
     const actions = profileActions
@@ -1666,6 +1778,31 @@ export async function executeDirectorPlan(
       });
       if (beforeCount !== filteredActions.length) {
         console.log(`[Director] Path D: ${beforeCount - filteredActions.length} profile action(s) skipped (handled by signal-driven EDL)`);
+      }
+    }
+
+    if (unifiedDecisionBundleExecuted) {
+      const beforeCount = filteredActions.length;
+      filteredActions = filteredActions.filter(a => {
+        const profileActionDecision = shouldRunPostBundleProfileAction({
+          tool: a.tool,
+          unifiedDecisionBundleExecuted,
+        });
+        if (!profileActionDecision.run) {
+          console.log(
+            `[Director] Unified bundle: Skipping legacy profile action '${a.tool}' ` +
+            `(${profileActionDecision.reason})`,
+          );
+          result.actionsSkipped.push({
+            action: a.description,
+            reason: profileActionDecision.reason,
+          });
+          return false;
+        }
+        return true;
+      });
+      if (beforeCount !== filteredActions.length) {
+        console.log(`[Director] Unified bundle: ${beforeCount - filteredActions.length} legacy profile action(s) skipped after EDL execution`);
       }
     }
 

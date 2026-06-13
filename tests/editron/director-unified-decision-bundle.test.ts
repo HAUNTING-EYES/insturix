@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { shouldRunPostEdlUtilityScoring } from '../../lib/editron/agent/post-edl-action-policy';
+import {
+  shouldInjectGlobalCaptionAction,
+  shouldRunPostBundleProfileAction,
+  shouldRunPostEdlUtilityScoring,
+  shouldRunUtilityLiveProducer,
+} from '../../lib/editron/agent/post-edl-action-policy';
 
 const directorSource = () => readFileSync(
   join(process.cwd(), 'lib/editron/agent/director-agent.ts'),
@@ -37,6 +42,19 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('Unsafe canonical edited timeline');
     expect(source).toContain('requiresSourceMapping');
     expect(source).toContain('isCanonicalDecisionTimeline');
+    expect(source).toContain('enforceCanonicalDecisionTimeline(');
+    expect(source).toContain('isCanonicalDecisionTimelineError(bundleErr)');
+    expect(source).toContain('throw bundleErr');
+  });
+
+  it('persists unified bundle provenance for real-project debugging', () => {
+    const source = directorSource();
+
+    expect(source).toContain('summarizeUnifiedDecisionBundle(unifiedDecisionBundle)');
+    expect(source).toContain('authority: bundle.authority');
+    expect(source).toContain("(result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary");
+    expect(source).toContain("await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary)");
+    expect(source).toContain("'intelligence.unifiedDecisionBundle'");
   });
 
   it('does not let post-EDL utility scoring override a handled unified bundle', () => {
@@ -56,6 +74,116 @@ describe('director unified decision bundle control flow', () => {
     })).toEqual({
       run: true,
       reason: 'eligible',
+    });
+  });
+
+  it('blocks legacy creative profile actions after unified bundle execution', () => {
+    for (const tool of [
+      'add_captions',
+      'add_fancy_captions',
+      'add_motion_graphic',
+      'add_transition',
+      'batch_update_overlays',
+      'generate_html_scene',
+      'split_clips',
+      'sync_cuts_to_beats',
+    ]) {
+      expect(shouldRunPostBundleProfileAction({
+        tool,
+        unifiedDecisionBundleExecuted: true,
+      })).toEqual({
+        run: false,
+        reason: 'legacy-creative-profile-action',
+      });
+    }
+
+    expect(shouldRunPostBundleProfileAction({
+      tool: 'quality_review',
+      unifiedDecisionBundleExecuted: true,
+    })).toEqual({
+      run: true,
+      reason: 'technical-post-process',
+    });
+
+    expect(shouldRunPostBundleProfileAction({
+      tool: 'audio_ducking',
+      unifiedDecisionBundleExecuted: true,
+    })).toEqual({
+      run: true,
+      reason: 'technical-post-process',
+    });
+
+    expect(shouldRunPostBundleProfileAction({
+      tool: 'future_visual_tool',
+      unifiedDecisionBundleExecuted: true,
+    })).toEqual({
+      run: false,
+      reason: 'unknown-post-bundle-profile-action',
+    });
+
+    expect(shouldRunPostBundleProfileAction({
+      tool: 'add_transition',
+      unifiedDecisionBundleExecuted: false,
+    })).toEqual({
+      run: true,
+      reason: 'unified-bundle-not-executed',
+    });
+  });
+
+  it('applies post-bundle profile action policy before Director executes profile actions', () => {
+    const source = directorSource();
+
+    expect(source).toContain('shouldRunPostBundleProfileAction({');
+    expect(source).toContain('Unified bundle: Skipping legacy profile action');
+    expect(source).toContain('legacy profile action(s) skipped after EDL execution');
+  });
+
+  it('keeps Utility LIVE as shadow evidence during raw-footage creative brief runs', () => {
+    expect(shouldRunUtilityLiveProducer({
+      utilityLiveEnabled: true,
+      creativeBriefEnabled: true,
+      hasRawFootage: true,
+    })).toEqual({
+      run: false,
+      reason: 'creative-brief-raw-footage-active',
+    });
+
+    expect(shouldRunUtilityLiveProducer({
+      utilityLiveEnabled: true,
+      creativeBriefEnabled: false,
+      hasRawFootage: true,
+    })).toEqual({
+      run: true,
+      reason: 'eligible',
+    });
+  });
+
+  it('blocks legacy global captions on canonical upload-to-edit timelines', () => {
+    expect(shouldInjectGlobalCaptionAction({
+      captionStyle: 'word_by_word',
+      hasRawFootage: true,
+      hasCanonicalEditedTimeline: true,
+    })).toEqual({
+      run: false,
+      reason: 'canonical-upload-needs-caption-track-planner',
+    });
+
+    expect(shouldInjectGlobalCaptionAction({
+      captionStyle: 'word_by_word',
+      hasRawFootage: false,
+      hasCanonicalEditedTimeline: false,
+    })).toEqual({
+      run: true,
+      reason: 'eligible',
+    });
+
+    expect(shouldInjectGlobalCaptionAction({
+      captionStyle: 'none',
+      hasRawFootage: false,
+      hasCanonicalEditedTimeline: false,
+    })).toEqual({
+      run: false,
+      reason: 'caption-style-disabled',
     });
   });
 });

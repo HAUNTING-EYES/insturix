@@ -25,16 +25,40 @@ export type UnifiedDecisionBundleSource =
   | 'signal-driven'
   | 'creative-brief+signal-driven';
 
+export type UnifiedDecisionExecutableProducer = Exclude<UnifiedDecisionBundleSource, 'creative-brief+signal-driven'>;
+
+export interface UnifiedDecisionBundleAuthority {
+  version: 'unified-decision-authority-v1';
+  executableProducer: UnifiedDecisionExecutableProducer;
+  advisoryProducers: UnifiedDecisionExecutableProducer[];
+  signalDecisionRole: 'none' | 'primary' | 'advisor';
+  signalDecisionsCanAddExecutable: boolean;
+}
+
+export interface UnifiedSignalDecisionEvidence {
+  type: ReactiveEditDecision['type'];
+  frame: number;
+  durationFrames?: number;
+  confidence: number;
+  source: string;
+  signal: string;
+  reason: string;
+  params?: Record<string, string | number | boolean>;
+}
+
 export interface UnifiedDecisionBundleEvidence {
   primaryDecisionCount: number;
   signalDecisionCount: number;
   addedSignalDecisionCount: number;
   validatedDecisionCount: number;
   suppressedSignalDuplicateCount: number;
+  evidenceOnlySignalDecisionCount: number;
+  evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[];
 }
 
 export interface UnifiedDecisionBundle {
   source: UnifiedDecisionBundleSource;
+  authority: UnifiedDecisionBundleAuthority;
   edl: ReactiveEditDecisionList;
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
   expectedExecuted: number;
@@ -43,7 +67,7 @@ export interface UnifiedDecisionBundle {
 }
 
 interface CreateUnifiedDecisionBundleOptions {
-  source: Exclude<UnifiedDecisionBundleSource, 'creative-brief+signal-driven'>;
+  source: UnifiedDecisionExecutableProducer;
   edl: CompatibleEditDecisionList;
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
   expectedExecuted?: number;
@@ -63,6 +87,7 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
   const isSignalSource = options.source === 'signal-driven';
   return {
     source: options.source,
+    authority: authorityForSingleProducer(options.source),
     edl,
     graphicsDensity: options.graphicsDensity,
     expectedExecuted: options.expectedExecuted ?? edl.totalDecisions,
@@ -73,6 +98,8 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
       addedSignalDecisionCount: isSignalSource ? edl.totalDecisions : 0,
       validatedDecisionCount: 0,
       suppressedSignalDuplicateCount: 0,
+      evidenceOnlySignalDecisionCount: 0,
+      evidenceOnlySignalDecisions: [],
     },
   };
 }
@@ -130,6 +157,9 @@ export function mergeSignalDrivenBundle(
   let addedSignalDecisionCount = 0;
   let validatedDecisionCount = 0;
   let suppressedSignalDuplicateCount = 0;
+  let evidenceOnlySignalDecisionCount = 0;
+  const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
+  const creativePrimaryOwnsExecutableDecisions = primaryBundle.authority.executableProducer === 'creative-brief';
 
   for (const signalDecision of signalEdl.decisions.map(cloneDecision)) {
     const matchIndex = findNearEquivalentDecisionIndex(mergedDecisions, signalDecision, maxNearFrameWindow);
@@ -137,6 +167,14 @@ export function mergeSignalDrivenBundle(
       mergedDecisions[matchIndex] = attachSignalValidation(mergedDecisions[matchIndex], signalDecision);
       validatedDecisionCount++;
       suppressedSignalDuplicateCount++;
+      continue;
+    }
+
+    if (creativePrimaryOwnsExecutableDecisions) {
+      evidenceOnlySignalDecisionCount++;
+      if (evidenceOnlySignalDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
+        evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(signalDecision));
+      }
       continue;
     }
 
@@ -151,20 +189,109 @@ export function mergeSignalDrivenBundle(
 
   return {
     ...primaryBundle,
-    source: primaryBundle.source === 'creative-brief'
+    source: primaryBundle.authority.executableProducer === 'creative-brief'
       ? 'creative-brief+signal-driven'
       : primaryBundle.source,
+    authority: authorityAfterSignalMerge(primaryBundle.authority, signalDecisionCount),
     edl: mergedEdl,
     expectedExecuted: mergedEdl.totalDecisions,
-    expectedSkipped: primaryBundle.expectedSkipped + suppressedSignalDuplicateCount,
+    expectedSkipped: primaryBundle.expectedSkipped,
     evidence: {
       primaryDecisionCount: primaryBundle.evidence.primaryDecisionCount,
       signalDecisionCount: primaryBundle.evidence.signalDecisionCount + signalDecisionCount,
       addedSignalDecisionCount: primaryBundle.evidence.addedSignalDecisionCount + addedSignalDecisionCount,
       validatedDecisionCount: primaryBundle.evidence.validatedDecisionCount + validatedDecisionCount,
       suppressedSignalDuplicateCount: primaryBundle.evidence.suppressedSignalDuplicateCount + suppressedSignalDuplicateCount,
+      evidenceOnlySignalDecisionCount: primaryBundle.evidence.evidenceOnlySignalDecisionCount + evidenceOnlySignalDecisionCount,
+      evidenceOnlySignalDecisions: [
+        ...primaryBundle.evidence.evidenceOnlySignalDecisions,
+        ...evidenceOnlySignalDecisions,
+      ].slice(0, SIGNAL_EVIDENCE_DETAIL_LIMIT),
     },
   };
+}
+
+function authorityForSingleProducer(source: UnifiedDecisionExecutableProducer): UnifiedDecisionBundleAuthority {
+  return {
+    version: 'unified-decision-authority-v1',
+    executableProducer: source,
+    advisoryProducers: [],
+    signalDecisionRole: source === 'signal-driven' ? 'primary' : 'none',
+    signalDecisionsCanAddExecutable: source === 'signal-driven',
+  };
+}
+
+function authorityAfterSignalMerge(
+  authority: UnifiedDecisionBundleAuthority,
+  signalDecisionCount: number,
+): UnifiedDecisionBundleAuthority {
+  if (signalDecisionCount === 0 || authority.executableProducer === 'signal-driven') {
+    return authority;
+  }
+
+  return {
+    version: 'unified-decision-authority-v1',
+    executableProducer: 'creative-brief',
+    advisoryProducers: authority.advisoryProducers.includes('signal-driven')
+      ? authority.advisoryProducers
+      : [...authority.advisoryProducers, 'signal-driven'],
+    signalDecisionRole: 'advisor',
+    signalDecisionsCanAddExecutable: false,
+  };
+}
+
+const SIGNAL_EVIDENCE_DETAIL_LIMIT = 64;
+const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
+  'anchorFrame',
+  'graphicType',
+  'intensity',
+  'keyword',
+  'role',
+  'semanticRole',
+  'sfxType',
+  'sourceFrame',
+  'targetScale',
+  'technique',
+  'text',
+  'transitionType',
+  'transType',
+  'type',
+]);
+
+function summarizeSignalDecisionEvidence(decision: ReactiveEditDecision): UnifiedSignalDecisionEvidence {
+  const params = compactSignalEvidenceParams(decision.params);
+  return {
+    type: decision.type,
+    frame: decision.frame,
+    ...(decision.durationFrames === undefined ? {} : { durationFrames: decision.durationFrames }),
+    confidence: decision.confidence,
+    source: decision.source,
+    signal: decision.signal,
+    reason: decision.reason,
+    ...(Object.keys(params).length === 0 ? {} : { params }),
+  };
+}
+
+function compactSignalEvidenceParams(params: Record<string, unknown> | undefined): Record<string, string | number | boolean> {
+  const compact: Record<string, string | number | boolean> = {};
+  if (!params) return compact;
+
+  for (const [key, value] of Object.entries(params)) {
+    if (!SIGNAL_EVIDENCE_PARAM_KEYS.has(key)) continue;
+    if (typeof value === 'string') {
+      compact[key] = value.slice(0, 160);
+      continue;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      compact[key] = value;
+      continue;
+    }
+    if (typeof value === 'boolean') {
+      compact[key] = value;
+    }
+  }
+
+  return compact;
 }
 
 function findNearEquivalentDecisionIndex(
