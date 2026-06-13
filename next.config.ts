@@ -42,6 +42,11 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      {
+        source: "/mockups/:path*",
+        destination: "/products",
+        permanent: true,
+      },
       ...legacyProductRoutes.map((source) => ({
         source,
         destination: "/products",
