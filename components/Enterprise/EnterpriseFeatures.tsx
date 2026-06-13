@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Globe, Video, BarChart3, Music, Shield, Zap, Users, BrainCircuit, CheckCircle2, Layers, ChartNoAxesColumnIncreasing } from "lucide-react";
+import { Lock, Globe, Video, BarChart3, Users, BrainCircuit, Layers, ChartNoAxesColumnIncreasing } from "lucide-react";
 
 function AiGeneration() {
   const [scale, setScale] = useState(1);
@@ -93,7 +93,7 @@ function AnalyticsLoader() {
               animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
               className="text-[32px] md:text-[44px] font-sans font-bold text-white tracking-tight"
             >
-              10x
+              Ready
             </motion.span>
           )}
         </AnimatePresence>
@@ -199,7 +199,7 @@ export default function EnterpriseFeatures() {
         {/* Bento Grid */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 auto-rows-[220px]">
           
-          {/* 1. AI Generation (Editron) - Tall (2x2) */}
+          {/* 1. AI generation - tall card */}
           <motion.div
             className="md:col-span-2 md:row-span-2 bg-zinc-900/50 border border-zinc-800 rounded-3xl p-8 flex flex-col hover:border-zinc-700 transition-colors cursor-pointer overflow-hidden group"
             initial={{ opacity: 0, y: 30 }}
@@ -216,7 +216,7 @@ export default function EnterpriseFeatures() {
                 AI Video Production
               </h3>
               <p className="text-zinc-400 text-sm leading-relaxed">
-                Editron automates your video pipeline. Generate shorts, localized versions, and social cuts instantly.
+                Automated editing turns raw footage into shorts, localized versions, and social cuts for review.
               </p>
             </div>
           </motion.div>
@@ -239,12 +239,12 @@ export default function EnterpriseFeatures() {
                 Asset Generation
               </h3>
               <p className="text-zinc-400 text-sm">
-              Create endless on-brand thumbnails and video variants in seconds.
+              Create on-brand thumbnails, visuals, and video variants for campaign packages.
               </p>
             </div>
           </motion.div>
 
-          {/* 3. Global Monitor (Shield) - Tall (2x2) */}
+          {/* 3. Global monitor - tall card */}
           <motion.div
             className="md:col-span-2 md:row-span-2 bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 flex flex-col hover:border-zinc-700 transition-colors cursor-pointer overflow-hidden group"
             initial={{ opacity: 0, y: 30 }}
@@ -264,12 +264,12 @@ export default function EnterpriseFeatures() {
                 Global Trends
               </h3>
               <p className="text-zinc-400 text-sm">
-              Stay ahead of what’s trending worldwide with ThinkForge ideation—so your next concept is already aligned with where the culture is going.
+              Track audience signals and emerging topics so the next concept starts with better context.
               </p>
             </div>
           </motion.div>
 
-          {/* 4. Analytics (Alyzitron) - Standard (2x1) */}
+          {/* 4. Analytics - standard card */}
           <motion.div
             className="md:col-span-2 bg-zinc-900/50 border border-zinc-800 rounded-3xl p-8 flex flex-col hover:border-zinc-700 transition-colors cursor-pointer overflow-hidden group"
             initial={{ opacity: 0, y: 30 }}
@@ -287,7 +287,7 @@ export default function EnterpriseFeatures() {
                 Market Intelligence
               </h3>
               <p className="text-zinc-400 text-sm">
-                Predictive analytics for content ROI.
+                Content analysis for quality, audience fit, and channel readiness.
               </p>
             </div>
           </motion.div>
@@ -310,7 +310,7 @@ export default function EnterpriseFeatures() {
                 Business Security
               </h3>
               <p className="text-zinc-400 text-sm">
-                Bank-grade encryption and zero data retention policies.
+                Secure workspaces, access controls, and privacy-aware data handling.
               </p>
             </div>
           </motion.div>

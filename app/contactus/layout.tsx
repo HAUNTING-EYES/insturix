@@ -1,15 +1,21 @@
-import { Metadata } from "next";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Contact Us | Get in Touch",
+  title: "Contact Insturix | Talk to Sales or Support",
   description:
-    "Have questions about our products or services? Reach out to the Insturix team for support, partnership inquiries, or general information.",
-  keywords:
-    "Contact Insturix , Get in touch with Insturix , Insturix support ,Contact creator services , Reach out to Insturix team , Insturix customer support ,Contact for partnerships , Creator inquiries , Business inquiries Insturix , Support for Insturix products",
+    "Contact Insturix for sales, support, business inquiries, or help with automated content production workflows.",
+  keywords: [
+    "contact Insturix",
+    "Insturix support",
+    "Insturix sales",
+    "automated content production platform support",
+    "AI content production support",
+    "business inquiries Insturix",
+  ],
   openGraph: {
-    title: "Contact Us | Get in Touch",
+    title: "Contact Insturix | Talk to Sales or Support",
     description:
-      "Have questions about our products or services? Reach out to the Insturix team for support, partnership inquiries, or general information.",
+      "Reach the Insturix team for sales, support, business inquiries, or help with content production workflows.",
     images: [
       {
         url: "/icons/contact-og-image.jpg",
@@ -21,9 +27,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Contact Us | Get in Touch",
+    title: "Contact Insturix | Talk to Sales or Support",
     description:
-      "Have questions about our products or services? Reach out to the Insturix team for support, partnership inquiries, or general information.",
+      "Contact Insturix for sales, support, and business inquiries.",
     images: ["/icons/contact-twitter-image.jpg"],
   },
 };

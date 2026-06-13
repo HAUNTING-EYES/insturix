@@ -46,7 +46,7 @@ const SCRIPT = [
   { type: "line" as const, text: "3 room callouts with kinetic text: Script, Edit, Analyze." },
   { type: "line" as const, text: "Screen recording: prompt typed, video produced in real-time." },
   { type: "line" as const, text: "Split screen: raw footage left, AI-edited output right." },
-  { type: "line" as const, text: "Dashboard metrics: 8 min avg, 91 quality score, 6 platforms." },
+  { type: "line" as const, text: "Dashboard signals: review ready, brand match checked, multi-channel package prepared." },
   { type: "label" as const, text: "CTA (22-30s)" },
   { type: "line" as const, text: "Logo reveal. Gold accent pulse. 'Start free' end card." },
 ];
@@ -874,7 +874,7 @@ export function PreviewVisualInsturix({
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
               <span style={{ fontWeight: 800, fontSize: 13 }}>Insturix</span>
               <span className="m" style={{ fontSize: 10, color: C.dim }}>
-                Alyzitron
+                Analyze
               </span>
               <div style={{ width: 1, height: 12, background: C.border, margin: "0 4px" }} />
               <span style={{ fontSize: 13, color: C.soft, fontWeight: 500 }}>Insturix Platform</span>
@@ -1194,7 +1194,7 @@ export function PreviewVisualInsturix({
                 One platform. Entire production.
               </h2>
               <p style={{ fontSize: 18, fontWeight: 800, color: C.green, marginBottom: 8, animation: `slideUp .5s ${EASE} .35s both` }}>
-                8 minutes. $47 spent. $2,353 saved.
+                Brief, assets, review, and publishing package ready.
               </p>
               <p style={{ fontSize: 14, color: C.muted, marginBottom: 32, animation: `slideUp .5s ${EASE} .45s both` }}>
                 Keep scrolling to learn more.

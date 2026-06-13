@@ -41,7 +41,7 @@ export function SocializeShareBar({
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("link");
 
-  const shareUrl = `https://insturix.com/socialize/${uniqueUsername}`;
+  const shareUrl = `https://insturix.com/profile/${uniqueUsername}`;
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
@@ -91,7 +91,7 @@ export function SocializeShareBar({
                 rel="noopener noreferrer"
                 style={{ color: '#B5B2A8' }}
               >
-                insturix.com/socialize/{uniqueUsername}
+                insturix.com/profile/{uniqueUsername}
               </Link>
               <div className="absolute bottom-0 left-0 w-full h-0.5 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left" style={{ backgroundColor: '#D4A652' }}></div>
             </div>

@@ -1,41 +1,27 @@
 import { Metadata } from "next";
-import { getSocializeUserData } from "@/lib/seo/socialize";
 import { getBaseUrl } from "@/lib/env";
+import { getSocializeUserData } from "@/lib/seo/socialize";
 
-// Define param type as a Promise like in the blogs example
-type SocializeParams = Promise<{ uniqueUsername: string }>;
+type ProfileParams = Promise<{ uniqueUsername: string }>;
 
-// Define the return type of getSocializeUserData for better type safety
 interface UserData {
   username?: string;
   bio?: string;
   profileImage?: string;
   banner?: {
-    type: 'image' | 'color' | 'gradient';
+    type: "image" | "color" | "gradient";
     value: string;
-    gradientType?: 'linear' | 'radial';
-    gradientColors?: Array<{
-      color: string;
-      position: number;
-    }>;
   };
-  // Add other properties that might be returned by getSocializeUserData
 }
 
-// Define generateMetadata using Next.js's expected Promise types
 export async function generateMetadata({
   params,
 }: {
-  params: SocializeParams;
+  params: ProfileParams;
 }): Promise<Metadata> {
-  // Get the username from route params - must await the params since it's a Promise
-  const resolvedParams = await params;
-  const { uniqueUsername } = resolvedParams;
-
-  // Fetch user data using the utility function that returns a promise
+  const { uniqueUsername } = await params;
   const userData: UserData | null = await getSocializeUserData(uniqueUsername);
 
-  // If no user data is found, return a not found page metadata
   if (!userData) {
     return {
       title: "Profile Not Found | Insturix",
@@ -47,35 +33,28 @@ export async function generateMetadata({
     };
   }
 
-  // Extract user profile data with proper type safety
   const { username, bio, profileImage, banner } = userData;
   const displayName = username || uniqueUsername;
   const userBio = bio || "Insturix public profile.";
   const title = `${displayName} Public Profile | Insturix`;
   const description =
     userBio.length > 150 ? `${userBio.substring(0, 147)}...` : userBio;
-  const canonicalProfileUrl = `${getBaseUrl()}/profile/${uniqueUsername}`;
+  const profileUrl = `${getBaseUrl()}/profile/${uniqueUsername}`;
 
-  // Create SEO optimized metadata for this specific user's profile
   return {
     title,
     description,
     keywords: `${displayName}, public profile, content links, Insturix profile`,
     alternates: {
-      canonical: canonicalProfileUrl,
-    },
-    robots: {
-      index: false,
-      follow: true,
+      canonical: profileUrl,
     },
     openGraph: {
       title,
       description,
       type: "profile",
-      url: canonicalProfileUrl,
+      url: profileUrl,
       images: (() => {
-        // Prioritize banner image if it's an image type
-        if (banner?.type === 'image' && banner.value) {
+        if (banner?.type === "image" && banner.value) {
           return [
             {
               url: banner.value,
@@ -85,7 +64,7 @@ export async function generateMetadata({
             },
           ];
         }
-        // Fall back to profile image
+
         if (profileImage) {
           return [
             {
@@ -96,7 +75,7 @@ export async function generateMetadata({
             },
           ];
         }
-        // Default image
+
         return [
           {
             url: "/brand/insturix_black.png",
@@ -112,15 +91,14 @@ export async function generateMetadata({
       title,
       description,
       images: (() => {
-        // Prioritize banner image if it's an image type
-        if (banner?.type === 'image' && banner.value) {
+        if (banner?.type === "image" && banner.value) {
           return [banner.value];
         }
-        // Fall back to profile image
+
         if (profileImage) {
           return [profileImage];
         }
-        // Default image
+
         return ["/brand/insturix_black.png"];
       })(),
       site: "@insturix",
@@ -132,8 +110,7 @@ export async function generateMetadata({
   };
 }
 
-// Define the layout component with matching async params type
-export default function SocializeUserLayout({
+export default function PublicProfileLayout({
   children,
 }: {
   children: React.ReactNode;

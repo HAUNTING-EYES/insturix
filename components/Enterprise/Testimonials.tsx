@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const testimonials = [
   {
-    quote: "Insturix has revolutionized our post-production workflow. Editron allows our team to output 10x the content volume without sacrificing quality. It's not just a tool; it's our entire production backbone.",
+    quote: "Insturix helped our team bring post-production, review, and publishing into one workflow. It feels less like another tool and more like production infrastructure.",
     author: "Sarah Chen",
     role: "VP of Content",
     company: "StreamLine Media",
@@ -16,7 +16,7 @@ const testimonials = [
     className: "sm:col-span-2 lg:row-span-2",
   },
   {
-    quote: "Brand safety is paramount for our roster of 500+ influencers. Shield gives us peace of mind by automating rights management and monitoring across all platforms 24/7.",
+    quote: "Brand safety is easier to manage when assets, approvals, and usage context live in one place. Our team can move faster without losing control.",
     author: "Marcus Thorne",
     role: "Head of Legal",
     company: "TalentFirst Agency",
@@ -25,7 +25,7 @@ const testimonials = [
     className: "md:col-span-2",
   },
   {
-    quote: "The analytics from Alyzitron are a game-changer. We no longer guess what will perform; we know. Our engagement rates have doubled since integrating Insturix.",
+    quote: "The content analysis workflow gives our team a sharper review process before anything ships. It helps us catch weak points while there is still time to improve the work.",
     author: "Elena Rodriguez",
     role: "CMO",
     company: "BuzzWave",
@@ -34,7 +34,7 @@ const testimonials = [
     className: "",
   },
   {
-    quote: "ThinkForge has completely transformed our ideation process. We're generating data-backed concepts in minutes that used to take days of brainstorming.",
+    quote: "The planning workspace changed how we move from rough ideas to production-ready concepts. Strategy, scripts, and feedback now stay connected.",
     author: "Jessica Alverez",
     role: "Creative Director",
     company: "ViralStudios",
@@ -51,7 +51,7 @@ const testimonials = [
     className: "md:col-span-2",
   },
   {
-    quote: "Managing assets across global teams was a nightmare until we switched to Insturix. The centralized workspace has saved us thousands of hours.",
+    quote: "Managing assets across global teams is much easier with one centralized workspace. Handoffs are cleaner and the team always knows what is ready for review.",
     author: "David Kim",
     role: "Director of Ops",
     company: "GlobalCreators",
@@ -75,7 +75,7 @@ export default function Testimonials() {
           className="mb-16 text-center max-w-3xl mx-auto"
         >
           <h2 className="text-[44px] md:text-[44px] font-bold tracking-tight mb-6">
-            Built by makers, loved by thousands of teams
+            Built by makers for production teams
           </h2>
           <p className="text-lg text-neutral-400">
             Insturix is evolving to be more than just a tool suite. It's the infrastructure that helps businesses innovate at scale.

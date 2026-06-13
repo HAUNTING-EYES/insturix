@@ -8,13 +8,13 @@ const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
 
 export default function IntelligenceLayer() {
   const services = [
-    { name: "Editron", icon: Scissors, color: "#14b8a6", angle: 0 },
-    { name: "Clickatron", icon: Sparkles, color: "#8B5CF6", angle: 51 },
-    { name: "Alyzitron", icon: Video, color: "#3B82F6", angle: 103 },
-    { name: "ThinkForge", icon: Brain, color: "#EF4444", angle: 154 },
-    { name: "Musitron", icon: Music, color: "#EAB308", angle: 206 },
-    { name: "UploaderX", icon: Upload, color: "#2DD4BF", angle: 257 },
-    { name: "Socialize", icon: Share2, color: "#0EA5E9", angle: 309 },
+    { name: "Editing", icon: Scissors, color: "#14b8a6", angle: 0 },
+    { name: "Visuals", icon: Sparkles, color: "#8B5CF6", angle: 51 },
+    { name: "Analysis", icon: Video, color: "#3B82F6", angle: 103 },
+    { name: "Planning", icon: Brain, color: "#EF4444", angle: 154 },
+    { name: "Audio", icon: Music, color: "#EAB308", angle: 206 },
+    { name: "Publishing", icon: Upload, color: "#2DD4BF", angle: 257 },
+    { name: "Profiles", icon: Share2, color: "#0EA5E9", angle: 309 },
   ];
 
   return (

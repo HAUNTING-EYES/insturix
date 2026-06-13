@@ -1,25 +1,29 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Creator Resources | Blogs & Articles",
-  description: "Explore our collection of insightful articles, guides, and tutorials designed to help content creators succeed in an ever-evolving digital landscape.",
-  keywords: "creator resources, content creation guides, influencer tips, digital content strategy, Insturix blog",
+  title: "Insturix Blog | Automated Content Production Insights",
+  description:
+    "Guides and insights on automated content production, AI content workflows, brand consistency, and scaling content output for teams and agencies.",
+  keywords:
+    "automated content production, AI content workflow, content production automation, brand-consistent content, Insturix blog",
   openGraph: {
-    title: "Creator Resources | Blogs & Articles",
-    description: "Explore our collection of insightful articles, guides, and tutorials designed to help content creators succeed in an ever-evolving digital landscape.",
+    title: "Insturix Blog | Automated Content Production Insights",
+    description:
+      "Guides and insights on AI-assisted content workflows, brand consistency, and scaling production output.",
     images: [
       {
         url: "/icons/blog-og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Insturix Creator Resources - Blogs & Articles",
+        alt: "Insturix blog for automated content production",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Creator Resources | Blogs & Articles",
-    description: "Explore our collection of insightful articles, guides, and tutorials designed to help content creators succeed in an ever-evolving digital landscape.",
+    title: "Insturix Blog | Automated Content Production Insights",
+    description:
+      "Guides and insights on AI-assisted content workflows, brand consistency, and scaling production output.",
     images: ["/icons/blog-twitter-image.jpg"],
   },
 };
@@ -30,4 +34,4 @@ export default function BlogsLayout({
   children: React.ReactNode;
 }) {
   return <>{children}</>;
-} 
+}

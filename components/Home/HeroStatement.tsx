@@ -165,19 +165,19 @@ export default function HeroStatement() {
                   <div className="w-6 h-6 rounded bg-zinc-700 mr-2" />
                   <div className="w-20 h-3 bg-zinc-700 rounded" />
                 </div>
-                {["Editron", "Clickatron", "Alyzitron", "ThinkForge", "Musitron", "UploaderX", "Socialize"].map((name, i) => (
+                {["Editing", "Visuals", "Analysis", "Planning", "Audio", "Publishing", "Profiles"].map((name, i) => (
                   <motion.div
                     key={name}
                     variants={fadeSlideUp}
                     className={`h-9 rounded-md flex items-center px-3 gap-2 text-sm ${i === 0 ? "bg-zinc-800 text-zinc-200" : "text-zinc-500"}`}
                   >
                     <div className={`w-2 h-2 rounded-full ${
-                      name === "Editron" ? "bg-teal-400" : 
-                      name === "Clickatron" ? "bg-violet-400" : 
-                      name === "Alyzitron" ? "bg-blue-400" : 
-                      name === "ThinkForge" ? "bg-red-400" : 
-                      name === "Musitron" ? "bg-yellow-400" :
-                      name === "UploaderX" ? "bg-emerald-400" : "bg-sky-400"
+                      name === "Editing" ? "bg-teal-400" :
+                      name === "Visuals" ? "bg-violet-400" :
+                      name === "Analysis" ? "bg-blue-400" :
+                      name === "Planning" ? "bg-red-400" :
+                      name === "Audio" ? "bg-yellow-400" :
+                      name === "Publishing" ? "bg-emerald-400" : "bg-sky-400"
                     }`} />
                     <span className="font-medium">{name}</span>
                   </motion.div>

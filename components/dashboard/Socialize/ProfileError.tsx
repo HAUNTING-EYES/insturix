@@ -12,7 +12,7 @@ export function ProfileError() {
             <Search className="w-8 h-8" style={{ color: '#D4A652' }} />
           </div>
           <h2 className="text-2xl font-medium mb-2" style={{ color: '#EAE9E5' }}>Profile Not Found</h2>
-          <p className="mb-6" style={{ color: '#B5B2A8' }}>This Socialize profile doesn&apos;t exist or has been removed.</p>
+          <p className="mb-6" style={{ color: '#B5B2A8' }}>This public profile doesn&apos;t exist or has been removed.</p>
           <Link href="/">
             <Button className="rounded-[7px] border-none hover:opacity-90 transition-opacity" style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}>Go Back Home</Button>
           </Link>

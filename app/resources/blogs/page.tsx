@@ -7,7 +7,8 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Blog | Insturix",
-  description: "Insights on AI video production, creative workflows, and the future of content creation.",
+  description:
+    "Insights on automated content production, AI-assisted workflows, brand consistency, and producing content at scale.",
 };
 
 export default async function BlogPage() {
@@ -24,10 +25,10 @@ export default async function BlogPage() {
             BLOG
           </span>
           <h1 style={{ fontSize: "var(--r-hero-size)", fontWeight: 800, color: "var(--text-primary)", margin: "0 0 16px", lineHeight: 1.05, letterSpacing: "-0.035em" }}>
-            Insights
+            Production Notes
           </h1>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto", lineHeight: 1.6 }}>
-            Perspectives on AI-driven production, creative workflows, and the future of content.
+            Perspectives on automated content production, creative workflows, brand consistency, and scaling output.
           </p>
         </section>
 
@@ -57,7 +58,7 @@ export default async function BlogPage() {
               Write for us.
             </h2>
             <p style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto 32px", lineHeight: 1.6 }}>
-              Have a perspective on AI production, creative workflows, or the future of content?
+              Have a perspective on automated production, creative workflows, or the future of content?
               Submit a draft — we review and publish community posts.
             </p>
             <Link href="/contactus" style={{

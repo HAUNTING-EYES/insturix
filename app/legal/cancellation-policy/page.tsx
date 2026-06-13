@@ -267,7 +267,7 @@ export default function CancellationPolicy() {
                 }}
               >
                 <li style={{ marginBottom: 8 }}>Once a command is executed (e.g., an AI request, project generation, code execution, business report generation, video editing job, etc.), it is final and irreversible.</li>
-                <li style={{ marginBottom: 8 }}>This includes actions initiated on platforms such as Editron, ThinkForge, Musitron, Alyzitron, or any other service offered by Insturix.</li>
+                <li style={{ marginBottom: 8 }}>This includes actions initiated through Insturix tools such as content planning, generation, editing, analysis, publishing, sharing, or any other automated service.</li>
                 <li>No cancellations, pauses, or amendments are permitted after an order or command has been submitted, as our systems allocate computational and human resources in real time.</li>
               </ul>
             </section>

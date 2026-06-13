@@ -7,13 +7,13 @@ import { ArrowRight, Play, Wand2, BarChart3, Edit3, Music, Share2, Compass, Chec
 
 const products = [
   {
-    id: "editron",
-    name: "Editron",
-    tagline: "AI Video Editor",
-    description: "Upload raw footage, let AI cut filler, add captions, and match your brand's pacing. Zero editing experience needed.",
+    id: "editing-studio",
+    name: "Editing Studio",
+    tagline: "Automated Video Editing",
+    description: "Upload raw footage, automate cleanup, add captions, and package edits around your brand's pacing.",
     color: "#14b8a6",
     icon: Scissors,
-    href: "/products/editron",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full flex relative bg-[#0E0E10] overflow-hidden text-zinc-300 rounded-xl">
         
@@ -255,13 +255,13 @@ const products = [
     ),
   },
   {
-    id: "clickatron",
-    name: "Clickatron",
-    tagline: "AI Image Studio",
-    description: "Generate scroll-stopping thumbnails and visuals. Sketch-to-edit, generative fill, and intelligent A/B testing built in.",
+    id: "visual-studio",
+    name: "Visual Studio",
+    tagline: "AI Asset Creation",
+    description: "Generate thumbnails, visuals, banners, and campaign assets with guided editing and brand-aware variations.",
     color: "#8B5CF6",
     icon: Sparkles,
-    href: "/products/clickatron",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full p-4 flex gap-4 relative bg-zinc-950 overflow-hidden text-zinc-300">
         
@@ -411,13 +411,13 @@ const products = [
     ),
   },
   {
-    id: "alyzitron",
-    name: "Alyzitron",
-    tagline: "Content Analyzer",
+    id: "content-intelligence",
+    name: "Content Intelligence",
+    tagline: "Pre-Publish Analysis",
     description: "Score your content before publishing. Deep analytics, compliance checks, and SEO optimization powered by brand-aware AI.",
     color: "#3B82F6",
     icon: Video,
-    href: "/products/alyzitron",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full flex flex-col relative bg-zinc-950 overflow-hidden">
         
@@ -548,13 +548,13 @@ const products = [
     ),
   },
   {
-    id: "thinkforge",
-    name: "ThinkForge",
-    tagline: "AI Scriptwriter",
-    description: "Turn ideas into brand-aligned scripts. Web search, tone matching, and structured markdown editing in one workspace.",
+    id: "planning-studio",
+    name: "Planning Studio",
+    tagline: "Ideas, Scripts, and Briefs",
+    description: "Turn ideas into brand-aligned briefs, scripts, outlines, and campaign plans in one structured workspace.",
     color: "#EF4444",
     icon: Brain,
-    href: "/products/thinkforge",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full flex flex-col relative bg-[#0A0A0A] overflow-hidden text-zinc-300 rounded-xl font-sans">
         
@@ -737,13 +737,13 @@ const products = [
     ),
   },
   {
-    id: "musitron",
-    name: "Musitron",
-    tagline: "AI Music Generator",
-    description: "Generate copyright-free background music that fits your mood and pacing. Prompt-based creation.",
+    id: "audio-studio",
+    name: "Audio Studio",
+    tagline: "Music and Sound",
+    description: "Generate and shape background music, sound beds, and audio cues that fit the mood and pacing of the content.",
     color: "#EAB308",
     icon: Music,
-    href: "/products/musitron",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full flex flex-col relative bg-[#121214] overflow-hidden text-zinc-300 rounded-xl font-sans">
          {/* Top Header */}
@@ -1094,13 +1094,13 @@ const products = [
     ),
   },
   {
-    id: "socialize",
-    name: "Socialize",
-    tagline: "Link-in-Bio Builder",
-    description: "A smart link-in-bio that auto-updates with your latest content. Custom banners and AI styling.",
+    id: "profile-hub",
+    name: "Profile Hub",
+    tagline: "Public Profiles",
+    description: "Create public profile pages that collect links, featured work, banners, and campaign-ready identity in one place.",
     color: "#0EA5E9",
     icon: Share2,
-    href: "/products/socialize",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full p-4 flex gap-4 relative bg-[#0E0E10] overflow-hidden text-zinc-300">
         
@@ -1109,7 +1109,7 @@ const products = [
           {/* Header */}
           <div className="flex items-center gap-2 mb-1">
             <Share2 className="w-5 h-5 text-blue-400" />
-            <span className="text-[18px] font-bold text-white tracking-tight">Socialize</span>
+            <span className="text-[18px] font-bold text-white tracking-tight">Profile Hub</span>
           </div>
 
           {/* Profile Cards */}
@@ -1131,7 +1131,7 @@ const products = [
               </div>
               <div className="flex flex-col">
                 <span className="text-[11px] font-bold text-white">alex_creates</span>
-                <span className="text-[9px] text-zinc-500">Filmmaker & AI Creator</span>
+                <span className="text-[9px] text-zinc-500">Filmmaker & Producer</span>
               </div>
             </div>
             <div className="px-3 py-1.5 rounded bg-zinc-800 text-[9px] font-semibold text-white">
@@ -1145,7 +1145,7 @@ const products = [
               <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
                 <Share2 className="w-3 h-3 text-white" />
               </div>
-              <span className="text-[10px] text-zinc-300">Your link is live: <span className="text-blue-400">insturix.com/bio/alex</span></span>
+              <span className="text-[10px] text-zinc-300">Your profile is live: <span className="text-blue-400">insturix.com/profile/alex</span></span>
             </div>
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-950 border border-zinc-800">
                <Copy className="w-3 h-3 text-zinc-400" />
@@ -1245,9 +1245,9 @@ const products = [
                 
                 <div className="flex items-center gap-1.5 mt-2 mb-0.5 w-full justify-center">
                   <span className="text-[11px] font-bold text-white truncate">@alex_creates</span>
-                  <div className="bg-[#1A73A7] px-1.5 py-0.5 rounded text-[6px] font-bold text-white pointer-events-none">Socialize</div>
+                  <div className="bg-[#1A73A7] px-1.5 py-0.5 rounded text-[6px] font-bold text-white pointer-events-none">Insturix</div>
                 </div>
-                <span className="text-[7px] text-zinc-400 text-center leading-tight mb-4 w-full truncate">Filmmaker & AI Creator</span>
+                <span className="text-[7px] text-zinc-400 text-center leading-tight mb-4 w-full truncate">Filmmaker & Producer</span>
 
                 {/* Link Buttons inside the preview */}
                 <div className="w-full flex flex-col gap-2">
@@ -1310,8 +1310,8 @@ export default function ProductSuite() {
                 The Suite
               </p>
               <h2 className="text-[32px] md:text-[44px] font-bold tracking-tight text-white">
-                Seven tools.{" "}
-                <span className="text-zinc-500">One ecosystem.</span>
+                Six production workflows.{" "}
+                <span className="text-zinc-500">One platform.</span>
               </h2>
             </div>
 

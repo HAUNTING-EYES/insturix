@@ -74,23 +74,23 @@ const PO = ["welcome", "prompt", "script", "edit", "analyze", "design", "publish
 const TOASTS = [
   { at: 0.12, text: "Script started", color: C.accent, type: "status", time: "0:02" },
   { at: 0.28, text: "Script complete", color: C.green, type: "done", time: "0:48" },
-  { at: 0.34, text: "Building video...", color: C.red, type: "status", time: "1:15" },
+  { at: 0.34, text: "Building content...", color: C.red, type: "status", time: "1:15" },
   { at: 0.38, text: "Brand title card added", color: C.green, type: "done", time: "1:42" },
   { at: 0.42, text: "Captions synced", color: C.green, type: "done", time: "2:20" },
   { at: 0.48, text: "Cuts locked to beats", color: C.green, type: "done", time: "3:05" },
   { at: 0.52, text: "Music matched", color: C.green, type: "done", time: "3:38" },
   { at: 0.56, text: "Stat counter placed", color: C.green, type: "done", time: "4:10" },
   { at: 0.60, text: "Analyzing quality...", color: C.purple, type: "status", time: "4:30" },
-  { at: 0.70, text: "Score: 91/100", color: C.green, type: "done", time: "5:15" },
+  { at: 0.70, text: "Review signals ready", color: C.green, type: "done", time: "5:15" },
   { at: 0.74, text: "Generating thumbnails...", color: C.pink, type: "status", time: "5:40" },
-  { at: 0.83, text: "Best: Variant B (5.1%)", color: C.green, type: "done", time: "6:10" },
-  { at: 0.87, text: "Publishing to 6 platforms", color: C.green, type: "status", time: "6:30" },
-  { at: 0.96, text: "Published everywhere.", color: C.green, type: "complete", time: "8:00" },
+  { at: 0.83, text: "Thumbnail options ready", color: C.green, type: "done", time: "6:10" },
+  { at: 0.87, text: "Preparing publish package", color: C.green, type: "status", time: "6:30" },
+  { at: 0.96, text: "Publish-ready.", color: C.green, type: "complete", time: "8:00" },
 ];
 
 const LAYERS = [
   { name: "Script", c: C.accent, at: 0.15, doneAt: 0.32, phases: ["script"] },
-  { name: "Video", c: C.red, at: 0.32, doneAt: 0.58, phases: ["edit"] },
+  { name: "Media", c: C.red, at: 0.32, doneAt: 0.58, phases: ["edit"] },
   { name: "Captions", c: C.green, at: 0.37, doneAt: 0.58, phases: ["edit"] },
   { name: "Music", c: C.pink, at: 0.44, doneAt: 0.58, phases: ["edit"] },
   { name: "Graphics", c: C.purple, at: 0.50, doneAt: 0.58, phases: ["edit"] },
@@ -108,7 +108,7 @@ const PIPELINE = [
 
 const TRACKS = [
   { label: "Script", c: C.accent, lo: 0.15, hi: 0.32 },
-  { label: "Video", c: C.red, lo: 0.32, hi: 0.58 },
+  { label: "Media", c: C.red, lo: 0.32, hi: 0.58 },
   { label: "Capts", c: C.green, lo: 0.37, hi: 0.58 },
   { label: "Music", c: C.pink, lo: 0.44, hi: 0.58 },
   { label: "GFX", c: C.purple, lo: 0.50, hi: 0.58 },
@@ -116,18 +116,18 @@ const TRACKS = [
 
 // FIX #11: Tightened chat copy — less log, more director
 const MSGS: { at: number; side: string; text: string; color?: string }[] = [
-  { at: 0.08, side: "user", text: "Make a 30-second promo video for our Q1 product launch" },
+  { at: 0.08, side: "user", text: "Make a launch campaign from this brief and footage" },
   { at: 0.13, side: "status", text: "Writing script...", color: C.accent },
   { at: 0.29, side: "done", text: "Script locked — 3 acts, 10 lines, hook-first" },
-  { at: 0.33, side: "status", text: "Producing video...", color: C.red },
+  { at: 0.33, side: "status", text: "Producing content...", color: C.red },
   { at: 0.40, side: "done", text: "Title card, captions, and music layered" },
   { at: 0.53, side: "done", text: "Cuts synced to beat drops at 0:08 and 0:22" },
   { at: 0.58, side: "status", text: "Analyzing quality...", color: C.purple },
-  { at: 0.69, side: "done", text: "Score: 91/100 — CTA hold extended to 2.5s" },
+  { at: 0.69, side: "done", text: "Review signals ready — CTA timing adjusted" },
   { at: 0.73, side: "status", text: "Generating thumbnails...", color: C.pink },
-  { at: 0.83, side: "done", text: "Variant B wins — 5.1% predicted CTR" },
+  { at: 0.83, side: "done", text: "Thumbnail options ready for review" },
   { at: 0.87, side: "status", text: "Publishing...", color: C.green },
-  { at: 0.96, side: "complete", text: "Live on 6 platforms.\nOne platform. Entire production." },
+  { at: 0.96, side: "complete", text: "Publish-ready.\nProduce Anything." },
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -992,10 +992,10 @@ function Marketing() {
       <section ref={sr(0)} className="mkt-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 48px" }}>
         <div className="mkt-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, borderRadius: 12, overflow: "hidden" }}>
           {[
-            { target: 40, suffix: "%", l: "Lower cost", s: "vs. agencies" },
-            { target: 10, suffix: "x", l: "Faster", s: "prompt to published" },
-            { prefix: "$", target: 2353, suffix: "", l: "Saved per video", s: "vs. traditional" },
-            { target: 8, suffix: " min", l: "Average production", s: "complete video" },
+            { prefix: "", target: 1, suffix: "", l: "Connected workflow", s: "brief to output" },
+            { prefix: "", target: 6, suffix: "", l: "Production stages", s: "plan to share" },
+            { prefix: "", target: 1, suffix: "", l: "Brand profile", s: "applied across output" },
+            { prefix: "", target: 6, suffix: "", l: "Priority audiences", s: "teams and filmmakers" },
           ].map((st, i) => (
             <div key={i} style={{ background: i % 2 === 0 ? "#0D0D0C" : C.s1, padding: "48px 32px", textAlign: "center", clipPath: v(0) ? "inset(0)" : "inset(100% 0 0 0)", transition: `clip-path .5s ${EASE} ${i * 0.1}s` }}>
               <AnimNum target={st.target} prefix={st.prefix || ""} suffix={st.suffix} delay={i * 200 + 500} />
@@ -1022,7 +1022,7 @@ function Marketing() {
               Already have footage?
             </h2>
             <p style={{ fontSize: 14, color: C.soft, lineHeight: 1.65, marginBottom: 24 }}>
-              Upload your raw video. AI applies professional cuts, color grading, pacing, and audio mixing — the same decisions a senior editor makes.
+              Upload your raw footage. AI assists with cuts, color, pacing, captions, and audio mixing while keeping manual control available.
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {["Auto-cut to music", "Color grade", "Caption sync", "Audio mix", "Hook-body-CTA"].map((tag, ti) => (
@@ -1056,7 +1056,7 @@ function Marketing() {
               <div className="m" style={{ fontSize: 10, color: C.dim, marginTop: 8 }}>4 clips · 12 min raw · unedited</div>
             </div>
             <div style={{ textAlign: "center" }}>
-              <span style={{ fontSize: 13, color: C.cyan }}>{"↓ AI edits in 8 minutes"}</span>
+              <span style={{ fontSize: 13, color: C.cyan }}>{"↓ AI prepares a working cut"}</span>
             </div>
             <div style={{ background: C.s2, border: `1px solid ${C.cyan}18`, borderRadius: 8, padding: "16px 20px" }}>
               <span className="m" style={{ fontSize: 10, color: C.cyan, display: "block", marginBottom: 8 }}>FINAL CUT</span>
@@ -1067,8 +1067,8 @@ function Marketing() {
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.cyan }}>91</div>
-                  <div className="m" style={{ fontSize: 9, color: C.muted }}>quality score</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: C.cyan }}>QA</div>
+                  <div className="m" style={{ fontSize: 9, color: C.muted }}>review signals</div>
                 </div>
               </div>
               <div className="m" style={{ fontSize: 10, color: C.cyan, marginTop: 8 }}>0:38 final · color graded · captions synced · music matched</div>
@@ -1084,8 +1084,8 @@ function Marketing() {
         <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", textAlign: "center", marginBottom: 48, opacity: v(2) ? 1 : 0, transition: `opacity .5s ${EASE}` }}>The old way vs. <span style={{ color: C.accent }}>Insturix</span></h2>
         <div className="mkt-compare" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {[
-            { title: "Traditional", color: C.red, steps: ["Brief freelancer - 2 hours", "Wait for draft - 3 days", "Revision round 1 - 2 days", "Revision round 2 - 1 day", "Final export - 2 hours"], total: "~6 days", cost: "$2,400" },
-            { title: "Insturix", color: C.green, steps: ["Type your prompt - 30 seconds", "AI writes script - 48 seconds", "AI produces video - 4 minutes", "AI analyzes + optimizes - 45 seconds", "Published to 6 platforms - 1 minute"], total: "~8 minutes", cost: "$47" },
+            { title: "Fragmented", color: C.red, steps: ["Briefing - scattered", "Drafting - separate", "Editing - separate", "Review - manual", "Publishing - handoff"], total: "Many tools", cost: "more handoffs" },
+            { title: "Insturix", color: C.green, steps: ["Brief - captured", "Script - drafted", "Media - assembled", "Analysis - reviewed", "Publishing - prepared"], total: "One workflow", cost: "less context switching" },
           ].map((side, i) => (
             <div key={i} style={{ background: C.s1, border: `1px solid ${side.color}18`, borderRadius: 12, padding: "32px 24px", transform: v(2) ? "none" : `translateX(${i === 0 ? "-40px" : "40px"})`, opacity: v(2) ? 1 : 0, transition: `all .5s ${EASE}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
@@ -1100,7 +1100,7 @@ function Marketing() {
               ))}
               <div style={{ textAlign: "center", marginTop: 16, padding: "16px", background: `${side.color}08`, borderRadius: 8, border: `1px solid ${side.color}12`, opacity: v(2) ? 1 : 0, transform: v(2) ? "none" : "scale(0.9)", transition: `all .5s ${EASE} 0.5s` }}>
                 <span style={{ fontSize: 32, fontWeight: 800, color: side.color }}>{side.total}</span>
-                <span style={{ fontSize: 13, color: side.color, display: "block", marginTop: 4, opacity: 0.6 }}>and {side.cost} spent</span>
+                <span style={{ fontSize: 13, color: side.color, display: "block", marginTop: 4, opacity: 0.6 }}>and {side.cost}</span>
               </div>
             </div>
           ))}
@@ -1115,8 +1115,8 @@ function Marketing() {
         <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", marginBottom: 48, opacity: v(3) ? 1 : 0, transition: `opacity .5s ${EASE}` }}>Two paths. Same engine.</h2>
         <div className="mkt-paths" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {[
-            { t: "For brand teams", d: "Produce 10x more content without growing headcount.", items: ["Chat-based editing — no skills needed", "Every output matches your brand", "Script to published in hours, not weeks"], c: C.accent },
-            { t: "For agencies", d: "Scale across every client. 40% lower cost.", items: ["Separate brand config per client", "White-label delivery", "40% below market rate"], c: C.green },
+            { t: "For in-house teams", d: "Produce more content without growing the toolchain.", items: ["Chat-based workflow with manual control", "Every output stays close to the brand", "Brief to publish-ready in one place"], c: C.accent },
+            { t: "For agencies", d: "Scale across clients with repeatable brand profiles.", items: ["Separate brand config per client", "White-label delivery where supported", "Fewer handoffs across production"], c: C.green },
           ].map((card, i) => (
             <div
               key={i}
@@ -1157,10 +1157,10 @@ function Marketing() {
           READY TO START?
         </span>
         <h2 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16, opacity: v(4) ? 1 : 0, transform: v(4) ? "none" : "translateY(16px)", transition: `all .5s ${EASE} 0.25s` }}>
-          Your next video is a<br />conversation away.
+          Produce Anything.
         </h2>
         <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, maxWidth: 480, margin: "0 auto 48px", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.45s` }}>
-          Join thousands of creators and teams who produce professional content from a single prompt.
+          Start with a brief, raw footage, or a campaign idea. Move from concept to publish-ready content in one production workflow.
         </p>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap", pointerEvents: "auto", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.65s` }}>
           <a
@@ -1210,7 +1210,6 @@ function Marketing() {
             Talk to sales
           </a>
         </div>
-        <p style={{ marginTop: 64, fontSize: 13, color: C.dim, opacity: v(4) ? 1 : 0, transition: `opacity .5s ${EASE} 1s` }}>Insturix — Building Future, Together.</p>
       </section>
     </div>
   );

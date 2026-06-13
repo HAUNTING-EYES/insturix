@@ -1,37 +1,51 @@
 import { Metadata } from "next";
 
+const TITLE = "Insturix Products | Automated Content Production Platform";
+const DESCRIPTION =
+  "Explore Insturix products for automated content production: planning, scripting, editing, analysis, asset creation, publishing, sharing, and brand workflows.";
+const PRODUCT_KEYWORDS = [
+  "automated content production",
+  "AI content production platform",
+  "content workflow automation",
+  "Insturix products",
+];
+const SOCIAL_IMAGE = {
+  url: "/brand/insturix_black.png",
+  width: 1200,
+  height: 630,
+  alt: "Insturix automated content production platform",
+};
+
 export const metadata: Metadata = {
-  title: "Socialize | Smart Link-in-Bio for Creators",
-  description: "Socialize by Insturix is an AI-powered link-in-bio platform that helps creators showcase all their content, brand deals, and social links in one customizable hub.",
-  keywords: "link in bio, creator tools, content hub, smart bio link, Insturix Socialize, influencer tools, social media hub, creator growth",
+  title: TITLE,
+  description: DESCRIPTION,
+  keywords: PRODUCT_KEYWORDS,
+  alternates: {
+    canonical: "/products",
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
   openGraph: {
-    title: "Socialize | Smart Link-in-Bio for Creators",
-    description: "Create your own AI-powered content hub with Socialize. Showcase your links, brand deals, and track performance—all from one powerful link-in-bio tool.",
-    images: [
-      {
-        url: "/icons/products/socialize-og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Insturix Socialize - Link in Bio Platform for Creators",
-      },
-    ],
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/products",
+    type: "website",
+    images: [SOCIAL_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Socialize | Smart Link-in-Bio for Creators",
-    description: "Socialize is the ultimate AI link-in-bio tool for creators. Share your content, brand deals, and track engagement effortlessly.",
-    images: ["/icons/products/socialize-twitter-image.jpg"],
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [SOCIAL_IMAGE.url],
   },
 };
 
-export default function SocializeLayout({
+export default function LegacyProductLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <>
-      {children}
-    </>
-  );
-} 
+  return <>{children}</>;
+}

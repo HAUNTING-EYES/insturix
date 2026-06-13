@@ -1,30 +1,48 @@
 import { Metadata } from "next";
 
+const TITLE = "Insturix Products | Automated Content Production Platform";
+const DESCRIPTION =
+  "Explore Insturix products for automated content production: planning, scripting, editing, analysis, asset creation, publishing, sharing, and brand workflows.";
+const PRODUCT_KEYWORDS = [
+  "automated content production",
+  "AI content production platform",
+  "content workflow automation",
+  "Insturix products",
+];
+const SOCIAL_IMAGE = {
+  url: "/brand/insturix_black.png",
+  width: 1200,
+  height: 630,
+  alt: "Insturix automated content production platform",
+};
+
 export const metadata: Metadata = {
-  title: "Alyzitron | Content Analytics for Creators",
-  description: "Data-driven analytics platform designed specifically for content creators to track performance, audience engagement, and monetization opportunities. Comunity Guidlines, Fact Authentication",
-  keywords: "creator analytics, content performance tracking, audience insights, monetization analytics, Insturix Alyzitron,Community Guidlines Violation, Fact Authentication",
+  title: TITLE,
+  description: DESCRIPTION,
+  keywords: PRODUCT_KEYWORDS,
+  alternates: {
+    canonical: "/products",
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
   openGraph: {
-    title: "Alyzitron | Content Analytics for Creators",
-    description: "Data-driven analytics platform designed specifically for content creators to track performance, audience engagement, and monetization opportunities. Comunity Guidlines, Fact Authentication",
-    images: [
-      {
-        url: "/icons/products/alyzitron-og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Insturix Alyzitron - Content Analytics for Creators",
-      },
-    ],
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/products",
+    type: "website",
+    images: [SOCIAL_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Alyzitron | Content Analytics for Creators",
-    description: "Data-driven analytics platform designed specifically for content creators to track performance, audience engagement, and monetization opportunities. Comunity Guidlines, Fact Authentication",
-    images: ["/icons/products/alyzitron-twitter-image.jpg"],
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [SOCIAL_IMAGE.url],
   },
 };
 
-export default function AlyzitronLayout({
+export default function LegacyProductLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -34,4 +52,4 @@ export default function AlyzitronLayout({
       {children}
     </>
   );
-} 
+}

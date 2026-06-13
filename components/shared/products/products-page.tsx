@@ -40,9 +40,9 @@ const rooms = [
   {
     label: "02",
     verb: "Edit",
-    heading: "From script or footage.\nA finished video.",
-    description: "Generate from a prompt or upload your own footage. AI handles cuts, captions, music sync, transitions, and color grading — the same decisions a professional editor makes.",
-    output: "Professional video from any starting point",
+    heading: "From script or footage.\nA finished output.",
+    description: "Generate from a prompt or upload your own footage. AI handles cuts, captions, music sync, transitions, and color grading so teams can move faster from raw material to finished media.",
+    output: "Polished content from any starting point",
     color: "var(--status-danger)",
     mockup: <EditMockup />,
   },
@@ -50,7 +50,7 @@ const rooms = [
     label: "03",
     verb: "Analyze",
     heading: "Know what works\nbefore you publish.",
-    description: "Every video gets scored on hook strength, pacing, retention, CTA clarity, and brand fit. Three timestamped fixes you can apply in seconds.",
+    description: "Every draft gets scored on hook strength, pacing, retention, CTA clarity, and brand fit. Three timestamped fixes you can apply in seconds.",
     output: "Quality score, verdict, and three actionable fixes",
     color: "var(--category-purple)",
     mockup: <AnalyzeMockup />,
@@ -284,7 +284,7 @@ export function ProductsPage() {
           Try the full studio. Free.
         </h2>
         <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 32, maxWidth: 400, margin: "0 auto 32px" }}>
-          Three minutes from prompt to published video.
+          Three minutes from prompt to publish-ready content.
         </p>
         <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
           <a href="/signup" style={{ background: "var(--accent-gold)", color: "var(--bg-canvas)", padding: isMobile ? "14px 24px" : "14px 32px", borderRadius: 7, fontSize: 14, fontWeight: 800, textDecoration: "none" }}>

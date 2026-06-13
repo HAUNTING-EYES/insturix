@@ -9,17 +9,17 @@ const faqItems = [
   {
     question: "What is Insturix?",
     answer:
-      "Insturix is an AI-powered video production platform that transforms scripts into fully edited videos. It handles everything from shot composition and pacing to color grading and sound design, giving you studio-quality output without the traditional production overhead.",
+      "Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers. It helps teams plan, script, edit, analyze, package, publish, and share content from one production workflow.",
   },
   {
     question: "How does AI editing work?",
     answer:
-      "You provide a script or upload raw footage, and our six-room production pipeline takes over. The AI analyzes your content for creative intent, selects optimal cuts and transitions, applies cinematic color and sound, then renders the final deliverable. Every decision is rule-driven, not random.",
+      "You provide a brief, script, or raw footage, and the production workflow turns it into review-ready output. The system analyzes intent, assembles the edit, applies pacing, color, sound, and format decisions, then prepares the final deliverable for the channels you need.",
   },
   {
     question: "What's included in each plan?",
     answer:
-      "Each plan includes access to the full production floor, a set number of monthly credits, export in multiple resolutions, and priority rendering. Higher tiers add API access, custom brand profiles, dedicated support, and increased storage and rendering limits.",
+      "Each plan includes access to the production workflow, a set number of monthly credits, export options, and rendering access. Higher tiers add API access, custom brand profiles, dedicated support, and increased storage and rendering limits.",
   },
   {
     question: "Can I upload my own footage?",
@@ -34,7 +34,7 @@ const faqItems = [
   {
     question: "Is there an API?",
     answer:
-      "Yes. The Insturix API lets you trigger production runs, upload assets, and retrieve finished videos programmatically. API access is available on Pro and Enterprise plans. Full documentation is available in the developer portal.",
+      "Yes. The Insturix API lets you trigger production runs, upload assets, and retrieve finished outputs programmatically. API access is available on Pro and Enterprise plans. Full documentation is available in the developer portal.",
   },
   {
     question: "How do credits work?",

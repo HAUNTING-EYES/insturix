@@ -183,7 +183,7 @@ export default function Privacy() {
                   margin: 0,
                 }}
               >
-                We are committed to protecting your privacy and ensuring the security of your personal data. This Privacy Policy explains how we collect, use, disclose, and protect your information when you use our services, including the Protection Policy(Shield), Content Analyzer(Alyzitron), AI Video Editor(Editron), and Creator-Business Platform(Meditron), AI Music Gen(musitron).
+                We are committed to protecting your privacy and ensuring the security of your personal data. This Privacy Policy explains how we collect, use, disclose, and protect your information when you use our services, including content planning, scripting, editing, analysis, asset creation, publishing, sharing, account management, and related support features.
                 <br />
                 By accessing or using our services, you agree to the terms outlined in this Privacy Policy.
               </p>
@@ -302,7 +302,7 @@ export default function Privacy() {
                 }}
               >
                 <li style={{ marginBottom: 4 }}>Publicly available information from social media platforms for account analysis and verification.</li>
-                <li>Business details for creating and managing campaigns on the Creator-Business Platform.</li>
+                <li>Business details for creating and managing team workflows, campaigns, or production requests.</li>
               </ul>
             </section>
 
@@ -330,10 +330,10 @@ export default function Privacy() {
                   paddingLeft: 20,
                 }}
               >
-                <li style={{ marginBottom: 8 }}>Provide and improve our services, including content analysis, account evaluation, video editing, and creator-business matchmaking.</li>
+                <li style={{ marginBottom: 8 }}>Provide and improve our services, including content planning, analysis, editing, account management, and production workflow support.</li>
                 <li style={{ marginBottom: 8 }}>Personalize your experience based on your preferences and history.</li>
-                <li style={{ marginBottom: 8 }}>Facilitate connections between creators and businesses for sponsorship campaigns (MEDITRON).</li>
-                <li style={{ marginBottom: 8 }}>Communicate with you about updates, subscriptions, support, and sponsorship opportunities.</li>
+                <li style={{ marginBottom: 8 }}>Coordinate team, client, or partner collaboration when you use shared workflows.</li>
+                <li style={{ marginBottom: 8 }}>Communicate with you about updates, subscriptions, support, and service opportunities.</li>
                 <li style={{ marginBottom: 8 }}>Send company updates, product announcements, newsletters, and other informational communications via email to keep you informed about our services and website developments.</li>
                 <li style={{ marginBottom: 8 }}>Process payments, manage billing, and issue refunds when applicable.</li>
                 <li>Comply with legal obligations and prevent fraud or misuse.</li>
@@ -433,7 +433,7 @@ export default function Privacy() {
                   margin: "0 0 8px",
                 }}
               >
-                3.4 Creator-Business Platform (MEDITRON)
+                3.4 Shared Workflows and Collaboration
               </h3>
               <p
                 style={{
@@ -444,7 +444,7 @@ export default function Privacy() {
                   margin: 0,
                 }}
               >
-                When you participate in campaigns, relevant details (e.g., niche, follower count, engagement metrics) may be shared with businesses or creators as necessary to facilitate collaboration.
+                When you use shared workspaces, campaigns, or collaboration features, relevant project details may be shared with approved participants as necessary to support the workflow.
               </p>
             </section>
 

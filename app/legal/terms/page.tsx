@@ -132,7 +132,7 @@ export default function Terms() {
                 { id: "acceptance-of-terms", label: "1. Acceptance of Terms" },
                 { id: "services-overview", label: "2. Services Overview" },
                 { id: "eligibility", label: "3. Eligibility" },
-                { id: "protection-policy-terms", label: "4. Protection Policy Terms" },
+                { id: "service-plan-terms", label: "4. Service Plan Terms" },
                 { id: "user-responsibilities", label: "5. User Responsibilities" },
                 { id: "account-registration", label: "6. Account Registration" },
                 { id: "payment-and-fees", label: "7. Payment and Fees" },
@@ -275,8 +275,8 @@ export default function Terms() {
               </p>
             </section>
 
-            {/* 4. Protection Policy Terms */}
-            <section id="protection-policy-terms" style={{ marginBottom: 48 }}>
+            {/* 4. Service Plan Terms */}
+            <section id="service-plan-terms" style={{ marginBottom: 48 }}>
               <h2
                 style={{
                   fontFamily: "var(--font-sans)",
@@ -287,7 +287,7 @@ export default function Terms() {
                 }}
               >
                 <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)", marginRight: 8 }}>04</span>
-                Protection Policy Terms
+                Service Plan Terms
               </h2>
               <p
                 style={{
@@ -298,7 +298,7 @@ export default function Terms() {
                   margin: "0 0 16px",
                 }}
               >
-                For clients enrolled in our Protection Policy:
+                For clients enrolled in paid service plans or add-on support services:
               </p>
               <ul
                 style={{
@@ -311,13 +311,13 @@ export default function Terms() {
                 }}
               >
                 <li style={{ marginBottom: 8 }}>
-                  <strong>Coverage:</strong> Detailed information on the protection services, coverage, and limitations is outlined in the Protection Policy Document.
+                  <strong>Scope:</strong> Detailed information on service access, usage limits, and support coverage is outlined in the applicable plan, order, or service documentation.
                 </li>
                 <li style={{ marginBottom: 8 }}>
-                  <strong>Exclusions:</strong> Certain cases, as detailed in the Protection Policy Document, are not covered.
+                  <strong>Exclusions:</strong> Certain services, requests, or usage scenarios may be excluded as detailed in the applicable plan, order, or service documentation.
                 </li>
                 <li>
-                  <strong>Non-Insurance Clause:</strong> Our Protection Policy is not an insurance policy. It provides specialized support and services without conferring legal insurance status.
+                  <strong>Non-Insurance Clause:</strong> Insturix services are not insurance products and do not confer legal insurance status.
                 </li>
               </ul>
             </section>
@@ -345,7 +345,7 @@ export default function Terms() {
                   margin: "0 0 16px",
                 }}
               >
-                By using this Website and/or subscribing to our Protection Policy, you agree to:
+                By using this Website and/or subscribing to our paid services, you agree to:
               </p>
               <ul
                 style={{
@@ -413,7 +413,7 @@ export default function Terms() {
                   margin: 0,
                 }}
               >
-                Fees for our services are detailed on the Website and in the Protection Policy Document. Payments are due in full upon enrolling in the policy. All fees are non-refundable except as specified in our Refund Policy. We reserve the right to modify fees at any time, with prior notice being posted on the Website or sent by email.
+                Fees for our services are detailed on the Website and in the applicable plan, order, or service documentation. Payments are due in full when placing an order or subscribing to a plan. All fees are non-refundable except as specified in our Refund Policy. We reserve the right to modify fees at any time, with prior notice being posted on the Website or sent by email.
               </p>
             </section>
 

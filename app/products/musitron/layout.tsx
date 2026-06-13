@@ -1,30 +1,48 @@
 import { Metadata } from "next";
 
+const TITLE = "Insturix Products | Automated Content Production Platform";
+const DESCRIPTION =
+  "Explore Insturix products for automated content production: planning, scripting, editing, analysis, asset creation, publishing, sharing, and brand workflows.";
+const PRODUCT_KEYWORDS = [
+  "automated content production",
+  "AI content production platform",
+  "content workflow automation",
+  "Insturix products",
+];
+const SOCIAL_IMAGE = {
+  url: "/brand/insturix_black.png",
+  width: 1200,
+  height: 630,
+  alt: "Insturix automated content production platform",
+};
+
 export const metadata: Metadata = {
-  title: "Musitron | AI Music Generator",
-  description: "Innovative AI Music generation platform for creators to produce royalty-free and copyright-free music, sound effects that enhance video content and audience engagement.",
-  keywords: "AI Music generation, royalty-free music, sound effects, Insturix Musitron , Copyright-free Music content creation tools",
+  title: TITLE,
+  description: DESCRIPTION,
+  keywords: PRODUCT_KEYWORDS,
+  alternates: {
+    canonical: "/products",
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
   openGraph: {
-    title: "Musitron | AI Music Generator",
-    description: "Innovative AI Music generation platform for creators to produce royalty-free and copyright-free music, sound effects that enhance video content and audience engagement.",
-    images: [
-      {
-        url: "/icons/products/musitron-og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Insturix Musitron - AI Music Generator",
-      },
-    ],
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/products",
+    type: "website",
+    images: [SOCIAL_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Musitron | AI Music Generator",
-    description: "Innovative AI Music generation platform for creators to produce royalty-free and copyright-free music, sound effects that enhance video content and audience engagement.",
-    images: ["/icons/products/musitron-twitter-image.jpg"],
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [SOCIAL_IMAGE.url],
   },
 };
 
-export default function MusitronLayout({
+export default function LegacyProductLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -34,4 +52,4 @@ export default function MusitronLayout({
       {children}
     </>
   );
-} 
+}

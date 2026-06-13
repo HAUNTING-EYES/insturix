@@ -769,7 +769,7 @@ export default function SocializeDashboard({
           </div>
           <div style={{ marginTop: 14, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 12, color: "#B5B2A8", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              insturix.com/socialize/{uniqueUsername}
+              insturix.com/profile/{uniqueUsername}
             </div>
             <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 11, color: "#7A776E", marginTop: 4 }}>
               Updated 2m ago

@@ -1,5 +1,14 @@
 import type { NextConfig } from "next";
 
+const legacyProductRoutes = [
+  "/products/alyzitron",
+  "/products/clickatron",
+  "/products/editron",
+  "/products/musitron",
+  "/products/socialize",
+  "/products/thinkforge",
+];
+
 const nextConfig: NextConfig = {
   // Disable React Strict Mode in production to avoid double-renders
   // Keep enabled in development for debugging
@@ -30,6 +39,20 @@ const nextConfig: NextConfig = {
         as: '*.js',
       },
     },
+  },
+  async redirects() {
+    return [
+      ...legacyProductRoutes.map((source) => ({
+        source,
+        destination: "/products",
+        permanent: true,
+      })),
+      {
+        source: "/socialize/:uniqueUsername",
+        destination: "/profile/:uniqueUsername",
+        permanent: true,
+      },
+    ];
   },
   // Optimize bundle splitting
   webpack: (config, { dev, isServer }) => {

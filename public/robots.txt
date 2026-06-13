@@ -13,20 +13,8 @@ Disallow: /checkout/*
 Disallow: /cart/*
 Disallow: /search/*
 
-# GPTBot
-User-agent: GPTBot
-Disallow: /
-
-# ChatGPT-User
-User-agent: ChatGPT-User
-Disallow: /
-
-# Google-Extended
-User-agent: Google-Extended
-Allow: /
-
 # Host
-Host: http://localhost:3000
+Host: https://www.insturix.com
 
 # Sitemaps
-Sitemap: http://localhost:3000/sitemap.xml
+Sitemap: https://www.insturix.com/sitemap.xml

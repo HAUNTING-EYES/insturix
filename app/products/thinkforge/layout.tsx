@@ -1,30 +1,48 @@
 import { Metadata } from "next";
 
+const TITLE = "Insturix Products | Automated Content Production Platform";
+const DESCRIPTION =
+  "Explore Insturix products for automated content production: planning, scripting, editing, analysis, asset creation, publishing, sharing, and brand workflows.";
+const PRODUCT_KEYWORDS = [
+  "automated content production",
+  "AI content production platform",
+  "content workflow automation",
+  "Insturix products",
+];
+const SOCIAL_IMAGE = {
+  url: "/brand/insturix_black.png",
+  width: 1200,
+  height: 630,
+  alt: "Insturix automated content production platform",
+};
+
 export const metadata: Metadata = {
-  title: "ThinkForge | AI Content Ideation & Scripting Tool",
-  description: "ThinkForge by Insturix is an AI-powered tool that helps creators generate content ideas, script videos, and plan engaging posts tailored to their niche and audience.",
-  keywords: "AI content ideation, video scripting tool, ThinkForge by Insturix, content creation AI, creator tools, script generator, idea generator for creators",
+  title: TITLE,
+  description: DESCRIPTION,
+  keywords: PRODUCT_KEYWORDS,
+  alternates: {
+    canonical: "/products",
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
   openGraph: {
-    title: "ThinkForge | AI Content Ideation & Scripting Tool",
-    description: "Fuel your creativity with ThinkForge. Generate content ideas, write scripts, and create viral content faster with AI tailored to your audience.",
-    images: [
-      {
-        url: "/icons/products/thinkforge-og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Insturix ThinkForge - AI Content Creation Tool and Scripting Tool",
-      },
-    ],
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/products",
+    type: "website",
+    images: [SOCIAL_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "ThinkForge | AI Content Ideation & Scripting Tool",
-    description: "Create viral-worthy content with ThinkForge ,  the AI tool for ideation, scripting, and planning your next big post.",
-    images: ["/icons/products/thinkforge-twitter-image.jpg"],
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [SOCIAL_IMAGE.url],
   },
 };
 
-export default function ThinkForgeLayout({
+export default function LegacyProductLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -34,4 +52,4 @@ export default function ThinkForgeLayout({
       {children}
     </>
   );
-} 
+}

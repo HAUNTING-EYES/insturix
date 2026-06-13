@@ -93,12 +93,12 @@ const BLOG_ARTICLES: BlogArticle[] = [
       "5-track analysis, confidence scoring, and the asset briefing pipeline that powers every editing decision.",
   },
   {
-    title: "From 23 days to 8 minutes: a production timeline comparison",
+    title: "Production timeline comparison: scattered handoffs versus one workflow",
     category: "Industry",
     categoryColor: "purple",
     date: "2026-03-20",
     excerpt:
-      "A real-world case study comparing traditional post-production timelines with the Insturix production floor.",
+      "A practical comparison of traditional post-production handoffs and the Insturix production workflow.",
   },
 ];
 

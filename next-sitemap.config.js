@@ -1,27 +1,57 @@
 /** @type {import('next-sitemap').IConfig} */
 import { fetchBlogPosts } from "./lib/blog-posts.js";
 
+const SITE_URL = process.env.SITE_URL || "https://www.insturix.com";
+
+const appSurfaceDisallow = [
+  "/api/*",
+  "/admin/*",
+  "/_next/*",
+  "/_static/*",
+  "/auth/*",
+  "/dashboard/*",
+  "/profile/*",
+  "/settings/*",
+  "/checkout/*",
+  "/cart/*",
+  "/search/*",
+];
+
+const archivedOrUtilityRoutes = [
+  "/manifest.json",
+  "/about/team",
+  "/contact-sales",
+  "/contribute",
+  "/donate",
+  "/insturix-creatives-agency",
+  "/sponsor",
+  "/waitlist",
+  "/products/alyzitron",
+  "/products/clickatron",
+  "/products/editron",
+  "/products/musitron",
+  "/products/socialize",
+  "/products/thinkforge",
+  "/landing-a",
+  "/landing-b",
+  "/hero-test",
+  "/preview",
+  "/signin",
+  "/signup",
+];
+
 const config = {
-  siteUrl: process.env.SITE_URL || "https://insturix.com",
+  siteUrl: SITE_URL,
   generateRobotsTxt: true,
   generateIndexSitemap: true,
   sitemapSize: 7000,
   changefreq: 'daily',
   priority: 0.9,
   exclude: [
-    "/api/*",
-    "/admin/*",
-    "/_next/*",
-    "/_static/*",
+    ...appSurfaceDisallow,
+    ...archivedOrUtilityRoutes,
     "/404",
     "/500",
-    "/auth/*",
-    "/dashboard/*",
-    "/profile/*",
-    "/settings/*",
-    "/checkout/*",
-    "/cart/*",
-    "/search/*",
     "/privacy-policy",
     "/terms-of-service",
     "/sitemap.xml",
@@ -33,71 +63,18 @@ const config = {
     const addedPaths = new Set();
 
     const blogPosts = await fetchBlogPosts();
-    const blogPaths = blogPosts.map((post) => ({
-      loc: `/resources/blogs/${post.slug}`,
-      changefreq: "daily",
-      priority: 0.9,
-      lastmod: post.updatedAt || new Date().toISOString(),
-    }));
-
-    // Add product pages
-    const productSlugs = ["ai-video-editor", "business-analytics", "influencer-protection", "brand-deals"];
-    const productPaths = productSlugs.map((slug) => ({
-      loc: `/products/${slug}`,
-      changefreq: "daily",
-      priority: 1.0,
-      lastmod: new Date().toISOString(),
-    }));
-
-    // Add important static pages
-    const staticPages = [
-      {
-        loc: "/about",
-        changefreq: "weekly",
-        priority: 0.8,
-        lastmod: new Date().toISOString(),
-      },
-      {
-        loc: "/contactus",
-        changefreq: "weekly",
-        priority: 0.8,
-        lastmod: new Date().toISOString(),
-      },
-      {
-        loc: "/upgrade",
+    const blogPaths = blogPosts
+      .filter((post) => !/^\d+$/.test(post.slug))
+      .map((post) => ({
+        loc: `/resources/blogs/${post.slug}`,
         changefreq: "daily",
         priority: 0.9,
-        lastmod: new Date().toISOString(),
-      },
-      {
-        loc: "/waitlist",
-        changefreq: "always",
-        priority: 1.0,
-        lastmod: new Date().toISOString(),
-      },
-      // ICS'25 Event Pages (High Priority)
-      {
-        loc: "/ics25",
-        changefreq: "daily",
-        priority: 0.95,
-        lastmod: new Date().toISOString(),
-      },
-      {
-        loc: "/ics25/gameon",
-        changefreq: "weekly",
-        priority: 0.85,
-        lastmod: new Date().toISOString(),
-      },
-      {
-        loc: "/ics25/register",
-        changefreq: "daily",
-        priority: 0.9,
-        lastmod: new Date().toISOString(),
-      },
-    ];
+        lastmod: post.updatedAt || new Date().toISOString(),
+      }));
 
-    // Combine all paths
-    const paths = [...blogPaths, ...productPaths, ...staticPages];
+    // Static routes come from the Next.js build. Only dynamic blog entries
+    // need to be added here.
+    const paths = [...blogPaths];
 
     // Only return paths that haven't been added yet
     const uniquePaths = paths.filter(path => {
@@ -115,31 +92,7 @@ const config = {
       {
         userAgent: "*",
         allow: "/",
-        disallow: [
-          "/api/*",
-          "/admin/*",
-          "/_next/*",
-          "/_static/*",
-          "/auth/*",
-          "/dashboard/*",
-          "/profile/*",
-          "/settings/*",
-          "/checkout/*",
-          "/cart/*",
-          "/search/*",
-        ],
-      },
-      {
-        userAgent: "GPTBot",
-        disallow: ["/"],
-      },
-      {
-        userAgent: "ChatGPT-User",
-        disallow: ["/"],
-      },
-      {
-        userAgent: "Google-Extended",
-        allow: ["/"],
+        disallow: appSurfaceDisallow,
       },
     ],
     additionalSitemaps: [],
@@ -157,12 +110,6 @@ const config = {
         changefreq: "always",
         priority: 1.0,
         lastmod: new Date().toISOString(),
-        alternateRefs: [
-          {
-            href: `${config.siteUrl || ""}${path}`,
-            hreflang: "en",
-          },
-        ],
       };
     }
 
@@ -174,30 +121,12 @@ const config = {
     if (path === "/") {
       priority = 1.0;
       changefreq = "always";
-    } else if (path?.startsWith("/ics25")) {
-      // ICS'25 event pages get high priority during event season
-      if (path === "/ics25") {
-        priority = 0.95;
-        changefreq = "daily";
-      } else if (path === "/ics25/register") {
-        priority = 0.9;
-        changefreq = "daily";
-      } else if (path === "/ics25/gameon") {
-        priority = 0.85;
-        changefreq = "weekly";
-      } else {
-        priority = 0.7;
-        changefreq = "weekly";
-      }
     } else if (path?.startsWith("/resources/blogs")) {
       priority = 0.9;
       changefreq = "daily";
     } else if (path?.startsWith("/products")) {
       priority = 1.0;
       changefreq = "daily";
-    } else if (path?.startsWith("/waitlist")) {
-      priority = 1.0;
-      changefreq = "always";
     } else if (path?.startsWith("/about") || path?.startsWith("/contactus")) {
       priority = 0.8;
       changefreq = "weekly";
@@ -211,25 +140,7 @@ const config = {
       changefreq,
       priority,
       lastmod: new Date().toISOString(),
-      alternateRefs: [
-        {
-          href: `${config.siteUrl || ""}${path}`,
-          hreflang: "en",
-        },
-      ],
     };
-  },
-  // Add Google verification
-  googleVerification: process.env.GOOGLE_VERIFICATION_ID,
-  // Add custom headers for better SEO
-  headers: {
-    "X-Robots-Tag": "index, follow",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "SAMEORIGIN",
-    "X-XSS-Protection": "1; mode=block",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
   },
 };
 

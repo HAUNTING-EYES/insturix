@@ -1,30 +1,48 @@
 import { Metadata } from "next";
 
+const TITLE = "Insturix Products | Automated Content Production Platform";
+const DESCRIPTION =
+  "Explore Insturix products for automated content production: planning, scripting, editing, analysis, asset creation, publishing, sharing, and brand workflows.";
+const PRODUCT_KEYWORDS = [
+  "automated content production",
+  "AI content production platform",
+  "content workflow automation",
+  "Insturix products",
+];
+const SOCIAL_IMAGE = {
+  url: "/brand/insturix_black.png",
+  width: 1200,
+  height: 630,
+  alt: "Insturix automated content production platform",
+};
+
 export const metadata: Metadata = {
-  title: "Editron | AI-Powered Video Editor",
-  description: "Professional-grade AI video editing solution for content creators, streamlining the editing process with advanced automation and creative tools and reducing editing time by 95%.",
-  keywords: "AI video editor, content creator tools, automated video editing, professional video creation, Insturix Editron",
+  title: TITLE,
+  description: DESCRIPTION,
+  keywords: PRODUCT_KEYWORDS,
+  alternates: {
+    canonical: "/products",
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
   openGraph: {
-    title: "Editron | AI-Powered Video Editor",
-    description: "Professional-grade AI video editing solution for content creators, streamlining the editing process with advanced automation and creative tools and reducing editing time by 95%.",
-    images: [
-      {
-        url: "/icons/products/editron-og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Insturix Editron - AI-Powered Video Editor",
-      },
-    ],
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/products",
+    type: "website",
+    images: [SOCIAL_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Editron | AI-Powered Video Editor",
-    description: "Professional-grade AI video editing solution for content creators, streamlining the editing process with advanced automation and creative tools and reducing editing time by 95%.",
-    images: ["/icons/products/editron-twitter-image.jpg"],
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [SOCIAL_IMAGE.url],
   },
 };
 
-export default function EditronLayout({
+export default function LegacyProductLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -34,4 +52,4 @@ export default function EditronLayout({
       {children}
     </>
   );
-} 
+}

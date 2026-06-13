@@ -1,46 +1,49 @@
 import { Metadata } from "next";
 import type { ReactNode } from "react";
-import { getBaseUrl } from "@/lib/env";
 
-const TITLE = "Clickatron | AI Thumbnail Generator & Editor";
+const TITLE = "Insturix Products | Automated Content Production Platform";
 const DESCRIPTION =
-  "Design scroll-stopping thumbnails with Clickatron's AI-powered prompt optimization, high-fidelity renders, and Insturix workflow automation.";
+  "Explore Insturix products for automated content production: planning, scripting, editing, analysis, asset creation, publishing, sharing, and brand workflows.";
+const PRODUCT_KEYWORDS = [
+  "automated content production",
+  "AI content production platform",
+  "content workflow automation",
+  "Insturix products",
+];
+const SOCIAL_IMAGE = {
+  url: "/brand/insturix_black.png",
+  width: 1200,
+  height: 630,
+  alt: "Insturix automated content production platform",
+};
 
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
-  keywords: [
-    "Clickatron",
-    "AI thumbnails",
-    "Insturix",
-    "AI",
-    "Render pipeline",
-    "creative workflow",
-    "image editor",
-  ],
+  keywords: PRODUCT_KEYWORDS,
+  alternates: {
+    canonical: "/products",
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
-    url: `${getBaseUrl()}/products/clickatron`,
+    url: "/products",
     type: "website",
-    images: [
-      {
-        url: "/icons/products/clickatron-og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Clickatron by Insturix - AI Thumbnail Generator",
-      },
-    ],
+    images: [SOCIAL_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
-    images: ["/icons/products/clickatron-twitter-image.jpg"],
+    images: [SOCIAL_IMAGE.url],
   },
 };
 
-export default function ClickatronLayout({
+export default function LegacyProductLayout({
   children,
 }: {
   children: ReactNode;

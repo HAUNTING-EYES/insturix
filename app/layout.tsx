@@ -31,11 +31,11 @@ export const viewport: Viewport = {
 // Base metadata that will be extended based on the route
 export const metadata: Metadata = {
   title: {
-    default: "Insturix | Building Future, Together",
+    default: "Insturix | Automated Content Production Platform",
     template: "%s | Insturix",
   },
   description:
-    "Building Future, Together. Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
+    "Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.",
   manifest: "/manifest.json",
   keywords: keywords,
   metadataBase: new URL(getBaseUrl()),
@@ -49,24 +49,24 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: getBaseUrl(),
-    title: "Insturix | Building Future, Together",
+    title: "Insturix | Automated Content Production Platform",
     description:
-      "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
+      "Automate content production from planning and editing to analysis, creative assets, and publishing workflows.",
     siteName: "Insturix",
     images: [
       {
         url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Insturix - Building Future, Together",
+        alt: "Insturix - Automated Content Production Platform",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Insturix | Building Future, Together",
+    title: "Insturix | Automated Content Production Platform",
     description:
-      "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
+      "Automated content production for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.",
     images: ["/icons/twitter-image.jpg"],
     creator: "@insturix",
     site: "@insturix",
@@ -174,7 +174,7 @@ export default function RootLayout({
             </ThemeProvider>
           </ReactQueryProvider>
           <footer aria-hidden="true" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap" }}>
-            <p>Insturix — AI-powered video production platform. Replace your entire video production workflow.</p>
+            <p>Insturix is an automated content production platform.</p>
             <a href="/legal/privacy">Privacy Policy</a>
             <a href="/legal/terms">Terms of Service</a>
             <a href="mailto:support@insturix.com">Contact</a>

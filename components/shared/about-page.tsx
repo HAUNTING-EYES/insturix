@@ -19,12 +19,12 @@ const EASE_CSS = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 const TOOLS = [
   { name: "Write the brief", desc: "Align stakeholders, scope the project, define deliverables", cumDays: 1, icon: FileText, color: "var(--accent-gold)" },
-  { name: "Hire a scriptwriter", desc: "Back-and-forth drafts with an external writer", cumDays: 5, icon: Users, color: "var(--accent-gold)" },
-  { name: "Shoot or generate", desc: "Book a crew or wrestle with AI generation tools", cumDays: 15, icon: Video, color: "var(--status-danger)" },
-  { name: "Edit in a timeline", desc: "Manual cuts, color grading, audio sync, titling", cumDays: 19, icon: Film, color: "var(--category-purple)" },
-  { name: "Review and revise", desc: "Rounds of timestamp feedback, re-exports, approvals", cumDays: 22, icon: MessageSquare, color: "var(--category-cyan)" },
-  { name: "Design thumbnails", desc: "A/B variants, brand compliance checks, click optimization", cumDays: 23, icon: Palette, color: "var(--category-pink)" },
-  { name: "Publish manually", desc: "Reformat and upload to each platform one by one", cumDays: 23, icon: Globe, color: "var(--status-success)" },
+  { name: "Draft the script", desc: "Turn the brief into scenes, hooks, and production direction", cumDays: 2, icon: Users, color: "var(--accent-gold)" },
+  { name: "Create or upload assets", desc: "Bring in footage, images, audio, references, or generated media", cumDays: 3, icon: Video, color: "var(--status-danger)" },
+  { name: "Edit the output", desc: "Cut, pace, caption, color, mix, and format the content", cumDays: 4, icon: Film, color: "var(--category-purple)" },
+  { name: "Review and revise", desc: "Keep feedback, approvals, and brand direction in one place", cumDays: 5, icon: MessageSquare, color: "var(--category-cyan)" },
+  { name: "Package assets", desc: "Prepare thumbnails, variants, captions, and channel-specific versions", cumDays: 6, icon: Palette, color: "var(--category-pink)" },
+  { name: "Publish and share", desc: "Move approved outputs toward the channels your team uses", cumDays: 7, icon: Globe, color: "var(--status-success)" },
 ];
 
 const ROOMS = [
@@ -47,7 +47,7 @@ const BELIEFS = [
   },
   {
     statement: "Built for businesses. Built for scale.",
-    supporting: "One video or a hundred. Same quality. Same speed. The platform that grows with your content needs, not against them.",
+    supporting: "From one asset to a campaign batch, the workflow keeps context, approvals, and brand direction in one place.",
   },
   {
     statement: "Reliable means predictable.",
@@ -100,7 +100,7 @@ export function AboutPage() {
           viewport={{ margin: "-48px" }} variants={fadeIn}
           style={{ fontSize: 14, color: "var(--text-secondary)", maxWidth: 480, margin: "0 auto", lineHeight: 1.6 }}
         >
-          Seven tools. Three weeks. Thousands of dollars. For one video.
+          Disconnected tools, manual handoffs, and slow approvals for every campaign.
         </motion.p>
       </section>
 
@@ -159,9 +159,9 @@ export function AboutPage() {
             </motion.div>
 
             <motion.div variants={fadeUp} style={{ maxWidth: 480, margin: "0 auto 32px", display: "flex", justifyContent: "center", gap: 24 }}>
-              <OutputStat label="TIME" value="8 min" />
-              <OutputStat label="SCORE" value="91/100" color="var(--status-success)" />
-              <OutputStat label="PLATFORMS" value="6" />
+              <OutputStat label="FLOW" value="One workflow" />
+              <OutputStat label="REVIEW" value="Ready to inspect" color="var(--status-success)" />
+              <OutputStat label="OUTPUT" value="Multi-channel" />
             </motion.div>
 
             <motion.p variants={fadeUp} style={{ fontSize: 14, color: "var(--text-secondary)", textAlign: "center", margin: 0, lineHeight: 1.6 }}>
@@ -346,7 +346,7 @@ function ToolAccumulation() {
                     padding: "4px 12px", borderRadius: 4, whiteSpace: "nowrap",
                     border: `1px solid var(--border-subtle)`,
                   }}>
-                    +{dayDelta}{dayDelta === 1 ? " day" : " days"}
+                    +{dayDelta}{dayDelta === 1 ? " step" : " steps"}
                   </span>
                 </div>
               );
@@ -360,7 +360,7 @@ function ToolAccumulation() {
               transition: `all 0.35s ${EASE_CSS}`,
             }}>
               <span style={{ fontSize: 24, fontWeight: 800, color: "var(--status-danger)", fontFamily: "var(--font-mono)", letterSpacing: "-0.02em" }}>
-                $2,000+
+                Fragmented stack
               </span>
             </div>
           </div>
@@ -374,7 +374,7 @@ function ToolAccumulation() {
               opacity: visibleCount > 0 ? 1 : 0,
               transition: `opacity 0.25s ${EASE_CSS}`,
             }}>
-              TIME ELAPSED
+              HANDOFF LOAD
             </span>
 
             <span style={{
@@ -391,7 +391,7 @@ function ToolAccumulation() {
               color: "var(--text-secondary)", marginTop: 8,
               opacity: visibleCount > 0 ? 1 : 0,
             }}>
-              {smoothDay === 1 ? "day" : "days"}
+              {smoothDay === 1 ? "step" : "steps"}
             </span>
 
             <span style={{
