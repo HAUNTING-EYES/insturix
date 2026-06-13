@@ -1,0 +1,129 @@
+import { describe, expect, it } from 'vitest';
+import { OverlayType } from '@/components/editron/editor/version-7.0.0/types';
+import {
+  CANONICAL_CAPTION_TRACK_SOURCE,
+  installCanonicalCaptionTrack,
+} from '@/lib/editron/services/canonical-caption-track';
+import type { EditedTimelineContext } from '@/lib/editron/services/edited-timeline-context';
+import type { AtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
+
+const presentation: AtomicCaptionPresentation = {
+  version: 'atomic-caption-form-v1',
+  style: 'bold',
+  displayMode: 'phrase',
+  wordsPerGroup: 4,
+  source: 'signals',
+  signals: {
+    formality: 0.35,
+    energy: 0.72,
+    speakingRate: 168,
+  },
+};
+
+function context(words = ['this', 'is', 'finally', 'canonical', 'captioning']): EditedTimelineContext {
+  return {
+    version: 'edited-timeline-context-v1',
+    fps: 30,
+    durationFrames: 180,
+    durationMs: 6000,
+    sourceClips: [
+      { from: 0, durationInFrames: 90, sourceStartFrame: 300 },
+      { from: 90, durationInFrames: 90, sourceStartFrame: 900 },
+    ],
+    transcription: words.map((word, index) => ({
+      word,
+      startMs: 300 + index * 360,
+      endMs: 560 + index * 360,
+      originalStartMs: 10_000 + index * 360,
+      originalEndMs: 10_260 + index * 360,
+    })),
+    sourceRawFootage: {} as any,
+    editedRawFootage: {} as any,
+    evidence: {
+      hasSourceMapping: true,
+      isCanonicalDecisionTimeline: true,
+      requiresSourceMapping: true,
+      inputClipCount: 2,
+      mappedClipCount: 2,
+      missingSourceMappingCount: 0,
+      inputWordCount: words.length,
+      keptWordCount: words.length,
+      droppedWordCount: 0,
+      clipCount: 2,
+    },
+  };
+}
+
+describe('canonical caption track', () => {
+  it('creates one final-timeline caption track from canonical transcript words', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 300 },
+      { id: 11, type: 'video', from: 90, durationInFrames: 90, sourceStartFrame: 900 },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation,
+    });
+
+    expect(result).toMatchObject({ created: 1, removedGenerated: 0, wordCount: 5 });
+    const captions = overlays.filter((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(captions).toHaveLength(1);
+    expect(captions[0]).toMatchObject({
+      from: 0,
+      durationInFrames: 180,
+      row: 4,
+      position: 'custom',
+      template: 'bold',
+    });
+    expect(captions[0].sourceVideoId).toBeUndefined();
+    expect(captions[0].metadata.source).toBe(CANONICAL_CAPTION_TRACK_SOURCE);
+    expect(captions[0].metadata.timeline).toBe('cut');
+    expect(captions[0].metadata.calibration.status).toBe('invented-needs-calibration');
+    expect(captions[0].captions.map((caption: any) => caption.text).join(' ')).toContain('finally canonical');
+  });
+
+  it('replaces old generated per-video captions but keeps manual captions', () => {
+    const overlays: any[] = [
+      { id: 1, type: 'caption', sourceVideoId: 10, captions: [{ text: 'old' }] },
+      { id: 2, type: 'caption', metadata: { source: CANONICAL_CAPTION_TRACK_SOURCE }, captions: [{ text: 'old canonical' }] },
+      { id: 3, type: 'caption', metadata: { userEdited: true }, captions: [{ text: 'manual' }] },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation,
+    });
+
+    expect(result).toMatchObject({
+      created: 0,
+      removedGenerated: 2,
+      skippedReason: 'manual-captions-present',
+    });
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0].id).toBe(3);
+  });
+
+  it('skips cleanly when the edited timeline has no speech words', () => {
+    const overlays: any[] = [];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context([]),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation,
+    });
+
+    expect(result).toMatchObject({
+      created: 0,
+      removedGenerated: 0,
+      skippedReason: 'no-words',
+      wordCount: 0,
+    });
+    expect(overlays).toHaveLength(0);
+  });
+});

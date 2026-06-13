@@ -23,7 +23,9 @@ Labels can remain as compatibility output, but they should not be the source of 
 - Wire atomic aesthetic scores into calibration reports for real projects and creator-reference runs.
 - Add rendered pixel/video aesthetic checks: legibility against actual footage, visible overlap, blank/overflow detection, and frame-level contrast.
 - Add reference-style calibration: compare generated overlay bundles against top-editor examples, not just internal scores.
+- Make cut sequencing visually aware: V-JEPA / visual-understanding signals must help decide keep, remove, shorten, cut boundaries, and visual silent-moment protection before overlay decisions run.
 - Add SFX strategy beyond external-source dependence: deterministic role taxonomy, local cache quality tiers, source fallback policy, and silence/overmixing guardrails.
+- Calibrate MG expression-authority weights/curves for relevance, size, layout width, screen pressure, and duration against rendered reference evidence.
 - Feed aesthetic failures back into resolver weights/curves instead of only reporting them.
 - Make receipts drive live intelligence decisions after confidence is proven: collision checks, avoid-face placement, caption density limits, transition/zoom restraint.
 - Continue removing preset-like resolution from MG, zoom, transition, caption, text, SFX, and other overlay families.

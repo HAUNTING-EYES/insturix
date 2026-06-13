@@ -309,6 +309,14 @@ describe('EDL executor atomic overlay observe mode', () => {
       preferHits: ['negative-space'],
     }));
     expect(motionGraphic.metadata.atomicPlanObserveMode).toBe(true);
+    expect(motionGraphic.metadata.mgExpressionAuthority).toEqual(expect.objectContaining({
+      version: 'mg-expression-authority-v1',
+      allowMotionGraphic: true,
+      calibration: expect.objectContaining({ status: 'invented-needs-calibration' }),
+    }));
+    expect(motionGraphic.metadata.mgExpressionAuthority.typography.fontSizePx).toBeGreaterThanOrEqual(72);
+    expect(motionGraphic.recipe.layout.position).toBe('top-right');
+    expect(motionGraphic.recipe.layout.maxWidth).toMatch(/%$/);
     expect(atomicPlan.recipeId).toBe('composed-numeric');
     expect(atomicPlan.elements.some((element: any) => element.role === 'counter')).toBe(true);
     expect(atomicPlan.elements.some((element: any) => element.motion.tracks.some((track: any) => track.property === 'z'))).toBe(true);

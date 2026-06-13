@@ -48,6 +48,7 @@ import {
   formatVjepaCoverageAuditWarning,
   shouldRunLegacyIntelligenceFallback,
 } from '@/lib/editron/agent/director-observability';
+import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -1273,6 +1274,33 @@ export async function executeDirectorPlan(
           const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle);
           (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
           await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
+
+          if (editedTimelineContext) {
+            const captionPresentation = resolveAtomicCaptionPresentation({
+              requestedStyle: briefCaptionStyle,
+              profileStyle: effectiveProfile.captionStyle,
+              genreParams: pathDGenreParams,
+            });
+            const captionTrackResult = installCanonicalCaptionTrack({
+              overlays,
+              editedTimelineContext,
+              playerDimensions: canvas,
+              presentation: captionPresentation,
+            });
+            if (captionTrackResult.created > 0) {
+              result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
+              console.log(
+                `[Director] Canonical caption track: ${captionTrackResult.captionCount} groups, ` +
+                `${captionTrackResult.wordCount} words, style=${captionPresentation.style}, ` +
+                `mode=${captionPresentation.displayMode}, removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            } else {
+              console.log(
+                `[Director] Canonical caption track skipped (${captionTrackResult.skippedReason || 'unknown'}), ` +
+                `removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            }
+          }
 
           pathDHandled = true;
           unifiedDecisionBundleExecuted = true;

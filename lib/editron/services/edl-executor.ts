@@ -30,6 +30,11 @@ import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-f
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
 import { resolveAtomicPlacement } from '@/lib/editron/services/atomic-placement';
 import { normalizeMotionGraphicContent } from '@/lib/editron/services/mg-content-atoms';
+import {
+  applyMgExpressionAuthorityToRecipe,
+  applyMgExpressionAuthorityToScores,
+  resolveMgExpressionAuthority,
+} from '@/lib/editron/services/mg-expression-authority';
 import { buildAtomicMomentBundle, type AtomicMomentBundle, type MomentAtom } from '@/lib/editron/services/moment-bundle';
 import { resolveMomentBundleGrammar, type AtomicMomentGrammar } from '@/lib/editron/services/moment-bundle-grammar';
 import {
@@ -2597,6 +2602,24 @@ async function applyGraphic(
       }
     }
 
+    const mgExpressionAuthority = resolveMgExpressionAuthority({
+      content: contentMap,
+      structure: normalizedGraphicContent.structure,
+      semanticAtoms: normalizedGraphicContent.semanticAtoms,
+      signals: rawSignals,
+      momentBundle: decisionMomentBundle(decision),
+      placementRegion,
+      graphicsDensity,
+    });
+    if (!mgExpressionAuthority.allowMotionGraphic) {
+      console.log(
+        `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: SKIPPED by MG expression authority - ` +
+        mgExpressionAuthority.reasons.join(', '),
+      );
+      return null;
+    }
+    mgScores = applyMgExpressionAuthorityToScores(mgScores, mgExpressionAuthority);
+
     // Overlays-as-signals: the mg.typography.font_weight dial (signal→curve→[300..800]) is the
     // source of boldness — feed it into the typography token every MG composer binds
     // (token:typography.headingWeight), so weight comes from the CURVE, not the resolver's
@@ -2609,11 +2632,14 @@ async function applyGraphic(
       tokens.typography.bodyWeight = Math.max(300, Math.min(600, hw - 200));
     }
 
-    const recipe = planComposition(
-      { content: contentMap, triggerMoment: decision.reason },
-      tokens,
-      rawSignals,
-      mgScores,
+    const recipe = applyMgExpressionAuthorityToRecipe(
+      planComposition(
+        { content: contentMap, triggerMoment: decision.reason },
+        tokens,
+        rawSignals,
+        mgScores,
+      ),
+      mgExpressionAuthority,
     );
 
     // Tier 1 Aesthetic Gate: structural quality check (observe-only, no blocking)
@@ -2625,7 +2651,14 @@ async function applyGraphic(
     const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
 
     const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
-    const compositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
+    const baseCompositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
+    const compositionDuration = Math.max(
+      mgExpressionAuthority.duration.minFrames,
+      Math.min(
+        mgExpressionAuthority.duration.maxFrames,
+        Math.round(baseCompositionDuration * mgExpressionAuthority.duration.multiplier),
+      ),
+    );
 
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
@@ -2654,6 +2687,7 @@ async function applyGraphic(
         atomicOverlayPlan,
         atomicOverlayDecision,
         atomicPlanObserveMode: true,
+        mgExpressionAuthority,
         contentStructure: normalizedGraphicContent.structure,
         semanticAtoms: normalizedGraphicContent.semanticAtoms,
         ...atomicMomentBundleMetadata(decision),
