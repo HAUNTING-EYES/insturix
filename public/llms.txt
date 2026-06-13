@@ -3,7 +3,7 @@
 > Insturix is an automated content production platform for agencies, in-house
 > teams, businesses, enterprises, creator houses, and filmmakers.
 
-Tagline: Produce Anything.
+Tagline: Your vision. Not a version
 
 Insturix helps teams move from content idea to finished output in one workflow.
 The platform supports planning, scripting, editing uploaded footage, analyzing

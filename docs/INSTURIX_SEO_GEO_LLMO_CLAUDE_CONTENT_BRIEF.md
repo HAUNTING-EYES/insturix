@@ -8,7 +8,7 @@ You are helping write SEO, GEO, and LLMO content for Insturix.
 
 Insturix is an automated content production platform. The current tagline is:
 
-Produce Anything
+Your vision. Not a version
 
 Canonical domain:
 https://www.insturix.com
@@ -17,7 +17,7 @@ Current LLM-facing summary already live in `llms.txt`:
 
 > Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.
 >
-> Tagline: Produce Anything.
+> Tagline: Your vision. Not a version
 >
 > Insturix helps teams move from content idea to finished output in one workflow. The platform supports planning, scripting, editing uploaded footage, analyzing content, creating visual assets, adding music and sound, publishing finished media, and sharing content from a public profile surface. A persistent brand profile helps keep tone, pacing, fonts, colors, visual style, and preferences consistent across outputs.
 >
@@ -316,7 +316,7 @@ Rules:
 - No stale legacy product descriptions
 - No unsupported claims
 - Keep it factual and concise
-- Keep "Produce Anything"
+- Keep "Your vision. Not a version"
 - Keep automated content production as the category
 
 ### 10. Claim Safety Table
@@ -330,7 +330,7 @@ Return a table with:
 
 Include at least these claims:
 
-- Produce Anything
+- Your vision. Not a version
 - automated content production platform
 - AI-assisted editing
 - brand consistency

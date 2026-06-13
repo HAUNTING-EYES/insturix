@@ -127,7 +127,7 @@ const MSGS: { at: number; side: string; text: string; color?: string }[] = [
   { at: 0.73, side: "status", text: "Generating thumbnails...", color: C.pink },
   { at: 0.83, side: "done", text: "Thumbnail options ready for review" },
   { at: 0.87, side: "status", text: "Publishing...", color: C.green },
-  { at: 0.96, side: "complete", text: "Publish-ready.\nProduce Anything." },
+  { at: 0.96, side: "complete", text: "Publish-ready.\nYour vision. Not a version" },
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -1157,7 +1157,7 @@ function Marketing() {
           READY TO START?
         </span>
         <h2 style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.035em", marginBottom: 16, opacity: v(4) ? 1 : 0, transform: v(4) ? "none" : "translateY(16px)", transition: `all .5s ${EASE} 0.25s` }}>
-          Produce Anything.
+          Your vision. Not a version
         </h2>
         <p style={{ fontSize: 18, color: C.muted, lineHeight: 1.55, maxWidth: 480, margin: "0 auto 48px", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.45s` }}>
           Start with a brief, raw footage, or a campaign idea. Move from concept to publish-ready content in one production workflow.
