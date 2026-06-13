@@ -936,13 +936,13 @@ const products = [
     ),
   },
   {
-    id: "uploaderx",
-    name: "UploaderX",
+    id: "distribution-studio",
+    name: "Distribution Studio",
     tagline: "Multi-Platform Distribution",
     description: "Publish to YouTube, Instagram, TikTok, and Meta simultaneously. Schedule, optimize, and track.",
     color: "#2DD4BF",
     icon: Upload,
-    href: "/products/uploaderx",
+    href: "/products",
     visual: () => (
       <div className="w-full h-full p-4 flex gap-4 relative bg-[#0E0E10] overflow-hidden text-zinc-300 font-sans">
         
@@ -950,7 +950,7 @@ const products = [
         <div className="w-[45%] flex flex-col gap-3 relative z-10 shrink-0">
           <div className="flex items-center gap-2 mb-1">
             <Network className="w-5 h-5 text-teal-400" />
-            <span className="text-[18px] font-bold text-white tracking-tight">UploaderX</span>
+            <span className="text-[18px] font-bold text-white tracking-tight">Distribution Studio</span>
           </div>
 
           <div className="flex-1 bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-3 flex flex-col relative overflow-hidden">

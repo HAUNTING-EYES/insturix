@@ -23,7 +23,7 @@ export default function EnterpriseHeroSection() {
           className="mb-8 max-w-3xl mx-auto"
         >
           <p className="text-lg sm:text-[18px] text-neutral-400 italic mb-2">
-            "Insturix empowered our team to deliver results 10x faster—at nearly half the cost."
+            "Insturix helped our team move from scattered content workflows to a reliable production system."
           </p>
           <p className="text-sm text-neutral-500">
             — Alex Rivera

@@ -15,17 +15,17 @@ const faqs = [
   {
     question: "What is Insturix?",
     answer:
-      "Insturix is a suite of AI-powered digital solutions designed to help businesses and individuals enhance their digital experiences with cutting-edge technology.",
+      "Insturix is an automated content production platform for agencies, in-house teams, businesses, filmmaker teams, enterprises, and creator houses. It helps teams plan, produce, analyze, publish, and manage content workflows from one workspace.",
   },
   {
     question: "How do I get started?",
     answer:
-      "Getting started is easy! Simply sign up for an account and choose the product that best suits your needs. Our onboarding process will guide you through the setup.",
+      "Getting started is easy. Sign up, choose the workflow you need, and follow onboarding to set up your workspace.",
   },
   {
     question: "What products do you offer?",
     answer:
-      "We offer various products including Alyzitron for content moderation, Kund-li for data analysis, Editron for content editing, Shield for security, and more.",
+      "Insturix brings together content planning, production, editing, analytics, asset generation, publishing, and public profile workflows for teams that need repeatable output.",
   },
   {
     question: "How secure is my data?",
@@ -50,7 +50,7 @@ const faqs = [
   {
     question: "What makes Insturix different?",
     answer:
-      "Our unique combination of AI technology, user-focused design, and commitment to innovation sets us apart. We're constantly evolving to meet our users' needs.",
+      "Insturix is built around reliable production workflows: brand-aware planning, repeatable output, team operations, and content systems that can scale without adding manual chaos.",
   },
   {
     question: "How do I delete all my data?",

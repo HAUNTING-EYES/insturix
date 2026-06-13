@@ -59,12 +59,12 @@ export default function AboutContent() {
               <div className="p-10 rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 transition-all duration-300 h-full flex flex-col justify-center">
                 <h2 className="text-2xl font-bold mb-6 text-white font-space-grotesk tracking-tight">Our Vision</h2>
                 <p className="text-zinc-400 mb-6 text-lg leading-relaxed">
-                  To become the definitive platform that revolutionizes the
-                  influencer ecosystem by merging protection, innovation, and
-                  growth.
+                  To become the definitive automated content production platform
+                  for agencies, in-house teams, businesses, filmmakers,
+                  enterprises, and creator houses.
                 </p>
                 <p className="text-zinc-500 text-lg leading-relaxed">
-                  We are building toward a future where creators collaborate with 
+                  We are building toward a future where production teams collaborate with
                   autonomous tools that understand their brand language — 
                   transforming technical barriers into creative flow.
                 </p>
@@ -77,9 +77,9 @@ export default function AboutContent() {
               <div className="p-10 rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 transition-all duration-300 h-full flex flex-col justify-center">
                 <h2 className="text-2xl font-bold mb-6 text-white font-space-grotesk tracking-tight">Our Mission</h2>
                 <p className="text-zinc-400 mb-8 text-lg leading-relaxed">
-                  To empower social media users and creators by safeguarding their 
-                  digital presence and providing the technical orchestration required 
-                  to scale their impact globally.
+                  To help content teams turn strategy, assets, editing,
+                  publishing, and performance feedback into one dependable
+                  production system.
                 </p>
                 <Link href="/about">
                   <motion.button 

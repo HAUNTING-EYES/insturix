@@ -14,21 +14,21 @@ export const timelineData: TimeLineItem[] = [
   {
     year: "2024",
     title: "The Beginning",
-    description: "Founded with a vision to transform digital experiences",
+    description: "Founded with a vision to make content production more reliable for teams",
     events: [
       {
         date: "August 15",
         description:
-          "Initial idea conceptualized for a protection policy targeting influencers",
+          "Initial vision formed around safer, more scalable production workflows for modern content teams",
       },
       {
         date: "August 20",
-        description: "Began brainstorming additional features for Insturix",
+        description: "Began mapping automated workflows across planning, production, analysis, and publishing",
       },
       { date: "September 19", description: "Official launch of Insturix" },
       {
         date: "November 15",
-        description: "Finalized three key subscription-based products/services",
+        description: "Finalized the first set of platform modules for content production teams",
       },
       {
         date: "November 18",
@@ -54,7 +54,7 @@ export const timelineData: TimeLineItem[] = [
       {
         date: "December 18",
         description:
-          "Visualized feature for creators to connect with businesses",
+          "Explored collaboration workflows between creators, businesses, and production teams",
       },
       {
         date: "December 19",
@@ -63,14 +63,14 @@ export const timelineData: TimeLineItem[] = [
       {
         date: "December 21",
         description:
-          "Launched and deployed Editron (Production House) V1 on the website",
+          "Released the first production workspace prototype on the website",
       },
     ],
   },
   {
     year: "2025",
-    title: "Rapid Growth",
-    description: "Expanded our team and launched major products",
+    title: "Platform Expansion",
+    description: "Expanded toward an automated content production platform for teams and enterprises",
     events: [
       {
         date: "January 17",
@@ -78,12 +78,12 @@ export const timelineData: TimeLineItem[] = [
       },
       {
         date: "January 20",
-        description: "Began development of a central LLM for the website",
+        description: "Began development of a central AI orchestration layer for the website",
       },
       {
         date: "January 21",
         description:
-          "Proposed creation of a social media platform integrated into Insturix",
+          "Explored public profile and audience-facing publishing workflows inside Insturix",
       },
       {
         date: "January 24",
@@ -93,7 +93,7 @@ export const timelineData: TimeLineItem[] = [
       {
         date: "January 25",
         description:
-          "Introduced Meditron and ThinkForge, renamed Techie Tiwari to Alyzitron",
+          "Expanded the platform roadmap across planning, production, intelligence, and asset generation workflows",
       },
       {
         date: "February 18",
@@ -103,7 +103,7 @@ export const timelineData: TimeLineItem[] = [
       {
         date:"February 28",
         description:
-          "Received LLP",
+          "Completed LLP incorporation",
       }
     ],
   },
