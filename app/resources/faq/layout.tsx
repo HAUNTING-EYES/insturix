@@ -1,26 +1,28 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Insturix FAQ | What It Is and How It Works",
+  title: "Insturix FAQ | Automated Content Production Answers",
   description:
-    "Answers to common questions about Insturix, automated content production, editing uploaded footage, brand profiles, pricing, credits, and support.",
+    "Answers about Insturix, automated content production workflows, uploaded footage, brand profiles, publishing, pricing, and support.",
   keywords: [
     "Insturix FAQ",
     "what is Insturix",
     "how does Insturix work",
     "automated content production FAQ",
     "AI content production platform FAQ",
+    "content production workflow FAQ",
+    "brand profile content production",
   ],
   openGraph: {
-    title: "Insturix FAQ | What It Is and How It Works",
+    title: "Insturix FAQ | Automated Content Production Answers",
     description:
-      "Common questions about Insturix and its automated content production workflow.",
+      "Common questions about Insturix and its automated content production workflow for agencies, teams, businesses, filmmakers, and enterprises.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Insturix FAQ | What It Is and How It Works",
+    title: "Insturix FAQ | Automated Content Production Answers",
     description:
-      "Answers about Insturix, automated content production, pricing, credits, and support.",
+      "Answers about Insturix, automated content production, brand profiles, pricing, publishing, and support.",
   },
 };
 
