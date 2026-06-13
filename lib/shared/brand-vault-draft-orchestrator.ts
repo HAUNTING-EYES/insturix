@@ -769,6 +769,7 @@ function createIntakeSummary(args: {
   const uploadCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'uploaded_guideline' || candidate.sourceType === 'uploaded_asset');
   const uploadExtractorCandidates = uploadCandidates.filter((candidate) => candidate.extractorId === UPLOAD_EXTRACTOR);
   const legacyCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'legacy_brand_intelligence');
+  const websiteEvidenceCount = args.profile.evidence.filter((item) => isWebsiteProfileEvidenceSource(item.sourceType)).length;
   const websiteStatus: BrandVaultIntakeStageStatus = args.job.status === 'failed' ? 'failed' : 'complete';
   const social = createSocialIntakeSummary({
     socialLinks: args.job.inputs.socialLinks,
@@ -788,7 +789,7 @@ function createIntakeSummary(args: {
       status: websiteStatus,
       sourceCount: args.normalizedUrl ? 1 : 0,
       candidates: websiteCandidates,
-      evidenceCount: args.profile.evidence.filter((item) => isWebsiteEvidenceSource(item.sourceType)).length,
+      evidenceCount: websiteEvidenceCount,
       notes: [`Fetched ${args.normalizedUrl}.`],
     }),
     createEvidenceLane({
@@ -838,7 +839,7 @@ function createIntakeSummary(args: {
       providedCount: args.normalizedUrl ? 1 : 0,
       sourceCount: 1,
       candidateCount: websiteCandidates.length,
-      evidenceCount: args.profile.evidence.filter((item) => isWebsiteEvidenceSource(item.sourceType)).length,
+      evidenceCount: websiteEvidenceCount,
       crawledPageCount: crawlPageCandidates.length,
       notes: [`Website evidence fetched from ${args.normalizedUrl}.`],
     },
@@ -1112,6 +1113,10 @@ function isCrawlPageCandidate(candidate: BrandEvidenceCandidate): boolean {
 
 function isWebsiteEvidenceSource(sourceType: string): boolean {
   return ['website', 'website_metadata', 'json_ld', 'css', 'logo_asset'].includes(sourceType);
+}
+
+function isWebsiteProfileEvidenceSource(sourceType: string): boolean {
+  return sourceType === 'first_party_website' || isWebsiteEvidenceSource(sourceType);
 }
 
 function isAuthWarning(warning: string): boolean {
@@ -1660,6 +1665,7 @@ interface CrawlPageContent {
 
 function extractCrawlPageContent(snapshot: BrandWebsiteSnapshot): CrawlPageContent {
   const $ = load(snapshot.html);
+  $('script,style,noscript,svg').remove();
   const headings = crawlTexts($, 'h1,h2,h3', 8);
   const ctas = crawlTexts($, 'a,button', 8).filter((text) => /\b(?:book|start|get|try|request|contact|demo|buy|talk|schedule|join|download|learn)\b/i.test(text));
   const proofSnippets = uniqueStrings([
@@ -1667,7 +1673,6 @@ function extractCrawlPageContent(snapshot: BrandWebsiteSnapshot): CrawlPageConte
     ...crawlMetricSnippets($.text()),
   ]).slice(0, 8);
 
-  $('script,style,noscript,svg').remove();
   const bodyText = crawlBodyText($);
   return {
     title: pageTitle(snapshot.html),

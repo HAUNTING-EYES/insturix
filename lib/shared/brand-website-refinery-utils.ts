@@ -16,7 +16,7 @@ export const LIGHT_SURFACE = '#ffffff';
 
 const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn|download|subscribe|apply|schedule|request)\b/i;
 const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
-const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agency|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprise|startup|client|customer|support|finance|founder|operator|creator|creator house|in-house|studio|filmmaker|editorial|content|production|video|social|brand)\b/i;
+const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?)\b/i;
 const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
 const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
 const FONT_FAMILY_DECLARATION_PATTERN = /(?:^|[;{]\s*)font-family\s*:\s*([^;}]+)/gi;
@@ -365,17 +365,27 @@ export function inferCategory(text: string): string {
 
 export function inferAudience(text: string): string[] {
   const matches = [
-    ...text.matchAll(/\bfor\s+([^.!?\n,;:]{4,100})/gi),
-    ...text.matchAll(/\b(?:built|made|designed|created|engineered)\s+for\s+([^.!?\n,;:]{4,100})/gi),
-    ...text.matchAll(/\bhelps\s+([^.!?\n,;:]{4,100})/gi),
-    ...text.matchAll(/\bused by\s+([^.!?\n,;:]{4,100})/gi),
-    ...text.matchAll(/\btrusted by\s+(?:[\d,.]+\+?\s+)?([^.!?\n,;:]{4,100})/gi),
+    ...text.matchAll(/\bfor\s+([^.!?\n;:]{4,180})/gi),
+    ...text.matchAll(/\b(?:built|made|designed|created|engineered)\s+for\s+([^.!?\n;:]{4,180})/gi),
+    ...text.matchAll(/\bhelps?\s+([^.!?\n;:]{4,180})/gi),
+    ...text.matchAll(/\bused by\s+([^.!?\n;:]{4,180})/gi),
+    ...text.matchAll(/\btrusted by\s+(?:[\d,.]+\+?\s+)?([^.!?\n;:]{4,180})/gi),
     ...text.matchAll(/\b\d[\d,.]*\+?\s+((?:[a-z0-9&-]+\s+){0,4}(?:teams?|agencies|operators|creators|studios|houses|filmmakers|leaders|businesses|companies|clients|customers))\b/gi),
   ]
-    .map((match) => cleanAudiencePhrase(match[1]))
+    .flatMap((match) => expandAudiencePhrases(match[1]))
     .filter((value): value is string => Boolean(value));
 
-  return rankAudiencePhrases(matches).slice(0, 4);
+  return rankAudiencePhrases(matches).slice(0, 6);
+}
+
+function expandAudiencePhrases(value: string | undefined): string[] {
+  const phrase = cleanText(value);
+  if (!phrase) return [];
+  return phrase
+    .replace(/\s*,\s*(?:and|&)\s+/gi, ', ')
+    .split(/\s*,\s*/)
+    .map(cleanAudiencePhrase)
+    .filter((item): item is string => Boolean(item));
 }
 
 function cleanAudiencePhrase(value: string | undefined): string | undefined {
@@ -392,6 +402,7 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
   if (/\b(book|start|get|try|request|schedule|download|subscribe)\b/i.test(phrase)) return undefined;
   if (/\b(?:planning and building|building|shipping)\s+products?\b/i.test(phrase)) return 'product teams';
   if (/\bteams?\b/i.test(phrase) && /\bproducts?\b/i.test(phrase)) return 'product teams';
+  if (isNonAudiencePhrase(phrase)) return undefined;
   if (isGenericAudiencePhrase(phrase)) return undefined;
 
   return phrase;
@@ -403,6 +414,7 @@ function splitAudienceActionPhrase(phrase: string): string {
 
 function rankAudiencePhrases(values: string[]): string[] {
   return uniqueText(values)
+    .filter((value) => !isNonAudiencePhrase(value))
     .filter((value) => !isGenericAudiencePhrase(value))
     .sort((a, b) => audienceSpecificityScore(b) - audienceSpecificityScore(a) || a.localeCompare(b));
 }
@@ -414,10 +426,20 @@ function audienceSpecificityScore(value: string): number {
 
 function isGenericAudiencePhrase(value: string): boolean {
   const normalized = value.trim();
-  if (GENERIC_AUDIENCE_PATTERN.test(normalized)) return true;
+  if (GENERIC_AUDIENCE_PATTERN.test(normalized) && !SPECIFIC_AUDIENCE_MODIFIER_PATTERN.test(normalized)) return true;
   if (/^(?:teams?\s+and\s+agents?|agents?\s+and\s+teams?)$/i.test(normalized)) return true;
   const words = normalized.split(/\s+/);
   return words.length <= 2 && !SPECIFIC_AUDIENCE_MODIFIER_PATTERN.test(normalized);
+}
+
+function isNonAudiencePhrase(value: string): boolean {
+  const normalized = value.trim();
+  if (/^(?:us|we|our|ours|me|my)\b/i.test(normalized)) return true;
+  if (/\b(?:floor|running and accessible|accessible|tools?|tooling|standard)\b/i.test(normalized)) return true;
+  if (/\bbrand$/i.test(normalized) && !/\b(?:brands|brand\s+(?:teams?|leaders?|managers?|owners?|marketers?|builders?|operators?))\b/i.test(normalized)) {
+    return true;
+  }
+  return false;
 }
 
 export function inferProofStyle(text: string): BrandProofStyle {
@@ -696,6 +718,7 @@ function isIgnoredFontFamily(value: string): boolean {
   return (
     /^var\(/.test(lower) ||
     lower.startsWith('--') ||
+    /\bfallback$/i.test(value) ||
     /^(?:system-ui|sans-serif|serif|monospace|cursive|fantasy|emoji|math|fangsong|inherit|initial|unset|revert|revert-layer)$/i.test(value)
   );
 }

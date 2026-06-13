@@ -105,7 +105,10 @@ describe('Brand Vault draft orchestrator', () => {
       status: 'complete',
       normalizedUrl: 'https://signal.example/',
       providedCount: 1,
+      evidenceCount: expect.any(Number),
     });
+    expect(result.reviewPayload.intake.website.evidenceCount).toBeGreaterThan(0);
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'website')?.evidenceCount).toBeGreaterThan(0);
     expect(result.reviewPayload.intake.social).toMatchObject({
       status: 'needs_auth',
       linksProvided: 1,
@@ -790,6 +793,77 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.profile.voice.hookArchetypes.confidence).toBe(0.48);
     expect(result.profile.voice.hookArchetypes.confidence).toBeLessThan(0.55);
     expect(result.profile.voice.hookArchetypes.evidenceIds.length).toBeGreaterThan(1);
+  });
+
+  it('strips script payloads before deriving crawler proof snippets', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, string> = {
+      'https://signal.example/': pageHtml(
+        'Signal House',
+        [
+          '<h1>Signal House</h1>',
+          '<a href="/customers">Customers</a>',
+        ].join(''),
+      ),
+      'https://signal.example/customers': pageHtml(
+        'Signal House Customers',
+        [
+          '<h1>Customer proof</h1>',
+          '<p>Trusted by 120 agency teams.</p>',
+          '<script>self.__next_f.push(["$","meta",{"name":"application-name","content":"Signal House"}]);</script>',
+          '<script>{"manifest":"/site.webmanifest","someMetric":"999 fake customers"}</script>',
+        ].join(''),
+      ),
+    };
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_crawl_script_noise',
+        profileRecordId: 'draft_crawl_script_noise',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/customers',
+            platform: 'website',
+            crawl: {
+              maxPages: 1,
+              maxDepth: 0,
+              includePaths: ['/customers'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          const html = pages[url];
+          if (!html) throw new Error(`Unexpected crawl URL: ${url}`);
+          return {
+            normalizedUrl: url,
+            html,
+            contentType: 'text/html',
+            fetchedAt: NOW,
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const proofCandidate = result.candidates.find(
+      (candidate) => candidate.extractorId === 'brand-vault-crawler.v1' && candidate.sourceField.endsWith('.proof'),
+    );
+    const proofEvidenceText = [
+      ...(Array.isArray(proofCandidate?.rawValue) ? proofCandidate.rawValue.map(String) : [String(proofCandidate?.rawValue)]),
+      proofCandidate?.excerpt,
+    ].join(' ');
+
+    expect(proofEvidenceText).toContain('Trusted by 120 agency teams.');
+    expect(proofEvidenceText).not.toMatch(/__next_f|\$|application-name|manifest|fake customers/i);
   });
 
   it('turns uploaded brand books and assets into reviewable draft signal evidence', async () => {

@@ -210,6 +210,77 @@ describe('Brand website refinery', () => {
     expect(result.profile.typography.raw?.value).not.toContain('default-font-family');
   });
 
+  it('keeps plural client ICPs from comma-separated homepage audience claims', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://insturix.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Automated content production</title>
+    <meta name="description" content="Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.">
+    <style>
+      body { font-family: "Plus Jakarta Sans", sans-serif; color: #d4a652; background: #0b0b0f; }
+    </style>
+  </head>
+  <body>
+    <h1>Automated content production for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.</h1>
+    <p>Help us keep the floor running and accessible.</p>
+    <p>The standard for production-grade tools.</p>
+    <p>30-second launch for a premium specialty coffee brand.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_insturix',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_insturix_audience',
+    });
+
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining([
+      'agencies',
+      'in-house teams',
+      'enterprises',
+      'creator houses',
+      'filmmakers',
+    ]));
+    expect(result.profile.identity.audience.value).not.toEqual(expect.arrayContaining([
+      'us keep the floor running and accessible',
+      'production-grade tools',
+      'premium specialty coffee brand',
+    ]));
+  });
+
+  it('filters generated fallback font family names from compiled CSS', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://insturix.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Creative operating system</title>
+    <meta name="description" content="Insturix helps agencies run content production at scale.">
+    <style>
+      body { font-family: "Plus Jakarta Sans", "Plus Jakarta Sans Fallback", system-ui, sans-serif; }
+      .headline { font-family: "Inter Fallback", "Space Grotesk", sans-serif; }
+      code { font-family: "JetBrains Mono", "JetBrains Mono Fallback", monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>One platform for agency production</h1>
+  </body>
+</html>
+`,
+      brandId: 'brand_insturix',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_fallback_fonts',
+    });
+
+    expect(result.profile.typography.raw?.value).toBe('Plus Jakarta Sans, Space Grotesk, JetBrains Mono');
+    expect(result.profile.typography.raw?.value).not.toContain('Fallback');
+  });
+
   it('ranks logo assets separately from social preview images', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://northstar.example',
