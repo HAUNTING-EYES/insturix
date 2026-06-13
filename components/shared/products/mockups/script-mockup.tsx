@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * ThinkForge (Script) Interface Mockup
+ * Script Interface Mockup
  *
- * A built HTML replica of the ThinkForge scripting workspace.
+ * A built HTML replica of the scripting workspace.
  * Shows the split-pane view: AI chat left, script editor right.
  *
  * This is NOT a functional tool — it's a visual representation
  * that animates on scroll to show the tool in action.
  *
- * Based on actual ThinkForge UI structure:
+ * Based on the script planning workspace structure:
  * - ChatPanel (left): message history + suggestion pills + input
  * - ScriptPanel (right): document tabs + toolbar + rich text editor
  * - Resize divider between panels

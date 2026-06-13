@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Alyzitron (Analyze) Interface Mockup
+ * Analyze Interface Mockup
  *
  * Shows the analysis report workspace:
  * - Video player left
@@ -9,7 +9,7 @@
  * - Three timestamped fixes below
  * - Expandable metrics section
  *
- * Based on the Alyzitron spec (alyzitron_ui_spec_v1.md).
+ * Based on the analysis workspace spec.
  */
 
 import React from "react";

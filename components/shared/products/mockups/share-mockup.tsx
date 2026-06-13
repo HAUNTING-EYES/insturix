@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Socialize (Share) Interface Mockup
+ * Share Interface Mockup
  *
- * Shows the link-in-bio editor:
+ * Shows the public profile editor:
  * - Left: editor panel (banner, bio, links list)
  * - Right: live mobile preview of the profile page
  *
- * Based on actual Socialize dashboard structure.
+ * Based on the public profile workspace structure.
  */
 
 import React from "react";
@@ -23,7 +23,7 @@ const links = [
   { platform: "Discord", url: "discord.gg/brand", color: "#5865F2" },
 ];
 
-export function SocializeMockup() {
+export function ShareMockup() {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}

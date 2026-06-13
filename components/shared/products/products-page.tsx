@@ -19,7 +19,7 @@ import { ScriptMockup } from "./mockups/script-mockup";
 import { EditMockup } from "./mockups/edit-mockup";
 import { AnalyzeMockup } from "./mockups/analyze-mockup";
 import { DesignMockup } from "./mockups/design-mockup";
-import { SocializeMockup } from "./mockups/socialize-mockup";
+import { ShareMockup } from "./mockups/share-mockup";
 import { DistributeMockup } from "./mockups/distribute-mockup";
 import { LogoCondense } from "./logo-condense";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -78,9 +78,9 @@ const rooms = [
     verb: "Share",
     heading: "Your brand in\none link.",
     description: "A single page with all your links, socials, and content — themed to your brand. Share it everywhere. Track every click.",
-    output: "Branded link-in-bio page with analytics",
+    output: "Branded public profile with analytics",
     color: "var(--category-cyan)",
-    mockup: <SocializeMockup />,
+    mockup: <ShareMockup />,
   },
 ];
 

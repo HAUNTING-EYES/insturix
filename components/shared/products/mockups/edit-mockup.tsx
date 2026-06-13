@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Editron (Edit) Interface Mockup
+ * Edit Interface Mockup
  *
  * Shows the video editor workspace with MODE TOGGLE:
  * - "From prompt" (dimmed) | "Your footage" (active)
