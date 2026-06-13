@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import {
   AlertTriangle,
@@ -76,6 +76,7 @@ const SOCIAL_PLATFORM_META = [
 ] as const;
 
 const GENERIC_SOCIAL_META = { id: 'website', label: 'Website', color: '#D4A652' } as const;
+const BRAND_VAULT_UPLOAD_ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.markdown,.csv,.json,.html,.htm,.css,.svg,image/*';
 
 export function BrandVaultReview() {
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -88,6 +89,7 @@ export function BrandVaultReview() {
   const [uploadedSources, setUploadedSources] = useState<BrandVaultUploadSourceEvidence[]>([]);
   const [uploadWarnings, setUploadWarnings] = useState<string[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [activeGuidanceWorkflow, setActiveGuidanceWorkflow] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [resolvedConflicts, setResolvedConflicts] = useState<Set<string>>(() => new Set());
@@ -98,6 +100,9 @@ export function BrandVaultReview() {
   const jobQuery = useBrandVaultJob(jobId);
   const profileQuery = useBrandVaultProfile(profileId);
   const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
+  const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const signalTableRef = useRef<HTMLDivElement | null>(null);
+  const decisionControlsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!jobQuery.data) return;
@@ -153,6 +158,8 @@ export function BrandVaultReview() {
     errorMessage(profileQuery.error);
   const statusLabel = snapshot.record?.status ?? snapshot.job?.status ?? 'draft';
   const needsCount = activeConflicts.length;
+  const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';
+  const canRescanWithEvidence = Boolean(scanWebsiteUrl) && !busy;
 
   useEffect(() => {
     if (!toast) return;
@@ -162,7 +169,11 @@ export function BrandVaultReview() {
 
   async function handleCreateDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const cleanUrl = websiteUrl.trim();
+    await createDraftFromCurrentInputs();
+  }
+
+  async function createDraftFromCurrentInputs() {
+    const cleanUrl = scanWebsiteUrl;
     if (!cleanUrl) {
       setLocalError('Enter a client website before scanning.');
       return;
@@ -185,6 +196,43 @@ export function BrandVaultReview() {
     setResolvedConflicts(new Set());
     setResolvingConflictPath(null);
     showToast('Draft ready for review.', 'good');
+  }
+
+  function handleGuidanceAction(actionId: string) {
+    setActiveGuidanceWorkflow(actionId);
+
+    if (actionId === 'add_pinned_posts') {
+      showToast('Social link receiver ready.', 'warn');
+      return;
+    }
+
+    if (actionId === 'add_uploads') {
+      guidanceUploadInputRef.current?.click();
+      showToast('Brand file picker opened.', 'warn');
+      return;
+    }
+
+    if (actionId === 'connect_social') {
+      if (typeof window !== 'undefined') {
+        window.open('/dashboard/uploaderx', '_blank', 'noopener,noreferrer');
+      }
+      showToast('Opening UploaderX social connections.', 'warn');
+      return;
+    }
+
+    if (actionId === 'review_candidates') {
+      signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (actionId === 'accept_or_reject') {
+      decisionControlsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+
+    if (actionId === 'review_crawl') {
+      showToast('Crawl evidence notes are visible below.', 'warn');
+    }
   }
 
   async function handleUploadFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -316,8 +364,30 @@ export function BrandVaultReview() {
         />
 
         <main className="mx-auto max-w-[1180px] px-10">
+          <input
+            ref={guidanceUploadInputRef}
+            type="file"
+            multiple
+            accept={BRAND_VAULT_UPLOAD_ACCEPT}
+            onChange={handleUploadFiles}
+            disabled={busy}
+            className="hidden"
+          />
           <SourceStrip lanes={sourceLanes} />
-          <IntakeGuidancePanel guidance={intakeGuidance} />
+          <IntakeGuidancePanel
+            guidance={intakeGuidance}
+            activeWorkflow={activeGuidanceWorkflow}
+            busy={busy}
+            socialLinksText={socialLinksText}
+            uploadStatus={uploadStatus}
+            uploadedSourceCount={uploadedSources.length}
+            canRescan={canRescanWithEvidence}
+            onAction={handleGuidanceAction}
+            onSocialLinksTextChange={setSocialLinksText}
+            onUploadClick={() => guidanceUploadInputRef.current?.click()}
+            onRescan={() => void createDraftFromCurrentInputs()}
+            onClearWorkflow={() => setActiveGuidanceWorkflow(null)}
+          />
           <BrandVaultStats summary={summary} />
 
           {!snapshot.record && (
@@ -358,7 +428,9 @@ export function BrandVaultReview() {
             onReject={(path) => resolveConflict(path, 'rejected')}
           />
 
-          <SignalTable signals={signals} onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')} />
+          <div ref={signalTableRef}>
+            <SignalTable signals={signals} onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')} />
+          </div>
 
           <footer className="py-10 pb-[72px] text-center">
             <span
@@ -374,7 +446,7 @@ export function BrandVaultReview() {
               {summary.reviewOnly} review-only signals / evidence-backed until accepted
             </span>
             {snapshot.record && (
-              <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+              <div ref={decisionControlsRef} className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
                 <input
                   value={lookupId}
                   onChange={(event) => setLookupId(event.target.value)}
@@ -411,8 +483,41 @@ export function BrandVaultReview() {
   );
 }
 
-function IntakeGuidancePanel({ guidance }: { guidance: BrandVaultIntakeGuidance }) {
+interface IntakeGuidancePanelProps {
+  guidance: BrandVaultIntakeGuidance;
+  activeWorkflow: string | null;
+  busy: boolean;
+  socialLinksText: string;
+  uploadStatus: UploadStatus;
+  uploadedSourceCount: number;
+  canRescan: boolean;
+  onAction: (actionId: string) => void;
+  onSocialLinksTextChange: (value: string) => void;
+  onUploadClick: () => void;
+  onRescan: () => void;
+  onClearWorkflow: () => void;
+}
+
+function IntakeGuidancePanel({
+  guidance,
+  activeWorkflow,
+  busy,
+  socialLinksText,
+  uploadStatus,
+  uploadedSourceCount,
+  canRescan,
+  onAction,
+  onSocialLinksTextChange,
+  onUploadClick,
+  onRescan,
+  onClearWorkflow,
+}: IntakeGuidancePanelProps) {
   if (guidance.actions.length === 0 && guidance.lanes.length === 0) return null;
+
+  const socialLinkCount = parseSocialLinks(socialLinksText).length;
+  const showSocialWorkflow = activeWorkflow === 'add_pinned_posts' || activeWorkflow === 'connect_social';
+  const showUploadWorkflow = activeWorkflow === 'add_uploads';
+  const showWorkflow = showSocialWorkflow || showUploadWorkflow;
 
   return (
     <section className="bv-c1-intake-panel" aria-label="Brand Vault intake guidance">
@@ -426,14 +531,78 @@ function IntakeGuidancePanel({ guidance }: { guidance: BrandVaultIntakeGuidance 
             guidance.actions.map((action) => (
               <div key={action.id} className={`bv-c1-intake-action ${action.priority}`}>
                 <span>{action.priority}</span>
-                <strong>{action.label}</strong>
-                <em>{action.reason}</em>
+                <div>
+                  <strong>{action.label}</strong>
+                  <em>{action.reason}</em>
+                </div>
+                <button
+                  type="button"
+                  className="bv-c1-intake-action-button"
+                  disabled={busy && isCaptureAction(action.id)}
+                  aria-pressed={activeWorkflow === action.id}
+                  onClick={() => onAction(action.id)}
+                >
+                  {guidanceActionButtonLabel(action.id)}
+                </button>
               </div>
             ))
           ) : (
             <div className="bv-c1-intake-empty">No follow-up actions from Brand Vault yet.</div>
           )}
         </div>
+
+        {showWorkflow && (
+          <div className="bv-c1-intake-workflow">
+            <div className="bv-c1-intake-workflow-head">
+              <span>
+                <strong>{showUploadWorkflow ? 'Brand files' : 'Pinned posts and profiles'}</strong>
+                <em>
+                  {showUploadWorkflow
+                    ? `${uploadedSourceCount} file${uploadedSourceCount === 1 ? '' : 's'} staged`
+                    : `${socialLinkCount}/10 links staged`}
+                </em>
+              </span>
+              <button type="button" className="bv-c1-icon-button" onClick={onClearWorkflow} aria-label="Close intake workflow">
+                <X size={13} />
+              </button>
+            </div>
+
+            {showUploadWorkflow ? (
+              <div className="bv-c1-intake-workflow-body">
+                <div className="bv-c1-intake-staged">
+                  <FileText size={15} />
+                  <span>{uploadStatus === 'extracting' ? 'Reading selected files' : `${uploadedSourceCount} upload sources staged`}</span>
+                </div>
+                <div className="bv-c1-intake-workflow-actions">
+                  <button type="button" className="bv-c1-button" disabled={busy} onClick={onUploadClick}>
+                    <Plus size={13} />
+                    Choose files
+                  </button>
+                  <button type="button" className="bv-c1-primary" disabled={!canRescan} onClick={onRescan}>
+                    {uploadStatus === 'extracting' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    Refresh draft
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bv-c1-intake-workflow-body">
+                <SocialLinksReceiver value={socialLinksText} disabled={busy} onChange={onSocialLinksTextChange} />
+                <div className="bv-c1-intake-workflow-actions">
+                  {activeWorkflow === 'connect_social' && (
+                    <button type="button" className="bv-c1-button" disabled={busy} onClick={() => onAction('connect_social')}>
+                      <ExternalLink size={13} />
+                      Open UploaderX
+                    </button>
+                  )}
+                  <button type="button" className="bv-c1-primary" disabled={!canRescan} onClick={onRescan}>
+                    <RefreshCw size={13} />
+                    Refresh draft
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bv-c1-intake-column">
@@ -470,6 +639,20 @@ function IntakeGuidancePanel({ guidance }: { guidance: BrandVaultIntakeGuidance 
       </div>
     </section>
   );
+}
+
+function guidanceActionButtonLabel(actionId: string): string {
+  if (actionId === 'add_pinned_posts') return 'Add links';
+  if (actionId === 'add_uploads') return 'Add files';
+  if (actionId === 'connect_social') return 'Connect';
+  if (actionId === 'review_candidates') return 'Review';
+  if (actionId === 'accept_or_reject') return 'Decide';
+  if (actionId === 'review_crawl') return 'Inspect';
+  return 'Open';
+}
+
+function isCaptureAction(actionId: string): boolean {
+  return actionId === 'add_pinned_posts' || actionId === 'add_uploads' || actionId === 'connect_social';
 }
 
 interface FastSetupPanelProps {
@@ -576,7 +759,7 @@ function FastSetupPanel({
             <input
               type="file"
               multiple
-              accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.markdown,.csv,.json,.html,.htm,.css,.svg,image/*"
+              accept={BRAND_VAULT_UPLOAD_ACCEPT}
               onChange={onUploadFiles}
               disabled={busy}
               className="bv-c1-input"
@@ -1211,11 +1394,11 @@ const baseStyles = `
 }
 .bv-c1-intake-action {
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 5px 10px;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 10px;
 }
-.bv-c1-intake-action span {
-  grid-row: span 2;
+.bv-c1-intake-action > span {
   align-self: start;
   justify-self: start;
   padding: 4px 7px;
@@ -1228,13 +1411,18 @@ const baseStyles = `
   letter-spacing: 0;
   text-transform: uppercase;
 }
-.bv-c1-intake-action.high span {
+.bv-c1-intake-action.high > span {
   background: rgba(212, 106, 92, 0.12);
   color: #D46A5C;
 }
-.bv-c1-intake-action.medium span {
+.bv-c1-intake-action.medium > span {
   background: rgba(212, 166, 82, 0.12);
   color: #D4A652;
+}
+.bv-c1-intake-action > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
 }
 .bv-c1-intake-action strong,
 .bv-c1-intake-lane strong {
@@ -1249,6 +1437,82 @@ const baseStyles = `
   font-size: 11px;
   font-style: normal;
   line-height: 1.45;
+}
+.bv-c1-intake-action-button {
+  min-height: 30px;
+  align-self: center;
+  border: 1px solid #282724;
+  border-radius: 7px;
+  background: #1B1A18;
+  color: #ECE9E1;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+}
+.bv-c1-intake-action-button:hover {
+  border-color: #D4A652;
+  transform: translateY(-1px);
+}
+.bv-c1-intake-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+.bv-c1-intake-action-button[aria-pressed='true'] {
+  border-color: rgba(212, 166, 82, 0.55);
+  background: rgba(212, 166, 82, 0.12);
+  color: #D4A652;
+}
+.bv-c1-intake-workflow {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #282724;
+  border-radius: 8px;
+  background: #0B0B0A;
+  padding: 12px;
+}
+.bv-c1-intake-workflow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bv-c1-intake-workflow-head > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.bv-c1-intake-workflow-head strong {
+  color: #ECE9E1;
+  font-size: 12px;
+}
+.bv-c1-intake-workflow-head em {
+  color: #7A776E;
+  font-size: 11px;
+  font-style: normal;
+}
+.bv-c1-intake-workflow-body {
+  display: grid;
+  gap: 10px;
+}
+.bv-c1-intake-staged {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed #282724;
+  border-radius: 8px;
+  color: #7A776E;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.bv-c1-intake-workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .bv-c1-intake-lane {
   display: grid;
@@ -1357,8 +1621,11 @@ const baseStyles = `
   .bv-c1-intake-action {
     grid-template-columns: 1fr;
   }
-  .bv-c1-intake-action span {
-    grid-row: auto;
+  .bv-c1-intake-action > span,
+  .bv-c1-intake-action-button,
+  .bv-c1-intake-workflow-actions .bv-c1-button,
+  .bv-c1-intake-workflow-actions .bv-c1-primary {
+    width: 100%;
   }
   .bv-c1-social-row .bv-c1-icon-button {
     width: 100%;
