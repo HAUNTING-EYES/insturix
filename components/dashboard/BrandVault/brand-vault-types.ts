@@ -104,7 +104,7 @@ export interface SignalRow {
   fallbackReason?: string;
 }
 
-export type SourceLaneStatus = 'live' | 'pending' | 'mocked' | 'failed';
+export type SourceLaneStatus = 'live' | 'pending' | 'not_provided' | 'failed';
 
 /** A provenance lane (website / socials / uploads / crawler / legacy). */
 export interface SourceLane {

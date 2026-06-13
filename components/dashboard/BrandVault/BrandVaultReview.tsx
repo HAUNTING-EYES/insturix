@@ -803,7 +803,7 @@ function augmentSourceLanes(
   const socialCount = parseSocialLinks(socialLinksText).length;
   return lanes.map((lane) => {
     if (lane.id === 'socials') return { ...lane, count: socialCount, status: 'pending' };
-    if (lane.id === 'uploads') return { ...lane, count: uploadedSources.length, status: 'mocked' };
+    if (lane.id === 'uploads') return { ...lane, count: uploadedSources.length, status: uploadedSources.length > 0 ? 'pending' : 'not_provided' };
     return lane;
   });
 }

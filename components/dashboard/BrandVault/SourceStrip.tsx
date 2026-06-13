@@ -3,8 +3,8 @@
 /**
  * SourceStrip
  *
- * Provenance lanes for Brand Vault evidence. Live data is explicit; pending
- * and mocked lanes are visibly staged so the UI never overclaims backend reach.
+ * Provenance lanes for Brand Vault evidence. Live, pending, and not-supplied
+ * lanes stay visually distinct so the UI never overclaims backend reach.
  */
 
 import type { SourceLane, SourceLaneStatus } from './brand-vault-types';
@@ -31,12 +31,12 @@ const STATUS_STYLE: Record<
     background: '#0F0F0E',
     label: 'pending',
   },
-  mocked: {
+  not_provided: {
     dot: 'transparent',
     text: '#7A776E',
     border: '#282724',
     background: '#0F0F0E',
-    label: 'mocked',
+    label: 'not supplied',
     dashed: true,
   },
   failed: {
@@ -50,7 +50,7 @@ const STATUS_STYLE: Record<
 
 function statusTag(lane: SourceLane): string {
   if (lane.status === 'live') return `live / ${lane.count}`;
-  if (lane.status === 'mocked') return lane.count > 0 ? `mocked / ${lane.count}` : 'mocked';
+  if (lane.status === 'not_provided') return 'not supplied';
   if (lane.status === 'failed') return 'failed';
   return lane.count > 0 ? `pending / ${lane.count}` : 'pending';
 }
@@ -103,7 +103,7 @@ export function SourceStrip({ lanes }: SourceStripProps) {
                 borderRadius: 4,
                 flex: '0 0 auto',
                 background: status.dot,
-                border: lane.status === 'mocked' ? '1px solid #454340' : 'none',
+                border: lane.status === 'not_provided' ? '1px solid #454340' : 'none',
               }}
             />
             <span>{lane.label}</span>

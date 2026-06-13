@@ -53,6 +53,10 @@ const WEBSITE_SOURCE_TYPES = new Set([
   'logo_asset',
 ]);
 
+const SOCIAL_SOURCE_TYPES = new Set(['social_profile', 'social_post']);
+const UPLOAD_SOURCE_TYPES = new Set(['uploaded_guideline', 'uploaded_asset']);
+const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
+
 /* ------------------------------------------------------------------ */
 /*  Snapshot normalization                                             */
 /* ------------------------------------------------------------------ */
@@ -223,16 +227,28 @@ export function evidenceBody(item: EvidenceItem): string {
 
 export function buildSourceLanes(snapshot: BrandVaultSnapshot): SourceLane[] {
   const { job, candidates, reviewPayload } = snapshot;
+  const intakeLane = (id: 'website' | 'crawl' | 'social' | 'uploads' | 'legacy') =>
+    reviewPayload?.intake.evidenceLanes.find((lane) => lane.id === id);
+  const intakeCount = (id: 'website' | 'crawl' | 'social' | 'uploads' | 'legacy') => {
+    const lane = intakeLane(id);
+    return lane ? Math.max(lane.sourceCount, lane.evidenceCount, lane.candidateCount) : 0;
+  };
+
   const websiteCount =
-    candidates.filter((c) => WEBSITE_SOURCE_TYPES.has(c.sourceType)).length ||
-    reviewPayload?.candidateCount ||
+    intakeCount('website') ||
+    candidates.filter((c) => WEBSITE_SOURCE_TYPES.has(c.sourceType) && !isCrawlCandidate(c)).length ||
+    reviewPayload?.intake.website.evidenceCount ||
     0;
   const socialCount = job?.inputs.socialLinks?.length ?? 0;
   const sourceInputs = job?.inputs.sourceEvidence ?? [];
-  const uploadCount = sourceInputs.filter(
-    (s) => s.kind === 'uploaded_guideline' || s.kind === 'uploaded_asset',
-  ).length;
-  const legacyCount = job?.warnings?.length ?? 0;
+  const socialSourceCount = sourceInputs.filter((s) => SOCIAL_SOURCE_TYPES.has(s.kind)).length;
+  const socialCandidateCount = candidates.filter((c) => SOCIAL_SOURCE_TYPES.has(c.sourceType)).length;
+  const uploadSourceCount = sourceInputs.filter((s) => UPLOAD_SOURCE_TYPES.has(s.kind)).length;
+  const uploadCandidateCount = candidates.filter((c) => UPLOAD_SOURCE_TYPES.has(c.sourceType)).length;
+  const crawlSourceCount = sourceInputs.filter((s) => s.kind === 'crawl_seed').length;
+  const crawlCandidateCount = candidates.filter(isCrawlCandidate).length;
+  const legacySourceCount = sourceInputs.filter((s) => s.kind === 'legacy_brand_intelligence').length;
+  const legacyCandidateCount = candidates.filter((c) => c.sourceType === 'legacy_brand_intelligence').length;
   const failed = job?.status === 'failed';
 
   return [
@@ -241,42 +257,83 @@ export function buildSourceLanes(snapshot: BrandVaultSnapshot): SourceLane[] {
       label: 'Website',
       icon: 'world',
       detail: 'Homepage, metadata, JSON-LD, CSS colours, fonts, logo candidates.',
-      status: websiteCount > 0 ? 'live' : failed ? 'failed' : 'pending',
+      status: sourceLaneStatus({
+        intakeStatus: intakeLane('website')?.status,
+        liveCount: websiteCount,
+        stagedCount: job?.inputs.websiteUrl ? 1 : 0,
+        failed,
+      }),
       count: websiteCount,
     },
     {
       id: 'socials',
       label: 'Socials',
       icon: 'share',
-      detail: 'Links captured for voice + proof patterns; posts not read yet.',
-      status: 'pending',
-      count: socialCount,
+      detail: 'Profile links, connected social posts, and review-only public social evidence.',
+      status: sourceLaneStatus({
+        intakeStatus: intakeLane('social')?.status,
+        liveCount: socialCandidateCount,
+        stagedCount: Math.max(socialCount, socialSourceCount),
+        failed,
+      }),
+      count: intakeCount('social') || Math.max(socialCount, socialSourceCount, socialCandidateCount),
     },
     {
       id: 'uploads',
       label: 'Uploads',
       icon: 'upload',
-      detail: 'PDFs, docs, slides, screenshots, logos, brand guideline files.',
-      status: 'mocked',
-      count: uploadCount,
+      detail: 'Parsed PDFs, docs, slides, screenshots, logos, and brand guideline files.',
+      status: sourceLaneStatus({
+        intakeStatus: intakeLane('uploads')?.status,
+        liveCount: uploadCandidateCount,
+        stagedCount: uploadSourceCount,
+        failed,
+      }),
+      count: intakeCount('uploads') || Math.max(uploadSourceCount, uploadCandidateCount),
     },
     {
       id: 'crawler',
       label: 'Full crawler',
       icon: 'sitemap',
-      detail: 'Sitemap, case studies, media kit, assets, deeper pages.',
-      status: 'mocked',
-      count: 0,
+      detail: 'Additional owned pages from sitemap, common brand pages, and crawl seeds.',
+      status: sourceLaneStatus({
+        intakeStatus: intakeLane('crawl')?.status,
+        liveCount: crawlCandidateCount,
+        stagedCount: crawlSourceCount,
+        failed,
+      }),
+      count: intakeCount('crawl') || Math.max(crawlSourceCount, crawlCandidateCount),
     },
     {
       id: 'legacy',
       label: 'Legacy intel',
       icon: 'archive',
       detail: 'Existing brand facts, attached only once backed by source evidence.',
-      status: 'mocked',
-      count: legacyCount,
+      status: sourceLaneStatus({
+        intakeStatus: intakeLane('legacy')?.status,
+        liveCount: 0,
+        stagedCount: Math.max(legacySourceCount, legacyCandidateCount),
+        failed,
+      }),
+      count: intakeCount('legacy') || Math.max(legacySourceCount, legacyCandidateCount),
     },
   ];
+}
+
+function isCrawlCandidate(candidate: BrandEvidenceCandidate): boolean {
+  return candidate.extractorId === CRAWL_EXTRACTOR || candidate.sourceField === 'crawl.page';
+}
+
+function sourceLaneStatus(args: {
+  intakeStatus?: 'complete' | 'needs_review' | 'needs_auth' | 'not_provided' | 'skipped' | 'failed';
+  liveCount: number;
+  stagedCount: number;
+  failed: boolean;
+}): SourceLane['status'] {
+  if (args.failed || args.intakeStatus === 'failed') return 'failed';
+  if (args.intakeStatus === 'complete' || args.liveCount > 0) return 'live';
+  if (args.intakeStatus === 'needs_review' || args.intakeStatus === 'needs_auth' || args.stagedCount > 0) return 'pending';
+  return 'not_provided';
 }
 
 /* ------------------------------------------------------------------ */
