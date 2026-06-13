@@ -115,99 +115,6 @@ async function updateProgressInRedis(uploadId: string, progress: number) {
   }
 }
 
-async function pollDatabaseForUploadStatus(
-  videoUuid: string,
-  platform: UploaderXPublishPlatform
-): Promise<UploaderXPublishReceipt | null> {
-  const maxAttempts = 6;
-  const delay = 4000; // 4 seconds between polls, total 24 seconds check
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      const res = await fetch(`/api/services/uploaderx/videos/${videoUuid}`);
-      if (!res.ok) continue;
-
-      const data = await res.json();
-      if (data.success && data.video?.metadata) {
-        const metadata = data.video.metadata;
-        
-        if (platform === "youtube" && metadata.youtube?.videoId) {
-          return {
-            success: true,
-            platform: "youtube",
-            platformPostId: metadata.youtube.videoId,
-            platformUrl: metadata.youtube.url || `https://www.youtube.com/watch?v=${metadata.youtube.videoId}`,
-            videoId: metadata.youtube.videoId,
-            youtubeUrl: metadata.youtube.url,
-          };
-        }
-        
-        if (platform === "facebook" && metadata.facebook?.videoId) {
-          return {
-            success: true,
-            platform: "facebook",
-            platformPostId: metadata.facebook.videoId,
-            platformUrl: metadata.facebook.url || `https://www.facebook.com/${metadata.facebook.pageId}/videos/${metadata.facebook.videoId}`,
-            videoId: metadata.facebook.videoId,
-            facebookUrl: metadata.facebook.url,
-            pageName: metadata.facebook.pageName,
-            postType: metadata.facebook.postType,
-          };
-        }
-        
-        if (platform === "instagram" && metadata.instagram?.mediaId) {
-          return {
-            success: true,
-            platform: "instagram",
-            platformPostId: metadata.instagram.mediaId,
-            platformUrl: metadata.instagram.url || `https://www.instagram.com/p/${metadata.instagram.mediaId}`,
-            mediaId: metadata.instagram.mediaId,
-            instagramUrl: metadata.instagram.url,
-            accountUsername: metadata.instagram.instagramUsername,
-            postType: metadata.instagram.postType,
-          };
-        }
-        
-        if (platform === "twitter" && metadata.twitter?.tweetId) {
-          return {
-            success: true,
-            platform: "twitter",
-            platformPostId: metadata.twitter.tweetId,
-            platformUrl: metadata.twitter.tweetUrl || `https://x.com/status/${metadata.twitter.tweetId}`,
-            tweetId: metadata.twitter.tweetId,
-            tweetUrl: metadata.twitter.tweetUrl,
-            mediaId: metadata.twitter.mediaId,
-          };
-        }
-        
-        if (platform === "linkedin") {
-          const linkedin = metadata.linkedin;
-          if (linkedin) {
-            const postInfo = linkedin.personal || linkedin.organization;
-            if (postInfo?.postId) {
-              return {
-                success: true,
-                platform: "linkedin",
-                platformPostId: postInfo.postId,
-                platformUrl: postInfo.postUrl || `https://www.linkedin.com/feed/update/${postInfo.postId}`,
-                postId: postInfo.postId,
-                postUrl: postInfo.postUrl,
-                postType: postInfo.postType,
-              };
-            }
-          }
-        }
-      }
-    } catch (pollErr) {
-      console.warn(`[PollStatus] Attempt ${attempt} failed:`, pollErr);
-    }
-  }
-
-  return null;
-}
-
-
 export function useUploaderXUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
@@ -489,30 +396,19 @@ export function useUploaderXUpload() {
         body: JSON.stringify(payload),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[YouTube] Failed to parse JSON response:", jsonErr);
-      }
+      const data = await res.json();
       
       if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(videoUuid, "youtube");
-        if (fallback) return fallback;
         return normalizePublishFailure("youtube", data, `HTTP ${res.status}: Failed to upload to YouTube`);
       }
       
       if (!data.success) {
-        const fallback = await pollDatabaseForUploadStatus(videoUuid, "youtube");
-        if (fallback) return fallback;
         return normalizePublishFailure("youtube", data, "Failed to upload to YouTube");
       }
 
       return normalizePublishSuccess("youtube", data);
     } catch (error) {
       console.error("❌ YouTube upload error:", error);
-      const fallback = await pollDatabaseForUploadStatus(videoUuid, "youtube");
-      if (fallback) return fallback;
       const errorMessage = error instanceof Error ? error.message : 'YouTube upload failed';
       return { success: false, platform: "youtube", error: errorMessage };
     }
@@ -585,30 +481,19 @@ export function useUploaderXUpload() {
         body: JSON.stringify(payload),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[Facebook] Failed to parse JSON response:", jsonErr);
-      }
+      const data = await res.json();
 
       if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(videoUuid, "facebook");
-        if (fallback) return fallback;
         return normalizePublishFailure("facebook", data, `HTTP ${res.status}: Failed to upload to Facebook`);
       }
 
       if (!data.success) {
-        const fallback = await pollDatabaseForUploadStatus(videoUuid, "facebook");
-        if (fallback) return fallback;
         return normalizePublishFailure("facebook", data, "Failed to upload to Facebook");
       }
 
       return normalizePublishSuccess("facebook", data);
     } catch (error) {
       console.error("❌ Facebook upload error:", error);
-      const fallback = await pollDatabaseForUploadStatus(videoUuid, "facebook");
-      if (fallback) return fallback;
       const errorMessage = error instanceof Error ? error.message : 'Facebook upload failed';
       return { success: false, platform: "facebook", error: errorMessage };
     }
@@ -638,30 +523,19 @@ export function useUploaderXUpload() {
         body: JSON.stringify(payload),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[Instagram] Failed to parse JSON response:", jsonErr);
-      }
+      const data = await res.json();
 
       if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(videoUuid, "instagram");
-        if (fallback) return fallback;
         return normalizePublishFailure("instagram", data, `HTTP ${res.status}: Failed to upload to Instagram`);
       }
 
       if (!data.success) {
-        const fallback = await pollDatabaseForUploadStatus(videoUuid, "instagram");
-        if (fallback) return fallback;
         return normalizePublishFailure("instagram", data, "Failed to upload to Instagram");
       }
 
       return normalizePublishSuccess("instagram", data);
     } catch (error) {
       console.error("❌ Instagram upload error:", error);
-      const fallback = await pollDatabaseForUploadStatus(videoUuid, "instagram");
-      if (fallback) return fallback;
       const errorMessage = error instanceof Error ? error.message : 'Instagram upload failed';
       return { success: false, platform: "instagram", error: errorMessage };
     }
@@ -691,30 +565,19 @@ export function useUploaderXUpload() {
         body: JSON.stringify(payload),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[Twitter] Failed to parse JSON response:", jsonErr);
-      }
+      const data = await res.json();
 
       if (!res.ok) {
-        const fallback = videoUuid ? await pollDatabaseForUploadStatus(videoUuid, "twitter") : null;
-        if (fallback) return fallback;
         return normalizePublishFailure("twitter", data, `HTTP ${res.status}: Failed to upload to Twitter`);
       }
 
       if (!data.success) {
-        const fallback = videoUuid ? await pollDatabaseForUploadStatus(videoUuid, "twitter") : null;
-        if (fallback) return fallback;
         return normalizePublishFailure("twitter", data, "Failed to upload to Twitter");
       }
 
       return normalizePublishSuccess("twitter", data);
     } catch (error) {
       console.error("❌ Twitter upload error:", error);
-      const fallback = videoUuid ? await pollDatabaseForUploadStatus(videoUuid, "twitter") : null;
-      if (fallback) return fallback;
       const errorMessage = error instanceof Error ? error.message : 'Twitter upload failed';
       return { success: false, platform: "twitter", error: errorMessage };
     }
@@ -746,30 +609,19 @@ export function useUploaderXUpload() {
         body: JSON.stringify(payload),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[LinkedIn] Failed to parse JSON response:", jsonErr);
-      }
+      const data = await res.json();
 
       if (!res.ok) {
-        const fallback = videoUuid ? await pollDatabaseForUploadStatus(videoUuid, "linkedin") : null;
-        if (fallback) return fallback;
         return normalizePublishFailure("linkedin", data, `HTTP ${res.status}: Failed to upload to LinkedIn`);
       }
 
       if (!data.success) {
-        const fallback = videoUuid ? await pollDatabaseForUploadStatus(videoUuid, "linkedin") : null;
-        if (fallback) return fallback;
         return normalizePublishFailure("linkedin", data, "Failed to upload to LinkedIn");
       }
 
       return normalizePublishSuccess("linkedin", data);
     } catch (error) {
       console.error("❌ LinkedIn upload error:", error);
-      const fallback = videoUuid ? await pollDatabaseForUploadStatus(videoUuid, "linkedin") : null;
-      if (fallback) return fallback;
       const errorMessage = error instanceof Error ? error.message : 'LinkedIn upload failed';
       return { success: false, platform: "linkedin", error: errorMessage };
     }

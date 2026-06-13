@@ -26,7 +26,7 @@ import {
   Instagram,
   Youtube,
   Twitter,
-  Linkedin,
+  Linkedin
 } from "lucide-react";
 import {
   Dialog,
@@ -37,6 +37,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+
 interface VideoItem {
   videoUuid: string;
   filename: string;
@@ -44,7 +45,7 @@ interface VideoItem {
   publicUrl: string;
   fileSize: number;
   uploadedAt: Date;
-  status: "uploaded" | "processing" | "ready" | "error";
+  status: 'uploaded' | 'processing' | 'ready' | 'error';
   platforms?: string[];
   metadata?: {
     title?: string;
@@ -64,7 +65,7 @@ interface VideoManagerProps {
 export function VideoManager({
   onUploadNew,
   onEditVideo,
-  onDeleteVideo,
+  onDeleteVideo
 }: VideoManagerProps) {
   const { toast } = useToast();
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -84,7 +85,7 @@ export function VideoManager({
     const fetchVideos = async () => {
       try {
         setLoading(true);
-        const response = await fetch("/api/services/uploaderx/videos");
+        const response = await fetch('/api/services/uploaderx/videos');
 
         if (!response.ok) {
           const text = await response.text();
@@ -95,11 +96,7 @@ export function VideoManager({
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
           const text = await response.text();
-          console.error(
-            "[VideoFetch] Invalid content-type:",
-            contentType,
-            text.substring(0, 100),
-          );
+          console.error("[VideoFetch] Invalid content-type:", contentType, text.substring(0, 100));
           throw new Error("Received non-JSON response from server");
         }
 
@@ -110,17 +107,15 @@ export function VideoManager({
           const videosWithDates = data.videos.map((video: any) => ({
             ...video,
             fileSize: video.size || video.fileSize || 0, // ✅ Fix: Map 'size' from DB to 'fileSize' for UI
-            uploadedAt: video.uploadedAt
-              ? new Date(video.uploadedAt)
-              : new Date(),
+            uploadedAt: video.uploadedAt ? new Date(video.uploadedAt) : new Date()
           }));
           setVideos(videosWithDates);
         } else {
           console.error("[VideoFetch] API returned detailed error:", data);
-          throw new Error(data.error || "Failed to fetch videos");
+          throw new Error(data.error || 'Failed to fetch videos');
         }
       } catch (error) {
-        console.error("Error fetching videos:", error);
+        console.error('Error fetching videos:', error);
         toast({
           title: "Failed to load videos",
           description: "Could not fetch your videos. Please try again.",
@@ -135,12 +130,11 @@ export function VideoManager({
     fetchVideos();
   }, [toast]);
 
-  const filteredVideos = videos.filter((video) => {
-    const matchesSearch = video.filename
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      filterStatus === "all" || video.status === filterStatus;
+
+
+  const filteredVideos = videos.filter(video => {
+    const matchesSearch = video.filename.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = filterStatus === "all" || video.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
@@ -153,29 +147,25 @@ export function VideoManager({
   };
 
   const handleDeleteVideo = async (videoUuid: string) => {
-    if (
-      window.confirm(
-        "Are you sure you want to delete this video? This action cannot be undone.",
-      )
-    ) {
+    if (window.confirm('Are you sure you want to delete this video? This action cannot be undone.')) {
       try {
         setDeletingVideo(videoUuid);
 
-        const response = await fetch("/api/services/uploaderx/videos", {
-          method: "DELETE",
+        const response = await fetch('/api/services/uploaderx/videos', {
+          method: 'DELETE',
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
           body: JSON.stringify({ videoUuid }),
         });
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || "Failed to delete video");
+          throw new Error(errorData.error || 'Failed to delete video');
         }
 
         // Remove from local state
-        setVideos((prev) => prev.filter((v) => v.videoUuid !== videoUuid));
+        setVideos(prev => prev.filter(v => v.videoUuid !== videoUuid));
 
         toast({
           title: "Video deleted",
@@ -186,13 +176,10 @@ export function VideoManager({
           onDeleteVideo(videoUuid);
         }
       } catch (error) {
-        console.error("Error deleting video:", error);
+        console.error('Error deleting video:', error);
         toast({
           title: "Delete failed",
-          description:
-            error instanceof Error
-              ? error.message
-              : "Failed to delete the video. Please try again.",
+          description: error instanceof Error ? error.message : "Failed to delete the video. Please try again.",
           variant: "destructive",
         });
       } finally {
@@ -202,7 +189,7 @@ export function VideoManager({
   };
 
   const handleDownloadVideo = (videoUrl: string, filename: string) => {
-    const link = document.createElement("a");
+    const link = document.createElement('a');
     link.href = videoUrl;
     link.download = filename;
     document.body.appendChild(link);
@@ -213,10 +200,10 @@ export function VideoManager({
   const refreshVideos = async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/services/uploaderx/videos");
+      const response = await fetch('/api/services/uploaderx/videos');
 
       if (!response.ok) {
-        throw new Error("Failed to fetch videos");
+        throw new Error('Failed to fetch videos');
       }
 
       const data = await response.json();
@@ -226,9 +213,7 @@ export function VideoManager({
         const videosWithDates = data.videos.map((video: any) => ({
           ...video,
           fileSize: video.size || video.fileSize || 0,
-          uploadedAt: video.uploadedAt
-            ? new Date(video.uploadedAt)
-            : new Date(),
+          uploadedAt: video.uploadedAt ? new Date(video.uploadedAt) : new Date()
         }));
         setVideos(videosWithDates);
         toast({
@@ -236,10 +221,10 @@ export function VideoManager({
           description: "Your video list has been updated.",
         });
       } else {
-        throw new Error(data.error || "Failed to fetch videos");
+        throw new Error(data.error || 'Failed to fetch videos');
       }
     } catch (error) {
-      console.error("Error refreshing videos:", error);
+      console.error('Error refreshing videos:', error);
       toast({
         title: "Refresh failed",
         description: "Could not refresh your videos. Please try again.",
@@ -252,31 +237,21 @@ export function VideoManager({
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "ready":
-        return "bg-green-500";
-      case "processing":
-        return "bg-yellow-500";
-      case "uploaded":
-        return "bg-blue-500";
-      case "error":
-        return "bg-red-500";
-      default:
-        return "bg-zinc-500";
+      case 'ready': return 'bg-green-500';
+      case 'processing': return 'bg-yellow-500';
+      case 'uploaded': return 'bg-blue-500';
+      case 'error': return 'bg-red-500';
+      default: return 'bg-zinc-500';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case "ready":
-        return "Ready";
-      case "processing":
-        return "Processing";
-      case "uploaded":
-        return "Uploaded";
-      case "error":
-        return "Error";
-      default:
-        return "Unknown";
+      case 'ready': return 'Ready';
+      case 'processing': return 'Processing';
+      case 'uploaded': return 'Uploaded';
+      case 'error': return 'Error';
+      default: return 'Unknown';
     }
   };
 
@@ -285,81 +260,12 @@ export function VideoManager({
     return `${mb.toFixed(1)} MB`;
   };
   // ================== 📺 Upload to YouTube ===================
+  // ================== 📺 Upload to YouTube ===================
   const formatDuration = (seconds: number) => {
-    const safeSeconds = Number.isFinite(seconds)
-      ? Math.max(0, Math.floor(seconds))
-      : 0;
+    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
     const minutes = Math.floor(safeSeconds / 60);
     const remainingSeconds = safeSeconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-  };
-
-  const pollDatabaseForUploadStatus = async (
-    videoUuid: string,
-    platform: string
-  ): Promise<any | null> => {
-    const maxAttempts = 6;
-    const delay = 4000; // 4 seconds between polls, total 24 seconds check
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        const res = await fetch(`/api/services/uploaderx/videos/${videoUuid}`);
-        if (!res.ok) continue;
-
-        const data = await res.json();
-        if (data.success && data.video?.metadata) {
-          const metadata = data.video.metadata;
-
-          if (platform === "youtube" && metadata.youtube?.videoId) {
-            return {
-              youtubeUrl: metadata.youtube.url || `https://www.youtube.com/watch?v=${metadata.youtube.videoId}`,
-              videoId: metadata.youtube.videoId,
-            };
-          }
-
-          if (platform === "facebook" && metadata.facebook?.videoId) {
-            return {
-              facebookUrl: metadata.facebook.url || `https://www.facebook.com/${metadata.facebook.pageId}/videos/${metadata.facebook.videoId}`,
-              videoId: metadata.facebook.videoId,
-              pageName: metadata.facebook.pageName,
-            };
-          }
-
-          if (platform === "instagram" && metadata.instagram?.mediaId) {
-            return {
-              instagramUrl: metadata.instagram.url || `https://www.instagram.com/p/${metadata.instagram.mediaId}`,
-              mediaId: metadata.instagram.mediaId,
-              accountUsername: metadata.instagram.instagramUsername,
-            };
-          }
-
-          if (platform === "twitter" && metadata.twitter?.tweetId) {
-            return {
-              tweetUrl: metadata.twitter.tweetUrl || `https://x.com/status/${metadata.twitter.tweetId}`,
-              tweetId: metadata.twitter.tweetId,
-            };
-          }
-
-          if (platform === "linkedin") {
-            const linkedin = metadata.linkedin;
-            if (linkedin) {
-              const postInfo = linkedin.personal || linkedin.organization;
-              if (postInfo?.postId) {
-                return {
-                  postUrl: postInfo.postUrl || `https://www.linkedin.com/feed/update/${postInfo.postId}`,
-                  postId: postInfo.postId,
-                };
-              }
-            }
-          }
-        }
-      } catch (pollErr) {
-        console.warn(`[PollStatus] Attempt ${attempt} failed:`, pollErr);
-      }
-    }
-
-    return null;
   };
 
   const handleYouTubeUpload = async (video: VideoItem) => {
@@ -380,32 +286,9 @@ export function VideoManager({
         }),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[YouTube] Failed to parse JSON response:", jsonErr);
-      }
-
-      if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "youtube");
-        if (fallback) {
-          toast({
-            title: "✅ Uploaded to YouTube",
-            description: `Your video is live on YouTube!`,
-          });
-          setUploadedVideoLink(fallback.youtubeUrl);
-          setUploadPlatform("YouTube");
-          setShowUploadDialog(true);
-          return;
-        }
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to YouTube`);
-      }
-
+      const data = await res.json();
       if (!data.success && res.status === 403) {
-        throw new Error(
-          "Please sign in with Google again to grant YouTube permissions.",
-        );
+        throw new Error("Please sign in with Google again to grant YouTube permissions.");
       }
 
       if (data.success) {
@@ -417,38 +300,15 @@ export function VideoManager({
         setUploadedVideoLink(data.youtubeUrl);
         setUploadPlatform("YouTube");
         setShowUploadDialog(true);
+
       } else {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "youtube");
-        if (fallback) {
-          toast({
-            title: "✅ Uploaded to YouTube",
-            description: `Your video is live on YouTube!`,
-          });
-          setUploadedVideoLink(fallback.youtubeUrl);
-          setUploadPlatform("YouTube");
-          setShowUploadDialog(true);
-          return;
-        }
         throw new Error(data.error || "Failed to upload to YouTube");
       }
     } catch (err) {
       console.error("❌ YouTube upload error:", err);
-      const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "youtube");
-      if (fallback) {
-        toast({
-          title: "✅ Uploaded to YouTube",
-          description: `Your video is live on YouTube!`,
-        });
-        setUploadedVideoLink(fallback.youtubeUrl);
-        setUploadPlatform("YouTube");
-        setShowUploadDialog(true);
-        return;
-      }
-
       toast({
         title: "Upload failed",
-        description:
-          err instanceof Error ? err.message : "YouTube upload failed",
+        description: err instanceof Error ? err.message : "YouTube upload failed",
         variant: "destructive",
       });
     }
@@ -458,7 +318,7 @@ export function VideoManager({
   const handleFacebookUpload = async (video: VideoItem) => {
     try {
       // 1. Check Facebook connection status first
-      const statusRes = await fetch("/api/services/uploaderx/facebook/pages");
+      const statusRes = await fetch('/api/services/uploaderx/facebook/pages');
       const statusData = await statusRes.json();
 
       if (!statusData.connected) {
@@ -467,7 +327,7 @@ export function VideoManager({
           description: "Please connect your Facebook account to upload videos.",
         });
         // Open Facebook OAuth in new tab
-        window.open("/api/services/uploaderx/facebook/auth", "_blank");
+        window.open('/api/services/uploaderx/facebook/auth', '_blank');
         return;
       }
 
@@ -475,36 +335,29 @@ export function VideoManager({
       if (!statusData.pages || statusData.pages.length === 0) {
         toast({
           title: "No Facebook Pages",
-          description:
-            "You need at least one Facebook Page to upload videos. Create one at facebook.com/pages/create, then reconnect Facebook.",
+          description: "You need at least one Facebook Page to upload videos. Create one at facebook.com/pages/create, then reconnect Facebook.",
           variant: "destructive",
         });
-
+        
         // Clear old tokens and reconnect
         try {
-          await fetch("/api/services/uploaderx/facebook/reset", {
-            method: "POST",
-          });
+          await fetch('/api/services/uploaderx/facebook/reset', { method: 'POST' });
         } catch (e) {
           console.warn("Failed to clear old tokens:", e);
         }
-
+        
         // Open Facebook OAuth in new tab
-        window.open("/api/services/uploaderx/facebook/auth", "_blank");
+        window.open('/api/services/uploaderx/facebook/auth', '_blank');
         return;
       }
 
       // 3. Show page selection if multiple pages
       let selectedPageId = null;
       if (statusData.pages.length > 1) {
-        const pageNames = statusData.pages
-          .map((p: any) => p.pageName)
-          .join("\n");
+        const pageNames = statusData.pages.map((p: any) => p.pageName).join('\n');
         const input = prompt(`Select a Facebook Page:\n${pageNames}`);
         if (!input) return; // User cancelled
-        const selectedPage = statusData.pages.find(
-          (p: any) => p.pageName === input,
-        );
+        const selectedPage = statusData.pages.find((p: any) => p.pageName === input);
         if (!selectedPage) {
           toast({
             title: "Invalid Page",
@@ -519,7 +372,7 @@ export function VideoManager({
       // 4. Upload to Facebook
       toast({
         title: "Uploading to Facebook...",
-        description: `Sending ${video.filename} to ${statusData.pages[0]?.pageName || "your Facebook Page"}.`,
+        description: `Sending ${video.filename} to ${statusData.pages[0]?.pageName || 'your Facebook Page'}.`,
       });
 
       const res = await fetch("/api/services/uploaderx/facebook", {
@@ -532,27 +385,7 @@ export function VideoManager({
         }),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[Facebook] Failed to parse JSON response:", jsonErr);
-      }
-
-      if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "facebook");
-        if (fallback) {
-          toast({
-            title: "✅ Uploaded to Facebook",
-            description: `Video posted to ${fallback.pageName || "your Page"}!`,
-          });
-          setUploadedVideoLink(fallback.facebookUrl);
-          setUploadPlatform("Facebook");
-          setShowUploadDialog(true);
-          return;
-        }
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Facebook`);
-      }
+      const data = await res.json();
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Facebook account first.");
@@ -561,43 +394,20 @@ export function VideoManager({
       if (data.success) {
         toast({
           title: "✅ Uploaded to Facebook",
-          description: `Video posted to ${data.pageName || "your Page"}!`,
+          description: `Video posted to ${data.pageName || 'your Page'}!`,
         });
 
         setUploadedVideoLink(data.facebookUrl);
         setUploadPlatform("Facebook");
         setShowUploadDialog(true);
       } else {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "facebook");
-        if (fallback) {
-          toast({
-            title: "✅ Uploaded to Facebook",
-            description: `Video posted to ${fallback.pageName || "your Page"}!`,
-          });
-          setUploadedVideoLink(fallback.facebookUrl);
-          setUploadPlatform("Facebook");
-          setShowUploadDialog(true);
-          return;
-        }
         throw new Error(data.error || "Failed to upload to Facebook");
       }
     } catch (err) {
       console.error("❌ Facebook upload error:", err);
-      const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "facebook");
-      if (fallback) {
-        toast({
-          title: "✅ Uploaded to Facebook",
-          description: `Video posted to ${fallback.pageName || "your Page"}!`,
-        });
-        setUploadedVideoLink(fallback.facebookUrl);
-        setUploadPlatform("Facebook");
-        setShowUploadDialog(true);
-        return;
-      }
       toast({
         title: "Upload failed",
-        description:
-          err instanceof Error ? err.message : "Facebook upload failed",
+        description: err instanceof Error ? err.message : "Facebook upload failed",
         variant: "destructive",
       });
     }
@@ -607,17 +417,16 @@ export function VideoManager({
   const handleInstagramUpload = async (video: VideoItem) => {
     try {
       // 1. Check Instagram connection status first
-      const statusRes = await fetch("/api/services/uploaderx/instagram/status");
+      const statusRes = await fetch('/api/services/uploaderx/instagram/status');
       const statusData = await statusRes.json();
 
       if (!statusData.connected) {
         toast({
           title: "Instagram Not Connected",
-          description:
-            "Please connect your Instagram account to upload videos.",
+          description: "Please connect your Instagram account to upload videos.",
         });
         // Open Instagram OAuth in new tab
-        window.open("/api/services/uploaderx/instagram/auth", "_blank");
+        window.open('/api/services/uploaderx/instagram/auth', '_blank');
         return;
       }
 
@@ -625,38 +434,29 @@ export function VideoManager({
       if (!statusData.accounts || statusData.accounts.length === 0) {
         toast({
           title: "No Instagram Accounts",
-          description:
-            "You don't have any Instagram accounts connected. Please reconnect Instagram.",
+          description: "You don't have any Instagram accounts connected. Please reconnect Instagram.",
           variant: "destructive",
         });
 
         // Clear old tokens and reconnect
         try {
-          await fetch("/api/services/uploaderx/instagram/accounts", {
-            method: "DELETE",
-          });
+          await fetch('/api/services/uploaderx/instagram/accounts', { method: 'DELETE' });
         } catch (e) {
           console.warn("Failed to clear old tokens:", e);
         }
 
         // Open Instagram OAuth in new tab
-        window.open("/api/services/uploaderx/instagram/auth", "_blank");
+        window.open('/api/services/uploaderx/instagram/auth', '_blank');
         return;
       }
 
       // 3. Show account selection if multiple accounts
       let selectedAccountId = null;
       if (statusData.accounts.length > 1) {
-        const accountNames = statusData.accounts
-          .map((a: any) => `@${a.instagramUsername}`)
-          .join("\n");
+        const accountNames = statusData.accounts.map((a: any) => `@${a.instagramUsername}`).join('\n');
         const input = prompt(`Select an Instagram Account:\n${accountNames}`);
         if (!input) return; // User cancelled
-        const selectedAccount = statusData.accounts.find(
-          (a: any) =>
-            `@${a.instagramUsername}` === input ||
-            a.instagramUsername === input,
-        );
+        const selectedAccount = statusData.accounts.find((a: any) => `@${a.instagramUsername}` === input || a.instagramUsername === input);
         if (!selectedAccount) {
           toast({
             title: "Invalid Account",
@@ -671,7 +471,7 @@ export function VideoManager({
       // 4. Upload to Instagram
       toast({
         title: "Uploading to Instagram...",
-        description: `Publishing ${video.filename} as Reel to ${statusData.accounts[0]?.instagramUsername || "your Instagram account"}.`,
+        description: `Publishing ${video.filename} as Reel to ${statusData.accounts[0]?.instagramUsername || 'your Instagram account'}.`,
       });
 
       const res = await fetch("/api/services/uploaderx/instagram", {
@@ -684,27 +484,7 @@ export function VideoManager({
         }),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[Instagram] Failed to parse JSON response:", jsonErr);
-      }
-
-      if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "instagram");
-        if (fallback) {
-          toast({
-            title: "✅ Uploaded to Instagram",
-            description: `Reel published to ${fallback.accountUsername || "your account"}!`,
-          });
-          setUploadedVideoLink(fallback.instagramUrl);
-          setUploadPlatform("Instagram");
-          setShowUploadDialog(true);
-          return;
-        }
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Instagram`);
-      }
+      const data = await res.json();
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Instagram account first.");
@@ -713,43 +493,20 @@ export function VideoManager({
       if (data.success) {
         toast({
           title: "✅ Uploaded to Instagram",
-          description: `Reel published to ${data.accountUsername || "your account"}!`,
+          description: `Reel published to ${data.accountUsername || 'your account'}!`,
         });
 
         setUploadedVideoLink(data.instagramUrl);
         setUploadPlatform("Instagram");
         setShowUploadDialog(true);
       } else {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "instagram");
-        if (fallback) {
-          toast({
-            title: "✅ Uploaded to Instagram",
-            description: `Reel published to ${fallback.accountUsername || "your account"}!`,
-          });
-          setUploadedVideoLink(fallback.instagramUrl);
-          setUploadPlatform("Instagram");
-          setShowUploadDialog(true);
-          return;
-        }
         throw new Error(data.error || "Failed to upload to Instagram");
       }
     } catch (err) {
       console.error("❌ Instagram upload error:", err);
-      const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "instagram");
-      if (fallback) {
-        toast({
-          title: "✅ Uploaded to Instagram",
-          description: `Reel published to ${fallback.accountUsername || "your account"}!`,
-        });
-        setUploadedVideoLink(fallback.instagramUrl);
-        setUploadPlatform("Instagram");
-        setShowUploadDialog(true);
-        return;
-      }
       toast({
         title: "Upload failed",
-        description:
-          err instanceof Error ? err.message : "Instagram upload failed",
+        description: err instanceof Error ? err.message : "Instagram upload failed",
         variant: "destructive",
       });
     }
@@ -759,7 +516,7 @@ export function VideoManager({
   const handleTwitterUpload = async (video: VideoItem) => {
     try {
       // 1. Check Twitter connection status first
-      const statusRes = await fetch("/api/services/uploaderx/twitter/status");
+      const statusRes = await fetch('/api/services/uploaderx/twitter/status');
       const statusData = await statusRes.json();
 
       if (!statusData.connected) {
@@ -768,7 +525,7 @@ export function VideoManager({
           description: "Please connect your Twitter account to upload videos.",
         });
         // Redirect to Twitter OAuth in the same tab
-        window.location.href = "/api/services/uploaderx/twitter/auth";
+        window.location.href = '/api/services/uploaderx/twitter/auth';
         return;
       }
 
@@ -779,22 +536,18 @@ export function VideoManager({
           description: "Please reconnect your Twitter account.",
           variant: "destructive",
         });
-        window.location.href = "/api/services/uploaderx/twitter/auth";
+        window.location.href = '/api/services/uploaderx/twitter/auth';
         return;
       }
 
       // 3. Check if required permissions are granted
-      if (
-        statusData.missingScopes &&
-        statusData.missingScopes.includes("tweet.write")
-      ) {
+      if (statusData.missingScopes && statusData.missingScopes.includes("tweet.write")) {
         toast({
           title: "Missing Twitter Permission",
-          description:
-            "The 'tweet.write' permission is required. Please reconnect your Twitter account.",
+          description: "The 'tweet.write' permission is required. Please reconnect your Twitter account.",
           variant: "destructive",
         });
-        window.location.href = "/api/services/uploaderx/twitter/auth";
+        window.location.href = '/api/services/uploaderx/twitter/auth';
         return;
       }
 
@@ -818,27 +571,7 @@ export function VideoManager({
         }),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[Twitter] Failed to parse JSON response:", jsonErr);
-      }
-
-      if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "twitter");
-        if (fallback) {
-          toast({
-            title: "✅ Posted to Twitter",
-            description: `Tweet posted to ${fallback.accountUsername || "your account"}!`,
-          });
-          setUploadedVideoLink(fallback.tweetUrl);
-          setUploadPlatform("Twitter");
-          setShowUploadDialog(true);
-          return;
-        }
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to Twitter`);
-      }
+      const data = await res.json();
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your Twitter account first.");
@@ -847,43 +580,20 @@ export function VideoManager({
       if (data.success) {
         toast({
           title: "✅ Posted to Twitter",
-          description: `Tweet posted to ${data.accountUsername || "your account"}!`,
+          description: `Tweet posted to ${data.accountUsername || 'your account'}!`,
         });
 
         setUploadedVideoLink(data.tweetUrl);
         setUploadPlatform("Twitter");
         setShowUploadDialog(true);
       } else {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "twitter");
-        if (fallback) {
-          toast({
-            title: "✅ Posted to Twitter",
-            description: `Tweet posted to ${fallback.accountUsername || "your account"}!`,
-          });
-          setUploadedVideoLink(fallback.tweetUrl);
-          setUploadPlatform("Twitter");
-          setShowUploadDialog(true);
-          return;
-        }
         throw new Error(data.error || "Failed to upload to Twitter");
       }
     } catch (err) {
       console.error("❌ Twitter upload error:", err);
-      const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "twitter");
-      if (fallback) {
-        toast({
-          title: "✅ Posted to Twitter",
-          description: "Tweet posted successfully!",
-        });
-        setUploadedVideoLink(fallback.tweetUrl);
-        setUploadPlatform("Twitter");
-        setShowUploadDialog(true);
-        return;
-      }
       toast({
         title: "Upload failed",
-        description:
-          err instanceof Error ? err.message : "Twitter upload failed",
+        description: err instanceof Error ? err.message : "Twitter upload failed",
         variant: "destructive",
       });
     }
@@ -893,17 +603,16 @@ export function VideoManager({
   const handleLinkedInUpload = async (video: VideoItem) => {
     try {
       // 1. Check LinkedIn connection status first
-      const statusRes = await fetch("/api/services/uploaderx/linkedin/status");
+      const statusRes = await fetch('/api/services/uploaderx/linkedin/status');
       const statusData = await statusRes.json();
 
       if (!statusData.connected) {
         toast({
           title: "LinkedIn Not Connected",
-          description:
-            "Please connect your LinkedIn account to upload content.",
+          description: "Please connect your LinkedIn account to upload content.",
         });
         // Open LinkedIn OAuth in same tab
-        window.location.href = "/api/services/uploaderx/linkedin/auth";
+        window.location.href = '/api/services/uploaderx/linkedin/auth';
         return;
       }
 
@@ -914,38 +623,29 @@ export function VideoManager({
           description: "Please reconnect your LinkedIn account.",
           variant: "destructive",
         });
-        window.location.href = "/api/services/uploaderx/linkedin/auth";
+        window.location.href = '/api/services/uploaderx/linkedin/auth';
         return;
       }
 
       // 3. Determine post type and organization selection
-      let postType: "personal" | "organization" = "personal";
+      let postType: 'personal' | 'organization' = 'personal';
       let selectedOrganizationId: string | null = null;
 
-      const targets: Array<{
-        type: "personal" | "organization";
-        label: string;
-        organizationId?: string;
-      }> = [];
+      const targets: Array<{ type: 'personal' | 'organization'; label: string; organizationId?: string }> = [];
       if (statusData.canPostPersonal) {
-        targets.push({ type: "personal", label: "Personal Profile" });
+        targets.push({ type: 'personal', label: 'Personal Profile' });
       }
 
       if (statusData.organizations && statusData.organizations.length > 0) {
         statusData.organizations.forEach((org: any) => {
-          targets.push({
-            type: "organization",
-            label: org.name,
-            organizationId: org.id,
-          });
+          targets.push({ type: 'organization', label: org.name, organizationId: org.id });
         });
       }
 
       if (targets.length === 0) {
         toast({
           title: "LinkedIn posting unavailable",
-          description:
-            "Your LinkedIn connection does not include a valid posting target. Reconnect with the proper LinkedIn scopes.",
+          description: "Your LinkedIn connection does not include a valid posting target. Reconnect with the proper LinkedIn scopes.",
           variant: "destructive",
         });
         return;
@@ -955,7 +655,7 @@ export function VideoManager({
       if (targets.length > 1) {
         const selectionPrompt = targets
           .map((target, index) => `${index + 1}. ${target.label}`)
-          .join("\n");
+          .join('\n');
 
         const input = prompt(`Select where to post:\n${selectionPrompt}`);
         if (!input) return; // User cancelled
@@ -976,12 +676,9 @@ export function VideoManager({
       selectedOrganizationId = selectedTarget.organizationId || null;
 
       // 4. Upload to LinkedIn
-      const postTarget =
-        postType === "organization"
-          ? statusData.organizations?.find(
-              (o: any) => o.id === selectedOrganizationId,
-            )?.name || "organization"
-          : "your profile";
+      const postTarget = postType === 'organization'
+        ? statusData.organizations?.find((o: any) => o.id === selectedOrganizationId)?.name || 'organization'
+        : 'your profile';
 
       toast({
         title: "Uploading to LinkedIn...",
@@ -1001,27 +698,7 @@ export function VideoManager({
         }),
       });
 
-      let data: any = {};
-      try {
-        data = await res.json();
-      } catch (jsonErr) {
-        console.warn("[LinkedIn] Failed to parse JSON response:", jsonErr);
-      }
-
-      if (!res.ok) {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "linkedin");
-        if (fallback) {
-          toast({
-            title: "✅ Posted to LinkedIn",
-            description: `Content posted to ${postTarget}!`,
-          });
-          setUploadedVideoLink(fallback.postUrl);
-          setUploadPlatform("LinkedIn");
-          setShowUploadDialog(true);
-          return;
-        }
-        throw new Error(data.error || `HTTP ${res.status}: Failed to upload to LinkedIn`);
-      }
+      const data = await res.json();
 
       if (!data.success && res.status === 403) {
         throw new Error("Please connect your LinkedIn account first.");
@@ -1037,36 +714,13 @@ export function VideoManager({
         setUploadPlatform("LinkedIn");
         setShowUploadDialog(true);
       } else {
-        const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "linkedin");
-        if (fallback) {
-          toast({
-            title: "✅ Posted to LinkedIn",
-            description: `Content posted to ${postTarget}!`,
-          });
-          setUploadedVideoLink(fallback.postUrl);
-          setUploadPlatform("LinkedIn");
-          setShowUploadDialog(true);
-          return;
-        }
         throw new Error(data.error || "Failed to upload to LinkedIn");
       }
     } catch (err) {
       console.error("❌ LinkedIn upload error:", err);
-      const fallback = await pollDatabaseForUploadStatus(video.videoUuid, "linkedin");
-      if (fallback) {
-        toast({
-          title: "✅ Posted to LinkedIn",
-          description: `Content posted to ${postTarget}!`,
-        });
-        setUploadedVideoLink(fallback.postUrl);
-        setUploadPlatform("LinkedIn");
-        setShowUploadDialog(true);
-        return;
-      }
       toast({
         title: "Upload failed",
-        description:
-          err instanceof Error ? err.message : "LinkedIn upload failed",
+        description: err instanceof Error ? err.message : "LinkedIn upload failed",
         variant: "destructive",
       });
     }
@@ -1095,15 +749,10 @@ export function VideoManager({
             disabled={loading}
             className="border-zinc-800 text-zinc-200 hover:bg-zinc-800"
           >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
-            />
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button
-            onClick={onUploadNew}
-            className="bg-emerald-600 hover:bg-emerald-500"
-          >
+          <Button onClick={onUploadNew} className="bg-emerald-600 hover:bg-emerald-500">
             <Upload className="h-4 w-4 mr-2" />
             Upload New Video
           </Button>
@@ -1157,19 +806,12 @@ export function VideoManager({
         <Card className="bg-zinc-950/60 border-zinc-800">
           <CardContent className="p-12 text-center">
             <Video className="h-12 w-12 text-zinc-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-zinc-200 mb-2">
-              No videos found
-            </h3>
+            <h3 className="text-lg font-medium text-zinc-200 mb-2">No videos found</h3>
             <p className="text-zinc-400 mb-4">
-              {searchTerm
-                ? "Try adjusting your search terms"
-                : "Upload your first video to get started"}
+              {searchTerm ? "Try adjusting your search terms" : "Upload your first video to get started"}
             </p>
             {!searchTerm && (
-              <Button
-                onClick={onUploadNew}
-                className="bg-emerald-600 hover:bg-emerald-500"
-              >
+              <Button onClick={onUploadNew} className="bg-emerald-600 hover:bg-emerald-500">
                 <Upload className="h-4 w-4 mr-2" />
                 Upload Video
               </Button>
@@ -1177,18 +819,9 @@ export function VideoManager({
           </CardContent>
         </Card>
       ) : (
-        <div
-          className={
-            viewMode === "grid"
-              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-              : "space-y-4"
-          }
-        >
+        <div className={viewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "space-y-4"}>
           {filteredVideos.map((video) => (
-            <Card
-              key={video.videoUuid}
-              className="bg-zinc-950/60 border-zinc-800"
-            >
+            <Card key={video.videoUuid} className="bg-zinc-950/60 border-zinc-800">
               <CardContent className="p-0">
                 {viewMode === "grid" ? (
                   // Grid View
@@ -1202,20 +835,14 @@ export function VideoManager({
                         uploadedAt={video.uploadedAt}
                         onEdit={() => handleEditVideo(video)}
                         onDelete={() => handleDeleteVideo(video.videoUuid)}
-                        onDownload={(url, filename) =>
-                          handleDownloadVideo(url, filename)
-                        }
+                        onDownload={(url, filename) => handleDownloadVideo(url, filename)}
                         isDeleting={deletingVideo === video.videoUuid}
                       />
                     </div>
                     <div className="p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <h3 className="font-medium text-zinc-200 truncate">
-                          {video.filename}
-                        </h3>
-                        <Badge
-                          className={`${getStatusColor(video.status)} text-white`}
-                        >
+                        <h3 className="font-medium text-zinc-200 truncate">{video.filename}</h3>
+                        <Badge className={`${getStatusColor(video.status)} text-white`}>
                           {getStatusText(video.status)}
                         </Badge>
                       </div>
@@ -1225,25 +852,15 @@ export function VideoManager({
                         {video.metadata?.duration && (
                           <span>{formatDuration(video.metadata.duration)}</span>
                         )}
-                        <span>
-                          {video.uploadedAt
-                            ? video.uploadedAt.toLocaleDateString()
-                            : "Unknown date"}
-                        </span>
+                        <span>{video.uploadedAt ? video.uploadedAt.toLocaleDateString() : 'Unknown date'}</span>
                       </div>
 
                       {video.platforms && video.platforms.length > 0 && (
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-zinc-400">
-                            Platforms:
-                          </span>
+                          <span className="text-sm text-zinc-400">Platforms:</span>
                           <div className="flex gap-1">
-                            {video.platforms.map((platform) => (
-                              <Badge
-                                key={platform}
-                                variant="outline"
-                                className="text-[11px]"
-                              >
+                            {video.platforms.map(platform => (
+                              <Badge key={platform} variant="outline" className="text-[11px]">
                                 {platform}
                               </Badge>
                             ))}
@@ -1298,12 +915,11 @@ export function VideoManager({
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() =>
-                            handleDownloadVideo(video.publicUrl, video.filename)
-                          }
+                          onClick={() => handleDownloadVideo(video.publicUrl, video.filename)}
                         >
                           <Download className="h-4 w-4" />
                         </Button>
+
                       </div>
                     </div>
                   </div>
@@ -1316,28 +932,18 @@ export function VideoManager({
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-zinc-200 truncate">
-                          {video.filename}
-                        </h3>
+                        <h3 className="font-medium text-zinc-200 truncate">{video.filename}</h3>
                         <div className="flex items-center gap-4 text-sm text-zinc-400 mt-1">
                           <span>{formatFileSize(video.fileSize)}</span>
                           {video.metadata?.duration && (
-                            <span>
-                              {formatDuration(video.metadata.duration)}
-                            </span>
+                            <span>{formatDuration(video.metadata.duration)}</span>
                           )}
-                          <span>
-                            {video.uploadedAt
-                              ? video.uploadedAt.toLocaleDateString()
-                              : "Unknown date"}
-                          </span>
+                          <span>{video.uploadedAt ? video.uploadedAt.toLocaleDateString() : 'Unknown date'}</span>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <Badge
-                          className={`${getStatusColor(video.status)} text-white`}
-                        >
+                        <Badge className={`${getStatusColor(video.status)} text-white`}>
                           {getStatusText(video.status)}
                         </Badge>
                         <Button
@@ -1392,9 +998,7 @@ export function VideoManager({
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() =>
-                            handleDownloadVideo(video.publicUrl, video.filename)
-                          }
+                          onClick={() => handleDownloadVideo(video.publicUrl, video.filename)}
                         >
                           <Download className="h-4 w-4" />
                         </Button>
@@ -1405,9 +1009,7 @@ export function VideoManager({
                           disabled={deletingVideo === video.videoUuid}
                           className="text-red-400 hover:text-red-300"
                         >
-                          <Trash2
-                            className={`h-4 w-4 ${deletingVideo === video.videoUuid ? "animate-pulse" : ""}`}
-                          />
+                          <Trash2 className={`h-4 w-4 ${deletingVideo === video.videoUuid ? 'animate-pulse' : ''}`} />
                         </Button>
                       </div>
                     </div>
@@ -1424,67 +1026,51 @@ export function VideoManager({
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="bg-zinc-950 border-zinc-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <CardHeader>
-              <CardTitle className="text-zinc-200">
-                Edit Video Settings
-              </CardTitle>
+              <CardTitle className="text-zinc-200">Edit Video Settings</CardTitle>
             </CardHeader>
             <CardContent>
               <PlatformEditor
                 platforms={[
-                  { key: "youtube", label: "YouTube" },
-                  { key: "instagram", label: "Instagram" },
-                  { key: "facebook", label: "Facebook" },
+                  { key: 'youtube', label: 'YouTube' },
+                  { key: 'instagram', label: 'Instagram' },
+                  { key: 'facebook', label: 'Facebook' },
                 ]}
                 videoUuid={selectedVideo.videoUuid}
                 defaultTitle={selectedVideo.filename}
                 initialData={selectedVideo.metadata as any} // Cast as any because metadata is generic locally but editor expects specific shape
                 onSave={async (platformData) => {
                   try {
-                    const response = await fetch(
-                      `/api/services/uploaderx/videos/${selectedVideo.videoUuid}`,
-                      {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ metadata: platformData }),
-                      },
-                    );
+                    const response = await fetch(`/api/services/uploaderx/videos/${selectedVideo.videoUuid}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ metadata: platformData }),
+                    });
 
                     const responseData = await response.json();
 
                     if (!response.ok) {
                       console.error("Save failed response:", responseData);
-                      throw new Error(
-                        responseData.error || "Failed to save settings",
-                      );
+                      throw new Error(responseData.error || 'Failed to save settings');
                     }
 
                     toast({
                       title: "Settings saved",
-                      description:
-                        "Video metadata has been updated successfully.",
+                      description: "Video metadata has been updated successfully.",
                     });
 
                     // Update local video state with new metadata
-                    setVideos((prev) =>
-                      prev.map((v) =>
-                        v.videoUuid === selectedVideo.videoUuid
-                          ? {
-                              ...v,
-                              metadata: { ...v.metadata, ...platformData },
-                            }
-                          : v,
-                      ),
-                    );
+                    setVideos(prev => prev.map(v =>
+                      v.videoUuid === selectedVideo.videoUuid
+                        ? { ...v, metadata: { ...v.metadata, ...platformData } }
+                        : v
+                    ));
 
                     setShowEditor(false);
                   } catch (error) {
                     console.error("Save error details:", error);
                     toast({
                       title: "Save failed",
-                      description:
-                        error instanceof Error
-                          ? error.message
-                          : "Could not save settings. Please try again.",
+                      description: error instanceof Error ? error.message : "Could not save settings. Please try again.",
                       variant: "destructive",
                     });
                   }
@@ -1499,17 +1085,7 @@ export function VideoManager({
           <div className="px-6 pt-6 pb-4">
             <DialogHeader>
               <div className="mx-auto mb-3 w-10 h-10 rounded-full bg-[#5EC97E]/10 flex items-center justify-center">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#5EC97E"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5EC97E" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
               </div>
               <DialogTitle className="text-[16px] font-semibold text-[#ECE9E1]">
                 Video Uploaded
@@ -1520,9 +1096,7 @@ export function VideoManager({
             </DialogHeader>
 
             <div className="mt-4 p-3 bg-[#1B1A18] border border-[#282724] rounded">
-              <p className="text-[10px] font-mono tracking-[0.08em] uppercase text-[#5F5E5A] mb-1">
-                {uploadPlatform} Link
-              </p>
+              <p className="text-[10px] font-mono tracking-[0.08em] uppercase text-[#5F5E5A] mb-1">{uploadPlatform} Link</p>
               <a
                 href={uploadedVideoLink}
                 target="_blank"
@@ -1548,4 +1122,6 @@ export function VideoManager({
   );
 }
 
+
 export default VideoManager;
+

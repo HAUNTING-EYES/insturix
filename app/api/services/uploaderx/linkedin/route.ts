@@ -10,8 +10,6 @@ import {
 } from "@/lib/uploaderx/linkedin-publish-state";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
-export const maxDuration = 500;
-
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
 
 type LinkedInMediaType = "image" | "video" | "document";

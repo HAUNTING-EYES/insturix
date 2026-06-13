@@ -5,8 +5,6 @@ import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
-export const maxDuration = 500;
-
 export async function POST(req: Request) {
   try {
     const session = await auth();

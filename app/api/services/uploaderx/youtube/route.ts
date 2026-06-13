@@ -6,8 +6,6 @@ import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
-export const maxDuration = 500;
-
 const debugYouTubeUpload = (...args: unknown[]) => {
   if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
     console.log(...args);
