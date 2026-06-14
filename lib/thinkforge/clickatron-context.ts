@@ -17,6 +17,13 @@ const PROJECT_META_KEYS = [
   "sessionName",
   "brandId",
   "brandBrief",
+  "clientId",
+  "clientName",
+  "campaignId",
+  "campaignName",
+  "seriesId",
+  "calendarItemId",
+  "contentCardId",
 ] as const;
 
 export interface ThinkToClickContextInput {

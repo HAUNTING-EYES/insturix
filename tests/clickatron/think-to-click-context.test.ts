@@ -14,6 +14,9 @@ describe("ThinkForge to Clickatron context", () => {
       projectMeta: {
         brandId: "brand_current",
         brandBrief: "Use the uploaded logo only. Keep copy terse.",
+        campaignId: "campaign_launch",
+        calendarItemId: "calendar_launch",
+        contentCardId: "card_launch",
         idea: "Launch the new product",
         platform: "YouTube",
         preferences: { doNotLeak: true },
@@ -44,6 +47,9 @@ describe("ThinkForge to Clickatron context", () => {
       projectMeta: {
         brandId: "brand_current",
         brandBrief: "Use the uploaded logo only. Keep copy terse.",
+        campaignId: "campaign_launch",
+        calendarItemId: "calendar_launch",
+        contentCardId: "card_launch",
         idea: "Launch the new product",
         platform: "YouTube",
       },
@@ -62,11 +68,25 @@ describe("ThinkForge to Clickatron context", () => {
       pickThinkForgeProjectMeta({
         brandId: "brand_1",
         brandBrief: "Brand rules",
+        clientId: "client_1",
+        clientName: "Acme",
+        campaignId: "campaign_1",
+        campaignName: "Launch Month",
+        seriesId: "series_1",
+        calendarItemId: "calendar_1",
+        contentCardId: "card_1",
         preferences: { internal: true },
       }),
     ).toEqual({
       brandId: "brand_1",
       brandBrief: "Brand rules",
+      clientId: "client_1",
+      clientName: "Acme",
+      campaignId: "campaign_1",
+      campaignName: "Launch Month",
+      seriesId: "series_1",
+      calendarItemId: "calendar_1",
+      contentCardId: "card_1",
     });
   });
 
@@ -177,6 +197,8 @@ describe("ThinkForge to Clickatron context", () => {
       projectMeta: {
         brandId: "brand_session",
         brandBrief: "Use approved product marks only.",
+        campaignId: "campaign_1",
+        calendarItemId: "calendar_1",
         idea: "Approval ops carousel v2",
       },
     });

@@ -19,6 +19,7 @@ import { ReferenceImagePanel } from "./ReferenceImagePanel";
 import { StoryboardReviewPanel } from "./StoryboardReviewPanel";
 import { PipelineProgressPanel } from "./PipelineProgressPanel";
 import { ExportCompletePanel } from "./ExportCompletePanel";
+import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 
 /* ── Film Strip sprocket pattern (left/right edges of dialog) ── */
 const sprocketStyle: React.CSSProperties = {
@@ -39,6 +40,7 @@ interface ExportToEditronDialogProps {
   plainText?: string;
   sessionId?: string;
   scriptId?: string;
+  projectMeta?: ProjectMeta | null;
 }
 
 export function ExportToEditronDialog({
@@ -48,9 +50,10 @@ export function ExportToEditronDialog({
   plainText,
   sessionId,
   scriptId,
+  projectMeta,
 }: ExportToEditronDialogProps) {
   const pipeline = useExportPipeline(
-    { blocks, plainText, sessionId, scriptId },
+    { blocks, plainText, sessionId, scriptId, projectMeta },
     open,
     onOpenChange,
   );

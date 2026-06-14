@@ -34,6 +34,14 @@ interface StoryboardingModeProps {
   onTabClose?: (scriptId: string) => void;
 }
 
+function buildSelectedIdeaPayload(selectedIdea: IdeaCardData) {
+  return {
+    ...selectedIdea,
+    id: Number(selectedIdea.id),
+    tone: selectedIdea.tone as any,
+  };
+}
+
 export default function StoryboardingMode({
   isVisible,
   selectedIdea,
@@ -107,6 +115,8 @@ export default function StoryboardingMode({
     );
   }
 
+  const exportBlocks = Array.isArray(script?.blocks) ? script.blocks : [];
+
   return (
     <div className={clsx("control-view enter", isVisible ? "visible" : "")} id="s3" style={{ display: isVisible ? 'flex' : 'none', flex: 1, height: '100%' }}>
       <div className="control-inner" style={{ flex: 1, height: '100%', display: 'flex' }}>
@@ -132,15 +142,7 @@ export default function StoryboardingMode({
         {/* CENTER — Editor */}
         <div className="editor-col" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <ScriptPanel
-            selectedIdea={{
-              id: Number(selectedIdea.id),
-              idea: selectedIdea.idea,
-              purpose: selectedIdea.purpose,
-              style: selectedIdea.style,
-              format: selectedIdea.format,
-              platform: selectedIdea.platform,
-              tone: selectedIdea.tone as any
-            }}
+            selectedIdea={buildSelectedIdeaPayload(selectedIdea)}
             script={script}
             sessionId={sessionId}
             scriptId={scriptId}
@@ -171,16 +173,7 @@ export default function StoryboardingMode({
         <div className="chat-col" style={{ display: 'flex', flexDirection: 'column' }}>
           <ChatPanel
             key={(sessionId || 'no-session')}
-            selectedIdea={{
-              id: Number(selectedIdea.id),
-              idea: selectedIdea.idea,
-              purpose: selectedIdea.purpose,
-              style: selectedIdea.style,
-              format: selectedIdea.format,
-              platform: selectedIdea.platform,
-              tone: selectedIdea.tone as any,
-              sessionName: selectedIdea.sessionName
-            }}
+            selectedIdea={buildSelectedIdeaPayload(selectedIdea)}
             script={script}
             scriptId={scriptId}
             isScriptLoading={isScriptLoading}
@@ -212,10 +205,11 @@ export default function StoryboardingMode({
       <ExportToEditronDialog
         open={showExportDialog}
         onOpenChange={setShowExportDialog}
-        blocks={script?.blocks || []}
+        blocks={exportBlocks}
         plainText={script?.content || ''}
         sessionId={sessionId || undefined}
         scriptId={scriptId || undefined}
+        projectMeta={selectedIdea}
       />
 
       <AnimatePresence>
@@ -245,16 +239,7 @@ export default function StoryboardingMode({
 
               <div className="bg-[#0B0B0A] rounded-3xl border border-[#1C1B19] p-6 shadow-2xl">
                 <SessionMetadataSettings
-                  idea={{
-                    id: Number(selectedIdea.id),
-                    idea: selectedIdea.idea,
-                    purpose: selectedIdea.purpose,
-                    style: selectedIdea.style,
-                    format: selectedIdea.format,
-                    platform: selectedIdea.platform,
-                    tone: selectedIdea.tone as any,
-                    sessionName: selectedIdea.sessionName
-                  }}
+                  idea={buildSelectedIdeaPayload(selectedIdea)}
                   onProceedToChat={handleCloseSettings}
                   onGoBack={onGoToIdeation}
                   onUpdateIdea={(updatedIdea) => {

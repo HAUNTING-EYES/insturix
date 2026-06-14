@@ -22,12 +22,14 @@ import {
   type ThinkToClickUserVisualChoices,
 } from "@/lib/thinkforge/clickatron-handoff-state";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
+import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
   plainText?: string;
   sessionId?: string;
   scriptId?: string;
+  projectMeta?: ProjectMeta | null;
 }
 
 // ─── Detected profile shape (kept internal) ─────────────────────
@@ -179,7 +181,7 @@ export interface UseExportPipelineReturn {
 // ═════════════════════════════════════════════════════════════════
 
 export function useExportPipeline(
-  { blocks, plainText, sessionId, scriptId }: UseExportPipelineInput,
+  { blocks, plainText, sessionId, scriptId, projectMeta }: UseExportPipelineInput,
   open: boolean,
   onOpenChange: (open: boolean) => void,
 ): UseExportPipelineReturn {
@@ -291,6 +293,7 @@ export function useExportPipeline(
         sessionId,
         scriptId,
         projectId: projectId || undefined,
+        projectMeta,
         creativeSpec,
         title: title || undefined,
         aspectRatio: clickatronVisualChoices.aspectRatio || aspectRatio,
@@ -305,7 +308,7 @@ export function useExportPipeline(
     } catch {
       return null;
     }
-  }, [aspectRatio, blocks, clickatronVisualChoices, projectId, scenes.length, scriptId, sessionId, title]);
+  }, [aspectRatio, blocks, clickatronVisualChoices, projectId, projectMeta, scenes.length, scriptId, sessionId, title]);
 
   // ─── Request notification permission on mount ──────────────────
   useEffect(() => {
