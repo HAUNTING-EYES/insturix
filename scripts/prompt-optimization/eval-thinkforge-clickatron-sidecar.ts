@@ -32,6 +32,10 @@ import {
   stripClickatronCreativeSidecarText,
 } from '../../lib/thinkforge/utils/clickatron-creative-sidecar';
 import { resolveContentSignalProfile, type ThinkForgeContentSignalProfile } from '../../lib/thinkforge/signals';
+import {
+  assertProviderPromptAllowed,
+  type ProviderPrivacyAuditRecord,
+} from '../../lib/thinkforge/privacy/provider-privacy-gateway';
 import type {
   ClickatronCreativeSpec,
   ThinkForgeBlockExportMeta,
@@ -81,6 +85,7 @@ const SEEDS = [1, 2, 3, 5, 8, 13, 21, 34, 42, 55];
 
 interface ModelRunResult {
   output: string;
+  privacyAudit?: ProviderPrivacyAuditRecord;
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
@@ -477,6 +482,13 @@ async function runGeminiPrompt(prompt: string, seedVal: number): Promise<ModelRu
 }
 
 async function runDeepSeekPrompt(prompt: string): Promise<ModelRunResult> {
+  const privacy = assertProviderPromptAllowed({
+    provider: 'deepseek',
+    model: modelName,
+    routePurpose: 'eval',
+    prompt,
+    fieldsSent: ['prompt'],
+  });
   const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
@@ -485,7 +497,7 @@ async function runDeepSeekPrompt(prompt: string): Promise<ModelRunResult> {
     },
     body: JSON.stringify({
       model: modelName,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: privacy.prompt }],
       stream: false,
       thinking: { type: 'disabled' },
       temperature: 0.7,
@@ -507,6 +519,7 @@ async function runDeepSeekPrompt(prompt: string): Promise<ModelRunResult> {
 
   return {
     output,
+    privacyAudit: privacy.audit,
     usage: body?.usage
       ? {
           promptTokens: body.usage.prompt_tokens,

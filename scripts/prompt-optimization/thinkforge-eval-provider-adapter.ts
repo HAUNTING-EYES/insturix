@@ -1,4 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  assertProviderPromptAllowed,
+  type ProviderPrivacyAuditRecord,
+} from '../../lib/thinkforge/privacy/provider-privacy-gateway';
 
 export type EvalProvider = 'gemini' | 'deepseek' | 'openrouter';
 
@@ -24,7 +28,13 @@ export interface EvalRunResult {
   usage?: EvalUsage;
   estimatedCostUsd?: number;
   costEstimateNote: string;
+  privacyAudit: ProviderPrivacyAuditRecord;
 }
+
+type RawEvalRunResult = Omit<
+  EvalRunResult,
+  'latencyMs' | 'estimatedCostUsd' | 'costEstimateNote' | 'privacyAudit'
+>;
 
 interface ChatCompletionMessage {
   role?: string;
@@ -124,10 +134,17 @@ export function buildEvalProviderConfig(args: {
 }
 
 export async function runEvalPrompt(config: EvalProviderConfig, prompt: string): Promise<EvalRunResult> {
+  const privacy = assertProviderPromptAllowed({
+    provider: config.provider,
+    model: config.model,
+    routePurpose: 'eval',
+    prompt,
+    fieldsSent: ['prompt'],
+  });
   const start = Date.now();
   const raw = config.provider === 'gemini'
-    ? await runGeminiPrompt(config, prompt)
-    : await runOpenAICompatiblePrompt(config, prompt);
+    ? await runGeminiPrompt(config, privacy.prompt)
+    : await runOpenAICompatiblePrompt(config, privacy.prompt);
   const latencyMs = Date.now() - start;
   const cost = estimateCost(config, raw.usage);
 
@@ -136,6 +153,7 @@ export async function runEvalPrompt(config: EvalProviderConfig, prompt: string):
     latencyMs,
     estimatedCostUsd: cost.estimatedCostUsd,
     costEstimateNote: cost.note,
+    privacyAudit: privacy.audit,
   };
 }
 
@@ -161,7 +179,7 @@ function readApiKey(provider: EvalProvider): string {
 async function runGeminiPrompt(
   config: EvalProviderConfig,
   prompt: string,
-): Promise<Omit<EvalRunResult, 'latencyMs' | 'estimatedCostUsd' | 'costEstimateNote'>> {
+): Promise<RawEvalRunResult> {
   const genai = new GoogleGenerativeAI(config.apiKey);
   const model = genai.getGenerativeModel({ model: config.model });
   const result = await model.generateContent({
@@ -195,7 +213,7 @@ async function runGeminiPrompt(
 async function runOpenAICompatiblePrompt(
   config: EvalProviderConfig,
   prompt: string,
-): Promise<Omit<EvalRunResult, 'latencyMs' | 'estimatedCostUsd' | 'costEstimateNote'>> {
+): Promise<RawEvalRunResult> {
   const baseUrl = config.provider === 'deepseek'
     ? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
     : process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';

@@ -95,6 +95,7 @@ interface ProviderRunRecord {
   usage?: EvalRunResult['usage'];
   estimatedCostUsd?: number;
   costEstimateNote?: string;
+  privacyAudit?: EvalRunResult['privacyAudit'];
   artifactPath?: string;
   error?: string;
 }
@@ -910,6 +911,7 @@ async function main() {
             usage: modelRun.usage,
             estimatedCostUsd: modelRun.estimatedCostUsd,
             costEstimateNote: modelRun.costEstimateNote,
+            privacyAudit: modelRun.privacyAudit,
           };
 
           const failed = score.checks.filter((check) => !check.pass);
