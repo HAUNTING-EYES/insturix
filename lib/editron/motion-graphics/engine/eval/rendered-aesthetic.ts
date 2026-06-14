@@ -41,6 +41,7 @@ export interface RenderedOverlayEvidence {
   family?: AtomicOverlayFamily;
   receipt?: AtomicOverlayReceipt;
   box?: RenderedOverlayBox;
+  sampleRoles?: string[];
 }
 
 export interface RenderedFrameAestheticInput extends RenderValidityInput {
@@ -348,10 +349,20 @@ function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
   const fontSize = overlay.item.box?.textPixelHeight ?? fontSizePx(text.typography.fontSize) ?? 16;
   const required = fontSize >= 42 ? 3 : 4.5;
   if (contrastRatio < required) {
-    addIssue('contrast', contrastRatio < 2 ? 0.24 : 0.18, 'rendered text contrast is below accessibility floor', {
+    const exitPrep = overlay.item.sampleRoles?.includes('exit-prep') ?? false;
+    const penalty = exitPrep ? 0.04 : contrastRatio < 2 ? 0.24 : 0.18;
+    const severity: RenderedAestheticSeverity = exitPrep ? 'info' : contrastRatio < 2.4 ? 'fail' : 'warn';
+    const message = exitPrep
+      ? 'rendered text contrast drops during planned exit fade'
+      : 'rendered text contrast is below accessibility floor';
+    const phaseEvidence = overlay.item.sampleRoles?.length
+      ? `; sampleRoles=${overlay.item.sampleRoles.join('+')}`
+      : '';
+
+    addIssue('contrast', penalty, message, {
       overlay: overlay.item,
-      evidence: `contrast=${contrastRatio.toFixed(2)}; required=${required}`,
-      severity: contrastRatio < 2.4 ? 'fail' : 'warn',
+      evidence: `contrast=${contrastRatio.toFixed(2)}; required=${required}${phaseEvidence}`,
+      severity,
     });
   }
 }

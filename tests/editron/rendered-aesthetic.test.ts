@@ -183,6 +183,45 @@ describe('rendered frame aesthetic scoring', () => {
     ]));
   });
 
+  it('downgrades low contrast during a planned exit-prep fade', () => {
+    const receipt = textReceipt('Hank Speaker', 'center', {
+      x: 420,
+      y: 820,
+      width: 280,
+      height: 160,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 13, alphaMean: 1 },
+      overlays: [{
+        id: 'exiting-mg',
+        receipt,
+        sampleRoles: ['exit-prep'],
+        box: {
+          x: 420,
+          y: 820,
+          width: 280,
+          height: 160,
+          opacity: 1,
+          visiblePixelRatio: 0.05,
+          contrastRatio: 1.7,
+          textPixelHeight: 64,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        dimension: 'contrast',
+        severity: 'info',
+        message: expect.stringContaining('exit fade'),
+        evidence: expect.stringContaining('sampleRoles=exit-prep'),
+      }),
+    ]);
+  });
+
   it('fails overlapping and cluttered rendered overlay combinations', () => {
     const overlays = [
       visualOverlay('shape-a', 'shape', { x: 200, y: 500, width: 300, height: 220 }),

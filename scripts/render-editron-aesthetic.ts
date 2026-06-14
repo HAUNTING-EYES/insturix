@@ -238,8 +238,9 @@ export async function runRenderedAestheticHarness(
         fallbackImage: fullImage,
         fps: input.fps,
         isolatedImages,
+        sample,
       })
-      : activeRenderedOverlayEvidence(overlays, frame, { fps: input.fps });
+      : activeRenderedOverlayEvidence(overlays, frame, { fps: input.fps, sample });
 
     const report = scoreRenderedFrameAesthetic({
       width: input.width,
@@ -467,6 +468,7 @@ function activeRenderedOverlayEvidence(
     fallbackImage?: RawImage;
     fps?: number;
     isolatedImages?: Map<string, RawImage>;
+    sample?: RenderedAestheticSample;
   } = {},
 ): RenderedOverlayEvidence[] {
   return overlays
@@ -484,12 +486,20 @@ function activeRenderedOverlayEvidence(
         type: String(overlay.type),
         family: receipt?.family,
         receipt,
+        sampleRoles: sampleRolesForOverlay(renderEvidence.sample, overlay),
         box: {
           ...box,
           ...pixels,
         },
       };
     });
+}
+
+function sampleRolesForOverlay(sample: RenderedAestheticSample | undefined, overlay: Overlay): string[] | undefined {
+  if (!sample || overlay.id === undefined) return undefined;
+  const overlayId = String(overlay.id);
+  const matchesSample = sample.sourceOverlayIds.some((id) => String(id) === overlayId);
+  return matchesSample ? sample.roles : undefined;
 }
 
 export function changedPixelBounds(fullImage: RawImage, baselineImage: RawImage): RenderedOverlayBox | undefined {
