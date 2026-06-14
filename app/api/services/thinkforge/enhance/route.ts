@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { streamText } from 'ai';
-import { createThinkForgeModel } from '@/lib/thinkforge/agents/model-factory';
+import { createThinkForgeModelForRoute } from '@/lib/thinkforge/agents/model-factory';
 import { auth } from '@clerk/nextjs/server';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 
@@ -24,7 +24,10 @@ export async function POST(req: NextRequest) {
     try {
         await creditCheck.deduct();
 
-        const model = createThinkForgeModel('gemini-2.5-flash');
+        const model = createThinkForgeModelForRoute({
+            routePurpose: 'creative_authoring',
+            privacyClass: 'business_confidential',
+        });
 
         // Stream back enhanced prompt
         const result = streamText({

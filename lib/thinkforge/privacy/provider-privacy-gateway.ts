@@ -37,6 +37,20 @@ export interface ProviderPromptPrivacyDecision {
   audit: ProviderPrivacyAuditRecord;
 }
 
+export interface ProviderRoutePrivacyInput {
+  provider: string;
+  model: string;
+  routePurpose: ProviderRoutePurpose;
+  privacyClass: ProviderPrivacyClass;
+  fieldsSent?: string[];
+  now?: Date | string;
+}
+
+export interface ProviderRoutePrivacyDecision {
+  allowed: boolean;
+  audit: ProviderPrivacyAuditRecord;
+}
+
 const APPROVED_PRIVATE_PROVIDERS = new Set(['gemini', 'google', 'vertex']);
 const NON_APPROVED_EXTERNAL_PROVIDERS = new Set(['deepseek', 'openrouter']);
 
@@ -154,6 +168,7 @@ export function prepareProviderPromptForRoute(input: ProviderPromptPrivacyInput)
     privacyClass,
     isApprovedPrivateProvider,
     isNonApprovedExternalProvider,
+    canRedactPersonalData: true,
   });
 
   if (!blockReason && isNonApprovedExternalProvider && privacyClass === 'personal') {
@@ -197,15 +212,61 @@ export function assertProviderPromptAllowed(input: ProviderPromptPrivacyInput): 
   return decision;
 }
 
+export function prepareProviderRouteForPrivacy(input: ProviderRoutePrivacyInput): ProviderRoutePrivacyDecision {
+  const provider = normalizeProvider(input.provider);
+  const isApprovedPrivateProvider = APPROVED_PRIVATE_PROVIDERS.has(provider);
+  const isNonApprovedExternalProvider = NON_APPROVED_EXTERNAL_PROVIDERS.has(provider) || !isApprovedPrivateProvider;
+  const blockReason = resolveBlockReason({
+    provider,
+    routePurpose: input.routePurpose,
+    privacyClass: input.privacyClass,
+    isApprovedPrivateProvider,
+    isNonApprovedExternalProvider,
+    canRedactPersonalData: false,
+  });
+  const allowed = !blockReason;
+
+  return {
+    allowed,
+    audit: {
+      provider,
+      model: input.model,
+      routePurpose: input.routePurpose,
+      privacyClass: input.privacyClass,
+      fieldsSent: allowed ? input.fieldsSent ?? [] : [],
+      timestamp: normalizeTimestamp(input.now),
+      sourcePromptFingerprint: 'route-only',
+      sentPromptFingerprint: allowed ? 'route-only' : undefined,
+      sourcePromptLength: 0,
+      sentPromptLength: allowed ? 0 : undefined,
+      redactions: [],
+      blockReason,
+    },
+  };
+}
+
+export function assertProviderRouteAllowed(input: ProviderRoutePrivacyInput): ProviderRoutePrivacyDecision {
+  const decision = prepareProviderRouteForPrivacy(input);
+  if (!decision.allowed) {
+    throw new ProviderPrivacyGateError(decision.audit);
+  }
+  return decision;
+}
+
 function resolveBlockReason(args: {
   provider: string;
   routePurpose: ProviderRoutePurpose;
   privacyClass: ProviderPrivacyClass;
   isApprovedPrivateProvider: boolean;
   isNonApprovedExternalProvider: boolean;
+  canRedactPersonalData: boolean;
 }): string | undefined {
   if (args.privacyClass === 'child_data') {
     return 'child_data_requires_dpdp_review';
+  }
+
+  if (args.routePurpose === 'structural' && args.isNonApprovedExternalProvider) {
+    return 'structural_route_requires_approved_provider';
   }
 
   if (args.routePurpose === 'private_brand_context' && !args.isApprovedPrivateProvider) {
@@ -214,6 +275,10 @@ function resolveBlockReason(args: {
 
   if (args.isNonApprovedExternalProvider && args.privacyClass === 'business_confidential') {
     return 'business_confidential_context_blocked_for_non_approved_provider';
+  }
+
+  if (args.isNonApprovedExternalProvider && args.privacyClass === 'personal' && !args.canRedactPersonalData) {
+    return 'personal_context_requires_prompt_redaction_gateway';
   }
 
   if (args.routePurpose === 'creative_authoring' && args.isNonApprovedExternalProvider) {
