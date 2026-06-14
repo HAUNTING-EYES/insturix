@@ -124,7 +124,7 @@ export function buildEvalProviderConfig(args: {
   temperature: number;
   maxOutputTokens: number;
 }): EvalProviderConfig {
-  const model = args.model ?? process.env[`${args.provider.toUpperCase()}_EVAL_MODEL`] ?? DEFAULT_MODELS[args.provider];
+  const model = args.model ?? defaultEvalModelForProvider(args.provider);
   const apiKey = readApiKey(args.provider);
 
   return {
@@ -134,6 +134,10 @@ export function buildEvalProviderConfig(args: {
     temperature: args.temperature,
     maxOutputTokens: args.maxOutputTokens,
   };
+}
+
+export function defaultEvalModelForProvider(provider: EvalProvider): string {
+  return process.env[`${provider.toUpperCase()}_EVAL_MODEL`] ?? DEFAULT_MODELS[provider];
 }
 
 export async function runEvalPrompt(config: EvalProviderConfig, prompt: string): Promise<EvalRunResult> {

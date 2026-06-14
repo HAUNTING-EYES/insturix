@@ -12,6 +12,7 @@
  *   npx tsx scripts/prompt-optimization/eval-thinkforge-provider-comparison.ts --providers=gemini,openrouter --runs=3
  *   npx tsx scripts/prompt-optimization/eval-thinkforge-provider-comparison.ts --case=sidecar_linkedin_carousel --show-output
  *   npx tsx scripts/prompt-optimization/eval-thinkforge-provider-comparison.ts --json-out=.artifacts/thinkforge-provider-scoreboard.json
+ *   npx tsx scripts/prompt-optimization/eval-thinkforge-provider-comparison.ts --privacy-dry-run --providers=deepseek
  *
  * Optional cost env:
  *   EVAL_PRICE_GEMINI_INPUT_PER_1M=...
@@ -44,11 +45,14 @@ import {
 } from '../../lib/thinkforge/utils/clickatron-creative-sidecar';
 import {
   buildEvalProviderConfig,
+  defaultEvalModelForProvider,
   parseEvalProviders,
   runEvalPrompt,
   type EvalProvider,
+  type EvalProviderConfig,
   type EvalRunResult,
 } from './thinkforge-eval-provider-adapter';
+import { prepareProviderPromptForRoute } from '../../lib/thinkforge/privacy/provider-privacy-gateway';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
@@ -98,6 +102,22 @@ interface ProviderRunRecord {
   privacyAudit?: EvalRunResult['privacyAudit'];
   artifactPath?: string;
   error?: string;
+}
+
+interface ProviderPrivacyDryRunRecord {
+  caseId: string;
+  caseName: string;
+  area: EvalArea;
+  provider: EvalProvider;
+  model: string;
+  allowed: boolean;
+  privacyClass: EvalRunResult['privacyAudit']['privacyClass'];
+  blockReason?: string;
+  redactions: string[];
+  sourcePromptFingerprint: string;
+  sentPromptFingerprint?: string;
+  sourcePromptLength: number;
+  sentPromptLength?: number;
 }
 
 interface IdeasResult {
@@ -300,25 +320,38 @@ const jsonOut = readArg('json-out');
 const artifactDir = readArg('artifact-dir');
 const saveArtifacts = !hasFlag('no-artifacts');
 const saveAllArtifacts = hasFlag('all-artifacts');
+const privacyDryRun = hasFlag('privacy-dry-run') || hasFlag('privacy-report');
+const privacyDryRunStrict = hasFlag('privacy-dry-run-strict');
 const decisionThreshold = readNumberArg('decision-threshold', 0.95);
 const stabilityThreshold = readNumberArg('stability-threshold', 0.95);
 const artifactRoot = saveArtifacts
   ? resolve(process.cwd(), artifactDir ?? join('.artifacts', 'thinkforge-provider-eval', timestampSlug()))
   : undefined;
 
-ensurePromptBuilderKey(providers);
+ensurePromptBuilderKey(providers, privacyDryRun);
 
 const authorAgent = new ScriptAuthorAgent();
 const ideasAgent = new IdeasAgent({ temperature, maxTokens: maxOutputTokens });
 
-const providerConfigs = providers.map((provider) =>
-  buildEvalProviderConfig({
+const providerConfigs: EvalProviderConfig[] = providers.map((provider) => {
+  const model = readArg(`model-${provider}`) ?? readArg('model');
+  if (privacyDryRun) {
+    return {
+      provider,
+      model: model ?? defaultEvalModelForProvider(provider),
+      apiKey: 'privacy-dry-run',
+      temperature,
+      maxOutputTokens,
+    };
+  }
+
+  return buildEvalProviderConfig({
     provider,
-    model: readArg(`model-${provider}`) ?? readArg('model'),
+    model,
     temperature,
     maxOutputTokens,
-  }),
-);
+  });
+});
 
 const AUTHOR_CASES: AuthorCase[] = [
   {
@@ -1254,6 +1287,11 @@ main().catch((error) => {
 });
 
 async function main() {
+  if (privacyDryRun) {
+    runPrivacyDryRun();
+    return;
+  }
+
   console.log('\nThinkForge Provider Comparison Eval');
   console.log('===================================');
   console.log(`Providers: ${providerConfigs.map((config) => `${config.provider}:${config.model}`).join(', ')}`);
@@ -1350,6 +1388,86 @@ async function main() {
 
   if (records.some((record) => record.error) || qualityGateFailed) {
     process.exitCode = 1;
+  }
+}
+
+function runPrivacyDryRun() {
+  console.log('\nThinkForge Provider Privacy Dry Run');
+  console.log('===================================');
+  console.log(`Providers: ${providerConfigs.map((config) => `${config.provider}:${config.model}`).join(', ')}`);
+  console.log(`Cases: ${evalCases.length}`);
+  console.log('External calls: disabled. This only builds prompts and runs the local privacy gateway.\n');
+
+  const records = buildPrivacyDryRunRecords();
+  printPrivacyDryRun(records);
+
+  if (jsonOut) {
+    const outPath = resolve(process.cwd(), jsonOut);
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, JSON.stringify({ generatedAt: new Date().toISOString(), records }, null, 2));
+    console.log(`\nWrote JSON privacy report: ${outPath}`);
+  }
+
+  if (privacyDryRunStrict && records.some((record) => !record.allowed)) {
+    process.exitCode = 1;
+  }
+}
+
+function buildPrivacyDryRunRecords(): ProviderPrivacyDryRunRecord[] {
+  const records: ProviderPrivacyDryRunRecord[] = [];
+
+  for (const testCase of evalCases) {
+    const prompt = testCase.buildPrompt();
+    for (const providerConfig of providerConfigs) {
+      const decision = prepareProviderPromptForRoute({
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        routePurpose: 'eval',
+        prompt,
+        fieldsSent: ['prompt'],
+      });
+
+      records.push({
+        caseId: testCase.id,
+        caseName: testCase.name,
+        area: testCase.area,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        allowed: decision.allowed,
+        privacyClass: decision.audit.privacyClass,
+        blockReason: decision.audit.blockReason,
+        redactions: decision.audit.redactions,
+        sourcePromptFingerprint: decision.audit.sourcePromptFingerprint,
+        sentPromptFingerprint: decision.audit.sentPromptFingerprint,
+        sourcePromptLength: decision.audit.sourcePromptLength,
+        sentPromptLength: decision.audit.sentPromptLength,
+      });
+    }
+  }
+
+  return records;
+}
+
+function printPrivacyDryRun(records: ProviderPrivacyDryRunRecord[]) {
+  const byProvider = new Map<EvalProvider, ProviderPrivacyDryRunRecord[]>();
+  for (const record of records) {
+    const existing = byProvider.get(record.provider) ?? [];
+    existing.push(record);
+    byProvider.set(record.provider, existing);
+  }
+
+  for (const [provider, providerRecords] of byProvider) {
+    const allowed = providerRecords.filter((record) => record.allowed).length;
+    const blocked = providerRecords.length - allowed;
+    console.log(`${provider}: allowed=${allowed} blocked=${blocked}`);
+    for (const record of providerRecords) {
+      const status = record.allowed ? 'ALLOW' : 'BLOCK';
+      const reason = record.blockReason ? ` reason=${record.blockReason}` : '';
+      const redactions = record.redactions.length > 0 ? ` redactions=${record.redactions.length}` : '';
+      console.log(
+        `  ${status} ${record.caseId} class=${record.privacyClass} prompt=${record.sourcePromptLength}${reason}${redactions}`,
+      );
+    }
   }
 }
 
@@ -2412,11 +2530,11 @@ function readNumberArg(name: string, fallback: number): number {
   return parsed;
 }
 
-function ensurePromptBuilderKey(selectedProviders: EvalProvider[]) {
+function ensurePromptBuilderKey(selectedProviders: EvalProvider[], forcePromptBuilderOnly = false) {
   const hasGeminiKey = Boolean(
     process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
   );
-  if (!hasGeminiKey && !selectedProviders.includes('gemini')) {
+  if (!hasGeminiKey && (forcePromptBuilderOnly || !selectedProviders.includes('gemini'))) {
     process.env.GEMINI_API_KEY = 'thinkforge-eval-prompt-builder-only';
   }
 }
