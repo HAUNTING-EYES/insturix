@@ -2,7 +2,7 @@
 
 ## Overview
 
-UploaderX is a multi-platform video upload management system that enables users to upload videos to Google Cloud Storage (GCS) and automatically distribute them to YouTube, Instagram, and Facebook with platform-specific metadata customization.
+UploaderX is a multi-platform video upload management system that enables users to upload videos to R2/GCS-style safe storage and distribute them to YouTube, Instagram, Facebook, X, and LinkedIn with platform-specific metadata customization.
 
 ### UI Mockup
 
@@ -38,7 +38,7 @@ The UploaderX interface consists of three main tabs:
     - Description
     - Tags
     - Privacy status (Private, Unlisted, Public)
-  - Platform selection (YouTube, Instagram, Facebook)
+  - Platform selection (YouTube, Instagram, Facebook, X, LinkedIn)
   - YouTube connection status indicator
   - Real-time upload progress bar
   - Success/Error state visualization
@@ -53,9 +53,9 @@ The UploaderX interface consists of three main tabs:
     - Tags
     - Public/Private toggle
   - Platform-specific settings:
-    - **YouTube**: Privacy status, Category, Scheduled upload
-    - **Instagram**: Caption, Location, Alt text
-    - **Facebook**: Message, Privacy, Scheduled post
+    - **YouTube**: Privacy status, category, scheduled upload, thumbnail
+    - **Instagram**: Caption; location/alt text remain disabled until Meta support is verified
+    - **Facebook**: Message/description and scheduled post; privacy remains disabled until Meta support is verified
   - Preview mode toggle
 
 ---
@@ -90,7 +90,7 @@ components/dashboard/UploaderX/
   - File selection with drag-and-drop support
   - Real-time upload progress tracking
   - Platform selection checkboxes
-  - Automatic YouTube upload integration
+  - Automatic platform upload integration through `useUploaderXUpload`
   - Auto-appending #Shorts hashtag for short-form content
   - Visual upload state feedback (uploading, success, error)
 - **Integration**: Uses `useUploaderXUpload` hook
@@ -102,9 +102,9 @@ components/dashboard/UploaderX/
   - Grid/List view switching
   - Search and filter functionality
   - Video deletion with confirmation
-  - Direct YouTube upload from library
+  - Direct platform upload actions from library
   - Metadata editing modal
-  - YouTube upload success dialog with video link
+  - Platform publish receipts with external post links where available
 
 #### [`PlatformEditor.tsx`](file:///c:/Users/HP/Documents/GitHub/Front-End2/components/dashboard/UploaderX/PlatformEditor.tsx)
 - **Purpose**: Platform-specific metadata customization
@@ -332,10 +332,10 @@ components/dashboard/UploaderX/
 **Resolution**: Configure custom Google OAuth credentials in Google Cloud Console
 **Reference**: See [Clerk & Google OAuth Q&A](file:///C:/Users/HP/.gemini/antigravity/brain/59ee64a8-959a-4b48-8a04-e2d99e813abf/clerk_and_google_oauth_qa.md#1-impact-of-changing-from-shared-to-custom-google-oauth-credentials)
 
-### Issue 3: Instagram & Facebook Integration
-**Status**: UI ready, API integration pending
-**Impact**: Currently only YouTube upload is fully functional
-**Next Steps**: Implement Instagram Graph API and Facebook Graph API integrations
+### Issue 3: Meta Rich-Field Verification
+**Status**: Instagram and Facebook publishing exist, but richer Meta fields remain gated.
+**Impact**: Instagram location/alt text, Facebook privacy, and Facebook/Instagram thumbnail or cover controls should stay disabled until current Meta docs and app permissions are verified.
+**Next Steps**: Verify remaining Meta fields from a logged-in Meta developer account before wiring them.
 
 ---
 
@@ -457,13 +457,15 @@ YOUTUBE_API_KEY=your_youtube_api_key
 ## Future Enhancements
 
 ### Short-term (1-2 weeks)
-- [ ] Implement Instagram Reels upload via Instagram Graph API
-- [ ] Implement Facebook video upload
+- [x] Implement Instagram image/Reel publish path
+- [x] Implement Facebook Page video/Reel upload
+- [x] Wire YouTube category, schedule, and thumbnail publish paths
+- [x] Wire Facebook scheduled Page video/Reel publish paths
 - [ ] Add video thumbnail generation
-- [ ] Add video metadata extraction (duration, resolution, codec)
+- [ ] Extend video metadata extraction and validation where needed
 
 ### Medium-term (1-2 months)
-- [ ] Scheduled uploads for all platforms
+- [ ] Scheduled uploads for remaining platforms where APIs support them
 - [ ] Bulk upload support
 - [ ] Video editing (trim, crop, filters) integration
 - [ ] Analytics dashboard (views, engagement)
@@ -471,8 +473,8 @@ YOUTUBE_API_KEY=your_youtube_api_key
 
 ### Long-term (3+ months)
 - [ ] TikTok integration
-- [ ] LinkedIn video posts
-- [ ] Twitter/X video posts
+- [x] LinkedIn text/media posts
+- [x] Twitter/X text/single-media posts
 - [ ] AI-powered metadata generation
 - [ ] Automated captioning and subtitles
 - [ ] Multi-language support
@@ -481,14 +483,14 @@ YOUTUBE_API_KEY=your_youtube_api_key
 
 ## Conclusion
 
-UploaderX provides a robust foundation for multi-platform video management with a clean, intuitive UI/UX. The current implementation successfully handles GCS uploads and YouTube integration, with the architecture in place to support additional platforms.
+UploaderX provides a foundation for multi-platform video management with a clean UI. The current implementation handles storage upload plus YouTube, Instagram, Facebook, X, and LinkedIn publish paths, with richer parity still staged behind capability checks.
 
-**Current Status**: ✅ Production-ready for GCS + YouTube (pending OAuth verification)
+**Current Status**: Storage upload and core multi-platform publishing are implemented. YouTube category/schedule/thumbnail and Facebook scheduling are wired. Remaining platform-native fields need capability-by-capability verification before exposure.
 
 **Recommended Next Steps**:
 1. Complete Google OAuth verification process
 2. Configure custom OAuth credentials in Clerk
-3. Implement Instagram and Facebook integrations
+3. Verify remaining Meta-rich fields from logged-in Meta developer docs
 4. Add analytics tracking
 
 For questions or deployment assistance, refer to the [Clerk & Google OAuth Q&A document](file:///C:/Users/HP/.gemini/antigravity/brain/59ee64a8-959a-4b48-8a04-e2d99e813abf/clerk_and_google_oauth_qa.md).

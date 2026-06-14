@@ -1,9 +1,9 @@
 # UploaderX Field Wiring Inventory
 
-Date: 2026-06-10
+Date: 2026-06-15
 Worktree: `main` (`Front-End-main`)
-Phase: 1A
-Scope: documentation-only inventory. No runtime behavior changed.
+Phase: 5 status refresh
+Scope: documentation inventory updated after Facebook scheduling, UploaderX test restoration, and type-baseline cleanup.
 
 ## Purpose
 
@@ -39,7 +39,7 @@ Route targets:
 - `/api/services/uploaderx/twitter`
 - `/api/services/uploaderx/linkedin`
 
-This path is the newest cockpit-style flow. It has the richest UI fields but only serializes a subset of them to the publish hook.
+This path is the newest cockpit-style flow. It has the richest UI fields. Supported controls are gated through `lib/uploaderx/platform-capabilities.ts`; unsupported fields should appear disabled or unavailable instead of pretending to publish.
 
 ### UploadForm publish path
 
@@ -84,8 +84,8 @@ This path saves platform-specific metadata into the video document. Some route c
 | `metaTags` / `defaultTags` | `ClientWrapper`, `UploadForm`, `PlatformEditor` | stored during upload metadata | `metadata.tags`; `metadata.youtube.tags` via editor | YouTube reads tags from stored metadata | YouTube only | **stored-read** | Tags are not sent directly to `uploadToYouTube()`; YouTube route reads DB metadata. |
 | `metaPrivacy` / `privacyStatus` | `ClientWrapper`, `UploadForm`, `PlatformEditor` | sent to YouTube; stored during upload metadata | `metadata.privacyStatus`; `metadata.youtube.privacyStatus` | YouTube route reads and sends `status.privacyStatus` | YouTube only | **wired / stored-read** | Not meaningful for Facebook Page video, Instagram, X, or LinkedIn as currently wired. |
 | `metaVideoType` / `activeType` | `ClientWrapper`, `UploadForm` | stored during upload metadata | `metadata.videoType` | YouTube route reads `videoType === "short"` | YouTube title/description gets `#Shorts` | **stored-read** | Also used client-side in `ClientWrapper` and `UploadForm` to append `#Shorts`. |
-| `metaThumbnail` / `thumbnailFile` | `ClientWrapper`, `UploadForm`, `PlatformEditor.thumbnail` | not sent to publish hook | not stored by active cockpit upload | none found | none | **UI-only** | Button and file input exist, but no upload, storage, or platform thumbnail call is wired. |
-| `metaSchedule` | `ClientWrapper`; `PlatformEditor.youtube.scheduledTime`; `PlatformEditor.facebook.scheduledTime` | not sent to publish hook | only via PlatformEditor save, if user uses that modal | none found | none | **UI-only / stored** | Active publish ignores it. YouTube/Facebook schedule behavior should be implemented later with platform checks. |
+| `metaThumbnail` / `thumbnailFile` | `ClientWrapper`, `UploadForm`, `PlatformEditor.thumbnail` | YouTube thumbnail is uploaded and sent as `thumbnailPublicUrl`; other platforms do not receive it | not stored by active cockpit upload | YouTube route calls `thumbnails.set` after `videos.insert` | YouTube only | **wired for YouTube / blocked elsewhere** | Instagram and Facebook thumbnails/covers remain blocked until platform docs are verified. |
+| `metaSchedule` | `ClientWrapper`; `PlatformEditor.youtube.scheduledTime`; `PlatformEditor.facebook.scheduledTime` | active cockpit sends `publishAt` to YouTube/Facebook when set; editor can persist per-platform schedule | `metadata.youtube.scheduledTime`; `metadata.facebook.scheduledTime` | YouTube route sends `status.publishAt`; Facebook routes send Graph schedule fields | YouTube/Facebook only | **wired / stored-read** | YouTube scheduled uploads are private until `publishAt`. Facebook Page videos/Reels store `publishState: scheduled` and do not emit publish-learning until actually published. |
 
 ## YouTube Fields
 
@@ -95,9 +95,9 @@ This path saves platform-specific metadata into the video document. Some route c
 | description | `metaDescription`, `defaultDescription`, `PlatformEditor.description` | `description` | sent as `snippet.description`; fallback from metadata | **wired** | keep |
 | tags | `metaTags`, `defaultTags`, `PlatformEditor.tags` | upload metadata only | route reads metadata and sends `snippet.tags` | **stored-read** | keep, but document route dependency |
 | privacy | `metaPrivacy`, `privacyStatus`, `PlatformEditor.youtube.privacyStatus` | `privacyStatus` | sent as `status.privacyStatus` | **wired** | keep |
-| category | `ytCategory`, `PlatformEditor.youtube.categoryId` | not sent | route hard-codes `categoryId: "22"` only during update | **UI-only / stored** | do not delete until deciding whether to wire or hide |
-| schedule | `metaSchedule`, `PlatformEditor.youtube.scheduledTime` | not sent | no `publishAt` usage | **UI-only / stored** | hide/disable or wire in YouTube parity phase |
-| thumbnail | `metaThumbnail`, `thumbnailFile`, `PlatformEditor.thumbnail` | not sent | no `thumbnails.set` usage | **UI-only** | hide/disable or wire in YouTube parity phase |
+| category | `ytCategory`, `PlatformEditor.youtube.categoryId` | `categoryId` | route sends `snippet.categoryId` with request or metadata fallback | **wired / stored-read** | keep |
+| schedule | `metaSchedule`, `PlatformEditor.youtube.scheduledTime` | `publishAt` | route sends `status.privacyStatus=private` plus `status.publishAt` | **wired / stored-read** | keep |
+| thumbnail | `metaThumbnail`, `thumbnailFile`, `PlatformEditor.thumbnail` | `thumbnailPublicUrl` | route uploads thumbnail via `thumbnails.set` after video insert | **wired for active cockpit** | keep; still validate JPEG/PNG and <=2MB |
 | short/long | `metaVideoType`, `activeType` | upload metadata | route/client appends `#Shorts` | **stored-read** | keep |
 
 ## Instagram Fields
@@ -118,8 +118,8 @@ This path saves platform-specific metadata into the video document. Some route c
 | title | shared title | `title` | used as video `title` | **wired** | keep |
 | description/message | `fbMessage` or shared description; `PlatformEditor.facebook.message` | `description` | used as video `description` | **wired but semantically blurred** | keep, but rename in contract later |
 | page | prompt/status selection in `VideoManager`, optional hook arg | `pageId` supported; `ClientWrapper` does not pass it | selects target Page | **partially wired** | replace prompts with real selector later |
-| privacy | `fbPrivacy`, `PlatformEditor.facebook.privacy` | not sent | no route usage | **UI-only / stored** | hide/disable unless Meta confirms valid Page privacy controls |
-| schedule | `PlatformEditor.facebook.scheduledTime` | not sent | no route usage | **stored only** | hide/disable until Meta verification |
+| privacy | `fbPrivacy`, `PlatformEditor.facebook.privacy` | not sent | no route usage; control is disabled by capability map | **blocked / stored** | keep disabled unless Meta confirms valid Page privacy controls |
+| schedule | `metaSchedule`, `PlatformEditor.facebook.scheduledTime` | `publishAt` | Page videos send `published=false` and `scheduled_publish_time`; Reels send `video_state=SCHEDULED` and `scheduled_publish_time` | **wired / stored-read** | keep; existing Facebook videos cannot be retro-scheduled |
 | thumbnail | global thumbnail UI | not sent | no route usage | **UI-only** | hide/disable until Meta verification |
 
 ## X / Twitter Fields
@@ -159,9 +159,9 @@ The PATCH route merges the submitted metadata into `video.metadata`.
 
 Route-side usage is uneven:
 
-- YouTube reads `metadata.youtube`, `metadata.title`, `metadata.description`, `metadata.tags`, and `metadata.videoType`.
+- YouTube reads `metadata.youtube`, `metadata.title`, `metadata.description`, `metadata.tags`, `metadata.videoType`, `metadata.youtube.categoryId`, and `metadata.youtube.scheduledTime`.
 - Instagram reads `metadata.instagram.caption`, `metadata.instagram.description`, `metadata.title`, and `metadata.description`.
-- Facebook reads `metadata.facebook.title`, `metadata.facebook.description`, `metadata.title`, and `metadata.description`.
+- Facebook reads `metadata.facebook.title`, `metadata.facebook.description`, `metadata.facebook.scheduledTime`, `metadata.title`, and `metadata.description`.
 - X reads `metadata.twitter.title`, `metadata.twitter.description`, `metadata.title`, and `metadata.description`.
 - LinkedIn quick publish from `VideoManager` reads `video.metadata?.title` and `video.metadata?.description`, but the route does not read stored LinkedIn draft metadata before publishing.
 
@@ -169,18 +169,18 @@ Route-side usage is uneven:
 
 | Risk | Evidence | Recommended Handling |
 |---|---|---|
-| Placebo controls | `metaThumbnail`, `metaSchedule`, `ytCategory`, `igLocation`, `fbPrivacy` are visible but not serialized by `ClientWrapper` publish. | Hide/disable or wire intentionally. Do not silently leave them as working-looking controls. |
+| Placebo controls | Instagram location/alt text and Facebook privacy are not serialized by `ClientWrapper` publish. | Keep disabled/blocked through capability map until verified and wired. |
 | Duplicate platform upload blocks | `UploadForm.tsx` repeats Facebook/Instagram/Twitter/LinkedIn upload blocks. | Confirm whether `UploadForm` is mounted in production. Then remove duplicates in a separate, tested cleanup. |
 | Parallel publish paths | `ClientWrapper`, `UploadForm`, and `VideoManager` can publish through different paths. | Do not delete route args based on one UI path. First consolidate through a shared publish contract. |
 | Prompt-based target selection | `VideoManager` uses `prompt()` for Page/account/org selection. | Replace with UI selectors later; do not remove until equivalent selectors exist. |
 | Stored-but-unpublished fields | `PlatformEditor` saves fields that active publish paths ignore. | Either wire through shared contract or label them unsupported. |
-| Meta feature uncertainty | Facebook/Instagram official docs were not verified in Phase 0. | Treat Meta-rich fields as blocked until logged-in docs verification. |
+| Meta feature uncertainty | Facebook scheduling was verified and wired; other Facebook/Instagram rich fields still require logged-in Meta developer verification. | Treat Meta-rich fields as blocked until verified. |
 
 ## Phase 1B Candidate Actions
 
 Safe candidates after this inventory:
 
-1. Add visible unavailable/coming-soon state for thumbnail, schedule, Instagram location, Facebook privacy, and YouTube category in `ClientWrapper`.
+1. Keep unsupported fields visibly unavailable through `platform-capabilities.ts`.
 2. Add a comment or doc link near `UploadForm` duplicate platform blocks before deleting anything.
 3. Create a typed publish payload interface without changing runtime behavior.
 4. Add route-level validation errors for unsupported fields only after the UI stops pretending they work.

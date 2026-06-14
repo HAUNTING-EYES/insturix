@@ -1,8 +1,8 @@
 # UploaderX Platform Capability Audit
 
-Date: 2026-06-10
+Date: 2026-06-15
 Worktree: `main` (`Front-End-main`)
-Scope: Phase 0, documentation and investigation only. No runtime behavior changed.
+Scope: Phase 5 status refresh after UploaderX scheduling, test restoration, and type-baseline cleanup.
 
 ## Status Legend
 
@@ -10,6 +10,7 @@ Scope: Phase 0, documentation and investigation only. No runtime behavior change
 - **Observed in code**: Confirmed in the current UploaderX implementation.
 - **Needs Meta verification**: Meta docs were not reliably accessible from this session; verify from a logged-in Meta developer account before implementation.
 - **UI-only / not wired**: A control exists in UI or docs, but the publish path does not pass or honor it.
+- **Blocked by capability map**: Control exists but is intentionally disabled until route/API support exists.
 
 ## Terms
 
@@ -66,17 +67,16 @@ Official API capabilities relevant to publishing:
 
 Observed in current code:
 
-- `useUploaderXUpload.uploadToYouTube()` sends `gcsPath`, `filename`, `videoUuid`, `title`, `description`, and `privacyStatus`.
+- `useUploaderXUpload.uploadToYouTube()` sends `gcsPath`, `filename`, `videoUuid`, `title`, `description`, `privacyStatus`, `categoryId`, `thumbnailPublicUrl`, and `publishAt`.
 - `youtube/route.ts` reads persisted tags from video metadata and sends `snippet.tags`.
+- `youtube/route.ts` reads request or persisted category and sends `snippet.categoryId`.
 - `youtube/route.ts` sends `status.privacyStatus`.
+- `youtube/route.ts` schedules uploads by forcing `status.privacyStatus` to `private` and sending `status.publishAt`.
+- `youtube/route.ts` calls `thumbnails.set` when a valid thumbnail URL is supplied.
 - `youtube/route.ts` appends `#Shorts` when metadata says `videoType === "short"`.
-- `youtube/route.ts` hard-codes `categoryId: "22"` only on update of an existing YouTube video, not on new insert.
 
 Gaps:
 
-- Category selector exists in `ClientWrapper.tsx` as `ytCategory`, but it is not sent to `uploadToYouTube()`.
-- Thumbnail selector exists as `metaThumbnail`, but no upload or `thumbnails.set` call is wired.
-- Schedule field exists as `metaSchedule`, but no `status.publishAt` is sent.
 - Missing `notifySubscribers`.
 - Missing made-for-kids and synthetic-media disclosure.
 - Missing default language/localizations.
@@ -85,7 +85,7 @@ Gaps:
 
 Recommended Phase:
 
-- Implement first. YouTube has clear official docs, current OAuth scope already targets upload, and the UI already has several controls waiting to be wired.
+- Remaining YouTube parity should focus on compliance/advanced controls: notify subscribers, made-for-kids, synthetic media, language/localizations, recording date, license, embeddable, and public stats visibility.
 
 ### X / Twitter
 
@@ -175,7 +175,7 @@ Recommended Phase:
 
 ### Instagram
 
-Official source status: **Needs Meta verification**
+Official source status: **Partially verified by official docs for scheduling; needs logged-in Meta verification for richer fields**
 
 Attempted sources:
 
@@ -225,7 +225,7 @@ Attempted source:
 
 Result:
 
-- Meta developer pages were not reliably accessible from this session. Do not implement new Facebook fields until a logged-in Meta developer account verifies exact current endpoint parameters, permission requirements, app-review status, and Page limitations.
+- Meta developer pages were not reliably accessible for the full field set during the original audit. Scheduling fields were later verified against Meta docs and wired. Do not implement additional Facebook fields until a logged-in Meta developer account verifies exact current endpoint parameters, permission requirements, app-review status, and Page limitations.
 
 Observed in current code:
 
@@ -234,18 +234,20 @@ Observed in current code:
 - Current code supports title and description.
 - Current code supports simple upload for smaller files and resumable upload for larger files.
 - Current code can update title/description for an already-posted Facebook video if a video ID exists.
+- Current code supports scheduling new Page videos and Page Reels.
+- Scheduled Page videos send `published=false` and `scheduled_publish_time`.
+- Scheduled Reels send `video_state=SCHEDULED` and `scheduled_publish_time`.
+- Scheduled Facebook posts store `metadata.facebook.publishState = "scheduled"` and do not emit `video_published` learning events at schedule time.
 
 UI / code mismatch:
 
 - `fbMessage` is passed as the `description` argument, not as a separate post message field.
-- `fbPrivacy` exists in `ClientWrapper.tsx`, but it is not sent to `uploadToFacebook()`.
-- `PlatformEditor.tsx` has Facebook `message`, `privacy`, and `scheduledTime`, but the active publish flow does not pass `privacy` or `scheduledTime`.
+- `fbPrivacy` exists in `ClientWrapper.tsx`, but it is disabled by the capability map and not sent to `uploadToFacebook()`.
+- `PlatformEditor.tsx` has Facebook `message`, `privacy`, and `scheduledTime`; schedule is route-read, privacy remains blocked.
 - Thumbnail UI exists globally, but no Facebook thumbnail/cover flow is wired.
 
 Needs verification:
 
-- Scheduled Page video/post parameters.
-- Unpublished/draft/scheduled Page post support under current Graph API version.
 - Thumbnail/cover controls for Page video upload.
 - Distinction between feed post message and video description/title.
 - Supported privacy controls for Page publishing.
@@ -253,7 +255,7 @@ Needs verification:
 
 Recommended Phase:
 
-- Defer until Meta docs are verified. The current route is heavily centered on Page video upload and should not be generalized blindly.
+- Keep scheduling support. Defer remaining Meta-rich fields until Meta docs are verified. The current route is heavily centered on Page video/Reel upload and should not be generalized blindly.
 
 ## Cross-Platform Findings
 
@@ -264,16 +266,16 @@ The implementation currently works more like a multi-destination uploader than a
 - Shared asset upload to R2/GCS-style storage.
 - Per-platform auth status.
 - Basic title/description/caption style text.
-- YouTube privacy and tags through metadata.
+- YouTube privacy, tags, category, schedule, and thumbnail through metadata/request payload.
 - Instagram image/Reel publish with caption.
-- Facebook Page video upload with title/description.
+- Facebook Page video/Reel upload with title/description and scheduling for new posts.
 - X text plus single media upload.
 - LinkedIn text/media personal or organization post.
 
 ### Main Gaps
 
 - No shared typed publishing contract.
-- Several UI controls are not wired to publish payloads.
+- Several UI controls are blocked by capability map until route/API support exists.
 - `PlatformEditor.tsx` stores richer platform settings, but the active publish path mostly ignores them.
 - `ClientWrapper.tsx`, `UploadForm.tsx`, and `VideoManager.tsx` contain overlapping publish flows.
 - Meta platform capabilities cannot be safely expanded without fresh Meta-doc verification.
@@ -291,10 +293,10 @@ Evidence:
 
 - `ClientWrapper.tsx` is 1323 lines.
 - `useUploaderXUpload.ts` is 449 lines.
-- Existing docs describe YouTube category/schedule, Instagram location/alt text, and Facebook privacy/schedule.
+- Existing docs previously described YouTube category/schedule/thumbnail and Facebook schedule as UI-only; current code wires these for supported platforms.
 - Active hook payloads only send narrow fields:
-  - YouTube: `gcsPath`, `filename`, `videoUuid`, `title`, `description`, `privacyStatus`
-  - Facebook: `gcsPath`, `videoUuid`, `title`, `description`, `pageId`
+  - YouTube: `gcsPath`, `filename`, `videoUuid`, `title`, `description`, `privacyStatus`, `categoryId`, `thumbnailPublicUrl`, `publishAt`
+  - Facebook: `gcsPath`, `videoUuid`, `title`, `description`, `pageId`, `postType`, `publishAt`
   - Instagram: `gcsPath`, `videoUuid`, `title`, `description`, `accountId`
   - X: `gcsPath`, `videoUuid`, `title`, `description`
   - LinkedIn: `gcsPath`, `videoUuid`, `title`, `description`, `postType`, `organizationId`
@@ -336,11 +338,12 @@ Phase 1 recommended scope:
    - Prefer hiding over implying behavior.
 
 3. **Phase 2: Shared publish contract**
-   - Add typed payloads and per-platform capability definitions.
-   - Validate unsupported fields before publish.
+   - Typed payloads and per-platform capability definitions now exist in `lib/uploaderx/platform-capabilities.ts`.
+   - Remaining work: expand validation and make all UI paths use the shared contract consistently.
 
 4. **Phase 3: YouTube parity**
-   - Wire category, schedule, thumbnail, notify subscribers, made-for-kids, synthetic media, language, recording date.
+   - Category, schedule, and thumbnail are wired.
+   - Remaining: notify subscribers, made-for-kids, synthetic media, language, recording date, license, embeddable, and public stats.
 
 5. **Phase 4: X parity**
    - Add optional fields for reply settings, poll, reply/thread, community, geo, AI label, paid partnership, and media metadata.
@@ -349,11 +352,19 @@ Phase 1 recommended scope:
    - Migrate toward current `/rest/posts` API and add richer post types.
 
 7. **Phase 6: Meta parity after verification**
-   - Re-check Facebook/Instagram docs from a logged-in Meta developer account, then implement only confirmed fields.
+   - Facebook scheduling is wired.
+   - Re-check Facebook/Instagram docs from a logged-in Meta developer account, then implement only remaining confirmed fields.
 
 ## Verification Notes
 
-This Phase 0 document was created without changing runtime code.
+Current verification after Phase 5 refresh:
+
+- `npx vitest run tests/uploaderx/video-publish-events.test.ts tests/uploaderx/platform-api-routes.test.ts`: 8 tests passing.
+- `node scripts/run-creative-chain-tests.mjs`: 88 tests passing.
+- `npx eslint . --quiet`: passing after lint workspace-ignore cleanup.
+- Full `tsc` still has unrelated baseline errors, but no UploaderX errors were found after Phase 4A.
+
+Original Phase 0 document was created without changing runtime code.
 
 Required before any implementation phase:
 
