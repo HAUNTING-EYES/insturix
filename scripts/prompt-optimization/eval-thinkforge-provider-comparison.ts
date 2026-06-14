@@ -279,12 +279,15 @@ const LEGACY_VALID_IDEA_PLATFORMS = new Set([
 ]);
 const VIDEO_FORMAT_WORDS = /\b(video|reel|skit|clip|film|vlog|duet|pov\b|storytime|explainer|tutorial|unboxing|reaction|review\s*video)\b/i;
 const TEXT_FORMAT_WORDS = /\b(post|article|essay|thread|carousel|newsletter|listicle|guide|blog|case study|breakdown|hot take|story|opinion|anecdotal)\b/i;
+const ACTIONABLE_IDEA_FORMAT_WORDS = /\b(post|carousel|newsletter|blog|article|essay|guide|e-?book|video|script|series|case study|thread|film|documentary|explainer|thought piece|calendar slot)\b/i;
 const IDEA_PLATFORM_CONTRACT = `Platform contract:
 - platform must be exactly one of: LinkedIn, Twitter/X, Medium, Blog, Newsletter, Reddit, Facebook, YouTube, TikTok, Instagram, Podcast, Pinterest.
 - Return exactly one platform string per idea. Do not return domains, websites, slashed combos, "Company blog / LinkedIn", or "Multi-platform".
 - If the request says post, write, article, blog, essay, thread, newsletter, or names a website/domain, use text platforms only: LinkedIn, Twitter/X, Medium, Blog, Newsletter, Reddit, or Facebook.
 - If the request names TikTok, YouTube, reel, short, vlog, skit, or video, use video platforms only: TikTok, YouTube, or Instagram.
-- If the request is generic business content, choose a concrete channel instead of "website" or "conference": LinkedIn, Blog, Newsletter, YouTube, or TikTok.`;
+- If the request is generic business content, choose a concrete channel instead of "website" or "conference": LinkedIn, Blog, Newsletter, YouTube, or TikTok.
+- format must be a concrete platform-ready deliverable such as LinkedIn post, carousel, newsletter section, blog article, guide, short video script, X thread, or case study.
+- If the request mentions calendar, campaign, or series, preserve that planning language in at least the purpose or format for every idea.`;
 
 const argv = process.argv.slice(2);
 const providers = parseEvalProviders(readArg('providers'));
@@ -731,9 +734,9 @@ const IDEAS_CASES: IdeasCase[] = [
     id: 'ideas_public_trend_calendar',
     name: 'Ideas agent: public trend calendar repurposing',
     prompt:
-      'Generate 4 content ideas for NimbusOps, a synthetic operations brand. Public trend: teams are joking that every app has an AI copilot button. Build ideas for a 6-week content calendar for agency operators without using private client data.',
+      'Generate 4 content ideas for NimbusOps, a synthetic operations brand. Public trend: teams are joking that every app has an AI copilot button. Build ideas for a 6-week content calendar for agency operators using only public trend context and synthetic brand facts.',
     brandContext:
-      'Brand voice: calm, operational, dry humor, useful. Audience: agencies and ops leads. Avoid: private client details, Brand Vault, voiceFingerprint.',
+      'Brand voice: calm, operational, dry humor, useful. Audience: agencies and ops leads. Use only public trend context and synthetic brand facts.',
     expected: {
       requiredTerms: ['trend', 'calendar', 'agency'],
       forbiddenTerms: ['Brand Vault', 'voiceFingerprint', 'private client'],
@@ -1757,7 +1760,7 @@ function scoreIdeasOutput(output: string, testCase: IdeasCase): ScoreResult {
   score.check(
     'output_quality',
     'formats_are_actionable',
-    ideas.filter((idea) => /\b(post|carousel|newsletter|blog|video|script|series|case study|thread|film|documentary)\b/i.test(idea.format ?? '')).length >= 3,
+    ideas.filter((idea) => ACTIONABLE_IDEA_FORMAT_WORDS.test(idea.format ?? '')).length >= 3,
   );
   score.check('forbidden_term_obedience', 'forbidden_terms_absent', findTerms(combined, testCase.expected.forbiddenTerms).length === 0);
   score.check(
