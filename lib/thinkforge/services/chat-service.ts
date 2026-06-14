@@ -14,7 +14,13 @@ import * as db from './db';
 import { applyCommand } from './command-service';
 import { collectExemplarPassively } from './exemplar-collector';
 import { appendEvent } from './event-log';
-import type { SessionState, ProjectMeta, ScriptState } from '../state/types';
+import {
+  mergeThinkForgeProjectMetadata,
+  resolveProjectMetaBrandId,
+  type SessionState,
+  type ProjectMeta,
+  type ScriptState,
+} from '../state/types';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
@@ -208,6 +214,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Load chat history, user preferences, and multi-hop context in parallel
   const scriptContent = providedScript?.content || '';
+  const baseProjectMeta = mergeThinkForgeProjectMetadata(session.projectMeta, providedProject);
+  const retrievalBrandId = resolveProjectMetaBrandId(baseProjectMeta);
   const [chatHistory, preferences, retrievedCtx] = await Promise.all([
     session ? db.getChatHistory(sessionId || session._id, 50, threadId) : Promise.resolve([]),
     db.getUserPreferences(userId),
@@ -215,9 +223,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       userId,
       projectId: sessionId || undefined,
       sessionId: sessionId || undefined,
-      brandId: typeof session.projectMeta?.brandId === 'string'
-        ? session.projectMeta.brandId
-        : undefined,
+      brandId: retrievalBrandId,
       currentPrompt: prompt,
       currentScript: scriptContent,
       maxFacts: 5,
@@ -244,10 +250,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     script: currentScriptState,
     documents: currentScriptState ? [currentScriptState] : [],
     ideas: [],
-    metadata: {
-      ...(providedProject || session?.projectMeta || {}),
-      preferences
-    },
+    metadata: mergeThinkForgeProjectMetadata(session.projectMeta, providedProject, preferences),
     version: 1,
     lastUpdated: new Date()
   };
@@ -919,10 +922,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // Persist assistant message
         if (session) {
           await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your script...\n\nScript "${draft.title}" created successfully!`, threadId);
-        }
+      }
       } else if (intentResult.intent === 'research') {
         // Research intent - use search-grounded agent (non-streaming for metadata access)
-        const project = providedProject || session?.projectMeta || null;
+        const project = sessionState.metadata;
 
         // Emit a progress indicator while research runs
         const searchingMsg = '\n\n🌐 Searching the web for relevant information...\n\n';
@@ -976,7 +979,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         }
       } else {
         // Regular chat response - stream tokens
-        const project = providedProject || session?.projectMeta || null;
+        const project = sessionState.metadata;
         const chatStream = await chatAgent(prompt, {
           sessionState,
           script: null,

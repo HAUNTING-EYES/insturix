@@ -18,6 +18,54 @@ import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
 const hats = ["white", "red", "black", "yellow", "green", "blue"] as const;
+const PROJECT_META_PASSTHROUGH_KEYS = [
+	'brandId',
+	'brandBrief',
+	'clientId',
+	'clientName',
+	'campaignId',
+	'campaignName',
+	'seriesId',
+	'calendarItemId',
+	'contentCardId',
+] as const;
+
+const toNonEmptyString = (value: unknown): string | undefined => {
+	if (typeof value !== 'string') return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const pickProjectMetaPassthrough = (source: unknown): Record<string, string> => {
+	if (!source || typeof source !== 'object') return {};
+	const input = source as Record<string, unknown>;
+	return PROJECT_META_PASSTHROUGH_KEYS.reduce<Record<string, string>>((acc, key) => {
+		const value = toNonEmptyString(input[key]);
+		if (value) acc[key] = value;
+		return acc;
+	}, {});
+};
+
+const hasMissingProjectMetaPassthrough = (target: unknown, source: unknown): boolean => {
+	if (!source || typeof source !== 'object') return false;
+	const targetRecord = target && typeof target === 'object' ? target as Record<string, unknown> : {};
+	const sourceRecord = source as Record<string, unknown>;
+	return PROJECT_META_PASSTHROUGH_KEYS.some((key) => {
+		return !toNonEmptyString(targetRecord[key]) && Boolean(toNonEmptyString(sourceRecord[key]));
+	});
+};
+
+const buildProjectMetaPayload = (idea: IdeaCardData | null | undefined): Record<string, string> => ({
+	idea: idea?.idea || '',
+	purpose: (idea as any)?.purpose || '',
+	style: (idea as any)?.style || '',
+	format: (idea as any)?.format || '',
+	platform: (idea as any)?.platform || '',
+	tone: idea?.tone || 'blue',
+	sessionName: (idea as any)?.sessionName || '',
+	...pickProjectMetaPassthrough(idea),
+});
+
 const skeletonIdeas = (prompt: string): IdeaCardData[] => {
 	const base = (prompt.trim() || "Idea").replace(/\.$/, "");
 	const intents = ["awareness", "conversion", "engagement", "retention", "education", "community"];
@@ -81,11 +129,13 @@ export default function ThinkForgeLanding() {
 			(!selectedIdea.style && pm.style) ||
 			(!selectedIdea.format && pm.format) ||
 			(!selectedIdea.platform && pm.platform) ||
-			(!selectedIdea.tone && pm.tone)
+			(!selectedIdea.tone && pm.tone) ||
+			hasMissingProjectMetaPassthrough(selectedIdea, pm)
 		);
 		if (!shouldPatch) return;
 		setSelectedIdea({
 			...selectedIdea,
+			...pickProjectMetaPassthrough(pm),
 			sessionName: selectedIdea.sessionName || pm.sessionName,
 			idea: selectedIdea.idea || pm.idea || '',
 			purpose: selectedIdea.purpose || pm.purpose || '',
@@ -342,15 +392,7 @@ export default function ThinkForgeLanding() {
 			// Skip if we're still in ideation phase (no active session yet)
 			const activeSessionId = session.sessionId || pendingSessionId;
 			if (activeSessionId && workspaceMode === 'scripting') {
-				const projectMetaPayload = {
-					idea: updated.idea || '',
-					purpose: updated.purpose || '',
-					style: updated.style || '',
-					format: updated.format || '',
-					platform: updated.platform || '',
-					tone: updated.tone || 'blue',
-					sessionName: updated.sessionName || ''
-				};
+				const projectMetaPayload = buildProjectMetaPayload(updated);
 
 				try {
 					const res = await fetch('/api/services/thinkforge/session/update', {
@@ -464,15 +506,7 @@ export default function ThinkForgeLanding() {
 				// Ensure UI is cleared before creating a fresh session
 				scriptHook.resetSessionState();
 				const created = await session.hydrate({
-					projectMeta: {
-						idea: selectedIdea.idea,
-						purpose: (selectedIdea as any)?.purpose,
-						style: (selectedIdea as any)?.style,
-						format: (selectedIdea as any)?.format,
-						platform: (selectedIdea as any)?.platform,
-						tone: selectedIdea.tone,
-						sessionName: (selectedIdea as any)?.sessionName
-					}
+					projectMeta: buildProjectMetaPayload(selectedIdea)
 				});
 				// Check mount state after async operations
 				if (!isMountedRef.current) {
@@ -698,6 +732,7 @@ export default function ThinkForgeLanding() {
 							platform: pm.platform || '',
 							tone: (pm.tone || 'blue') as any,
 							sessionName: pm.sessionName || undefined,
+							...pickProjectMetaPassthrough(pm),
 						} as any;
 						setSelectedIdea(ideaObj);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
@@ -843,6 +878,7 @@ export default function ThinkForgeLanding() {
 							platform: pm.platform || '',
 							tone: (pm.tone || 'blue') as any,
 							sessionName: pm.sessionName || undefined,
+							...pickProjectMetaPassthrough(pm),
 						} as any;
 						setSelectedIdea(ideaObj);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
@@ -899,6 +935,7 @@ export default function ThinkForgeLanding() {
 									platform: pm.platform || '',
 									tone: (pm.tone || 'blue') as any,
 									sessionName: pm.sessionName || undefined,
+									...pickProjectMetaPassthrough(pm),
 								} as any;
 								setSelectedIdea(ideaObj);
 							}

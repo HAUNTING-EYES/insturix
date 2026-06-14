@@ -23,7 +23,15 @@ export interface IdeaCardData {
   platform: string;
   tone: string;
   sessionName?: string;
+  brandId?: string;
   brandBrief?: string;
+  clientId?: string;
+  clientName?: string;
+  campaignId?: string;
+  campaignName?: string;
+  seriesId?: string;
+  calendarItemId?: string;
+  contentCardId?: string;
 }
 
 export interface ProjectMeta {
@@ -38,7 +46,69 @@ export interface ProjectMeta {
   sessionName?: string;
   brandId?: string;
   brandBrief?: string;
+  clientId?: string;
+  clientName?: string;
+  campaignId?: string;
+  campaignName?: string;
+  seriesId?: string;
+  calendarItemId?: string;
+  contentCardId?: string;
   preferences?: Record<string, any>;
+}
+
+const SOURCE_OF_TRUTH_PROJECT_META_KEYS: Array<keyof ProjectMeta> = [
+  'brandId',
+  'brandBrief',
+  'clientId',
+  'clientName',
+  'campaignId',
+  'campaignName',
+  'seriesId',
+  'calendarItemId',
+  'contentCardId',
+];
+
+function hasProjectMetaValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== undefined && value !== null;
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return undefined;
+}
+
+export function mergeThinkForgeProjectMetadata(
+  sessionProjectMeta?: ProjectMeta | null,
+  providedProject?: ProjectMeta | null,
+  preferences?: Record<string, any>,
+): ProjectMeta {
+  const merged: ProjectMeta = {
+    ...(sessionProjectMeta || {}),
+    ...(providedProject || {}),
+  };
+
+  for (const key of SOURCE_OF_TRUTH_PROJECT_META_KEYS) {
+    const providedValue = providedProject?.[key];
+    const sessionValue = sessionProjectMeta?.[key];
+    if (!hasProjectMetaValue(providedValue) && hasProjectMetaValue(sessionValue)) {
+      (merged as Record<string, unknown>)[key] = sessionValue;
+    }
+  }
+
+  if (preferences) {
+    merged.preferences = preferences;
+  }
+
+  return merged;
+}
+
+export function resolveProjectMetaBrandId(projectMeta?: ProjectMeta | null): string | undefined {
+  return firstNonEmptyString(projectMeta?.brandId);
 }
 
 // ---------------------------------------------------------------------------

@@ -61,6 +61,34 @@ const DELIVERABLE_SUGGESTIONS = [
   "🔄 Create an alternative version of this script",
 ];
 
+const PROJECT_META_PASSTHROUGH_KEYS = [
+  'brandId',
+  'brandBrief',
+  'clientId',
+  'clientName',
+  'campaignId',
+  'campaignName',
+  'seriesId',
+  'calendarItemId',
+  'contentCardId',
+] as const;
+
+function toNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function pickProjectMetaPassthrough(source: unknown): Record<string, string> {
+  if (!source || typeof source !== 'object') return {};
+  const input = source as Record<string, unknown>;
+  return PROJECT_META_PASSTHROUGH_KEYS.reduce<Record<string, string>>((acc, key) => {
+    const value = toNonEmptyString(input[key]);
+    if (value) acc[key] = value;
+    return acc;
+  }, {});
+}
+
 function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3, seed: string = ''): string[] {
   // Deterministic selection seeded by idea text — prevents re-randomization on every render.
   let h = 0;
@@ -293,7 +321,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       platform: (selectedIdea as any)?.platform,
       tone: selectedIdea?.tone,
       sessionName: (selectedIdea as any)?.sessionName,
-      brandBrief: (selectedIdea as any)?.brandBrief,
+      ...pickProjectMetaPassthrough(selectedIdea),
     }),
     [selectedIdea]
   );
