@@ -1,7 +1,7 @@
 ---
 tags: [architecture, brand-vault, browser-render, evidence-ingestion]
 date: 2026-06-14
-status: implemented-provider-contract
+status: implemented-provider-contract-and-internal-route
 owner: Brand Vault shared core
 scope:
   - Brand Vault website evidence ingestion
@@ -51,10 +51,16 @@ This keeps Brand Vault setup "free forever" at the software layer. It still need
 Self-hosted endpoint:
 
 ```env
-BRAND_VAULT_BROWSER_RENDER_ENDPOINT=https://render-worker.example.com/brand-vault/render
+BRAND_VAULT_BROWSER_RENDER_ENDPOINT=https://render-worker.example.com/api/brand-vault/refinery/browser-render
 BRAND_VAULT_BROWSER_RENDER_TOKEN=<internal shared secret>
 BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS=12000
 ```
+
+The repo-owned route is:
+
+- `POST /api/brand-vault/refinery/browser-render`
+
+It requires `Authorization: Bearer <BRAND_VAULT_BROWSER_RENDER_TOKEN>`, blocks private/local render targets by default, and returns only draft evidence snapshots.
 
 Local Playwright worker:
 
@@ -96,9 +102,19 @@ The creative knowledge graph reinforces the same boundary:
 - logo placement and brand identity rules must come from uploaded brand assets, brand guidelines, or user review.
 - Firecrawl/Playwright/Crawlee evidence is source evidence, not canonical brand law.
 
+## Built Route
+
+The first-party render route is implemented as a thin shell over the shared handler:
+
+- `app/api/brand-vault/refinery/browser-render/route.ts`
+- `lib/shared/brand-vault-browser-render-endpoint.ts`
+- `tests/brand-intelligence/brand-vault-browser-render-endpoint.test.ts`
+
+The route is intentionally internal-token authenticated rather than user-authenticated because it is called by Brand Vault infrastructure, not by a browser user session.
+
 ## Next Work
 
-Build the self-hosted endpoint/worker around Crawlee or Playwright:
+Build the full crawler layer around Crawlee or Playwright:
 
 - sitemap and internal-link discovery.
 - deterministic crawl limits: max pages, max depth, max bytes, max duration.
@@ -107,4 +123,3 @@ Build the self-hosted endpoint/worker around Crawlee or Playwright:
 - logo/favicon/Open Graph image inventory.
 - per-page warnings and source notes.
 - no accepted profile writes from the worker.
-
