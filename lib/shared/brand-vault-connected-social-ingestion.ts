@@ -115,14 +115,25 @@ async function fetchConnectedPostSources(args: {
   fetchFn: BrandVaultSocialFetch;
   now?: string;
 }): Promise<SocialFetchResult> {
-  if (args.parsed.platform !== 'x') return { sources: [], warnings: [] };
-  return fetchConnectedXPostSources({
-    parsed: args.parsed,
-    connection: args.connection,
-    tokens: args.uploaderXUser?.twitterTokens,
-    fetchFn: args.fetchFn,
-    now: args.now,
-  });
+  if (args.parsed.platform === 'x') {
+    return fetchConnectedXPostSources({
+      parsed: args.parsed,
+      connection: args.connection,
+      tokens: args.uploaderXUser?.twitterTokens,
+      fetchFn: args.fetchFn,
+      now: args.now,
+    });
+  }
+  if (args.parsed.platform === 'instagram') {
+    return fetchConnectedInstagramPostSources({
+      parsed: args.parsed,
+      connection: args.connection,
+      tokens: args.uploaderXUser?.instagramTokens,
+      fetchFn: args.fetchFn,
+      now: args.now,
+    });
+  }
+  return { sources: [], warnings: [] };
 }
 
 async function fetchConnectedXPostSources(args: {
@@ -297,6 +308,84 @@ function xPostSource(
   };
 }
 
+async function fetchConnectedInstagramPostSources(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  connection: BrandVaultSocialConnectionEvidence | null;
+  tokens: Record<string, unknown> | null | undefined;
+  fetchFn: BrandVaultSocialFetch;
+  now?: string;
+}): Promise<SocialFetchResult> {
+  if (!args.connection?.canReadPosts || args.connection.status !== 'connected') return { sources: [], warnings: [] };
+  if (args.connection.matchStatus === 'mismatched') return { sources: [], warnings: [] };
+
+  const accessToken = stringValue(args.tokens?.userAccessToken);
+  if (!accessToken) {
+    return { sources: [], warnings: ['Brand Vault skipped Instagram media samples: UploaderX user access token was not available.'] };
+  }
+  if (isExpired(args.tokens?.expiresAt, args.now)) {
+    return { sources: [], warnings: ['Brand Vault skipped Instagram media samples: UploaderX Instagram token is expired and must be refreshed before read enrichment.'] };
+  }
+
+  const url = new URL('https://graph.instagram.com/v21.0/me/media');
+  url.searchParams.set('fields', 'id,caption,media_type,permalink,timestamp,username');
+  url.searchParams.set('limit', '5');
+  url.searchParams.set('access_token', accessToken);
+
+  const response = await args.fetchFn(url.href);
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    return {
+      sources: [],
+      warnings: [`Brand Vault skipped Instagram media samples: Instagram API returned ${response.status}${apiErrorMessage(payload)}.`],
+    };
+  }
+
+  const media = Array.isArray(payload.data) ? payload.data : [];
+  const connection = args.connection;
+  const sources = media
+    .map((item) => instagramMediaSource(item, connection, args.parsed))
+    .filter((source): source is BrandVaultSourceInput => Boolean(source))
+    .slice(0, 5);
+
+  if (sources.length === 0) {
+    return {
+      sources: [],
+      warnings: ['Brand Vault found Instagram read access, but no recent caption text was returned.'],
+    };
+  }
+
+  return {
+    sources,
+    warnings: [`Brand Vault fetched ${sources.length} recent Instagram media caption${sources.length === 1 ? '' : 's'} for draft social evidence review.`],
+  };
+}
+
+function instagramMediaSource(
+  item: unknown,
+  connection: BrandVaultSocialConnectionEvidence,
+  parsed: BrandVaultParsedSocialUrl,
+): BrandVaultSourceInput | null {
+  const record = asRecord(item);
+  const id = stringValue(record.id);
+  const text = stringValue(record.caption);
+  if (!id || !text) return null;
+
+  return {
+    kind: 'social_post',
+    url: stringValue(record.permalink) ?? parsed.normalizedUrl,
+    platform: 'instagram',
+    name: `Instagram media ${id}`,
+    note: [
+      'Fetched from connected UploaderX Instagram account for Brand Vault draft review.',
+      stringValue(record.media_type) ? `Media type: ${stringValue(record.media_type)}.` : '',
+    ].filter(Boolean).join(' '),
+    text,
+    evidenceOrigin: 'connected_fetch',
+    pinned: false,
+    connection,
+  };
+}
+
 function connectedEvidenceForPlatform(
   platform: BrandVaultSourcePlatform,
   handle: string | undefined,
@@ -362,19 +451,31 @@ function linkedinConnection(handle: string | undefined, tokens: Record<string, u
 function instagramConnection(handle: string | undefined, tokens: Record<string, unknown> | null | undefined): BrandVaultSocialConnectionEvidence | null {
   if (!tokens?.userAccessToken) return null;
   const accounts = Array.isArray(tokens.accounts) ? tokens.accounts : [];
+  const matchedAccount = instagramAccountForHandle(handle, accounts) ?? asRecord(accounts[0]);
   const accountHandles = [tokens.userName, ...accounts.map((account) => asRecord(account).instagramUsername)];
   const matchStatus = handleMatch(handle, accountHandles);
+  const accountHandle = stringValue(matchedAccount.instagramUsername) ?? stringValue(tokens.userName);
+  const accountId = stringValue(matchedAccount.instagramAccountId) ?? stringValue(tokens.userId);
+  const canReadPosts = Boolean(tokens.userAccessToken) && matchStatus !== 'mismatched';
   return {
     provider: 'uploaderx',
     status: matchStatus === 'mismatched' ? 'connected_different_account' : 'connected',
-    accountId: stringValue(tokens.userId),
-    accountName: stringValue(tokens.userName),
-    accountHandle: stringValue(tokens.userName),
+    accountId,
+    accountName: accountHandle,
+    accountHandle,
     canReadProfile: true,
-    canReadPosts: false,
+    canReadPosts,
     canReadPinned: false,
     matchStatus,
   };
+}
+
+function instagramAccountForHandle(handle: string | undefined, accounts: unknown[]): Record<string, unknown> | null {
+  const normalizedHandle = normalizeHandle(handle);
+  if (!normalizedHandle) return null;
+  return accounts
+    .map(asRecord)
+    .find((account) => normalizeHandle(account.instagramUsername) === normalizedHandle) ?? null;
 }
 
 function facebookConnection(handle: string | undefined, tokens: Record<string, unknown> | null | undefined): BrandVaultSocialConnectionEvidence | null {

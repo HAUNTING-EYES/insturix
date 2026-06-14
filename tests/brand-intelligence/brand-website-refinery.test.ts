@@ -268,6 +268,60 @@ describe('Brand website refinery', () => {
     expect(result.profile.voice.recurringPhrases.value).not.toContain('Stay in the loop');
   });
 
+  it('keeps embedded product editor chrome out of root website copy evidence', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://insturix.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Automated content production</title>
+    <meta name="description" content="Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.">
+    <style>
+      body { font-family: "Plus Jakarta Sans", sans-serif; color: #d4a652; background: #0b0b0f; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>One platform. Entire production.</h1>
+      <p>Insturix helps agencies and in-house teams move from brief to publish without disconnected tools.</p>
+      <section class="product-mockup">
+        <h2>LAYERS</h2>
+        <button>Export</button>
+        <button>Script</button>
+        <button>Media</button>
+        <button>Captions</button>
+        <button>Music</button>
+        <button>Graphics</button>
+        <button>Thumbnails</button>
+        <p>PIPELINE Input Script Edit Analyze Thumbnails Publish FILM STRIP EXPOSING</p>
+      </section>
+      <section data-testid="timeline-preview">
+        <span>0</span><span>:</span><span>0</span><span>Export</span><span>LAYERS</span>
+      </section>
+      <div><span>Export</span><span>LAYERS</span><span>Script</span><span>Media</span></div>
+    </main>
+  </body>
+</html>
+`,
+      brandId: 'brand_insturix',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_insturix_editor_chrome',
+    });
+
+    const websiteCopy = result.candidates
+      .filter((candidate) => candidate.sourceField === 'website.copy' || candidate.sourceField === 'website.proofSnippets')
+      .map((candidate) => `${candidate.rawValue ?? ''} ${candidate.excerpt ?? ''}`)
+      .join(' ');
+
+    expect(result.profile.identity.industry?.value).toBe('content production software');
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['agencies', 'in-house teams']));
+    expect(result.profile.voice.recurringPhrases.value).toContain('One platform. Entire production.');
+    expect(websiteCopy).toContain('brief to publish');
+    expect(websiteCopy).not.toMatch(/\b(?:Export|LAYERS|Captions|Thumbnails|PIPELINE|FILM STRIP|EXPOSING)\b/i);
+  });
+
   it('prefers enterprise-tech and D2C vertical taxonomy over generic software or commerce', () => {
     const semiconductor = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://nvidia.example',
@@ -292,6 +346,30 @@ describe('Brand website refinery', () => {
 
     expect(semiconductor.profile.identity.industry?.value).toBe('semiconductors');
     expect(semiconductor.profile.identity.category.value).toBe('semiconductors');
+
+    const hardware = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://hp.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>HP - PCs, printers, and peripherals</title>
+    <meta name="description" content="Technology hardware, storage systems, personal computers, printers, and peripherals for homes and businesses.">
+  </head>
+  <body>
+    <h1>Hardware platforms for work and play</h1>
+    <p>Build reliable device fleets with PCs, workstations, printers, memory, and connected peripherals.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_hp',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_hardware_taxonomy',
+    });
+
+    expect(hardware.profile.identity.industry?.value).toBe('hardware/electronics');
+    expect(hardware.profile.identity.category.value).toBe('hardware/electronics');
 
     const consulting = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://accenture.example',
@@ -363,6 +441,30 @@ describe('Brand website refinery', () => {
 
     expect(fashion.profile.identity.industry?.value).toBe('fashion/apparel');
     expect(fashion.profile.identity.category.value).toBe('fashion/apparel');
+
+    const consumerElectronics = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://boat.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>boAt - Audio electronics</title>
+    <meta name="description" content="Consumer electronics, earbuds, headphones, speakers, smartwatches, chargers, and cables for everyday use.">
+  </head>
+  <body>
+    <h1>Audio electronics for music, calls, workouts, and gaming</h1>
+    <a href="/collections">Shop now</a>
+  </body>
+</html>
+`,
+      brandId: 'brand_boat',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_consumer_electronics_taxonomy',
+    });
+
+    expect(consumerElectronics.profile.identity.industry?.value).toBe('electronics/appliances');
+    expect(consumerElectronics.profile.identity.category.value).toBe('electronics/appliances');
   });
 
   it('filters ecommerce, browser, and markup junk from consumer audience signals', () => {
@@ -396,6 +498,40 @@ describe('Brand website refinery', () => {
     expect(audience).toEqual(expect.arrayContaining(['women']));
     expect(audience.join(' | ')).not.toMatch(/wishlist|MRP|No reviews|VALERIE|browser|document|raw =|product-card|Shop now/i);
     expect(result.profile.voice.recurringPhrases.value.join(' | ')).not.toMatch(/Shop now|Add to cart|Wishlist|No reviews/i);
+  });
+
+  it('filters broad-scan audience junk without hiding real customer groups', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://broad-scan.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>SignalWorks - Infrastructure software</title>
+    <meta name="description" content="Infrastructure software for enterprise IT teams, security leaders, and ecommerce operators.">
+  </head>
+  <body>
+    <h1>Keep enterprise systems reliable</h1>
+    <p>Built for enterprise IT teams, security leaders, and ecommerce operators.</p>
+    <p>Used by AI guided recommendations, online store members, NVIDIA Vera Rubin, and local content.</p>
+    <p>Trusted by You at Your Nearest HP World Store, latest Intel Core CPUs, and newest 8K polling rate keyboard for gameplay.</p>
+    <p>Made for working of basic functionalities of the website and life today - and tomorrow.</p>
+    <p>Created for first three months and please visit the site.</p>
+    <p>Designed for early Sale access plus tailored new arrivals and updates on new arrivals.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_broad_scan',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_broad_scan_audience_noise',
+    });
+
+    const audience = result.profile.identity.audience.value;
+    expect(audience).toEqual(expect.arrayContaining(['enterprise IT teams', 'security leaders', 'ecommerce operators']));
+    expect(audience.join(' | ')).not.toMatch(
+      /AI guided recommendations|online store members|NVIDIA Vera Rubin|local content|Nearest HP World Store|Intel Core|8K polling|basic functionalities|life today|first three months|please visit|tailored new arrivals|updates on new arrivals/i,
+    );
   });
 
   it('keeps multi-site website fixtures free of generic audience, CTA, and font noise', () => {

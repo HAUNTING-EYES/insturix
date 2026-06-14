@@ -457,6 +457,128 @@ describe('Brand Vault refinery API boundary', () => {
     expect(result.warnings.some((warning) => /connected social evidence source/.test(warning))).toBe(false);
   });
 
+  it('fetches connected Instagram media captions as draft-only social evidence', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const fetchedUrls: string[] = [];
+    const fetchFn = async (url: string): Promise<Response> => {
+      fetchedUrls.push(url);
+      expect(url).toContain('https://graph.instagram.com/v21.0/me/media');
+      expect(url).toContain('access_token=ig_token');
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'ig_media_1',
+              caption: 'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+              media_type: 'IMAGE',
+              permalink: 'https://www.instagram.com/p/ig_media_1/',
+              timestamp: '2026-06-08T10:00:00.000Z',
+              username: 'vaultline',
+            },
+            {
+              id: 'ig_media_without_caption',
+              media_type: 'VIDEO',
+              permalink: 'https://www.instagram.com/p/ig_media_without_caption/',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://www.instagram.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) =>
+          createBrandVaultConnectedSocialEvidence({
+            socialLinks,
+            uploaderXUser: {
+              instagramTokens: {
+                userAccessToken: 'ig_token',
+                userName: 'vaultline',
+                accounts: [{ instagramAccountId: 'ig_account_1', instagramUsername: 'vaultline' }],
+                expiresAt: '2026-06-10T00:00:00.000Z',
+              },
+            },
+            youtubeConnection: null,
+            apifyApiKey: '',
+            fetchFn,
+            now: NOW,
+          }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(fetchedUrls).toHaveLength(1);
+    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent Instagram media caption for draft social evidence review.');
+    expect(created.body.job.warnings).not.toContain(
+      'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
+    );
+    expect(created.body.reviewPayload.intake.social).toMatchObject({
+      status: 'complete',
+      linksProvided: 1,
+      connectedAccountCount: 2,
+      fetchedPostCount: 1,
+      needsAuthCount: 0,
+    });
+    expect(created.body.reviewPayload.intake.sources.byOrigin).toMatchObject({
+      connected_metadata: 1,
+      connected_fetch: 1,
+    });
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_profile',
+          platform: 'instagram',
+          evidenceOrigin: 'connected_metadata',
+          connection: expect.objectContaining({
+            provider: 'uploaderx',
+            status: 'connected',
+            accountHandle: 'vaultline',
+            canReadPosts: true,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'instagram',
+          url: 'https://www.instagram.com/p/ig_media_1/',
+          text: 'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+          evidenceOrigin: 'connected_fetch',
+        }),
+      ]),
+    );
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.voicePhrases',
+          normalizedValue: expect.arrayContaining(['Stop losing brand consistency between strategy and delivery']),
+        }),
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.proofStyle',
+          normalizedValue: 'community',
+        }),
+      ]),
+    );
+    expect(created.body.record.profile.voice.recurringPhrases.trustLevel).toBe('connected_social_account');
+    expect(created.body.record.profile.voice.recurringPhrases.value).toEqual(
+      expect.arrayContaining(['Stop losing brand consistency between strategy and delivery']),
+    );
+  });
+
   it('fetches connected X post samples as draft-only social evidence when tweet.read is available', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const fetchedUrls: string[] = [];
