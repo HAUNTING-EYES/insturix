@@ -12,6 +12,19 @@ const compat = new FlatCompat({
 const eslintConfig = [
   {
     ignores: [
+      ".next/**",
+      ".agents/**",
+      ".artifacts/**",
+      ".claude/**",
+      "coverage/**",
+      "dist/**",
+      "memory/**",
+      "modal/**",
+      "node_modules/**",
+      "out/**",
+      "reference-repos/**",
+      "skills/**",
+      "video-review-out*/**",
       "app/api/services/thinkforge/**",
       "app/dashboard/thinkforge/**",
       "components/dashboard/ThinkForge/**",
@@ -34,6 +47,18 @@ const eslintConfig = [
       "react/no-unescaped-entities": "warn",
       "@next/next/no-img-element": "warn",
       "prefer-const": "warn",
+    },
+  },
+  {
+    files: [
+      "*.cjs",
+      "*.config.{js,cjs,ts}",
+      "scripts/**/*.{js,cjs}",
+      "test-*.{js,cjs}",
+    ],
+    rules: {
+      "@typescript-eslint/ban-ts-comment": "off",
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
 ];
