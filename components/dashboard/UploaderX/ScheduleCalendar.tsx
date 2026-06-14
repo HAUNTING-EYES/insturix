@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, ExternalLink } from "lucide-react";
 
 type SchedulePlatform = "youtube" | "facebook";
+type PlatformFilter = "all" | SchedulePlatform;
+type StateFilter = "all" | "scheduled" | "published" | "draft";
 
 export interface UploaderXScheduleVideo {
   videoUuid: string;
@@ -126,10 +128,17 @@ function platformColor(platform: SchedulePlatform) {
 
 export function ScheduleCalendar({ videos, onSelectVideo }: ScheduleCalendarProps) {
   const [month, setMonth] = useState(() => new Date());
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
+  const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const items = useMemo(() => collectScheduleItems(videos), [videos]);
+  const filteredItems = useMemo(() => items.filter((item) => {
+    const platformMatch = platformFilter === "all" || item.platform === platformFilter;
+    const stateMatch = stateFilter === "all" || item.state === stateFilter;
+    return platformMatch && stateMatch;
+  }), [items, platformFilter, stateFilter]);
   const days = useMemo(() => buildMonthDays(month), [month]);
   const now = new Date();
-  const upcoming = items.filter((item) => item.publishAt.getTime() >= now.getTime()).slice(0, 6);
+  const upcoming = filteredItems.filter((item) => item.publishAt.getTime() >= now.getTime()).slice(0, 6);
 
   return (
     <section
@@ -170,9 +179,49 @@ export function ScheduleCalendar({ videos, onSelectVideo }: ScheduleCalendarProp
         </div>
       </div>
 
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {([
+            ["all", "All platforms"],
+            ["youtube", "YouTube"],
+            ["facebook", "Facebook"],
+          ] as Array<[PlatformFilter, string]>).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setPlatformFilter(value)}
+              style={chipStyle(platformFilter === value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {([
+            ["all", "All states"],
+            ["scheduled", "Scheduled"],
+            ["published", "Published"],
+            ["draft", "Draft"],
+          ] as Array<[StateFilter, string]>).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setStateFilter(value)}
+              style={chipStyle(stateFilter === value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {items.length === 0 ? (
         <div style={{ border: `1px dashed ${C.borderL}`, borderRadius: 8, padding: 20, color: C.t3, fontSize: 12 }}>
           Scheduled posts will appear here after you publish with a future date.
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <div style={{ border: `1px dashed ${C.borderL}`, borderRadius: 8, padding: 20, color: C.t3, fontSize: 12 }}>
+          No scheduled posts match these filters.
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(240px, .9fr)", gap: 14 }}>
@@ -184,7 +233,7 @@ export function ScheduleCalendar({ videos, onSelectVideo }: ScheduleCalendarProp
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4 }}>
               {days.map((day) => {
-                const dayItems = items.filter((item) => sameDay(item.publishAt, day));
+                const dayItems = filteredItems.filter((item) => sameDay(item.publishAt, day));
                 const muted = day.getMonth() !== month.getMonth();
                 return (
                   <div
@@ -246,10 +295,8 @@ export function ScheduleCalendar({ videos, onSelectVideo }: ScheduleCalendarProp
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {upcoming.map((item) => (
-                  <button
+                  <div
                     key={item.id}
-                    type="button"
-                    onClick={() => onSelectVideo(item.video.videoUuid)}
                     style={{
                       width: "100%",
                       border: `1px solid ${C.border}`,
@@ -257,7 +304,6 @@ export function ScheduleCalendar({ videos, onSelectVideo }: ScheduleCalendarProp
                       background: C.raised,
                       padding: 10,
                       textAlign: "left",
-                      cursor: "pointer",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -271,7 +317,26 @@ export function ScheduleCalendar({ videos, onSelectVideo }: ScheduleCalendarProp
                       {item.video.filename}
                     </div>
                     <div style={{ fontSize: 10, color: C.t5, marginTop: 3 }}>{formatDateTime(item.publishAt)}</div>
-                  </button>
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectVideo(item.video.videoUuid)}
+                        style={smallActionStyle}
+                      >
+                        Open video
+                      </button>
+                      {item.url && (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ ...smallActionStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                        >
+                          Open post <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -292,5 +357,29 @@ const iconButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  cursor: "pointer",
+};
+
+function chipStyle(active: boolean): React.CSSProperties {
+  return {
+    border: `1px solid ${active ? C.goldBd : C.border}`,
+    background: active ? C.goldBg : C.deeper,
+    color: active ? C.gold : C.t3,
+    borderRadius: 999,
+    padding: "5px 10px",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  };
+}
+
+const smallActionStyle: React.CSSProperties = {
+  border: `1px solid ${C.borderL}`,
+  background: C.deeper,
+  color: C.t2,
+  borderRadius: 5,
+  padding: "5px 8px",
+  fontSize: 10,
+  fontWeight: 700,
   cursor: "pointer",
 };
