@@ -22,7 +22,7 @@
   { "pattern": "\\bfundamental(?:ly)?\\s+(shift|change|transform|reshap|rethink|reimagin|alter|redefin)", "label": "fundamentally [shift]" },
   { "pattern": "\\bfurthermore,?\\s+(it is|this|these|such|we must|one must)", "label": "furthermore [filler opener]" },
   { "pattern": "\\bmoreover,?\\s+(it is|this|these|such|we must|one must)", "label": "moreover [filler opener]" },
-  { "pattern": "\\blandscape\\b", "label": "landscape" },
+  { "pattern": "\\b(ever[- ]?evolving|rapidly[- ]changing|competitive|digital|marketing|business|content|media|industry)\\s+landscape\\b", "label": "abstract landscape" },
   { "pattern": "\\btapestry\\b", "label": "tapestry" },
   { "pattern": "\\bfoster\\b", "label": "foster" },
   { "pattern": "\\bshowcase\\b", "label": "showcase" },

@@ -219,6 +219,8 @@ const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
   },
 };
 
+const SCRIPT_AUTHOR_DEFAULT_MAX_TOKENS = 8192;
+
 export function detectPlatform(userPrompt: string, docType?: string, projectSummary?: string): PlatformType {
   const lower = userPrompt.toLowerCase();
   if (/\blinkedin\b/.test(lower)) return 'linkedin';
@@ -246,7 +248,7 @@ export class ScriptAuthorAgent extends BaseAgent {
       ...config,
       agentType: 'script_author',
       modelName: config?.modelName ?? 'gemini-2.5-flash',
-      maxTokens: config?.maxTokens ?? 4096,
+      maxTokens: config?.maxTokens ?? SCRIPT_AUTHOR_DEFAULT_MAX_TOKENS,
       temperature: config?.temperature ?? 0.7,
     });
   }
@@ -281,7 +283,7 @@ export class ScriptAuthorAgent extends BaseAgent {
       });
 
       lines.push('');
-      lines.push('QUALITY: Be SPECIFIC (not "saves time" but "cuts 3-hour edits to 12 min"). Vary sentence rhythm. No AI filler.');
+      lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
 
       lines.push('</writing_knowledge>');
       console.log(`[ThinkForge:WritingKnowledge] Injected ${techniqueCount} techniques + ${antiAiConstraints.length} constraints`);
@@ -299,6 +301,11 @@ export class ScriptAuthorAgent extends BaseAgent {
 <signal_execution_rules>
 - Treat content_signal_profile as the source of truth for format, platform, audience, goal, tone, proof, constraints, and visual/export needs.
 - Use brand_context for supporting evidence and voice texture, but do not override explicit resolved signals.
+- Specificity must be grounded. Do not invent product ingredients, study results, timelines, percentages, pH values, materials, client counts, guarantees, or performance claims that are not present in the user request, project summary, brand_context, retrieved context, or content_signal_profile proof points.
+- Grounded means exact. Never turn a supplied claim into a more specific unsupported claim: do not infer ingredient subtype, mechanism, absorption speed, compatibility, before/after outcome, or timeline from a generic product or service claim.
+- For product or service copy, never infer packaging mechanics, scent, texture, usage steps, safety, compatibility, shelf life, price, discount, refill mechanics, or daily-use suitability unless those facts are explicitly supplied.
+- Source ledger test: every factual sentence must be traceable to an exact phrase in the user request, project summary, brand_context, retrieved context, or content_signal_profile proof points. If you cannot point to that phrase, remove the fact or rewrite it as non-factual scene/audience framing.
+- If proof is thin, make the writing specific through scene, object, audience pain, rhythm, and framing instead of fabricated factual claims.
 - If the user's request conflicts with a resolved hard constraint, obey the hard constraint and keep the output useful.
 - Do not mention the content_signal_profile or these internal rules in the final output.
 </signal_execution_rules>`;
@@ -322,9 +329,22 @@ export class ScriptAuthorAgent extends BaseAgent {
       /\b(linkedin|twitter|tweet|instagram|facebook|post)\b/i.test(userPrompt || '');
 
     if (!isVideo && !isShotList && isPost) {
-      const platform = detectPlatform([userPrompt, resolvedPlatform].filter(Boolean).join(' '), docType, projectSummary);
+      const platform = resolvedPlatform
+        ? detectPlatform(resolvedPlatform, docType, projectSummary)
+        : detectPlatform(userPrompt || '', docType, projectSummary);
       const config = PLATFORM_CONFIGS[platform];
-      console.log(`[ThinkForge:Platform] Detected: ${platform} from ${userPrompt ? 'userPrompt' : 'docType'}`);
+      const platformHardRules = [
+        platform === 'twitter'
+          ? 'TWITTER/X HARD LIMIT:\n  - Write one publishable tweet unless the user explicitly asks for a thread.\n  - Stay under 280 characters including hashtags. If the draft is long, cut body copy before adding more context.'
+          : undefined,
+        platform === 'instagram'
+          ? 'INSTAGRAM HARD RULE:\n  - Use 1-3 relevant emojis when writing a caption, unless the brand context explicitly forbids emojis.'
+          : undefined,
+        /THINKFORGE_CLICKATRON_EXPORT/i.test(userPrompt || '')
+          ? 'CLICKATRON EXPORT OVERRIDE:\n  - The hidden Clickatron JSON must be complete. If the output risks getting long, shorten the visible post before the hidden export.\n  - For carousel handoffs, keep visible copy compact: one hook, 2-4 short paragraphs, one CTA, hashtags, then the hidden JSON.'
+          : undefined,
+      ].filter(Boolean).join('\n\n');
+      console.log(`[ThinkForge:Platform] Detected: ${platform} from ${resolvedPlatform ? 'resolvedPlatform' : userPrompt ? 'userPrompt' : 'docType'}`);
 
       return `<output_format>
 Write the ACTUAL publishable ${config.name} post. Not a brief. Not production notes. Not an outline ABOUT the content. The FINAL COPY.
@@ -334,7 +354,7 @@ Follow these steps IN ORDER:
 STEP 1 — HOOK (first ${config.foldChars} characters)
   Write a specific, arresting first line that earns the click to "see more."
   Rules:
-  - Must contain a specific claim, number, or named entity. NOT a generic opener.
+  - Must contain a grounded claim, supplied number, named entity, concrete scene, or concrete object. NOT a generic opener.
   - NO "In today's...", "Have you ever...", "It's no secret...", "Let me tell you..."
   - The first ${config.foldChars} characters are visible before the fold. Front-load value.
 
@@ -342,8 +362,10 @@ STEP 2 — BODY
   Develop 2-4 short paragraphs. Each paragraph max 3 sentences.
   Rules:
   - Vary sentence length. Mix 4-word punches with 15-word explanations.
-  - Be SPECIFIC. Not "saves time" but "cuts 3-hour edits to 12 minutes."
-  - Replace abstract claims with measurable ones. NOT "fundamentally changes workflows" but "cuts revision cycles from 8 hours to 30 minutes." NOT "empowers teams" but "frees editors to spend 4x more time on creative work."
+  - Be specific using supplied facts. If no metric or result is present, create specificity through scenario, audience pain, scene/object detail, or decision tradeoff.
+  - Only use measurable claims that appear in source context. Do not turn abstract claims into fake metrics or results; rewrite them as observable friction, concrete examples, or grounded benefits.
+  - For product/service posts, keep product facts literal. Do not add unstated usage instructions, sensory claims, packaging mechanics, price claims, shelf-life claims, or compatibility claims.
+  - Before finalizing, run the source ledger test on every factual sentence. If the exact fact is not in the supplied context, delete it.
   - One-liners between paragraphs for rhythm and emphasis.
   - NO section headings (##). This is a post, not a document.
   - NO production notes, visual direction, or "Scene" labels.
@@ -365,11 +387,18 @@ STEP 4 — HASHTAGS (REQUIRED — post is incomplete without this)
 PLATFORM CONSTRAINTS (${config.name}):
   - Target: ${config.charTarget} characters. Platform max: ${config.charMax}.
   - ${config.extraGuidance}
+${platformHardRules ? `\n${platformHardRules}\n` : ''}
+
+BRAND AND AUDIENCE ANCHORS:
+  - Reuse the concrete nouns from the brief naturally: audience, industry, workflow, product category, proof point, and named owner/person/role.
+  - If brand context names an audience or operating context, include at least 2 of those exact plain-language nouns in the final copy.
+  - Do not hide the only audience marker inside a hashtag; the body should make the audience obvious.
 
 QUALITY:
   - Write like a specific human who has opinions and experience. NOT a brand voice generator.
   - Use the vocabulary of someone who DOES this work, not someone who WRITES ABOUT this work.
   - Every paragraph must earn its place. If you can delete it and nothing is lost, delete it.
+  - Never use filler phrases: "seamless workflow", "circle back", "leverage", "unlock potential", "empower", "business landscape", "digital landscape", "tapestry", "showcase".
 
 VERIFY BEFORE OUTPUT — check ALL before returning:
   ✓ First line has a specific claim/number/entity (not generic opener)?

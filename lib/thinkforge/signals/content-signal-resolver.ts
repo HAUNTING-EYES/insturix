@@ -61,7 +61,7 @@ export interface ThinkForgeContentSignalProfile {
 }
 
 const OUTPUT_FORMAT_ALIASES: Array<[RegExp, OutputFormat]> = [
-  [/video|script|reel|short|tiktok|youtube|ugc|commercial|brand[-\s]?film/i, 'video_script'],
+  [/\b(video|script|reels?|tiktok|youtube|ugc|commercial)\b|\bshort[-\s]?form\b|\bbrand[-\s]?film\b/i, 'video_script'],
   [/linkedin|twitter|x\.com|instagram|facebook|social|post|thread/i, 'social_post'],
   [/caption/i, 'caption'],
   [/blog|article/i, 'blog_article'],

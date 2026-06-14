@@ -91,18 +91,91 @@ After the visible draft, append exactly one HTML comment in this shape:
 { "clickatron": { "...": "valid ClickatronCreativeSpec JSON" } }
 END_THINKFORGE_CLICKATRON_EXPORT -->
 
+Required JSON skeleton. Preserve these exact field names and nesting:
+{
+  "clickatron": {
+    "schemaVersion": 1,
+    "kind": "single_post_visual",
+    "assetIntent": "post_graphic",
+    "platform": "instagram",
+    "aspectRatio": "4:5",
+    "source": {
+      "sourceService": "thinkforge",
+      "sourceBlockIds": ["AUTO"]
+    },
+    "userIntent": {
+      "visualMode": "text_forward_graphic",
+      "wantsCarousel": false
+    },
+    "creativeBrief": {
+      "objective": "grounded objective",
+      "coreMessage": "grounded message",
+      "audience": "grounded audience",
+      "keyClaims": ["only claims supplied by the brief or resolved profile"]
+    },
+    "brand": {
+      "brandId": "grounded brand id if supplied",
+      "hardConstraints": ["grounded visible-text restrictions"],
+      "softPreferences": ["grounded style preferences"]
+    },
+    "renderPlan": {
+      "textPolicy": "editable_text_layers",
+      "imagePrompt": "visual-only scene, composition, objects, style, mood, layout, aspect ratio, and shared visual system",
+      "textLayers": [
+        {
+          "id": "headline",
+          "text": "exact readable words",
+          "role": "headline",
+          "priority": 90
+        }
+      ],
+      "slides": [
+        {
+          "id": "slide_1",
+          "index": 0,
+          "imagePrompt": "slide-specific visual scene, composition, objects, style, mood, and layout",
+          "sourceBlockIds": ["AUTO"],
+          "textLayers": [
+            {
+              "id": "slide_1_headline",
+              "text": "exact slide words",
+              "role": "headline",
+              "priority": 90
+            }
+          ]
+        }
+      ]
+    },
+    "validation": {
+      "status": "ready"
+    }
+  }
+}
+
 Rules for the hidden JSON:
 - Do not mention this export in the visible copy.
+- This hidden JSON is mandatory. If you must shorten something, shorten visible copy before shortening or omitting the hidden JSON.
 - Use schemaVersion 1.
 - Use kind "single_post_visual" for one visual, thread visual, blog header, newsletter graphic, or ad creative.
 - Use kind "carousel" only when the requested output is a carousel; include renderPlan.slides for every slide.
+- For carousel requests, keep the visible post compact enough to leave room for the complete hidden JSON: one hook, 2-4 short paragraphs, one CTA, then the sidecar.
 - Use source.sourceService "thinkforge" and source.sourceBlockIds ["AUTO"]. The backend replaces AUTO with real block IDs.
+- Include userIntent.visualMode using one of: auto, photo, illustration, product_mockup, text_forward_graphic, diagram, or mixed.
 - Choose platform from generic, instagram, linkedin, x, facebook, youtube, tiktok, or pinterest.
 - Use editable_text_layers unless the user explicitly asks for no text in the image.
+- Put textPolicy only at renderPlan.textPolicy. Never emit clickatron.textPolicy.
 - Put exact readable words in renderPlan.textLayers, not inside renderPlan.imagePrompt.
+- Every renderPlan.textLayers item must use id, text, role, and priority. Never use content, position, or style as substitutes.
+- Text layer role must be one of: hook, headline, subheadline, body, cta, badge, label. Use "subheadline", never "subhead".
+- If using renderPlan.slides, every slide must include id, index, imagePrompt, and sourceBlockIds ["AUTO"]. Slide textLayers follow the same id/text/role/priority shape.
+- renderPlan.imagePrompt is always required, even for carousels. For a carousel, make it an overview prompt describing the shared visual system, layout, aspect ratio, and art direction across all slides.
 - Keep renderPlan.imagePrompt focused on scene, composition, objects, metaphor, style, mood, and layout.
+- Do not invent visible-copy or sidecar claims. A claim is grounded only if it appears in the user request, project summary, brand context, retrieved context, or clickatron_resolved_profile.creativeBrief.keyClaims.
+- Grounded means exact. Do not infer ingredient subtype, mechanism, absorption speed, compatibility, outcome, timeline, client result, or performance guarantee from a broader supplied claim.
 - Use brand.hardConstraints only for constraints grounded in the prompt or retrieved brand context. Do not invent logo placement, claims, colors, or legal promises.
-- If <clickatron_resolved_profile> is present, treat it as authoritative for kind, assetIntent, platform, aspectRatio, textPolicy, audience, keyClaims, brand constraints, and visual needs.
+- If <clickatron_resolved_profile> is present, copy its kind, assetIntent, platform, aspectRatio, textPolicy, audience, keyClaims, brand constraints, and visual needs exactly unless the user's latest request explicitly overrides them.
+- Treat clickatron_resolved_profile as a lock file for platform, aspectRatio, textPolicy, and text layer policy. The hidden JSON and imagePrompt must not contradict those values.
+- If clickatron_resolved_profile.aspectRatio is "4:5", the aspectRatio field and imagePrompt must both stay 4:5. Do not describe the composition as 9:16, vertical story, Reels, or full-screen mobile unless the resolved profile says 9:16.
 - Copy grounded proof points from clickatron_resolved_profile.creativeBrief.keyClaims into creativeBrief.keyClaims when they are relevant to the image.
 - Use clickatron_resolved_profile.brand.hardConstraints for visible text restrictions. Never put forbidden brand terms in renderPlan.textLayers.
 - If the user's visual preference is unclear, set validation.status to "needs_user_input" and add one concise question in validation.needsUserInput.
@@ -293,7 +366,7 @@ export function extractRequiredClickatronCreativeSidecar(markdown: string): {
     throw new Error(`ThinkForge Clickatron export sidecar JSON is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const exportMeta = normalizeThinkForgeBlockExportMeta(parsed);
+  const exportMeta = normalizeThinkForgeBlockExportMeta(repairRecoverableClickatronCreativeSidecar(parsed));
   if (!exportMeta?.clickatron) {
     throw new Error('ThinkForge Clickatron export sidecar must include exportMeta.clickatron');
   }
@@ -302,6 +375,47 @@ export function extractRequiredClickatronCreativeSidecar(markdown: string): {
     visibleMarkdown: stripClickatronCreativeSidecarText(markdown),
     exportMeta,
   };
+}
+
+function repairRecoverableClickatronCreativeSidecar(input: unknown): unknown {
+  if (!isRecord(input)) return input;
+  const clickatron = isRecord(input.clickatron) ? input.clickatron : undefined;
+  const renderPlan = clickatron && isRecord(clickatron.renderPlan) ? clickatron.renderPlan : undefined;
+  if (!clickatron || !renderPlan) return input;
+
+  const imagePrompt = typeof renderPlan.imagePrompt === 'string' ? renderPlan.imagePrompt.trim() : '';
+  if (imagePrompt) return input;
+
+  const slidePrompts = Array.isArray(renderPlan.slides)
+    ? renderPlan.slides
+      .map((slide) => (isRecord(slide) && typeof slide.imagePrompt === 'string' ? slide.imagePrompt.trim() : ''))
+      .filter(Boolean)
+    : [];
+
+  if (slidePrompts.length === 0) return input;
+
+  return {
+    ...input,
+    clickatron: {
+      ...clickatron,
+      renderPlan: {
+        ...renderPlan,
+        imagePrompt: buildCarouselOverviewImagePrompt(slidePrompts),
+      },
+    },
+  };
+}
+
+function buildCarouselOverviewImagePrompt(slidePrompts: string[]): string {
+  const overview = slidePrompts
+    .slice(0, 6)
+    .map((prompt, index) => `Slide ${index + 1}: ${prompt}`)
+    .join(' ');
+  return `Carousel overview for Clickatron. Preserve the shared aspect ratio, visual system, composition language, typography-safe negative space, and brand mood across all slides. ${overview}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function resolveTextLayers(layers: ClickatronTextLayer[] | undefined, fallbackBlockId: string): ClickatronTextLayer[] | undefined {

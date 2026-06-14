@@ -68,6 +68,55 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.profile.signals.kairos_pressure).toBeGreaterThan(0.7);
   });
 
+  it('keeps short Instagram captions as static social posts', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt:
+        'Write an Instagram caption and Clickatron-ready text + image post for our new vitamin C serum launch photo.',
+      documentType: 'post',
+      platform: 'Instagram',
+      brandId: 'brand_glow',
+      project: {
+        projectName: 'Vitamin C Serum Launch',
+        platform: 'Instagram',
+        format: 'post',
+        purpose: 'product launch',
+        tone: 'warm expert',
+      },
+      context: {
+        projectSummary: 'GlowNaturals is a clean skincare brand launching a vitamin C serum.',
+        systemBrief:
+          'Brand DNA: warm, ingredient-aware, sensory, transparent. Audience: women 25-40. Structural habit: short caption, ingredient proof, soft CTA.',
+      },
+      retrievedContext: {
+        brandDNA: {
+          voiceLock: 'warm, ingredient-aware, sensory, transparent',
+          nicheMap: 'clean skincare buyers',
+          killList: ['miracle', 'chemical-free'],
+          hookArchetypes: ['sensory product hook'],
+          structuralHabits: ['short caption, ingredient proof, soft CTA'],
+        },
+        projectFacts: [
+          {
+            id: 'fact_serum_1',
+            title: 'Formula proof',
+            summary: 'The serum uses 10% stabilized vitamin C and refillable glass packaging.',
+            tags: ['product', 'sustainability'],
+          },
+        ],
+        globalFacts: [],
+        semanticFacts: [],
+        interactionPatterns: [],
+      },
+    });
+
+    expect(resolved.profile.constraints.output_format).toBe('social_post');
+    expect(resolved.intent.clickatron.assetIntent).toBe('static_image');
+    expect(resolved.profile.constraints.platform_constraints).toMatchObject({
+      platform: 'Instagram',
+      preferredAspectRatio: '4:5',
+    });
+  });
+
   it('clamps explicit signal overrides and formats a prompt block', () => {
     const resolved = resolveContentSignalProfile({
       userPrompt: 'Create a 45 second YouTube Short script with bold data-backed narration.',
