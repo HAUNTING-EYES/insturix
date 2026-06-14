@@ -707,25 +707,26 @@ describe('Brand Vault draft orchestrator', () => {
     expect(crawlLane).toMatchObject({
       status: 'complete',
       sourceCount: 3,
-      topSignalPaths: expect.arrayContaining(['identity.proofStyle', 'voice.recurringPhrases', 'voice.ctaDirectness']),
+      topSignalPaths: expect.arrayContaining(['identity.proofStyle', 'identity.audience', 'voice.recurringPhrases']),
     });
     expect(crawlLane?.candidateCount).toBeGreaterThan(3);
     expect(crawlLane?.notes).toEqual([
-      'Crawled 3 additional pages and extracted 15 page-level candidates.',
+      'Crawled 3 additional pages and extracted 10 page-level candidates.',
     ]);
     expect(crawlSignalCandidates.map((candidate) => candidate.sourceField)).toEqual(
       expect.arrayContaining([
         'crawl.page.1.headings',
-        'crawl.page.1.ctas',
+        'crawl.page.1.copy',
         'crawl.page.2.proof',
+        'crawl.page.3.hooks',
         'crawl.page.3.proof',
       ]),
     );
     expect(crawlSignalCandidates.map((candidate) => candidate.signalPath)).toEqual(
-      expect.arrayContaining(['identity.audience', 'identity.proofStyle', 'voice.recurringPhrases', 'voice.hookArchetypes', 'voice.ctaDirectness']),
+      expect.arrayContaining(['identity.audience', 'identity.proofStyle', 'voice.recurringPhrases', 'voice.hookArchetypes']),
     );
     expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'identity.proofStyle')?.candidateCount).toBeGreaterThan(3);
-    expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'voice.ctaDirectness')?.candidateCount).toBeGreaterThan(1);
+    expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'identity.audience')?.candidateCount).toBeGreaterThan(1);
   });
 
   it('promotes useful crawler candidates into weak draft signals without inflating confidence', async () => {
@@ -805,6 +806,103 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.profile.voice.hookArchetypes.confidence).toBe(0.48);
     expect(result.profile.voice.hookArchetypes.confidence).toBeLessThan(0.55);
     expect(result.profile.voice.hookArchetypes.evidenceIds.length).toBeGreaterThan(1);
+  });
+
+  it('keeps crawled Insturix-shaped audience and phrase promotions concise', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, string> = {
+      'https://signal.example/': pageHtml(
+        'Insturix',
+        [
+          '<h1>Automated content production for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.</h1>',
+          '<p>Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.</p>',
+          '<a href="/evidence">Evidence</a>',
+        ].join(''),
+      ),
+      'https://signal.example/evidence': pageHtml(
+        'Insturix Evidence',
+        [
+          '<h1>Choose your access level</h1>',
+          '<h2>Your current stack costs more than you think</h2>',
+          '<h2>One platform. Entire production.</h2>',
+          '<h2>Stay in the loop</h2>',
+          '<p>AI-assisted editing helps with the editing stage.</p>',
+          '<p>For simple projects, that path can be informal.</p>',
+          '<p>Agencies scale by keeping the production workflow connected.</p>',
+          '<p>Scale multiple clients without creating more handoffs or brand drift.</p>',
+          '<p>Automated content production for creator houses, in-house teams, agencies, businesses, enterprises, and filmmakers.</p>',
+          '<a href="/start">Start scan</a>',
+          '<a href="/faq">Frequently asked questions</a>',
+        ].join(''),
+      ),
+    };
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_insturix_crawl_quality',
+        profileRecordId: 'draft_insturix_crawl_quality',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/evidence',
+            platform: 'website',
+            crawl: {
+              maxPages: 1,
+              maxDepth: 0,
+              includePaths: ['/evidence'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          const html = pages[url];
+          if (!html) throw new Error(`Unexpected crawl URL: ${url}`);
+          return {
+            normalizedUrl: url,
+            html,
+            contentType: 'text/html',
+            fetchedAt: NOW,
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    expect(result.profile.identity.industry?.value).toBe('content production software');
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining([
+      'agencies',
+      'in-house teams',
+      'enterprises',
+      'creator houses',
+      'filmmakers',
+    ]));
+    expect(result.profile.identity.audience.value.join(' | ')).not.toMatch(
+      /editing stage|production workflow connected|brand drift|handoffs|path can be|multiple clients/i,
+    );
+
+    expect(result.profile.voice.recurringPhrases.value.length).toBeLessThanOrEqual(12);
+    expect(result.profile.voice.recurringPhrases.value).not.toEqual(expect.arrayContaining([
+      'Choose your access level',
+      'Stay in the loop',
+      'Start scan',
+      'Frequently asked questions',
+    ]));
+    expect(result.profile.voice.hookArchetypes.value).toEqual(expect.arrayContaining(['system']));
+    expect(result.profile.voice.hookArchetypes.value).not.toEqual(expect.arrayContaining([
+      'Your current stack costs more than you think',
+      'Choose your access level',
+      'Stay in the loop',
+      'Start scan',
+      'Frequently asked questions',
+    ]));
   });
 
   it('strips script payloads before deriving crawler proof snippets', async () => {

@@ -1617,20 +1617,27 @@ function crawlSignalCandidates(args: {
     });
   };
 
-  if (args.content.headings.length > 0) {
+  if (isLowValueCrawlSignalPage(args.snapshot.normalizedUrl, args.content.title)) return candidates;
+
+  const promotableHeadings = args.content.headings.filter(isPromotableRecurringPhrase);
+  if (promotableHeadings.length > 0) {
     add({
       sourceField: 'headings',
       signalPath: 'voice.recurringPhrases',
-      rawValue: args.content.headings,
-      normalizedValue: args.content.headings,
-      excerpt: `Crawled page headings: ${args.content.headings.join(' | ')}`,
+      rawValue: promotableHeadings,
+      normalizedValue: promotableHeadings,
+      excerpt: `Crawled page headings: ${promotableHeadings.join(' | ')}`,
       confidence: 0.52,
     });
+  }
+
+  const hookArchetypes = crawlHookArchetypes(args.content.headings);
+  if (hookArchetypes.length > 0) {
     add({
       sourceField: 'hooks',
       signalPath: 'voice.hookArchetypes',
       rawValue: args.content.headings,
-      normalizedValue: crawlHookArchetypes(args.content.headings),
+      normalizedValue: hookArchetypes,
       excerpt: `Crawled page hook language: ${args.content.headings.join(' | ')}`,
       confidence: 0.48,
     });
@@ -1680,7 +1687,7 @@ interface CrawlPageContent {
 
 function extractCrawlPageContent(snapshot: BrandWebsiteSnapshot): CrawlPageContent {
   const $ = load(snapshot.html);
-  $('script,style,noscript,svg').remove();
+  $('script,style,noscript,svg,template,iframe,nav,header,footer,aside,form').remove();
   const headings = crawlTexts($, 'h1,h2,h3', 8);
   const ctas = crawlTexts($, 'a,button', 8).filter((text) => /\b(?:book|start|get|try|request|contact|demo|buy|talk|schedule|join|download|learn)\b/i.test(text));
   const proofSnippets = uniqueStrings([
@@ -1716,8 +1723,36 @@ function crawlTexts($: ReturnType<typeof load>, selector: string, limit: number)
   return uniqueStrings($(selector)
     .map((_, element) => sanitizeEvidenceExcerpt($(element).text().replace(/\s+/g, ' ').trim(), 180))
     .get()
-    .filter((text) => text.length >= 3))
+    .filter((text) => text.length >= 3 && !isGenericCrawlSignalText(text)))
     .slice(0, limit);
+}
+
+function isLowValueCrawlSignalPage(url: string, title?: string): boolean {
+  const pathname = safePathname(url);
+  if (/\/resources\/(?:faq|support|tutorials?)(?:\/|$)/i.test(pathname)) return true;
+  if (/\/resources\/blogs\/?$/i.test(pathname)) return true;
+  if (/\/(?:contact(?:us)?|support-us|upgrade|pricing|showcase|newsroom)\/?$/i.test(pathname)) return true;
+  return /\b(?:faq|help and troubleshooting|tutorials?|pricing|showcase|newsroom)\b/i.test(title ?? '');
+}
+
+function isGenericCrawlSignalText(value: string): boolean {
+  const text = value.trim();
+  if (/^(?:pro|free|newsroom|pricing|resources|products?|about|contact|support|login|sign in|faq|faqs)$/i.test(text)) return true;
+  if (/^(?:choose your access level|stay in the loop|sponsor a room|build with us|back the mission|write for us|how can we help\??|frequently asked questions|learn the floor)$/i.test(text)) {
+    return true;
+  }
+  if (/^(?:book|start|get|try|request|contact|demo|buy|talk|schedule|join|download|learn|choose|stay|sponsor|build|back|write|read|subscribe)\b/i.test(text) && text.split(/\s+/).length <= 5) {
+    return true;
+  }
+  return false;
+}
+
+function safePathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
 }
 
 function crawlMetricSnippets(text: string): string[] {
@@ -1736,7 +1771,7 @@ function crawlHookArchetypes(headings: string[]): string[] {
   if (/\b(?:trusted|proof|results?|case|customers?)\b/.test(joined)) hooks.push('proof');
   if (/\b(?:one|platform|system|all-in-one|operating system)\b/.test(joined)) hooks.push('system');
   if (/\b(?:stop|avoid|without|instead)\b/.test(joined)) hooks.push('contrast');
-  return hooks.length > 0 ? hooks : headings.slice(0, 4);
+  return hooks;
 }
 
 function crawlCtaDirectness(ctas: string[]): number {
