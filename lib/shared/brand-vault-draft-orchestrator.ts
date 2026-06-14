@@ -27,7 +27,6 @@ import type {
   BrandRefineryJob,
   BrandVaultSourceInput,
   BrandWebsiteSnapshot,
-  BrandWebsiteStylesheetSnapshot,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 
@@ -384,8 +383,8 @@ export async function createBrandVaultWebsiteDraftJob(
     const draft = createWebsiteBrandSignalProfileDraft(
       {
         websiteUrl: snapshot.normalizedUrl,
-        html: combineSnapshotHtml(snapshot, crawl.snapshots),
-        stylesheets: combineSnapshotStylesheets(snapshot, crawl.snapshots),
+        html: snapshot.html,
+        stylesheets: snapshot.stylesheets,
         brandId: input.brandId,
         userId: input.userId,
         companyName: input.companyName,
@@ -1509,23 +1508,6 @@ function decodeHtmlEntities(value: string): string {
 
 function clampInteger(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)));
-}
-
-function combineSnapshotHtml(root: BrandWebsiteSnapshot, snapshots: BrandWebsiteSnapshot[]): string {
-  if (snapshots.length === 0) return root.html;
-  return [root, ...snapshots]
-    .map((snapshot) => `<!-- Brand Vault source: ${snapshot.normalizedUrl} -->\n${snapshot.html}`)
-    .join('\n');
-}
-
-function combineSnapshotStylesheets(root: BrandWebsiteSnapshot, snapshots: BrandWebsiteSnapshot[]): BrandWebsiteStylesheetSnapshot[] {
-  const stylesheets = new Map<string, BrandWebsiteStylesheetSnapshot>();
-  for (const snapshot of [root, ...snapshots]) {
-    for (const stylesheet of snapshot.stylesheets ?? []) {
-      if (!stylesheets.has(stylesheet.url)) stylesheets.set(stylesheet.url, stylesheet);
-    }
-  }
-  return [...stylesheets.values()];
 }
 
 function stylesheetWarningsForSnapshots(snapshots: BrandWebsiteSnapshot[]): string[] {

@@ -808,6 +808,95 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.profile.voice.hookArchetypes.evidenceIds.length).toBeGreaterThan(1);
   });
 
+  it('keeps full-crawl app UI evidence out of canonical website copy', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, string> = {
+      'https://signal.example/': pageHtml(
+        'Signal House',
+        [
+          '<h1>Signal House</h1>',
+          '<p>Planning software for service teams.</p>',
+          '<a href="/app-demo">Product demo</a>',
+        ].join(''),
+      ),
+      'https://signal.example/app-demo': pageHtml(
+        'Signal House Product Demo',
+        [
+          '<h1>One operating system for agency production</h1>',
+          '<p>Built for B2B agency operators scaling video production.</p>',
+          '<div class="editor-shell">',
+          '<button>Export</button>',
+          '<button>LAYERS</button>',
+          '<button>Script</button>',
+          '<button>Media</button>',
+          '<button>Captions</button>',
+          '<button>Pipeline</button>',
+          '</div>',
+        ].join(''),
+      ),
+    };
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_crawl_root_separation',
+        profileRecordId: 'draft_crawl_root_separation',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/app-demo',
+            platform: 'website',
+            crawl: {
+              maxPages: 1,
+              maxDepth: 0,
+              includePaths: ['/app-demo'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          const html = pages[url];
+          if (!html) throw new Error(`Unexpected crawl URL: ${url}`);
+          return {
+            normalizedUrl: url,
+            html,
+            contentType: 'text/html',
+            fetchedAt: NOW,
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    const crawlCandidates = result.candidates.filter((candidate) =>
+      candidate.extractorId === 'brand-vault-crawler.v1' && candidate.sourceUrl === 'https://signal.example/app-demo',
+    );
+    expect(crawlCandidates.map((candidate) => candidate.signalPath)).toEqual(
+      expect.arrayContaining(['voice.hookArchetypes', 'identity.audience']),
+    );
+    expect(result.profile.voice.hookArchetypes.value).toEqual(expect.arrayContaining(['system']));
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['B2B agency operators scaling video production']));
+
+    const canonicalWebsiteCopy = result.profile.evidence
+      .filter((item) => item.extractor === 'brand-website-refinery.v1' && item.sourceField === 'website.copy')
+      .map((item) => item.excerpt ?? '')
+      .join(' ');
+    expect(canonicalWebsiteCopy).toContain('Planning software for service teams.');
+    expect(canonicalWebsiteCopy).not.toMatch(/\b(?:Export|LAYERS|Script|Media|Captions|Pipeline)\b/);
+
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'crawl')).toMatchObject({
+      status: 'complete',
+      sourceCount: 1,
+    });
+  });
+
   it('keeps crawled Insturix-shaped audience and phrase promotions concise', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const pages: Record<string, string> = {
