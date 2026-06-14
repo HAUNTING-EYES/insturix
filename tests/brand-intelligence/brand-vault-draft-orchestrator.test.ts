@@ -461,10 +461,22 @@ describe('Brand Vault draft orchestrator', () => {
     expect(crawled[0]?.normalizedValue).toMatchObject({ title: 'About Signal House' });
     expect(result.warnings).toContain('Crawled 3 additional brand pages for draft evidence.');
     expect(result.reviewPayload.intake.website.crawledPageCount).toBe(3);
+    const rootWebsiteEvidenceCount = result.profile.evidence.filter((item) =>
+      ['first_party_website', 'website', 'website_metadata', 'json_ld', 'css', 'logo_asset'].includes(item.sourceType)
+      && item.extractor !== 'brand-vault-crawler.v1'
+      && !(item.sourceField ?? '').startsWith('crawl.page')
+    ).length;
+    expect(result.reviewPayload.intake.website.evidenceCount).toBe(
+      rootWebsiteEvidenceCount,
+    );
+    expect(result.reviewPayload.intake.website.evidenceCount).toBeLessThan(result.profile.evidence.length);
     expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'crawl')).toMatchObject({
       status: 'complete',
       sourceCount: 3,
     });
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'website')?.evidenceCount).toBe(
+      result.reviewPayload.intake.website.evidenceCount,
+    );
   });
 
   it('keeps crawler skips out of social intake and filters low-value crawl pages', async () => {

@@ -769,11 +769,18 @@ describe('Brand website refinery', () => {
       :root {
         --brand-primary: #102033;
         --brand-accent: #ff6a00;
+        --color-accent: #ff5722;
+        --color-red-500: #fb2c36;
+        --color-purple-500: #ac4bff;
+        --color-emerald-500: #00bb7f;
+        --chart-1: #f99c00;
+        --destructive: #d46a5c;
         --tw-ring-color: #ef4444;
         --radix-tooltip-background: #22c55e;
         --invisible: #00000000;
       }
       .hero { color: var(--brand-primary); background: rgba(255, 106, 0, 0.95); }
+      .enterprise-cta { color: #ff5722; }
       .ghost { border-color: rgba(1, 2, 3, 0); }
     </style>
   </head>
@@ -792,8 +799,18 @@ describe('Brand website refinery', () => {
       ...result.profile.palette.supporting.value,
       ...result.profile.palette.neutrals.value,
     ].filter((color): color is string => Boolean(color));
-    expect(paletteColors).toEqual(expect.arrayContaining(['#102033', '#ff6a00']));
-    expect(paletteColors).not.toEqual(expect.arrayContaining(['#ef4444', '#22c55e', '#000000', '#010203']));
+    expect(paletteColors).toEqual(expect.arrayContaining(['#102033', '#ff6a00', '#ff5722']));
+    expect(paletteColors).not.toEqual(expect.arrayContaining([
+      '#fb2c36',
+      '#ac4bff',
+      '#00bb7f',
+      '#f99c00',
+      '#d46a5c',
+      '#ef4444',
+      '#22c55e',
+      '#000000',
+      '#010203',
+    ]));
   });
 
   it('filters generic real-site noise from software brand drafts', () => {

@@ -776,7 +776,7 @@ function createIntakeSummary(args: {
   const uploadCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'uploaded_guideline' || candidate.sourceType === 'uploaded_asset');
   const uploadExtractorCandidates = uploadCandidates.filter((candidate) => candidate.extractorId === UPLOAD_EXTRACTOR);
   const legacyCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'legacy_brand_intelligence');
-  const websiteEvidenceCount = args.profile.evidence.filter((item) => isWebsiteProfileEvidenceSource(item.sourceType)).length;
+  const websiteEvidenceCount = args.profile.evidence.filter(isRootWebsiteProfileEvidence).length;
   const websiteStatus: BrandVaultIntakeStageStatus = args.job.status === 'failed' ? 'failed' : 'complete';
   const social = createSocialIntakeSummary({
     socialLinks: args.job.inputs.socialLinks,
@@ -1118,12 +1118,20 @@ function isCrawlPageCandidate(candidate: BrandEvidenceCandidate): boolean {
   return candidate.extractorId === CRAWL_EXTRACTOR && candidate.sourceField === 'crawl.page';
 }
 
+function isCrawlProfileEvidence(evidence: BrandSignalEvidence): boolean {
+  return evidence.extractor === CRAWL_EXTRACTOR || (evidence.sourceField ?? '').startsWith('crawl.page');
+}
+
 function isWebsiteEvidenceSource(sourceType: string): boolean {
   return ['website', 'website_metadata', 'json_ld', 'css', 'logo_asset'].includes(sourceType);
 }
 
 function isWebsiteProfileEvidenceSource(sourceType: string): boolean {
   return sourceType === 'first_party_website' || isWebsiteEvidenceSource(sourceType);
+}
+
+function isRootWebsiteProfileEvidence(evidence: BrandSignalEvidence): boolean {
+  return isWebsiteProfileEvidenceSource(evidence.sourceType) && !isCrawlProfileEvidence(evidence);
 }
 
 function isAuthWarning(warning: string): boolean {

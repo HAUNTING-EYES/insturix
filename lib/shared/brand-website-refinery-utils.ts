@@ -30,10 +30,12 @@ const FONT_FAMILY_DECLARATION_PATTERN = /(?:^|[;{]\s*)font-family\s*:\s*([^;}]+)
 const MAX_EXTRACTED_WEBSITE_COLORS = 32;
 const COLOR_CONTEXT_RADIUS = 96;
 const STRONG_BRAND_COLOR_CONTEXT =
-  /\b(?:brand|primary|secondary|accent|highlight|cta|button|link|hero|gradient|logo|mark|selected|active|focus|theme)\b|--[a-z0-9-]*(?:brand|primary|secondary|accent|highlight|cta|gradient|logo|theme)[a-z0-9-]*/i;
+  /\b(?:brand|primary|secondary|accent|highlight|cta|button|link|hero|gradient|logo|mark|selected|active|focus|theme|enterprise|contact|sales|product)\b|--[a-z0-9-]*(?:brand|primary|secondary|accent|highlight|cta|gradient|logo|theme|product)[a-z0-9-]*/i;
 const COLOR_PROPERTY_CONTEXT = /\b(?:color|background|border|fill|stroke|shadow|ring|outline|decoration)\b|#[a-z0-9_-]+/i;
 const NEUTRAL_COLOR_CONTEXT = /\b(?:neutral|gray|grey|slate|zinc|stone|surface|paper|white|black|muted|subtle|border|shadow)\b/i;
 const COMPILED_UTILITY_COLOR_CONTEXT = /\b(?:--tw-|tailwind|radix|shiki|hljs|prism|swiper|toastify|skeleton|placeholder|syntax|recharts|apexcharts|chart-\d|ring-offset|backdrop)\b/i;
+const DEFAULT_UTILITY_COLOR_TOKEN_CONTEXT =
+  /(?:--(?:color-)?(?:slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b|--(?:background|foreground|card|popover|muted|border|input|ring|destructive|chart-\d)\b|\b(?:text|bg|border|ring|from|via|to)-(?:slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b)/i;
 const NON_LOGO_ASSET_CONTEXT_PATTERN = /\b(?:product|products|collection|catalog|hero|banner|cover|thumbnail|thumb|preview|share|social|og-image|avatar|team|photo|gallery|sprite|payment|badge)\b/i;
 const STRONG_LOGO_CONTEXT_PATTERN = /\b(?:logo|logomark|wordmark|brandmark|brand logo|site logo|navbar-brand)\b/i;
 
@@ -984,10 +986,12 @@ function colorOccurrencesFromText(text: string): Array<{ color: string; contextW
 
 function colorContextWeight(text: string, index: number): number {
   const context = text.slice(Math.max(0, index - COLOR_CONTEXT_RADIUS), index + COLOR_CONTEXT_RADIUS);
+  const immediateContext = text.slice(Math.max(0, index - 48), index + 24);
   let weight = 0;
   if (STRONG_BRAND_COLOR_CONTEXT.test(context)) weight += 10;
   if (COLOR_PROPERTY_CONTEXT.test(context)) weight += 3;
   if (NEUTRAL_COLOR_CONTEXT.test(context)) weight -= 2;
+  if (DEFAULT_UTILITY_COLOR_TOKEN_CONTEXT.test(immediateContext)) weight -= 24;
   if (COMPILED_UTILITY_COLOR_CONTEXT.test(context)) weight -= 12;
   return weight;
 }
