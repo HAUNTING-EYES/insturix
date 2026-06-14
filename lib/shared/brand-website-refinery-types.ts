@@ -151,6 +151,33 @@ export interface BrandWebsiteStylesheetSnapshot {
   contentType?: string;
 }
 
+export type BrandWebsiteFetchFallbackReason =
+  | 'http_blocked'
+  | 'rate_limited'
+  | 'server_error'
+  | 'browser_challenge'
+  | 'javascript_shell'
+  | 'empty_html';
+
+export interface BrandWebsiteBrowserFallbackInput {
+  normalizedUrl: string;
+  reason: BrandWebsiteFetchFallbackReason;
+  httpStatus?: number;
+  contentType?: string;
+  htmlExcerpt?: string;
+  now?: string;
+  userAgent?: string;
+}
+
+export interface BrandWebsiteBrowserFallbackSnapshot {
+  normalizedUrl?: string;
+  html: string;
+  contentType?: string;
+  stylesheets?: BrandWebsiteStylesheetSnapshot[];
+  stylesheetWarnings?: string[];
+  fetchWarnings?: string[];
+}
+
 export interface BrandWebsiteSnapshot {
   normalizedUrl: string;
   html: string;
@@ -158,13 +185,19 @@ export interface BrandWebsiteSnapshot {
   contentType?: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
   stylesheetWarnings?: string[];
+  fetchWarnings?: string[];
+  browserFallbackRequired?: boolean;
+  fetchFallbackReason?: BrandWebsiteFetchFallbackReason;
 }
 
 export interface FetchWebsiteBrandSnapshotOptions {
   fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
+  browserFallbackFetchFn?: (input: BrandWebsiteBrowserFallbackInput) => Promise<BrandWebsiteBrowserFallbackSnapshot | undefined>;
   timeoutMs?: number;
   now?: string;
   userAgent?: string;
+  browserUserAgent?: string;
+  disableBrowserLikeRetry?: boolean;
   fetchLinkedStylesheets?: boolean;
   maxLinkedStylesheets?: number;
   maxStylesheetBytes?: number;

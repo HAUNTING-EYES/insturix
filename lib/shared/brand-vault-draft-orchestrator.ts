@@ -276,6 +276,13 @@ const PROMOTABLE_REVIEW_SIGNAL_PATHS = new Set([
   'identity.proofStyle',
   'voice.ctaDirectness',
 ]);
+const PROMOTED_STRING_ARRAY_LIMITS: Record<string, number> = {
+  'palette.supporting': 16,
+  'voice.killList': 16,
+  'voice.recurringPhrases': 12,
+  'voice.hookArchetypes': 12,
+  'identity.audience': 8,
+};
 const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
@@ -362,7 +369,7 @@ export async function createBrandVaultWebsiteDraftJob(
       message: errorMessage(error),
       createdAt: startedAt,
       updatedAt: resolveNow(input.now, dependencies.clock),
-      warnings: ['Website fetch failed; Brand Vault could not create a website evidence draft.'],
+      warnings: [`Website fetch failed; Brand Vault could not create a website evidence draft. ${errorMessage(error)}`],
     });
   }
 
@@ -1514,7 +1521,7 @@ function combineSnapshotStylesheets(root: BrandWebsiteSnapshot, snapshots: Brand
 }
 
 function stylesheetWarningsForSnapshots(snapshots: BrandWebsiteSnapshot[]): string[] {
-  return snapshots.flatMap((snapshot) => snapshot.stylesheetWarnings ?? []);
+  return snapshots.flatMap((snapshot) => [...(snapshot.fetchWarnings ?? []), ...(snapshot.stylesheetWarnings ?? [])]);
 }
 
 function createCrawlCandidates(args: {
@@ -2073,11 +2080,16 @@ function mergeStringArraySignal(
   evidence: BrandSignalEvidence,
   profile: BrandSignalProfile,
 ): boolean {
-  const values = normalizeStringArrayCandidate(candidate.normalizedValue);
+  const values = normalizePromotedStringArrayCandidate(candidate.signalPath, candidate.normalizedValue);
   if (values.length === 0) return false;
 
-  const merged = uniqueStrings([...values, ...signal.value]);
-  const hasNewValues = merged.length !== signal.value.length;
+  const existing = normalizePromotedStringArrayCandidate(candidate.signalPath, signal.value);
+  const candidateFirst = candidate.confidence >= signal.confidence || signal.trustLevel === 'fallback_default';
+  const merged = limitPromotedStringArray(
+    candidate.signalPath,
+    uniqueStrings(candidateFirst ? [...values, ...existing] : [...existing, ...values]),
+  );
+  const hasNewValues = merged.length !== signal.value.length || merged.some((value, index) => value !== signal.value[index]);
   const hasStrongerEvidence = candidate.confidence > signal.confidence;
   if (!hasNewValues && !hasStrongerEvidence) return false;
 
@@ -2173,6 +2185,88 @@ function normalizeStringArrayCandidate(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
   if (typeof value === 'string' && value.trim()) return [value.trim()];
   return [];
+}
+
+function normalizePromotedStringArrayCandidate(signalPath: string, value: unknown): string[] {
+  const rawValues = normalizeStringArrayCandidate(value);
+  const values = rawValues
+    .map(cleanPromotedPhrase)
+    .filter((item): item is string => Boolean(item));
+
+  if (signalPath === 'palette.supporting') return limitPromotedStringArray(signalPath, normalizeColorValues(values));
+  if (signalPath === 'identity.audience') {
+    return limitPromotedStringArray(
+      signalPath,
+      values
+        .map(cleanPromotedAudiencePhrase)
+        .filter((item): item is string => Boolean(item)),
+    );
+  }
+  if (signalPath === 'voice.recurringPhrases') {
+    return limitPromotedStringArray(signalPath, values.filter(isPromotableRecurringPhrase));
+  }
+  if (signalPath === 'voice.hookArchetypes') {
+    return limitPromotedStringArray(signalPath, values.filter((item) => item.length >= 3 && item.length <= 72));
+  }
+  return limitPromotedStringArray(signalPath, rawValues);
+}
+
+function cleanPromotedPhrase(value: string): string | undefined {
+  const phrase = sanitizeEvidenceExcerpt(value, 180)
+    .replace(/([.!?])(?=\S)/g, '$1 ')
+    .replace(/([a-z])([A-Z]{2,}\b)/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .replace(/^[\s,.;:|-]+|[\s,.;:|-]+$/g, '')
+    .trim();
+  return phrase || undefined;
+}
+
+function cleanPromotedAudiencePhrase(value: string): string | undefined {
+  let phrase = value
+    .replace(/^(?:the|a|an|our|your)\s+/i, '')
+    .replace(/^[\d,.]+\+?\s+/, '')
+    .trim();
+  phrase = phrase.split(/\s+(?:to|who|that|with|without|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
+  phrase = phrase.replace(/\s+(?:turn|build|launch|run|improve|ship|create|grow|manage|make|cut|drive|unlock|accept|optimise|optimize|enable|embed|monetise|monetize)\b.*$/i, '');
+  phrase = cleanPromotedPhrase(phrase) ?? '';
+  if (!phrase || phrase.length < 4 || phrase.length > 72) return undefined;
+  if (/\b(?:and|or|to|for|with|without|by|from|into|through|via)$/i.test(phrase)) return undefined;
+  if (/^(?:and|or|but|by|with|without|from|into|through|via|that|this|these|those|it|its|their|while|when|where|which|building|creating|shipping|scaling|accepting|optimizing|optimising|enabling|embedding|monetizing|monetising)\b/i.test(phrase)) return undefined;
+  if (/\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?)\b/i.test(phrase)) return undefined;
+  if (/^multiple clients\b/i.test(phrase)) return undefined;
+  if (/^(?:video|content|production|social|creative|marketing|sales|revenue|product|engineering|design|finance|support|ops|operations|payments?|billing)$/i.test(phrase)) return undefined;
+  if (/\b(?:floor|running and accessible|accessible|tools?|tooling|standard)\b/i.test(phrase)) return undefined;
+  if (/\bbrand$/i.test(phrase) && !/\b(?:brands|brand\s+(?:teams?|leaders?|managers?|owners?|marketers?|builders?|operators?))\b/i.test(phrase)) {
+    return undefined;
+  }
+  if (!/\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|teams?)\b/i.test(phrase)) {
+    return undefined;
+  }
+  return phrase;
+}
+
+function isPromotableRecurringPhrase(value: string): boolean {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (/^#[a-z][a-z0-9_]{2,40}$/i.test(value)) return true;
+  if (value.length < 10 || value.length > 120) return false;
+  if (words.length < 3 && !/\d/.test(value)) return false;
+  if (/^(?:pro|free|newsroom|pricing|resources|products?|about|contact|login|sign in|faq|faqs)$/i.test(value)) return false;
+  if (/^(?:choose your access level|stay in the loop|sponsor a room|build with us|back the mission|write for us|how can we help\??|frequently asked questions|learn the floor)$/i.test(value)) {
+    return false;
+  }
+  if (/^(?:learn more about|learn more|get a demo|get started|get started free|start free|try free|book a demo|request demo|contact sales)\b/i.test(value)) {
+    return false;
+  }
+  if (/^(?:book|start|get|try|request|contact|demo|buy|talk|schedule|join|download|learn|choose|stay|sponsor|build|back|write|read|subscribe)\b/i.test(value) && words.length <= 5) {
+    return false;
+  }
+  return true;
+}
+
+function limitPromotedStringArray(signalPath: string, values: string[]): string[] {
+  const limit = PROMOTED_STRING_ARRAY_LIMITS[signalPath];
+  return limit ? uniqueStrings(values).slice(0, limit) : uniqueStrings(values);
 }
 
 function normalizeProofStyleCandidate(value: unknown): BrandSignalProfile['identity']['proofStyle']['value'] | undefined {

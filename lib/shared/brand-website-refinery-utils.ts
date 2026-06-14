@@ -16,7 +16,14 @@ export const LIGHT_SURFACE = '#ffffff';
 
 const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn|download|subscribe|apply|schedule|request)\b/i;
 const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
-const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?)\b/i;
+const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|women|men|kids?|children|babies|parents?|mothers?|moms?|families|students?|professionals?|customers?|shoppers?|enthusiasts?|collectors?|travel(?:ers|lers)|runners?|climbers?|athletes?|gamers?|pet parents?|homeowners?|skin|hair|beard|coffee lovers?)\b/i;
+const AUDIENCE_FRAGMENT_PREFIX_PATTERN = /^(?:and|or|but|by|with|without|from|into|through|via|that|this|these|those|it|its|their|while|when|where|which|building|creating|shipping|scaling|accepting|optimizing|optimising|enabling|embedding|monetizing|monetising)\b/i;
+const AUDIENCE_NON_ENTITY_PATTERN = /\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?)\b/i;
+const AUDIENCE_STANDALONE_DOMAIN_PATTERN = /^(?:video|content|production|social|creative|marketing|sales|revenue|product|engineering|design|finance|support|ops|operations|payments?|billing)$/i;
+const AUDIENCE_PROMO_NOISE_PATTERN = /\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|mrp|price|sale|discount|coupon|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|new arrivals?|best sellers?|view all|quick view|sold out|login|sign in|track order|country\/region|newsletter|subscribe|cookie|privacy policy|terms of service|please use a different browser|enable javascript)\b/i;
+const AUDIENCE_CODE_OR_MARKUP_PATTERN = /(?:<\/?[a-z][^>]*>|["']>\s*|raw\s*=|await\s+resp|queryselector|document\.|window\.|function\s*\(|=>|{{|}}|@media|--[a-z0-9-]+:|[{};])/i;
+const BODY_NOISE_SELECTOR = 'script,style,noscript,svg,template,iframe,nav,header,footer,aside,form';
+const BODY_NOISE_ATTRIBUTE_PATTERN = /(?:^|[\s_-])(?:cart|wishlist|checkout|currency|country|newsletter|cookie|announcement|toast|modal|drawer|menu|breadcrumb|pagination|product-card|productcard|product-grid|productgrid|price|review|recommendation|recommendations|upsell|cross-sell|recently-viewed|recentlyviewed|search|login|signin|sign-in)(?:$|[\s_-])/i;
 const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
 const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
 const FONT_FAMILY_DECLARATION_PATTERN = /(?:^|[;{]\s*)font-family\s*:\s*([^;}]+)/gi;
@@ -26,11 +33,123 @@ const STRONG_BRAND_COLOR_CONTEXT =
   /\b(?:brand|primary|secondary|accent|highlight|cta|button|link|hero|gradient|logo|mark|selected|active|focus|theme)\b|--[a-z0-9-]*(?:brand|primary|secondary|accent|highlight|cta|gradient|logo|theme)[a-z0-9-]*/i;
 const COLOR_PROPERTY_CONTEXT = /\b(?:color|background|border|fill|stroke|shadow|ring|outline|decoration)\b|#[a-z0-9_-]+/i;
 const NEUTRAL_COLOR_CONTEXT = /\b(?:neutral|gray|grey|slate|zinc|stone|surface|paper|white|black|muted|subtle|border|shadow)\b/i;
+const COMPILED_UTILITY_COLOR_CONTEXT = /\b(?:--tw-|tailwind|radix|shiki|hljs|prism|swiper|toastify|skeleton|placeholder|syntax|recharts|apexcharts|chart-\d|ring-offset|backdrop)\b/i;
+const NON_LOGO_ASSET_CONTEXT_PATTERN = /\b(?:product|products|collection|catalog|hero|banner|cover|thumbnail|thumb|preview|share|social|og-image|avatar|team|photo|gallery|sprite|payment|badge)\b/i;
+const STRONG_LOGO_CONTEXT_PATTERN = /\b(?:logo|logomark|wordmark|brandmark|brand logo|site logo|navbar-brand)\b/i;
 
 const CATEGORY_RULES: Array<{
   label: string;
   signals: Array<[RegExp, number]>;
 }> = [
+  {
+    label: 'semiconductors',
+    signals: [
+      [/\b(?:semiconductors?|microchips?|silicon|processors?|accelerators?|gpus?|cpus?|foundry|wafer|fabs?)\b/g, 2],
+      [/\b(?:advanced nodes?|accelerated computing|data centers?|ai infrastructure)\b/g, 1],
+      [/\bchips?\b/g, 0.5],
+    ],
+  },
+  {
+    label: 'networking/communications equipment',
+    signals: [
+      [/\b(?:networking|routers?|switches|ethernet|wireless infrastructure|broadband|telecom equipment|optical networking)\b/g, 2],
+      [/\b(?:network security|connectivity|communications equipment)\b/g, 1.5],
+    ],
+  },
+  {
+    label: 'IT services',
+    signals: [
+      [/\b(?:it services|managed services|systems integration|digital transformation|technology consulting|implementation partners?|outsourcing)\b/g, 2],
+      [/\b(?:consulting|modernization|modernisation|enterprise transformation)\b/g, 1],
+    ],
+  },
+  {
+    label: 'cybersecurity',
+    signals: [
+      [/\b(?:cybersecurity|cyber security|endpoint security|identity security|threat detection|zero trust|security operations)\b/g, 2],
+      [/\b(?:secure access|risk management|vulnerability|firewall)\b/g, 1],
+    ],
+  },
+  {
+    label: 'cloud/data infrastructure',
+    signals: [
+      [/\b(?:cloud infrastructure|data infrastructure|data warehouse|data cloud|compute infrastructure|observability|database platform)\b/g, 2],
+      [/\b(?:cloud platform|storage platform|developer infrastructure)\b/g, 1.25],
+    ],
+  },
+  {
+    label: 'beauty/personal care',
+    signals: [
+      [/\b(?:skincare|skin care|haircare|hair care|personal care|beauty|cosmetics?|makeup|grooming|fragrance|ayurvedic)\b/g, 2],
+      [/\b(?:sunscreen|serum|cleanser|moisturi[sz]er|shampoo|conditioner|spf|de-?tan|beard|razor)\b/g, 1.5],
+    ],
+  },
+  {
+    label: 'fashion/apparel',
+    signals: [
+      [/\b(?:fashion|apparel|clothing|womenswear|menswear|ethnic wear|innerwear|lingerie|activewear|streetwear)\b/g, 2],
+      [/\b(?:kurtas?|sarees?|saris?|lehengas?|denim|shirts?|dresses|wardrobe|outdoor clothing)\b/g, 1.5],
+      [/\b(?:wear|gear)\b/g, 0.75],
+    ],
+  },
+  {
+    label: 'footwear',
+    signals: [
+      [/\b(?:footwear|shoes?|sneakers?|sandals?|slippers?|loafers?|soles?)\b/g, 2],
+    ],
+  },
+  {
+    label: 'jewelry/accessories',
+    signals: [
+      [/\b(?:jewellery|jewelry|silver|gold|diamond|necklaces?|earrings?|rings?|bracelets?|watches?|handbags?|bags?)\b/g, 1.75],
+      [/\baccessories\b/g, 1.25],
+    ],
+  },
+  {
+    label: 'food/beverage',
+    signals: [
+      [/\b(?:food|beverage|coffee|roaster|cafe|espresso|beans|brew|drink|snacks?|nutrition bars?|meat|seafood|dairy|grocery|juice|tonic|sauce)\b/g, 1.75],
+      [/\b(?:organic food|cold brew|ready to drink|ready-to-drink)\b/g, 2],
+    ],
+  },
+  {
+    label: 'home/living',
+    signals: [
+      [/\b(?:home decor|furniture|mattress|bedding|sleep|sofas?|tableware|kitchenware|furnishings?)\b/g, 2],
+      [/\b(?:living room|bedroom|dining|interiors?)\b/g, 1.25],
+    ],
+  },
+  {
+    label: 'electronics/appliances',
+    signals: [
+      [/\b(?:electronics|appliances?|audio|earbuds?|headphones?|speakers?|smartwatch|wearables?|chargers?|cables?|fans?|lighting)\b/g, 1.75],
+      [/\b(?:consumer tech|home automation|smart devices?)\b/g, 2],
+    ],
+  },
+  {
+    label: 'eyewear',
+    signals: [
+      [/\b(?:eyewear|glasses|sunglasses|frames|lenses|contact lenses)\b/g, 2],
+    ],
+  },
+  {
+    label: 'baby/kids',
+    signals: [
+      [/\b(?:baby care|kidswear|children|babies|toddlers|parenting|maternity|diapers?)\b/g, 2],
+    ],
+  },
+  {
+    label: 'luggage/travel',
+    signals: [
+      [/\b(?:luggage|suitcases?|backpacks?|travel gear|duffel|trolley bags?)\b/g, 2],
+    ],
+  },
+  {
+    label: 'pet care',
+    signals: [
+      [/\b(?:pet care|pet food|dog food|cat food|pets?|pet parents?)\b/g, 2],
+    ],
+  },
   {
     label: 'analytics',
     signals: [
@@ -122,7 +241,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
   const socialPreviewImages = extractSocialPreviewImages($, normalizedUrl);
 
-  $('script,style,noscript,svg').remove();
+  removeNonBrandBodyNoise($);
   const bodyText = sanitizeEvidenceExcerpt(readBodyText($) ?? '', 1200);
   return {
     normalizedUrl,
@@ -142,6 +261,22 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     socialPreviewImages,
     bodyText,
   };
+}
+
+function removeNonBrandBodyNoise($: ReturnType<typeof load>): void {
+  $(BODY_NOISE_SELECTOR).remove();
+  $('body').find('*').each((_, el) => {
+    const node = $(el);
+    const marker = [
+      node.attr('class'),
+      node.attr('id'),
+      node.attr('role'),
+      node.attr('aria-label'),
+      node.attr('data-testid'),
+      node.attr('data-test'),
+    ].filter(Boolean).join(' ');
+    if (BODY_NOISE_ATTRIBUTE_PATTERN.test(marker)) node.remove();
+  });
 }
 
 function readBodyText($: ReturnType<typeof load>): string | undefined {
@@ -175,8 +310,9 @@ function extractLogoCandidates(
   ): void => {
     const clean = cleanText(rawValue);
     const url = clean ? resolveWebsiteAssetUrl(clean, baseUrl) : undefined;
-    if (!clean || !url || !isLogoAssetCandidate(url)) return;
-    const score = scoreLogoCandidate(url, `${clean} ${context}`, role, baseScore);
+    const fullContext = `${clean} ${context}`;
+    if (!clean || !url || !isLogoAssetCandidate(url, fullContext)) return;
+    const score = scoreLogoCandidate(url, fullContext, role, baseScore);
     const existing = candidates.get(url);
     if (!existing || score > existing.score) {
       candidates.set(url, {
@@ -198,12 +334,20 @@ function extractLogoCandidates(
       $(el).attr('sizes'),
     ].filter(Boolean).join(' '));
   });
-  $('img[alt*="logo" i],img[src*="logo" i],img[src*="mark" i]').each((_, el) => {
-    add($(el).attr('src'), 'website.logoImage', 'logo', 90, [
-      $(el).attr('alt'),
-      $(el).attr('class'),
-      $(el).attr('id'),
-    ].filter(Boolean).join(' '));
+  $('meta[property="og:logo"],meta[name="msapplication-TileImage"]').each((_, el) => {
+    add($(el).attr('content'), 'metadata.logoImage', 'logo', 80, $(el).attr('property') ?? $(el).attr('name') ?? '');
+  });
+  $('img[alt*="logo" i],img[src*="logo" i],img[src*="mark" i],img[srcset*="logo" i],img[srcset*="mark" i],[data-logo-src]').each((_, el) => {
+    const node = $(el);
+    const context = [
+      node.attr('alt'),
+      node.attr('class'),
+      node.attr('id'),
+      node.attr('aria-label'),
+    ].filter(Boolean).join(' ');
+    for (const sourceValue of imageSourceCandidates(node)) {
+      add(sourceValue, 'website.logoImage', 'logo', 90, context);
+    }
   });
 
   return [...candidates.values()]
@@ -254,13 +398,35 @@ function resolveWebsiteAssetUrl(value: string, baseUrl: URL): string | undefined
   }
 }
 
-function isLogoAssetCandidate(url: string): boolean {
+function isLogoAssetCandidate(url: string, context = ''): boolean {
   const parsed = new URL(url);
   const path = parsed.pathname.toLowerCase();
   if (SOCIAL_PREVIEW_ASSET_PATTERN.test(path)) return false;
+  const fullContext = `${path} ${context}`;
+  if (NON_LOGO_ASSET_CONTEXT_PATTERN.test(fullContext) && !STRONG_LOGO_CONTEXT_PATTERN.test(fullContext)) return false;
   const extension = assetExtension(path);
   if (extension && IMAGE_ASSET_EXTENSIONS.has(extension)) return true;
   return /\b(?:logo|logomark|wordmark|brandmark|brand|mark|icon)\b/i.test(path);
+}
+
+function imageSourceCandidates(node: { attr(name: string): string | undefined }): string[] {
+  return uniqueText([
+    node.attr('src'),
+    node.attr('data-src'),
+    node.attr('data-lazy-src'),
+    node.attr('data-original'),
+    node.attr('data-logo-src'),
+    ...parseSrcset(node.attr('srcset')),
+    ...parseSrcset(node.attr('data-srcset')),
+  ]);
+}
+
+function parseSrcset(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim().split(/\s+/)[0])
+    .filter((item): item is string => Boolean(item));
 }
 
 function scoreLogoCandidate(url: string, context: string, role: BrandWebsiteLogoCandidateRole, baseScore: number): number {
@@ -363,6 +529,29 @@ export function inferCategory(text: string): string {
   return best && best.score >= 1.5 ? best.label : 'unknown';
 }
 
+export function inferIndustry(text: string, schemaTypes: string[] = []): string | undefined {
+  const lower = text.toLowerCase();
+  if (/\b(?:automated\s+)?content production\b/.test(lower) && /\b(?:platform|software|automation|workflow|ai)\b/.test(lower)) {
+    return 'content production software';
+  }
+  if (/\b(?:revenue intelligence|pipeline data|forecast accuracy|b2b analytics)\b/.test(lower)) return 'B2B analytics';
+  if (/\b(?:issue tracking|project management|roadmaps?|cycles|product development)\b/.test(lower)) {
+    return 'product management software';
+  }
+  if (isSpecialtyCoffeeBrand(lower)) return 'specialty coffee';
+
+  const category = inferCategory(text);
+  if (category !== 'unknown') return category;
+
+  const specificSchemaType = schemaTypes.find((type) => !isGenericSchemaIndustryType(type));
+  return specificSchemaType ? titleCaseSchemaType(specificSchemaType) : undefined;
+}
+
+function isSpecialtyCoffeeBrand(lower: string): boolean {
+  if (/\bspecialty coffee\b/.test(lower)) return true;
+  return /\bcoffee\b/.test(lower) && /\b(?:roaster|cafe|espresso|beans|brew|cold brew|barista)\b/.test(lower);
+}
+
 export function inferAudience(text: string): string[] {
   const matches = [
     ...text.matchAll(/\bfor\s+([^.!?\n;:]{4,180})/gi),
@@ -394,11 +583,13 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
 
   phrase = phrase.replace(/^(?:the|a|an|our|your)\s+/i, '');
   phrase = phrase.replace(/^[\d,.]+\+?\s+/, '');
-  phrase = phrase.split(/\s+(?:to|who|that|with|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
+  phrase = phrase.split(/\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|mrp|price|sale|discount|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|new arrivals?|best sellers?|view all|quick view|sold out|login|sign in|track order|country\/region|newsletter|subscribe)\b/i)[0] ?? phrase;
+  phrase = phrase.split(/\s+(?:to|who|that|with|without|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
   phrase = splitAudienceActionPhrase(phrase);
   phrase = phrase.replace(/\b(?:fast|faster|trusted|simple|easy|better)\s*$/i, '');
   phrase = cleanText(phrase);
   if (!phrase || phrase.length < 4 || phrase.length > 64) return undefined;
+  if (/\b(?:and|or|to|for|with|without|by|from|into|through|via)$/i.test(phrase)) return undefined;
   if (/\b(book|start|get|try|request|schedule|download|subscribe)\b/i.test(phrase)) return undefined;
   if (/\b(?:planning and building|building|shipping)\s+products?\b/i.test(phrase)) return 'product teams';
   if (/\bteams?\b/i.test(phrase) && /\bproducts?\b/i.test(phrase)) return 'product teams';
@@ -409,7 +600,7 @@ function cleanAudiencePhrase(value: string | undefined): string | undefined {
 }
 
 function splitAudienceActionPhrase(phrase: string): string {
-  return phrase.split(/\s+(?:turn|build|launch|run|improve|ship|create|grow|manage|make|cut|drive|unlock)\b/i)[0] ?? phrase;
+  return phrase.split(/\s+(?:turn|build|launch|run|improve|ship|create|grow|manage|make|cut|drive|unlock|accept|optimise|optimize|enable|embed|monetise|monetize|shop|browse|compare|choose|discover)\b/i)[0] ?? phrase;
 }
 
 function rankAudiencePhrases(values: string[]): string[] {
@@ -428,18 +619,37 @@ function isGenericAudiencePhrase(value: string): boolean {
   const normalized = value.trim();
   if (GENERIC_AUDIENCE_PATTERN.test(normalized) && !SPECIFIC_AUDIENCE_MODIFIER_PATTERN.test(normalized)) return true;
   if (/^(?:teams?\s+and\s+agents?|agents?\s+and\s+teams?)$/i.test(normalized)) return true;
+  if (AUDIENCE_STANDALONE_DOMAIN_PATTERN.test(normalized)) return true;
   const words = normalized.split(/\s+/);
   return words.length <= 2 && !SPECIFIC_AUDIENCE_MODIFIER_PATTERN.test(normalized);
 }
 
 function isNonAudiencePhrase(value: string): boolean {
   const normalized = value.trim();
+  if (AUDIENCE_FRAGMENT_PREFIX_PATTERN.test(normalized)) return true;
+  if (AUDIENCE_NON_ENTITY_PATTERN.test(normalized)) return true;
+  if (AUDIENCE_PROMO_NOISE_PATTERN.test(normalized)) return true;
+  if (AUDIENCE_CODE_OR_MARKUP_PATTERN.test(normalized)) return true;
+  if (/[\u20b9\u20ac\u00a3$]\s?\d|\b(?:rs\.?|inr|usd|eur|gbp)\s?\d/i.test(normalized)) return true;
+  if (/^multiple clients\b/i.test(normalized)) return true;
   if (/^(?:us|we|our|ours|me|my)\b/i.test(normalized)) return true;
   if (/\b(?:floor|running and accessible|accessible|tools?|tooling|standard)\b/i.test(normalized)) return true;
   if (/\bbrand$/i.test(normalized) && !/\b(?:brands|brand\s+(?:teams?|leaders?|managers?|owners?|marketers?|builders?|operators?))\b/i.test(normalized)) {
     return true;
   }
   return false;
+}
+
+function isGenericSchemaIndustryType(value: string): boolean {
+  return /^(?:Organization|Corporation|LocalBusiness|WebSite|WebPage|Brand|Product|Thing)$/i.test(value.trim());
+}
+
+function titleCaseSchemaType(value: string): string {
+  return value
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function inferProofStyle(text: string): BrandProofStyle {
@@ -464,21 +674,44 @@ export function inferHookArchetypes(headings: string[]): string[] {
 }
 
 export function inferRecurringPhrases(headings: string[], ctas: string[]): string[] {
-  return uniqueText([...headings, ...ctas])
+  return uniqueText([...headings, ...ctas].map(normalizeRecurringPhrase))
     .filter(isMeaningfulBrandPhrase)
     .slice(0, 8);
+}
+
+function normalizeRecurringPhrase(value: string | undefined): string | undefined {
+  return cleanText(value?.replace(/([.!?])(?=\S)/g, '$1 ').replace(/([a-z])([A-Z]{2,}\b)/g, '$1 $2'));
 }
 
 function isMeaningfulBrandPhrase(value: string): boolean {
   const phrase = cleanText(value);
   if (!phrase) return false;
   if (isPureCtaPhrase(phrase)) return false;
+  if (isGenericRecurringPhrase(phrase)) return false;
+  if (phrase.length > 120) return false;
   const words = phrase.split(/\s+/).length;
   return phrase.length >= 10 && (words >= 3 || /\d/.test(phrase));
 }
 
+function isGenericRecurringPhrase(value: string): boolean {
+  if (/^(?:choose your access level|stay in the loop|sponsor a room|build with us|back the mission|write for us|how can we help\??|frequently asked questions|learn the floor)$/i.test(value)) {
+    return true;
+  }
+  if (/^for\s+(?:agenc(?:y|ies)|in-house teams?|businesses?|enterprises?|creator houses?|filmmakers?|teams?)$/i.test(value)) {
+    return true;
+  }
+  if (/^(?:store|site|app|page|platform|tools?)\s+they\b/i.test(value)) return true;
+  if (/^(?:shop now|add to cart|buy now|new arrivals?|best sellers?|view all|quick view|sold out|select size|select colour|select color|track order|sign in|login|country\/region|no reviews?|customer reviews?)$/i.test(value)) {
+    return true;
+  }
+  return false;
+}
+
 function isPureCtaPhrase(value: string): boolean {
   const phrase = value.trim();
+  if (/^(?:learn more about|learn more|get a demo|get started|get started free|start free|try free|book a demo|request demo|contact sales)\b/i.test(phrase)) {
+    return true;
+  }
   if (/^(?:contact|contact us|contact sales|get started|start free|download|download brand assets|learn more|book a demo|request demo|try free)$/i.test(phrase)) {
     return true;
   }
@@ -662,6 +895,7 @@ function extractColors($: ReturnType<typeof load>, stylesheetCss: string[] = [])
   $('[style]').each((_, el) => add($(el).attr('style'), 3));
 
   return [...scores.entries()]
+    .filter(([, item]) => item.score > 0)
     .sort((a, b) => b[1].score - a[1].score || saturation(b[0]) - saturation(a[0]) || a[1].order - b[1].order)
     .map(([color]) => color)
     .slice(0, MAX_EXTRACTED_WEBSITE_COLORS);
@@ -718,6 +952,8 @@ function isIgnoredFontFamily(value: string): boolean {
   return (
     /^var\(/.test(lower) ||
     lower.startsWith('--') ||
+    /\\|:/.test(value) ||
+    /\bicons?\b/i.test(value) ||
     /\bfallback$/i.test(value) ||
     /^(?:system-ui|sans-serif|serif|monospace|cursive|fantasy|emoji|math|fangsong|inherit|initial|unset|revert|revert-layer)$/i.test(value)
   );
@@ -752,6 +988,7 @@ function colorContextWeight(text: string, index: number): number {
   if (STRONG_BRAND_COLOR_CONTEXT.test(context)) weight += 10;
   if (COLOR_PROPERTY_CONTEXT.test(context)) weight += 3;
   if (NEUTRAL_COLOR_CONTEXT.test(context)) weight -= 2;
+  if (COMPILED_UTILITY_COLOR_CONTEXT.test(context)) weight -= 12;
   return weight;
 }
 
@@ -767,6 +1004,11 @@ function readLogo(obj: Record<string, unknown> | undefined): string | undefined 
   if (!obj) return undefined;
   const logo = obj.logo;
   if (typeof logo === 'string') return cleanText(logo);
+  if (Array.isArray(logo)) {
+    return logo
+      .map((item) => typeof item === 'string' ? cleanText(item) : isRecord(item) ? readString(item, 'url') ?? readString(item, 'contentUrl') : undefined)
+      .find((item): item is string => Boolean(item));
+  }
   if (isRecord(logo)) return readString(logo, 'url') ?? readString(logo, 'contentUrl');
   return undefined;
 }
@@ -781,7 +1023,7 @@ function readTypes(obj: Record<string, unknown> | undefined): string[] {
 
 function normalizeHex(value: string): string | undefined {
   const hex = value.trim().toLowerCase();
-  if (/^#[0-9a-f]{8}$/.test(hex)) return hex.slice(0, 7);
+  if (/^#[0-9a-f]{8}$/.test(hex)) return parseInt(hex.slice(7, 9), 16) <= 16 ? undefined : hex.slice(0, 7);
   if (/^#[0-9a-f]{6}$/.test(hex)) return hex;
   if (/^#[0-9a-f]{3}$/.test(hex)) return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
   return undefined;
@@ -792,6 +1034,7 @@ function rgbToHex(r: number, g: number, b: number): string {
 }
 
 function parseRgbFunction(value: string): string | undefined {
+  if (hasTransparentRgbAlpha(value)) return undefined;
   const channels = value
     .split('/')[0]
     ?.trim()
@@ -802,6 +1045,24 @@ function parseRgbFunction(value: string): string | undefined {
   const parsed = channels.map(parseRgbChannel);
   if (parsed.some((channel) => channel === undefined)) return undefined;
   return rgbToHex(parsed[0]!, parsed[1]!, parsed[2]!);
+}
+
+function hasTransparentRgbAlpha(value: string): boolean {
+  const slashAlpha = value.split('/')[1]?.trim();
+  if (slashAlpha) return parseAlphaChannel(slashAlpha) <= 0.05;
+  const commaParts = value.split(/\s*,\s*/);
+  if (commaParts.length >= 4) return parseAlphaChannel(commaParts[3] ?? '1') <= 0.05;
+  return false;
+}
+
+function parseAlphaChannel(value: string): number {
+  const clean = value.trim();
+  if (clean.endsWith('%')) {
+    const percent = Number(clean.slice(0, -1));
+    return Number.isFinite(percent) ? percent / 100 : 1;
+  }
+  const alpha = Number(clean);
+  return Number.isFinite(alpha) ? alpha : 1;
 }
 
 function parseRgbChannel(value: string): number | undefined {

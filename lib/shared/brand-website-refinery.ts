@@ -15,6 +15,7 @@ import type {
   BrandWebsiteAssetProbeResult,
   BrandWebsiteDraftInput,
   BrandWebsiteDraftResult,
+  BrandWebsiteFetchFallbackReason,
   BrandWebsiteSignalProfileResult,
   BrandWebsiteSnapshot,
   BrandWebsiteStylesheetSnapshot,
@@ -54,6 +55,7 @@ import {
   inferContrastBias,
   inferHarmony,
   inferHookArchetypes,
+  inferIndustry,
   inferProofStyle,
   inferRecurringPhrases,
   inferTypographyCategory,
@@ -77,6 +79,20 @@ const UNKNOWN_ASSET_CONFIDENCE_CEILING = 0.38;
 const DEFAULT_LINKED_STYLESHEET_MAX_COUNT = 8;
 const DEFAULT_LINKED_STYLESHEET_MAX_BYTES = 320_000;
 const DEFAULT_LINKED_STYLESHEET_TIMEOUT_MS = 4_000;
+const DEFAULT_BRAND_VAULT_USER_AGENT = 'InsturixBrandVault/1.0';
+const DEFAULT_BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|attention required|verify you are human|captcha|cloudflare|datadome|akamai|incapsula|perimeterx|pardon our interruption|access denied|request blocked)\b/i;
+const JAVASCRIPT_SHELL_PATTERN = /\b(?:please enable javascript|enable javascript|requires javascript|enable cookies|please use a different browser|javascript is disabled)\b/i;
+
+interface WebsiteFetchAttempt {
+  normalizedUrl: string;
+  html: string;
+  contentType?: string;
+  httpStatus: number;
+  ok: boolean;
+  reason?: BrandWebsiteFetchFallbackReason;
+}
 
 export async function fetchWebsiteBrandSnapshot(
   websiteUrl: string,
@@ -84,43 +100,205 @@ export async function fetchWebsiteBrandSnapshot(
 ): Promise<BrandWebsiteSnapshot> {
   const normalizedUrl = normalizeBrandWebsiteUrl(websiteUrl);
   const fetchFn = options.fetchFn ?? fetch;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
+  const fetchWarnings: string[] = [];
+  let attempt = await fetchWebsiteHtmlAttempt(
+    normalizedUrl,
+    fetchFn,
+    options,
+    options.userAgent ?? DEFAULT_BRAND_VAULT_USER_AGENT,
+    false,
+  );
 
-  try {
-    const response = await fetchFn(normalizedUrl, {
-      signal: controller.signal,
-      headers: {
-        'user-agent': options.userAgent ?? 'InsturixBrandVault/1.0',
-        accept: 'text/html,application/xhtml+xml',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Website fetch failed with HTTP ${response.status}.`);
-    }
-
-    const resolvedUrl = normalizeBrandWebsiteUrl(response.url || normalizedUrl);
-    const html = await response.text();
-    const contentType = response.headers.get('content-type') ?? undefined;
-    const stylesheetResult = await fetchLinkedWebsiteStylesheets({
-      normalizedUrl: resolvedUrl,
-      html,
-      contentType,
+  if (attempt.reason && options.disableBrowserLikeRetry !== true && shouldRetryWithBrowserHeaders(attempt.reason)) {
+    fetchWarnings.push(`Brand Vault retried the website with browser-like request headers because the direct scan looked blocked (${describeFetchFallbackReason(attempt.reason)}).`);
+    const browserAttempt = await fetchWebsiteHtmlAttempt(
+      normalizedUrl,
       fetchFn,
       options,
-    });
+      options.browserUserAgent ?? DEFAULT_BROWSER_USER_AGENT,
+      true,
+    );
+    if (!browserAttempt.reason || isBetterWebsiteFetchAttempt(browserAttempt, attempt)) {
+      attempt = browserAttempt;
+    }
+  }
 
+  if (attempt.reason && options.browserFallbackFetchFn) {
+    const fallback = await resolveBrowserFallbackSnapshot({
+      attempt,
+      now: options.now,
+      userAgent: options.browserUserAgent ?? DEFAULT_BROWSER_USER_AGENT,
+      fetchFn: options.browserFallbackFetchFn,
+    });
+    if (fallback) return fallback;
+  }
+
+  if (!attempt.ok) {
+    const reason = attempt.reason && attempt.reason !== 'server_error'
+      ? ` ${describeFetchFallbackReason(attempt.reason)}; browser fallback or uploaded brand evidence is required.`
+      : '';
+    throw new Error(`Website fetch failed with HTTP ${attempt.httpStatus}.${reason}`);
+  }
+
+  if (attempt.reason) {
+    fetchWarnings.push(`Website scan may be incomplete: ${describeFetchFallbackReason(attempt.reason)}. Add browser-rendered evidence, uploads, or social evidence before approving low-confidence draft signals.`);
+  }
+
+  return snapshotFromAttempt({
+    attempt,
+    fetchFn,
+    options,
+    fetchWarnings,
+    browserFallbackRequired: Boolean(attempt.reason),
+    fetchFallbackReason: attempt.reason,
+  });
+}
+
+async function fetchWebsiteHtmlAttempt(
+  url: string,
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['fetchFn']>,
+  options: FetchWebsiteBrandSnapshotOptions,
+  userAgent: string,
+  browserLike: boolean,
+): Promise<WebsiteFetchAttempt> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
+  try {
+    const response = await fetchFn(url, {
+      signal: controller.signal,
+      headers: websiteFetchHeaders(userAgent, browserLike),
+    });
+    const html = await response.text();
+    const contentType = response.headers.get('content-type') ?? undefined;
     return {
-      normalizedUrl: resolvedUrl,
+      normalizedUrl: normalizeBrandWebsiteUrl(response.url || url),
       html,
-      fetchedAt: options.now ?? new Date().toISOString(),
       contentType,
-      stylesheets: stylesheetResult.stylesheets,
-      stylesheetWarnings: stylesheetResult.warnings,
+      httpStatus: response.status,
+      ok: response.ok,
+      reason: detectWebsiteFetchFallbackReason(response.status, contentType, html),
     };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function websiteFetchHeaders(userAgent: string, browserLike: boolean): HeadersInit {
+  const headers: Record<string, string> = {
+    'user-agent': userAgent,
+    accept: 'text/html,application/xhtml+xml',
+  };
+  if (browserLike) {
+    headers.accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8';
+    headers['accept-language'] = 'en-US,en;q=0.9';
+    headers['upgrade-insecure-requests'] = '1';
+  }
+  return headers;
+}
+
+function detectWebsiteFetchFallbackReason(
+  httpStatus: number,
+  contentType: string | undefined,
+  html: string,
+): BrandWebsiteFetchFallbackReason | undefined {
+  if (httpStatus === 429) return 'rate_limited';
+  if (httpStatus === 401 || httpStatus === 403 || httpStatus === 406 || httpStatus === 409 || httpStatus === 418 || httpStatus === 451) {
+    return 'http_blocked';
+  }
+  if (httpStatus >= 500 && BROWSER_CHALLENGE_PATTERN.test(html)) return 'browser_challenge';
+  if (httpStatus >= 500) return 'server_error';
+  if (!isHtmlPayload(contentType, html)) return undefined;
+  const compact = html.replace(/\s+/g, ' ').trim();
+  if (BROWSER_CHALLENGE_PATTERN.test(compact)) return 'browser_challenge';
+  if (JAVASCRIPT_SHELL_PATTERN.test(compact)) return 'javascript_shell';
+  if (!compact || compact.length < 80) return 'empty_html';
+  return undefined;
+}
+
+function shouldRetryWithBrowserHeaders(reason: BrandWebsiteFetchFallbackReason): boolean {
+  return reason === 'http_blocked' || reason === 'rate_limited' || reason === 'browser_challenge' || reason === 'javascript_shell';
+}
+
+function isBetterWebsiteFetchAttempt(candidate: WebsiteFetchAttempt, current: WebsiteFetchAttempt): boolean {
+  if (!candidate.reason && current.reason) return true;
+  if (candidate.ok && !current.ok) return true;
+  return candidate.ok === current.ok && candidate.html.length > current.html.length * 1.5;
+}
+
+async function resolveBrowserFallbackSnapshot(args: {
+  attempt: WebsiteFetchAttempt;
+  now?: string;
+  userAgent: string;
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['browserFallbackFetchFn']>;
+}): Promise<BrandWebsiteSnapshot | undefined> {
+  const fallback = await args.fetchFn({
+    normalizedUrl: args.attempt.normalizedUrl,
+    reason: args.attempt.reason ?? 'browser_challenge',
+    httpStatus: args.attempt.httpStatus,
+    contentType: args.attempt.contentType,
+    htmlExcerpt: sanitizeEvidenceExcerpt(args.attempt.html, 320),
+    now: args.now,
+    userAgent: args.userAgent,
+  });
+  if (!fallback?.html.trim()) return undefined;
+  return {
+    normalizedUrl: normalizeBrandWebsiteUrl(fallback.normalizedUrl ?? args.attempt.normalizedUrl),
+    html: fallback.html,
+    fetchedAt: args.now ?? new Date().toISOString(),
+    contentType: fallback.contentType ?? 'text/html',
+    stylesheets: fallback.stylesheets,
+    stylesheetWarnings: fallback.stylesheetWarnings,
+    fetchWarnings: uniqueText([
+      `Brand Vault used browser-rendered fallback evidence because the direct website scan looked blocked (${describeFetchFallbackReason(args.attempt.reason ?? 'browser_challenge')}).`,
+      ...(fallback.fetchWarnings ?? []),
+    ]),
+    browserFallbackRequired: false,
+  };
+}
+
+async function snapshotFromAttempt(args: {
+  attempt: WebsiteFetchAttempt;
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['fetchFn']>;
+  options: FetchWebsiteBrandSnapshotOptions;
+  fetchWarnings: string[];
+  browserFallbackRequired: boolean;
+  fetchFallbackReason?: BrandWebsiteFetchFallbackReason;
+}): Promise<BrandWebsiteSnapshot> {
+  const stylesheetResult = await fetchLinkedWebsiteStylesheets({
+    normalizedUrl: args.attempt.normalizedUrl,
+    html: args.attempt.html,
+    contentType: args.attempt.contentType,
+    fetchFn: args.fetchFn,
+    options: args.options,
+  });
+
+  return {
+    normalizedUrl: args.attempt.normalizedUrl,
+    html: args.attempt.html,
+    fetchedAt: args.options.now ?? new Date().toISOString(),
+    contentType: args.attempt.contentType,
+    stylesheets: stylesheetResult.stylesheets,
+    stylesheetWarnings: stylesheetResult.warnings,
+    fetchWarnings: uniqueText(args.fetchWarnings),
+    browserFallbackRequired: args.browserFallbackRequired,
+    fetchFallbackReason: args.fetchFallbackReason,
+  };
+}
+
+function describeFetchFallbackReason(reason: BrandWebsiteFetchFallbackReason): string {
+  switch (reason) {
+    case 'http_blocked':
+      return 'the site returned a bot/permission block';
+    case 'rate_limited':
+      return 'the site rate-limited the scan';
+    case 'server_error':
+      return 'the site returned a server error';
+    case 'browser_challenge':
+      return 'the page looked like a browser challenge';
+    case 'javascript_shell':
+      return 'the page required JavaScript or a modern browser';
+    case 'empty_html':
+      return 'the page returned almost no readable HTML';
   }
 }
 
@@ -279,6 +457,7 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   const unsafeOnDark = parsed.colors.filter((color) => contrastRatio(color, DARK_SURFACE) < 3);
   const unsafeOnLight = parsed.colors.filter((color) => contrastRatio(color, LIGHT_SURFACE) < 3);
   const rawTypography = parsed.fonts.join(', ');
+  const inferredIndustry = inferIndustry(textForInference, parsed.schemaTypes);
 
   const profile: BrandSignalProfile = {
     version: 1,
@@ -295,8 +474,8 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
         authorityClass: 'brand_fact',
         trustLevel: input.companyName ? 'manual_user_entry' : 'first_party_website',
       }),
-      industry: parsed.schemaTypes.length
-        ? makeSignal('identity.industry', parsed.schemaTypes[0], source('json_ld', 'jsonLd.@type', parsed.schemaTypes, parsed.schemaTypes[0], 0.68, 'brand_fact'))
+      industry: inferredIndustry
+        ? makeSignal('identity.industry', inferredIndustry, source('website_metadata', 'website.copy', textForInference, inferredIndustry, description ? 0.58 : 0.38, 'inferred_hint'))
         : undefined,
       category: makeSignal('identity.category', inferCategory(textForInference), source('website_metadata', 'website.copy', textForInference, textForInference, description ? 0.58 : 0.35, 'inferred_hint')),
       audience: makeSignal('identity.audience', inferAudience(textForInference), source('website', 'website.copy', textForInference, textForInference, textForInference ? 0.5 : 0.2, 'inferred_hint')),
@@ -374,10 +553,10 @@ async function probeWebsiteAssetUrl(
   try {
     const head = await fetchWebsiteAsset(url, 'HEAD', fetchFn, options);
     if (head.ok || !shouldRetryAssetProbeWithGet(head.status)) {
-      return responseAvailability(head, 'HEAD');
+      return responseAvailability(url, head, 'HEAD');
     }
     const get = await fetchWebsiteAsset(url, 'GET', fetchFn, options);
-    return responseAvailability(get, 'GET');
+    return responseAvailability(url, get, 'GET');
   } catch (error) {
     return {
       status: 'unknown',
@@ -413,9 +592,18 @@ function shouldRetryAssetProbeWithGet(status: number): boolean {
   return status === 403 || status === 405 || status === 501;
 }
 
-function responseAvailability(response: Response, method: 'HEAD' | 'GET'): BrandWebsiteAssetAvailability {
+function responseAvailability(url: string, response: Response, method: 'HEAD' | 'GET'): BrandWebsiteAssetAvailability {
   const contentType = response.headers.get('content-type') ?? undefined;
   if (response.ok) {
+    if (!isUsableAssetContentType(url, contentType)) {
+      return {
+        status: 'unavailable',
+        method,
+        httpStatus: response.status,
+        contentType,
+        reason: `non-image response${contentType ? ` (${contentType})` : ''}`,
+      };
+    }
     return {
       status: 'available',
       method,
@@ -439,6 +627,15 @@ function responseAvailability(response: Response, method: 'HEAD' | 'GET'): Brand
     contentType,
     reason: `HTTP ${response.status}`,
   };
+}
+
+function isUsableAssetContentType(url: string, contentType: string | undefined): boolean {
+  if (!contentType) return true;
+  const normalized = contentType.toLowerCase();
+  if (/^image\//.test(normalized)) return true;
+  if (/application\/octet-stream/.test(normalized)) return true;
+  if (/text\/plain/.test(normalized) && /\.svg(?:$|\?)/i.test(new URL(url).pathname)) return true;
+  return false;
 }
 
 function applyAssetAvailability(
