@@ -98,6 +98,9 @@ const DEFAULT_PRICE_HINTS: Record<string, PriceHint> = {
   },
 };
 
+const DEFAULT_TRANSIENT_RETRY_ATTEMPTS = 3;
+const DEFAULT_TRANSIENT_RETRY_BASE_MS = 400;
+
 export function parseEvalProviders(value: string | undefined): EvalProvider[] {
   const raw = value ?? 'gemini,deepseek';
   const providers = raw
@@ -142,9 +145,7 @@ export async function runEvalPrompt(config: EvalProviderConfig, prompt: string):
     fieldsSent: ['prompt'],
   });
   const start = Date.now();
-  const raw = config.provider === 'gemini'
-    ? await runGeminiPrompt(config, privacy.prompt)
-    : await runOpenAICompatiblePrompt(config, privacy.prompt);
+  const raw = await runProviderPromptWithRetry(config, privacy.prompt);
   const latencyMs = Date.now() - start;
   const cost = estimateCost(config, raw.usage);
 
@@ -155,6 +156,49 @@ export async function runEvalPrompt(config: EvalProviderConfig, prompt: string):
     costEstimateNote: cost.note,
     privacyAudit: privacy.audit,
   };
+}
+
+async function runProviderPromptWithRetry(
+  config: EvalProviderConfig,
+  prompt: string,
+): Promise<RawEvalRunResult> {
+  const attempts = readPositiveIntEnv('THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS')
+    ?? DEFAULT_TRANSIENT_RETRY_ATTEMPTS;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return config.provider === 'gemini'
+        ? await runGeminiPrompt(config, prompt)
+        : await runOpenAICompatiblePrompt(config, prompt);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isTransientProviderError(error)) {
+        throw error;
+      }
+
+      await sleep(retryDelayMs(attempt));
+    }
+  }
+
+  throw lastError;
+}
+
+function isTransientProviderError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(429|500|502|503|504)\b/i.test(message)
+    || /service unavailable|temporarily unavailable|timeout|timed out|rate limit|too many requests|overload|econnreset|etimedout|eai_again/i.test(message);
+}
+
+function retryDelayMs(attempt: number): number {
+  const base = readNonNegativeNumberEnv('THINKFORGE_EVAL_TRANSIENT_RETRY_BASE_MS')
+    ?? DEFAULT_TRANSIENT_RETRY_BASE_MS;
+  return base * attempt;
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function readApiKey(provider: EvalProvider): string {
@@ -355,4 +399,16 @@ function readNumberEnv(name: string): number | undefined {
   if (!raw) return undefined;
   const parsed = Number.parseFloat(raw);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function readNonNegativeNumberEnv(name: string): number | undefined {
+  const parsed = readNumberEnv(name);
+  return parsed !== undefined && parsed >= 0 ? parsed : undefined;
+}
+
+function readPositiveIntEnv(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
