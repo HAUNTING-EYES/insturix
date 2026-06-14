@@ -234,7 +234,7 @@ export async function POST(req: Request) {
       const contentType = videoAsset.contentType || "application/octet-stream";
       
       // For large videos (> 10 min / 600s or > 500MB), use chunked upload
-      const shouldUseChunkedUpload = videoAsset.duration > 600 || (videoAsset.size && videoAsset.size > 500 * 1024 * 1024);
+      const shouldUseChunkedUpload = (videoAsset.duration ?? 0) > 600 || (videoAsset.size && videoAsset.size > 500 * 1024 * 1024);
 
       if (shouldUseChunkedUpload && contentType.startsWith("video/")) {
         // Use LinkedIn's chunked video upload API

@@ -14,6 +14,8 @@ type ResolvedUploaderXVideo = {
   filename: string;
   contentType: string;
   size?: number;
+  duration?: number;
+  metadata?: Record<string, unknown>;
 };
 
 let r2Client: S3Client | null = null;
@@ -107,11 +109,29 @@ export async function resolveUploaderXVideo(params: {
     filename: video.filename || video.gcsPath.split("/").pop() || "upload.bin",
     contentType: video.contentType || "application/octet-stream",
     size: video.size,
+    duration: readVideoDuration(video.metadata),
   };
 }
 
-export async function fetchUploaderXBuffer(publicUrl: string) {
-  const response = await fetch(publicUrl);
+function readVideoDuration(metadata: unknown): number | undefined {
+  if (!metadata || typeof metadata !== "object") {
+    return undefined;
+  }
+
+  const videoMetadata = (metadata as { videoMetadata?: unknown }).videoMetadata;
+  if (!videoMetadata || typeof videoMetadata !== "object") {
+    return undefined;
+  }
+
+  const duration = (videoMetadata as { duration?: unknown }).duration;
+  return typeof duration === "number" && Number.isFinite(duration) ? duration : undefined;
+}
+
+export async function fetchUploaderXBuffer(publicUrl: string, start?: number, end?: number) {
+  const headers = start !== undefined && end !== undefined
+    ? { Range: `bytes=${start}-${end}` }
+    : undefined;
+  const response = await fetch(publicUrl, { headers });
 
   if (!response.ok) {
     throw new Error(`Failed to download uploaderx media: ${response.status}`);

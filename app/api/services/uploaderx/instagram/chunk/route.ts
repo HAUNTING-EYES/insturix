@@ -36,6 +36,7 @@ export async function POST(req: Request) {
       title,
       description,
       postType,
+      useDirectUpload: requestedUseDirectUpload,
     } = body;
 
     if (!videoUuid) {
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
 
         // For videos > 2 minutes (120 seconds), use direct binary upload instead of resumable
         // Instagram's resumable upload requires video_url parameter which causes errors for large videos
-        const useDirectUpload = fileSize > 0 && (fileSize > 120 * 1024 * 1024 || videoAsset.duration > 120);
+        const useDirectUpload = fileSize > 0 && (fileSize > 120 * 1024 * 1024 || (videoAsset.duration ?? 0) > 120);
 
         const createContainerUrl = `https://graph.instagram.com/v21.0/me/media`;
         const containerParams = new URLSearchParams();
@@ -155,6 +156,7 @@ export async function POST(req: Request) {
         const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
         const fileSize = Number(videoAsset.size || 0);
         const endByte = Math.min(startOffset + chunkSize - 1, fileSize - 1);
+        const useDirectUpload = Boolean(requestedUseDirectUpload);
 
         const chunkBuffer = await fetchUploaderXRange(videoAsset.publicUrl, startOffset, endByte);
 
@@ -251,6 +253,7 @@ export async function POST(req: Request) {
 
         const mediaId = publishData.id;
         const instagramUrl = `https://www.instagram.com/p/${mediaId}`;
+        const useDirectUpload = Boolean(requestedUseDirectUpload);
 
         await UploaderXVideo.updateOne(
           { userId: session.userId, videoUuid },

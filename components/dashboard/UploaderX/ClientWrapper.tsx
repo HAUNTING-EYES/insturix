@@ -30,6 +30,9 @@ interface PlatformStatus {
   connected: boolean;
   userName?: string;
   authUrl: string;
+  aspect: string;
+  fmt?: string;
+  statusUrl?: string;
 }
 
 interface VideoItem {
@@ -388,23 +391,22 @@ export function UploaderXClientWrapper() {
       );
       const ytScope = "https://www.googleapis.com/auth/youtube.upload";
       const ytConnected = !!googleAccount && (googleAccount.approvedScopes?.includes(ytScope) !== false);
-      statuses.push({ key: "youtube", label: "YouTube", connected: ytConnected, userName: googleAccount?.emailAddress || undefined, authUrl: "" });
+      const youtubePlatform = PLATFORMS[0];
+      statuses.push({ ...youtubePlatform, connected: ytConnected, userName: googleAccount?.emailAddress || undefined });
 
       // Fetch other platforms in parallel
       const fetches = PLATFORMS.filter(p => p.statusUrl).map(async (p) => {
         try {
           const res = await fetch(p.statusUrl, { credentials: "include" });
-          if (!res.ok) return { key: p.key, label: p.label, connected: false, authUrl: p.authUrl };
+          if (!res.ok) return { ...p, connected: false };
           const data = await res.json();
           return {
-            key: p.key,
-            label: p.label,
+            ...p,
             connected: Boolean(data.connected),
             userName: data.userName || data.name || undefined,
-            authUrl: p.authUrl,
           };
         } catch {
-          return { key: p.key, label: p.label, connected: false, authUrl: p.authUrl };
+          return { ...p, connected: false };
         }
       });
 
@@ -570,7 +572,7 @@ export function UploaderXClientWrapper() {
         if (googleAccount) {
           await googleAccount.destroy();
           // Force refresh user data to ensure externalAccounts is updated
-          await user.reload();
+          await user?.reload();
           toast({ title: "YouTube disconnected", description: "Your Google account has been disconnected." });
           setPlatformStatuses((prev) => prev.map((p) => p.key === "youtube" ? { ...p, connected: false, userName: undefined } : p));
         } else {
@@ -1159,8 +1161,8 @@ export function UploaderXClientWrapper() {
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontFamily: "var(--font-mono)", fontSize: 9, color: armed ? C.gold : C.t5,
                       borderRadius: 4, overflow: "hidden",
-                      width: p.aspect === "9:16" ? 36 : p.aspect === "4:3" ? 52 : 64,
-                      height: p.aspect === "9:16" ? 64 : p.aspect === "4:3" ? 40 : 36,
+                      width: p.aspect === "9:16" ? 36 : p.aspect === "1:1" ? 48 : 64,
+                      height: p.aspect === "9:16" ? 64 : p.aspect === "1:1" ? 48 : 36,
                       transition: `all .3s ${EASE}`,
                     }}>
                       {p.aspect}

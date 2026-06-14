@@ -7,6 +7,7 @@ import type {
   TwitterPublishPayload,
   YouTubePublishPayload,
 } from '@/lib/uploaderx/platform-capabilities';
+import type { VideoMetadata } from '@/lib/uploaderx/platform-rules';
 
 interface UploadProgress {
   loaded: number;
@@ -225,6 +226,7 @@ export function useUploaderXUpload() {
       tags?: string[];
       privacyStatus?: string;
       videoType?: string;
+      videoMetadata?: VideoMetadata;
     }
   ): Promise<UploadResult> => {
     if (!file) {
@@ -661,7 +663,7 @@ export function useUploaderXUpload() {
           throw new Error(startData.error || "Failed to start Instagram chunked upload");
         }
 
-        const { uploadSessionId, fileSize } = startData;
+        const { uploadSessionId, fileSize, useDirectUpload } = startData;
 
         // Phase 2: Transfer Loop
         let startOffset = 0;
@@ -676,6 +678,7 @@ export function useUploaderXUpload() {
               uploadSessionId,
               startOffset,
               chunkSize,
+              useDirectUpload,
             }),
           });
           const transferData = await transferRes.json();
@@ -724,6 +727,7 @@ export function useUploaderXUpload() {
             title,
             description,
             postType,
+            useDirectUpload,
           }),
         });
         const publishData = await publishRes.json();

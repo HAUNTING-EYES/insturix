@@ -115,7 +115,7 @@ export async function POST(req: Request) {
 
     // For videos > 2 minutes (120 seconds) or > 100MB, use chunked upload instead of direct upload
     // Instagram's direct upload (video_url parameter) has limitations for large videos
-    const shouldUseChunkedUpload = videoAsset.duration > 120 || (videoAsset.size && videoAsset.size > 100 * 1024 * 1024);
+    const shouldUseChunkedUpload = (videoAsset.duration ?? 0) > 120 || (videoAsset.size && videoAsset.size > 100 * 1024 * 1024);
 
     let containerId: string;
     if (shouldUseChunkedUpload && isVideo) {
