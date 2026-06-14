@@ -733,6 +733,7 @@ export function UploaderXClientWrapper() {
               undefined,
               selectedPostTypes["facebook"] || "reel",
               videoMetadata?.duration,
+              metaSchedule ? new Date(metaSchedule).toISOString() : undefined,
             );
             break;
           case "instagram":
