@@ -203,6 +203,7 @@ interface SidecarExpected {
   textPolicy: ClickatronCreativeSpec['renderPlan']['textPolicy'];
   minTextLayers?: number;
   minSlides?: number;
+  requiredCalendar?: Partial<NonNullable<ClickatronCreativeSpec['calendar']>>;
   requiredClaims: string[];
   brandVoiceTerms: string[];
   forbiddenVisibleTerms: string[];
@@ -421,6 +422,111 @@ const AUTHOR_CASES: AuthorCase[] = [
       maxLength: 5000,
     },
   },
+  {
+    id: 'author_calendar_linkedin_post',
+    name: 'Author output: calendar-aware agency post',
+    documentType: 'post',
+    input: {
+      context: {
+        projectSummary:
+          'ApprovalOps is planning a June content calendar for agency founders who lose launch-week time to slow client reviews.',
+        systemBrief:
+          'Brand DNA: warm expert, plainspoken, operational. Audience: agency owners and account leads. Avoid vague productivity hype.',
+      },
+      project: {
+        projectName: 'June Approval Calendar',
+        platform: 'LinkedIn',
+        format: 'calendar post',
+        purpose: 'seed a month-long education campaign',
+        tone: 'calm operator',
+        brandId: 'brand_approval_ops',
+      },
+      userPrompt:
+        'Write one LinkedIn post from a June content calendar for agency founders. Topic: one approval owner before launch week. Mention June, calendar, approval, and one practical CTA.',
+      documentType: 'post',
+      retrievedContext: {
+        brandDNA: {
+          voiceLock: 'calm, operational, specific, founder-friendly',
+          nicheMap: 'creative agencies and production teams',
+          killList: ['synergy', 'game-changing'],
+          hookArchetypes: ['calendar hook', 'launch-week pain point'],
+          structuralHabits: ['calendar context, pain, practical fix, CTA'],
+        },
+        projectFacts: [
+          {
+            id: 'fact_launch_week',
+            title: 'Launch-week bottleneck',
+            summary: 'Approval ownership is the first calendar lever before launch week.',
+            tags: ['calendar', 'approval'],
+          },
+        ],
+        globalFacts: [],
+        semanticFacts: [],
+        interactionPatterns: [],
+      },
+    },
+    expected: {
+      format: 'post',
+      requiredTerms: ['June', 'calendar', 'approval'],
+      brandVoiceTerms: ['agency', 'owner', 'launch'],
+      forbiddenTerms: ['synergy', 'game-changing'],
+      minLength: 400,
+      maxLength: 3000,
+    },
+  },
+  {
+    id: 'author_shoot_guidance_talking_head',
+    name: 'Author output: shoot guidance talking-head script',
+    documentType: 'video_script',
+    input: {
+      context: {
+        projectSummary:
+          'StudioPilot helps small film and content teams turn scripts into shootable founder videos with clear production notes.',
+        systemBrief:
+          'Brand DNA: practical, production-literate, calm. User setup: one camera, desk mic, small office, window key light from camera-left, no crew.',
+      },
+      project: {
+        projectName: 'StudioPilot Founder Script',
+        platform: 'YouTube',
+        format: 'talking head',
+        purpose: 'record a shootable founder education video',
+        tone: 'calm practical',
+        brandId: 'brand_studio_pilot',
+      },
+      userPrompt:
+        'Write a 45-second talking-head script about why founders should script the first 5 seconds before filming. Include concise camera, light, framing, and emotion guidance for the one-camera office setup.',
+      documentType: 'video_script',
+      outline: {
+        title: 'Founder First Five Seconds',
+        sections: [
+          { id: 'S1', title: 'Hook', goal: 'Explain the opening problem.', beat: 'Hook', level: 'act' },
+          { id: 'S2', title: 'Fix', goal: 'Give the scripting habit.', beat: 'Solution', level: 'act' },
+          { id: 'S3', title: 'Shoot Note', goal: 'Make the user easy to film.', beat: 'Solution', level: 'act' },
+        ],
+      },
+      contract: {
+        generation_mode: 'manual',
+        narrator_voice: 'founder coach',
+        medium: 'voiceover',
+        tone: 'calm practical',
+        forbidden: ['cinematic masterpiece', 'viral guarantee', 'game-changing'],
+        allowed_metaphors: ['first frame', 'quiet room'],
+        style_notes: ['shootable setup notes', 'camera and lighting guidance', 'no crew assumptions'],
+        metaphor_reuse_limit: 1,
+        mode_a_usage: 'opening only',
+        mode_b_usage: 'direct coaching voice',
+        mode_switch_rules: 'keep production guidance concrete',
+      },
+    },
+    expected: {
+      format: 'script',
+      requiredTerms: ['camera', 'light', 'framing'],
+      brandVoiceTerms: ['office', 'founder', 'emotion'],
+      forbiddenTerms: ['cinematic masterpiece', 'viral guarantee', 'game-changing'],
+      minLength: 500,
+      maxLength: 4500,
+    },
+  },
 ];
 
 const LEGACY_AUTHOR_CASES: LegacyAuthorCase[] = [
@@ -619,6 +725,32 @@ const IDEAS_CASES: IdeasCase[] = [
       requiredTerms: ['approval', 'agency'],
       forbiddenTerms: ['game-changing', 'revolutionary'],
       preferredPlatforms: ['LinkedIn', 'Newsletter', 'Blog', 'Twitter/X', 'Instagram'],
+    },
+  },
+  {
+    id: 'ideas_public_trend_calendar',
+    name: 'Ideas agent: public trend calendar repurposing',
+    prompt:
+      'Generate 4 content ideas for NimbusOps, a synthetic operations brand. Public trend: teams are joking that every app has an AI copilot button. Build ideas for a 6-week content calendar for agency operators without using private client data.',
+    brandContext:
+      'Brand voice: calm, operational, dry humor, useful. Audience: agencies and ops leads. Avoid: private client details, Brand Vault, voiceFingerprint.',
+    expected: {
+      requiredTerms: ['trend', 'calendar', 'agency'],
+      forbiddenTerms: ['Brand Vault', 'voiceFingerprint', 'private client'],
+      preferredPlatforms: ['LinkedIn', 'Newsletter', 'Blog', 'Twitter/X', 'Instagram'],
+    },
+  },
+  {
+    id: 'ideas_film_house_series',
+    name: 'Ideas agent: film-house production series',
+    prompt:
+      'Generate 4 content ideas for StudioPilot, a film-house workflow brand. The campaign should help small production teams turn scripts into shootable videos with camera, lighting, and room constraints.',
+    brandContext:
+      'Brand voice: production-literate, precise, calm. Audience: film houses, creator studios, and content teams. Avoid: viral guarantee, cinematic masterpiece.',
+    expected: {
+      requiredTerms: ['camera', 'lighting'],
+      forbiddenTerms: ['viral guarantee', 'cinematic masterpiece'],
+      preferredPlatforms: ['LinkedIn', 'YouTube', 'Instagram', 'Newsletter'],
     },
   },
 ];
@@ -859,6 +991,249 @@ const SIDECAR_CASES: SidecarCase[] = [
       requiredClaims: ['37%'],
       brandVoiceTerms: ['approval', 'agency', 'workflow'],
       forbiddenVisibleTerms: ['game-changing'],
+    },
+  },
+  {
+    id: 'sidecar_instagram_public_trend',
+    name: 'Clickatron sidecar: Instagram public trend static post',
+    documentType: 'post',
+    projectSummary:
+      'NimbusOps helps agency operators turn public workplace trends into practical planning rituals.',
+    systemBrief:
+      'Brand DNA: calm, operational, dry humor, useful. Audience: agency operators. Never use visible text: private client, Brand Vault.',
+    userPrompt:
+      'Write an Instagram caption and Clickatron-ready text + image post that repurposes this public trend: every app now has an AI copilot button. Angle it toward a Monday focus ritual for agencies. Include calendar metadata in the hidden JSON: campaignId trend_ai_copilot_june, calendarItemId item_monday_focus, seriesId series_public_trends. Never mention private client or Brand Vault.',
+    project: {
+      projectName: 'Public Trend Monday Focus',
+      platform: 'Instagram',
+      format: 'post',
+      purpose: 'repurpose a public trend for a content calendar',
+      tone: 'calm dry humor',
+      brandId: 'brand_nimbus_ops',
+    },
+    brandId: 'brand_nimbus_ops',
+    sessionId: 'tf_eval_trend_1',
+    retrievedContext: {
+      brandDNA: {
+        voiceLock: 'calm, operational, dry humor, useful',
+        nicheMap: 'agency operators and content teams',
+        killList: ['private client', 'Brand Vault'],
+        hookArchetypes: ['public trend hook', 'calendar hook'],
+        structuralHabits: ['trend context, operational lesson, compact CTA'],
+      },
+      projectFacts: [
+        {
+          id: 'fact_public_trend_1',
+          title: 'Public trend inbox',
+          summary: 'Teams are joking that every app now has an AI copilot button.',
+          tags: ['public trend', 'AI copilot'],
+        },
+        {
+          id: 'fact_calendar_1',
+          title: 'Calendar placement',
+          summary: 'Schedule as the Monday focus item in the public trends series.',
+          tags: ['calendar', 'series'],
+        },
+      ],
+      globalFacts: [],
+      semanticFacts: [],
+      interactionPatterns: [],
+    },
+    outline: {
+      title: 'Monday Focus Trend Post',
+      sections: [
+        { id: 'S1', title: 'Trend Hook', goal: 'Name the public trend without private data.', beat: 'Hook', level: 'act' },
+        { id: 'S2', title: 'Operational Reframe', goal: 'Turn the meme into a useful agency planning point.', beat: 'Bridge', level: 'act' },
+        { id: 'S3', title: 'CTA', goal: 'Invite a save or reply.', beat: 'CTA', level: 'act' },
+      ],
+    },
+    contract: {
+      generation_mode: 'manual',
+      narrator_voice: 'operator',
+      medium: 'visual_manual',
+      tone: 'calm dry humor',
+      forbidden: ['private client', 'Brand Vault', 'voiceFingerprint'],
+      allowed_metaphors: ['button overload', 'Monday reset'],
+      style_notes: ['public trend only', 'calendar-ready', 'short visual text'],
+      metaphor_reuse_limit: 1,
+      mode_a_usage: 'opening only',
+      mode_b_usage: 'plain operational voice',
+      mode_switch_rules: 'do not imply private trend data',
+    },
+    expected: {
+      kind: 'single_post_visual',
+      assetIntent: 'post_graphic',
+      platform: 'instagram',
+      aspectRatio: '4:5',
+      textPolicy: 'editable_text_layers',
+      minTextLayers: 1,
+      requiredCalendar: {
+        campaignId: 'trend_ai_copilot_june',
+        calendarItemId: 'item_monday_focus',
+        seriesId: 'series_public_trends',
+      },
+      requiredClaims: ['AI copilot', 'Monday'],
+      brandVoiceTerms: ['agency', 'focus', 'calendar'],
+      forbiddenVisibleTerms: ['private client', 'Brand Vault'],
+    },
+  },
+  {
+    id: 'sidecar_linkedin_calendar_carousel',
+    name: 'Clickatron sidecar: LinkedIn calendar campaign carousel',
+    documentType: 'post',
+    projectSummary:
+      'ApprovalOps is building a month-ahead LinkedIn carousel campaign for creative agencies ahead of launch weeks.',
+    systemBrief:
+      'Brand DNA: calm operator, specific, no hype. Audience: agency founders, creative directors, and account leads. Never use visible text: seamless, game-changing.',
+    userPrompt:
+      'Create a LinkedIn carousel post for a month-ahead content calendar. Topic: reducing approval delays before launch week by naming one approval owner. Make it Clickatron-ready with 4 static slides, editable text layers, and calendar metadata campaignId approval_calendar_june, contentCardId card_approval_owner, calendarItemId item_launch_week_owner. Never use seamless or game-changing.',
+    project: {
+      projectName: 'ApprovalOps Calendar Carousel',
+      platform: 'LinkedIn',
+      format: 'carousel post',
+      purpose: 'educate agencies at calendar-planning scale',
+      tone: 'calm operator',
+      brandId: 'brand_approval_ops',
+    },
+    brandId: 'brand_approval_ops',
+    sessionId: 'tf_eval_calendar_carousel_1',
+    retrievedContext: {
+      brandDNA: {
+        voiceLock: 'calm, operational, specific, no hype',
+        nicheMap: 'creative agencies and content operations teams',
+        killList: ['seamless', 'game-changing'],
+        hookArchetypes: ['calendar hook', 'metric-led opener'],
+        structuralHabits: ['calendar context, root cause, owner assignment, CTA'],
+      },
+      projectFacts: [
+        {
+          id: 'fact_owner_1',
+          title: 'Approval owner',
+          summary: 'Naming one approval owner reduces launch-week ambiguity.',
+          tags: ['approval', 'calendar'],
+        },
+        {
+          id: 'fact_calendar_2',
+          title: 'Month-ahead campaign',
+          summary: 'The campaign is planned before launch week as a reusable content card.',
+          tags: ['campaign', 'content card'],
+        },
+      ],
+      globalFacts: [],
+      semanticFacts: [],
+      interactionPatterns: [],
+    },
+    outline: {
+      title: 'Approval Owner Calendar Carousel',
+      sections: [
+        { id: 'S1', title: 'Calendar Hook', goal: 'Open with the month-ahead planning point.', beat: 'Hook', level: 'act' },
+        { id: 'S2', title: 'Bottleneck', goal: 'Explain how approval ambiguity slows launch week.', beat: 'Problem', level: 'act' },
+        { id: 'S3', title: 'Owner Fix', goal: 'Show the one-owner operating rule.', beat: 'Solution', level: 'act' },
+        { id: 'S4', title: 'CTA', goal: 'Prompt a reply or save.', beat: 'CTA', level: 'act' },
+      ],
+    },
+    contract: {
+      generation_mode: 'manual',
+      narrator_voice: 'operator',
+      medium: 'slide_narration',
+      tone: 'calm practical',
+      forbidden: ['seamless', 'game-changing', 'vague transformation claims'],
+      allowed_metaphors: ['handoff map'],
+      style_notes: ['calendar metadata', 'carousel-ready', 'specific workflow language'],
+      metaphor_reuse_limit: 1,
+      mode_a_usage: 'opening only',
+      mode_b_usage: 'default operational voice',
+      mode_switch_rules: 'keep each slide concrete',
+    },
+    expected: {
+      kind: 'carousel',
+      assetIntent: 'carousel',
+      platform: 'linkedin',
+      aspectRatio: '1.91:1',
+      textPolicy: 'editable_text_layers',
+      minTextLayers: 1,
+      minSlides: 4,
+      requiredCalendar: {
+        campaignId: 'approval_calendar_june',
+        contentCardId: 'card_approval_owner',
+        calendarItemId: 'item_launch_week_owner',
+      },
+      requiredClaims: ['approval owner'],
+      brandVoiceTerms: ['calendar', 'agency', 'launch'],
+      forbiddenVisibleTerms: ['seamless', 'game-changing'],
+    },
+  },
+  {
+    id: 'sidecar_blog_header_analysis_visual',
+    name: 'Clickatron sidecar: blog header with analysis-ready claim',
+    documentType: 'post',
+    projectSummary:
+      'SignalDesk publishes analysis-ready essays for agency leaders about creative operations and client review loops.',
+    systemBrief:
+      'Brand DNA: analytical, plainspoken, evidence-aware. Audience: agency leaders. Never use visible text: guaranteed ROI, magic framework.',
+    userPrompt:
+      'Write a short blog intro and Clickatron-ready blog header visual for an article about measuring content review loops before they slow launches. Include the terms analysis-ready and review loop. Use a grounded claim: teams should track revision count before approval time. Never say guaranteed ROI or magic framework.',
+    project: {
+      projectName: 'Review Loop Analysis Blog',
+      platform: 'Blog',
+      format: 'blog header',
+      purpose: 'prepare content for later Alyzi-style analysis',
+      tone: 'analytical plainspoken',
+      brandId: 'brand_signaldesk',
+    },
+    brandId: 'brand_signaldesk',
+    sessionId: 'tf_eval_blog_header_1',
+    retrievedContext: {
+      brandDNA: {
+        voiceLock: 'analytical, plainspoken, evidence-aware',
+        nicheMap: 'agency leaders and operations analysts',
+        killList: ['guaranteed ROI', 'magic framework'],
+        hookArchetypes: ['measurement hook', 'analysis hook'],
+        structuralHabits: ['define metric, show use, invite analysis'],
+      },
+      projectFacts: [
+        {
+          id: 'fact_metric_1',
+          title: 'Review-loop metric',
+          summary: 'Track revision count before approval time to see where launch friction starts.',
+          tags: ['analysis', 'review loop'],
+        },
+      ],
+      globalFacts: [],
+      semanticFacts: [],
+      interactionPatterns: [],
+    },
+    outline: {
+      title: 'Review Loop Analysis Header',
+      sections: [
+        { id: 'S1', title: 'Analysis Hook', goal: 'Open with the measurable review-loop issue.', beat: 'Hook', level: 'act' },
+        { id: 'S2', title: 'Metric', goal: 'Name the revision-count metric.', beat: 'Solution', level: 'act' },
+        { id: 'S3', title: 'CTA', goal: 'Invite later analysis.', beat: 'CTA', level: 'act' },
+      ],
+    },
+    contract: {
+      generation_mode: 'manual',
+      narrator_voice: 'analyst',
+      medium: 'visual_manual',
+      tone: 'analytical plainspoken',
+      forbidden: ['guaranteed ROI', 'magic framework', 'instant results'],
+      allowed_metaphors: ['review loop', 'launch friction'],
+      style_notes: ['analysis-ready', 'blog header', 'grounded metrics only'],
+      metaphor_reuse_limit: 1,
+      mode_a_usage: 'opening only',
+      mode_b_usage: 'direct analyst voice',
+      mode_switch_rules: 'avoid unsupported performance promises',
+    },
+    expected: {
+      kind: 'single_post_visual',
+      assetIntent: 'blog_header',
+      platform: 'generic',
+      aspectRatio: '1:1',
+      textPolicy: 'editable_text_layers',
+      minTextLayers: 1,
+      requiredClaims: ['revision count', 'approval time'],
+      brandVoiceTerms: ['analysis', 'review loop', 'launch'],
+      forbiddenVisibleTerms: ['guaranteed ROI', 'magic framework'],
     },
   },
 ];
@@ -1514,6 +1889,16 @@ function scoreSidecar(
     testCase.expected.requiredClaims.every((claim) => containsTerm(serialized, claim)),
     missingTerms(serialized, testCase.expected.requiredClaims).join(', '),
   );
+  if (testCase.expected.requiredCalendar) {
+    for (const [field, expectedValue] of Object.entries(testCase.expected.requiredCalendar)) {
+      score.check(
+        'clickatron_sidecar_completeness',
+        `calendar_${field}_preserved`,
+        spec.calendar?.[field as keyof NonNullable<ClickatronCreativeSpec['calendar']>] === expectedValue,
+        `${field}=${spec.calendar?.[field as keyof NonNullable<ClickatronCreativeSpec['calendar']>] ?? 'missing'}`,
+      );
+    }
+  }
   score.check(
     'brand_voice_match',
     'brand_constraints_preserved',

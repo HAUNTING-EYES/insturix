@@ -70,6 +70,8 @@ describe('Clickatron creative sidecar signal profile', () => {
     expect(next.userPrompt).toContain('Grounded means exact');
     expect(next.userPrompt).toContain('This hidden JSON is mandatory');
     expect(next.userPrompt).toContain('renderPlan.imagePrompt is always required');
+    expect(next.userPrompt).toContain('"calendar"');
+    expect(next.userPrompt).toContain('only under clickatron.calendar');
   });
 
   it('recovers carousel root imagePrompt from slide prompts before normalization', () => {
@@ -144,6 +146,64 @@ END_THINKFORGE_CLICKATRON_EXPORT -->`;
     expect(extracted.exportMeta.clickatron?.renderPlan.slides).toHaveLength(2);
   });
 
+  it('recovers misplaced calendar identifiers before normalization', () => {
+    const markdown = `Visible Instagram copy.
+
+<!-- THINKFORGE_CLICKATRON_EXPORT
+{
+  "clickatron": {
+    "schemaVersion": 1,
+    "kind": "single_post_visual",
+    "assetIntent": "post_graphic",
+    "platform": "instagram",
+    "aspectRatio": "4:5",
+    "campaignId": "campaign_top_level",
+    "source": {
+      "sourceService": "thinkforge",
+      "sourceBlockIds": ["AUTO"]
+    },
+    "userIntent": {
+      "visualMode": "text_forward_graphic",
+      "wantsCarousel": false
+    },
+    "creativeBrief": {
+      "objective": "repurpose a public trend",
+      "coreMessage": "AI copilot noise becomes a Monday focus ritual"
+    },
+    "renderPlan": {
+      "textPolicy": "editable_text_layers",
+      "imagePrompt": "A calm 4:5 Instagram graphic with a calendar page and small AI copilot buttons around a focused desk.",
+      "textLayers": [
+        {
+          "id": "headline",
+          "text": "Monday focus ritual",
+          "role": "headline",
+          "priority": 90
+        }
+      ]
+    },
+    "metadata": {
+      "contentCardId": "card_metadata",
+      "calendarItemId": "item_metadata",
+      "seriesId": "series_metadata"
+    },
+    "validation": {
+      "status": "ready"
+    }
+  }
+}
+END_THINKFORGE_CLICKATRON_EXPORT -->`;
+
+    const extracted = extractRequiredClickatronCreativeSidecar(markdown);
+
+    expect(extracted.exportMeta.clickatron?.calendar).toEqual({
+      contentCardId: 'card_metadata',
+      campaignId: 'campaign_top_level',
+      calendarItemId: 'item_metadata',
+      seriesId: 'series_metadata',
+    });
+  });
+
   it('overlays profile-derived platform, brand, proof, and text policy onto extracted exports', () => {
     const profile = resolveInstagramImagePostProfile();
     const modelExport: ThinkForgeBlockExportMeta = {
@@ -190,5 +250,18 @@ END_THINKFORGE_CLICKATRON_EXPORT -->`;
     expect(enriched.clickatron?.brand?.hardConstraints).toContain('Do not use visible text "game-changing".');
     expect(enriched.clickatron?.creativeBrief.audience).toBe('agency founders');
     expect(enriched.clickatron?.creativeBrief.keyClaims).toContain('37%');
+
+    const calendarInput: AgentInput = {
+      ...agentInput(),
+      userPrompt:
+        'Make an Instagram text + image post about approval time. campaignId CampaignJuneA calendarItemId ItemLaunchA seriesId SeriesOpsA',
+    };
+    const calendarEnriched = applyContentSignalProfileToClickatronExportMeta(modelExport, calendarInput, profile);
+
+    expect(calendarEnriched.clickatron?.calendar).toMatchObject({
+      campaignId: 'CampaignJuneA',
+      calendarItemId: 'ItemLaunchA',
+      seriesId: 'SeriesOpsA',
+    });
   });
 });

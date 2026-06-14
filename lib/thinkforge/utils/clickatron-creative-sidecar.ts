@@ -3,6 +3,7 @@ import {
   normalizeThinkForgeBlockExportMeta,
   type ClickatronAssetIntent,
   type ClickatronCarouselSlideSpec,
+  type ClickatronCreativeCalendarScope,
   type ClickatronCreativeBrandContext,
   type ClickatronCreativeKind,
   type ClickatronPlatform,
@@ -18,6 +19,12 @@ export const THINKFORGE_CLICKATRON_EXPORT_END = 'END_THINKFORGE_CLICKATRON_EXPOR
 
 const SIDECAR_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\s*([\s\S]*?)\s*END_THINKFORGE_CLICKATRON_EXPORT\s*-->/i;
 const SIDECAR_START_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\b/i;
+const CALENDAR_FIELDS: Array<keyof ClickatronCreativeCalendarScope> = [
+  'contentCardId',
+  'campaignId',
+  'calendarItemId',
+  'seriesId',
+];
 
 function compactText(parts: Array<string | undefined>): string {
   return parts.filter(Boolean).join('\n').toLowerCase();
@@ -49,6 +56,7 @@ export interface ClickatronCreativeSidecarProfile {
     hardConstraints?: string[];
     softPreferences?: string[];
   };
+  calendar?: ClickatronCreativeCalendarScope;
 }
 
 export function shouldRequestClickatronCreativeSidecar(
@@ -118,6 +126,12 @@ Required JSON skeleton. Preserve these exact field names and nesting:
       "hardConstraints": ["grounded visible-text restrictions"],
       "softPreferences": ["grounded style preferences"]
     },
+    "calendar": {
+      "contentCardId": "grounded content card id if supplied",
+      "campaignId": "grounded campaign id if supplied",
+      "calendarItemId": "grounded calendar item id if supplied",
+      "seriesId": "grounded series id if supplied"
+    },
     "renderPlan": {
       "textPolicy": "editable_text_layers",
       "imagePrompt": "visual-only scene, composition, objects, style, mood, layout, aspect ratio, and shared visual system",
@@ -178,6 +192,8 @@ Rules for the hidden JSON:
 - If clickatron_resolved_profile.aspectRatio is "4:5", the aspectRatio field and imagePrompt must both stay 4:5. Do not describe the composition as 9:16, vertical story, Reels, or full-screen mobile unless the resolved profile says 9:16.
 - Copy grounded proof points from clickatron_resolved_profile.creativeBrief.keyClaims into creativeBrief.keyClaims when they are relevant to the image.
 - Use clickatron_resolved_profile.brand.hardConstraints for visible text restrictions. Never put forbidden brand terms in renderPlan.textLayers.
+- Put campaignId, contentCardId, calendarItemId, and seriesId only under clickatron.calendar. Never put these fields at clickatron top level, in clickatron.metadata, renderPlan, or creativeBrief.
+- If calendar identifiers are supplied in the user request, project/session context, or clickatron_resolved_profile.calendar, copy the exact values into clickatron.calendar.
 - If the user's visual preference is unclear, set validation.status to "needs_user_input" and add one concise question in validation.needsUserInput.
 - If enough visual direction is present, set validation.status to "ready".
 - Do not wrap the hidden JSON in a code fence.${profileBlock}`,
@@ -189,7 +205,8 @@ export function buildClickatronCreativeSidecarProfile(
   profile?: ThinkForgeContentSignalProfile,
 ): ClickatronCreativeSidecarProfile | undefined {
   if (!profile) return undefined;
-  const text = compactText([input.userPrompt, input.context.projectSummary, input.context.systemBrief]);
+  const rawText = [input.userPrompt, input.context.projectSummary, input.context.systemBrief].filter(Boolean).join('\n');
+  const text = rawText.toLowerCase();
   const wantsCarousel = /\bcarousel|slides?\b/.test(text);
   const platform = normalizeClickatronPlatform(profile.intent.platform);
   const hardConstraints = profile.intent.forbiddenTerms.map((term) => `Do not use visible text "${term}".`);
@@ -202,6 +219,7 @@ export function buildClickatronCreativeSidecarProfile(
   const cta = profile.profile.constraints.cta_type === 'none'
     ? undefined
     : `${profile.profile.constraints.cta_type} CTA`;
+  const calendar = extractCalendarScope(rawText);
 
   return {
     kind: wantsCarousel ? 'carousel' : 'single_post_visual',
@@ -231,6 +249,7 @@ export function buildClickatronCreativeSidecarProfile(
           },
         }
       : {}),
+    ...(calendar ? { calendar } : {}),
   };
 }
 
@@ -242,6 +261,7 @@ export function applyContentSignalProfileToClickatronExportMeta(
   const sidecarProfile = buildClickatronCreativeSidecarProfile(input, profile);
   const clickatron = exportMeta.clickatron;
   if (!sidecarProfile || !clickatron) return exportMeta;
+  const calendar = mergeCalendarScopes(clickatron.calendar, sidecarProfile.calendar);
 
   const normalized = normalizeThinkForgeBlockExportMeta({
     clickatron: {
@@ -264,6 +284,7 @@ export function applyContentSignalProfileToClickatronExportMeta(
         ...(clickatron.creativeBrief.visualMetaphor ? {} : { visualMetaphor: sidecarProfile.creativeBrief.visualMetaphor }),
       },
       brand: mergeSidecarBrand(clickatron.brand, sidecarProfile.brand),
+      ...(calendar ? { calendar } : {}),
       renderPlan: {
         ...clickatron.renderPlan,
         textPolicy: sidecarProfile.textPolicy,
@@ -380,11 +401,25 @@ export function extractRequiredClickatronCreativeSidecar(markdown: string): {
 function repairRecoverableClickatronCreativeSidecar(input: unknown): unknown {
   if (!isRecord(input)) return input;
   const clickatron = isRecord(input.clickatron) ? input.clickatron : undefined;
-  const renderPlan = clickatron && isRecord(clickatron.renderPlan) ? clickatron.renderPlan : undefined;
+  const metadata = clickatron && isRecord(clickatron.metadata) ? clickatron.metadata : undefined;
+  const calendar = clickatron
+    ? mergeCalendarScopes(
+      readCalendarScopeFromRecord(isRecord(clickatron.calendar) ? clickatron.calendar : undefined),
+      readCalendarScopeFromRecord(clickatron),
+      readCalendarScopeFromRecord(metadata),
+    )
+    : undefined;
+  const repairedClickatron = clickatron && calendar ? { ...clickatron, calendar } : clickatron;
+  const renderPlan = repairedClickatron && isRecord(repairedClickatron.renderPlan) ? repairedClickatron.renderPlan : undefined;
   if (!clickatron || !renderPlan) return input;
 
   const imagePrompt = typeof renderPlan.imagePrompt === 'string' ? renderPlan.imagePrompt.trim() : '';
-  if (imagePrompt) return input;
+  if (imagePrompt) {
+    return {
+      ...input,
+      clickatron: repairedClickatron,
+    };
+  }
 
   const slidePrompts = Array.isArray(renderPlan.slides)
     ? renderPlan.slides
@@ -397,7 +432,7 @@ function repairRecoverableClickatronCreativeSidecar(input: unknown): unknown {
   return {
     ...input,
     clickatron: {
-      ...clickatron,
+      ...repairedClickatron,
       renderPlan: {
         ...renderPlan,
         imagePrompt: buildCarouselOverviewImagePrompt(slidePrompts),
@@ -416,6 +451,49 @@ function buildCarouselOverviewImagePrompt(slidePrompts: string[]): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function extractCalendarScope(text: string): ClickatronCreativeCalendarScope | undefined {
+  const result: Partial<ClickatronCreativeCalendarScope> = {};
+
+  for (const field of CALENDAR_FIELDS) {
+    const pattern = new RegExp(`\\b${field}\\b\\s*[:=]?\\s*["']?([a-zA-Z0-9_.:-]+)`, 'i');
+    const value = pattern.exec(text)?.[1]?.trim();
+    if (value) result[field] = value;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function readCalendarScopeFromRecord(record: Record<string, unknown> | undefined): ClickatronCreativeCalendarScope | undefined {
+  if (!record) return undefined;
+  const result: Partial<ClickatronCreativeCalendarScope> = {};
+
+  for (const field of CALENDAR_FIELDS) {
+    const value = record[field];
+    if (typeof value === 'string' && value.trim()) {
+      result[field] = value.trim();
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function mergeCalendarScopes(
+  ...scopes: Array<ClickatronCreativeCalendarScope | undefined>
+): ClickatronCreativeCalendarScope | undefined {
+  const merged: Partial<ClickatronCreativeCalendarScope> = {};
+
+  for (const scope of scopes) {
+    for (const field of CALENDAR_FIELDS) {
+      const value = scope?.[field];
+      if (value && !merged[field]) {
+        merged[field] = value;
+      }
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 function resolveTextLayers(layers: ClickatronTextLayer[] | undefined, fallbackBlockId: string): ClickatronTextLayer[] | undefined {
