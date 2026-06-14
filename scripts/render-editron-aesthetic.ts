@@ -62,6 +62,7 @@ export interface RenderedAestheticHarnessOptions {
   maxSamples?: number;
   sampleFrames?: number[];
   selfTest?: boolean;
+  overlayOnly?: boolean;
 }
 
 export type RenderedAestheticSampleRole = 'manual' | 'entry-settle' | 'hold' | 'exit-prep' | 'keyframe';
@@ -140,6 +141,7 @@ export async function runRenderedAestheticHarness(
   resetOutputDir(outputDir);
 
   const overlays = input.overlays.map((overlay) => ensureLiveAtomicOverlayReceipt(overlay));
+  const renderOverlays = options.overlayOnly ? buildOverlayOnlyRenderOverlays(overlays, input.width, input.height) : overlays;
   const baselineOverlays = buildBaselineOverlays(overlays, input.width, input.height);
   const samplePlan = options.sampleFrames?.length
     ? manualSamples(options.sampleFrames, overlays, input.durationInFrames)
@@ -162,7 +164,7 @@ export async function runRenderedAestheticHarness(
     },
   );
 
-  const fullProps = compositionProps(input, overlays);
+  const fullProps = compositionProps(input, renderOverlays);
   const baselineProps = compositionProps(input, baselineOverlays);
   const fullComposition = await selectComposition({ serveUrl, id: COMP_NAME, inputProps: fullProps });
   const baselineComposition = await selectComposition({ serveUrl, id: COMP_NAME, inputProps: baselineProps });
@@ -346,9 +348,17 @@ export function pickRenderedAestheticSampleFrames(
 
 export function buildBaselineOverlays(overlays: Overlay[], width: number, height: number): Overlay[] {
   return overlays.filter((overlay) => {
-    if (overlay.type === OverlayType.VIDEO || overlay.type === OverlayType.SOUND) return true;
+    if (overlay.type === OverlayType.VIDEO || overlay.type === OverlayType.SOUND) return false;
     return isLikelyBackgroundOverlay(overlay, width, height);
   });
+}
+
+export function buildOverlayOnlyRenderOverlays(overlays: Overlay[], width: number, height: number): Overlay[] {
+  return overlays.filter((overlay) => (
+    overlay.type !== OverlayType.VIDEO &&
+    overlay.type !== OverlayType.SOUND &&
+    (isAuditedOverlay(overlay) || isLikelyBackgroundOverlay(overlay, width, height))
+  ));
 }
 
 export function renderedOverlayBoxAtFrame(overlay: Overlay, frame: number): RenderedOverlayBox {
@@ -703,6 +713,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     else if (arg.startsWith('--out=')) args.outDir = arg.slice('--out='.length);
     else if (arg.startsWith('--max-samples=')) args.maxSamples = Number(arg.slice('--max-samples='.length));
     else if (arg.startsWith('--frames=')) args.sampleFrames = arg.slice('--frames='.length).split(',').map(Number).filter(Number.isFinite);
+    else if (arg === '--overlay-only') args.overlayOnly = true;
     else if (!args.inputFile) args.inputFile = arg;
   }
   return args;
@@ -711,9 +722,10 @@ function parseCliArgs(argv: string[]): CliArgs {
 function printUsage(): void {
   console.log([
     'Usage:',
-    '  npx tsx scripts/render-editron-aesthetic.ts <project-overlays.json> [--max-samples=18] [--frames=30,90] [--tag=name]',
+    '  npx tsx scripts/render-editron-aesthetic.ts <project-overlays.json> [--max-samples=18] [--frames=30,90] [--tag=name] [--overlay-only]',
     '  npx tsx scripts/render-editron-aesthetic.ts --self-test',
     '',
+    '--overlay-only skips source video/audio while rendering overlays, so Phase 0 evidence is not blocked by remote asset fetches.',
     'Input JSON shape: { width, height, fps, durationInFrames, overlays, sampleFrames? }',
   ].join('\n'));
 }

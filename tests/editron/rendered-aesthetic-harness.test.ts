@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { OverlayType, type KeyframeTrack, type Overlay } from '../../components/editron/editor/version-7.0.0/types';
 import {
   buildBaselineOverlays,
+  buildOverlayOnlyRenderOverlays,
   pickRenderedAestheticSampleFrames,
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
@@ -54,7 +55,7 @@ describe('rendered aesthetic harness helpers', () => {
     ]);
   });
 
-  it('keeps only media and likely full-frame backgrounds in baseline renders', () => {
+  it('keeps only likely full-frame backgrounds in baseline renders', () => {
     const baseline = buildBaselineOverlays([
       videoOverlay({ id: 1 }),
       imageOverlay({ id: 2, left: 0, top: 0, width: 1080, height: 1920 }),
@@ -62,7 +63,19 @@ describe('rendered aesthetic harness helpers', () => {
       textOverlay({ id: 4 }),
     ], 1080, 1920);
 
-    expect(baseline.map((overlay) => overlay.id)).toEqual([1, 2]);
+    expect(baseline.map((overlay) => overlay.id)).toEqual([2]);
+  });
+
+  it('builds overlay-only render props without source video or audio', () => {
+    const overlays = buildOverlayOnlyRenderOverlays([
+      videoOverlay({ id: 1 }),
+      soundOverlay({ id: 2 }),
+      imageOverlay({ id: 3, left: 0, top: 0, width: 1080, height: 1920 }),
+      textOverlay({ id: 4 }),
+      shapeOverlay({ id: 5 }),
+    ], 1080, 1920);
+
+    expect(overlays.map((overlay) => overlay.id)).toEqual([3, 4, 5]);
   });
 
   it('resolves keyframed position, scale, opacity, and text pixel height for rendered evidence', () => {

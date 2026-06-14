@@ -48,6 +48,7 @@ describe('phase0 render artifact pack', () => {
     expect(pack.renderInput.overlays).toHaveLength(5);
     expect(pack.renderCommand).toContain('scripts/render-editron-aesthetic.ts');
     expect(pack.renderCommand).toContain('render-input.json');
+    expect(pack.renderCommand).toContain('--overlay-only');
   });
 
   it('marks packs not-renderable instead of pretending missing visual evidence exists', () => {

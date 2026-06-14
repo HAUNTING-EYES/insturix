@@ -105,7 +105,7 @@ export function buildPhase0RenderArtifactPack(
       renderedAestheticJson: joinPath(renderedAestheticDir, 'rendered-aesthetic.json'),
       renderedAestheticHtml: joinPath(renderedAestheticDir, 'report.html'),
     },
-    renderCommand: `npx tsx scripts/render-editron-aesthetic.ts "${renderInputPath}" --out="${renderedAestheticDir}" --tag="${tag}"`,
+    renderCommand: `npx tsx scripts/render-editron-aesthetic.ts "${renderInputPath}" --out="${renderedAestheticDir}" --tag="${tag}" --overlay-only`,
     renderInput: {
       projectId: manifest.projectId,
       tag,
