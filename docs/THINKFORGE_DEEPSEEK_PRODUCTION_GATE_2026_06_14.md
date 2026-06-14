@@ -28,21 +28,22 @@ DeepSeek/OpenRouter can be used only for:
 
 Command class: ThinkForge safe public canary, Gemini vs DeepSeek, one run per provider, 95 percent gate.
 
-Artifact generated locally:
+Latest artifact generated locally:
 
-`.artifacts/thinkforge-safe-canary/phase6-live-safe-canary.json`
+`.artifacts/thinkforge-safe-canary/gemini-valid-key-rerun.json`
 
 Result: FAIL.
 
 Failures:
 
-- Gemini baseline failed because the locally loaded Gemini API key was invalid.
+- Gemini baseline ran successfully with a valid key.
+- Privacy audit passed: all canary prompts were public and artifact-only.
 - DeepSeek passed the public trend/meme repurposing case at 100 percent.
-- DeepSeek scored 83.33 percent on the generic LinkedIn draft case.
+- DeepSeek scored 66.67 percent on the generic LinkedIn draft case.
 - DeepSeek scored 37.5 percent on the Clickatron static sidecar case.
 - The Clickatron sidecar failure included invalid/missing sidecar JSON, missing image prompt, missing editable text layers, and missing static asset contract.
 
-Because the Gemini baseline failed, this run cannot approve DeepSeek by comparison. Because DeepSeek independently failed two safe public quality cases, DeepSeek also does not meet the 95 percent production gate.
+Because DeepSeek failed two safe public quality cases, it does not meet the 95 percent production gate even though the privacy gate passed.
 
 ## Why DeepSeek Remains Gated
 
@@ -50,7 +51,7 @@ The blocker is not cost. The blockers are:
 
 1. Privacy: ThinkForge prompts can contain business confidential, personal, and brand-memory data.
 2. Quality: the current safe canary shows weak sidecar JSON and weak Clickatron handoff reliability.
-3. Evidence: no valid Gemini baseline was available in the latest live canary.
+3. Evidence: the latest valid-baseline canary still failed DeepSeek quality gates.
 4. Compliance: there is no DPDP/legal approval for hosted DeepSeek on private ThinkForge context.
 
 ## Required Before Private Production Use
