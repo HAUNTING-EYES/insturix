@@ -1,8 +1,9 @@
 import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
 import type { CIRDocument, CIRSection } from "@/lib/thinkforge/schemas/cir";
+import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 import type { DocumentType, SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
 
-export type { DocumentType, SidecarCard, SidecarCardAction };
+export type { ContentCard, DocumentType, SidecarCard, SidecarCardAction };
 
 export type WorkflowPhase = 'PROMPT' | 'IDEAS' | 'SELECTED' | 'CHAT' | 'SCRIPT';
 
@@ -133,31 +134,3 @@ export interface UserSession {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export interface ContentCard {
-  id: string;
-  title: string;
-  date: string; // ISO string - primary date
-  platform: "youtube" | "instagram" | "linkedin" | string; // allow custom platforms
-  status: "scheduled" | "draft" | "published" | "in_production";
-  tags: string[]; // legacy tags for backward compatibility
-  aiScore?: number; // 0-100, optional
-  // New fields for content planning
-  ideaId?: string; // link to generated idea
-  sessionId?: string; // link to script session
-  scriptPreview?: string; // truncated script content (first 200-300 chars)
-  customTags: string[]; // user-defined tags (e.g., "start production", "publish")
-  idea?: {
-    id?: string | number;
-    idea: string;
-    purpose: string;
-    style: string;
-    format: string;
-    platform: string;
-    tone: ThinkingHat | string;
-  }; // full idea details
-  details?: string; // additional notes/description
-  plannedDates: string[]; // support multiple dates per card (ISO strings)
-  createdAt?: string; // ISO string
-  updatedAt?: string; // ISO string
-} 

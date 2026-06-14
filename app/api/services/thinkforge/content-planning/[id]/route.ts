@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { MongoClient, Db } from 'mongodb';
-import { ContentCard } from '@/app/dashboard/thinkforge/types';
+import {
+  contentCardClientView,
+  isContentCardValidationError,
+  mergeContentCardUpdate,
+} from '@/lib/thinkforge/planning/content-card-contract';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +49,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
     const body = await req.json();
     const { updates } = body;
 
@@ -68,23 +72,21 @@ export async function PUT(
       );
     }
 
-    // Update the card
-    const updatedCard = {
-      ...existingCard,
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
+    const updatedCard = mergeContentCardUpdate(existingCard, updates, {
+      userId,
+      now: new Date().toISOString(),
+    });
 
     await collection.updateOne(
       { id, userId },
       { $set: updatedCard }
     );
 
-    // Remove userId and _id from response
-    const { userId: _, _id, ...responseCard } = updatedCard;
-
-    return NextResponse.json({ card: responseCard });
+    return NextResponse.json({ card: contentCardClientView(updatedCard) });
   } catch (error) {
+    if (isContentCardValidationError(error)) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error('Error updating content card:', error);
     return NextResponse.json(
       { error: 'Failed to update content card' },
@@ -104,7 +106,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
 
     const { db } = await connectToDatabase();
     const collection = db.collection(COLLECTION_NAME);

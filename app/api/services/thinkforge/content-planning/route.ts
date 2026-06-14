@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { MongoClient, Db } from 'mongodb';
-import { ContentCard } from '@/app/dashboard/thinkforge/types';
+import {
+  contentCardClientView,
+  isContentCardValidationError,
+  normalizeContentCardForStorage,
+} from '@/lib/thinkforge/planning/content-card-contract';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,11 +51,9 @@ export async function GET() {
 
     const cards = await collection.find({ userId }).toArray();
 
-    // Remove MongoDB _id and convert to ContentCard format
-    const formattedCards: ContentCard[] = cards.map(card => {
-      const { _id, ...rest } = card;
-      return rest as ContentCard;
-    });
+    const formattedCards = cards.map(card =>
+      contentCardClientView(normalizeContentCardForStorage(card, { userId }))
+    );
 
     return NextResponse.json({ cards: formattedCards });
   } catch (error) {
@@ -85,24 +87,15 @@ export async function POST(req: Request) {
     const collection = db.collection(COLLECTION_NAME);
 
     const now = new Date().toISOString();
-    const newCard: ContentCard = {
-      ...card,
-      id: card.id || `card_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      userId,
-      createdAt: card.createdAt || now,
-      updatedAt: now,
-      customTags: card.customTags || [],
-      plannedDates: card.plannedDates || (card.date ? [card.date] : [now]),
-      tags: card.tags || [],
-    };
+    const newCard = normalizeContentCardForStorage(card, { userId, now });
 
     await collection.insertOne(newCard);
 
-    // Remove userId from response (not needed on client)
-    const { userId: _, ...responseCard } = newCard;
-
-    return NextResponse.json({ card: responseCard }, { status: 201 });
+    return NextResponse.json({ card: contentCardClientView(newCard) }, { status: 201 });
   } catch (error) {
+    if (isContentCardValidationError(error)) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error('Error creating content card:', error);
     return NextResponse.json(
       { error: 'Failed to create content card' },
@@ -110,4 +103,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
