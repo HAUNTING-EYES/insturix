@@ -47,6 +47,12 @@ describe("Clickatron brand prompt context", () => {
           idea: "Launch the new analytics workflow",
           platform: "YouTube",
           brandBrief: "Use uploaded logo only. Keep copy terse.",
+          clientName: "ScaleOps Studio",
+          campaignId: "campaign_authority_june",
+          campaignName: "June authority sprint",
+          seriesId: "founder-proof-series",
+          calendarItemId: "calendar_week_2_linkedin",
+          contentCardId: "card_linkedin_carousel_01",
           preferences: { doNotLeak: true },
         },
       },
@@ -66,6 +72,15 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("<clickatron_source_context>");
     expect(prompt).toContain("Source service: thinkforge");
     expect(prompt).toContain("Script title: Launch Story");
+    expect(prompt).toContain("Idea: Launch the new analytics workflow");
+    expect(prompt).toContain("Platform: YouTube");
+    expect(prompt).toContain("Brand brief: Use uploaded logo only. Keep copy terse.");
+    expect(prompt).toContain("Client: ScaleOps Studio");
+    expect(prompt).toContain("Campaign ID: campaign_authority_june");
+    expect(prompt).toContain("Campaign: June authority sprint");
+    expect(prompt).toContain("Series: founder-proof-series");
+    expect(prompt).toContain("Calendar item: calendar_week_2_linkedin");
+    expect(prompt).toContain("Content card: card_linkedin_carousel_01");
     expect(prompt).toContain("Brand: Signal Supply");
     expect(prompt).toContain("<clickatron_thumbnail_request>");
     expect(prompt).toContain("Create a high-click thumbnail.");
@@ -85,7 +100,7 @@ describe("Clickatron brand prompt context", () => {
     ).toBe("Create a clean product thumbnail.");
   });
 
-  it("keeps source context creative-only", () => {
+  it("filters raw handoff IDs and private nested values from source context", () => {
     const block = buildClickatronSourceContextBlock({
       handoff: "think-to-click",
       sourceContext: {
@@ -98,13 +113,17 @@ describe("Clickatron brand prompt context", () => {
       thinkforge: {
         projectMeta: {
           brandBrief: "Minimal yellow-black system.",
+          clientName: "Signal Supply",
+          campaignName: "Demo day launch",
           preferences: { doNotLeak: true },
         },
       },
     });
 
     expect(block).toContain("Handoff: think-to-click");
-    expect(block).toContain("brandBrief: Minimal yellow-black system.");
+    expect(block).toContain("Brand brief: Minimal yellow-black system.");
+    expect(block).toContain("Client: Signal Supply");
+    expect(block).toContain("Campaign: Demo day launch");
     expect(block).not.toContain("tf_session_secret");
     expect(block).not.toContain("script_secret");
     expect(block).not.toContain("plink_secret");

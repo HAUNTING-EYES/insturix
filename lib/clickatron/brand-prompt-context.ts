@@ -15,16 +15,23 @@ export interface BrandContextResolverDeps {
 
 const MAX_FIELD_LENGTH = 700;
 const MAX_PROMPT_LENGTH = 6000;
-const PROJECT_META_KEYS = [
-  "idea",
-  "purpose",
-  "style",
-  "format",
-  "platform",
-  "tone",
-  "sessionName",
-  "brandId",
-  "brandBrief",
+const PROJECT_META_FIELDS = [
+  ["idea", "Idea"],
+  ["purpose", "Purpose"],
+  ["style", "Style"],
+  ["format", "Format"],
+  ["platform", "Platform"],
+  ["tone", "Tone"],
+  ["sessionName", "Session"],
+  ["brandId", "Brand ID"],
+  ["brandBrief", "Brand brief"],
+  ["clientId", "Client ID"],
+  ["clientName", "Client"],
+  ["campaignId", "Campaign ID"],
+  ["campaignName", "Campaign"],
+  ["seriesId", "Series"],
+  ["calendarItemId", "Calendar item"],
+  ["contentCardId", "Content card"],
 ] as const;
 
 function asRecord(value: unknown): MetadataRecord | null {
@@ -96,8 +103,8 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Aspect ratio", clickatron?.aspectRatio);
 
   if (projectMeta) {
-    for (const key of PROJECT_META_KEYS) {
-      pushField(lines, key, projectMeta[key]);
+    for (const [key, label] of PROJECT_META_FIELDS) {
+      pushField(lines, label, projectMeta[key]);
     }
   }
 
