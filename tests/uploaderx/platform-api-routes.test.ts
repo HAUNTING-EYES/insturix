@@ -338,5 +338,17 @@ describe("UploaderX platform API route contracts", () => {
         }),
       }),
     );
+    expect(mocks.videoUpdateOne).toHaveBeenCalledWith(
+      { userId: "user_1", videoUuid: "video_1" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          "metadata.youtube.videoId": "yt_video_1",
+          "metadata.youtube.url": "https://www.youtube.com/watch?v=yt_video_1",
+          "metadata.youtube.publishState": "scheduled",
+          "metadata.youtube.scheduledTime": "2030-01-02T03:04:05.000Z",
+        }),
+      }),
+    );
+    expect(mocks.emitUploaderXVideoPublished).not.toHaveBeenCalled();
   });
 });

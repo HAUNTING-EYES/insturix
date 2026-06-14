@@ -191,19 +191,23 @@ export async function POST(req: Request) {
               "metadata.youtube.videoId": videoId,
               "metadata.youtube.url": youtubeUrl,
               "metadata.youtube.lastUploadedAt": new Date(),
+              "metadata.youtube.publishState": scheduledPublishAt ? "scheduled" : "published",
+              ...(scheduledPublishAt ? { "metadata.youtube.scheduledTime": scheduledPublishAt.toISOString() } : {}),
             },
           }
         );
-        await emitUploaderXVideoPublished({
-          userId: session.userId,
-          videoUuid,
-          platform: "youtube",
-          platformPostId: videoId,
-          platformUrl: youtubeUrl,
-          mediaType: "video",
-        }).catch((eventErr) =>
-          console.warn("[UploaderX:YouTube] video_published event failed:", eventErr),
-        );
+        if (!scheduledPublishAt) {
+          await emitUploaderXVideoPublished({
+            userId: session.userId,
+            videoUuid,
+            platform: "youtube",
+            platformPostId: videoId,
+            platformUrl: youtubeUrl,
+            mediaType: "video",
+          }).catch((eventErr) =>
+            console.warn("[UploaderX:YouTube] video_published event failed:", eventErr),
+          );
+        }
       }
     }
 

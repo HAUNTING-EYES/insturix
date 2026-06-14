@@ -441,6 +441,7 @@ export function useUploaderXUpload() {
             videoUuid,
             videoId: finalVideoId,
             thumbnailPublicUrl,
+            publishAt,
             postType,
           }),
         });

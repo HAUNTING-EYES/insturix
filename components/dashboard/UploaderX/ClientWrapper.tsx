@@ -9,6 +9,7 @@ import { useUser, useClerk, useReverification } from "@clerk/nextjs";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "@/lib/animation/gsap-config";
 import { DURATIONS, STAGGER } from "@/lib/animation/presets";
+import { ScheduleCalendar } from "./ScheduleCalendar";
 
 // ─── Design tokens (Insturix design system) ───────────────────
 const C = {
@@ -45,6 +46,29 @@ interface VideoItem {
   platforms?: string[];
   editronProjectId?: string | null;
   metadata?: Record<string, unknown>;
+}
+
+function normalizeVideoListResponse(data: unknown): VideoItem[] {
+  const records = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as { videos?: unknown }).videos)
+      ? (data as { videos: unknown[] }).videos
+      : [];
+
+  return records.map((record) => {
+    const video = record as Partial<VideoItem> & { size?: number };
+    return {
+      ...video,
+      videoUuid: video.videoUuid || "",
+      filename: video.filename || "Untitled video",
+      publicUrl: video.publicUrl || "",
+      fileSize: video.fileSize ?? video.size ?? 0,
+      uploadedAt: video.uploadedAt || new Date().toISOString(),
+      status: video.status || "uploaded",
+      platforms: video.platforms || [],
+      metadata: video.metadata || {},
+    };
+  }).filter((video) => video.videoUuid);
 }
 
 // ─── Platform definitions ──────────────────────────────────────
@@ -428,7 +452,7 @@ export function UploaderXClientWrapper() {
         const res = await fetch("/api/services/uploaderx/videos", { credentials: "include" });
         if (res.ok) {
           const data = await res.json();
-          if (!cancelled) setVideos(Array.isArray(data) ? data.slice(0, 5) : []);
+          if (!cancelled) setVideos(normalizeVideoListResponse(data).slice(0, 50));
         }
       } catch { /* silent — empty list */ }
       if (!cancelled) setLoadingVideos(false);
@@ -506,6 +530,13 @@ export function UploaderXClientWrapper() {
       }
     }
   }, []);
+
+  const handleSelectScheduledVideo = useCallback((videoUuid: string) => {
+    const video = videos.find((item) => item.videoUuid === videoUuid);
+    if (video) {
+      void handleSelectVideo(video);
+    }
+  }, [handleSelectVideo, videos]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1015,6 +1046,8 @@ export function UploaderXClientWrapper() {
               </div>
             </>
           )}
+
+          <ScheduleCalendar videos={videos} onSelectVideo={handleSelectScheduledVideo} />
 
           {/* Platform health strip */}
           <div style={{ display: "flex", gap: 16, padding: "16px 0", borderTop: `1px solid ${C.border}`, marginTop: "auto" }}>

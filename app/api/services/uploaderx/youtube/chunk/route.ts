@@ -203,6 +203,10 @@ export async function POST(req: Request) {
       }
 
       const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const scheduledPublishAt = requestPublishAt ? new Date(requestPublishAt) : null;
+      if (scheduledPublishAt && Number.isNaN(scheduledPublishAt.getTime())) {
+        return NextResponse.json({ success: false, error: "Invalid YouTube publishAt date" }, { status: 400 });
+      }
 
       // Update DB
       await UploaderXVideo.updateOne(
@@ -212,6 +216,8 @@ export async function POST(req: Request) {
             "metadata.youtube.videoId": videoId,
             "metadata.youtube.url": youtubeUrl,
             "metadata.youtube.lastUploadedAt": new Date(),
+            "metadata.youtube.publishState": scheduledPublishAt ? "scheduled" : "published",
+            ...(scheduledPublishAt ? { "metadata.youtube.scheduledTime": scheduledPublishAt.toISOString() } : {}),
           },
         }
       );
@@ -235,17 +241,19 @@ export async function POST(req: Request) {
         }
       }
 
-      await emitUploaderXVideoPublished({
-        userId: session.userId,
-        videoUuid,
-        platform: "youtube",
-        platformPostId: videoId,
-        platformUrl: youtubeUrl,
-        mediaType: "video",
-        postType,
-      }).catch((eventErr) =>
-        console.warn("[UploaderX:YouTube] video_published event failed:", eventErr)
-      );
+      if (!scheduledPublishAt) {
+        await emitUploaderXVideoPublished({
+          userId: session.userId,
+          videoUuid,
+          platform: "youtube",
+          platformPostId: videoId,
+          platformUrl: youtubeUrl,
+          mediaType: "video",
+          postType,
+        }).catch((eventErr) =>
+          console.warn("[UploaderX:YouTube] video_published event failed:", eventErr)
+        );
+      }
 
       return NextResponse.json({
         success: true,
