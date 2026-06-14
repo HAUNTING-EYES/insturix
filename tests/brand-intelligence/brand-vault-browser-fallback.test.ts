@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createBrandVaultBrowserFallbackFetchFromEnvironment,
+  createBrandVaultLocalPlaywrightFallbackFetch,
   type BrandVaultBrowserRenderFetch,
+  type BrandVaultPlaywrightModule,
 } from '../../lib/shared/brand-vault-browser-fallback';
 
 const INPUT = {
@@ -15,7 +17,7 @@ const INPUT = {
 };
 
 describe('Brand Vault browser fallback providers', () => {
-  it('stays disabled when no render endpoint or Firecrawl key is configured', () => {
+  it('stays disabled when no free render provider is configured', () => {
     const fallback = createBrandVaultBrowserFallbackFetchFromEnvironment({}, async () => {
       throw new Error('fetch should not run');
     });
@@ -23,7 +25,20 @@ describe('Brand Vault browser fallback providers', () => {
     expect(fallback).toBeUndefined();
   });
 
-  it('uses Firecrawl as the production browser-render provider when FIRECRAWL_API_KEY is configured', async () => {
+  it('does not spend Firecrawl credits unless the paid provider is explicitly selected', () => {
+    const fallback = createBrandVaultBrowserFallbackFetchFromEnvironment(
+      {
+        FIRECRAWL_API_KEY: 'fc_test_key',
+      },
+      async () => {
+        throw new Error('fetch should not run');
+      },
+    );
+
+    expect(fallback).toBeUndefined();
+  });
+
+  it('uses Firecrawl only when the paid browser-render provider is explicitly configured', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchFn: BrandVaultBrowserRenderFetch = async (url, init) => {
       calls.push({ url, init });
@@ -58,6 +73,7 @@ describe('Brand Vault browser fallback providers', () => {
 
     const fallback = createBrandVaultBrowserFallbackFetchFromEnvironment(
       {
+        BRAND_VAULT_BROWSER_RENDER_PROVIDER: 'firecrawl',
         FIRECRAWL_API_KEY: 'fc_test_key',
         BRAND_VAULT_FIRECRAWL_WAIT_MS: '250',
         BRAND_VAULT_FIRECRAWL_TIMEOUT_MS: '1500',
@@ -111,11 +127,12 @@ describe('Brand Vault browser fallback providers', () => {
     expect(snapshot?.stylesheets?.[0]?.css).not.toContain('rgb(1, 2, 3)');
   });
 
-  it('keeps a custom render endpoint ahead of Firecrawl when both are configured', async () => {
+  it('keeps a self-hosted render endpoint ahead of paid Firecrawl when both are configured', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fallback = createBrandVaultBrowserFallbackFetchFromEnvironment(
       {
         BRAND_VAULT_BROWSER_RENDER_ENDPOINT: 'https://render.example/brand-vault',
+        BRAND_VAULT_BROWSER_RENDER_PROVIDER: 'firecrawl',
         BRAND_VAULT_BROWSER_RENDER_TOKEN: 'render_token',
         FIRECRAWL_API_KEY: 'fc_test_key',
       },
@@ -141,5 +158,83 @@ describe('Brand Vault browser fallback providers', () => {
       }),
     );
     expect(snapshot?.html).toContain('Custom render');
+  });
+
+  it('can render through a self-hosted local Playwright provider without a paid scraper', async () => {
+    const lifecycle: string[] = [];
+    const gotoCalls: Array<{ url: string; waitUntil: string; timeout: number }> = [];
+    const contextOptions: Array<{ userAgent?: string }> = [];
+    const loadPlaywright = async (): Promise<BrandVaultPlaywrightModule> => ({
+      chromium: {
+        launch: async (options) => {
+          expect(options.headless).toBe(true);
+          expect(options.args).toContain('--no-sandbox');
+          lifecycle.push('launch');
+          return {
+            close: async () => {
+              lifecycle.push('browser.close');
+            },
+            newContext: async (options) => {
+              contextOptions.push(options);
+              lifecycle.push('context');
+              return {
+                close: async () => {
+                  lifecycle.push('context.close');
+                },
+                newPage: async () => ({
+                  content: async () => '<html><body><h1>Rendered locally</h1></body></html>',
+                  evaluate: async <T>() =>
+                    [
+                      {
+                        url: 'https://vaultline.example/#playwright-stylesheet-0',
+                        css: ':root { --brand-primary: #123456; } body { font-family: "Plus Jakarta Sans"; }',
+                        contentType: 'text/css',
+                      },
+                    ] as T,
+                  goto: async (url, options) => {
+                    gotoCalls.push({ url, waitUntil: options.waitUntil, timeout: options.timeout });
+                    return {
+                      headers: () => ({ 'content-type': 'text/html; charset=utf-8' }),
+                      status: () => 200,
+                      url: () => 'https://vaultline.example/',
+                    };
+                  },
+                }),
+              };
+            },
+          };
+        },
+      },
+    });
+
+    const fallback = createBrandVaultLocalPlaywrightFallbackFetch({
+      loadPlaywright,
+      timeoutMs: 1_500,
+      waitUntil: 'domcontentloaded',
+    });
+
+    const snapshot = await fallback(INPUT);
+
+    expect(contextOptions).toEqual([{ userAgent: 'Mozilla/5.0 Brand Vault Test Browser' }]);
+    expect(gotoCalls).toEqual([
+      {
+        url: 'https://vaultline.example/',
+        waitUntil: 'domcontentloaded',
+        timeout: 1_500,
+      },
+    ]);
+    expect(snapshot).toMatchObject({
+      normalizedUrl: 'https://vaultline.example/',
+      html: expect.stringContaining('Rendered locally'),
+      contentType: 'text/html; charset=utf-8',
+      fetchWarnings: expect.arrayContaining([
+        expect.stringMatching(/Self-hosted Playwright browser-rendered evidence/i),
+        'Self-hosted Playwright renderer received HTTP 200.',
+        expect.stringMatching(/CSSOM stylesheet evidence/i),
+      ]),
+    });
+    expect(snapshot?.stylesheets?.[0]?.css).toContain('--brand-primary: #123456');
+    expect(snapshot?.stylesheets?.[0]?.css).toContain('Plus Jakarta Sans');
+    expect(lifecycle).toEqual(['launch', 'context', 'context.close', 'browser.close']);
   });
 });

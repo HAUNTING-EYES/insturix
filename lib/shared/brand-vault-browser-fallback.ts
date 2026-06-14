@@ -8,8 +8,11 @@ import type {
 export interface BrandVaultBrowserRenderEnvironment {
   [key: string]: string | undefined;
   BRAND_VAULT_BROWSER_RENDER_ENDPOINT?: string;
+  BRAND_VAULT_BROWSER_RENDER_PROVIDER?: string;
   BRAND_VAULT_BROWSER_RENDER_TOKEN?: string;
   BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS?: string;
+  BRAND_VAULT_PLAYWRIGHT_TIMEOUT_MS?: string;
+  BRAND_VAULT_PLAYWRIGHT_WAIT_UNTIL?: string;
   BRAND_VAULT_FIRECRAWL_TIMEOUT_MS?: string;
   BRAND_VAULT_FIRECRAWL_WAIT_MS?: string;
   FIRECRAWL_API_KEY?: string;
@@ -17,6 +20,46 @@ export interface BrandVaultBrowserRenderEnvironment {
 }
 
 export type BrandVaultBrowserRenderFetch = (url: string, init?: RequestInit) => Promise<Response>;
+export type BrandVaultBrowserRenderProvider = 'endpoint' | 'local_playwright' | 'firecrawl' | 'off';
+
+export interface BrandVaultPlaywrightBrowser {
+  close: () => Promise<void>;
+  newContext: (options: { userAgent?: string }) => Promise<BrandVaultPlaywrightContext>;
+}
+
+export interface BrandVaultPlaywrightContext {
+  close: () => Promise<void>;
+  newPage: () => Promise<BrandVaultPlaywrightPage>;
+}
+
+export interface BrandVaultPlaywrightPage {
+  content: () => Promise<string>;
+  evaluate: <T>(pageFunction: () => T | Promise<T>) => Promise<T>;
+  goto: (
+    url: string,
+    options: { timeout: number; waitUntil: BrandVaultPlaywrightWaitUntil },
+  ) => Promise<BrandVaultPlaywrightResponse | null>;
+}
+
+export interface BrandVaultPlaywrightResponse {
+  headers: () => Record<string, string>;
+  status: () => number;
+  url: () => string;
+}
+
+export interface BrandVaultPlaywrightModule {
+  chromium: {
+    launch: (options: { headless: true; args: string[] }) => Promise<BrandVaultPlaywrightBrowser>;
+  };
+}
+
+export type BrandVaultPlaywrightWaitUntil = 'domcontentloaded' | 'load' | 'networkidle';
+
+export interface BrandVaultLocalPlaywrightFallbackOptions {
+  loadPlaywright?: () => Promise<BrandVaultPlaywrightModule>;
+  timeoutMs?: number;
+  waitUntil?: BrandVaultPlaywrightWaitUntil;
+}
 
 const DEFAULT_BROWSER_RENDER_TIMEOUT_MS = 12_000;
 const MIN_BROWSER_RENDER_TIMEOUT_MS = 1_000;
@@ -24,17 +67,31 @@ const MAX_BROWSER_RENDER_TIMEOUT_MS = 25_000;
 const DEFAULT_FIRECRAWL_API_URL = 'https://api.firecrawl.dev/v2/scrape';
 const DEFAULT_FIRECRAWL_WAIT_MS = 1_000;
 const MAX_FIRECRAWL_WAIT_MS = 5_000;
+const DEFAULT_PLAYWRIGHT_WAIT_UNTIL: BrandVaultPlaywrightWaitUntil = 'networkidle';
+const PLAYWRIGHT_LAUNCH_ARGS = ['--disable-dev-shm-usage', '--no-sandbox'] as const;
 
 export function createBrandVaultBrowserFallbackFetchFromEnvironment(
   env: BrandVaultBrowserRenderEnvironment = process.env,
   fetchFn: BrandVaultBrowserRenderFetch = fetch,
 ): FetchWebsiteBrandSnapshotOptions['browserFallbackFetchFn'] | undefined {
+  const provider = parseProvider(env.BRAND_VAULT_BROWSER_RENDER_PROVIDER);
+  if (provider === 'off') return undefined;
+
   const endpoint = env.BRAND_VAULT_BROWSER_RENDER_ENDPOINT?.trim();
   if (endpoint) {
     const token = env.BRAND_VAULT_BROWSER_RENDER_TOKEN?.trim();
     const timeoutMs = parseTimeoutMs(env.BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS);
     return async (input) => fetchBrowserRenderedSnapshot({ endpoint, token, timeoutMs, input, fetchFn });
   }
+
+  if (provider === 'local_playwright') {
+    return createBrandVaultLocalPlaywrightFallbackFetch({
+      timeoutMs: parseTimeoutMs(env.BRAND_VAULT_PLAYWRIGHT_TIMEOUT_MS),
+      waitUntil: parsePlaywrightWaitUntil(env.BRAND_VAULT_PLAYWRIGHT_WAIT_UNTIL),
+    });
+  }
+
+  if (provider !== 'firecrawl') return undefined;
 
   const firecrawlApiKey = env.FIRECRAWL_API_KEY?.trim();
   if (!firecrawlApiKey) return undefined;
@@ -47,6 +104,18 @@ export function createBrandVaultBrowserFallbackFetchFromEnvironment(
       fetchFn,
       timeoutMs: parseTimeoutMs(env.BRAND_VAULT_FIRECRAWL_TIMEOUT_MS),
       waitMs: parseBoundedInteger(env.BRAND_VAULT_FIRECRAWL_WAIT_MS, 0, MAX_FIRECRAWL_WAIT_MS, DEFAULT_FIRECRAWL_WAIT_MS),
+    });
+}
+
+export function createBrandVaultLocalPlaywrightFallbackFetch(
+  options: BrandVaultLocalPlaywrightFallbackOptions = {},
+): NonNullable<FetchWebsiteBrandSnapshotOptions['browserFallbackFetchFn']> {
+  return async (input) =>
+    fetchLocalPlaywrightRenderedSnapshot({
+      input,
+      loadPlaywright: options.loadPlaywright ?? loadPlaywrightModule,
+      timeoutMs: options.timeoutMs ?? DEFAULT_BROWSER_RENDER_TIMEOUT_MS,
+      waitUntil: options.waitUntil ?? DEFAULT_PLAYWRIGHT_WAIT_UNTIL,
     });
 }
 
@@ -95,6 +164,74 @@ function renderRequestBody(input: BrandWebsiteBrowserFallbackInput): Record<stri
     now: input.now,
     userAgent: input.userAgent,
   };
+}
+
+async function fetchLocalPlaywrightRenderedSnapshot(args: {
+  input: BrandWebsiteBrowserFallbackInput;
+  loadPlaywright: () => Promise<BrandVaultPlaywrightModule>;
+  timeoutMs: number;
+  waitUntil: BrandVaultPlaywrightWaitUntil;
+}): Promise<BrandWebsiteBrowserFallbackSnapshot | undefined> {
+  let browser: BrandVaultPlaywrightBrowser | undefined;
+  let context: BrandVaultPlaywrightContext | undefined;
+  try {
+    const playwright = await args.loadPlaywright();
+    browser = await playwright.chromium.launch({
+      headless: true,
+      args: [...PLAYWRIGHT_LAUNCH_ARGS],
+    });
+    context = await browser.newContext({
+      userAgent: args.input.userAgent,
+    });
+    const page = await context.newPage();
+    const response = await page.goto(args.input.normalizedUrl, {
+      timeout: args.timeoutMs,
+      waitUntil: args.waitUntil,
+    });
+    const html = await page.content();
+    if (!html.trim()) return undefined;
+    const stylesheets = await extractPlaywrightStylesheets(page);
+
+    return {
+      normalizedUrl: response?.url() ?? args.input.normalizedUrl,
+      html,
+      contentType: response?.headers()['content-type'] ?? 'text/html',
+      stylesheets,
+      fetchWarnings: uniqueStrings([
+        'Self-hosted Playwright browser-rendered evidence was used because direct Brand Vault website fetch did not produce usable HTML.',
+        response ? `Self-hosted Playwright renderer received HTTP ${response.status()}.` : undefined,
+        stylesheets?.length ? 'Self-hosted Playwright renderer attached CSSOM stylesheet evidence for color and font extraction.' : undefined,
+      ]),
+    };
+  } catch {
+    return undefined;
+  } finally {
+    await context?.close().catch(() => undefined);
+    await browser?.close().catch(() => undefined);
+  }
+}
+
+async function extractPlaywrightStylesheets(
+  page: BrandVaultPlaywrightPage,
+): Promise<BrandWebsiteStylesheetSnapshot[] | undefined> {
+  const stylesheets = await page.evaluate(() => {
+    return Array.from(document.styleSheets)
+      .map((sheet, index) => {
+        try {
+          const css = Array.from(sheet.cssRules).map((rule) => rule.cssText).join('\n').trim();
+          if (!css) return null;
+          return {
+            url: sheet.href || `${location.href}#playwright-stylesheet-${index}`,
+            css,
+            contentType: 'text/css',
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is { url: string; css: string; contentType: string } => Boolean(item));
+  });
+  return stylesheets.length > 0 ? stylesheets : undefined;
 }
 
 async function fetchFirecrawlRenderedSnapshot(args: {
@@ -312,6 +449,28 @@ function objectRecord(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function parseProvider(value: string | undefined): BrandVaultBrowserRenderProvider | undefined {
+  const normalized = value?.trim().toLowerCase().replace(/-/g, '_');
+  if (!normalized) return undefined;
+  if (normalized === 'endpoint' || normalized === 'self_hosted' || normalized === 'custom') return 'endpoint';
+  if (normalized === 'playwright' || normalized === 'local_playwright') return 'local_playwright';
+  if (normalized === 'firecrawl') return 'firecrawl';
+  if (normalized === 'off' || normalized === 'disabled' || normalized === 'none') return 'off';
+  return undefined;
+}
+
+function parsePlaywrightWaitUntil(value: string | undefined): BrandVaultPlaywrightWaitUntil {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'domcontentloaded' || normalized === 'load' || normalized === 'networkidle') return normalized;
+  return DEFAULT_PLAYWRIGHT_WAIT_UNTIL;
+}
+
+async function loadPlaywrightModule(): Promise<BrandVaultPlaywrightModule> {
+  const packageName = 'playwright';
+  const loadedPackage = await import(packageName);
+  return loadedPackage as BrandVaultPlaywrightModule;
 }
 
 function parseTimeoutMs(value: string | undefined): number {
