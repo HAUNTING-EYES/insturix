@@ -12,8 +12,22 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Youtube, Instagram, Facebook, Save, Eye, EyeOff } from "lucide-react";
+import {
+  isUploaderXFieldSupported,
+  type UploaderXPlatform,
+} from "@/lib/uploaderx/platform-capabilities";
 
 type Platform = { key: string; label: string };
+
+const UNSUPPORTED_CONTROL_TITLE = "This field is not wired to the platform API yet.";
+
+function isKnownUploaderXPlatform(platform: string): platform is UploaderXPlatform {
+  return ["youtube", "instagram", "facebook", "twitter", "linkedin"].includes(platform);
+}
+
+function isFieldSupported(platform: string, field: string) {
+  return isKnownUploaderXPlatform(platform) && isUploaderXFieldSupported(platform, field);
+}
 
 interface PlatformData {
   title: string;
@@ -249,6 +263,8 @@ export function PlatformEditor({
               <Input
                 type="datetime-local"
                 value={data.youtube?.scheduledTime || ''}
+                disabled={!isFieldSupported(platform, 'publishAt')}
+                title={isFieldSupported(platform, 'publishAt') ? undefined : UNSUPPORTED_CONTROL_TITLE}
                 onChange={(e) => updateNestedData(platform, 'youtube', 'scheduledTime', e.target.value)}
                 className="mt-1"
               />
@@ -275,6 +291,8 @@ export function PlatformEditor({
               <Label className="text-zinc-200">Location (Optional)</Label>
               <Input
                 value={data.instagram?.location || ''}
+                disabled={!isFieldSupported(platform, 'location')}
+                title={isFieldSupported(platform, 'location') ? undefined : UNSUPPORTED_CONTROL_TITLE}
                 onChange={(e) => updateNestedData(platform, 'instagram', 'location', e.target.value)}
                 placeholder="Add location"
                 className="mt-1"
@@ -285,6 +303,8 @@ export function PlatformEditor({
               <Label className="text-zinc-200">Alt Text</Label>
               <Input
                 value={data.instagram?.altText || ''}
+                disabled={!isFieldSupported(platform, 'altText')}
+                title={isFieldSupported(platform, 'altText') ? undefined : UNSUPPORTED_CONTROL_TITLE}
                 onChange={(e) => updateNestedData(platform, 'instagram', 'altText', e.target.value)}
                 placeholder="Describe the video for accessibility"
                 className="mt-1"
@@ -312,6 +332,8 @@ export function PlatformEditor({
               <Label className="text-zinc-200">Privacy</Label>
               <select
                 value={data.facebook?.privacy || 'everyone'}
+                disabled={!isFieldSupported(platform, 'privacy')}
+                title={isFieldSupported(platform, 'privacy') ? undefined : UNSUPPORTED_CONTROL_TITLE}
                 onChange={(e) => updateNestedData(platform, 'facebook', 'privacy', e.target.value)}
                 className="mt-1 w-full p-2 bg-zinc-900 border border-zinc-800 rounded-md text-zinc-200"
               >
@@ -326,6 +348,8 @@ export function PlatformEditor({
               <Input
                 type="datetime-local"
                 value={data.facebook?.scheduledTime || ''}
+                disabled={!isFieldSupported(platform, 'publishAt')}
+                title={isFieldSupported(platform, 'publishAt') ? undefined : UNSUPPORTED_CONTROL_TITLE}
                 onChange={(e) => updateNestedData(platform, 'facebook', 'scheduledTime', e.target.value)}
                 className="mt-1"
               />

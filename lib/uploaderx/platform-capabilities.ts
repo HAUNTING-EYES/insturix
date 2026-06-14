@@ -41,7 +41,7 @@ export const UPLOADERX_PLATFORM_CAPABILITIES = {
     pageId: { status: "supported" },
     media: { status: "supported" },
     privacy: { status: "blocked", reason: "Requires Meta docs verification before wiring." },
-    publishAt: { status: "blocked", reason: "Requires Meta docs verification before wiring." },
+    publishAt: { status: "supported", reason: "Supported for Facebook Page video posts and Page Reels with platform-native schedule fields." },
     thumbnail: { status: "blocked", reason: "Requires Meta docs verification before wiring." },
   },
   twitter: {
@@ -85,6 +85,7 @@ export type FacebookPublishPayload = {
   description?: string;
   pageId?: string;
   postType?: string;
+  publishAt?: string;
 };
 
 export type InstagramPublishPayload = {

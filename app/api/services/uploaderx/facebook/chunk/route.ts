@@ -7,6 +7,59 @@ import FormData from "form-data";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 
+const FACEBOOK_MIN_SCHEDULE_DELAY_MS = 10 * 60 * 1000;
+const FACEBOOK_PAGE_VIDEO_MAX_SCHEDULE_DELAY_MS = 75 * 24 * 60 * 60 * 1000;
+const FACEBOOK_REEL_MAX_SCHEDULE_DELAY_MS = 29 * 24 * 60 * 60 * 1000;
+
+function parseOptionalPublishAt(value: unknown): Date | null | undefined {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string" && typeof value !== "number") {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function validateFacebookSchedule(publishAt: Date, isReel: boolean): string | null {
+  const delayMs = publishAt.getTime() - Date.now();
+  if (delayMs < FACEBOOK_MIN_SCHEDULE_DELAY_MS) {
+    return "Facebook scheduled videos must be at least 10 minutes in the future.";
+  }
+  if (isReel && delayMs > FACEBOOK_REEL_MAX_SCHEDULE_DELAY_MS) {
+    return "Facebook scheduled Reels must be within 29 days.";
+  }
+  if (!isReel && delayMs > FACEBOOK_PAGE_VIDEO_MAX_SCHEDULE_DELAY_MS) {
+    return "Facebook scheduled videos must be within 75 days.";
+  }
+  return null;
+}
+
+function facebookScheduleFields(publishAt: Date | null): Record<string, boolean | number> {
+  if (!publishAt) {
+    return {};
+  }
+
+  return {
+    published: false,
+    scheduled_publish_time: Math.floor(publishAt.getTime() / 1000),
+  };
+}
+
+function facebookReelFinishFields(publishAt: Date | null): Record<string, number | string> {
+  if (!publishAt) {
+    return { video_state: "PUBLISHED" };
+  }
+
+  return {
+    video_state: "SCHEDULED",
+    scheduled_publish_time: Math.floor(publishAt.getTime() / 1000),
+  };
+}
+
 async function fetchUploaderXRange(publicUrl: string, start: number, end: number) {
   const response = await fetch(publicUrl, {
     headers: {
@@ -39,6 +92,7 @@ export async function POST(req: Request) {
       chunkSize,
       title,
       description,
+      publishAt,
     } = body;
 
     if (!videoUuid) {
@@ -245,6 +299,27 @@ export async function POST(req: Request) {
       finalTitle = finalTitle || "Uploaded via UploaderX";
       finalDescription = finalDescription || "";
 
+      const requestPublishAt = parseOptionalPublishAt(publishAt);
+      if (requestPublishAt === undefined) {
+        return NextResponse.json({ success: false, error: "Invalid Facebook publishAt date" }, { status: 400 });
+      }
+
+      let scheduledPublishAt = requestPublishAt;
+      if (!scheduledPublishAt && typeof videoDoc?.metadata?.facebook?.scheduledTime === "string") {
+        const metadataPublishAt = parseOptionalPublishAt(videoDoc.metadata.facebook.scheduledTime);
+        if (metadataPublishAt === undefined) {
+          return NextResponse.json({ success: false, error: "Invalid saved Facebook scheduledTime date" }, { status: 400 });
+        }
+        scheduledPublishAt = metadataPublishAt;
+      }
+
+      if (scheduledPublishAt) {
+        const scheduleError = validateFacebookSchedule(scheduledPublishAt, isReel);
+        if (scheduleError) {
+          return NextResponse.json({ success: false, error: scheduleError }, { status: 400 });
+        }
+      }
+
       if (isReel) {
         const finishUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/video_reels?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
         const finishRes = await axios.post(
@@ -252,7 +327,7 @@ export async function POST(req: Request) {
           {
             upload_phase: "finish",
             video_id: videoId,
-            video_state: "PUBLISHED",
+            ...facebookReelFinishFields(scheduledPublishAt),
             title: finalTitle,
             description: finalDescription,
           },
@@ -280,6 +355,7 @@ export async function POST(req: Request) {
             upload_session_id: uploadSessionId,
             title: finalTitle,
             description: finalDescription,
+            ...facebookScheduleFields(scheduledPublishAt),
           },
           {
             headers: { "Content-Type": "application/json" },
@@ -306,22 +382,26 @@ export async function POST(req: Request) {
             "metadata.facebook.pageName": targetPage.pageName,
             "metadata.facebook.lastUploadedAt": new Date(),
             "metadata.facebook.postType": postType || (isReel ? "reel" : "video"),
+            "metadata.facebook.publishState": scheduledPublishAt ? "scheduled" : "published",
+            ...(scheduledPublishAt ? { "metadata.facebook.scheduledTime": scheduledPublishAt.toISOString() } : {}),
           },
         }
       );
 
-      await emitUploaderXVideoPublished({
-        userId: session.userId,
-        videoUuid,
-        platform: "facebook",
-        platformPostId: videoId,
-        platformUrl: facebookUrl,
-        accountUsername: targetPage.pageName,
-        mediaType: "video",
-        postType,
-      }).catch((eventErr) =>
-        console.warn("[UploaderX:Facebook] video_published event failed:", eventErr)
-      );
+      if (!scheduledPublishAt) {
+        await emitUploaderXVideoPublished({
+          userId: session.userId,
+          videoUuid,
+          platform: "facebook",
+          platformPostId: videoId,
+          platformUrl: facebookUrl,
+          accountUsername: targetPage.pageName,
+          mediaType: "video",
+          postType,
+        }).catch((eventErr) =>
+          console.warn("[UploaderX:Facebook] video_published event failed:", eventErr)
+        );
+      }
 
       return NextResponse.json({
         success: true,
@@ -329,6 +409,8 @@ export async function POST(req: Request) {
         videoId,
         pageName: targetPage.pageName,
         postType: postType || (isReel ? "reel" : "video"),
+        scheduled: Boolean(scheduledPublishAt),
+        publishAt: scheduledPublishAt?.toISOString(),
       });
     }
 

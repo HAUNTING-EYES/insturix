@@ -537,7 +537,8 @@ export function useUploaderXUpload() {
     description?: string,
     pageId?: string,
     postType?: string,
-    duration?: number
+    duration?: number,
+    publishAt?: string
   ): Promise<UploaderXPublishReceipt> => {
     try {
       if (duration !== undefined && duration > 120) {
@@ -593,6 +594,7 @@ export function useUploaderXUpload() {
             videoId,
             title,
             description,
+            publishAt,
           }),
         });
         const finishData = await finishRes.json();
@@ -610,6 +612,7 @@ export function useUploaderXUpload() {
         description,
         pageId,
         postType,
+        publishAt,
       };
 
       const res = await fetch("/api/services/uploaderx/facebook", {
