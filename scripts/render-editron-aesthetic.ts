@@ -737,13 +737,21 @@ function requiredInputFile(inputFile: string | undefined): string {
 }
 
 function resetOutputDir(outputDir: string): void {
-  const root = path.resolve(process.cwd(), '.calibration-temp', 'rendered-aesthetic');
+  const allowedRoots = [
+    path.resolve(process.cwd(), '.calibration-temp', 'rendered-aesthetic'),
+    path.resolve(process.cwd(), '.calibration-temp', 'phase0-fixtures'),
+  ];
   const resolved = path.resolve(outputDir);
-  if (!resolved.startsWith(root)) {
-    throw new Error(`refusing to reset output outside ${root}: ${resolved}`);
+  if (!allowedRoots.some((root) => isInsideAllowedRoot(resolved, root))) {
+    throw new Error(`refusing to reset output outside allowed render roots: ${resolved}`);
   }
   fs.rmSync(resolved, { recursive: true, force: true });
   fs.mkdirSync(resolved, { recursive: true });
+}
+
+function isInsideAllowedRoot(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function isAuditedOverlay(overlay: Overlay): boolean {
