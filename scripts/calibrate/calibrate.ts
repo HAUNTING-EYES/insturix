@@ -24,6 +24,10 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { config } from 'dotenv';
 import type { DecisionOutcome } from '../../lib/editron/services/decision-tracker';
 import type { BanditContext } from '../../lib/editron/services/genre-parameter-bandit';
+import {
+  evaluateCalibrationWriteGate,
+  formatCalibrationWriteGateDecision,
+} from '../../lib/editron/services/calibration-write-gate';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,6 +50,7 @@ interface DownloadResult {
 interface CalibrationOptions {
   skipDownload?: boolean;
   dryRun?: boolean;
+  allowBanditWrite?: boolean;
   tempDir?: string;
   localFile?: string;
   durationMs?: number;
@@ -1014,6 +1019,7 @@ async function feedBandits(
   scoring: ScoringResult,
   label: string,
   dryRun: boolean,
+  allowBanditWrite: boolean,
 ): Promise<void> {
   console.log(`\n[Calibrate] ═══ Feeding Bandits ${dryRun ? '(DRY RUN)' : ''} ═══`);
 
@@ -1101,6 +1107,12 @@ async function feedBandits(
     return;
   }
 
+  const writeGate = evaluateCalibrationWriteGate({ dryRun, allowBanditWrite });
+  if (!writeGate.allowed) {
+    throw new Error(`[Calibrate] ${formatCalibrationWriteGateDecision(writeGate)}`);
+  }
+  console.log(`[Calibrate] ${formatCalibrationWriteGateDecision(writeGate)}`);
+
   // Feed to threshold bandit
   try {
     const { loadThresholdBanditState, updateThresholdBandit, saveThresholdBanditState } = await import('../../lib/editron/services/threshold-bandit');
@@ -1172,7 +1184,7 @@ async function calibrateVideo(
   const scoring = await scoreVideo(analysis, download.durationMs);
 
   // Stage 4: Feed Bandits
-  await feedBandits(scoring, label, options.dryRun || false);
+  await feedBandits(scoring, label, options.dryRun || false, options.allowBanditWrite === true);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
   console.log(`\n[Calibrate] ✓ Complete: ${label} in ${elapsed}s`);
@@ -1215,6 +1227,7 @@ Usage:
 
 Options:
   --dry-run              Score and print outcomes without updating bandits
+  --allow-bandit-write   Permit threshold-bandit writes after rendered evidence review
   --skip-download        Reuse cached .calibration-temp video for configured YouTube URLs
   --url <url>            Calibrate one YouTube URL
   --local-file <path>    Calibrate one local video file
@@ -1236,6 +1249,7 @@ async function main() {
   }
 
   const dryRun = args.includes('--dry-run');
+  const allowBanditWrite = args.includes('--allow-bandit-write');
   const skipDownload = args.includes('--skip-download');
   const singleUrl = argValue(args, '--url') ?? null;
   const localFile = argValue(args, '--local-file');
@@ -1257,12 +1271,12 @@ async function main() {
   }
 
   if (localFile) {
-    await calibrateVideo('', label, { dryRun, localFile, durationMs, tempDir });
+    await calibrateVideo('', label, { dryRun, allowBanditWrite, localFile, durationMs, tempDir });
     return;
   }
 
   if (singleUrl) {
-    await calibrateVideo(singleUrl, label, { dryRun, skipDownload, tempDir });
+    await calibrateVideo(singleUrl, label, { dryRun, allowBanditWrite, skipDownload, tempDir });
     return;
   }
 
@@ -1284,13 +1298,13 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`[Calibrate] Processing ${videos.length} reference videos (dryRun=${dryRun}, skipDownload=${skipDownload}, shuffle=${shuffle}, tempDir=${tempDir})`);
+  console.log(`[Calibrate] Processing ${videos.length} reference videos (dryRun=${dryRun}, allowBanditWrite=${allowBanditWrite}, skipDownload=${skipDownload}, shuffle=${shuffle}, tempDir=${tempDir})`);
 
   let completed = 0;
   let failed = 0;
   for (const video of videos) {
     try {
-      await calibrateVideo(video.url, video.label, { dryRun, skipDownload, tempDir });
+      await calibrateVideo(video.url, video.label, { dryRun, allowBanditWrite, skipDownload, tempDir });
       completed += 1;
     } catch (err: any) {
       failed += 1;
