@@ -8,6 +8,7 @@ import {
   type BrandVaultRefineryStore,
 } from '../../lib/shared/brand-vault-refinery-api';
 import { createBrandVaultConnectedSocialEvidence } from '../../lib/shared/brand-vault-connected-social-ingestion';
+import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '../../lib/shared/brand-vault-browser-fallback';
 
 const NOW = '2026-06-09T06:00:00.000Z';
 
@@ -50,6 +51,16 @@ function htmlResponse(status = 200): Response {
     status,
     headers: { 'content-type': 'text/html' },
   });
+}
+
+function jsShellResponse(): Response {
+  return new Response(
+    '<!doctype html><html><head><title>Loading</title></head><body><div id="root"></div><noscript>Please enable JavaScript to view this app.</noscript><script src="/app.js"></script></body></html>',
+    {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    },
+  );
 }
 
 function createPromiseBackedStore(): BrandVaultRefineryStore {
@@ -165,6 +176,89 @@ describe('Brand Vault refinery API boundary', () => {
     expect(loaded.body.reviewPayload?.reviewRequired).toBe(true);
     expect(loaded.body.candidates).toHaveLength(created.body.candidates.length);
     expect(loaded.body.job.inputs.sourceEvidence).toHaveLength(3);
+  });
+
+  it('uses configured browser-render fallback evidence when direct website scan only sees a JavaScript shell', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const renderRequests: Array<{ url: string; init?: RequestInit }> = [];
+    const browserFallbackFetchFn = createBrandVaultBrowserFallbackFetchFromEnvironment(
+      {
+        BRAND_VAULT_BROWSER_RENDER_ENDPOINT: 'https://render.example/brand-vault',
+        BRAND_VAULT_BROWSER_RENDER_TOKEN: 'render_token',
+        BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS: '50',
+      },
+      async (url, init) => {
+        renderRequests.push({ url, init });
+        return new Response(
+          JSON.stringify({
+            finalUrl: 'https://vaultline.example/',
+            html: HTML,
+            contentType: 'text/html',
+            stylesheets: [
+              {
+                url: 'https://vaultline.example/app.css',
+                css: ':root { --brand: #182433; --accent: #ffcc33; }',
+                contentType: 'text/css',
+              },
+            ],
+            warnings: ['Render endpoint returned browser-executed HTML.'],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    );
+
+    expect(browserFallbackFetchFn).toBeTypeOf('function');
+    if (!browserFallbackFetchFn) throw new Error('Expected browser fallback fetcher.');
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: {
+          fetchFn: async () => jsShellResponse(),
+          browserFallbackFetchFn,
+        },
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(renderRequests.length).toBeGreaterThan(0);
+    const rootRenderRequest = renderRequests[0];
+    expect(rootRenderRequest.url).toBe('https://render.example/brand-vault');
+    expect(rootRenderRequest.init?.method).toBe('POST');
+    expect(rootRenderRequest.init?.headers).toEqual(
+      expect.objectContaining({
+        authorization: 'Bearer render_token',
+        'content-type': 'application/json',
+      }),
+    );
+    expect(JSON.parse(String(rootRenderRequest.init?.body))).toMatchObject({
+      url: 'https://vaultline.example/',
+      normalizedUrl: 'https://vaultline.example/',
+      reason: 'javascript_shell',
+      httpStatus: 200,
+      userAgent: expect.stringContaining('Chrome'),
+    });
+    expect(created.body.record.profile.identity.brandName.value).toBe('Vaultline');
+    expect(created.body.job.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/browser-rendered fallback evidence/i),
+        'Render endpoint returned browser-executed HTML.',
+      ]),
+    );
+    expect(created.body.reviewPayload.warnings).toEqual(
+      expect.arrayContaining(['Render endpoint returned browser-executed HTML.']),
+    );
   });
 
   it('turns user-selected pinned social post text into reviewable Brand Vault evidence candidates', async () => {

@@ -11,6 +11,7 @@ import {
   getDefaultBrandVaultRefineryStore,
   type BrandVaultSourceEvidenceProviderResult,
 } from '@/lib/shared/brand-vault-refinery-api';
+import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
 import type { BrandVaultSocialConnectionEvidence } from '@/lib/shared/brand-website-refinery-types';
 
 export const runtime = 'nodejs';
@@ -35,6 +36,9 @@ export async function POST(req: Request) {
     { userId, actorId: userId, body },
     {
       store: getDefaultBrandVaultRefineryStore(),
+      fetchOptions: {
+        browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
+      },
       sourceEvidenceProvider: ({ socialLinks }) => loadConnectedSocialEvidence(userId, socialLinks),
     },
   );
