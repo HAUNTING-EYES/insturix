@@ -18,11 +18,19 @@ describe('Director observability gates', () => {
       issues: ['warn:missing-vjepa-primitives'],
       overlayHitRate: 0.5,
       segmentCoverage: { coverageRatio: 0.875 },
+      reliability: {
+        screenAwarePlacement: 'degraded',
+        score: 0.62,
+        reasons: ['negativeSpace-coverage-below-90:0%'],
+      },
     });
 
     expect(warning).toContain('V-JEPA coverage audit warn');
     expect(warning).toContain('duration=88%');
     expect(warning).toContain('overlayHit=50%');
+    expect(warning).toContain('screenAwarePlacement=degraded');
+    expect(warning).toContain('reliability=62%');
+    expect(warning).toContain('negativeSpace-coverage-below-90:0%');
     expect(warning).toContain('warn:missing-vjepa-primitives');
   });
 

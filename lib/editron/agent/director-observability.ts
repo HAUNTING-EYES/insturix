@@ -11,6 +11,11 @@ export function formatVjepaCoverageAuditWarning(audit: {
   issues: string[];
   overlayHitRate: number | null;
   segmentCoverage: { coverageRatio: number | null };
+  reliability?: {
+    screenAwarePlacement: 'trusted' | 'degraded' | 'unavailable';
+    score: number;
+    reasons: string[];
+  };
 }): string | null {
   if (audit.status === 'pass') return null;
   const coveragePct = audit.segmentCoverage.coverageRatio == null
@@ -19,5 +24,8 @@ export function formatVjepaCoverageAuditWarning(audit: {
   const hitPct = audit.overlayHitRate == null
     ? 'n/a'
     : `${Math.round(audit.overlayHitRate * 100)}%`;
-  return `V-JEPA coverage audit ${audit.status}: duration=${coveragePct}, overlayHit=${hitPct}, issues=${audit.issues.join(',') || 'none'}`;
+  const trust = audit.reliability
+    ? `, screenAwarePlacement=${audit.reliability.screenAwarePlacement}, reliability=${Math.round(audit.reliability.score * 100)}%, reasons=${audit.reliability.reasons.join('|') || 'none'}`
+    : '';
+  return `V-JEPA coverage audit ${audit.status}: duration=${coveragePct}, overlayHit=${hitPct}${trust}, issues=${audit.issues.join(',') || 'none'}`;
 }

@@ -413,9 +413,12 @@ async function handler(request: NextRequest) {
           startMs: seg.startMs,
           endMs: seg.endMs,
         }));
+        const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
         const tribePayload = {
           projectId, userId, videoUrl,
           segmentInputs,
+          visualSegmentInputs,
           directorPayload,
         };
 
@@ -450,7 +453,7 @@ async function handler(request: NextRequest) {
         directorDispatched = true; // TRIBE owns Director dispatch from here
         const dispatchData = await dispatchRes.json().catch(() => ({}));
         const totalMs = Date.now() - startMs;
-        console.log(`[VideoAnalysisWorker] Phase 1 complete: ${projectId} in ${totalMs}ms. TRIBE dispatched (messageId=${dispatchData.messageId || 'unknown'}, ${segmentInputs.length} segments).`);
+        console.log(`[VideoAnalysisWorker] Phase 1 complete: ${projectId} in ${totalMs}ms. TRIBE dispatched (messageId=${dispatchData.messageId || 'unknown'}, speechSegments=${segmentInputs.length}, visualSegments=${visualSegmentInputs.length}).`);
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
         // No segments — skip TRIBE, dispatch Director directly
@@ -504,13 +507,14 @@ async function handler(request: NextRequest) {
           startMs: seg.startMs,
           endMs: seg.endMs,
         }));
+        const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
 
-        console.log(`[VideoAnalysisWorker] TRIBE Phase 2 (inline): V-JEPA + Wav2Vec + Essentia for ${segmentInputs.length} segments...`);
+        console.log(`[VideoAnalysisWorker] TRIBE Phase 2 (inline): V-JEPA for ${visualSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
           (async () => {
-            const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
-            return analyzeVideoWithVjepa(videoUrl, segmentInputs);
+            return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
           })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');

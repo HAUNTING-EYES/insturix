@@ -1,6 +1,11 @@
 import { buildEditedTimelineContext } from './edited-timeline-context';
 import type { RawFootageAnalysis } from './signal-registry';
-import { auditVjepaCoverage, type VjepaCoverageAudit, type VjepaCoverageSegment } from './vjepa-coverage-audit';
+import {
+  assessVjepaReliability,
+  auditVjepaCoverage,
+  type VjepaCoverageAudit,
+  type VjepaCoverageSegment,
+} from './vjepa-coverage-audit';
 
 export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
@@ -125,8 +130,19 @@ export function buildPhase0FixtureManifest(
 
 function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: number) {
   const clips = videoClips(overlays);
+  const transitions = transitionOverlays(overlays);
   const gaps: Array<{ afterClipId: string; beforeClipId: string; startFrame: number; endFrame: number; durationFrames: number }> = [];
-  const overlaps: Array<{ clipId: string; previousClipId: string; startFrame: number; previousEndFrame: number; overlapFrames: number }> = [];
+  const overlaps: Array<{
+    clipId: string;
+    previousClipId: string;
+    startFrame: number;
+    previousEndFrame: number;
+    overlapFrames: number;
+    classification: 'intentional-transition-handle' | 'unclassified-overlap';
+    transitionId: string | null;
+    transitionStartFrame: number | null;
+    transitionDurationFrames: number | null;
+  }> = [];
 
   for (let index = 1; index < clips.length; index++) {
     const previous = clips[index - 1];
@@ -143,12 +159,19 @@ function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: n
         durationFrames: delta,
       });
     } else if (delta < -1) {
+      const overlapStartFrame = currentStart;
+      const overlapEndFrame = previousEnd;
+      const transition = findTransitionHandleForOverlap(transitions, overlapStartFrame, overlapEndFrame);
       overlaps.push({
         clipId: overlayId(current),
         previousClipId: overlayId(previous),
         startFrame: currentStart,
         previousEndFrame: previousEnd,
         overlapFrames: Math.abs(delta),
+        classification: transition ? 'intentional-transition-handle' : 'unclassified-overlap',
+        transitionId: transition ? overlayId(transition) : null,
+        transitionStartFrame: transition ? readFrame(transition.from) : null,
+        transitionDurationFrames: transition ? readDuration(transition.durationInFrames) : null,
       });
     }
   }
@@ -162,6 +185,8 @@ function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: n
     tailGapFrames: clips.length ? Math.max(0, durationFrames - lastEnd) : durationFrames,
     midTimelineGapCount: gaps.length,
     overlapCount: overlaps.length,
+    intentionalTransitionOverlapCount: overlaps.filter((overlap) => overlap.classification === 'intentional-transition-handle').length,
+    unclassifiedOverlapCount: overlaps.filter((overlap) => overlap.classification === 'unclassified-overlap').length,
     gaps: gaps.slice(0, 20),
     overlaps: overlaps.slice(0, 20),
     firstClips: clips.slice(0, 12).map((clip) => ({
@@ -261,6 +286,7 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
 function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0OverlayLike[], fps: number) {
   const persisted = project.intelligence?.vjepaCoverageAudit;
   if (persisted) {
+    const reliability = persisted.reliability ?? assessVjepaReliability(persisted.segmentCoverage, persisted.overlayHitRate);
     return {
       source: 'persisted' as const,
       status: persisted.status,
@@ -268,6 +294,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
       overlayHitRate: persisted.overlayHitRate,
       segmentCoverage: persisted.segmentCoverage,
       rawFootageCoverage: persisted.rawFootageCoverage ?? null,
+      reliability,
     };
   }
 
@@ -277,10 +304,11 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
       source: 'missing' as const,
       status: null,
       issues: ['vjepaAnalysis.segments is not present on the project'],
-      overlayHitRate: null,
-      segmentCoverage: null,
-      rawFootageCoverage: null,
-    };
+    overlayHitRate: null,
+    segmentCoverage: null,
+    rawFootageCoverage: null,
+    reliability: null,
+  };
   }
 
   const audit = auditVjepaCoverage({
@@ -298,6 +326,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
     overlayHitRate: audit.overlayHitRate,
     segmentCoverage: audit.segmentCoverage,
     rawFootageCoverage: audit.rawFootageCoverage ?? null,
+    reliability: audit.reliability ?? null,
   };
 }
 
@@ -374,6 +403,30 @@ function videoClips(overlays: Phase0OverlayLike[]) {
   return overlays
     .filter((overlay) => overlay.type === 'video')
     .sort((a, b) => readFrame(a.from) - readFrame(b.from));
+}
+
+function transitionOverlays(overlays: Phase0OverlayLike[]) {
+  return overlays
+    .filter((overlay) => overlay.type === 'transition')
+    .sort((a, b) => readFrame(a.from) - readFrame(b.from));
+}
+
+function findTransitionHandleForOverlap(
+  transitions: Phase0OverlayLike[],
+  overlapStartFrame: number,
+  overlapEndFrame: number,
+) {
+  const overlapDuration = Math.max(0, overlapEndFrame - overlapStartFrame);
+  const toleranceFrames = Math.max(2, Math.ceil(overlapDuration / 2));
+  return transitions.find((transition) => {
+    const transitionStartFrame = readFrame(transition.from);
+    const transitionEndFrame = transitionStartFrame + readDuration(transition.durationInFrames);
+    const transitionCenterFrame = transitionStartFrame + readDuration(transition.durationInFrames) / 2;
+    const overlapsRange = transitionStartFrame < overlapEndFrame && transitionEndFrame > overlapStartFrame;
+    const startsNearOverlap = transitionStartFrame >= overlapStartFrame - toleranceFrames && transitionStartFrame <= overlapEndFrame + toleranceFrames;
+    const centerNearOverlap = transitionCenterFrame >= overlapStartFrame - toleranceFrames && transitionCenterFrame <= overlapEndFrame + toleranceFrames;
+    return overlapsRange || startsNearOverlap || centerNearOverlap;
+  });
 }
 
 function captionStyleSignature(overlay: Phase0OverlayLike) {

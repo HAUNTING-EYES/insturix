@@ -123,17 +123,66 @@ describe('canonical caption track', () => {
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
     expect(caption.displayConfig).toMatchObject({ mode: 'karaoke', wordsPerGroup: 6 });
-    expect(caption.width).toBe(1120);
-    expect(caption.height).toBeLessThanOrEqual(128);
-    expect(caption.top).toBeGreaterThan(820);
+    expect(caption.width).toBe(1280);
+    expect(caption.height).toBeLessThanOrEqual(150);
+    expect(caption.top).toBeGreaterThan(800);
     expect(caption.styles).toMatchObject({
-      backgroundColor: 'transparent',
-      fontSize: '38px',
-      lineHeight: 1.12,
+      backgroundColor: 'rgba(0,0,0,0.62)',
+      fontSize: '34px',
+      lineHeight: 1.26,
     });
     expect(caption.metadata.evidence.captionAesthetic).toMatchObject({
-      layout: 'balanced-lower',
-      surface: 'transparent-shadow',
+      layout: 'subtitle-lower',
+      surface: 'subtitle-panel',
+    });
+  });
+
+  it('moves global captions out of protected bottom text-occupancy regions', () => {
+    const overlays: any[] = [
+      {
+        id: 10,
+        type: 'video',
+        from: 0,
+        durationInFrames: 180,
+        sourceStartFrame: 300,
+        metadata: {
+          atomicOverlayReceipt: {
+            placementHints: {
+              avoid: [{
+                reason: 'text-occupancy',
+                x: 0.12,
+                y: 0.62,
+                width: 0.76,
+                height: 0.28,
+                strength: 0.9,
+              }],
+            },
+          },
+        },
+      },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(['Hank', 'is', 'explaining', 'the', 'whole', 'thing']),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.top).toBeLessThan(240);
+    expect(caption.metadata.evidence).toMatchObject({
+      protectedRegionCount: 1,
+      selectedRegion: 'top-center',
     });
   });
 

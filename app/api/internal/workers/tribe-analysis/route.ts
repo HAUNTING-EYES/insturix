@@ -29,6 +29,7 @@ interface TribeAnalysisPayload {
   userId: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
+  visualSegmentInputs?: { startMs: number; endMs: number }[];
   directorPayload: Record<string, unknown>;
 }
 
@@ -40,7 +41,7 @@ async function handler(request: NextRequest) {
 
   try {
     const payload: TribeAnalysisPayload = await request.json();
-    const { projectId, userId, videoUrl, segmentInputs, directorPayload } = payload;
+    const { projectId, userId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
     trackedProjectId = projectId;
 
     if (!projectId || !userId || !videoUrl) {
@@ -89,12 +90,16 @@ async function handler(request: NextRequest) {
           { $set: { autoEditStatus: 'analyzing_deep' } },
         );
 
-        console.log(`[TribeWorker] TRIBE Phase 2: Dispatching V-JEPA + Wav2Vec + Essentia for ${segmentInputs.length} segments...`);
+        const vjepaSegmentInputs = Array.isArray(visualSegmentInputs) && visualSegmentInputs.length > 0
+          ? visualSegmentInputs
+          : segmentInputs;
+
+        console.log(`[TribeWorker] TRIBE Phase 2: Dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
           (async () => {
             const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
-            return analyzeVideoWithVjepa(videoUrl, segmentInputs);
+            return analyzeVideoWithVjepa(videoUrl, vjepaSegmentInputs);
           })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');

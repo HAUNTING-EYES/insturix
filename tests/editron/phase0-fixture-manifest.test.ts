@@ -178,6 +178,9 @@ describe('phase0 fixture manifest', () => {
         source: 'persisted',
         status: 'warn',
         overlayHitRate: 0.5,
+        reliability: {
+          screenAwarePlacement: 'degraded',
+        },
       },
       renderArtifacts: {
         status: 'not-rendered',
@@ -200,6 +203,10 @@ describe('phase0 fixture manifest', () => {
     expect(manifest.overlayFamilies.captions.styleSignatures).toEqual(['Inter|#ffffff|clean']);
     expect(manifest.overlayFamilies.transitions).toMatchObject({ count: 1, types: ['whip-pan'], withAtomicForm: 1 });
     expect(manifest.overlayFamilies.sfx).toMatchObject({ count: 1, roles: ['impact'], withAtomicForm: 1 });
+    expect(manifest.vjepaCoverage.reliability?.reasons).toEqual(expect.arrayContaining([
+      'overlay-hit-rate-below-90:50%',
+      'textCoverage-coverage-below-90:0%',
+    ]));
   });
 
   it('records gaps, overlaps, tail gaps, and missing source maps without rewriting them', () => {
@@ -221,10 +228,13 @@ describe('phase0 fixture manifest', () => {
       durationFrames: 15,
     });
     expect(manifest.cutContinuity.overlapCount).toBe(1);
+    expect(manifest.cutContinuity.intentionalTransitionOverlapCount).toBe(0);
+    expect(manifest.cutContinuity.unclassifiedOverlapCount).toBe(1);
     expect(manifest.cutContinuity.overlaps[0]).toMatchObject({
       clipId: 'clip-3',
       previousClipId: 'clip-2',
       overlapFrames: 5,
+      classification: 'unclassified-overlap',
     });
     expect(manifest.cutContinuity.tailGapFrames).toBe(70);
     expect(manifest.sourceMapping).toMatchObject({
@@ -235,6 +245,30 @@ describe('phase0 fixture manifest', () => {
     });
     expect(manifest.canonicalTimeline.status).toBe('unsafe');
     expect(manifest.canonicalTimeline.issue).toContain('source mapping');
+  });
+
+  it('classifies video overlaps covered by transition handles separately from broken overlaps', () => {
+    const manifest = buildPhase0FixtureManifest(baseProject({
+      durationInFrames: 100,
+      overlays: [
+        { id: 'clip-1', type: 'video', from: 0, durationInFrames: 60, sourceStartFrame: 0 },
+        { id: 'clip-2', type: 'video', from: 30, durationInFrames: 60, sourceStartFrame: 60 },
+        { id: 'transition-1', type: 'transition', from: 45, durationInFrames: 30, transitionStyle: 'cross-dissolve' },
+      ],
+    }));
+
+    expect(manifest.cutContinuity.overlapCount).toBe(1);
+    expect(manifest.cutContinuity.intentionalTransitionOverlapCount).toBe(1);
+    expect(manifest.cutContinuity.unclassifiedOverlapCount).toBe(0);
+    expect(manifest.cutContinuity.overlaps[0]).toMatchObject({
+      clipId: 'clip-2',
+      previousClipId: 'clip-1',
+      overlapFrames: 30,
+      classification: 'intentional-transition-handle',
+      transitionId: 'transition-1',
+      transitionStartFrame: 45,
+      transitionDurationFrames: 30,
+    });
   });
 
   it('computes V-JEPA coverage when only segments are present', () => {
@@ -267,6 +301,7 @@ describe('phase0 fixture manifest', () => {
 
     expect(manifest.vjepaCoverage.source).toBe('computed');
     expect(manifest.vjepaCoverage.status).toBe('pass');
+    expect(manifest.vjepaCoverage.reliability?.screenAwarePlacement).toBe('trusted');
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.motionVector).toBe(1);
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.mainSubject).toBe(1);
     expect(manifest.unifiedDecisionBundle.status).toBe('missing');

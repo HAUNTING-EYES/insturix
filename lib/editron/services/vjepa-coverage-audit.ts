@@ -116,6 +116,13 @@ export interface VjepaCoverageAudit {
   rawFootageCoverage?: SegmentCoverageSummary;
   overlayHitRate: number | null;
   overlayHits: OverlayCoverageHit[];
+  reliability?: VjepaReliabilitySummary;
+}
+
+export interface VjepaReliabilitySummary {
+  screenAwarePlacement: 'trusted' | 'degraded' | 'unavailable';
+  score: number;
+  reasons: string[];
 }
 
 interface AuditOptions {
@@ -152,7 +159,8 @@ export function auditVjepaCoverage(options: AuditOptions): VjepaCoverageAudit {
     ? overlayHits.filter((hit) => hit.exactHit).length / overlayHits.length
     : null;
 
-  const issues = buildIssues(segmentCoverage, overlayHitRate, overlayHits, options.originalDurationMs);
+  const reliability = assessVjepaReliability(segmentCoverage, overlayHitRate);
+  const issues = buildIssues(segmentCoverage, overlayHitRate, overlayHits, reliability, options.originalDurationMs);
   return {
     status: issues.some((issue) => issue.startsWith('fail:')) ? 'fail' : issues.length > 0 ? 'warn' : 'pass',
     issues,
@@ -161,6 +169,7 @@ export function auditVjepaCoverage(options: AuditOptions): VjepaCoverageAudit {
     rawFootageCoverage,
     overlayHitRate,
     overlayHits,
+    reliability,
   };
 }
 
@@ -279,6 +288,7 @@ function buildIssues(
   segmentCoverage: SegmentCoverageSummary,
   overlayHitRate: number | null,
   overlayHits: OverlayCoverageHit[],
+  reliability: VjepaReliabilitySummary,
   originalDurationMs?: number,
 ): string[] {
   const issues: string[] = [];
@@ -312,7 +322,73 @@ function buildIssues(
   ) {
     issues.push('warn:missing-vjepa-primitives');
   }
+  if (reliability.screenAwarePlacement === 'degraded') {
+    issues.push(`warn:vjepa-screen-aware-placement-degraded:${formatPct(reliability.score)}`);
+  }
   return issues;
+}
+
+export function assessVjepaReliability(
+  segmentCoverage: SegmentCoverageSummary,
+  overlayHitRate: number | null,
+): VjepaReliabilitySummary {
+  if (segmentCoverage.segmentCount === 0) {
+    return {
+      screenAwarePlacement: 'unavailable',
+      score: 0,
+      reasons: ['no-vjepa-segments'],
+    };
+  }
+
+  const reasons: string[] = [];
+  const durationCoverage = segmentCoverage.coverageRatio ?? 1;
+  if (durationCoverage < 0.9) {
+    reasons.push(`duration-coverage-below-90:${formatPct(durationCoverage)}`);
+  }
+  if (segmentCoverage.maxGapMs > 10_000) {
+    reasons.push(`max-gap-over-10s:${Math.round(segmentCoverage.maxGapMs)}ms`);
+  }
+  if (overlayHitRate != null && overlayHitRate < 0.9) {
+    reasons.push(`overlay-hit-rate-below-90:${formatPct(overlayHitRate)}`);
+  }
+
+  const primitiveCoverage = {
+    motionVector: segmentCoverage.fieldCoverage.motionVector,
+    mainSubject: segmentCoverage.fieldCoverage.mainSubject,
+    textCoverage: segmentCoverage.fieldCoverage.textCoverage,
+    negativeSpace: segmentCoverage.fieldCoverage.negativeSpace,
+  };
+  for (const [key, value] of Object.entries(primitiveCoverage)) {
+    if (value < 0.9) {
+      reasons.push(`${key}-coverage-below-90:${formatPct(value)}`);
+    }
+  }
+
+  const primitiveScore = (
+    primitiveCoverage.motionVector +
+    primitiveCoverage.mainSubject +
+    primitiveCoverage.textCoverage +
+    primitiveCoverage.negativeSpace
+  ) / 4;
+  const gapScore = segmentCoverage.maxGapMs <= 5_000
+    ? 1
+    : segmentCoverage.maxGapMs <= 10_000
+      ? 0.75
+      : segmentCoverage.maxGapMs <= 20_000
+        ? 0.35
+        : 0;
+  const score = round2(
+    durationCoverage * 0.35 +
+    (overlayHitRate ?? 1) * 0.2 +
+    primitiveScore * 0.3 +
+    gapScore * 0.15,
+  );
+
+  return {
+    screenAwarePlacement: reasons.length === 0 && score >= 0.9 ? 'trusted' : 'degraded',
+    score,
+    reasons,
+  };
 }
 
 function hasMotionVector(segment: VjepaCoverageSegment): boolean {
@@ -475,6 +551,10 @@ function readSourceStartFrame(clip: VjepaCoverageOverlay): number {
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function formatPct(value: number): string {

@@ -27,6 +27,15 @@ export interface InstallCanonicalCaptionTrackResult {
   captionCount: number;
 }
 
+interface CaptionProtectedRegion {
+  reason: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  strength: number;
+}
+
 export function installCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackInput): InstallCanonicalCaptionTrackResult {
   const removedGenerated = removeSupersededGeneratedCaptionTracks(input.overlays);
   const hasManualCaptions = input.overlays.some(isManualCaptionTrack);
@@ -79,7 +88,8 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
     maxGroupDuration: 2200,
   });
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
-  const geometry = captionGeometry(dimensions, input.presentation);
+  const protectedRegions = collectCaptionProtectedRegions(input.overlays);
+  const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
   const styles = stylesForPresentation(input.presentation);
 
   return {
@@ -111,6 +121,8 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         durationFrames: input.editedTimelineContext.durationFrames,
         sourceClipCount: input.editedTimelineContext.sourceClips.length,
         captionAesthetic: input.presentation.aesthetic,
+        protectedRegionCount: protectedRegions.length,
+        selectedRegion: geometry.region,
       },
       calibration: {
         status: 'invented-needs-calibration',
@@ -154,7 +166,11 @@ function resolveDisplayConfig(presentation: AtomicCaptionPresentation): CaptionD
   };
 }
 
-function captionGeometry(dimensions: { width: number; height: number }, presentation: AtomicCaptionPresentation) {
+function captionGeometry(
+  dimensions: { width: number; height: number },
+  presentation: AtomicCaptionPresentation,
+  protectedRegions: CaptionProtectedRegion[] = [],
+) {
   const aesthetic = presentation.aesthetic;
   const width = Math.round(Math.min(dimensions.width * aesthetic.widthFraction, aesthetic.maxWidthPx));
   const height = Math.round(Math.max(
@@ -162,13 +178,104 @@ function captionGeometry(dimensions: { width: number; height: number }, presenta
     Math.min(dimensions.height * aesthetic.heightFraction, aesthetic.maxHeightPx),
   ));
   const bottomMargin = Math.round(dimensions.height * aesthetic.bottomMarginFraction);
-  const top = dimensions.height - height - bottomMargin;
+  const lowerTop = dimensions.height - height - bottomMargin;
+  const candidates = [
+    {
+      region: 'bottom-center' as const,
+      left: Math.round((dimensions.width - width) / 2),
+      top: Math.round(Math.max(dimensions.height * 0.58, Math.min(lowerTop, dimensions.height * 0.82))),
+    },
+    {
+      region: 'top-center' as const,
+      left: Math.round((dimensions.width - width) / 2),
+      top: Math.round(dimensions.height * 0.08),
+    },
+  ];
+  const selected = candidates
+    .map((candidate) => ({ ...candidate, risk: captionRegionRisk(candidate, width, height, dimensions, protectedRegions) }))
+    .sort((a, b) => a.risk - b.risk || (a.region === 'bottom-center' ? -1 : 1))[0] ?? candidates[0];
   return {
     width,
     height,
-    left: Math.round((dimensions.width - width) / 2),
-    top: Math.round(Math.max(dimensions.height * 0.58, Math.min(top, dimensions.height * 0.82))),
+    left: selected.left,
+    top: selected.top,
+    region: selected.region,
   };
+}
+
+function collectCaptionProtectedRegions(overlays: any[]): CaptionProtectedRegion[] {
+  const regions: CaptionProtectedRegion[] = [];
+  for (const overlay of overlays) {
+    if (overlay?.type === OverlayType.CAPTION || overlay?.type === 'caption') continue;
+    for (const receipt of overlayReceipts(overlay)) {
+      const avoid = receipt?.placementHints?.avoid;
+      if (!Array.isArray(avoid)) continue;
+      for (const item of avoid) {
+        const region = normalizeProtectedRegion(item);
+        if (region) regions.push(region);
+      }
+    }
+  }
+  return regions;
+}
+
+function overlayReceipts(overlay: any): any[] {
+  const metadata = overlay?.metadata;
+  return [
+    metadata?.atomicOverlayReceipt,
+    ...(Array.isArray(metadata?.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts : []),
+  ].filter(Boolean);
+}
+
+function normalizeProtectedRegion(value: any): CaptionProtectedRegion | null {
+  const strength = numeric(value?.strength);
+  const x = numeric(value?.x);
+  const y = numeric(value?.y);
+  const width = numeric(value?.width);
+  const height = numeric(value?.height);
+  if (strength == null || strength < 0.3 || x == null || y == null || width == null || height == null) return null;
+  return {
+    reason: String(value?.reason ?? 'protected-region'),
+    x,
+    y,
+    width,
+    height,
+    strength,
+  };
+}
+
+function captionRegionRisk(
+  candidate: { left: number; top: number },
+  width: number,
+  height: number,
+  dimensions: { width: number; height: number },
+  protectedRegions: CaptionProtectedRegion[],
+): number {
+  const box = { x: candidate.left, y: candidate.top, width, height };
+  return protectedRegions.reduce((risk, region) => {
+    return risk + region.strength * intersectionRatio(box, {
+      x: region.x * dimensions.width,
+      y: region.y * dimensions.height,
+      width: region.width * dimensions.width,
+      height: region.height * dimensions.height,
+    });
+  }, 0);
+}
+
+function intersectionRatio(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): number {
+  const left = Math.max(a.x, b.x);
+  const top = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right <= left || bottom <= top) return 0;
+  return ((right - left) * (bottom - top)) / Math.max(1, Math.min(a.width * a.height, b.width * b.height));
+}
+
+function numeric(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function nextNumericOverlayId(overlays: any[]): number {

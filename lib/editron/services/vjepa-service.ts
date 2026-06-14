@@ -382,6 +382,33 @@ function hasCompleteBox(box: Partial<VjepaPrimitiveBox> | undefined): boolean {
   );
 }
 
+const DEFAULT_VISUAL_SEGMENT_MS = 5_000;
+const DEFAULT_MAX_VISUAL_SEGMENTS = 360;
+
+export function buildVjepaCoverageSegments(
+  durationMs: unknown,
+  fallbackSegments: VjepaSegmentInput[] = [],
+  options: { segmentDurationMs?: number; maxSegments?: number } = {},
+): VjepaSegmentInput[] {
+  const fallbackDurationMs = fallbackSegments.reduce((max, segment) => {
+    return Math.max(max, readPositiveMs(segment.endMs) ?? 0);
+  }, 0);
+  const resolvedDurationMs = readPositiveMs(durationMs) ?? fallbackDurationMs;
+  if (!resolvedDurationMs) return fallbackSegments;
+
+  const maxSegments = Math.max(1, Math.floor(options.maxSegments ?? DEFAULT_MAX_VISUAL_SEGMENTS));
+  const desiredSegmentMs = Math.max(1_000, Math.floor(options.segmentDurationMs ?? DEFAULT_VISUAL_SEGMENT_MS));
+  const segmentMs = Math.max(desiredSegmentMs, Math.ceil(resolvedDurationMs / maxSegments));
+  const segments: VjepaSegmentInput[] = [];
+  for (let startMs = 0; startMs < resolvedDurationMs; startMs += segmentMs) {
+    segments.push({
+      startMs,
+      endMs: Math.min(resolvedDurationMs, startMs + segmentMs),
+    });
+  }
+  return segments;
+}
+
 function parseActionType(v: string | undefined): VjepaActionType {
   if (v && VALID_ACTION_TYPES.has(v)) return v as VjepaActionType;
   return 'other';
@@ -417,6 +444,10 @@ function clampNumber(value: number | undefined, min: number, max: number, fallba
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function readPositiveMs(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function clamp(value: number, min: number, max: number): number {

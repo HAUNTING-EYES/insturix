@@ -192,7 +192,7 @@ function captionAesthetic(
   signals: AtomicCaptionPresentation['signals'],
 ): AtomicCaptionAesthetic {
   const highEnergy = signals.energy > 0.68 || displayMode === 'hormozi' || displayMode === 'instagram';
-  const subtitlePanel = displayMode === 'subtitle' || style === 'corporate';
+  const subtitlePanel = displayMode === 'subtitle' || displayMode === 'karaoke' || style === 'corporate';
 
   if (subtitlePanel) {
     return {
@@ -228,23 +228,6 @@ function captionAesthetic(
     };
   }
 
-  if (displayMode === 'karaoke') {
-    return {
-      layout: 'balanced-lower',
-      surface: 'transparent-shadow',
-      widthFraction: 0.70,
-      maxWidthPx: 1120,
-      heightFraction: 0.105,
-      minHeightPx: 92,
-      maxHeightPx: 128,
-      bottomMarginFraction: 0.115,
-      fontSizePx: 38,
-      lineHeight: 1.12,
-      emphasisScale: 1.06,
-      shadowStrength: 0.9,
-    };
-  }
-
   return {
     layout: 'balanced-lower',
     surface: 'transparent-shadow',
@@ -275,7 +258,8 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
     ?? requestedStyle
     ?? profileStyle
     ?? 'subtitle';
-  const displayMode = explicitDisplay
+  const resolvedExplicitDisplay = resolveSafeExplicitDisplay(explicitDisplay, signalPresentation?.signals);
+  const displayMode = resolvedExplicitDisplay
     ?? (strongStyle ? displayHint : undefined)
     ?? signalPresentation?.displayMode
     ?? displayHint
@@ -283,7 +267,7 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
     ?? 'phrase';
   const wordsPerGroup = Math.max(1, Math.min(12, Math.round(
     input.wordsPerGroup
-      ?? (explicitDisplay ? WORDS_BY_MODE[explicitDisplay] : undefined)
+      ?? (resolvedExplicitDisplay ? WORDS_BY_MODE[resolvedExplicitDisplay] : undefined)
       ?? (strongStyle && displayHint ? WORDS_BY_MODE[displayHint] : undefined)
       ?? signalPresentation?.wordsPerGroup
       ?? (displayHint ? WORDS_BY_MODE[displayHint] : undefined)
@@ -312,4 +296,16 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
     signals: fallbackSignals,
     aesthetic,
   };
+}
+
+function resolveSafeExplicitDisplay(
+  explicitDisplay: AtomicCaptionDisplayMode | undefined,
+  signals: AtomicCaptionPresentation['signals'] | undefined,
+): AtomicCaptionDisplayMode | undefined {
+  if (explicitDisplay !== 'word-by-word' || !signals) return explicitDisplay;
+  const talkingHeadReadable =
+    signals.formality >= 0.58 &&
+    signals.energy < 0.68 &&
+    signals.speakingRate < 155;
+  return talkingHeadReadable ? undefined : explicitDisplay;
 }

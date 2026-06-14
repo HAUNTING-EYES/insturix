@@ -69,13 +69,30 @@ function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureMan
       evidence: { count: cut.midTimelineGapCount, samples: cut.gaps },
     });
   }
-  if (cut.overlapCount > 0) {
+  const unclassifiedOverlapCount = cut.unclassifiedOverlapCount ?? cut.overlapCount;
+  const intentionalTransitionOverlapCount = cut.intentionalTransitionOverlapCount ?? 0;
+  if (unclassifiedOverlapCount > 0) {
     classes.push({
       id: 'cut.overlapping_video_clips',
       severity: 'fail',
       source: 'cut',
-      message: 'Edited timeline contains overlapping source video clips.',
-      evidence: { count: cut.overlapCount, samples: cut.overlaps },
+      message: 'Edited timeline contains overlapping source video clips without transition-handle evidence.',
+      evidence: {
+        count: unclassifiedOverlapCount,
+        samples: cut.overlaps.filter((overlap) => overlap.classification !== 'intentional-transition-handle'),
+      },
+    });
+  }
+  if (intentionalTransitionOverlapCount > 0) {
+    classes.push({
+      id: 'cut.transition_overlap_handles',
+      severity: 'info',
+      source: 'cut',
+      message: 'Edited timeline contains video overlaps covered by transition handles.',
+      evidence: {
+        count: intentionalTransitionOverlapCount,
+        samples: cut.overlaps.filter((overlap) => overlap.classification === 'intentional-transition-handle'),
+      },
     });
   }
   if (cut.tailGapFrames > manifest.fps) {

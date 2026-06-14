@@ -15,6 +15,7 @@ import {
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
   renderedOverlayBoxAtFrame,
+  sourceDependentTransitionBlankJustification,
   type RawImage,
   type RenderedAestheticHarnessReport,
 } from '../../scripts/render-editron-aesthetic';
@@ -86,6 +87,40 @@ describe('rendered aesthetic harness helpers', () => {
     expect(overlays.map((overlay) => overlay.id)).toEqual([3, 4, 5]);
   });
 
+  it('marks linked transition samples as source-dependent when overlay-only render removes source clips', () => {
+    const sourceOverlays = [
+      videoOverlay({ id: 1 }),
+      videoOverlay({ id: 2 }),
+      transitionOverlay({ id: 3, clipAId: 1, clipBId: 2 }),
+    ];
+    const renderOverlays = buildOverlayOnlyRenderOverlays(sourceOverlays, 1080, 1920);
+
+    const justification = sourceDependentTransitionBlankJustification({
+      overlayOnly: true,
+      sample: {
+        frame: 45,
+        roles: ['hold'],
+        sourceOverlayIds: [3],
+        sourceOverlayTypes: ['transition'],
+      },
+      sourceOverlays,
+      renderOverlays,
+    });
+
+    expect(justification).toContain('source-dependent');
+    expect(sourceDependentTransitionBlankJustification({
+      overlayOnly: true,
+      sample: {
+        frame: 45,
+        roles: ['hold'],
+        sourceOverlayIds: [4],
+        sourceOverlayTypes: ['text'],
+      },
+      sourceOverlays: [...sourceOverlays, textOverlay({ id: 4 })],
+      renderOverlays: [...renderOverlays, textOverlay({ id: 4 })],
+    })).toBeUndefined();
+  });
+
   it('resolves keyframed position, scale, opacity, and text pixel height for rendered evidence', () => {
     const overlay = textOverlay({
       id: 7,
@@ -146,6 +181,28 @@ describe('rendered aesthetic harness helpers', () => {
     expect(textForm?.composition.rowCapacity).toBe(1);
   });
 
+  it('does not score a full-video caption track when no caption word is visible', () => {
+    const overlay = captionOverlay({
+      id: 8,
+      from: 0,
+      durationInFrames: 180,
+      captions: [
+        caption('visible intro', 0, 1000),
+        caption('visible outro', 3000, 4200),
+      ],
+      displayConfig: { mode: 'word-by-word', wordsPerGroup: 1, maxWordsPerLine: 1 },
+    });
+
+    const receipt = buildFrameAwareOverlayReceipt(
+      captionReceipt('whole transcript must not be scored during speech gaps'),
+      overlay,
+      60,
+      30,
+    );
+
+    expect(receipt).toBeUndefined();
+  });
+
   it('scores motion graphics from recipe-visible text instead of hidden semantic evidence', () => {
     const overlay = motionGraphicOverlay({ id: 9 });
     const receipt = buildFrameAwareOverlayReceipt(
@@ -186,6 +243,8 @@ interface OverlayFixtureInput {
   height?: number;
   styles?: Record<string, unknown>;
   keyframeTracks?: KeyframeTrack[];
+  clipAId?: number | string;
+  clipBId?: number | string;
 }
 
 function baseOverlay(input: OverlayFixtureInput & { type: OverlayType }): Overlay {
@@ -253,6 +312,15 @@ function soundOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
     content: 'https://example.com/audio.mp3',
     styles: { volume: 1 },
   } as Overlay;
+}
+
+function transitionOverlay(input: OverlayFixtureInput & { id: number; clipAId?: number | string; clipBId?: number | string }): Overlay {
+  return {
+    ...baseOverlay({ ...input, type: OverlayType.TRANSITION }),
+    clipAId: input.clipAId,
+    clipBId: input.clipBId,
+    transitionStyle: 'cross-dissolve',
+  } as unknown as Overlay;
 }
 
 function captionOverlay(input: OverlayFixtureInput & {

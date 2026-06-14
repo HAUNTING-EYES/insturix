@@ -127,6 +127,34 @@ describe('phase0 failure taxonomy', () => {
     expect(missingPack.classes.map((item) => item.id)).toContain('render.artifact_pack_missing');
     expect(notRenderablePack.classes.map((item) => item.id)).toContain('render.artifact_pack_not_ready');
   });
+
+  it('does not fail cut continuity for video overlaps covered by transition handles', () => {
+    const project = cleanProject();
+    project.durationInFrames = 100;
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 60, sourceStartFrame: 0 },
+      { id: 'clip-2', type: 'video', from: 30, durationInFrames: 60, sourceStartFrame: 60 },
+      { id: 'transition-1', type: 'transition', from: 45, durationInFrames: 30, transitionStyle: 'cross-dissolve' },
+    ];
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_transition_handles',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_transition_handles',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(classIds).not.toContain('cut.overlapping_video_clips');
+    expect(classIds).toContain('cut.transition_overlap_handles');
+    expect(taxonomy.classes.find((item) => item.id === 'cut.transition_overlap_handles')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        count: 1,
+      },
+    });
+  });
 });
 
 function cleanProject(): Phase0FixtureProject {

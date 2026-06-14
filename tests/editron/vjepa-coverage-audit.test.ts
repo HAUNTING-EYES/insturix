@@ -34,6 +34,13 @@ describe('V-JEPA coverage audit', () => {
       nearestGapMs: 0,
     }));
     expect(audit.overlayHitRate).toBe(1);
+    expect(audit.reliability!.screenAwarePlacement).toBe('degraded');
+    expect(audit.reliability!.reasons).toEqual(expect.arrayContaining([
+      'motionVector-coverage-below-90:0%',
+      'mainSubject-coverage-below-90:0%',
+      'textCoverage-coverage-below-90:0%',
+      'negativeSpace-coverage-below-90:0%',
+    ]));
     expect(audit.issues).not.toContain('warn:overlay-without-source-clip');
   });
 
@@ -59,11 +66,84 @@ describe('V-JEPA coverage audit', () => {
       expect.stringContaining('warn:low-vjepa-duration-coverage'),
       expect.stringContaining('warn:low-overlay-vjepa-hit-rate'),
       'warn:missing-semantic-vjepa-fields',
+      expect.stringContaining('warn:vjepa-screen-aware-placement-degraded'),
+    ]));
+    expect(audit.reliability).toEqual(expect.objectContaining({
+      screenAwarePlacement: 'degraded',
+      score: expect.any(Number),
+    }));
+    expect(audit.reliability!.reasons).toEqual(expect.arrayContaining([
+      'duration-coverage-below-90:8%',
+      'overlay-hit-rate-below-90:0%',
+      'motionVector-coverage-below-90:0%',
+      'mainSubject-coverage-below-90:0%',
+      'textCoverage-coverage-below-90:0%',
+      'negativeSpace-coverage-below-90:0%',
     ]));
     expect(audit.overlayHits[0]).toEqual(expect.objectContaining({
       exactHit: false,
       nearestGapMs: 25_000,
     }));
+  });
+
+  it('marks screen-aware placement trusted only when temporal and primitive coverage are healthy', () => {
+    const audit = auditVjepaCoverage({
+      fps: 30,
+      originalDurationMs: 2_000,
+      vjepaSegments: [
+        {
+          startMs: 0,
+          endMs: 2_000,
+          visualSignificance: 0.8,
+          motionIntensity: 0.4,
+          actionType: 'talking',
+          motionType: 'stable',
+          motionVectorX: 0.01,
+          motionVectorY: 0.02,
+          mainSubject: { x: 0.25, y: 0.1, width: 0.45, height: 0.7 },
+          textBoxes: [],
+          textCoverage: 0.05,
+          negativeSpaceTop: 0.15,
+          negativeSpaceRight: 0.3,
+          negativeSpaceBottom: 0.12,
+          negativeSpaceLeft: 0.2,
+        },
+      ],
+      overlays: [
+        { id: 'clip', type: 'video', from: 0, durationInFrames: 60, sourceStartFrame: 0 },
+        { id: 'mg', type: 'motion-graphic', from: 30, durationInFrames: 30 },
+      ],
+    });
+
+    expect(audit.status).toBe('pass');
+    expect(audit.reliability).toEqual({
+      screenAwarePlacement: 'trusted',
+      score: 1,
+      reasons: [],
+    });
+    expect(audit.issues).not.toEqual(expect.arrayContaining([
+      expect.stringContaining('vjepa-screen-aware-placement-degraded'),
+    ]));
+  });
+
+  it('marks screen-aware placement unavailable when no V-JEPA segments exist', () => {
+    const audit = auditVjepaCoverage({
+      fps: 30,
+      originalDurationMs: 2_000,
+      vjepaSegments: [],
+      overlays: [
+        { id: 'clip', type: 'video', from: 0, durationInFrames: 60, sourceStartFrame: 0 },
+        { id: 'mg', type: 'motion-graphic', from: 30, durationInFrames: 30 },
+      ],
+    });
+
+    expect(audit.status).toBe('fail');
+    expect(audit.issues).toContain('fail:no-vjepa-segments');
+    expect(audit.reliability).toEqual({
+      screenAwarePlacement: 'unavailable',
+      score: 0,
+      reasons: ['no-vjepa-segments'],
+    });
   });
 
   it('reports primitive field coverage separately from legacy semantic fields', () => {

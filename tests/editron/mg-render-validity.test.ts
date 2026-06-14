@@ -58,4 +58,17 @@ describe('MG render validity', () => {
 
     expect(report.status).toMatchObject({ ok: false, reason: 'blank' });
   });
+
+  it('allows explicitly justified blank source-dependent transition samples', () => {
+    const report = classifyRenderValidity({
+      image: { lumaStdDev: 0.2, alphaMean: 1 },
+      blankImageJustification: 'overlay-only transition sample omitted linked source video clips',
+    });
+
+    expect(report.status).toEqual({ ok: true });
+    expect(report.matchedLogs).toEqual([{
+      type: 'info',
+      text: 'overlay-only transition sample omitted linked source video clips',
+    }]);
+  });
 });

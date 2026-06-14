@@ -20,7 +20,7 @@ describe('resolveAtomicCaptionPresentation', () => {
     expect(form.wordsPerGroup).toBe(3);
   });
 
-  it('preserves explicit display mode atoms while still resolving style from signals', () => {
+  it('restrains explicit word-by-word captions on formal slower talking-head content', () => {
     const form = resolveAtomicCaptionPresentation({
       displayMode: 'word-by-word',
       genreParams: {
@@ -31,6 +31,21 @@ describe('resolveAtomicCaptionPresentation', () => {
     });
 
     expect(form.style).toBe('minimal');
+    expect(form.displayMode).toBe('karaoke');
+    expect(form.wordsPerGroup).toBe(6);
+    expect(form.aesthetic.surface).toBe('subtitle-panel');
+  });
+
+  it('preserves explicit word-by-word captions for high-energy moments', () => {
+    const form = resolveAtomicCaptionPresentation({
+      displayMode: 'word-by-word',
+      genreParams: {
+        formality: 0.35,
+        energy_baseline: 0.86,
+        pacing_tolerance: 4,
+      },
+    });
+
     expect(form.displayMode).toBe('word-by-word');
     expect(form.wordsPerGroup).toBe(1);
   });
@@ -50,11 +65,11 @@ describe('resolveAtomicCaptionPresentation', () => {
     expect(form.displayMode).toBe('karaoke');
     expect(form.wordsPerGroup).toBe(6);
     expect(form.aesthetic).toEqual(expect.objectContaining({
-      layout: 'balanced-lower',
-      surface: 'transparent-shadow',
-      maxWidthPx: 1120,
-      maxHeightPx: 128,
-      fontSizePx: 38,
+      layout: 'subtitle-lower',
+      surface: 'subtitle-panel',
+      maxWidthPx: 1280,
+      maxHeightPx: 150,
+      fontSizePx: 34,
     }));
   });
 

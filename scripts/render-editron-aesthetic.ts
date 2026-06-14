@@ -249,6 +249,12 @@ export async function runRenderedAestheticHarness(
       frame,
       logs,
       image,
+      blankImageJustification: sourceDependentTransitionBlankJustification({
+        overlayOnly: Boolean(options.overlayOnly),
+        sample,
+        sourceOverlays: overlays,
+        renderOverlays,
+      }),
       renderError,
       overlays: evidence,
     });
@@ -391,6 +397,43 @@ export function buildOverlayOnlyRenderOverlays(overlays: Overlay[], width: numbe
   ));
 }
 
+export function sourceDependentTransitionBlankJustification(input: {
+  overlayOnly: boolean;
+  sample: RenderedAestheticSample;
+  sourceOverlays: Overlay[];
+  renderOverlays: Overlay[];
+}): string | undefined {
+  if (!input.overlayOnly) return undefined;
+  const sampledTransitionIds = input.sample.sourceOverlayIds
+    .filter((id) => {
+      const overlay = input.sourceOverlays.find((candidate) => String(candidate.id) === String(id));
+      return overlay?.type === OverlayType.TRANSITION;
+    })
+    .map(String);
+  if (sampledTransitionIds.length === 0) return undefined;
+  const sampledNonTransition = input.sample.sourceOverlayIds.some((id) => {
+    const overlay = input.sourceOverlays.find((candidate) => String(candidate.id) === String(id));
+    return overlay && overlay.type !== OverlayType.TRANSITION;
+  });
+  if (sampledNonTransition) return undefined;
+
+  const renderOverlayIds = new Set(input.renderOverlays.map((overlay) => String(overlay.id)));
+  const sourceVideoIds = new Set(
+    input.sourceOverlays
+      .filter((overlay) => overlay.type === OverlayType.VIDEO)
+      .map((overlay) => String(overlay.id)),
+  );
+  const transitionHasRemovedSourceClip = sampledTransitionIds.some((id) => {
+    const transition = input.sourceOverlays.find((overlay) => String(overlay.id) === id);
+    const clipAId = stringProp(transition, 'clipAId');
+    const clipBId = stringProp(transition, 'clipBId');
+    const linkedSourceIds = [clipAId, clipBId].filter((value): value is string => Boolean(value));
+    return linkedSourceIds.length > 0 && linkedSourceIds.some((clipId) => sourceVideoIds.has(clipId) && !renderOverlayIds.has(clipId));
+  });
+  if (!transitionHasRemovedSourceClip) return undefined;
+  return 'overlay-only transition sample omitted linked source video clips; blank transition pixels are source-dependent and not a renderer failure';
+}
+
 export function renderedOverlayBoxAtFrame(overlay: Overlay, frame: number): RenderedOverlayBox {
   const localFrame = Math.max(0, frame - overlay.from);
   const keyframes = overlay.keyframeTracks?.length ? evaluateAllTracks(overlay.keyframeTracks, localFrame) : {};
@@ -473,15 +516,16 @@ function activeRenderedOverlayEvidence(
 ): RenderedOverlayEvidence[] {
   return overlays
     .filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame))
-    .map((overlay) => {
+    .flatMap((overlay) => {
       const fallbackBox = renderedOverlayBoxAtFrame(overlay, frame);
       const isolatedImage = overlay.id !== undefined ? renderEvidence.isolatedImages?.get(String(overlay.id)) : undefined;
       const paintedBox = isolatedImage && renderEvidence.baselineImage ? changedPixelBounds(isolatedImage, renderEvidence.baselineImage) : undefined;
       const box = paintedBox ? { ...fallbackBox, ...paintedBox } : fallbackBox;
       const receipt = buildFrameAwareOverlayReceipt(overlayAtomicReceipt(overlay), overlay, frame, renderEvidence.fps);
+      if (!receipt && String(overlay.type) === String(OverlayType.CAPTION)) return [];
       const pixelImage = isolatedImage ?? renderEvidence.fallbackImage;
       const pixels = pixelImage && renderEvidence.baselineImage ? overlayPixelEvidence(pixelImage, renderEvidence.baselineImage, box) : {};
-      return {
+      return [{
         id: overlay.id,
         type: String(overlay.type),
         family: receipt?.family,
@@ -491,7 +535,7 @@ function activeRenderedOverlayEvidence(
           ...box,
           ...pixels,
         },
-      };
+      }];
     });
 }
 
@@ -559,13 +603,13 @@ export function buildFrameAwareOverlayReceipt(
     const endMs = numericValue(caption.endMs) ?? startMs;
     return frameMs >= startMs && frameMs <= endMs;
   });
-  if (!activeCaption) return receipt;
+  if (!activeCaption) return undefined;
 
   const displayConfig = captionDisplayConfig(overlay);
   const words = captionWords(activeCaption);
   const displayWords = wordsToDisplayAtFrame(words, frameMs, displayConfig);
   const rawText = displayWords.map((word) => word.word).join(' ').trim() || stringValue(activeCaption.text) || '';
-  if (!rawText) return receipt;
+  if (!rawText) return undefined;
 
   const maxWordsPerLine = Math.max(1, displayConfig.maxWordsPerLine ?? displayWords.length ?? 1);
   const targetRowCount = Math.max(1, Math.ceil(Math.max(1, displayWords.length) / maxWordsPerLine));
@@ -1254,6 +1298,12 @@ function numberOr(...values: unknown[]): number {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function stringProp(value: unknown, key: string): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === 'string' || typeof candidate === 'number' ? String(candidate) : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

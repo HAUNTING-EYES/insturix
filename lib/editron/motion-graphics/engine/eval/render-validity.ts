@@ -20,6 +20,7 @@ export interface RenderValidityInput {
   logs?: RenderLogEntry[];
   image?: RenderImageStats;
   renderError?: unknown;
+  blankImageJustification?: string;
 }
 
 export interface RenderValidityReport {
@@ -104,6 +105,12 @@ export function classifyRenderValidity(input: RenderValidityInput): RenderValidi
   }
 
   if (input.image && isBlankImage(input.image)) {
+    if (input.blankImageJustification) {
+      return {
+        status: { ok: true },
+        matchedLogs: [{ type: 'info', text: input.blankImageJustification }],
+      };
+    }
     return {
       status: {
         ok: false,
