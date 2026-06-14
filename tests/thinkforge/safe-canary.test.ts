@@ -67,23 +67,41 @@ describe('ThinkForge safe canary', () => {
 
     const output = `Lumen Cafe helps Monday feel focused.
 
-CLICKATRON_EXPORT_JSON:
-\`\`\`json
+<!-- THINKFORGE_CLICKATRON_EXPORT
 {
-  "kind": "single_static",
-  "assetIntent": "static_image",
-  "platform": "instagram",
-  "aspectRatio": "4:5",
-  "renderPlan": {
-    "imagePrompt": "Warm cafe table with focused notebook, soft morning light, calm Monday ritual, editorial product photography",
-    "textPolicy": "editable_text_layers",
-    "textLayers": [
-      { "text": "Monday focus ritual" },
-      { "text": "Lumen Cafe" }
-    ]
+  "clickatron": {
+    "schemaVersion": 1,
+    "kind": "single_post_visual",
+    "assetIntent": "post_graphic",
+    "platform": "instagram",
+    "aspectRatio": "4:5",
+    "source": {
+      "sourceService": "thinkforge",
+      "sourceBlockIds": ["AUTO"]
+    },
+    "userIntent": {
+      "visualMode": "text_forward_graphic",
+      "wantsCarousel": false
+    },
+    "creativeBrief": {
+      "objective": "Create a Monday-focus cafe post",
+      "coreMessage": "Lumen Cafe helps Monday feel focused",
+      "audience": "local cafe guests"
+    },
+    "renderPlan": {
+      "imagePrompt": "Warm cafe table with focused notebook, soft morning light, calm Monday ritual, editorial product photography, 4:5 Instagram composition",
+      "textPolicy": "editable_text_layers",
+      "textLayers": [
+        { "id": "headline", "text": "Monday focus ritual", "role": "headline", "priority": 90 },
+        { "id": "brand", "text": "Lumen Cafe", "role": "badge", "priority": 70 }
+      ]
+    },
+    "validation": {
+      "status": "ready"
+    }
   }
 }
-\`\`\``;
+END_THINKFORGE_CLICKATRON_EXPORT -->`;
 
     const score = scoreSafeCanaryOutput(output, testCase!);
     expect(score.ratio).toBe(1);

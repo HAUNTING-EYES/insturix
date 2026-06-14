@@ -7,6 +7,7 @@ import {
   prepareProviderPromptForRoute,
   type ProviderPrivacyAuditRecord,
 } from '../../lib/thinkforge/privacy/provider-privacy-gateway';
+import { extractRequiredClickatronCreativeSidecar } from '../../lib/thinkforge/utils/clickatron-creative-sidecar';
 import {
   buildEvalProviderConfig,
   parseEvalProviders,
@@ -91,7 +92,10 @@ Return bullets with: trend hook, brand-fit reason, platform, and expiry window. 
     area: 'generic_draft',
     prompt: `Write a LinkedIn post for the synthetic brand "StudioPilot".
 Topic: agencies reducing content approval loops before launch week.
-Voice: calm operator, specific, no hype. Include a soft CTA and avoid the phrase "game-changing".`,
+Voice: calm operator, specific, no hype.
+Use the words "StudioPilot", "agency", "approval", and "calm" in the post.
+End with a line that starts exactly with "CTA:".
+Avoid the phrase "game-changing".`,
     requiredTerms: ['approval', 'agency', 'CTA'],
     forbiddenTerms: ['game-changing', 'Brand Vault', 'private client'],
     syntheticBrandTerms: ['StudioPilot', 'calm'],
@@ -102,9 +106,46 @@ Voice: calm operator, specific, no hype. Include a soft CTA and avoid the phrase
     area: 'clickatron_sidecar',
     prompt: `Create an Instagram text plus image post for the synthetic cafe brand "Lumen Cafe".
 Visible copy: short caption about a public Monday-focus meme.
-Then return a JSON block labeled CLICKATRON_EXPORT_JSON with kind, assetIntent, platform, aspectRatio, renderPlan.imagePrompt, renderPlan.textPolicy, and at least two editable textLayers.
+Use the words "Lumen Cafe", "Instagram", and "focus" in the visible copy.
+After the visible copy, append exactly one hidden production ThinkForge sidecar comment. Do not use a code fence. Do not rename the markers.
+Use this exact wrapper and fill every field with concrete public/synthetic content:
+<!-- THINKFORGE_CLICKATRON_EXPORT
+{
+  "clickatron": {
+    "schemaVersion": 1,
+    "kind": "single_post_visual",
+    "assetIntent": "post_graphic",
+    "platform": "instagram",
+    "aspectRatio": "4:5",
+    "source": {
+      "sourceService": "thinkforge",
+      "sourceBlockIds": ["AUTO"]
+    },
+    "userIntent": {
+      "visualMode": "text_forward_graphic",
+      "wantsCarousel": false
+    },
+    "creativeBrief": {
+      "objective": "Create an Instagram Monday-focus post for Lumen Cafe",
+      "coreMessage": "Lumen Cafe helps Monday feel focused",
+      "audience": "local cafe guests"
+    },
+    "renderPlan": {
+      "textPolicy": "editable_text_layers",
+      "imagePrompt": "Warm cafe table with focused notebook, soft morning light, calm Monday ritual, editorial product photography, 4:5 Instagram composition",
+      "textLayers": [
+        { "id": "headline", "text": "Monday focus ritual", "role": "headline", "priority": 90 },
+        { "id": "brand", "text": "Lumen Cafe", "role": "badge", "priority": 70 }
+      ]
+    },
+    "validation": {
+      "status": "ready"
+    }
+  }
+}
+END_THINKFORGE_CLICKATRON_EXPORT -->
 No private context. Do not use the phrase "viral overnight".`,
-    requiredTerms: ['Lumen Cafe', 'Instagram', 'CLICKATRON_EXPORT_JSON'],
+    requiredTerms: ['Lumen Cafe', 'Instagram', 'THINKFORGE_CLICKATRON_EXPORT'],
     forbiddenTerms: ['viral overnight', 'Brand Vault', 'customer list'],
     syntheticBrandTerms: ['Lumen Cafe', 'focus'],
   },
@@ -151,7 +192,14 @@ export function scoreSafeCanaryOutput(output: string, testCase: SafeCanaryCase):
     add('schema_json_validity', 'sidecar_json_valid', Boolean(sidecar));
     add('clickatron_sidecar_completeness', 'has_image_prompt', words(sidecar?.renderPlan?.imagePrompt).length >= 8);
     add('clickatron_sidecar_completeness', 'has_editable_text_layers', Array.isArray(sidecar?.renderPlan?.textLayers) && sidecar.renderPlan.textLayers.length >= 2);
-    add('clickatron_sidecar_completeness', 'has_static_asset_contract', sidecar?.assetIntent === 'static_image' || sidecar?.assetIntent === 'image');
+    add(
+      'clickatron_sidecar_completeness',
+      'has_static_asset_contract',
+      sidecar?.kind === 'single_post_visual'
+        && sidecar.assetIntent === 'post_graphic'
+        && sidecar.platform === 'instagram'
+        && sidecar.aspectRatio === '4:5',
+    );
   } else {
     add('schema_json_validity', 'no_json_required_for_text_case', true);
     add('clickatron_sidecar_completeness', 'sidecar_not_required', true);
@@ -259,12 +307,9 @@ async function main() {
   if (!decision.passed) process.exitCode = 1;
 }
 
-function extractClickatronSidecar(output: string): any | undefined {
-  const match = output.match(/CLICKATRON_EXPORT_JSON\s*:?\s*```(?:json)?\s*([\s\S]*?)```/i)
-    ?? output.match(/CLICKATRON_EXPORT_JSON\s*:?\s*(\{[\s\S]*\})/i);
-  if (!match?.[1]) return undefined;
+function extractClickatronSidecar(output: string) {
   try {
-    return JSON.parse(match[1]);
+    return extractRequiredClickatronCreativeSidecar(output).exportMeta.clickatron;
   } catch {
     return undefined;
   }

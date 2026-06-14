@@ -30,29 +30,29 @@ Command class: ThinkForge safe public canary, Gemini vs DeepSeek, one run per pr
 
 Latest artifact generated locally:
 
-`.artifacts/thinkforge-safe-canary/gemini-valid-key-rerun.json`
+`.artifacts/thinkforge-safe-canary/production-sidecar-calibrated-rerun.json`
 
-Result: FAIL.
+Result: PASS for safe public/synthetic canary only.
 
-Failures:
+Results:
 
 - Gemini baseline ran successfully with a valid key.
 - Privacy audit passed: all canary prompts were public and artifact-only.
 - DeepSeek passed the public trend/meme repurposing case at 100 percent.
-- DeepSeek scored 66.67 percent on the generic LinkedIn draft case.
-- DeepSeek scored 37.5 percent on the Clickatron static sidecar case.
-- The Clickatron sidecar failure included invalid/missing sidecar JSON, missing image prompt, missing editable text layers, and missing static asset contract.
+- DeepSeek passed the generic LinkedIn draft case at 100 percent.
+- DeepSeek passed the Clickatron static sidecar case at 100 percent after the canary was corrected to use the real `THINKFORGE_CLICKATRON_EXPORT` wrapper and valid `post_graphic` asset intent.
+- Gemini also scored 100 percent on all three safe canary cases.
 
-Because DeepSeek failed two safe public quality cases, it does not meet the 95 percent production gate even though the privacy gate passed.
+This means DeepSeek is viable for sanitized/public-context experimentation on these canary routes. It does not approve DeepSeek for private ThinkForge generation.
 
 ## Why DeepSeek Remains Gated
 
-The blocker is not cost. The blockers are:
+The blocker is not cost or the safe-public canary. The remaining blockers are:
 
 1. Privacy: ThinkForge prompts can contain business confidential, personal, and brand-memory data.
-2. Quality: the current safe canary shows weak sidecar JSON and weak Clickatron handoff reliability.
-3. Evidence: the latest valid-baseline canary still failed DeepSeek quality gates.
-4. Compliance: there is no DPDP/legal approval for hosted DeepSeek on private ThinkForge context.
+2. Evidence scope: the passing canary used public/synthetic prompts only, not raw Brand Vault, user memory, or client documents.
+3. Compliance: there is no DPDP/legal approval for hosted DeepSeek on private ThinkForge context.
+4. Product risk: production authoring still needs route-level canaries before user-visible rollout.
 
 ## Required Before Private Production Use
 
