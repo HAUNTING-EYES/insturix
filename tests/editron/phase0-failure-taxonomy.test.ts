@@ -1,0 +1,202 @@
+import { describe, expect, it } from 'vitest';
+
+import { classifyPhase0Fixture } from '../../lib/editron/services/phase0-failure-taxonomy';
+import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
+import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
+
+describe('phase0 failure taxonomy', () => {
+  it('keeps a clean fixture passable while recording read-only render/calibration state', () => {
+    const project = cleanProject();
+    const manifest = buildPhase0FixtureManifest(project, {
+      capturedAt: '2026-06-14T00:00:00.000Z',
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_clean',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_clean',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.status).toBe('pass');
+    expect(taxonomy.summary).toEqual({ total: 2, fail: 0, warn: 0, info: 2 });
+    expect(taxonomy.classes.map((item) => item.id)).toEqual([
+      'render.not_executed',
+      'calibration.learning_writes_blocked',
+    ]);
+  });
+
+  it('classifies broken fixture evidence with stable failure ids', () => {
+    const project: Phase0FixtureProject = {
+      projectId: 'proj_broken',
+      fps: 30,
+      durationInFrames: 180,
+      playerDimensions: { width: 1080, height: 1920 },
+      rawFootageAnalysis: {
+        originalDurationMs: 6000,
+        estimatedCleanDurationMs: 6000,
+        transcription: { words: [{ word: 'hello', startMs: 0, endMs: 200 }] },
+        segments: [{ text: 'hello', startMs: 0, endMs: 200, fillerCount: 0, silenceGapCount: 0, avgWordGapMs: 0 }],
+      },
+      overlays: [
+        { id: 'clip-1', type: 'video', from: 0, durationInFrames: 30, sourceStartFrame: 0 },
+        { id: 'clip-2', type: 'video', from: 45, durationInFrames: 30 },
+        { id: 'clip-3', type: 'video', from: 70, durationInFrames: 20, sourceStartFrame: 120 },
+        { id: 'mg-1', type: 'motion-graphic', from: 12, durationInFrames: 50, content: 'weak' },
+        { id: 'tr-1', type: 'transition', from: 44, durationInFrames: 12 },
+        { id: 'sfx-1', type: 'sound', from: 44, durationInFrames: 12 },
+      ],
+      intelligence: {
+        vjepaCoverageAudit: {
+          status: 'warn',
+          issues: ['warn:low-vjepa-duration-coverage:50%'],
+          fps: 30,
+          segmentCoverage: {
+            segmentCount: 1,
+            spanStartMs: 0,
+            spanEndMs: 3000,
+            coveredMs: 3000,
+            gapCount: 0,
+            gapTotalMs: 0,
+            maxGapMs: 0,
+            coverageRatio: 0.5,
+            fieldCoverage: {
+              visualSignificance: 1,
+              motionIntensity: 1,
+              actionType: 0,
+              motionType: 0,
+              faceEmotion: 0,
+              eyeContact: 0,
+              motionVector: 0,
+              mainSubject: 0,
+              textBoxes: 0,
+              textCoverage: 0,
+              negativeSpace: 0,
+              objectCount: 0,
+              faceCount: 0,
+            },
+          },
+          overlayHitRate: 0,
+          overlayHits: [],
+        },
+      },
+    };
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_broken',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_broken',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.status).toBe('fail');
+    expect(taxonomy.classes.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'cut.mid_timeline_gaps',
+      'cut.overlapping_video_clips',
+      'cut.tail_gap',
+      'timeline.source_mapping_incomplete',
+      'timeline.canonical_context_not_safe',
+      'decision.unified_bundle_missing',
+      'vjepa.coverage_warn',
+      'overlay.mg_atomic_spine_incomplete',
+      'overlay.transition_form_missing',
+      'overlay.sfx_form_missing',
+      'render.not_executed',
+      'calibration.learning_writes_blocked',
+    ]));
+    expect(taxonomy.summary.fail).toBeGreaterThan(0);
+    expect(taxonomy.summary.warn).toBeGreaterThan(0);
+  });
+
+  it('fails when the render artifact pack is missing or not renderable', () => {
+    const project: Phase0FixtureProject = {
+      projectId: 'proj_no_render',
+      fps: 30,
+      durationInFrames: 60,
+      playerDimensions: { width: 1080, height: 1920 },
+      overlays: [{ id: 'sound-1', type: 'sound', from: 0, durationInFrames: 60 }],
+    };
+    const manifest = buildPhase0FixtureManifest(project);
+    const missingPack = classifyPhase0Fixture(manifest);
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_no_render',
+    });
+    const notRenderablePack = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(missingPack.classes.map((item) => item.id)).toContain('render.artifact_pack_missing');
+    expect(notRenderablePack.classes.map((item) => item.id)).toContain('render.artifact_pack_not_ready');
+  });
+});
+
+function cleanProject(): Phase0FixtureProject {
+  return {
+    projectId: 'proj_clean',
+    fps: 30,
+    durationInFrames: 90,
+    playerDimensions: { width: 1080, height: 1920 },
+    rawFootageAnalysis: {
+      originalDurationMs: 3000,
+      estimatedCleanDurationMs: 3000,
+      transcription: { words: [{ word: 'hello', startMs: 0, endMs: 300 }] },
+      segments: [{ text: 'hello', startMs: 0, endMs: 300, fillerCount: 0, silenceGapCount: 0, avgWordGapMs: 0 }],
+    },
+    overlays: [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 0 },
+      {
+        id: 'mg-1',
+        type: 'motion-graphic',
+        from: 12,
+        durationInFrames: 50,
+        content: 'clean',
+        metadata: {
+          atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+          atomicOverlayReceipt: { family: 'motion-graphic' },
+          atomicMomentBundle: { semanticAtoms: [{ kind: 'text' }], relations: [] },
+        },
+      },
+      {
+        id: 'tr-1',
+        type: 'transition',
+        from: 44,
+        durationInFrames: 12,
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1' } },
+      },
+      {
+        id: 'sfx-1',
+        type: 'sound',
+        from: 44,
+        durationInFrames: 12,
+        metadata: { atomicSfxForm: { role: 'impact' } },
+      },
+    ],
+    vjepaAnalysis: {
+      segments: [{
+        startMs: 0,
+        endMs: 3000,
+        visualSignificance: 0.7,
+        motionIntensity: 0.2,
+        actionType: 'talking',
+        motionType: 'stable',
+        motionVectorX: 0,
+        motionVectorY: 0,
+        mainSubject: { x: 0.3, y: 0.1, width: 0.4, height: 0.6 },
+        textBoxes: [],
+        textCoverage: 0,
+        negativeSpaceTop: 0.1,
+        negativeSpaceRight: 0.2,
+        negativeSpaceBottom: 0.1,
+        negativeSpaceLeft: 0.2,
+        objectCount: 1,
+        faceCount: 1,
+      }],
+    },
+    intelligence: {
+      unifiedDecisionBundle: {
+        source: 'creative-brief+signal-driven',
+        authority: 'creative-primary-signal-evidence',
+        counts: { graphic: 1 },
+      },
+    },
+  };
+}
