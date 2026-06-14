@@ -11,14 +11,15 @@ This document answers two questions:
 
 ## Executive Answer
 
-Phase 3 through Phase 6 of the DeepSeek production plan are not done.
+Phase 3 and Phase 4 now have a first-pass implementation, but Phase 5 and Phase 6 are not done.
 
-What exists today is eval-only DeepSeek/OpenRouter support in prompt-optimization scripts, plus an improved ThinkForge output contract for Clickatron sidecars. Production ThinkForge model routing is still Google/Gemini only through `lib/thinkforge/agents/model-factory.ts`.
+What exists today is eval-only DeepSeek support in prompt-optimization scripts, a privacy gateway, a privacy-aware ThinkForge model route resolver, and an improved ThinkForge output contract for Clickatron sidecars. Production private and creative ThinkForge routing still defaults to Gemini. OpenRouter-hosted DeepSeek can only be selected for explicitly safe route/privacy combinations such as public trend/eval routes.
 
 The current safe decision is:
 
 - Keep Gemini as the production provider for private BrandDNA, Brand Vault, user memory, project memory, client content, and intelligence-layer context.
-- Use DeepSeek only for evals, fake/sanitized cases, and possibly public trend ideation after a privacy gateway exists.
+- Accept Gemini as the current production default despite one public-eval stability miss; treat that as prompt-hardening follow-up, not a provider blocker.
+- Use DeepSeek only for evals, fake/sanitized cases, and public/sanitized trend ideation routes that pass the privacy gateway.
 - Do not send raw Brand Vault, user memory, client docs, or private campaign/session context to hosted DeepSeek until DPDP review and routing safeguards are implemented.
 
 ## Current Implementation Reality
@@ -34,7 +35,8 @@ The current safe decision is:
    - `scripts/prompt-optimization/eval-thinkforge-provider-comparison.ts` runs fixed ThinkForge cases across providers.
    - It uses low temperature and repeated runs because DeepSeek does not provide a true deterministic seed guarantee.
    - It gates by average score and minimum run score.
-   - Latest accepted rerun: DeepSeek passed 17 of 20 case groups, overall average 99.34 percent, overall minimum 85.71 percent. Product decision: remaining failures are acceptable for now.
+   - Latest live public/synthetic run: Gemini passed 8 of 9 case groups, 99.6 percent average, 88.9 percent worst run. Product decision: Gemini remains accepted as production default.
+   - Latest live public/synthetic run: DeepSeek passed 8 of 9 case groups, 97.1 percent average, 22.2 percent worst run. DeepSeek remains below the production quality gate because of one JSON/schema contract failure.
 
 3. Clickatron sidecar contract improvement
    - ThinkForge can ask the authoring model to append hidden `THINKFORGE_CLICKATRON_EXPORT` JSON.
@@ -47,6 +49,19 @@ The current safe decision is:
    - It passes the profile into contract, outline, and authoring prompt context.
    - `script-author-agent.ts` injects the profile and signal execution rules.
    - Post-generation compliance can score outputs against profile constraints.
+
+5. Privacy gateway
+   - `lib/thinkforge/privacy/provider-privacy-gateway.ts` classifies prompt context as public, business confidential, personal, or child data.
+   - It blocks business-confidential context for non-approved external providers.
+   - It redacts common personal identifiers before non-approved provider calls where prompt-level redaction is possible.
+   - It blocks child data before provider calls.
+   - It produces audit records with provider, model, purpose, privacy class, fields sent, timestamps, fingerprints, redactions, and block reasons.
+
+6. Production provider route abstraction
+   - `lib/thinkforge/agents/model-factory.ts` resolves routes by purpose and privacy class.
+   - Private creative authoring, structural work, and private brand context default to Gemini.
+   - OpenRouter is available only for safe public/eval-style route purposes when explicitly preferred.
+   - `tests/thinkforge/model-factory-provider-routing.test.ts` verifies the default Gemini routes and the OpenRouter block/allow boundaries.
 
 ### Partial
 
@@ -70,28 +85,24 @@ The current safe decision is:
 
 ### Not Done
 
-1. Privacy gateway
-   - No prompt-data classifier for public, business confidential, personal, or child data.
-   - No provider redaction layer.
-   - No raw Brand Vault stripping.
-   - No minimal-context builder for external providers.
-   - No provider audit log with fields sent, purpose, model, timestamp, and privacy class.
-   - No automatic block for unsafe provider routing.
+1. Minimal external-provider context builder and durable audit storage
+   - The privacy gateway exists, but it still sees a full prompt string in eval/tooling paths.
+   - There is no dedicated minimal-context builder that strips raw Brand Vault internals into a safe resolved summary for hosted non-approved providers.
+   - Audit records exist in process, but there is no durable production telemetry store for provider, model, purpose, privacy class, fields sent, timestamps, redactions, and block reasons.
 
-2. Production provider abstraction
-   - `model-factory.ts` is still Google-only.
-   - Current tiers are `structural` and `reasoning`, both Gemini-backed.
-   - There is no route-type abstraction for `creative_authoring`, `eval`, `public_trend`, or `private_brand_context`.
-   - There is no privacy-aware provider router.
+2. Sanitized confidential eval coverage
+   - The 18 author and Clickatron sidecar cases that contain business-confidential Brand Vault/campaign context are correctly blocked from DeepSeek/OpenRouter.
+   - They still need synthetic or redacted equivalents before DeepSeek can be evaluated against the same product surfaces.
+   - Clickatron sidecar cases still need route-specific sanitized tests for JSON validity, image prompt quality, editable text layers, and asset contract completeness.
 
-3. A/B canary
+3. Production A/B canary
    - No production canary sends safe ThinkForge routes to DeepSeek.
    - No side-by-side user-facing comparison between Gemini and DeepSeek in production.
    - No canary telemetry tied to output quality, privacy class, cost, and provider failures.
 
 4. Production DeepSeek decision
    - No approval exists to use hosted DeepSeek for private ThinkForge generation.
-   - DeepSeek remains eval-only until the privacy gateway and provider router exist.
+   - DeepSeek remains eval/safe-public only until sanitized route evals pass the 95 percent gate and DPDP/legal approves the specific data flow.
 
 5. Alyzitron loop
    - ThinkForge does not yet export post/script content to Alyzitron as an analysis workflow.
@@ -287,17 +298,17 @@ Acceptance:
 
 ## Immediate Recommendation
 
-Do not start Phase 3 provider production work yet.
+Do not expand provider production work beyond Gemini default plus safe public/sanitized evaluation yet.
 
-The next product move should be Phase 1 landing plus Phase 2 brand/signal source of truth. Provider/privacy work matters, but DeepSeek is not the main product blocker while production is still Gemini-only. The biggest output-quality gain will come from making ThinkForge use the right brand, signal, proof, and output-contract context before the model writes.
+The next product move should be Phase 1 landing plus Phase 2 brand/signal source of truth. Provider/privacy work matters, but DeepSeek is not the main product blocker while production private and creative authoring stays on Gemini. The biggest output-quality gain will come from making ThinkForge use the right brand, signal, proof, and output-contract context before the model writes.
 
-After Phase 2, implement Phase 3 and Phase 4 together. Privacy gateway without provider routing is unused. Provider routing without privacy gateway is unsafe.
+After Phase 2, harden the existing privacy gateway and provider router with minimal-context builders, durable audit storage, and sanitized confidential-case evals.
 
 ## Definition Of Done For Production DeepSeek
 
 DeepSeek can be considered for production ThinkForge routes only when all are true:
 
-- Privacy gateway exists and fails closed.
+- Privacy gateway exists, fails closed, and records durable production audit evidence.
 - Provider abstraction exists and routes by task plus privacy class.
 - DeepSeek passes the relevant 95 percent quality gate against Gemini on sanitized route-specific cases.
 - No raw Brand Vault, user memory, private client docs, or child data is sent.

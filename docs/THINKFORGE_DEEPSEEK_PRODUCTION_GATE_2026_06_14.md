@@ -24,6 +24,25 @@ DeepSeek/OpenRouter can be used only for:
 - public trend/meme ideation
 - generic drafts without private brand, user, client, or campaign context
 
+## Live Public Provider Comparison Result
+
+Command class: ThinkForge provider comparison eval, Gemini vs DeepSeek, three runs per provider, 95 percent average and minimum-run gate.
+
+Latest artifacts generated locally:
+
+`.artifacts/thinkforge-provider-eval/live-public-both-*.json`
+
+Scope: nine privacy-approved public/synthetic ideas cases only. The 18 author and Clickatron sidecar cases that contain business-confidential Brand Vault or campaign context remain blocked from external non-approved providers by the local privacy gateway.
+
+Summary:
+
+- Gemini: 8 of 9 case groups passed the 95 percent gate, 99.6 percent average across case averages, 88.9 percent worst run, about $0.0437 total estimated cost, about 9.9s average latency.
+- DeepSeek: 8 of 9 case groups passed the 95 percent gate, 97.1 percent average across case averages, 22.2 percent worst run, about $0.0090 total estimated cost, about 13.2s average latency.
+- Gemini miss: `ideas_agency_campaign` had one run fail forbidden-term obedience. This is accepted as a prompt-hardening follow-up, not a production provider blocker.
+- DeepSeek miss: `ideas_public_trend_calendar` had one run fail JSON/schema contract and specificity checks. This keeps DeepSeek below the production quality gate.
+
+Product decision: Gemini is accepted as the production default for ThinkForge private and creative authoring routes. DeepSeek remains cheaper and useful for safe public/synthetic experimentation, but it is not approved for private production ThinkForge generation.
+
 ## Live Safe Canary Result
 
 Command class: ThinkForge safe public canary, Gemini vs DeepSeek, one run per provider, 95 percent gate.
@@ -52,7 +71,8 @@ The blocker is not cost or the safe-public canary. The remaining blockers are:
 1. Privacy: ThinkForge prompts can contain business confidential, personal, and brand-memory data.
 2. Evidence scope: the passing canary used public/synthetic prompts only, not raw Brand Vault, user memory, or client documents.
 3. Compliance: there is no DPDP/legal approval for hosted DeepSeek on private ThinkForge context.
-4. Product risk: production authoring still needs route-level canaries before user-visible rollout.
+4. Product risk: the latest nine-case public eval still had a DeepSeek contract stability failure.
+5. Production authoring still needs sanitized route-level canaries before user-visible rollout.
 
 ## Required Before Private Production Use
 
