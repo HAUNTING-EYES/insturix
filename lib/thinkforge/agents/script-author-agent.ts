@@ -117,6 +117,7 @@ function inferRoleFromContext(projectSummary: string, userPrompt: string, explic
 - Think like a director: for every line of narration, ask "what do I SHOW while these words are spoken?"
 - Each scene = one distinct visual moment. Two visuals = two scenes.
 - The VO text IS the product. Visual direction SERVES the narration.
+- If the request mentions talking head, camera, light, framing, room, or setup constraints, include a compact ## Shoot Guidance section before the scenes with **Camera:**, **Lighting:**, **Framing:**, **Blocking:**, and **Emotion:**.
 - Be SPECIFIC. Not "a person looks worried" but "freelancer stares at phone, jaw tight, laptop light on face."`,
       defaultVoice: 'voiceover',
       defaultMedium: 'video_script',
@@ -398,7 +399,7 @@ QUALITY:
   - Write like a specific human who has opinions and experience. NOT a brand voice generator.
   - Use the vocabulary of someone who DOES this work, not someone who WRITES ABOUT this work.
   - Every paragraph must earn its place. If you can delete it and nothing is lost, delete it.
-  - Never use filler phrases: "seamless workflow", "circle back", "leverage", "unlock potential", "empower", "business landscape", "digital landscape", "tapestry", "showcase".
+  - Never use filler phrases: "in today's fast-paced world", "it's important to note", "let's dive in", "at the end of the day", "game-changer", "cutting-edge", "seamless workflow", "robust solution", "innovative solution", "synergy", "circle back", "work its magic", "leverage", "unlock potential", "empower", "take it to the next level", "delve", "comprehensive solution", "nuanced approach", "pivotal", "fundamentally shift", "business landscape", "digital landscape", "tapestry", "foster", "showcase", "interplay".
 
 VERIFY BEFORE OUTPUT — check ALL before returning:
   ✓ First line has a specific claim/number/entity (not generic opener)?
@@ -469,13 +470,26 @@ PER-SCENE ELEMENTS (all 7 required on every scene, each on its own bold-labeled 
 BANNED PHRASES (never use, zero tolerance):
   "let's dive in", "game-changer", "cutting-edge", "seamless", "robust", "innovative",
   "leverage", "unlock", "empower", "in today's fast-paced world", "at the end of the day",
-  "it's important to note", "work its magic", "circle back", "take it to the next level"
+  "it's important to note", "work its magic", "circle back", "take it to the next level",
+  "delve", "comprehensive solution", "nuanced approach", "pivotal", "fundamentally shift",
+  "business landscape", "digital landscape", "tapestry", "foster", "showcase", "interplay"
 
 SPECIFICITY: Not "a workspace" but "MacBook with 14 Chrome tabs, cold coffee, 2am."
+
+TALKING-HEAD SETUP RULE:
+  If the brief mentions talking head, direct to camera, camera, light, framing, room, or setup constraints, add this section before the timed scenes:
+  ## Shoot Guidance
+  **Camera:** lens/height/angle/distance for the available setup.
+  **Lighting:** key direction, window/practical placement, and shadow control.
+  **Framing:** headroom, eye line, crop, and negative space.
+  **Blocking:** where the speaker sits/stands and what their hands/body do.
+  **Emotion:** the delivery feeling for the first beat and how it changes.
+  Keep it feasible for the user's stated camera, lighting, room, crew, and gear. Do not invent extra crew or equipment.
 
 VERIFY BEFORE OUTPUT:
   ✓ Does every scene have ## [time] heading + all 7 labeled elements? If not, fix it now.
   ✓ If the brief says "talking head", "direct to camera", or "to camera": did you use **On-Camera** labels (not VO)? VO is for off-screen narration over footage. On-Camera is someone speaking to the lens.
+  ✓ If the brief includes setup constraints, did you include ## Shoot Guidance with camera, lighting, framing, blocking, and emotion?
   ✓ Does this match the voice described in <brand_context>? (if brand context provided)
 </output_format>`;
   }

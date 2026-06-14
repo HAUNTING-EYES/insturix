@@ -123,4 +123,56 @@ describe('ScriptAuthorAgent content signal profile wiring', () => {
     expect(prompt).toContain('Write the ACTUAL publishable Instagram post');
     expect(prompt).not.toContain('Write the ACTUAL publishable LinkedIn post');
   });
+
+  it('keeps social posts away from eval-blocked filler phrases', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new ScriptAuthorAgent();
+
+    const input: ScriptAuthorInput = {
+      context: {
+        projectSummary: 'Insturix - AI-powered video editing platform for creators and agencies.',
+        systemBrief:
+          'Brand: Insturix. Voice: Professional but approachable, grounded in real workflow pain. Target: Agency owners and creative directors managing 5-15 person teams.',
+      },
+      userPrompt: 'Write a LinkedIn post about how AI is changing video production workflows for small agencies.',
+      documentType: 'post',
+    };
+
+    const prompt = agent.buildPrompt(input);
+
+    expect(prompt).toContain('Never use filler phrases');
+    expect(prompt).toContain('in today\'s fast-paced world');
+    expect(prompt).toContain('work its magic');
+    expect(prompt).toContain('take it to the next level');
+    expect(prompt).toContain('fundamentally shift');
+    expect(prompt).toContain('interplay');
+    expect(prompt).toContain('Zero corporate/AI buzzwords');
+  });
+
+  it('requires shoot guidance for talking-head setup constraints', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new ScriptAuthorAgent();
+
+    const input: ScriptAuthorInput = {
+      context: {
+        projectSummary:
+          'StudioPilot helps small film and content teams turn scripts into shootable founder videos with clear production notes.',
+        systemBrief:
+          'Brand DNA: practical, production-literate, calm. User setup: one camera, desk mic, small office, window key light from camera-left, no crew.',
+      },
+      userPrompt:
+        'Write a 45-second talking-head script. Include concise camera, light, framing, and emotion guidance for the one-camera office setup.',
+      documentType: 'video_script',
+    };
+
+    const prompt = agent.buildPrompt(input);
+
+    expect(prompt).toContain('## Shoot Guidance');
+    expect(prompt).toContain('**Camera:**');
+    expect(prompt).toContain('**Lighting:**');
+    expect(prompt).toContain('**Framing:**');
+    expect(prompt).toContain('**Blocking:**');
+    expect(prompt).toContain('**Emotion:**');
+    expect(prompt).toContain('Do not invent extra crew or equipment');
+  });
 });
