@@ -192,6 +192,7 @@ export type ContentShapeKind =
   | 'data-series'
   | 'brand'
   | 'structured'
+  | 'process'
   | 'comparison'
   | 'free-text';
 
@@ -205,6 +206,7 @@ export type ContentShape =
   | { kind: 'data-series'; values: number[]; labels?: string[]; visualForm: DataSeriesVisualForm }
   | { kind: 'brand'; text: string; logo?: string }
   | { kind: 'structured'; title: string; body?: string; items?: string[] }
+  | { kind: 'process'; title?: string; body?: string; steps: string[]; ordered: boolean }
   | { kind: 'comparison'; from: string; to: string; fromLabel?: string; toLabel?: string; relation?: 'arrow' | 'vs' }
   | { kind: 'free-text'; text: string };
 

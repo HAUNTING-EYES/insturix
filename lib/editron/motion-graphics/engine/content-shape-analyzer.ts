@@ -111,13 +111,19 @@ export function deriveContentStructure(content: Record<string, unknown>): Conten
     addPart('brand-text', 'brand', 'text', content.text);
   }
 
-  if (typeof content.title === 'string' && typeof content.body === 'string') {
-    addPart('title', 'text', 'title', content.title);
-    addPart('body', 'text', 'body', content.body, 0.85);
-    if (Array.isArray(content.items)) {
-      addPart('list-items', 'text', 'items', content.items.map(String), 0.8);
-      relations.push({ type: 'contains-list', fromRole: 'body', toRole: 'list-items' });
-    }
+  const title = stringContent(content, 'title');
+  const body = stringContent(content, 'body');
+  const listItems = stringArrayContent(content, 'steps') ?? stringArrayContent(content, 'items');
+  if (title) addPart('title', 'text', 'title', title);
+  if (body) addPart('body', 'text', 'body', body, 0.85);
+  if (listItems?.length) {
+    const sourceKey = Array.isArray(content.steps) ? 'steps' : 'items';
+    addPart('list-items', 'text', sourceKey, listItems, 0.82);
+    relations.push({
+      type: 'contains-list',
+      fromRole: body ? 'body' : title ? 'title' : 'list-items',
+      toRole: 'list-items',
+    });
   }
 
   if (typeof content.from === 'string' && content.from.length > 0
@@ -259,7 +265,18 @@ function detectShapes(
     });
   }
 
-  if (hasPart(structure, 'title') && hasPart(structure, 'body')) {
+  if (hasPart(structure, 'list-items')) {
+    const steps = stringArrayContent(content, 'steps') ?? stringArrayContent(content, 'items') ?? [];
+    if (steps.length > 0) {
+      shapes.push({
+        kind: 'process',
+        title: typeof content.title === 'string' ? content.title : undefined,
+        body: typeof content.body === 'string' ? content.body : undefined,
+        steps,
+        ordered: stringArrayContent(content, 'steps') != null || booleanContent(content, 'ordered') === true,
+      });
+    }
+  } else if (hasPart(structure, 'title') && hasPart(structure, 'body')) {
     shapes.push({
       kind: 'structured',
       title: String(content.title),
@@ -336,6 +353,24 @@ function structuralControlEvidence(
     || quantityKind === 'percentage'
     || quantityKind === 'fraction'
     || quantityKind === 'ratio';
+  const listPart = parts.find((part) => part.role === 'list-items');
+  const listValues = Array.isArray(listPart?.value) ? listPart.value.map(String).filter(Boolean) : [];
+  const listIntent = [
+    stringContent(content, 'listKind'),
+    stringContent(content, 'processKind'),
+    stringContent(content, 'semanticKind'),
+    stringContent(content, 'relationKind'),
+    stringContent(content, 'type'),
+  ].filter(Boolean).join(' ').toLowerCase();
+  const processText = [
+    stringContent(content, 'title'),
+    stringContent(content, 'body'),
+    ...listValues,
+  ].filter(Boolean).join(' ').toLowerCase();
+  const processAffordance = listValues.length >= 2 && (
+    /\b(process|step|steps|sequence|workflow|flow|checklist|roadmap|timeline|how to|first|second|third|then|next|finally)\b/.test(listIntent)
+    || /\b(step|first|second|third|then|next|finally|process|workflow|checklist)\b/.test(processText)
+  );
 
   return {
     ...(quantityKind ? { quantityKind } : {}),
@@ -349,6 +384,10 @@ function structuralControlEvidence(
     ...(warranted !== undefined ? { warranted } : {}),
     ...(captionRedundancy !== undefined ? { captionRedundancy } : {}),
     ...(hasProportion ? { proportionAffordance: true } : {}),
+    ...(listValues.length > 0 ? { listCardinality: listValues.length } : {}),
+    ...(listValues.length >= 2 ? { listAffordance: true } : {}),
+    ...(processAffordance ? { processAffordance: true } : {}),
+    ...((stringArrayContent(content, 'steps') != null || booleanContent(content, 'ordered') === true) ? { orderedListAffordance: true } : {}),
     ...((negated === true || refuted === true || polarity === 'false' || polarity === 'negative') ? { negationAffordance: true } : {}),
     ...(parts.some((part) => part.role === 'salience-score') ? { hasSalienceAtom: true } : {}),
   };
@@ -370,6 +409,15 @@ function isPartOfWholeRelation(
 function stringContent(content: Record<string, unknown>, key: string): string | undefined {
   const value = content[key];
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function stringArrayContent(content: Record<string, unknown>, key: string): string[] | undefined {
+  const value = content[key];
+  if (!Array.isArray(value)) return undefined;
+  const strings = value
+    .map((item) => String(item).replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  return strings.length > 0 ? strings : undefined;
 }
 
 function numberContent(content: Record<string, unknown>, key: string): number | undefined {
@@ -556,6 +604,8 @@ function layoutForShape(
       return { position: 'center', maxWidth: '80%' };
     case 'comparison':
       return { position: 'center', maxWidth: '85%' };
+    case 'process':
+      return { position: 'center', maxWidth: textLoad.needsWideLayout ? '88%' : '78%' };
     case 'structured':
       return textLoad.needsWideLayout
         ? { position: 'top-right', maxWidth: '68%' }
@@ -581,6 +631,8 @@ function readableTextLoad(shape: ContentShape): { charCount: number; wordCount: 
       return { charCount, wordCount, needsWideLayout: charCount >= 44 || wordCount >= 8 };
     case 'structured':
       return { charCount, wordCount, needsWideLayout: charCount >= 48 || wordCount >= 7 };
+    case 'process':
+      return { charCount, wordCount, needsWideLayout: charCount >= 54 || wordCount >= 9 };
     case 'numeric':
       return { charCount, wordCount, needsWideLayout: charCount >= 34 || wordCount >= 5 };
     case 'free-text':
@@ -596,6 +648,8 @@ function textForReadability(shape: ContentShape): string {
       return shape.quote;
     case 'structured':
       return [shape.title, shape.body, ...(shape.items ?? [])].filter(Boolean).join(' ');
+    case 'process':
+      return [shape.title, shape.body, ...shape.steps].filter(Boolean).join(' ');
     case 'numeric':
       return String(shape.label ?? '');
     case 'free-text':

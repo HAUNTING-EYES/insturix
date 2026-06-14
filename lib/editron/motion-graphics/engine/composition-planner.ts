@@ -161,7 +161,8 @@ export function planComposition(
 
   // D1: scene_type — talking-head favors lower-thirds, action favors simpler graphics
   const sceneType = typeof s.scene_type === 'string' ? s.scene_type : '';
-  if (sceneType === 'action' && elements.length > 3) {
+  const primaryShapeKind = strategy.shapes[0]?.kind;
+  if (sceneType === 'action' && elements.length > 3 && primaryShapeKind !== 'process') {
     console.log(`[MG-Planner] Action scene — simplifying (${elements.length} elements → capping at 3)`);
     elements.splice(3);
   }
@@ -412,6 +413,10 @@ function composeFromStructure(
   if (hasPart(strategy.structure, 'brand-text') || hasPart(strategy.structure, 'logo')) {
     const brand = shape('brand');
     if (brand) return composeBrand(elements, brand, language, signals, mgScores);
+  }
+  if (hasPart(strategy.structure, 'list-items')) {
+    const process = shape('process');
+    if (process) return composeProcess(elements, process, language, signals, mgScores);
   }
   if (hasPart(strategy.structure, 'title') && hasPart(strategy.structure, 'body')) {
     const structured = shape('structured');
@@ -936,6 +941,133 @@ function composeStructured(
         color: 'token:color.textSecondary',
         minSize: bodySize,
         lineHeight: bodyLineHeight,
+      },
+    });
+  }
+}
+
+function composeProcess(
+  elements: RecipeElement[],
+  shape: Extract<ContentShape, { kind: 'process' }>,
+  _language: MotionTokens,
+  signals: PlannerSignals,
+  mgScores?: MgOverlayScores,
+): void {
+  const scaleContrast = emphasisRatio(mgScores);
+  const scoredTitleSize = Math.max(CRG.KEYWORD_MIN_FONT, mgVal(mgScores, 'mg.typography.font_size', 'fontSize', CRG.KEYWORD_MIN_FONT));
+  const titleSize = Math.min(scoredTitleSize, 88);
+  const bodySize = Math.max(CRG.CALLOUT_MIN_FONT, titleSize / scaleContrast);
+  const stepSize = Math.max(30, Math.min(54, bodySize));
+  const connectorSize = Math.max(24, Math.round(stepSize / 1.35));
+  const lineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.18);
+  const risk = visualFormRisk(signals);
+  const fastSpeech = signalNum(signals, 'speaking_rate_wpm') > 185;
+  // INVENTED / CALIBRATION TARGET: readable process stacks should land 3-4 steps
+  // on a 1080p frame. Tune max visible steps from rendered reference calibration.
+  const maxVisibleSteps = risk > 0.62 || fastSpeech ? 3 : 4;
+  const visibleSteps = shape.steps.slice(0, maxVisibleSteps);
+  const hiddenCount = Math.max(0, shape.steps.length - visibleSteps.length);
+
+  if (shape.title) {
+    elements.push({
+      primitive: 'text',
+      role: 'primary',
+      layer: 'foreground',
+      bind: {
+        text: 'content:title',
+        font: 'token:typography.headingFamily',
+        weight: 'token:typography.headingWeight',
+        color: 'token:color.textPrimary',
+        minSize: titleSize,
+        lineHeight: Math.max(1.04, Math.min(1.18, lineHeight)),
+      },
+    });
+  }
+
+  if (shape.body) {
+    elements.push({
+      primitive: 'text',
+      role: 'secondary',
+      layer: 'foreground',
+      textSplit: 'none',
+      bind: {
+        text: 'content:body',
+        font: 'token:typography.bodyFamily',
+        weight: 'token:typography.bodyWeight',
+        color: 'token:color.textSecondary',
+        minSize: Math.min(bodySize, 46),
+        lineHeight: Math.max(1.16, Math.min(1.32, lineHeight)),
+      },
+    });
+  }
+
+  if ((shape.title || shape.body) && visibleSteps.length > 0) {
+    elements.push({
+      primitive: 'decoration',
+      role: 'process-progress-rule',
+      layer: 'foreground',
+      shape: 'line',
+      entranceOverride: 'draw',
+      exitOverride: 'draw-reverse',
+      anchor: { mode: 'flow-span', thickness: 2 },
+      bind: {
+        color: 'token:color.accent',
+        width: 2,
+        opacity: 0.76,
+      },
+    });
+  }
+
+  visibleSteps.forEach((step, index) => {
+    if (index > 0) {
+      elements.push({
+        primitive: 'text',
+        role: `process-connector-${index}`,
+        layer: 'foreground',
+        textSplit: 'none',
+        bind: {
+          text: '↓',
+          font: 'token:typography.headingFamily',
+          weight: 'token:typography.headingWeight',
+          color: 'token:color.accent',
+          minSize: connectorSize,
+          lineHeight: 0.9,
+        },
+      });
+    }
+
+    const stepLabel = shape.ordered
+      ? `${String(index + 1).padStart(2, '0')}  ${step}`
+      : `•  ${step}`;
+    elements.push({
+      primitive: 'text',
+      role: (!shape.title && !shape.body && index === 0) ? 'primary' : `process-step-${index + 1}`,
+      layer: 'foreground',
+      textSplit: 'none',
+      bind: {
+        text: stepLabel,
+        font: 'token:typography.bodyFamily',
+        weight: index === 0 ? 'token:typography.headingWeight' : 'token:typography.bodyWeight',
+        color: index === visibleSteps.length - 1 ? 'token:color.accent' : 'token:color.textPrimary',
+        minSize: stepSize,
+        lineHeight: Math.max(1.12, Math.min(1.28, lineHeight)),
+      },
+    });
+  });
+
+  if (hiddenCount > 0) {
+    elements.push({
+      primitive: 'text',
+      role: 'process-overflow-count',
+      layer: 'foreground',
+      textSplit: 'none',
+      bind: {
+        text: `+${hiddenCount} more`,
+        font: 'token:typography.bodyFamily',
+        weight: 'token:typography.bodyWeight',
+        color: 'token:color.textSecondary',
+        minSize: Math.max(28, stepSize / scaleContrast),
+        lineHeight: 1.1,
       },
     });
   }

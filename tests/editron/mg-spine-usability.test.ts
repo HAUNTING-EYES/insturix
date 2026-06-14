@@ -142,6 +142,80 @@ describe('MG spine usability', () => {
     expect(dataSeries.elements.find((e) => e.primitive === 'data-viz')?.role).toBe('bar-chart');
   });
 
+  it('licenses process-stack form from list and step atoms, not a graphic menu', () => {
+    const tokens = resolveMotionTokens(energeticSignals, { accentColor: '#00ff00' });
+    const scores = mgScoresFor(energeticSignals);
+    const strategy = analyzeContentShape({
+      title: 'Three-step workflow',
+      body: 'How the edit gets better',
+      steps: ['Find the claim', 'Show the proof', 'Land the payoff'],
+      semanticKind: 'process',
+    });
+    const recipe = planComposition(
+      {
+        content: {
+          title: 'Three-step workflow',
+          body: 'How the edit gets better',
+          steps: ['Find the claim', 'Show the proof', 'Land the payoff'],
+          semanticKind: 'process',
+        },
+        triggerMoment: 'process explanation',
+      },
+      tokens,
+      energeticSignals,
+      scores,
+    );
+
+    expect(strategy.structure.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'title', channel: 'text', sourceKey: 'title' }),
+      expect.objectContaining({ role: 'body', channel: 'text', sourceKey: 'body' }),
+      expect.objectContaining({ role: 'list-items', channel: 'text', sourceKey: 'steps' }),
+    ]));
+    expect(strategy.structure.evidence).toEqual(expect.objectContaining({
+      listCardinality: 3,
+      listAffordance: true,
+      processAffordance: true,
+      orderedListAffordance: true,
+    }));
+    expect(strategy.shapes[0]).toEqual(expect.objectContaining({
+      kind: 'process',
+      steps: ['Find the claim', 'Show the proof', 'Land the payoff'],
+      ordered: true,
+    }));
+
+    expect(recipe.id).toBe('composed-process');
+    expect(recipe.layout).toEqual(expect.objectContaining({ position: 'center', maxWidth: '88%' }));
+    expect(recipe.elements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ primitive: 'text', role: 'primary', bind: expect.objectContaining({ text: 'content:title' }) }),
+      expect.objectContaining({ primitive: 'decoration', role: 'process-progress-rule', shape: 'line' }),
+      expect.objectContaining({ primitive: 'text', role: 'process-step-1', textSplit: 'none' }),
+      expect.objectContaining({ primitive: 'text', role: 'process-connector-1', bind: expect.objectContaining({ text: '↓' }) }),
+      expect.objectContaining({ primitive: 'text', role: 'process-step-3', bind: expect.objectContaining({ text: '03  Land the payoff' }) }),
+    ]));
+  });
+
+  it('keeps dense process stacks readable with truthful overflow evidence', () => {
+    const tokens = resolveMotionTokens(energeticSignals);
+    const scores = mgScoresFor(energeticSignals);
+    const recipe = planComposition(
+      {
+        content: {
+          title: 'Launch checklist',
+          items: ['Hook', 'Proof', 'Offer', 'Objection', 'CTA'],
+          ordered: true,
+        },
+        triggerMoment: 'checklist',
+      },
+      tokens,
+      { ...energeticSignals, visual_complexity: 0.8 },
+      scores,
+    );
+
+    expect(recipe.id).toBe('composed-process');
+    expect(recipe.elements.some((element) => element.role === 'process-step-4')).toBe(false);
+    expect(recipe.elements.find((element) => element.role === 'process-overflow-count')?.bind.text).toBe('+2 more');
+  });
+
   it('keeps scalar stat atoms out of one-point data-viz shells', () => {
     const tokens = resolveMotionTokens(energeticSignals);
     const scores = mgScoresFor(energeticSignals);
