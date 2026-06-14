@@ -5,7 +5,7 @@ import {
   installCanonicalCaptionTrack,
 } from '@/lib/editron/services/canonical-caption-track';
 import type { EditedTimelineContext } from '@/lib/editron/services/edited-timeline-context';
-import type { AtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
+import { resolveAtomicCaptionPresentation, type AtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
 
 const presentation: AtomicCaptionPresentation = {
   version: 'atomic-caption-form-v1',
@@ -17,6 +17,20 @@ const presentation: AtomicCaptionPresentation = {
     formality: 0.35,
     energy: 0.72,
     speakingRate: 168,
+  },
+  aesthetic: {
+    layout: 'balanced-lower',
+    surface: 'transparent-shadow',
+    widthFraction: 0.68,
+    maxWidthPx: 1040,
+    heightFraction: 0.105,
+    minHeightPx: 92,
+    maxHeightPx: 130,
+    bottomMarginFraction: 0.115,
+    fontSizePx: 40,
+    lineHeight: 1.1,
+    emphasisScale: 1.08,
+    shadowStrength: 0.88,
   },
 };
 
@@ -82,7 +96,45 @@ describe('canonical caption track', () => {
     expect(captions[0].metadata.source).toBe(CANONICAL_CAPTION_TRACK_SOURCE);
     expect(captions[0].metadata.timeline).toBe('cut');
     expect(captions[0].metadata.calibration.status).toBe('invented-needs-calibration');
+    expect(captions[0].metadata.calibration.fields).toContain('aestheticResolver');
     expect(captions[0].captions.map((caption: any) => caption.text).join(' ')).toContain('finally canonical');
+  });
+
+  it('uses signal-resolved caption aesthetics instead of a fixed full-width band', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(['Hank', 'is', 'explaining', 'the', 'whole', 'thing']),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.displayConfig).toMatchObject({ mode: 'karaoke', wordsPerGroup: 6 });
+    expect(caption.width).toBe(1120);
+    expect(caption.height).toBeLessThanOrEqual(128);
+    expect(caption.top).toBeGreaterThan(820);
+    expect(caption.styles).toMatchObject({
+      backgroundColor: 'transparent',
+      fontSize: '38px',
+      lineHeight: 1.12,
+    });
+    expect(caption.metadata.evidence.captionAesthetic).toMatchObject({
+      layout: 'balanced-lower',
+      surface: 'transparent-shadow',
+    });
   });
 
   it('replaces old generated per-video captions but keeps manual captions', () => {

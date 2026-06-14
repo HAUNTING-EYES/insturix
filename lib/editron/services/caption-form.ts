@@ -23,6 +23,24 @@ export type CaptionGenreParams = {
   pacing_tolerance?: number;
 };
 
+export type AtomicCaptionLayout = 'compact-lower' | 'balanced-lower' | 'subtitle-lower';
+export type AtomicCaptionSurface = 'transparent-shadow' | 'active-word-pill' | 'subtitle-panel';
+
+export type AtomicCaptionAesthetic = {
+  layout: AtomicCaptionLayout;
+  surface: AtomicCaptionSurface;
+  widthFraction: number;
+  maxWidthPx: number;
+  heightFraction: number;
+  minHeightPx: number;
+  maxHeightPx: number;
+  bottomMarginFraction: number;
+  fontSizePx: number;
+  lineHeight: number;
+  emphasisScale: number;
+  shadowStrength: number;
+};
+
 export type AtomicCaptionPresentationInput = {
   requestedStyle?: string;
   profileStyle?: string;
@@ -42,6 +60,7 @@ export type AtomicCaptionPresentation = {
     energy: number;
     speakingRate: number;
   };
+  aesthetic: AtomicCaptionAesthetic;
 };
 
 const STYLE_ALIASES: Record<string, AtomicCaptionStyle> = {
@@ -167,6 +186,81 @@ function presentationFromSignals(
   return { style: 'minimal', displayMode: 'phrase', wordsPerGroup: 4, signals: { formality, energy, speakingRate } };
 }
 
+function captionAesthetic(
+  style: AtomicCaptionStyle,
+  displayMode: AtomicCaptionDisplayMode,
+  signals: AtomicCaptionPresentation['signals'],
+): AtomicCaptionAesthetic {
+  const highEnergy = signals.energy > 0.68 || displayMode === 'hormozi' || displayMode === 'instagram';
+  const subtitlePanel = displayMode === 'subtitle' || style === 'corporate';
+
+  if (subtitlePanel) {
+    return {
+      layout: 'subtitle-lower',
+      surface: 'subtitle-panel',
+      widthFraction: 0.74,
+      maxWidthPx: 1280,
+      heightFraction: 0.12,
+      minHeightPx: 96,
+      maxHeightPx: 150,
+      bottomMarginFraction: 0.10,
+      fontSizePx: 34,
+      lineHeight: 1.26,
+      emphasisScale: 1.04,
+      shadowStrength: 0.72,
+    };
+  }
+
+  if (highEnergy) {
+    return {
+      layout: 'compact-lower',
+      surface: 'active-word-pill',
+      widthFraction: 0.64,
+      maxWidthPx: 980,
+      heightFraction: 0.11,
+      minHeightPx: 96,
+      maxHeightPx: 132,
+      bottomMarginFraction: 0.115,
+      fontSizePx: 46,
+      lineHeight: 1.06,
+      emphasisScale: 1.14,
+      shadowStrength: 0.92,
+    };
+  }
+
+  if (displayMode === 'karaoke') {
+    return {
+      layout: 'balanced-lower',
+      surface: 'transparent-shadow',
+      widthFraction: 0.70,
+      maxWidthPx: 1120,
+      heightFraction: 0.105,
+      minHeightPx: 92,
+      maxHeightPx: 128,
+      bottomMarginFraction: 0.115,
+      fontSizePx: 38,
+      lineHeight: 1.12,
+      emphasisScale: 1.06,
+      shadowStrength: 0.9,
+    };
+  }
+
+  return {
+    layout: 'balanced-lower',
+    surface: 'transparent-shadow',
+    widthFraction: 0.68,
+    maxWidthPx: 1040,
+    heightFraction: 0.105,
+    minHeightPx: 92,
+    maxHeightPx: 130,
+    bottomMarginFraction: 0.115,
+    fontSizePx: 40,
+    lineHeight: 1.1,
+    emphasisScale: 1.08,
+    shadowStrength: 0.88,
+  };
+}
+
 export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentationInput): AtomicCaptionPresentation {
   const requestedStyle = normalizeStyle(input.requestedStyle);
   const profileStyle = normalizeStyle(input.profileStyle);
@@ -201,6 +295,7 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
     energy: clamp01(input.genreParams?.energy_baseline ?? 0.5),
     speakingRate: Math.max(100, 220 - ((input.genreParams?.pacing_tolerance ?? 6) * 10)),
   };
+  const aesthetic = captionAesthetic(style, displayMode, fallbackSignals);
 
   return {
     version: 'atomic-caption-form-v1',
@@ -215,5 +310,6 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
           ? 'style-hint'
           : 'fallback',
     signals: fallbackSignals,
+    aesthetic,
   };
 }

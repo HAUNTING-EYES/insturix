@@ -79,7 +79,7 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
     maxGroupDuration: 2200,
   });
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
-  const geometry = captionGeometry(dimensions);
+  const geometry = captionGeometry(dimensions, input.presentation);
   const styles = stylesForPresentation(input.presentation);
 
   return {
@@ -110,10 +110,11 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         editedWordCount: words.length,
         durationFrames: input.editedTimelineContext.durationFrames,
         sourceClipCount: input.editedTimelineContext.sourceClips.length,
+        captionAesthetic: input.presentation.aesthetic,
       },
       calibration: {
         status: 'invented-needs-calibration',
-        fields: ['geometry', 'maxGroupDurationMs', 'styleHeuristics'],
+        fields: ['geometry', 'maxGroupDurationMs', 'styleHeuristics', 'aestheticResolver'],
       },
     },
   };
@@ -153,14 +154,20 @@ function resolveDisplayConfig(presentation: AtomicCaptionPresentation): CaptionD
   };
 }
 
-function captionGeometry(dimensions: { width: number; height: number }) {
-  const width = Math.round(Math.min(dimensions.width * 0.86, 1320));
-  const height = Math.round(Math.max(120, Math.min(dimensions.height * 0.18, 210)));
+function captionGeometry(dimensions: { width: number; height: number }, presentation: AtomicCaptionPresentation) {
+  const aesthetic = presentation.aesthetic;
+  const width = Math.round(Math.min(dimensions.width * aesthetic.widthFraction, aesthetic.maxWidthPx));
+  const height = Math.round(Math.max(
+    aesthetic.minHeightPx,
+    Math.min(dimensions.height * aesthetic.heightFraction, aesthetic.maxHeightPx),
+  ));
+  const bottomMargin = Math.round(dimensions.height * aesthetic.bottomMarginFraction);
+  const top = dimensions.height - height - bottomMargin;
   return {
     width,
     height,
     left: Math.round((dimensions.width - width) / 2),
-    top: Math.round(Math.min(dimensions.height - height - 72, dimensions.height * 0.72)),
+    top: Math.round(Math.max(dimensions.height * 0.58, Math.min(top, dimensions.height * 0.82))),
   };
 }
 
@@ -176,29 +183,33 @@ function nextNumericOverlayId(overlays: any[]): number {
 function stylesForPresentation(presentation: AtomicCaptionPresentation): CaptionStyles {
   const isFormal = presentation.signals.formality > 0.68;
   const isHighEnergy = presentation.signals.energy > 0.68;
-  const fontSize = isHighEnergy ? '46px' : isFormal ? '34px' : '40px';
-  const accentColor = isHighEnergy ? '#FFD84D' : isFormal ? '#7DB7FF' : '#FF6B6B';
+  const aesthetic = presentation.aesthetic;
+  const panelSurface = aesthetic.surface === 'subtitle-panel';
+  const activeWordPill = aesthetic.surface === 'active-word-pill';
+  const fontSize = `${aesthetic.fontSizePx}px`;
+  const accentColor = isHighEnergy ? '#FFD84D' : isFormal ? '#A7D3FF' : '#FF8A8A';
+  const shadowAlpha = Math.max(0.65, Math.min(0.95, aesthetic.shadowStrength));
 
   return {
     fontFamily: isFormal ? 'font-sans' : 'font-league-spartan',
     fontSize,
-    fontWeight: isFormal ? 650 : 800,
+    fontWeight: isHighEnergy ? 850 : isFormal ? 700 : 800,
     color: '#ffffff',
     textAlign: 'center',
-    lineHeight: isFormal ? 1.3 : 1.15,
-    textShadow: '0 2px 8px rgba(0,0,0,0.72), 0 0 2px rgba(0,0,0,0.92)',
-    backgroundColor: presentation.displayMode === 'subtitle' || isFormal
-      ? 'rgba(0,0,0,0.58)'
-      : 'transparent',
-    padding: presentation.displayMode === 'subtitle' || isFormal ? '10px 22px' : undefined,
-    borderRadius: presentation.displayMode === 'subtitle' || isFormal ? '8px' : undefined,
+    lineHeight: aesthetic.lineHeight,
+    textShadow: `0 3px 12px rgba(0,0,0,${shadowAlpha}), 0 0 3px rgba(0,0,0,0.95)`,
+    backgroundColor: panelSurface ? 'rgba(0,0,0,0.62)' : 'transparent',
+    padding: panelSurface ? '8px 18px' : '4px 8px',
+    borderRadius: panelSurface ? '8px' : undefined,
     highlight: {
       color: accentColor,
-      backgroundColor: 'transparent',
-      scale: isHighEnergy ? 1.12 : 1.04,
+      backgroundColor: activeWordPill ? 'rgba(0,0,0,0.72)' : 'transparent',
+      scale: aesthetic.emphasisScale,
       fontWeight: 900,
       effect: isHighEnergy ? 'pop' : 'glow',
       animation: isHighEnergy ? 'bounce' : 'none',
+      textShadow: `0 2px 10px rgba(0,0,0,${shadowAlpha})`,
+      borderRadius: activeWordPill ? '7px' : '4px',
     },
   };
 }

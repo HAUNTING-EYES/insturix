@@ -49,6 +49,13 @@ describe('resolveAtomicCaptionPresentation', () => {
     expect(form.style).toBe('minimal');
     expect(form.displayMode).toBe('karaoke');
     expect(form.wordsPerGroup).toBe(6);
+    expect(form.aesthetic).toEqual(expect.objectContaining({
+      layout: 'balanced-lower',
+      surface: 'transparent-shadow',
+      maxWidthPx: 1120,
+      maxHeightPx: 128,
+      fontSizePx: 38,
+    }));
   });
 
   it('keeps strong brand caption styles as compatibility hints', () => {
@@ -64,5 +71,6 @@ describe('resolveAtomicCaptionPresentation', () => {
     expect(form.source).toBe('strong-style-hint');
     expect(form.style).toBe('mrbeast');
     expect(form.displayMode).toBe('subtitle');
+    expect(form.aesthetic.surface).toBe('subtitle-panel');
   });
 });
