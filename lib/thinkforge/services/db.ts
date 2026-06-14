@@ -2940,6 +2940,36 @@ export async function updateProjectBrandDNA(
   }
 }
 
+export function mergeBrandDNA(userDNA: BrandDNA = {}, projectDNA: BrandDNA = {}): BrandDNA {
+  const mergeArrays = (a?: string[], b?: string[]): string[] | undefined => {
+    const combined = [...(a || []), ...(b || [])];
+    return combined.length > 0 ? [...new Set(combined)] : undefined;
+  };
+
+  const mergeExemplars = (a?: VoiceExemplar[], b?: VoiceExemplar[]): VoiceExemplar[] | undefined => {
+    const combined = [...(a || []), ...(b || [])];
+    if (combined.length === 0) return undefined;
+
+    const byKey = new Map<string, VoiceExemplar>();
+    for (const exemplar of combined) {
+      const key = exemplar.id || `${exemplar.contentType}:${exemplar.text}`;
+      byKey.set(key, exemplar);
+    }
+    return [...byKey.values()];
+  };
+
+  return {
+    voiceLock: projectDNA.voiceLock || userDNA.voiceLock,
+    nicheMap: projectDNA.nicheMap || userDNA.nicheMap,
+    killList: mergeArrays(userDNA.killList, projectDNA.killList),
+    hookArchetypes: mergeArrays(userDNA.hookArchetypes, projectDNA.hookArchetypes),
+    structuralHabits: mergeArrays(userDNA.structuralHabits, projectDNA.structuralHabits),
+    recurringAssets: mergeArrays(userDNA.recurringAssets, projectDNA.recurringAssets),
+    voiceFingerprint: projectDNA.voiceFingerprint || userDNA.voiceFingerprint,
+    voiceExemplars: mergeExemplars(userDNA.voiceExemplars, projectDNA.voiceExemplars),
+  };
+}
+
 /**
  * Resolve effective BrandDNA for a context: merges user-level defaults with project-level overrides.
  * Project-level fields take precedence; arrays are concatenated and deduplicated.
@@ -2953,19 +2983,7 @@ export async function resolveEffectiveBrandDNA(
 
   const projectDNA = await getProjectBrandDNA(projectId, userId) || {};
 
-  const mergeArrays = (a?: string[], b?: string[]): string[] | undefined => {
-    const combined = [...(a || []), ...(b || [])];
-    return combined.length > 0 ? [...new Set(combined)] : undefined;
-  };
-
-  return {
-    voiceLock: projectDNA.voiceLock || userDNA.voiceLock,
-    nicheMap: projectDNA.nicheMap || userDNA.nicheMap,
-    killList: mergeArrays(userDNA.killList, projectDNA.killList),
-    hookArchetypes: mergeArrays(userDNA.hookArchetypes, projectDNA.hookArchetypes),
-    structuralHabits: mergeArrays(userDNA.structuralHabits, projectDNA.structuralHabits),
-    recurringAssets: mergeArrays(userDNA.recurringAssets, projectDNA.recurringAssets),
-  };
+  return mergeBrandDNA(userDNA, projectDNA);
 }
 
 // ==================== Interaction Event Logging ====================
