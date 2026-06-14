@@ -170,8 +170,8 @@ function presentationFromSignals(
 export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentationInput): AtomicCaptionPresentation {
   const requestedStyle = normalizeStyle(input.requestedStyle);
   const profileStyle = normalizeStyle(input.profileStyle);
-  const explicitDisplay = normalizeDisplayMode(input.displayMode)
-    ?? explicitModeFromStyleHint(input.requestedStyle)
+  const explicitDisplay = normalizeDisplayMode(input.displayMode);
+  const displayHint = explicitModeFromStyleHint(input.requestedStyle)
     ?? explicitModeFromStyleHint(input.profileStyle);
   const signalPresentation = presentationFromSignals(input.genreParams);
   const strongStyle = requestedStyle && STRONG_STYLE_HINTS.has(requestedStyle) ? requestedStyle : undefined;
@@ -182,13 +182,17 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
     ?? profileStyle
     ?? 'subtitle';
   const displayMode = explicitDisplay
+    ?? (strongStyle ? displayHint : undefined)
     ?? signalPresentation?.displayMode
+    ?? displayHint
     ?? DISPLAY_BY_STYLE[style]
     ?? 'phrase';
   const wordsPerGroup = Math.max(1, Math.min(12, Math.round(
     input.wordsPerGroup
       ?? (explicitDisplay ? WORDS_BY_MODE[explicitDisplay] : undefined)
+      ?? (strongStyle && displayHint ? WORDS_BY_MODE[displayHint] : undefined)
       ?? signalPresentation?.wordsPerGroup
+      ?? (displayHint ? WORDS_BY_MODE[displayHint] : undefined)
       ?? WORDS_BY_MODE[displayMode]
       ?? 4,
   )));

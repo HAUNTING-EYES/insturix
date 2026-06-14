@@ -22,7 +22,7 @@ describe('resolveAtomicCaptionPresentation', () => {
 
   it('preserves explicit display mode atoms while still resolving style from signals', () => {
     const form = resolveAtomicCaptionPresentation({
-      requestedStyle: 'word-by-word',
+      displayMode: 'word-by-word',
       genreParams: {
         formality: 0.65,
         energy_baseline: 0.3,
@@ -33,6 +33,22 @@ describe('resolveAtomicCaptionPresentation', () => {
     expect(form.style).toBe('minimal');
     expect(form.displayMode).toBe('word-by-word');
     expect(form.wordsPerGroup).toBe(1);
+  });
+
+  it('demotes weak style hints below signal-selected display form', () => {
+    const form = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    expect(form.source).toBe('signals');
+    expect(form.style).toBe('minimal');
+    expect(form.displayMode).toBe('karaoke');
+    expect(form.wordsPerGroup).toBe(6);
   });
 
   it('keeps strong brand caption styles as compatibility hints', () => {

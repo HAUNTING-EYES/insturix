@@ -146,6 +146,22 @@ describe('rendered aesthetic harness helpers', () => {
     expect(textForm?.composition.rowCapacity).toBe(1);
   });
 
+  it('scores motion graphics from recipe-visible text instead of hidden semantic evidence', () => {
+    const overlay = motionGraphicOverlay({ id: 9 });
+    const receipt = buildFrameAwareOverlayReceipt(
+      motionGraphicReceipt("Hank Speaker I'm Hank. Hank. Speaker"),
+      overlay,
+      102,
+      30,
+    );
+    const textForm = receipt?.form.text;
+
+    expect(textForm?.rawText).toBe('Hank Speaker');
+    expect(textForm?.glyphs.map((glyph) => glyph.text)).toEqual(['Hank', 'Speaker']);
+    expect(textForm?.lines.map((line) => line.text)).toEqual(['Hank', 'Speaker']);
+    expect(textForm?.composition.targetRowCount).toBe(2);
+  });
+
   it('renders an HTML contact sheet with project, sample, image, and issue context', () => {
     const html = renderRenderedAestheticHtmlReport(fakeHarnessReport());
 
@@ -259,6 +275,26 @@ function captionOverlay(input: OverlayFixtureInput & {
   } as unknown as Overlay;
 }
 
+function motionGraphicOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
+  return {
+    ...baseOverlay({ ...input, type: OverlayType.MOTION_GRAPHIC }),
+    content: {
+      name: 'Hank',
+      title: 'Speaker',
+      contextPhrase: "I'm Hank.",
+      keyword: 'Speaker',
+    },
+    recipe: {
+      id: 'composed-identity',
+      elements: [
+        { id: 'primary', primitive: 'text', bind: { text: 'content:name' } },
+        { id: 'secondary', primitive: 'text', bind: { text: 'content:title' } },
+        { id: 'accent', primitive: 'shape', bind: { color: 'token:color.accent' } },
+      ],
+    },
+  } as unknown as Overlay;
+}
+
 function caption(text: string, startMs: number, endMs: number) {
   const parts = text.split(/\s+/).filter(Boolean);
   const step = Math.max(1, (endMs - startMs) / Math.max(1, parts.length));
@@ -294,6 +330,20 @@ function captionReceipt(rawText: string): AtomicOverlayReceipt {
       overlayAtom('text-row-strategy', 'text.row_strategy', 'single-word', 1, 'decision-param'),
       overlayAtom('text-row-capacity', 'text.row_capacity', 1, 1, 'decision-param'),
       ...words.map((word, index) => overlayAtom('caption-word', `caption.word.${index}`, word, 1, 'transcript')),
+    ],
+  });
+}
+
+function motionGraphicReceipt(rawText: string): AtomicOverlayReceipt {
+  return buildOverlayAtomicReceipt({
+    family: 'motion-graphic',
+    intent: 'composed-identity',
+    frame: 102,
+    durationFrames: 48,
+    source: 'test',
+    target: { overlayId: 9, row: 0, x: 0, y: 0, width: 1920, height: 1080 },
+    atoms: [
+      overlayAtom('text-content', 'content.text', rawText, 1, 'transcript'),
     ],
   });
 }

@@ -532,6 +532,9 @@ export function buildFrameAwareOverlayReceipt(
   frame: number,
   fps = 30,
 ): RenderedOverlayEvidence['receipt'] {
+  if (receipt?.family === 'motion-graphic') {
+    return buildVisibleMotionGraphicOverlayReceipt(receipt, overlay);
+  }
   if (!receipt || receipt.family !== 'caption') return receipt;
   const textForm = receipt.form.text;
   if (!textForm) return receipt;
@@ -598,6 +601,89 @@ export function buildFrameAwareOverlayReceipt(
       },
     },
   };
+}
+
+function buildVisibleMotionGraphicOverlayReceipt(
+  receipt: NonNullable<RenderedOverlayEvidence['receipt']>,
+  overlay: Overlay,
+): RenderedOverlayEvidence['receipt'] {
+  const textForm = receipt.form.text;
+  if (!textForm) return receipt;
+  const visibleLines = visibleMotionGraphicTextLines(overlay);
+  if (visibleLines.length === 0) return receipt;
+
+  let glyphIndex = 0;
+  const glyphs = visibleLines.flatMap((line, lineIndex) => {
+    return line.split(/\s+/).filter(Boolean).map((word) => ({
+      index: glyphIndex++,
+      text: word,
+      role: lineIndex === 0 ? 'entity' as const : 'word' as const,
+      lineIndex,
+      visual: {
+        scale: lineIndex === 0 ? 1.08 : 1,
+        fontRole: lineIndex === 0 ? 'primary' as const : 'secondary' as const,
+        colorRole: lineIndex === 0 ? 'primary' as const : 'muted' as const,
+        highlightMode: 'none' as const,
+      },
+    }));
+  });
+  if (glyphs.length === 0) return receipt;
+
+  const lines = visibleLines.map((line, index) => {
+    const lineGlyphs = glyphs.filter((glyph) => glyph.lineIndex === index);
+    return {
+      index,
+      text: line,
+      startGlyph: lineGlyphs[0]?.index ?? 0,
+      endGlyph: lineGlyphs.at(-1)?.index ?? 0,
+      wordCount: lineGlyphs.length,
+      charCount: line.length,
+    };
+  });
+
+  return {
+    ...receipt,
+    form: {
+      ...receipt.form,
+      text: {
+        ...textForm,
+        rawText: visibleLines.join(' '),
+        glyphs,
+        lines,
+        lineBreaks: lines.slice(1).map((line) => line.startGlyph),
+        composition: {
+          ...textForm.composition,
+          rowCapacity: Math.max(...lines.map((line) => line.wordCount), 1),
+          targetRowCount: lines.length,
+        },
+      },
+    },
+  };
+}
+
+function visibleMotionGraphicTextLines(overlay: Overlay): string[] {
+  const recipe = (overlay as { recipe?: unknown }).recipe;
+  const content = (overlay as { content?: unknown }).content;
+  if (!isRecord(recipe) || !Array.isArray(recipe.elements) || !isRecord(content)) return [];
+
+  const lines: string[] = [];
+  for (const element of recipe.elements) {
+    if (!isRecord(element) || element.primitive !== 'text') continue;
+    const bind = isRecord(element.bind) ? element.bind : {};
+    const text = resolveMotionGraphicTextBinding(bind.text, content);
+    if (text) lines.push(text);
+  }
+  return lines.filter((line, index, all) => all.indexOf(line) === index);
+}
+
+function resolveMotionGraphicTextBinding(binding: unknown, content: Record<string, unknown>): string | undefined {
+  if (typeof binding !== 'string' || !binding.trim()) return undefined;
+  if (binding.startsWith('content:')) {
+    const value = content[binding.slice('content:'.length)];
+    return stringValue(value)?.trim() || undefined;
+  }
+  if (binding.startsWith('token:')) return undefined;
+  return binding.trim();
 }
 
 function captionDisplayConfig(overlay: Overlay): FrameAwareCaptionDisplayConfig {
