@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import { OverlayType, type KeyframeTrack, type Overlay } from '../../components/editron/editor/version-7.0.0/types';
 import {
+  buildOverlayAtomicReceipt,
+  overlayAtom,
+  type AtomicOverlayReceipt,
+} from '../../lib/editron/engine/atomic-overlay-core';
+import {
   buildBaselineOverlays,
+  buildFrameAwareOverlayReceipt,
   buildOverlayOnlyRenderOverlays,
+  changedPixelBounds,
   pickRenderedAestheticSampleFrames,
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
   renderedOverlayBoxAtFrame,
+  type RawImage,
   type RenderedAestheticHarnessReport,
 } from '../../scripts/render-editron-aesthetic';
 
@@ -107,6 +115,37 @@ describe('rendered aesthetic harness helpers', () => {
     }));
   });
 
+  it('measures painted pixel bounds instead of trusting full-frame wrappers', () => {
+    const baseline = rawImage(10, 10);
+    const full = rawImage(10, 10);
+    paintPixel(full, 4, 3, [255, 255, 255, 255]);
+    paintPixel(full, 5, 4, [255, 255, 255, 255]);
+
+    expect(changedPixelBounds(full, baseline)).toEqual({
+      x: 4,
+      y: 3,
+      width: 2,
+      height: 2,
+    });
+  });
+
+  it('scores captions from the active frame words instead of the whole-video caption file', () => {
+    const overlay = captionOverlay({
+      id: 8,
+      captions: [
+        caption('alpha beta gamma delta epsilon zeta eta theta iota kappa', 0, 2000),
+        caption('Hank', 3000, 4200),
+      ],
+      displayConfig: { mode: 'word-by-word', wordsPerGroup: 1, maxWordsPerLine: 1 },
+    });
+    const receipt = buildFrameAwareOverlayReceipt(captionReceipt('whole transcript should not be scored here'), overlay, 102, 30);
+    const textForm = receipt?.form.text;
+
+    expect(textForm?.rawText).toBe('Hank');
+    expect(textForm?.glyphs).toHaveLength(1);
+    expect(textForm?.composition.rowCapacity).toBe(1);
+  });
+
   it('renders an HTML contact sheet with project, sample, image, and issue context', () => {
     const html = renderRenderedAestheticHtmlReport(fakeHarnessReport());
 
@@ -198,6 +237,82 @@ function soundOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
     content: 'https://example.com/audio.mp3',
     styles: { volume: 1 },
   } as Overlay;
+}
+
+function captionOverlay(input: OverlayFixtureInput & {
+  id: number;
+  captions: Array<{ text: string; startMs: number; endMs: number; words: Array<{ word: string; startMs: number; endMs: number; confidence: number }> }>;
+  displayConfig: Record<string, unknown>;
+}): Overlay {
+  return {
+    ...baseOverlay({ ...input, type: OverlayType.CAPTION }),
+    captions: input.captions,
+    displayConfig: input.displayConfig,
+    styles: {
+      fontSize: '42px',
+      fontWeight: 800,
+      color: '#ffffff',
+      textAlign: 'center',
+      lineHeight: 1,
+      highlight: { color: '#ffffff', backgroundColor: '#000000', effect: 'none', animation: 'none' },
+    },
+  } as unknown as Overlay;
+}
+
+function caption(text: string, startMs: number, endMs: number) {
+  const parts = text.split(/\s+/).filter(Boolean);
+  const step = Math.max(1, (endMs - startMs) / Math.max(1, parts.length));
+  return {
+    text,
+    startMs,
+    endMs,
+    timestampMs: startMs,
+    confidence: 1,
+    words: parts.map((word, index) => ({
+      word,
+      startMs: startMs + index * step,
+      endMs: startMs + (index + 1) * step,
+      confidence: 1,
+    })),
+  };
+}
+
+function captionReceipt(rawText: string): AtomicOverlayReceipt {
+  const words = rawText.split(/\s+/).filter(Boolean);
+  return buildOverlayAtomicReceipt({
+    family: 'caption',
+    intent: 'keyword-caption',
+    frame: 0,
+    durationFrames: 300,
+    source: 'test',
+    target: { overlayId: 8, row: 4, x: 0, y: 800, width: 1080, height: 180 },
+    atoms: [
+      overlayAtom('text-content', 'content.text', rawText, 1, 'transcript'),
+      overlayAtom('caption-mode', 'caption.mode', 'word-by-word', 1, 'decision-param'),
+      overlayAtom('caption-words-per-group', 'caption.words_per_group', 1, 1, 'decision-param'),
+      overlayAtom('caption-max-words-per-line', 'caption.max_words_per_line', 1, 1, 'decision-param'),
+      overlayAtom('text-row-strategy', 'text.row_strategy', 'single-word', 1, 'decision-param'),
+      overlayAtom('text-row-capacity', 'text.row_capacity', 1, 1, 'decision-param'),
+      ...words.map((word, index) => overlayAtom('caption-word', `caption.word.${index}`, word, 1, 'transcript')),
+    ],
+  });
+}
+
+function rawImage(width: number, height: number): RawImage {
+  return {
+    width,
+    height,
+    channels: 4,
+    data: Buffer.alloc(width * height * 4, 0),
+  };
+}
+
+function paintPixel(image: RawImage, x: number, y: number, rgba: [number, number, number, number]): void {
+  const offset = (y * image.width + x) * image.channels;
+  image.data[offset] = rgba[0];
+  image.data[offset + 1] = rgba[1];
+  image.data[offset + 2] = rgba[2];
+  image.data[offset + 3] = rgba[3];
 }
 
 function fakeHarnessReport(): RenderedAestheticHarnessReport {

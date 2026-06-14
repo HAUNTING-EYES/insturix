@@ -116,7 +116,7 @@ interface CliArgs extends RenderedAestheticHarnessOptions {
   help?: boolean;
 }
 
-interface RawImage {
+export interface RawImage {
   data: Buffer;
   width: number;
   height: number;
@@ -128,6 +128,20 @@ interface OverlayPixelEvidence {
   foregroundLuma?: number;
   localBackgroundLuma?: number;
   contrastRatio?: number;
+}
+
+interface FrameAwareCaptionWord {
+  word: string;
+  startMs: number;
+  endMs: number;
+  emphasis?: unknown;
+  active?: boolean;
+}
+
+interface FrameAwareCaptionDisplayConfig {
+  mode: string;
+  wordsPerGroup: number;
+  maxWordsPerLine: number;
 }
 
 export async function runRenderedAestheticHarness(
@@ -207,10 +221,25 @@ export async function runRenderedAestheticHarness(
 
     const fullImage = fs.existsSync(fullStill) ? await readRawImage(fullStill) : undefined;
     const baselineImage = fs.existsSync(baselineStill) ? await readRawImage(baselineStill) : undefined;
+    const isolatedImages = baselineImage
+      ? await renderIsolatedOverlayImages({
+        activeOverlays: overlays.filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame)),
+        baselineOverlays,
+        frame,
+        frameDir,
+        input,
+        serveUrl,
+      })
+      : new Map<string, RawImage>();
     const image = fullImage ? imageStats(fullImage) : undefined;
     const evidence = fullImage && baselineImage
-      ? activeRenderedOverlayEvidence(overlays, frame, fullImage, baselineImage)
-      : activeRenderedOverlayEvidence(overlays, frame);
+      ? activeRenderedOverlayEvidence(overlays, frame, {
+        baselineImage,
+        fallbackImage: fullImage,
+        fps: input.fps,
+        isolatedImages,
+      })
+      : activeRenderedOverlayEvidence(overlays, frame, { fps: input.fps });
 
     const report = scoreRenderedFrameAesthetic({
       width: input.width,
@@ -390,18 +419,66 @@ export function renderedOverlayBoxAtFrame(overlay: Overlay, frame: number): Rend
   };
 }
 
+async function renderIsolatedOverlayImages(input: {
+  activeOverlays: Overlay[];
+  baselineOverlays: Overlay[];
+  frame: number;
+  frameDir: string;
+  input: RenderedAestheticProjectInput;
+  serveUrl: string;
+}): Promise<Map<string, RawImage>> {
+  const images = new Map<string, RawImage>();
+  for (const overlay of input.activeOverlays) {
+    if (overlay.id === undefined) continue;
+    const output = path.join(input.frameDir, `overlay-${safeFilename(String(overlay.id))}.png`);
+    try {
+      const isolatedProps = compositionProps(input.input, [...input.baselineOverlays, overlay]);
+      const isolatedComposition = await selectComposition({
+        serveUrl: input.serveUrl,
+        id: COMP_NAME,
+        inputProps: isolatedProps,
+      });
+      await renderStill({
+        composition: isolatedComposition,
+        serveUrl: input.serveUrl,
+        output,
+        frame: input.frame,
+        inputProps: isolatedProps,
+        imageFormat: 'png',
+        chromiumOptions: { headless: true },
+        overwrite: true,
+      });
+      if (fs.existsSync(output)) {
+        images.set(String(overlay.id), await readRawImage(output));
+      }
+    } catch {
+      // Main full-frame render remains the source of truth for render failure.
+      // Isolated overlays only tighten evidence boxes when they are available.
+    }
+  }
+  return images;
+}
+
 function activeRenderedOverlayEvidence(
   overlays: Overlay[],
   frame: number,
-  fullImage?: RawImage,
-  baselineImage?: RawImage,
+  renderEvidence: {
+    baselineImage?: RawImage;
+    fallbackImage?: RawImage;
+    fps?: number;
+    isolatedImages?: Map<string, RawImage>;
+  } = {},
 ): RenderedOverlayEvidence[] {
   return overlays
     .filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame))
     .map((overlay) => {
-      const box = renderedOverlayBoxAtFrame(overlay, frame);
-      const receipt = overlayAtomicReceipt(overlay);
-      const pixels = fullImage && baselineImage ? overlayPixelEvidence(fullImage, baselineImage, box) : {};
+      const fallbackBox = renderedOverlayBoxAtFrame(overlay, frame);
+      const isolatedImage = overlay.id !== undefined ? renderEvidence.isolatedImages?.get(String(overlay.id)) : undefined;
+      const paintedBox = isolatedImage && renderEvidence.baselineImage ? changedPixelBounds(isolatedImage, renderEvidence.baselineImage) : undefined;
+      const box = paintedBox ? { ...fallbackBox, ...paintedBox } : fallbackBox;
+      const receipt = buildFrameAwareOverlayReceipt(overlayAtomicReceipt(overlay), overlay, frame, renderEvidence.fps);
+      const pixelImage = isolatedImage ?? renderEvidence.fallbackImage;
+      const pixels = pixelImage && renderEvidence.baselineImage ? overlayPixelEvidence(pixelImage, renderEvidence.baselineImage, box) : {};
       return {
         id: overlay.id,
         type: String(overlay.type),
@@ -413,6 +490,179 @@ function activeRenderedOverlayEvidence(
         },
       };
     });
+}
+
+export function changedPixelBounds(fullImage: RawImage, baselineImage: RawImage): RenderedOverlayBox | undefined {
+  if (
+    fullImage.width !== baselineImage.width ||
+    fullImage.height !== baselineImage.height ||
+    fullImage.channels !== baselineImage.channels
+  ) {
+    return undefined;
+  }
+
+  let left = fullImage.width;
+  let top = fullImage.height;
+  let right = -1;
+  let bottom = -1;
+  const step = samplingStep(fullImage.width * fullImage.height, 250000);
+  for (let y = 0; y < fullImage.height; y += step) {
+    for (let x = 0; x < fullImage.width; x += step) {
+      const offset = pixelOffset(fullImage, x, y);
+      if (!pixelChanged(fullImage.data, baselineImage.data, offset)) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  if (right < left || bottom < top) return undefined;
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, right - left + step),
+    height: Math.max(1, bottom - top + step),
+  };
+}
+
+export function buildFrameAwareOverlayReceipt(
+  receipt: RenderedOverlayEvidence['receipt'],
+  overlay: Overlay,
+  frame: number,
+  fps = 30,
+): RenderedOverlayEvidence['receipt'] {
+  if (!receipt || receipt.family !== 'caption') return receipt;
+  const textForm = receipt.form.text;
+  if (!textForm) return receipt;
+  const captions = Array.isArray((overlay as { captions?: unknown }).captions)
+    ? (overlay as { captions: Array<Record<string, unknown>> }).captions
+    : [];
+  if (captions.length === 0) return receipt;
+
+  const frameMs = ((frame - overlay.from) / Math.max(1, fps)) * 1000;
+  const activeCaption = captions.find((caption) => {
+    const startMs = numericValue(caption.startMs) ?? 0;
+    const endMs = numericValue(caption.endMs) ?? startMs;
+    return frameMs >= startMs && frameMs <= endMs;
+  });
+  if (!activeCaption) return receipt;
+
+  const displayConfig = captionDisplayConfig(overlay);
+  const words = captionWords(activeCaption);
+  const displayWords = wordsToDisplayAtFrame(words, frameMs, displayConfig);
+  const rawText = displayWords.map((word) => word.word).join(' ').trim() || stringValue(activeCaption.text) || '';
+  if (!rawText) return receipt;
+
+  const maxWordsPerLine = Math.max(1, displayConfig.maxWordsPerLine ?? displayWords.length ?? 1);
+  const targetRowCount = Math.max(1, Math.ceil(Math.max(1, displayWords.length) / maxWordsPerLine));
+  const durationFrames = Math.max(
+    1,
+    Math.round(((numericValue(activeCaption.endMs) ?? frameMs) - (numericValue(activeCaption.startMs) ?? frameMs)) * Math.max(1, fps) / 1000),
+  );
+
+  return {
+    ...receipt,
+    durationFrames,
+    form: {
+      ...receipt.form,
+      timing: {
+        ...receipt.form.timing,
+        durationFrames,
+      },
+      text: {
+        ...textForm,
+        rawText,
+        glyphs: displayWords.map((word, index) => ({
+          index,
+          text: word.word,
+          role: word.emphasis ? 'keyword' : 'word',
+          lineIndex: Math.floor(index / maxWordsPerLine),
+          visual: {
+            scale: word.active ? 1.16 : 1,
+            fontRole: 'primary',
+            colorRole: word.active ? 'accent' : 'primary',
+            highlightMode: word.active ? 'scale' : 'none',
+          },
+        })),
+        composition: {
+          ...textForm.composition,
+          rowCapacity: maxWordsPerLine,
+          targetRowCount,
+        },
+        display: {
+          ...textForm.display,
+          wordsPerGroup: displayConfig.wordsPerGroup,
+          maxWordsPerLine,
+        },
+      },
+    },
+  };
+}
+
+function captionDisplayConfig(overlay: Overlay): FrameAwareCaptionDisplayConfig {
+  const raw = (overlay as { displayConfig?: Record<string, unknown> }).displayConfig ?? {};
+  const mode = stringValue(raw.mode) ?? 'phrase';
+  return {
+    mode,
+    wordsPerGroup: Math.max(1, Math.round(numericValue(raw.wordsPerGroup) ?? (mode === 'word-by-word' ? 1 : 4))),
+    maxWordsPerLine: Math.max(1, Math.round(numericValue(raw.maxWordsPerLine) ?? (mode === 'word-by-word' ? 1 : 4))),
+  };
+}
+
+function captionWords(caption: Record<string, unknown>): FrameAwareCaptionWord[] {
+  const words = Array.isArray(caption.words) ? caption.words : [];
+  if (words.length > 0) {
+    return words
+      .map<FrameAwareCaptionWord | undefined>((item) => {
+        const record = isRecord(item) ? item : {};
+        const word = stringValue(record.word);
+        if (!word) return undefined;
+        return {
+          word,
+          startMs: numericValue(record.startMs) ?? numericValue(caption.startMs) ?? 0,
+          endMs: numericValue(record.endMs) ?? numericValue(caption.endMs) ?? numericValue(caption.startMs) ?? 0,
+          emphasis: record.emphasis,
+        };
+      })
+      .filter((item): item is FrameAwareCaptionWord => Boolean(item));
+  }
+
+  const text = stringValue(caption.text) ?? '';
+  return text.split(/\s+/).filter(Boolean).map((word) => ({
+    word,
+    startMs: numericValue(caption.startMs) ?? 0,
+    endMs: numericValue(caption.endMs) ?? numericValue(caption.startMs) ?? 0,
+  }));
+}
+
+function wordsToDisplayAtFrame(
+  words: FrameAwareCaptionWord[],
+  frameMs: number,
+  config: FrameAwareCaptionDisplayConfig,
+): FrameAwareCaptionWord[] {
+  if (words.length === 0) return [];
+  const matchingIndex = words.findIndex((word) => frameMs >= word.startMs && frameMs <= word.endMs);
+  const activeIndex = matchingIndex >= 0 ? matchingIndex : 0;
+
+  if (config.mode === 'word-by-word') {
+    return [{ ...words[activeIndex], active: true }];
+  }
+
+  if (config.mode === 'phrase' || config.mode === 'instagram' || config.mode === 'hormozi') {
+    const halfWindow = Math.floor(config.wordsPerGroup / 2);
+    const start = Math.max(0, Math.min(activeIndex - halfWindow, words.length - config.wordsPerGroup));
+    const end = Math.min(words.length, start + config.wordsPerGroup);
+    return words.slice(start, end).map((word, index) => ({
+      ...word,
+      active: start + index === activeIndex,
+    }));
+  }
+
+  return words.map((word, index) => ({
+    ...word,
+    active: index === activeIndex,
+  }));
 }
 
 function readProjectInput(inputFile: string): RenderedAestheticProjectInput {
@@ -910,8 +1160,16 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 function slugify(value: string): string {
   return value.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40).toLowerCase() || 'run';
+}
+
+function safeFilename(value: string): string {
+  return value.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'overlay';
 }
 
 function round3(value: number): number {
