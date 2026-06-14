@@ -146,11 +146,10 @@ const VALID_FACE_EMOTIONS: Set<string> = new Set([
   'fearful', 'disgusted', 'neutral', 'contempt',
 ]);
 
-const REQUEST_TIMEOUT_MS = 45_000; // 45s per batch — Modal warm container responds in ~10-20s.
-                                   // Cold start takes 60-90s → will timeout and return null.
-                                   // Use warmupVjepa() during upload to pre-warm the container.
-const BATCH_SIZE = 30;             // ⚠️ INVENTED — based on "warm container handles ~20 in 10-20s"
-                                   // with margin. Keeps each batch well within 45s timeout.
+const REQUEST_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_REQUEST_TIMEOUT_MS', 90_000);
+const BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_BATCH_SIZE', 20);
+const RETRY_BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_RETRY_BATCH_SIZE', 5);
+const TOTAL_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_TOTAL_TIMEOUT_MS', 600_000);
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
 
@@ -216,46 +215,20 @@ export async function analyzeVideoWithVjepa(
 
     console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     const batchStartMs = Date.now();
+    const deadlineMs = batchStartMs + TOTAL_TIMEOUT_MS;
 
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      const response = await fetch(MODAL_VJEPA_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Token ${tokenId}:${tokenSecret}`,
-        },
-        body: JSON.stringify({
-          video_url: videoUrl,
-          segments: batch.map(s => ({
-            start_ms: s.startMs,
-            end_ms: s.endMs,
-          })),
-          features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
-          primitive_features: ['motion_vector', 'main_subject', 'text_boxes', 'text_coverage', 'object_count', 'face_count', 'negative_space'],
-        }),
-        signal: controller.signal,
+      const mapped = await analyzeBatchWithFallback({
+        videoUrl,
+        batch,
+        batchIndex: b,
+        batchCount: batches.length,
+        tokenId,
+        tokenSecret,
+        deadlineMs,
       });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        console.error(`[VjepaService] Batch ${b + 1}/${batches.length} failed: ${response.status} ${response.statusText}`);
-        // Short-circuit on first failure — partial V-JEPA data is worse than none
-        // (moment weights expect full coverage or null, not partial)
-        return null;
-      }
-
-      const data = (await response.json()) as ModalVjepaResponse;
-      if (!data?.segments?.length) {
-        console.warn(`[VjepaService] Batch ${b + 1}/${batches.length}: empty response`);
-        return null;
-      }
-
-      const mapped: VjepaSegmentResult[] = data.segments.map(normalizeModalVjepaSegment);
+      if (!mapped?.length) return null;
 
       allResults.push(...mapped);
       console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
@@ -276,6 +249,103 @@ export async function analyzeVideoWithVjepa(
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[VjepaService] Analysis failed: ${msg}`);
     return null;
+  }
+}
+
+async function analyzeBatchWithFallback(args: {
+  videoUrl: string;
+  batch: VjepaSegmentInput[];
+  batchIndex: number;
+  batchCount: number;
+  tokenId: string;
+  tokenSecret: string;
+  deadlineMs: number;
+}): Promise<VjepaSegmentResult[] | null> {
+  if (Date.now() >= args.deadlineMs) {
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: total V-JEPA deadline exceeded`);
+    return null;
+  }
+
+  const primary = await fetchVjepaBatch(args);
+  if (primary) return primary;
+
+  if (args.batch.length <= RETRY_BATCH_SIZE) return null;
+
+  console.warn(
+    `[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount}: retrying as ` +
+    `${Math.ceil(args.batch.length / RETRY_BATCH_SIZE)} smaller request(s)`,
+  );
+
+  const retryResults: VjepaSegmentResult[] = [];
+  const retryBatches = chunkSegments(args.batch, RETRY_BATCH_SIZE);
+  for (let i = 0; i < retryBatches.length; i++) {
+    const retry = await fetchVjepaBatch({
+      ...args,
+      batch: retryBatches[i],
+      batchIndex: i,
+      batchCount: retryBatches.length,
+    });
+    if (!retry?.length) return null;
+    retryResults.push(...retry);
+  }
+  return retryResults;
+}
+
+async function fetchVjepaBatch(args: {
+  videoUrl: string;
+  batch: VjepaSegmentInput[];
+  batchIndex: number;
+  batchCount: number;
+  tokenId: string;
+  tokenSecret: string;
+  deadlineMs: number;
+}): Promise<VjepaSegmentResult[] | null> {
+  const remainingMs = args.deadlineMs - Date.now();
+  if (remainingMs <= 1_000) {
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: no V-JEPA time budget remaining`);
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(REQUEST_TIMEOUT_MS, remainingMs));
+
+  try {
+    const response = await fetch(MODAL_VJEPA_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Token ${args.tokenId}:${args.tokenSecret}`,
+      },
+      body: JSON.stringify({
+        video_url: args.videoUrl,
+        segments: args.batch.map(s => ({
+          start_ms: s.startMs,
+          end_ms: s.endMs,
+        })),
+        features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
+        primitive_features: ['motion_vector', 'main_subject', 'text_boxes', 'text_coverage', 'object_count', 'face_count', 'negative_space'],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const data = (await response.json()) as ModalVjepaResponse;
+    if (!data?.segments?.length) {
+      console.warn(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount}: empty response`);
+      return null;
+    }
+
+    return data.segments.map(normalizeModalVjepaSegment);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${msg}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -448,6 +518,21 @@ function isFiniteNumber(value: unknown): value is number {
 
 function readPositiveMs(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function chunkSegments(segments: VjepaSegmentInput[], size: number): VjepaSegmentInput[][] {
+  const safeSize = Math.max(1, Math.floor(size));
+  const chunks: VjepaSegmentInput[][] = [];
+  for (let i = 0; i < segments.length; i += safeSize) {
+    chunks.push(segments.slice(i, i + safeSize));
+  }
+  return chunks;
 }
 
 function clamp(value: number, min: number, max: number): number {

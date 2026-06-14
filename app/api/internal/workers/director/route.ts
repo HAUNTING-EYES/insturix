@@ -39,6 +39,46 @@ interface DirectorWorkerPayload {
   musicPreference?: string;
 }
 
+interface DirectorQualityReviewSnapshot {
+  overallScore?: unknown;
+  criticalCount?: unknown;
+}
+
+interface DirectorCompletionHealth {
+  hasQualityReview: boolean;
+  qualityScore: number;
+  criticalCount: number;
+  needsQualityAttention: boolean;
+  warning?: string;
+}
+
+const CRITICAL_QUALITY_ISSUE_ATTENTION_THRESHOLD = 5;
+
+export function resolveDirectorCompletionHealth(
+  qualityReview: DirectorQualityReviewSnapshot | null | undefined,
+): DirectorCompletionHealth {
+  const hasQualityReview = !!qualityReview;
+  const qualityScore = readFiniteNumber(qualityReview?.overallScore, 0);
+  const criticalCount = Math.max(0, Math.round(readFiniteNumber(qualityReview?.criticalCount, 0)));
+  const needsQualityAttention = (
+    !hasQualityReview ||
+    criticalCount > CRITICAL_QUALITY_ISSUE_ATTENTION_THRESHOLD ||
+    qualityScore <= 0
+  );
+
+  return {
+    hasQualityReview,
+    qualityScore,
+    criticalCount,
+    needsQualityAttention,
+    ...(needsQualityAttention && {
+      warning: !hasQualityReview
+        ? 'Director completed without a persisted quality review.'
+        : `Director completed with quality score ${qualityScore} and ${criticalCount} critical issue(s).`,
+    }),
+  };
+}
+
 async function handler(request: NextRequest) {
   const startMs = Date.now();
   console.log('[DirectorWorker] Started');
@@ -131,35 +171,41 @@ async function handler(request: NextRequest) {
     const totalPipelineMs = pipelineStartedAt
       ? Date.now() - new Date(pipelineStartedAt).getTime()
       : directorMs;
-    await db.collection('projects').updateOne(
+    const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
-      {
-        $set: {
-          autoEditStatus: 'complete',
-          autoEditCompletedAt: new Date(),
-          autoEditDurationMs: totalPipelineMs,
-          directorDurationMs: directorMs,
-          directorProfileUsed: profileId,
-        },
-      },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
     );
+    const completionHealth = resolveDirectorCompletionHealth(projectAfterDirector?.qualityReview);
+    const completionSet: Record<string, unknown> = {
+      autoEditStatus: 'complete',
+      autoEditCompletedAt: new Date(),
+      autoEditDurationMs: totalPipelineMs,
+      directorDurationMs: directorMs,
+      directorProfileUsed: profileId,
+    };
+    const completionUpdate: Record<string, unknown> = { $set: completionSet };
+    if (completionHealth.needsQualityAttention) {
+      completionSet.projectStatus = 'needs-attention';
+      completionSet.autoEditHealth = 'needs_review';
+      completionSet.autoEditWarning = completionHealth.warning;
+    } else {
+      completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
+    }
+
+    await db.collection('projects').updateOne({ projectId }, completionUpdate);
 
     console.log(`[DirectorWorker] Complete: ${projectId} in ${directorMs}ms (${directorResult.actionsExecuted} actions)`);
+    if (completionHealth.needsQualityAttention) {
+      console.warn(`[DirectorWorker] Needs attention: ${projectId} qualityScore=${completionHealth.qualityScore} criticalCount=${completionHealth.criticalCount}`);
+    }
 
     // ─── Bandit outcome recording ─────────────────────────────────
     try {
-      const projectAfterDirector = await db.collection('projects').findOne(
-        { projectId },
-        { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
-      );
-      const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
-      const criticalCount = projectAfterDirector?.qualityReview?.criticalCount ?? 0;
-
-      if (criticalCount > 5) {
-        console.log(`[DirectorWorker] Bandit: skipping — ${criticalCount} critical issues suggests system failure`);
+      if (completionHealth.needsQualityAttention) {
+        console.log(`[DirectorWorker] Bandit: skipping — ${completionHealth.criticalCount} critical issues suggests system failure`);
       } else {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+        await recordProjectOutcome(userId, projectId, completionHealth.qualityScore, false, false);
       }
     } catch (banditErr: unknown) {
       const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
@@ -190,3 +236,7 @@ async function handler(request: NextRequest) {
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;
+
+function readFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}

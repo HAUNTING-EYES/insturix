@@ -1,6 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildVjepaCoverageSegments } from '../../lib/editron/services/vjepa-service';
+import { analyzeVideoWithVjepa, buildVjepaCoverageSegments } from '../../lib/editron/services/vjepa-service';
+
+const originalFetch = globalThis.fetch;
+const originalTokenId = process.env.MODAL_TOKEN_ID;
+const originalTokenSecret = process.env.MODAL_TOKEN_SECRET;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  restoreEnv('MODAL_TOKEN_ID', originalTokenId);
+  restoreEnv('MODAL_TOKEN_SECRET', originalTokenSecret);
+  vi.restoreAllMocks();
+});
 
 describe('V-JEPA service segment coverage', () => {
   it('builds continuous visual coverage segments from duration instead of speech gaps', () => {
@@ -41,4 +52,64 @@ describe('V-JEPA service segment coverage', () => {
   it('returns the original empty fallback when no duration evidence exists', () => {
     expect(buildVjepaCoverageSegments(undefined, [])).toEqual([]);
   });
+
+  it('retries a failed large Modal request as smaller batches before dropping V-JEPA', async () => {
+    process.env.MODAL_TOKEN_ID = 'test-token-id';
+    process.env.MODAL_TOKEN_SECRET = 'test-token-secret';
+    const requestSegments = Array.from({ length: 21 }, (_, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+    }));
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        segments?: Array<{ start_ms: number; end_ms: number }>;
+      };
+      const segments = body.segments ?? [];
+      if (fetchMock.mock.calls.length === 1 && segments.length > 5) {
+        return {
+          ok: false,
+          status: 504,
+          statusText: 'Gateway Timeout',
+          json: async () => ({}),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          segments: segments.map(segment => ({
+            start_ms: segment.start_ms,
+            end_ms: segment.end_ms,
+            visual_significance: 0.7,
+            motion_intensity: 0.4,
+          })),
+        }),
+      } as Response;
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await analyzeVideoWithVjepa('https://example.com/video.mp4', requestSegments);
+
+    expect(result?.segments).toHaveLength(21);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
+    const requestSizes = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}')) as {
+        segments?: unknown[];
+      };
+      return body.segments?.length ?? 0;
+    });
+    expect(Math.max(...requestSizes)).toBeGreaterThan(5);
+    expect(requestSizes.some(size => size <= 5)).toBe(true);
+  });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
