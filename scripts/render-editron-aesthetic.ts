@@ -16,6 +16,9 @@ import {
   type RenderedOverlayBox,
   type RenderedOverlayEvidence,
 } from '../lib/editron/motion-graphics/engine/eval/rendered-aesthetic';
+import { classifyPhase0Fixture } from '../lib/editron/services/phase0-failure-taxonomy';
+import type { Phase0FixtureManifest } from '../lib/editron/services/phase0-fixture-manifest';
+import type { Phase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
 import type {
   RenderImageStats,
   RenderLogEntry,
@@ -279,7 +282,31 @@ export async function runRenderedAestheticHarness(
   });
   fs.writeFileSync(harnessReport.jsonReport, JSON.stringify(harnessReport, null, 2), 'utf8');
   fs.writeFileSync(harnessReport.htmlReport, renderRenderedAestheticHtmlReport(harnessReport), 'utf8');
+  writePhase0FailureTaxonomyIfPresent(harnessReport);
   return harnessReport;
+}
+
+function writePhase0FailureTaxonomyIfPresent(report: RenderedAestheticHarnessReport): void {
+  if (!report.inputFile || path.basename(report.inputFile) !== 'render-input.json') return;
+
+  const runDir = path.dirname(path.resolve(process.cwd(), report.inputFile));
+  const manifestPath = path.join(runDir, 'manifest.json');
+  const artifactPackPath = path.join(runDir, 'render-artifact-pack.json');
+  const taxonomyPath = path.join(runDir, 'failure-taxonomy.json');
+  if (!fs.existsSync(manifestPath) || !fs.existsSync(artifactPackPath)) return;
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Phase0FixtureManifest;
+    const artifactPack = JSON.parse(fs.readFileSync(artifactPackPath, 'utf8')) as Phase0RenderArtifactPack;
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack, report);
+    fs.writeFileSync(taxonomyPath, `${JSON.stringify(taxonomy, null, 2)}\n`, 'utf8');
+    console.log(`Phase 0 rendered failure taxonomy updated -> ${taxonomyPath}`);
+  } catch (error) {
+    console.warn(
+      'Phase 0 rendered failure taxonomy update skipped:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export function planRenderedAestheticSamples(

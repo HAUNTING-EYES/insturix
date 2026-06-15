@@ -82,6 +82,26 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         counts: { graphic: 1, transition: 1, sound: 1 },
         evidence: { canonicalTimeline: true },
       },
+      postBundleProfileActionPolicy: {
+        version: 'post-bundle-profile-action-policy-v1',
+        unifiedDecisionBundleExecuted: true,
+        evaluatedAt: '2026-06-14T00:00:00.000Z',
+        allowedActionCount: 1,
+        skippedActionCount: 2,
+        allowedTools: ['quality_review'],
+        skippedActions: [
+          {
+            tool: 'add_motion_graphics',
+            action: 'Add legacy motion graphics',
+            reason: 'primary_visual_overlays_already_owned_by_unified_bundle',
+          },
+          {
+            tool: 'add_transition',
+            action: 'Add legacy transitions',
+            reason: 'transitions_already_owned_by_unified_bundle',
+          },
+        ],
+      },
       vjepaCoverageAudit: {
         status: 'warn',
         issues: ['warn:test coverage gap'],
@@ -174,6 +194,18 @@ describe('phase0 fixture manifest', () => {
         authority: 'creative-primary-signal-evidence',
         totalDecisions: 3,
       },
+      oldProducerGating: {
+        status: 'present',
+        unifiedDecisionBundleExecuted: true,
+        skippedLegacyActionCount: 2,
+        allowedLegacyActionCount: 1,
+        unknownReasonCount: 0,
+        evidence: {
+          version: 'post-bundle-profile-action-policy-v1',
+          evaluatedAt: '2026-06-14T00:00:00.000Z',
+          allowedTools: ['quality_review'],
+        },
+      },
       vjepaCoverage: {
         source: 'persisted',
         status: 'warn',
@@ -207,6 +239,18 @@ describe('phase0 fixture manifest', () => {
       'overlay-hit-rate-below-90:50%',
       'textCoverage-coverage-below-90:0%',
     ]));
+    expect(manifest.oldProducerGating.skippedLegacyActions).toEqual([
+      {
+        tool: 'add_motion_graphics',
+        action: 'Add legacy motion graphics',
+        reason: 'primary_visual_overlays_already_owned_by_unified_bundle',
+      },
+      {
+        tool: 'add_transition',
+        action: 'Add legacy transitions',
+        reason: 'transitions_already_owned_by_unified_bundle',
+      },
+    ]);
   });
 
   it('records gaps, overlaps, tail gaps, and missing source maps without rewriting them', () => {
@@ -305,6 +349,11 @@ describe('phase0 fixture manifest', () => {
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.motionVector).toBe(1);
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.mainSubject).toBe(1);
     expect(manifest.unifiedDecisionBundle.status).toBe('missing');
+    expect(manifest.oldProducerGating).toMatchObject({
+      status: 'not-applicable',
+      unifiedDecisionBundleExecuted: false,
+      issue: 'unified decision bundle is missing',
+    });
     expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
   });
 });

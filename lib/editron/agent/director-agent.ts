@@ -117,6 +117,39 @@ async function persistUnifiedDecisionBundleSummary(
   }
 }
 
+type PostBundleProfileActionPolicySummary = {
+  version: 'post-bundle-profile-action-policy-v1';
+  unifiedDecisionBundleExecuted: true;
+  evaluatedAt: string;
+  allowedActionCount: number;
+  skippedActionCount: number;
+  allowedTools: string[];
+  skippedActions: Array<{
+    tool: string;
+    action: string;
+    reason: string;
+  }>;
+};
+
+async function persistPostBundleProfileActionPolicy(
+  projectId: string,
+  summary: PostBundleProfileActionPolicySummary,
+): Promise<void> {
+  try {
+    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+    await bundleDb.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: {
+          'intelligence.postBundleProfileActionPolicy': summary,
+        },
+      },
+    );
+  } catch (err: unknown) {
+    console.warn('[Director] non-fatal post-bundle profile action policy persistence:', err instanceof Error ? err.message : err);
+  }
+}
+
 function isCanonicalDecisionTimelineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('canonical decision timeline');
 }
@@ -212,6 +245,7 @@ export async function executeDirectorPlan(
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
+    let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummary | null = null;
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -1811,6 +1845,8 @@ export async function executeDirectorPlan(
 
     if (unifiedDecisionBundleExecuted) {
       const beforeCount = filteredActions.length;
+      const skippedPostBundleActions: PostBundleProfileActionPolicySummary['skippedActions'] = [];
+      const allowedPostBundleTools: string[] = [];
       filteredActions = filteredActions.filter(a => {
         const profileActionDecision = shouldRunPostBundleProfileAction({
           tool: a.tool,
@@ -1825,10 +1861,25 @@ export async function executeDirectorPlan(
             action: a.description,
             reason: profileActionDecision.reason,
           });
+          skippedPostBundleActions.push({
+            tool: a.tool,
+            action: a.description,
+            reason: profileActionDecision.reason,
+          });
           return false;
         }
+        allowedPostBundleTools.push(a.tool);
         return true;
       });
+      postBundleProfileActionPolicy = {
+        version: 'post-bundle-profile-action-policy-v1',
+        unifiedDecisionBundleExecuted: true,
+        evaluatedAt: new Date().toISOString(),
+        allowedActionCount: allowedPostBundleTools.length,
+        skippedActionCount: skippedPostBundleActions.length,
+        allowedTools: Array.from(new Set(allowedPostBundleTools)).slice(0, 50),
+        skippedActions: skippedPostBundleActions.slice(0, 50),
+      };
       if (beforeCount !== filteredActions.length) {
         console.log(`[Director] Unified bundle: ${beforeCount - filteredActions.length} legacy profile action(s) skipped after EDL execution`);
       }
@@ -2076,6 +2127,9 @@ export async function executeDirectorPlan(
       fps: project.fps,
       durationInFrames: project.durationInFrames,
     });
+    if (postBundleProfileActionPolicy) {
+      await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
+    }
 
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
@@ -2091,7 +2145,9 @@ export async function executeDirectorPlan(
       const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
       const brandDb = await getBrandDb();
       const projectDoc = await brandDb.collection('projects').findOne({ projectId });
-      const actualQualityScore = projectDoc?.qualityReview?.overallScore;
+      const actualQualityReview = projectDoc?.qualityReview;
+      const actualQualityScore = actualQualityReview?.overallScore;
+      const actualCriticalCount = actualQualityReview?.criticalCount;
 
       emitBrandEvent({
         userId,
@@ -2105,7 +2161,9 @@ export async function executeDirectorPlan(
           actionsSkipped: result.actionsSkipped.length,
           sceneCount: storyboardScenes.length,
           durationSec: Math.round((project.durationInFrames || 0) / (project.fps || 30)),
+          hasQualityReview: !!actualQualityReview,
           ...(typeof actualQualityScore === 'number' && { qualityScore: actualQualityScore }),
+          ...(typeof actualCriticalCount === 'number' && { criticalCount: actualCriticalCount }),
         },
       }).catch((e) => console.warn('[Director] Brand event failed:', e));
     } catch (brandErr: unknown) {

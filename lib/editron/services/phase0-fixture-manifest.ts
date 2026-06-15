@@ -42,6 +42,7 @@ export interface Phase0FixtureProject extends JsonRecord {
   };
   intelligence?: {
     unifiedDecisionBundle?: JsonRecord;
+    postBundleProfileActionPolicy?: JsonRecord;
     vjepaCoverageAudit?: VjepaCoverageAudit;
   };
 }
@@ -70,6 +71,7 @@ export interface Phase0FixtureManifest {
   sourceMapping: ReturnType<typeof summarizeSourceMapping>;
   canonicalTimeline: ReturnType<typeof summarizeCanonicalTimeline>;
   unifiedDecisionBundle: ReturnType<typeof summarizeUnifiedDecisionBundle>;
+  oldProducerGating: ReturnType<typeof summarizeOldProducerGating>;
   vjepaCoverage: ReturnType<typeof summarizeVjepaCoverage>;
   overlayFamilies: ReturnType<typeof summarizeOverlayFamilies>;
   renderArtifacts: {
@@ -112,6 +114,7 @@ export function buildPhase0FixtureManifest(
     sourceMapping: summarizeSourceMapping(overlays),
     canonicalTimeline: summarizeCanonicalTimeline(project, overlays, fps, durationFrames),
     unifiedDecisionBundle: summarizeUnifiedDecisionBundle(project),
+    oldProducerGating: summarizeOldProducerGating(project),
     vjepaCoverage: summarizeVjepaCoverage(project, overlays, fps),
     overlayFamilies: summarizeOverlayFamilies(overlays),
     renderArtifacts: {
@@ -280,6 +283,66 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
     totalDecisions: readPositiveNumber(bundle.totalDecisions, decisions.length),
     counts: (isRecord(bundle.counts) ? bundle.counts : isRecord(bundle.decisionCounts) ? bundle.decisionCounts : countDecisions(decisions)),
     evidence: isRecord(bundle.evidence) ? bundle.evidence : null,
+  };
+}
+
+function summarizeOldProducerGating(project: Phase0FixtureProject) {
+  const bundle = project.intelligence?.unifiedDecisionBundle;
+  if (!bundle) {
+    return {
+      status: 'not-applicable' as const,
+      unifiedDecisionBundleExecuted: false,
+      skippedLegacyActionCount: 0,
+      allowedLegacyActionCount: 0,
+      skippedLegacyActions: [],
+      unknownReasonCount: 0,
+      evidence: null,
+      issue: 'unified decision bundle is missing',
+    };
+  }
+
+  const policy = project.intelligence?.postBundleProfileActionPolicy;
+  if (!isRecord(policy)) {
+    return {
+      status: 'missing' as const,
+      unifiedDecisionBundleExecuted: null,
+      skippedLegacyActionCount: 0,
+      allowedLegacyActionCount: 0,
+      skippedLegacyActions: [],
+      unknownReasonCount: 0,
+      evidence: null,
+      issue: 'post-bundle profile action policy evidence is missing',
+    };
+  }
+
+  const skippedLegacyActions = Array.isArray(policy.skippedActions)
+    ? policy.skippedActions
+      .filter(isRecord)
+      .slice(0, 50)
+      .map((item) => ({
+        tool: readString(item.tool) || null,
+        action: readString(item.action) || null,
+        reason: readString(item.reason) || null,
+      }))
+    : [];
+  const allowedTools = Array.isArray(policy.allowedTools)
+    ? policy.allowedTools.map(readString).filter(Boolean).slice(0, 50)
+    : [];
+  const unknownReasonCount = skippedLegacyActions.filter((item) => !item.reason).length;
+
+  return {
+    status: 'present' as const,
+    unifiedDecisionBundleExecuted: policy.unifiedDecisionBundleExecuted === true,
+    skippedLegacyActionCount: readPositiveNumber(policy.skippedActionCount, skippedLegacyActions.length),
+    allowedLegacyActionCount: readPositiveNumber(policy.allowedActionCount, allowedTools.length),
+    skippedLegacyActions,
+    unknownReasonCount,
+    evidence: {
+      version: readString(policy.version),
+      evaluatedAt: readString(policy.evaluatedAt) || null,
+      allowedTools,
+    },
+    issue: null,
   };
 }
 

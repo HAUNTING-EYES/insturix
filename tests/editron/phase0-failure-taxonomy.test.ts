@@ -128,6 +128,121 @@ describe('phase0 failure taxonomy', () => {
     expect(notRenderablePack.classes.map((item) => item.id)).toContain('render.artifact_pack_not_ready');
   });
 
+  it('warns when a unified bundle has no old-producer gating evidence', () => {
+    const project = cleanProject();
+    delete project.intelligence?.postBundleProfileActionPolicy;
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_missing_gating',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_missing_gating',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.status).toBe('warn');
+    expect(taxonomy.classes.find((item) => item.id === 'decision.old_producer_gating_missing')).toMatchObject({
+      severity: 'warn',
+      evidence: { issue: 'post-bundle profile action policy evidence is missing' },
+    });
+  });
+
+  it('classifies rendered aesthetic failures with stable ids and grouped evidence', () => {
+    const project = cleanProject();
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_rendered_fail',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_rendered_fail',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack, {
+      summary: {
+        status: 'fail',
+        score: 0.18,
+        passFrames: 1,
+        warnFrames: 1,
+        failFrames: 2,
+        sampledFrames: 4,
+        animationSampleFrames: 3,
+      },
+      frames: [{
+        frame: 12,
+        report: {
+          issues: [{
+            dimension: 'contrast',
+            severity: 'fail',
+            message: 'rendered text contrast is below accessibility floor',
+            overlayId: 'caption-1',
+            evidence: 'contrast=1.37; required=4.5',
+          }, {
+            dimension: 'text',
+            severity: 'warn',
+            message: 'caption row is crowded',
+            overlayId: 'caption-1',
+            evidence: 'rowCapacity=6',
+          }],
+        },
+      }, {
+        frame: 48,
+        report: {
+          issues: [{
+            dimension: 'occlusion',
+            severity: 'fail',
+            message: 'overlay covers protected main subject region',
+            overlayId: 'mg-1',
+            evidence: 'ratio=1.00; strength=0.45',
+          }, {
+            dimension: 'safe-area',
+            severity: 'warn',
+            message: 'text overlay leaves title-safe area',
+            overlayId: 'mg-1',
+            evidence: 'overflowPx=114.0',
+          }, {
+            dimension: 'render',
+            severity: 'fail',
+            message: 'render is not valid: blank',
+            evidence: 'blank-ish image stats',
+          }],
+        },
+      }],
+    });
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(taxonomy.status).toBe('fail');
+    expect(classIds).not.toContain('render.not_executed');
+    expect(classIds).toEqual(expect.arrayContaining([
+      'render.aesthetic_gate_failed',
+      'render.contrast_fail',
+      'render.occlusion_fail',
+      'render.render_fail',
+      'render.safe_area_warn',
+      'render.text_warn',
+      'calibration.learning_writes_blocked',
+    ]));
+    expect(taxonomy.classes.find((item) => item.id === 'render.aesthetic_gate_failed')).toMatchObject({
+      severity: 'fail',
+      evidence: {
+        score: 0.18,
+        failFrames: 2,
+        sampledFrames: 4,
+      },
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'render.contrast_fail')).toMatchObject({
+      severity: 'fail',
+      evidence: {
+        dimension: 'contrast',
+        count: 1,
+        samples: [{
+          frame: 12,
+          overlayId: 'caption-1',
+          message: 'rendered text contrast is below accessibility floor',
+          evidence: 'contrast=1.37; required=4.5',
+        }],
+      },
+    });
+  });
+
   it('does not fail cut continuity for video overlaps covered by transition handles', () => {
     const project = cleanProject();
     project.durationInFrames = 100;
@@ -224,6 +339,19 @@ function cleanProject(): Phase0FixtureProject {
         source: 'creative-brief+signal-driven',
         authority: 'creative-primary-signal-evidence',
         counts: { graphic: 1 },
+      },
+      postBundleProfileActionPolicy: {
+        version: 'post-bundle-profile-action-policy-v1',
+        unifiedDecisionBundleExecuted: true,
+        evaluatedAt: '2026-06-14T00:00:00.000Z',
+        allowedActionCount: 1,
+        skippedActionCount: 1,
+        allowedTools: ['quality_review'],
+        skippedActions: [{
+          tool: 'add_motion_graphics',
+          action: 'Add legacy motion graphics',
+          reason: 'primary_visual_overlays_already_owned_by_unified_bundle',
+        }],
       },
     },
   };
