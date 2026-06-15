@@ -26,7 +26,7 @@ describe('unified decision bundle merge', () => {
     expect(merged.authority).toEqual({
       version: 'unified-decision-authority-v1',
       executableProducer: 'creative-brief',
-      advisoryProducers: ['signal-driven'],
+      advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'advisor',
       signalDecisionsCanAddExecutable: false,
     });
@@ -53,7 +53,7 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
-  it('records non-overlapping Path D decisions as evidence-only when creative brief is primary', () => {
+  it('lets high-confidence non-overlapping signal transitions become executable through the unified planner', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
@@ -66,24 +66,27 @@ describe('unified decision bundle merge', () => {
     ]));
 
     expect(merged.source).toBe('creative-brief+signal-driven');
-    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic']);
+    expect(merged.authority).toEqual({
+      version: 'unified-decision-authority-v1',
+      executableProducer: 'unified-planner',
+      advisoryProducers: ['creative-brief', 'signal-driven'],
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
+    });
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'transition']);
     expect(merged.edl.stats).toEqual(expect.objectContaining({
       graphicCount: 1,
-      transitionCount: 0,
+      transitionCount: 1,
     }));
     expect(merged.evidence).toEqual(expect.objectContaining({
-      addedSignalDecisionCount: 0,
+      addedSignalDecisionCount: 1,
       validatedDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
     }));
-    expect(merged.evidence.evidenceOnlySignalDecisions).toEqual([
-      expect.objectContaining({
-        type: 'transition',
-        frame: 140,
-        source: 'signal-executor:test',
-        params: { transitionType: 'whip-pan' },
-      }),
-    ]);
+    expect(merged.edl.decisions[1].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
+      role: 'signal-supplement',
+      executionLicense: 'licensed-by-signal-policy',
+    }));
     expect(merged.expectedSkipped).toBe(0);
   });
 
@@ -118,8 +121,8 @@ describe('unified decision bundle merge', () => {
 
     expect(merged.source).toBe('creative-brief+signal-driven');
     expect(merged.authority).toMatchObject({
-      executableProducer: 'creative-brief',
-      signalDecisionRole: 'advisor',
+      executableProducer: 'unified-planner',
+      signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
     });
     expect(merged.edl.decisions.map((d) => d.source)).toEqual(
@@ -216,32 +219,24 @@ describe('unified decision bundle merge', () => {
     expect(bundle.source).toBe('creative-brief+signal-driven');
     expect(bundle.authority).toEqual({
       version: 'unified-decision-authority-v1',
-      executableProducer: 'creative-brief',
-      advisoryProducers: ['signal-driven'],
-      signalDecisionRole: 'advisor',
-      signalDecisionsCanAddExecutable: false,
+      executableProducer: 'unified-planner',
+      advisoryProducers: ['creative-brief', 'signal-driven'],
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
     });
-    expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['graphic']);
+    expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'transition']);
     expect(bundle.evidence).toEqual(expect.objectContaining({
       primaryDecisionCount: 1,
       signalDecisionCount: 2,
-      addedSignalDecisionCount: 0,
+      addedSignalDecisionCount: 1,
       validatedDecisionCount: 1,
       suppressedSignalDuplicateCount: 1,
-      evidenceOnlySignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
     }));
-    expect(bundle.evidence.evidenceOnlySignalDecisions).toEqual([
-      expect.objectContaining({
-        type: 'transition',
-        frame: 180,
-        source: 'signal-executor:test',
-        params: { transitionType: 'whip-pan' },
-      }),
-    ]);
     expect(bundle.expectedSkipped).toBe(0);
   });
 
-  it('keeps later signal batches advisory after creative primary has already been combined', () => {
+  it('keeps later signal batches executable when they pass the same unified policy', () => {
     let bundle = planUnifiedDecisionBundle(null, {
       source: 'creative-brief',
       edl: edl([
@@ -266,21 +261,21 @@ describe('unified decision bundle merge', () => {
     expect(bundle.source).toBe('creative-brief+signal-driven');
     expect(bundle.authority).toEqual({
       version: 'unified-decision-authority-v1',
-      executableProducer: 'creative-brief',
-      advisoryProducers: ['signal-driven'],
-      signalDecisionRole: 'advisor',
-      signalDecisionsCanAddExecutable: false,
+      executableProducer: 'unified-planner',
+      advisoryProducers: ['creative-brief', 'signal-driven'],
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
     });
-    expect(bundle.edl.decisions.map((d) => d.source)).toEqual(['creative-brief:test']);
-    expect(bundle.evidence).toEqual(expect.objectContaining({
-      signalDecisionCount: 2,
-      addedSignalDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 2,
-    }));
-    expect(bundle.evidence.evidenceOnlySignalDecisions.map((d) => d.source)).toEqual([
+    expect(bundle.edl.decisions.map((d) => d.source)).toEqual([
+      'creative-brief:test',
       'signal-executor:first',
       'signal-executor:later',
     ]);
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 2,
+      addedSignalDecisionCount: 2,
+      evidenceOnlySignalDecisionCount: 0,
+    }));
   });
 
   it('can accept signal producer before creative primary without changing precedence', () => {
@@ -329,7 +324,7 @@ describe('unified decision bundle merge', () => {
     })).toThrow('already has primary producer');
   });
 
-  it('plans an unordered producer candidate batch with creative as the primary owner', () => {
+  it('plans an unordered producer candidate batch with unified planner authority', () => {
     const bundle = planUnifiedDecisionBundleFromCandidates([
       {
         source: 'signal-driven',
@@ -349,28 +344,21 @@ describe('unified decision bundle merge', () => {
     expect(bundle?.source).toBe('creative-brief+signal-driven');
     expect(bundle?.edl.decisions.map((d) => d.source)).toEqual([
       'creative-brief:test',
+      'signal-executor:test',
     ]);
     expect(bundle?.evidence).toEqual(expect.objectContaining({
       primaryDecisionCount: 1,
       signalDecisionCount: 1,
-      addedSignalDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 1,
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
     }));
-    expect(bundle?.evidence.evidenceOnlySignalDecisions).toEqual([
-      expect.objectContaining({
-        type: 'transition',
-        frame: 120,
-        source: 'signal-executor:test',
-        params: { transitionType: 'whip-pan' },
-      }),
-    ]);
   });
 
   it('returns no bundle when no producer candidates exist', () => {
     expect(planUnifiedDecisionBundleFromCandidates([])).toBeNull();
   });
 
-  it('keeps repeated Path D SFX evidence-only instead of adding executable overlays', () => {
+  it('lets signal SFX execute selectively without flooding the timeline', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
@@ -387,13 +375,12 @@ describe('unified decision bundle merge', () => {
       decision({ type: 'sfx-trigger', frame: 700, source: 'signal-executor:sfx-6', confidence: 0.9, params: { sfxType: 'impact' } }),
     ]));
 
-    expect(merged.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(0);
+    expect(merged.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(1);
     expect(merged.evidence).toEqual(expect.objectContaining({
-      addedSignalDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 6,
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 5,
     }));
     expect(merged.evidence.evidenceOnlySignalDecisions.map((d) => d.source)).toEqual([
-      'signal-executor:sfx-1',
       'signal-executor:sfx-2',
       'signal-executor:sfx-3',
       'signal-executor:sfx-4',
@@ -402,13 +389,14 @@ describe('unified decision bundle merge', () => {
     ]);
     expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
       type: 'sfx-trigger',
-      frame: 100,
+      frame: 220,
       params: { sfxType: 'impact' },
+      reason: 'signal-rhythm-budget-exhausted',
     }));
     expect(merged.expectedSkipped).toBe(0);
   });
 
-  it('keeps non-overlapping Path D transition hints evidence-only regardless of type', () => {
+  it('keeps hard-cut signal transitions as evidence while executing licensed special transitions', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
@@ -421,15 +409,15 @@ describe('unified decision bundle merge', () => {
       decision({ type: 'transition', frame: 420, source: 'signal-executor:whip-pan', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
     ]));
 
-    expect(merged.edl.decisions.filter((d) => d.type === 'transition')).toHaveLength(0);
+    expect(merged.edl.decisions.filter((d) => d.type === 'transition')).toHaveLength(1);
     expect(merged.evidence).toEqual(expect.objectContaining({
-      addedSignalDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 2,
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 1,
     }));
     expect(merged.evidence.evidenceOnlySignalDecisions.map((d) => d.params)).toEqual([
       { transitionType: 'hard-cut' },
-      { transitionType: 'whip-pan' },
     ]);
+    expect(merged.evidence.evidenceOnlySignalDecisions[0].reason).toBe('hard-cut-is-boundary-evidence');
     expect(merged.expectedSkipped).toBe(0);
   });
 });

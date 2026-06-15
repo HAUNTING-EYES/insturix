@@ -161,9 +161,9 @@ export interface DirectorResult {
   decisionAuthority?: {
     version: 'decision-authority-v1';
     source: 'unified-decision-bundle' | 'fallback-reactive' | 'profile-driven';
-    executableProducer: 'creative-brief' | 'signal-driven' | 'profile';
+    executableProducer: 'creative-brief' | 'signal-driven' | 'unified-planner' | 'profile';
     advisoryProducers: Array<'creative-brief' | 'signal-driven' | 'profile'>;
-    signalDecisionRole: 'none' | 'primary' | 'advisor';
+    signalDecisionRole: 'none' | 'primary' | 'advisor' | 'co-owner';
     signalDecisionsCanAddExecutable: boolean;
     primaryDecisionCount: number;
     signalDecisionCount: number;

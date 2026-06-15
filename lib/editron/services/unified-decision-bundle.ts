@@ -25,13 +25,14 @@ export type UnifiedDecisionBundleSource =
   | 'signal-driven'
   | 'creative-brief+signal-driven';
 
-export type UnifiedDecisionExecutableProducer = Exclude<UnifiedDecisionBundleSource, 'creative-brief+signal-driven'>;
+export type UnifiedDecisionCandidateProducer = Exclude<UnifiedDecisionBundleSource, 'creative-brief+signal-driven'>;
+export type UnifiedDecisionExecutableProducer = UnifiedDecisionCandidateProducer | 'unified-planner';
 
 export interface UnifiedDecisionBundleAuthority {
   version: 'unified-decision-authority-v1';
   executableProducer: UnifiedDecisionExecutableProducer;
-  advisoryProducers: UnifiedDecisionExecutableProducer[];
-  signalDecisionRole: 'none' | 'primary' | 'advisor';
+  advisoryProducers: UnifiedDecisionCandidateProducer[];
+  signalDecisionRole: 'none' | 'primary' | 'advisor' | 'co-owner';
   signalDecisionsCanAddExecutable: boolean;
 }
 
@@ -67,7 +68,7 @@ export interface UnifiedDecisionBundle {
 }
 
 interface CreateUnifiedDecisionBundleOptions {
-  source: UnifiedDecisionExecutableProducer;
+  source: UnifiedDecisionCandidateProducer;
   edl: CompatibleEditDecisionList;
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
   expectedExecuted?: number;
@@ -153,19 +154,17 @@ export function mergeSignalDrivenBundle(
   }
 
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
-  const canSupplementFromSignals = canPrimaryBundleDeferToSignals(primaryBundle);
-  const signalSupplementLimit = canSupplementFromSignals
-    ? getSignalSupplementLimit(primaryBundle)
-    : 0;
+  const signalDecisions = signalEdl.decisions.map(cloneDecision);
+  const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const mergedDecisions = primaryBundle.edl.decisions.map(cloneDecision);
   let addedSignalDecisionCount = 0;
   let validatedDecisionCount = 0;
   let suppressedSignalDuplicateCount = 0;
   let evidenceOnlySignalDecisionCount = 0;
   const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
-  const creativePrimaryOwnsExecutableDecisions = primaryBundle.authority.executableProducer === 'creative-brief';
+  const signalPrimaryOwnsExecutableDecisions = primaryBundle.authority.executableProducer === 'signal-driven';
 
-  for (const signalDecision of signalEdl.decisions.map(cloneDecision)) {
+  for (const signalDecision of signalDecisions) {
     const matchIndex = findNearEquivalentDecisionIndex(mergedDecisions, signalDecision, maxNearFrameWindow);
     if (matchIndex >= 0) {
       mergedDecisions[matchIndex] = attachSignalValidation(mergedDecisions[matchIndex], signalDecision);
@@ -174,21 +173,22 @@ export function mergeSignalDrivenBundle(
       continue;
     }
 
-    if (creativePrimaryOwnsExecutableDecisions) {
-      if (canSupplementFromSignals && addedSignalDecisionCount < signalSupplementLimit) {
-        mergedDecisions.push(markSignalSupplement(signalDecision));
+    if (!signalPrimaryOwnsExecutableDecisions) {
+      const license = resolveSignalExecutionLicense(mergedDecisions, signalDecision, signalExecutionBudgets);
+      if (license.executable) {
+        mergedDecisions.push(markSignalSupplement(signalDecision, license.reason));
         addedSignalDecisionCount++;
         continue;
       }
 
       evidenceOnlySignalDecisionCount++;
       if (evidenceOnlySignalDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
-        evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(signalDecision));
+        evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(signalDecision, license.reason));
       }
       continue;
     }
 
-    mergedDecisions.push(markSignalSupplement(signalDecision));
+    mergedDecisions.push(markSignalSupplement(signalDecision, 'signal-primary'));
     addedSignalDecisionCount++;
   }
 
@@ -221,7 +221,7 @@ export function mergeSignalDrivenBundle(
   };
 }
 
-function authorityForSingleProducer(source: UnifiedDecisionExecutableProducer): UnifiedDecisionBundleAuthority {
+function authorityForSingleProducer(source: UnifiedDecisionCandidateProducer): UnifiedDecisionBundleAuthority {
   return {
     version: 'unified-decision-authority-v1',
     executableProducer: source,
@@ -242,45 +242,47 @@ function authorityAfterSignalMerge(
 
   return {
     version: 'unified-decision-authority-v1',
-    executableProducer: 'creative-brief',
-    advisoryProducers: authority.advisoryProducers.includes('signal-driven')
-      ? authority.advisoryProducers
-      : [...authority.advisoryProducers, 'signal-driven'],
-    signalDecisionRole: 'advisor',
+    executableProducer: addedSignalDecisionCount > 0 ? 'unified-planner' : 'creative-brief',
+    advisoryProducers: mergeAdvisoryProducers(authority.advisoryProducers, ['creative-brief', 'signal-driven']),
+    signalDecisionRole: addedSignalDecisionCount > 0 ? 'co-owner' : 'advisor',
     signalDecisionsCanAddExecutable: addedSignalDecisionCount > 0,
   };
 }
 
-function canPrimaryBundleDeferToSignals(primaryBundle: UnifiedDecisionBundle): boolean {
-  const primaryDecisionCount = primaryBundle.edl.totalDecisions;
-  const averageConfidence = primaryBundle.edl.stats?.averageConfidence ?? 0;
-  const hasSignalRichPrimaryDecision =
-    (primaryBundle.edl.stats?.graphicCount ?? 0) > 0 ||
-    (primaryBundle.edl.stats?.transitionCount ?? 0) > 0 ||
-    (primaryBundle.edl.stats?.zoomCount ?? 0) > 0 ||
-    (primaryBundle.edl.stats?.speedChangeCount ?? 0) > 0;
-
-  return (
-    (primaryDecisionCount <= PRIMARY_SIGNAL_SUPPLEMENT_DECISION_THRESHOLD &&
-      averageConfidence < PRIMARY_SIGNAL_SUPPLEMENT_CONFIDENCE_THRESHOLD) ||
-    (!hasSignalRichPrimaryDecision && primaryDecisionCount <= 3)
-  );
-}
-
-function getSignalSupplementLimit(primaryBundle: UnifiedDecisionBundle): number {
-  const baseBudget = Math.max(
-    PRIMARY_SIGNAL_SUPPLEMENT_MIN_BUDGET,
-    Math.round((primaryBundle.edl.totalDecisions * PRIMARY_SIGNAL_SUPPLEMENT_GROWTH_FACTOR) + 2),
-  );
-  return Math.min(PRIMARY_SIGNAL_SUPPLEMENT_HARD_CAP, baseBudget);
-}
-
 const SIGNAL_EVIDENCE_DETAIL_LIMIT = 64;
-const PRIMARY_SIGNAL_SUPPLEMENT_DECISION_THRESHOLD = 4;
-const PRIMARY_SIGNAL_SUPPLEMENT_CONFIDENCE_THRESHOLD = 0.75;
-const PRIMARY_SIGNAL_SUPPLEMENT_MIN_BUDGET = 3;
-const PRIMARY_SIGNAL_SUPPLEMENT_GROWTH_FACTOR = 2;
-const PRIMARY_SIGNAL_SUPPLEMENT_HARD_CAP = 12;
+const FPS = 30;
+const MIN_BUDGET_WINDOW_MINUTES = 0.25;
+const SIGNAL_EXECUTION_MIN_CONFIDENCE: Partial<Record<ReactiveEditDecision['type'], number>> = {
+  transition: 0.72,
+  zoom: 0.72,
+  'speed-change': 0.72,
+  fade: 0.74,
+  'slow-motion': 0.76,
+  'camera-shake': 0.8,
+  sfx: 0.78,
+  'sfx-trigger': 0.78,
+};
+const SIGNAL_EXECUTION_MIN_SPACING_FRAMES: Partial<Record<ReactiveEditDecision['type'], number>> = {
+  transition: 36,
+  zoom: 90,
+  'speed-change': 120,
+  fade: 90,
+  'slow-motion': 120,
+  'camera-shake': 120,
+  sfx: 90,
+  'sfx-trigger': 90,
+};
+const SIGNAL_EXECUTION_MAX_PER_MINUTE: Partial<Record<ReactiveEditDecision['type'], number>> = {
+  transition: 5,
+  zoom: 8,
+  'speed-change': 3,
+  fade: 3,
+  'slow-motion': 2,
+  'camera-shake': 2,
+  sfx: 4,
+  'sfx-trigger': 4,
+};
+const NON_EXECUTABLE_TRANSITION_TYPES = new Set(['hard-cut', 'cut', 'none']);
 const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'anchorFrame',
   'graphicType',
@@ -298,7 +300,88 @@ const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'type',
 ]);
 
-function summarizeSignalDecisionEvidence(decision: ReactiveEditDecision): UnifiedSignalDecisionEvidence {
+function mergeAdvisoryProducers(
+  existing: UnifiedDecisionCandidateProducer[],
+  additions: UnifiedDecisionCandidateProducer[],
+): UnifiedDecisionCandidateProducer[] {
+  const merged = new Set<UnifiedDecisionCandidateProducer>(existing);
+  for (const addition of additions) merged.add(addition);
+  return [...merged];
+}
+
+function buildSignalExecutionBudgets(
+  signalDecisions: ReactiveEditDecision[],
+): Partial<Record<ReactiveEditDecision['type'], number>> {
+  const grouped = new Map<ReactiveEditDecision['type'], ReactiveEditDecision[]>();
+  for (const decision of signalDecisions) {
+    if (!SIGNAL_EXECUTION_MIN_CONFIDENCE[decision.type]) continue;
+    grouped.set(decision.type, [...(grouped.get(decision.type) ?? []), decision]);
+  }
+
+  const budgets: Partial<Record<ReactiveEditDecision['type'], number>> = {};
+  for (const [type, decisions] of grouped.entries()) {
+    const minFrame = Math.min(...decisions.map((decision) => decision.frame));
+    const maxFrame = Math.max(...decisions.map((decision) => decision.frame + Math.max(1, decision.durationFrames ?? 1)));
+    const minutes = Math.max(MIN_BUDGET_WINDOW_MINUTES, (maxFrame - minFrame) / (FPS * 60));
+    const perMinute = SIGNAL_EXECUTION_MAX_PER_MINUTE[type] ?? 0;
+    budgets[type] = Math.max(1, Math.round(minutes * perMinute));
+  }
+  return budgets;
+}
+
+function resolveSignalExecutionLicense(
+  mergedDecisions: ReactiveEditDecision[],
+  signalDecision: ReactiveEditDecision,
+  budgets: Partial<Record<ReactiveEditDecision['type'], number>>,
+): { executable: boolean; reason: string } {
+  const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[signalDecision.type];
+  if (minConfidence === undefined) {
+    return { executable: false, reason: 'unsupported-signal-decision-type' };
+  }
+
+  if (signalDecision.confidence < minConfidence) {
+    return { executable: false, reason: 'below-signal-confidence-floor' };
+  }
+
+  if (signalDecision.type === 'transition') {
+    const transitionType = normalizeParamString(
+      signalDecision.params.transitionType ?? signalDecision.params.type ?? signalDecision.params.transType,
+    );
+    if (NON_EXECUTABLE_TRANSITION_TYPES.has(transitionType)) {
+      return { executable: false, reason: 'hard-cut-is-boundary-evidence' };
+    }
+  }
+
+  if (signalDecision.type === 'sfx' || signalDecision.type === 'sfx-trigger') {
+    const sfxType = normalizeParamString(signalDecision.params.sfxType ?? signalDecision.params.type);
+    if (!sfxType || sfxType === 'none') {
+      return { executable: false, reason: 'missing-sfx-intent' };
+    }
+  }
+
+  const budget = budgets[signalDecision.type] ?? 0;
+  const executableCountForType = mergedDecisions.filter((decision) => decision.type === signalDecision.type).length;
+  if (executableCountForType >= budget) {
+    return { executable: false, reason: 'signal-rhythm-budget-exhausted' };
+  }
+
+  const spacing = SIGNAL_EXECUTION_MIN_SPACING_FRAMES[signalDecision.type] ?? 0;
+  const hasNearbySameType = mergedDecisions.some((decision) => (
+    decision.type === signalDecision.type &&
+    Math.abs(decision.frame - signalDecision.frame) < spacing
+  ));
+  if (hasNearbySameType) {
+    return { executable: false, reason: 'nearby-executable-same-type' };
+  }
+
+  return { executable: true, reason: 'licensed-by-signal-policy' };
+}
+
+function normalizeParamString(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function summarizeSignalDecisionEvidence(decision: ReactiveEditDecision, reason?: string): UnifiedSignalDecisionEvidence {
   const params = compactSignalEvidenceParams(decision.params);
   return {
     type: decision.type,
@@ -307,7 +390,7 @@ function summarizeSignalDecisionEvidence(decision: ReactiveEditDecision): Unifie
     confidence: decision.confidence,
     source: decision.source,
     signal: decision.signal,
-    reason: decision.reason,
+    reason: reason ?? decision.reason,
     ...(Object.keys(params).length === 0 ? {} : { params }),
   };
 }
@@ -404,7 +487,7 @@ function attachSignalValidation(primary: ReactiveEditDecision, signalDecision: R
   };
 }
 
-function markSignalSupplement(signalDecision: ReactiveEditDecision): ReactiveEditDecision {
+function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
   return {
     ...signalDecision,
     params: {
@@ -413,6 +496,7 @@ function markSignalSupplement(signalDecision: ReactiveEditDecision): ReactiveEdi
         ...readMergeMetadata(signalDecision),
         version: 'unified-decision-bundle-v1',
         role: 'signal-supplement',
+        executionLicense: reason,
       },
     },
   };
