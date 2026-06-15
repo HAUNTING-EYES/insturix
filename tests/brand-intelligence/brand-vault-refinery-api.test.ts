@@ -714,6 +714,240 @@ describe('Brand Vault refinery API boundary', () => {
     );
   });
 
+  it('fetches connected LinkedIn organization posts only when read scope is present', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const fetchedUrls: string[] = [];
+    const fetchFn = async (url: string, init?: RequestInit): Promise<Response> => {
+      fetchedUrls.push(url);
+      expect(url).toContain('https://api.linkedin.com/rest/posts');
+      expect(url).toContain('q=author');
+      expect(url).toContain('urn%3Ali%3Aorganization%3Aorg_1');
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer linkedin_token',
+        'Linkedin-Version': '202506',
+        'X-Restli-Protocol-Version': '2.0.0',
+      });
+      return new Response(
+        JSON.stringify({
+          elements: [
+            {
+              id: 'urn:li:share:123',
+              commentary: 'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+              content: {
+                article: {
+                  title: 'Brand operations for agencies',
+                  description: 'One reviewed brand system before the edit starts.',
+                },
+              },
+            },
+            {
+              id: 'urn:li:share:no_text',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://www.linkedin.com/company/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) =>
+          createBrandVaultConnectedSocialEvidence({
+            socialLinks,
+            uploaderXUser: {
+              linkedinTokens: {
+                accessToken: 'linkedin_token',
+                userId: 'person_1',
+                userName: 'Vaultline Admin',
+                scopes: ['openid', 'profile', 'w_member_social', 'r_organization_social'],
+                missingScopes: [],
+                organizations: [{ id: 'org_1', name: 'Vaultline', vanityName: 'vaultline' }],
+                expiresAt: '2026-06-10T00:00:00.000Z',
+              },
+            },
+            youtubeConnection: null,
+            apifyApiKey: '',
+            fetchFn,
+            now: NOW,
+          }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(fetchedUrls).toHaveLength(1);
+    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent LinkedIn post for draft social evidence review.');
+    expect(created.body.job.warnings).not.toContain(
+      'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
+    );
+    expect(created.body.reviewPayload.intake.sources.byOrigin).toMatchObject({
+      connected_metadata: 1,
+      connected_fetch: 1,
+    });
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_profile',
+          platform: 'linkedin',
+          evidenceOrigin: 'connected_metadata',
+          connection: expect.objectContaining({
+            provider: 'uploaderx',
+            status: 'connected',
+            accountId: 'org_1',
+            accountName: 'Vaultline',
+            accountHandle: 'vaultline',
+            canReadPosts: true,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'linkedin',
+          url: 'https://www.linkedin.com/feed/update/urn:li:share:123',
+          text: [
+            'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+            'Brand operations for agencies',
+            'One reviewed brand system before the edit starts.',
+          ].join('\n'),
+          evidenceOrigin: 'connected_fetch',
+        }),
+      ]),
+    );
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.voicePhrases',
+          normalizedValue: expect.arrayContaining(['Stop losing brand consistency between strategy and delivery']),
+        }),
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.proofStyle',
+          normalizedValue: 'community',
+        }),
+      ]),
+    );
+    expect(created.body.record.profile.voice.recurringPhrases.trustLevel).toBe('connected_social_account');
+  });
+
+  it('stages explicit LinkedIn and Facebook post URLs as public metadata fallback evidence', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const fetchedUrls: string[] = [];
+    const fetchFn = async (url: string): Promise<Response> => {
+      fetchedUrls.push(url);
+      if (url.includes('linkedin.com')) {
+        return new Response(
+          [
+            '<html><head>',
+            '<meta property="og:title" content="Vaultline launch note">',
+            '<meta property="og:description" content="Stop losing brand consistency between strategy and delivery. Book a demo this week.">',
+            '</head></html>',
+          ].join(''),
+          { status: 200, headers: { 'content-type': 'text/html' } },
+        );
+      }
+      return new Response(
+        [
+          '<html><head>',
+          '<meta property="og:title" content="Facebook agency proof">',
+          '<meta name="description" content="Trusted by 80 creative teams &amp; built for brand operations.">',
+          '</head></html>',
+        ].join(''),
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      );
+    };
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: [
+            'https://www.linkedin.com/posts/vaultline_brand-systems-for-agencies-activity-123',
+            'https://www.facebook.com/posts/page_1_post_1',
+          ],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) =>
+          createBrandVaultConnectedSocialEvidence({
+            socialLinks,
+            uploaderXUser: null,
+            youtubeConnection: null,
+            apifyApiKey: '',
+            fetchFn,
+            now: NOW,
+          }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(fetchedUrls).toHaveLength(2);
+    expect(created.body.job.warnings).toEqual(
+      expect.arrayContaining([
+        'Brand Vault fetched public metadata for linkedin post URL as draft-only evidence.',
+        'Brand Vault fetched public metadata for facebook post URL as draft-only evidence.',
+        'Brand Vault staged 2 public social fallback sources for review-only enrichment.',
+      ]),
+    );
+    expect(created.body.reviewPayload.intake.sources.byOrigin).toMatchObject({
+      public_fallback: 2,
+    });
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'linkedin',
+          evidenceOrigin: 'public_fallback',
+          text: [
+            'Vaultline launch note',
+            'Stop losing brand consistency between strategy and delivery. Book a demo this week.',
+          ].join('\n'),
+        }),
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'facebook',
+          evidenceOrigin: 'public_fallback',
+          text: [
+            'Facebook agency proof',
+            'Trusted by 80 creative teams & built for brand operations.',
+          ].join('\n'),
+        }),
+      ]),
+    );
+    const socialCandidates = created.body.candidates.filter(
+      (candidate) => candidate.extractorId === 'brand-vault-social-evidence.v1',
+    );
+    expect(socialCandidates.map((candidate) => candidate.sourceField)).toEqual(
+      expect.arrayContaining([
+        'sourceEvidence.0.social_post.socialIdentity',
+        'sourceEvidence.0.social_post.text.voicePhrases',
+        'sourceEvidence.0.social_post.text.ctaDirectness',
+        'sourceEvidence.1.social_post.socialIdentity',
+        'sourceEvidence.1.social_post.text.proofStyle',
+      ]),
+    );
+    expect(socialCandidates.some((candidate) => candidate.signalPath === 'voice.recurringPhrases')).toBe(true);
+    expect(socialCandidates.some((candidate) => candidate.signalPath === 'identity.proofStyle')).toBe(true);
+  });
+
   it('fetches connected X post samples as draft-only social evidence when tweet.read is available', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const fetchedUrls: string[] = [];

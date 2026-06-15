@@ -60,9 +60,7 @@ export async function createBrandVaultConnectedSocialEvidence(
       args.youtubeConnection,
     );
     const evidence = connection ?? publicFallbackEvidenceForPlatform(parsed.platform, args.apifyApiKey);
-    if (!evidence) continue;
-
-    sources.push(profileSourceForSocialLink(parsed, evidence));
+    if (evidence) sources.push(profileSourceForSocialLink(parsed, evidence));
 
     const fetched = await fetchConnectedPostSources({
       parsed,
@@ -73,6 +71,15 @@ export async function createBrandVaultConnectedSocialEvidence(
     });
     sources.push(...fetched.sources);
     warnings.push(...fetched.warnings);
+
+    if (fetched.sources.length === 0) {
+      const fallback = await fetchPublicPostUrlSource({
+        parsed,
+        fetchFn: args.fetchFn ?? fetch,
+      });
+      sources.push(...fallback.sources);
+      warnings.push(...fallback.warnings);
+    }
   }
 
   const connectedSourceCount = sources.filter((source) =>
@@ -129,6 +136,15 @@ async function fetchConnectedPostSources(args: {
       parsed: args.parsed,
       connection: args.connection,
       tokens: args.uploaderXUser?.instagramTokens,
+      fetchFn: args.fetchFn,
+      now: args.now,
+    });
+  }
+  if (args.parsed.platform === 'linkedin') {
+    return fetchConnectedLinkedInPostSources({
+      parsed: args.parsed,
+      connection: args.connection,
+      tokens: args.uploaderXUser?.linkedinTokens,
       fetchFn: args.fetchFn,
       now: args.now,
     });
@@ -395,6 +411,123 @@ function instagramMediaSource(
   };
 }
 
+async function fetchConnectedLinkedInPostSources(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  connection: BrandVaultSocialConnectionEvidence | null;
+  tokens: Record<string, unknown> | null | undefined;
+  fetchFn: BrandVaultSocialFetch;
+  now?: string;
+}): Promise<SocialFetchResult> {
+  if (!args.connection?.canReadPosts || args.connection.status !== 'connected') return { sources: [], warnings: [] };
+  if (args.connection.matchStatus === 'mismatched') return { sources: [], warnings: [] };
+
+  const accessToken = stringValue(args.tokens?.accessToken);
+  if (!accessToken) {
+    return { sources: [], warnings: ['Brand Vault skipped LinkedIn post samples: UploaderX access token was not available.'] };
+  }
+  if (isExpired(args.tokens?.expiresAt, args.now)) {
+    return { sources: [], warnings: ['Brand Vault skipped LinkedIn post samples: UploaderX LinkedIn token is expired and must be refreshed before read enrichment.'] };
+  }
+
+  const authorUrn = linkedinAuthorUrn(args.parsed, args.connection, args.tokens);
+  if (!authorUrn) {
+    return { sources: [], warnings: ['Brand Vault skipped LinkedIn post samples: no readable LinkedIn author URN could be resolved.'] };
+  }
+
+  const url = new URL('https://api.linkedin.com/rest/posts');
+  url.searchParams.set('q', 'author');
+  url.searchParams.set('author', authorUrn);
+  url.searchParams.set('count', '5');
+  url.searchParams.set('sortBy', 'LAST_MODIFIED');
+
+  const response = await args.fetchFn(url.href, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Linkedin-Version': '202506',
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+  });
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    return {
+      sources: [],
+      warnings: [`Brand Vault skipped LinkedIn post samples: LinkedIn API returned ${response.status}${apiErrorMessage(payload)}.`],
+    };
+  }
+
+  const posts = Array.isArray(payload.elements) ? payload.elements : [];
+  const sources = posts
+    .map((post) => linkedinPostSource(post, args.connection as BrandVaultSocialConnectionEvidence, args.parsed))
+    .filter((source): source is BrandVaultSourceInput => Boolean(source))
+    .slice(0, 5);
+
+  if (sources.length === 0) {
+    return {
+      sources: [],
+      warnings: ['Brand Vault found LinkedIn read access, but no recent readable post commentary was returned.'],
+    };
+  }
+
+  return {
+    sources,
+    warnings: [`Brand Vault fetched ${sources.length} recent LinkedIn post${sources.length === 1 ? '' : 's'} for draft social evidence review.`],
+  };
+}
+
+function linkedinPostSource(
+  post: unknown,
+  connection: BrandVaultSocialConnectionEvidence,
+  parsed: BrandVaultParsedSocialUrl,
+): BrandVaultSourceInput | null {
+  const record = asRecord(post);
+  const id = stringValue(record.id);
+  const text = linkedinPostText(record);
+  if (!id || !text) return null;
+
+  return {
+    kind: 'social_post',
+    url: linkedinPostUrl(id, parsed.normalizedUrl),
+    platform: 'linkedin',
+    name: `LinkedIn post ${id}`,
+    note: 'Fetched from connected UploaderX LinkedIn account via approved read scope for Brand Vault draft review.',
+    text,
+    evidenceOrigin: 'connected_fetch',
+    pinned: false,
+    connection,
+  };
+}
+
+function linkedinPostText(record: Record<string, unknown>): string | undefined {
+  const content = asRecord(record.content);
+  const article = asRecord(content.article);
+  const media = asRecord(content.media);
+  const parts = [
+    stringValue(record.commentary),
+    stringValue(article.title),
+    stringValue(article.description),
+    stringValue(media.title),
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? Array.from(new Set(parts)).join('\n') : undefined;
+}
+
+function linkedinPostUrl(id: string, fallbackUrl: string): string {
+  return id.startsWith('urn:li:') ? `https://www.linkedin.com/feed/update/${id}` : fallbackUrl;
+}
+
+function linkedinAuthorUrn(
+  parsed: BrandVaultParsedSocialUrl,
+  connection: BrandVaultSocialConnectionEvidence,
+  tokens: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (parsed.accountType === 'company_page') {
+    const organization = linkedinOrganizationForConnection(connection, tokens);
+    const organizationId = stringValue(organization.id) ?? connection.accountId;
+    return organizationId ? `urn:li:organization:${organizationId}` : undefined;
+  }
+  const userId = stringValue(tokens?.userId) ?? connection.accountId;
+  return userId ? `urn:li:person:${userId}` : undefined;
+}
+
 function connectedEvidenceForPlatform(
   platform: BrandVaultSourcePlatform,
   handle: string | undefined,
@@ -435,26 +568,65 @@ function twitterConnection(handle: string | undefined, tokens: Record<string, un
 function linkedinConnection(handle: string | undefined, tokens: Record<string, unknown> | null | undefined): BrandVaultSocialConnectionEvidence | null {
   if (!tokens?.accessToken) return null;
   const organizations = Array.isArray(tokens.organizations) ? tokens.organizations : [];
+  const matchedOrganization = linkedinOrganizationForHandle(handle, organizations);
   const organizationHandles = organizations.flatMap((org) => {
     const record = asRecord(org);
     return [record.vanityName, record.name, record.id];
   });
   const matchStatus = handleMatch(handle, organizationHandles);
   const scopes = stringList(tokens.scopes);
-  const missingScopes = stringList(tokens.missingScopes);
+  const hasOrganizationRead = scopes.includes('r_organization_social');
+  const hasMemberRead = scopes.includes('r_member_social');
+  const canReadOrganizationPosts = Boolean(matchedOrganization?.id) && hasOrganizationRead && matchStatus !== 'mismatched';
+  const canReadMemberPosts = !matchedOrganization && hasMemberRead && Boolean(tokens.userId) && matchStatus !== 'mismatched';
+  const canReadPosts = canReadOrganizationPosts || canReadMemberPosts;
+  const missingScopes = Array.from(new Set([
+    ...stringList(tokens.missingScopes),
+    ...(!canReadPosts && matchedOrganization ? ['r_organization_social'] : []),
+    ...(!canReadPosts && !matchedOrganization ? ['r_member_social'] : []),
+  ]));
+  const accountId = stringValue(matchedOrganization?.id) ?? stringValue(tokens.userId);
+  const accountName = stringValue(matchedOrganization?.name) ?? stringValue(tokens.userName);
+  const accountHandle = stringValue(matchedOrganization?.vanityName) ?? accountName;
   return {
     provider: 'uploaderx',
-    status: matchStatus === 'mismatched' ? 'connected_different_account' : missingScopes.length > 0 ? 'scope_missing' : 'connected',
-    accountId: stringValue(tokens.userId),
-    accountName: stringValue(tokens.userName),
-    accountHandle: stringValue(tokens.userName),
+    status: matchStatus === 'mismatched' ? 'connected_different_account' : canReadPosts ? 'connected' : 'scope_missing',
+    accountId,
+    accountName,
+    accountHandle,
     scopes,
     missingScopes,
     canReadProfile: Boolean(tokens.userId),
-    canReadPosts: false,
+    canReadPosts,
     canReadPinned: false,
     matchStatus,
   };
+}
+
+function linkedinOrganizationForHandle(handle: string | undefined, organizations: unknown[]): Record<string, unknown> | null {
+  const normalizedHandle = normalizeHandle(handle);
+  if (!normalizedHandle) return null;
+  return organizations
+    .map(asRecord)
+    .find((organization) => {
+      const candidates = [organization.vanityName, organization.name, organization.id].map(normalizeHandle).filter(Boolean);
+      return candidates.includes(normalizedHandle);
+    }) ?? null;
+}
+
+function linkedinOrganizationForConnection(
+  connection: BrandVaultSocialConnectionEvidence,
+  tokens: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const organizations = Array.isArray(tokens?.organizations) ? tokens.organizations.map(asRecord) : [];
+  const normalizedAccountId = normalizeHandle(connection.accountId);
+  const normalizedAccountName = normalizeHandle(connection.accountName ?? connection.accountHandle);
+  return organizations.find((organization) =>
+    [organization.id, organization.name, organization.vanityName]
+      .map(normalizeHandle)
+      .filter(Boolean)
+      .some((candidate) => candidate === normalizedAccountId || candidate === normalizedAccountName),
+  ) ?? {};
 }
 
 function instagramConnection(handle: string | undefined, tokens: Record<string, unknown> | null | undefined): BrandVaultSocialConnectionEvidence | null {
@@ -647,6 +819,96 @@ function publicFallbackEvidenceForPlatform(
     canReadPinned: false,
     matchStatus: 'unverified',
   };
+}
+
+async function fetchPublicPostUrlSource(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  fetchFn: BrandVaultSocialFetch;
+}): Promise<SocialFetchResult> {
+  if (!args.parsed.isPostUrl) return { sources: [], warnings: [] };
+  if (args.parsed.platform !== 'linkedin' && args.parsed.platform !== 'facebook') return { sources: [], warnings: [] };
+
+  const baseSource: BrandVaultSourceInput = {
+    kind: 'social_post',
+    url: args.parsed.normalizedUrl,
+    platform: args.parsed.platform,
+    name: `${platformLabel(args.parsed.platform)} post URL`,
+    note: 'Explicit social post URL supplied by the user; Brand Vault treats public metadata as review-only fallback evidence.',
+    evidenceOrigin: 'public_fallback',
+    pinned: false,
+  };
+
+  try {
+    const response = await args.fetchFn(args.parsed.normalizedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 BrandVault/1.0' },
+    });
+    if (!response.ok) {
+      return {
+        sources: [baseSource],
+        warnings: [`Brand Vault staged ${args.parsed.platform} post URL, but public metadata fetch returned ${response.status}.`],
+      };
+    }
+    const html = await response.text();
+    const metadataText = socialPostMetadataText(html);
+    if (!metadataText) {
+      return {
+        sources: [baseSource],
+        warnings: [`Brand Vault staged ${args.parsed.platform} post URL, but public metadata did not include readable post text.`],
+      };
+    }
+    return {
+      sources: [{ ...baseSource, text: metadataText }],
+      warnings: [`Brand Vault fetched public metadata for ${args.parsed.platform} post URL as draft-only evidence.`],
+    };
+  } catch {
+    return {
+      sources: [baseSource],
+      warnings: [`Brand Vault staged ${args.parsed.platform} post URL, but public metadata fetch failed.`],
+    };
+  }
+}
+
+function socialPostMetadataText(html: string): string | undefined {
+  const parts = [
+    metaContent(html, 'og:title'),
+    metaContent(html, 'og:description'),
+    metaContent(html, 'twitter:title'),
+    metaContent(html, 'twitter:description'),
+    metaContent(html, 'description'),
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? Array.from(new Set(parts)).join('\n') : undefined;
+}
+
+function metaContent(html: string, key: string): string | undefined {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(`<meta\\b(?=[^>]*(?:property|name)=["']${escaped}["'])(?=[^>]*content=["']([^"']+)["'])[^>]*>`, 'i'),
+    new RegExp(`<meta\\b(?=[^>]*content=["']([^"']+)["'])(?=[^>]*(?:property|name)=["']${escaped}["'])[^>]*>`, 'i'),
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    const value = decodeHtmlEntities(match?.[1]);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function decodeHtmlEntities(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const decoded = value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return decoded || undefined;
+}
+
+function platformLabel(platform: BrandVaultSourcePlatform): string {
+  if (platform === 'x') return 'X';
+  return platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
 function connectionNote(platform: BrandVaultSourcePlatform, connection: BrandVaultSocialConnectionEvidence): string {
