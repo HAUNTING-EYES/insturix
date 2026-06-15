@@ -87,6 +87,52 @@ describe('unified decision bundle merge', () => {
     expect(merged.expectedSkipped).toBe(0);
   });
 
+  it('lets a weak creative primary supplement with bounded signal-driven decisions', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({
+          type: 'graphic',
+          frame: 30,
+          source: 'creative-brief:test',
+          confidence: 0.48,
+          params: { role: 'setup' },
+        }),
+        decision({
+          type: 'zoom',
+          frame: 210,
+          source: 'creative-brief:test',
+          confidence: 0.44,
+          params: { role: 'weak-camera' },
+        }),
+      ]),
+      expectedExecuted: 2,
+      expectedSkipped: 0,
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({ type: 'transition', frame: 140, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
+      decision({ type: 'sfx-trigger', frame: 340, source: 'signal-executor:test', confidence: 0.82, params: { sfxType: 'impact' } }),
+      decision({ type: 'zoom', frame: 420, source: 'signal-executor:test', confidence: 0.78, params: { scale: 1.08 } }),
+    ]));
+
+    expect(merged.source).toBe('creative-brief+signal-driven');
+    expect(merged.authority).toMatchObject({
+      executableProducer: 'creative-brief',
+      signalDecisionRole: 'advisor',
+      signalDecisionsCanAddExecutable: true,
+    });
+    expect(merged.edl.decisions.map((d) => d.source)).toEqual(
+      expect.arrayContaining(['creative-brief:test', 'signal-executor:test']),
+    );
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 3,
+      validatedDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 0,
+      signalDecisionCount: 3,
+    }));
+  });
+
   it('normalizes Path E brief-executor EDL shape before merge/execution', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',

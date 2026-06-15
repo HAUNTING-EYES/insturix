@@ -153,6 +153,10 @@ export function mergeSignalDrivenBundle(
   }
 
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
+  const canSupplementFromSignals = canPrimaryBundleDeferToSignals(primaryBundle);
+  const signalSupplementLimit = canSupplementFromSignals
+    ? getSignalSupplementLimit(primaryBundle)
+    : 0;
   const mergedDecisions = primaryBundle.edl.decisions.map(cloneDecision);
   let addedSignalDecisionCount = 0;
   let validatedDecisionCount = 0;
@@ -171,6 +175,12 @@ export function mergeSignalDrivenBundle(
     }
 
     if (creativePrimaryOwnsExecutableDecisions) {
+      if (canSupplementFromSignals && addedSignalDecisionCount < signalSupplementLimit) {
+        mergedDecisions.push(markSignalSupplement(signalDecision));
+        addedSignalDecisionCount++;
+        continue;
+      }
+
       evidenceOnlySignalDecisionCount++;
       if (evidenceOnlySignalDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
         evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(signalDecision));
@@ -192,7 +202,7 @@ export function mergeSignalDrivenBundle(
     source: primaryBundle.authority.executableProducer === 'creative-brief'
       ? 'creative-brief+signal-driven'
       : primaryBundle.source,
-    authority: authorityAfterSignalMerge(primaryBundle.authority, signalDecisionCount),
+    authority: authorityAfterSignalMerge(primaryBundle.authority, signalDecisionCount, addedSignalDecisionCount),
     edl: mergedEdl,
     expectedExecuted: mergedEdl.totalDecisions,
     expectedSkipped: primaryBundle.expectedSkipped,
@@ -224,6 +234,7 @@ function authorityForSingleProducer(source: UnifiedDecisionExecutableProducer): 
 function authorityAfterSignalMerge(
   authority: UnifiedDecisionBundleAuthority,
   signalDecisionCount: number,
+  addedSignalDecisionCount = 0,
 ): UnifiedDecisionBundleAuthority {
   if (signalDecisionCount === 0 || authority.executableProducer === 'signal-driven') {
     return authority;
@@ -236,11 +247,40 @@ function authorityAfterSignalMerge(
       ? authority.advisoryProducers
       : [...authority.advisoryProducers, 'signal-driven'],
     signalDecisionRole: 'advisor',
-    signalDecisionsCanAddExecutable: false,
+    signalDecisionsCanAddExecutable: addedSignalDecisionCount > 0,
   };
 }
 
+function canPrimaryBundleDeferToSignals(primaryBundle: UnifiedDecisionBundle): boolean {
+  const primaryDecisionCount = primaryBundle.edl.totalDecisions;
+  const averageConfidence = primaryBundle.edl.stats?.averageConfidence ?? 0;
+  const hasSignalRichPrimaryDecision =
+    (primaryBundle.edl.stats?.graphicCount ?? 0) > 0 ||
+    (primaryBundle.edl.stats?.transitionCount ?? 0) > 0 ||
+    (primaryBundle.edl.stats?.zoomCount ?? 0) > 0 ||
+    (primaryBundle.edl.stats?.speedChangeCount ?? 0) > 0;
+
+  return (
+    (primaryDecisionCount <= PRIMARY_SIGNAL_SUPPLEMENT_DECISION_THRESHOLD &&
+      averageConfidence < PRIMARY_SIGNAL_SUPPLEMENT_CONFIDENCE_THRESHOLD) ||
+    (!hasSignalRichPrimaryDecision && primaryDecisionCount <= 3)
+  );
+}
+
+function getSignalSupplementLimit(primaryBundle: UnifiedDecisionBundle): number {
+  const baseBudget = Math.max(
+    PRIMARY_SIGNAL_SUPPLEMENT_MIN_BUDGET,
+    Math.round((primaryBundle.edl.totalDecisions * PRIMARY_SIGNAL_SUPPLEMENT_GROWTH_FACTOR) + 2),
+  );
+  return Math.min(PRIMARY_SIGNAL_SUPPLEMENT_HARD_CAP, baseBudget);
+}
+
 const SIGNAL_EVIDENCE_DETAIL_LIMIT = 64;
+const PRIMARY_SIGNAL_SUPPLEMENT_DECISION_THRESHOLD = 4;
+const PRIMARY_SIGNAL_SUPPLEMENT_CONFIDENCE_THRESHOLD = 0.75;
+const PRIMARY_SIGNAL_SUPPLEMENT_MIN_BUDGET = 3;
+const PRIMARY_SIGNAL_SUPPLEMENT_GROWTH_FACTOR = 2;
+const PRIMARY_SIGNAL_SUPPLEMENT_HARD_CAP = 12;
 const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'anchorFrame',
   'graphicType',
