@@ -199,6 +199,22 @@ export async function executeDirectorPlan(
   const result: DirectorResult = {
     success: false,
     profileId: effectiveProfile.profileId,
+    decisionAuthority: {
+      version: 'decision-authority-v1',
+      source: 'profile-driven',
+      executableProducer: 'creative-brief',
+      advisoryProducers: [],
+      signalDecisionRole: 'none',
+      signalDecisionsCanAddExecutable: false,
+      primaryDecisionCount: 0,
+      signalDecisionCount: 0,
+      addedSignalDecisionCount: 0,
+      validatedDecisionCount: 0,
+      suppressedSignalDuplicateCount: 0,
+      evidenceOnlySignalDecisionCount: 0,
+      totalDecisions: 0,
+      executedDecisions: 0,
+    },
     actionsExecuted: 0,
     actionsSkipped: [],
     overlaysModified: 0,
@@ -1308,6 +1324,22 @@ export async function executeDirectorPlan(
           const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle);
           (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
           await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
+          result.decisionAuthority = {
+            version: 'decision-authority-v1',
+            source: 'unified-decision-bundle',
+            executableProducer: unifiedDecisionBundle.authority.executableProducer,
+            advisoryProducers: unifiedDecisionBundle.authority.advisoryProducers,
+            signalDecisionRole: unifiedDecisionBundle.authority.signalDecisionRole,
+            signalDecisionsCanAddExecutable: unifiedDecisionBundle.authority.signalDecisionsCanAddExecutable,
+            primaryDecisionCount: unifiedDecisionBundle.evidence.primaryDecisionCount,
+            signalDecisionCount: unifiedDecisionBundle.evidence.signalDecisionCount,
+            addedSignalDecisionCount: unifiedDecisionBundle.evidence.addedSignalDecisionCount,
+            validatedDecisionCount: unifiedDecisionBundle.evidence.validatedDecisionCount,
+            suppressedSignalDuplicateCount: unifiedDecisionBundle.evidence.suppressedSignalDuplicateCount,
+            evidenceOnlySignalDecisionCount: unifiedDecisionBundle.evidence.evidenceOnlySignalDecisionCount,
+            totalDecisions: unifiedDecisionBundle.edl.totalDecisions,
+            executedDecisions: unifiedDecisionBundle.expectedExecuted,
+          };
 
           if (editedTimelineContext) {
             const captionPresentation = resolveAtomicCaptionPresentation({
@@ -1505,6 +1537,22 @@ export async function executeDirectorPlan(
           edlSummary.executed = edlResult.decisionsExecuted;
           edlSummary.skipped = edlResult.decisionsSkipped;
           edlSummary.cinematicMoments = moments.length;
+          result.decisionAuthority = {
+            version: 'decision-authority-v1',
+            source: 'fallback-reactive',
+            executableProducer: 'signal-driven',
+            advisoryProducers: [],
+            signalDecisionRole: 'primary',
+            signalDecisionsCanAddExecutable: true,
+            primaryDecisionCount: 0,
+            signalDecisionCount: edlSummary.totalDecisions,
+            addedSignalDecisionCount: edlSummary.executed,
+            validatedDecisionCount: 0,
+            suppressedSignalDuplicateCount: 0,
+            evidenceOnlySignalDecisionCount: 0,
+            totalDecisions: edlSummary.totalDecisions,
+            executedDecisions: edlSummary.executed,
+          };
 
           result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
 

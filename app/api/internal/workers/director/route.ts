@@ -171,6 +171,7 @@ async function handler(request: NextRequest) {
     const totalPipelineMs = pipelineStartedAt
       ? Date.now() - new Date(pipelineStartedAt).getTime()
       : directorMs;
+    const directorDecisionAuthority = directorResult.decisionAuthority;
     const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
       { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
@@ -182,6 +183,7 @@ async function handler(request: NextRequest) {
       autoEditDurationMs: totalPipelineMs,
       directorDurationMs: directorMs,
       directorProfileUsed: profileId,
+      ...(directorDecisionAuthority ? { 'intelligence.decisionAuthority': directorDecisionAuthority } : {}),
     };
     const completionUpdate: Record<string, unknown> = { $set: completionSet };
     if (completionHealth.needsQualityAttention) {
@@ -194,6 +196,14 @@ async function handler(request: NextRequest) {
 
     await db.collection('projects').updateOne({ projectId }, completionUpdate);
 
+    if (directorDecisionAuthority) {
+      console.log(
+        `[DirectorWorker] Decision authority: source=${directorDecisionAuthority.source}, ` +
+        `executable=${directorDecisionAuthority.executableProducer}, ` +
+        `signal-role=${directorDecisionAuthority.signalDecisionRole}, ` +
+        `added=${directorDecisionAuthority.addedSignalDecisionCount}`
+      );
+    }
     console.log(`[DirectorWorker] Complete: ${projectId} in ${directorMs}ms (${directorResult.actionsExecuted} actions)`);
     if (completionHealth.needsQualityAttention) {
       console.warn(`[DirectorWorker] Needs attention: ${projectId} qualityScore=${completionHealth.qualityScore} criticalCount=${completionHealth.criticalCount}`);
@@ -212,7 +222,12 @@ async function handler(request: NextRequest) {
       console.warn(`[DirectorWorker] Bandit outcome recording failed (non-fatal): ${msg}`);
     }
 
-    return NextResponse.json({ success: true, totalMs: directorMs, actionsExecuted: directorResult.actionsExecuted });
+    return NextResponse.json({
+      success: true,
+      totalMs: directorMs,
+      actionsExecuted: directorResult.actionsExecuted,
+      decisionAuthority: directorDecisionAuthority,
+    });
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
