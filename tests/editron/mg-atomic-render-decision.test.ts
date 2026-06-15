@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyAtomicMotionTracks, applyAtomicRenderDecision, applyAtomicStyleAtoms, findAtomicElement } from '../../lib/editron/motion-graphics/engine/composition-renderer';
+import { applyAtomicMotionTracks, applyAtomicRenderDecision, applyAtomicStyleAtoms, findAtomicElement, resolveCompositionVisualIntent, resolveVisualIntentContentLayoutStyle, resolveVisualIntentSceneAtoms, resolveVisualIntentStageChrome } from '../../lib/editron/motion-graphics/engine/composition-renderer';
 import type { AtomicOverlayDecision } from '../../lib/editron/motion-graphics/engine/atomic-overlay-decision';
 import type { AtomicElementPlan, AtomicOverlayPlan } from '../../lib/editron/motion-graphics/engine/atomic-overlay-plan';
-import type { ComputedChoreography, ResolvedElement } from '../../lib/editron/motion-graphics/engine/recipe-types';
+import type { ComputedChoreography, RecipeVisualIntent, ResolvedElement } from '../../lib/editron/motion-graphics/engine/recipe-types';
 import { buildTextStyle, fitFontSize, type AnimationState } from '../../lib/editron/motion-graphics/engine/primitive-renderers';
+import { resolveMotionTokens } from '../../lib/editron/data/motion-theme-resolver';
 
 const baseAnim: AnimationState = {
   opacity: 0.5,
@@ -136,9 +137,308 @@ function planWith(elements: AtomicElementPlan[]): AtomicOverlayPlan {
   };
 }
 
+type VisualIntentOverrides = Partial<Omit<RecipeVisualIntent, 'renderDirectives' | 'choreography'>> & {
+  renderDirectives?: Partial<RecipeVisualIntent['renderDirectives']>;
+  choreography?: Partial<RecipeVisualIntent['choreography']>;
+};
+
+function visualIntent(overrides: VisualIntentOverrides = {}): RecipeVisualIntent {
+  const base: RecipeVisualIntent = {
+    source: 'visual-explanation-contract-v1',
+    stageMode: 'overlay-on-footage',
+    obligationKinds: ['show-magnitude'],
+    constraintKinds: ['safe-zone'],
+    evidenceAtomKeys: ['number'],
+    missingEvidence: [],
+    renderDirectives: {
+      preferFullFrame: false,
+      preferSplitLayout: false,
+      preferDeviceFrame: false,
+      transitionLed: false,
+      captionZoneAware: true,
+      suppressDecorativeAccents: true,
+      preferDataViz: false,
+    },
+    choreography: {
+      coordinateWithCaptions: true,
+      coordinateWithZoom: false,
+      coordinateWithTransition: false,
+      coordinateWithSfx: false,
+      rhythmEvidenceKeys: [],
+    },
+  };
+  const { renderDirectives, choreography, ...rest } = overrides;
+  return {
+    ...base,
+    ...rest,
+    renderDirectives: {
+      ...base.renderDirectives,
+      ...renderDirectives,
+    },
+    choreography: {
+      ...base.choreography,
+      ...choreography,
+    },
+  };
+}
+
+const stageTokens = resolveMotionTokens({}, {
+  accentColor: '#00ff00',
+  primaryColor: '#112233',
+  backgroundColor: '#010203',
+});
+
 describe('atomic render decision adapter', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('does not add stage chrome for ordinary overlay-on-footage visual intent', () => {
+    expect(resolveVisualIntentStageChrome(visualIntent(), stageTokens)).toBeUndefined();
+  });
+
+  it('resolves full-frame stage chrome from visual intent and brand tokens', () => {
+    const chrome = resolveVisualIntentStageChrome(visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      renderDirectives: { preferFullFrame: true },
+    }), stageTokens);
+
+    expect(chrome?.kind).toBe('full-frame');
+    expect(String(chrome?.rootStyle.background)).toContain('rgba(1, 2, 3, 0.88)');
+    expect(String(chrome?.frameStyle?.border)).toContain('rgba(0, 255, 0, 0.34)');
+  });
+
+  it('lets transition-led intent win over other visual stage directives', () => {
+    const chrome = resolveVisualIntentStageChrome(visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      renderDirectives: {
+        preferFullFrame: true,
+        transitionLed: true,
+      },
+    }), stageTokens);
+
+    expect(chrome?.kind).toBe('transition-led');
+    expect(chrome?.accentStyle?.height).toBe('12%');
+    expect(chrome?.frameStyle).toBeUndefined();
+  });
+
+  it('uses recipe visual intent as renderer source of truth before atomic metadata', () => {
+    const recipeIntent = visualIntent({
+      stageMode: 'device-or-screen-scene',
+      renderDirectives: { preferDeviceFrame: true },
+    });
+    const atomicIntent = visualIntent({
+      stageMode: 'split-footage-graphic',
+      renderDirectives: { preferSplitLayout: true },
+    });
+    const plan: AtomicOverlayPlan = {
+      ...planWith([]),
+      visualIntent: atomicIntent,
+    };
+
+    expect(resolveCompositionVisualIntent(recipeIntent, plan)).toBe(recipeIntent);
+    expect(resolveCompositionVisualIntent(undefined, plan)).toBe(atomicIntent);
+  });
+
+  it('spans multi-element split-stage content across the stage panels', () => {
+    const chrome = resolveVisualIntentStageChrome(visualIntent({
+      stageMode: 'split-footage-graphic',
+      renderDirectives: { preferSplitLayout: true },
+    }), stageTokens);
+    const style = resolveVisualIntentContentLayoutStyle(
+      { position: 'absolute', display: 'flex', maxWidth: '92%' },
+      chrome,
+      { position: 'center', arrangement: 'horizontal-distributed', maxWidth: '92%' },
+      2,
+    );
+
+    expect(style).toEqual(expect.objectContaining({
+      zIndex: 1,
+      left: '6%',
+      right: '6%',
+      width: 'auto',
+      maxWidth: 'none',
+      minHeight: '52%',
+      justifyContent: 'space-between',
+    }));
+  });
+
+  it('does not spread a one-element split stage away from the center', () => {
+    const chrome = resolveVisualIntentStageChrome(visualIntent({
+      stageMode: 'split-footage-graphic',
+      renderDirectives: { preferSplitLayout: true },
+    }), stageTokens);
+    const style = resolveVisualIntentContentLayoutStyle(
+      { position: 'absolute', display: 'flex', maxWidth: '92%' },
+      chrome,
+      { position: 'center', arrangement: 'horizontal-distributed', maxWidth: '92%' },
+      1,
+    );
+
+    expect(style).toEqual(expect.objectContaining({
+      zIndex: 1,
+      left: '6%',
+      right: '6%',
+      width: 'auto',
+      maxWidth: 'none',
+      justifyContent: 'center',
+    }));
+  });
+
+  it('does not add scene atoms for ordinary overlay-on-footage intent', () => {
+    expect(resolveVisualIntentSceneAtoms(visualIntent(), undefined, stageTokens)).toEqual([]);
+  });
+
+  it('builds full-frame scene atoms from stage and rhythm evidence', () => {
+    const intent = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      renderDirectives: { preferFullFrame: true },
+      choreography: { rhythmEvidenceKeys: ['beat:1', 'beat:2'] },
+    });
+    const chrome = resolveVisualIntentStageChrome(intent, stageTokens);
+    const atoms = resolveVisualIntentSceneAtoms(intent, chrome, stageTokens);
+
+    expect(atoms.map((atom) => atom.kind)).toEqual([
+      'safe-frame',
+      'magnitude-scale',
+      'rhythm-tick',
+      'rhythm-tick',
+      'caption-safe-floor',
+    ]);
+    expect(atoms[0].role).toBe('full-frame-explanation-safe-frame');
+  });
+
+  it('adds magnitude and proportion atoms only from numeric obligations', () => {
+    const intent = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      obligationKinds: ['show-magnitude', 'show-proportion'],
+      renderDirectives: { preferFullFrame: true },
+    });
+    const nonNumericIntent = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      obligationKinds: ['quote-proof'],
+      renderDirectives: { preferFullFrame: true },
+    });
+    const chrome = resolveVisualIntentStageChrome(intent, stageTokens);
+    const nonNumericChrome = resolveVisualIntentStageChrome(nonNumericIntent, stageTokens);
+
+    const atoms = resolveVisualIntentSceneAtoms(intent, chrome, stageTokens);
+    const nonNumericAtoms = resolveVisualIntentSceneAtoms(nonNumericIntent, nonNumericChrome, stageTokens);
+
+    expect(atoms.map((atom) => atom.kind)).toContain('magnitude-scale');
+    expect(atoms.find((atom) => atom.kind === 'magnitude-scale')?.children).toHaveLength(4);
+    expect(atoms.map((atom) => atom.kind)).toContain('proportion-ring');
+    expect(nonNumericAtoms.some((atom) => atom.kind === 'magnitude-scale')).toBe(false);
+    expect(nonNumericAtoms.some((atom) => atom.kind === 'proportion-ring')).toBe(false);
+  });
+
+  it('adds process sequence atoms only from order or sequence obligations', () => {
+    const processIntent = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      obligationKinds: ['preserve-order', 'show-sequence'],
+      renderDirectives: { preferFullFrame: true },
+    });
+    const plainIntent = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      obligationKinds: ['show-magnitude'],
+      renderDirectives: { preferFullFrame: true },
+    });
+
+    const processChrome = resolveVisualIntentStageChrome(processIntent, stageTokens);
+    const plainChrome = resolveVisualIntentStageChrome(plainIntent, stageTokens);
+    const processTrack = resolveVisualIntentSceneAtoms(processIntent, processChrome, stageTokens)
+      .find((atom) => atom.kind === 'sequence-track');
+
+    expect(processTrack?.children?.map((child) => child.kind)).toEqual(['sequence-node', 'sequence-node', 'sequence-node']);
+    expect(resolveVisualIntentSceneAtoms(plainIntent, plainChrome, stageTokens).some((atom) => atom.kind === 'sequence-track')).toBe(false);
+  });
+
+  it('adds proof bracket atoms for quote and claim proof obligations', () => {
+    const intent = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      obligationKinds: ['quote-proof', 'prove-claim'],
+      renderDirectives: { preferFullFrame: true },
+    });
+    const chrome = resolveVisualIntentStageChrome(intent, stageTokens);
+
+    expect(resolveVisualIntentSceneAtoms(intent, chrome, stageTokens).some((atom) => atom.kind === 'proof-bracket')).toBe(true);
+  });
+
+  it('adds locate/identity plinth atoms only for locate or screen-action obligations', () => {
+    const locateIntent = visualIntent({
+      stageMode: 'device-or-screen-scene',
+      obligationKinds: ['show-device-context', 'locate-object'],
+      renderDirectives: { preferDeviceFrame: true },
+    });
+    const deviceOnlyIntent = visualIntent({
+      stageMode: 'device-or-screen-scene',
+      obligationKinds: ['show-device-context'],
+      renderDirectives: { preferDeviceFrame: true },
+    });
+    const locateChrome = resolveVisualIntentStageChrome(locateIntent, stageTokens);
+    const deviceOnlyChrome = resolveVisualIntentStageChrome(deviceOnlyIntent, stageTokens);
+
+    expect(resolveVisualIntentSceneAtoms(locateIntent, locateChrome, stageTokens).some((atom) => atom.kind === 'identity-plinth')).toBe(true);
+    expect(resolveVisualIntentSceneAtoms(deviceOnlyIntent, deviceOnlyChrome, stageTokens).some((atom) => atom.kind === 'identity-plinth')).toBe(false);
+  });
+
+  it('adds a split comparison rail only when compare-peers is an obligation', () => {
+    const splitIntent = visualIntent({
+      stageMode: 'split-footage-graphic',
+      obligationKinds: ['compare-peers'],
+      renderDirectives: { preferSplitLayout: true },
+    });
+    const noComparisonIntent = visualIntent({
+      stageMode: 'split-footage-graphic',
+      obligationKinds: ['show-magnitude'],
+      renderDirectives: { preferSplitLayout: true },
+    });
+
+    const splitChrome = resolveVisualIntentStageChrome(splitIntent, stageTokens);
+    const noComparisonChrome = resolveVisualIntentStageChrome(noComparisonIntent, stageTokens);
+
+    expect(resolveVisualIntentSceneAtoms(splitIntent, splitChrome, stageTokens).some((atom) => atom.kind === 'comparison-rail')).toBe(true);
+    expect(resolveVisualIntentSceneAtoms(noComparisonIntent, noComparisonChrome, stageTokens).some((atom) => atom.kind === 'comparison-rail')).toBe(false);
+  });
+
+  it('builds device shell and search field atoms from device/search obligations', () => {
+    const intent = visualIntent({
+      stageMode: 'device-or-screen-scene',
+      obligationKinds: ['show-device-context', 'show-search-query'],
+      renderDirectives: { preferDeviceFrame: true },
+    });
+    const chrome = resolveVisualIntentStageChrome(intent, stageTokens);
+    const atoms = resolveVisualIntentSceneAtoms(intent, chrome, stageTokens);
+
+    expect(atoms.map((atom) => atom.kind)).toContain('device-shell');
+    expect(atoms.map((atom) => atom.kind)).toContain('search-field');
+    expect(atoms.find((atom) => atom.kind === 'device-shell')?.children?.map((child) => child.role)).toEqual([
+      'device-window-control-a',
+      'device-window-control-b',
+      'device-window-control-c',
+    ]);
+  });
+
+  it('does not fake a search field when device content lacks search obligation', () => {
+    const intent = visualIntent({
+      stageMode: 'device-or-screen-scene',
+      obligationKinds: ['show-device-context'],
+      renderDirectives: { preferDeviceFrame: true },
+    });
+    const chrome = resolveVisualIntentStageChrome(intent, stageTokens);
+
+    expect(resolveVisualIntentSceneAtoms(intent, chrome, stageTokens).some((atom) => atom.kind === 'search-field')).toBe(false);
+  });
+
+  it('builds transition band atoms for MG-led transition stage intent', () => {
+    const intent = visualIntent({
+      stageMode: 'mg-led-transition',
+      obligationKinds: ['land-on-rhythm'],
+      renderDirectives: { transitionLed: true },
+    });
+    const chrome = resolveVisualIntentStageChrome(intent, stageTokens);
+
+    expect(resolveVisualIntentSceneAtoms(intent, chrome, stageTokens).some((atom) => atom.kind === 'transition-band')).toBe(true);
   });
 
   it('preserves legacy animation state when no decision is provided', () => {
@@ -263,6 +563,22 @@ describe('atomic render decision adapter', () => {
 
     expect(size).toBeLessThan(98);
     expect('Selection Bias'.length * size * 0.62).toBeLessThanOrEqual(864 * 0.9);
+  });
+
+  it('lets long support copy wrap instead of shrinking below the readable floor', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const size = fitFontSize(
+      'Promoting inflammatory discussion over enthusiasm',
+      864,
+      59,
+      36,
+      {},
+      (text, px) => text.length * px * 0.62,
+    );
+
+    expect(size).toBe(59);
+    expect('inflammatory'.length * size * 0.62).toBeLessThanOrEqual(864 * 0.9);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('applies gradient text atoms as glyph-clipped color', () => {

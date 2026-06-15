@@ -314,10 +314,20 @@ describe('EDL executor atomic overlay observe mode', () => {
       allowMotionGraphic: true,
       calibration: expect.objectContaining({ status: 'invented-needs-calibration' }),
     }));
+    expect(motionGraphic.metadata.visualExplanationContract).toBe(motionGraphic.metadata.mgExpressionAuthority.visualExplanationContract);
     expect(motionGraphic.metadata.mgExpressionAuthority.typography.fontSizePx).toBeGreaterThanOrEqual(72);
     expect(motionGraphic.recipe.layout.position).toBe('top-right');
     expect(motionGraphic.recipe.layout.maxWidth).toMatch(/%$/);
+    expect(motionGraphic.recipe.visualIntent).toEqual(expect.objectContaining({
+      source: 'visual-explanation-contract-v1',
+      obligationKinds: expect.arrayContaining(['show-magnitude']),
+    }));
     expect(atomicPlan.recipeId).toBe('composed-numeric');
+    expect(atomicPlan.visualIntent).toEqual(expect.objectContaining({
+      source: 'visual-explanation-contract-v1',
+      stageMode: motionGraphic.recipe.visualIntent.stageMode,
+      obligationKinds: expect.arrayContaining(['show-magnitude']),
+    }));
     expect(atomicPlan.elements.some((element: any) => element.role === 'counter')).toBe(true);
     expect(atomicPlan.elements.some((element: any) => element.motion.tracks.some((track: any) => track.property === 'z'))).toBe(true);
     expect(atomicPlan.intensity.signal).toBeGreaterThan(0.7);

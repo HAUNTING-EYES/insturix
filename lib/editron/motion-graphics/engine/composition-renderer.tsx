@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { CompositionRendererProps } from './recipe-types';
 import type { ResolvedElement, ComputedChoreography, DepthLayer } from './recipe-types';
 import { resolveElements } from './property-resolver';
@@ -28,6 +28,57 @@ interface CompositionRendererInternalProps extends CompositionRendererProps {
 
 const atomicFallbackWarnings = new Set<string>();
 
+type VisualIntent = CompositionRendererProps['recipe']['visualIntent'];
+
+export type VisualIntentStageChromeKind =
+  | 'full-frame'
+  | 'split-layout'
+  | 'device-frame'
+  | 'transition-led';
+
+export interface VisualIntentStageChrome {
+  kind: VisualIntentStageChromeKind;
+  rootStyle: React.CSSProperties;
+  frameStyle?: React.CSSProperties;
+  leftPanelStyle?: React.CSSProperties;
+  rightPanelStyle?: React.CSSProperties;
+  dividerStyle?: React.CSSProperties;
+  accentStyle?: React.CSSProperties;
+}
+
+export type VisualIntentSceneAtomKind =
+  | 'safe-frame'
+  | 'caption-safe-floor'
+  | 'comparison-rail'
+  | 'device-shell'
+  | 'search-field'
+  | 'transition-band'
+  | 'rhythm-tick'
+  | 'magnitude-scale'
+  | 'proportion-ring'
+  | 'sequence-track'
+  | 'sequence-node'
+  | 'proof-bracket'
+  | 'identity-plinth'
+  | 'semantic-stat-field'
+  | 'semantic-stat-axis'
+  | 'semantic-concept-map'
+  | 'semantic-concept-node'
+  | 'semantic-identity-frame';
+
+export interface VisualIntentSceneAtom {
+  kind: VisualIntentSceneAtomKind;
+  role: string;
+  style: React.CSSProperties;
+  children?: VisualIntentSceneAtom[];
+}
+
+export interface VisualIntentContentElementMotion {
+  opacity: number;
+  transform: string;
+  filter?: string;
+}
+
 function warnAtomicFallback(reason: string, details?: string): void {
   const key = `${reason}:${details ?? ''}`;
   if (atomicFallbackWarnings.has(key)) return;
@@ -37,6 +88,1024 @@ function warnAtomicFallback(reason: string, details?: string): void {
     `${details ? ` (${details})` : ''}. Falling back to legacy MG behavior.`,
   );
 }
+
+export function resolveCompositionVisualIntent(
+  recipeIntent: VisualIntent,
+  atomicPlan?: AtomicOverlayPlan,
+): VisualIntent {
+  return recipeIntent ?? atomicPlan?.visualIntent;
+}
+
+export function resolveVisualIntentStageChrome(
+  visualIntent: VisualIntent,
+  language: CompositionRendererProps['language'],
+): VisualIntentStageChrome | undefined {
+  if (!visualIntent) return undefined;
+
+  const kind = resolveVisualIntentStageChromeKind(visualIntent);
+  if (!kind) return undefined;
+
+  const accent = language.color.accent;
+  const primary = language.color.primary;
+  const surface = language.color.surfaceBase;
+  const radius = Math.max(8, language.surface.cornerRadius + 6);
+  const borderWeight = Math.max(1, language.surface.borderWeight);
+  const rootStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    overflow: 'hidden',
+    pointerEvents: 'none',
+    zIndex: 0,
+  };
+
+  switch (kind) {
+    case 'full-frame':
+      return {
+        kind,
+        rootStyle: {
+          ...rootStyle,
+          background: [
+            `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.18)} 0%, transparent 42%)`,
+            `linear-gradient(135deg, ${withAlpha(surface, 0.88)} 0%, ${withAlpha(primary, 0.42)} 58%, ${withAlpha(accent, 0.28)} 100%)`,
+          ].join(', '),
+        },
+        frameStyle: {
+          position: 'absolute',
+          inset: '5%',
+          border: `${borderWeight}px solid ${withAlpha(accent, 0.34)}`,
+          borderRadius: radius,
+          boxShadow: `inset 0 0 120px ${withAlpha(surface, 0.46)}, 0 0 60px ${withAlpha(accent, 0.16)}`,
+        },
+      };
+    case 'split-layout':
+      return {
+        kind,
+        rootStyle: {
+          ...rootStyle,
+          background: [
+            `linear-gradient(90deg, ${withAlpha(surface, 0.42)} 0%, ${withAlpha(surface, 0.42)} 49.4%,`,
+            `${withAlpha(accent, 0.3)} 49.4%, ${withAlpha(accent, 0.3)} 50.6%,`,
+            `${withAlpha(primary, 0.22)} 50.6%, ${withAlpha(primary, 0.22)} 100%)`,
+          ].join(' '),
+        },
+        leftPanelStyle: {
+          position: 'absolute',
+          top: '10%',
+          bottom: '12%',
+          left: '6%',
+          right: '51.8%',
+          borderRadius: radius,
+          border: `1px solid ${withAlpha(primary, 0.28)}`,
+          background: withAlpha(surface, 0.22),
+        },
+        rightPanelStyle: {
+          position: 'absolute',
+          top: '10%',
+          bottom: '12%',
+          left: '51.8%',
+          right: '6%',
+          borderRadius: radius,
+          border: `1px solid ${withAlpha(accent, 0.28)}`,
+          background: withAlpha(accent, 0.1),
+        },
+        dividerStyle: {
+          position: 'absolute',
+          top: '10%',
+          bottom: '12%',
+          left: '50%',
+          width: 3,
+          transform: 'translateX(-50%)',
+          borderRadius: 999,
+          background: withAlpha(accent, 0.78),
+          boxShadow: `0 0 28px ${withAlpha(accent, 0.28)}`,
+        },
+      };
+    case 'device-frame':
+      return {
+        kind,
+        rootStyle: {
+          ...rootStyle,
+          background: `radial-gradient(circle at 50% 50%, ${withAlpha(accent, 0.12)} 0%, transparent 46%)`,
+        },
+        frameStyle: {
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: '78%',
+          height: '68%',
+          transform: 'translate(-50%, -50%)',
+          borderRadius: Math.max(24, radius + 12),
+          border: `6px solid ${withAlpha(surface, 0.74)}`,
+          background: `linear-gradient(180deg, ${withAlpha(primary, 0.2)} 0%, ${withAlpha(surface, 0.28)} 100%)`,
+          boxShadow: `0 28px 90px ${withAlpha(surface, 0.42)}, inset 0 0 0 1px ${withAlpha(accent, 0.3)}`,
+        },
+        accentStyle: {
+          position: 'absolute',
+          top: '17%',
+          left: '50%',
+          width: '14%',
+          height: 5,
+          transform: 'translateX(-50%)',
+          borderRadius: 999,
+          background: withAlpha(accent, 0.7),
+        },
+      };
+    case 'transition-led':
+      return {
+        kind,
+        rootStyle: {
+          ...rootStyle,
+          background: 'transparent',
+        },
+        accentStyle: {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '12%',
+          background: `linear-gradient(90deg, transparent 0%, ${withAlpha(accent, 0.72)} 36%, ${withAlpha(primary, 0.56)} 64%, transparent 100%)`,
+          boxShadow: `0 24px 60px ${withAlpha(accent, 0.18)}`,
+        },
+        dividerStyle: {
+          position: 'absolute',
+          top: '12%',
+          left: '5%',
+          right: '5%',
+          height: 1,
+          background: withAlpha(accent, 0.42),
+        },
+      };
+    default:
+      return undefined;
+  }
+}
+
+export function resolveVisualIntentContentLayoutStyle(
+  layoutStyle: React.CSSProperties,
+  stageChrome: VisualIntentStageChrome | undefined,
+  layout: CompositionRendererProps['recipe']['layout'],
+  elementCount: number,
+): React.CSSProperties {
+  if (!stageChrome) return layoutStyle;
+
+  const base = { ...layoutStyle, zIndex: 1 };
+  const layoutWidth = layout.maxWidth ?? '88%';
+
+  if (stageChrome.kind === 'full-frame') {
+    return {
+      ...base,
+      top: '50%',
+      left: '50%',
+      right: undefined,
+      bottom: undefined,
+      transform: 'translate(-50%, -50%)',
+      width: layoutWidth,
+      maxWidth: layoutWidth,
+      minHeight: elementCount >= 3 ? '48%' : '40%',
+      justifyContent: 'center',
+      alignItems: 'center',
+      textAlign: 'center',
+      gap: elementCount >= 3 ? '14px' : '10px',
+    };
+  }
+
+  if (stageChrome.kind === 'device-frame') {
+    const width = layout.maxWidth ?? '72%';
+    return {
+      ...base,
+      top: '52%',
+      left: '50%',
+      right: undefined,
+      bottom: undefined,
+      transform: 'translate(-50%, -50%)',
+      width,
+      maxWidth: width,
+      minHeight: '34%',
+      justifyContent: 'center',
+      alignItems: 'center',
+      textAlign: 'center',
+    };
+  }
+
+  if (stageChrome.kind === 'transition-led') {
+    return {
+      ...base,
+      top: '6%',
+      left: '5%',
+      right: '5%',
+      bottom: undefined,
+      width: 'auto',
+      maxWidth: 'none',
+      justifyContent: 'center',
+      alignItems: 'center',
+      textAlign: 'center',
+    };
+  }
+
+  if (stageChrome.kind !== 'split-layout') {
+    return base;
+  }
+
+  const splitBase: React.CSSProperties = {
+    ...base,
+    top: '50%',
+    left: '6%',
+    right: '6%',
+    bottom: undefined,
+    transform: 'translateY(-50%)',
+    width: 'auto',
+    maxWidth: 'none',
+    minHeight: '52%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    textAlign: 'center',
+  };
+
+  if (layout.arrangement !== 'horizontal-distributed' || elementCount < 2) {
+    return splitBase;
+  }
+
+  return {
+    ...splitBase,
+    flexDirection: 'row',
+    gap: '22px',
+    justifyContent: 'space-between',
+  };
+}
+
+export function resolveVisualIntentSceneAtoms(
+  visualIntent: VisualIntent,
+  stageChrome: VisualIntentStageChrome | undefined,
+  language: CompositionRendererProps['language'],
+): VisualIntentSceneAtom[] {
+  if (!visualIntent || !stageChrome) return [];
+
+  const accent = language.color.accent;
+  const primary = language.color.primary;
+  const surface = language.color.surfaceBase;
+  const obligations = new Set(visualIntent.obligationKinds);
+  const atoms: VisualIntentSceneAtom[] = [];
+
+  if (stageChrome.kind === 'full-frame') {
+    atoms.push({
+      kind: 'safe-frame',
+      role: 'full-frame-explanation-safe-frame',
+      style: {
+        position: 'absolute',
+        inset: '9%',
+        borderRadius: Math.max(12, language.surface.cornerRadius + 10),
+        border: `1px solid ${withAlpha(accent, 0.26)}`,
+        boxShadow: `0 0 0 1px ${withAlpha(surface, 0.18)}, inset 0 0 80px ${withAlpha(primary, 0.16)}`,
+      },
+    });
+  }
+
+  if (stageChrome.kind === 'full-frame' && obligations.has('show-magnitude')) {
+    atoms.push({
+      kind: 'magnitude-scale',
+      role: 'magnitude-obligation-scale',
+      style: {
+        position: 'absolute',
+        left: '14%',
+        right: '14%',
+        bottom: '22%',
+        height: '9%',
+        borderRadius: 999,
+        background: `linear-gradient(90deg, ${withAlpha(primary, 0.08)} 0%, ${withAlpha(accent, 0.72)} 100%)`,
+        boxShadow: `0 18px 50px ${withAlpha(accent, 0.18)}`,
+      },
+      children: buildScaleTicks(accent),
+    });
+  }
+
+  if (stageChrome.kind === 'full-frame' && obligations.has('show-proportion')) {
+    atoms.push({
+      kind: 'proportion-ring',
+      role: 'proportion-obligation-ring',
+      style: {
+        position: 'absolute',
+        top: '15%',
+        right: '13%',
+        width: '18%',
+        aspectRatio: '1 / 1',
+        borderRadius: '50%',
+        background: `conic-gradient(${withAlpha(accent, 0.82)} 0 252deg, ${withAlpha(surface, 0.24)} 252deg 360deg)`,
+        boxShadow: `0 20px 60px ${withAlpha(accent, 0.16)}`,
+      },
+      children: [
+        {
+          kind: 'proportion-ring',
+          role: 'proportion-obligation-ring-core',
+          style: {
+            position: 'absolute',
+            inset: '16%',
+            borderRadius: '50%',
+            background: withAlpha(surface, 0.78),
+          },
+        },
+      ],
+    });
+  }
+
+  if (obligations.has('preserve-order') || obligations.has('show-sequence')) {
+    atoms.push({
+      kind: 'sequence-track',
+      role: 'sequence-obligation-track',
+      style: {
+        position: 'absolute',
+        left: stageChrome.kind === 'split-layout' ? '52%' : '16%',
+        right: stageChrome.kind === 'split-layout' ? '8%' : '16%',
+        bottom: stageChrome.kind === 'transition-led' ? '70%' : '19%',
+        height: 3,
+        borderRadius: 999,
+        background: `linear-gradient(90deg, ${withAlpha(accent, 0.18)} 0%, ${withAlpha(accent, 0.72)} 100%)`,
+      },
+      children: [0, 1, 2].map((index): VisualIntentSceneAtom => ({
+        kind: 'sequence-node',
+        role: `sequence-obligation-node-${index + 1}`,
+        style: {
+          position: 'absolute',
+          top: '50%',
+          left: `${index * 50}%`,
+          width: 14,
+          height: 14,
+          transform: 'translate(-50%, -50%)',
+          borderRadius: 999,
+          background: withAlpha(index === 2 ? accent : primary, index === 2 ? 0.88 : 0.52),
+          boxShadow: `0 0 18px ${withAlpha(accent, 0.18 + index * 0.08)}`,
+        },
+      })),
+    });
+  }
+
+  if (obligations.has('quote-proof') || obligations.has('prove-claim') || obligations.has('refute-claim')) {
+    atoms.push({
+      kind: 'proof-bracket',
+      role: 'proof-obligation-bracket',
+      style: {
+        position: 'absolute',
+        top: stageChrome.kind === 'full-frame' ? '24%' : '18%',
+        bottom: stageChrome.kind === 'full-frame' ? '24%' : '18%',
+        left: stageChrome.kind === 'split-layout' ? '53%' : '10%',
+        width: 5,
+        borderRadius: 999,
+        background: `linear-gradient(180deg, ${withAlpha(accent, 0.0)} 0%, ${withAlpha(accent, 0.78)} 18%, ${withAlpha(accent, 0.78)} 82%, ${withAlpha(accent, 0.0)} 100%)`,
+        boxShadow: `0 0 30px ${withAlpha(accent, 0.2)}`,
+      },
+    });
+  }
+
+  if (obligations.has('locate-object') || obligations.has('explain-screen-action')) {
+    atoms.push({
+      kind: 'identity-plinth',
+      role: 'locate-or-identity-obligation-plinth',
+      style: {
+        position: 'absolute',
+        left: stageChrome.kind === 'device-frame' ? '21%' : '12%',
+        bottom: stageChrome.kind === 'device-frame' ? '20%' : '24%',
+        width: stageChrome.kind === 'device-frame' ? '24%' : '30%',
+        height: 4,
+        borderRadius: 999,
+        background: withAlpha(accent, 0.7),
+        boxShadow: `0 0 28px ${withAlpha(accent, 0.22)}`,
+      },
+    });
+  }
+
+  if (stageChrome.kind === 'split-layout' && obligations.has('compare-peers')) {
+    atoms.push({
+      kind: 'comparison-rail',
+      role: 'split-comparison-obligation-rail',
+      style: {
+        position: 'absolute',
+        top: '50%',
+        left: '10%',
+        right: '10%',
+        height: 2,
+        transform: 'translateY(-50%)',
+        background: `linear-gradient(90deg, ${withAlpha(primary, 0.0)} 0%, ${withAlpha(primary, 0.54)} 22%, ${withAlpha(accent, 0.84)} 50%, ${withAlpha(primary, 0.54)} 78%, ${withAlpha(primary, 0.0)} 100%)`,
+        boxShadow: `0 0 28px ${withAlpha(accent, 0.22)}`,
+      },
+    });
+  }
+
+  if (stageChrome.kind === 'device-frame') {
+    atoms.push({
+      kind: 'device-shell',
+      role: 'device-context-shell',
+      style: {
+        position: 'absolute',
+        top: '18%',
+        left: '14%',
+        right: '14%',
+        height: '7%',
+        borderRadius: '18px 18px 8px 8px',
+        background: withAlpha(surface, 0.42),
+        borderBottom: `1px solid ${withAlpha(accent, 0.24)}`,
+      },
+      children: [
+        {
+          kind: 'rhythm-tick',
+          role: 'device-window-control-a',
+          style: deviceDotStyle(accent, 0),
+        },
+        {
+          kind: 'rhythm-tick',
+          role: 'device-window-control-b',
+          style: deviceDotStyle(primary, 18),
+        },
+        {
+          kind: 'rhythm-tick',
+          role: 'device-window-control-c',
+          style: deviceDotStyle(accent, 36),
+        },
+      ],
+    });
+  }
+
+  if (stageChrome.kind === 'device-frame' && obligations.has('show-search-query')) {
+    atoms.push({
+      kind: 'search-field',
+      role: 'search-query-obligation-field',
+      style: {
+        position: 'absolute',
+        top: '28%',
+        left: '23%',
+        right: '23%',
+        height: '8%',
+        borderRadius: 999,
+        border: `1px solid ${withAlpha(accent, 0.32)}`,
+        background: withAlpha(surface, 0.34),
+        boxShadow: `inset 0 0 0 1px ${withAlpha(primary, 0.12)}`,
+      },
+      children: [
+        {
+          kind: 'rhythm-tick',
+          role: 'search-caret',
+          style: {
+            position: 'absolute',
+            top: '24%',
+            bottom: '24%',
+            left: '11%',
+            width: 2,
+            borderRadius: 999,
+            background: withAlpha(accent, 0.86),
+          },
+        },
+      ],
+    });
+  }
+
+  if (stageChrome.kind === 'transition-led') {
+    atoms.push({
+      kind: 'transition-band',
+      role: 'transition-obligation-energy-band',
+      style: {
+        position: 'absolute',
+        top: '4%',
+        left: '5%',
+        right: '5%',
+        height: '18%',
+        borderRadius: 999,
+        background: `linear-gradient(90deg, ${withAlpha(primary, 0)} 0%, ${withAlpha(accent, 0.18)} 22%, ${withAlpha(accent, 0.62)} 50%, ${withAlpha(primary, 0.18)} 78%, ${withAlpha(primary, 0)} 100%)`,
+        filter: 'blur(0.4px)',
+      },
+    });
+  }
+
+  if (visualIntent.choreography.rhythmEvidenceKeys.length > 0) {
+    atoms.push(...visualIntent.choreography.rhythmEvidenceKeys.slice(0, 6).map((_, index, list): VisualIntentSceneAtom => ({
+      kind: 'rhythm-tick',
+      role: `rhythm-evidence-tick-${index + 1}`,
+      style: {
+        position: 'absolute',
+        left: `${18 + (index * (64 / Math.max(1, list.length - 1)))}%`,
+        bottom: stageChrome.kind === 'transition-led' ? '75%' : '10%',
+        width: 3,
+        height: stageChrome.kind === 'transition-led' ? '10%' : '5%',
+        borderRadius: 999,
+        background: withAlpha(accent, 0.34 + index * 0.06),
+      },
+    })));
+  }
+
+  if (visualIntent.renderDirectives.captionZoneAware) {
+    atoms.push({
+      kind: 'caption-safe-floor',
+      role: 'caption-safe-reserved-floor',
+      style: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: '18%',
+        background: `linear-gradient(180deg, ${withAlpha(surface, 0)} 0%, ${withAlpha(surface, 0.22)} 100%)`,
+      },
+    });
+  }
+
+  return atoms;
+}
+
+type SemanticContentKind = 'numeric' | 'concept' | 'identity' | 'none';
+
+export function resolveSemanticContentSceneAtoms(
+  content: Record<string, unknown>,
+  elements: Pick<ResolvedElement, 'role' | 'primitive' | 'resolvedProps'>[],
+  language: CompositionRendererProps['language'],
+): VisualIntentSceneAtom[] {
+  const kind = resolveSemanticContentKind(content, elements);
+  if (kind === 'none') return [];
+
+  const accent = language.color.accent;
+  const primary = language.color.primary;
+  const surface = language.color.surfaceBase;
+  const radius = Math.max(10, language.surface.cornerRadius + 8);
+
+  if (kind === 'numeric') {
+    const ratio = resolveNumericContentRatio(content, elements);
+    const sweepDeg = Math.round(32 + ratio * 296);
+    return [
+      {
+        kind: 'semantic-stat-field',
+        role: 'semantic-stat-magnitude-field',
+        style: {
+          position: 'absolute',
+          top: '7%',
+          right: '3%',
+          width: '30%',
+          aspectRatio: '1 / 1',
+          borderRadius: '50%',
+          background: `conic-gradient(${withAlpha(accent, 0.5)} 0 ${sweepDeg}deg, ${withAlpha(surface, 0.12)} ${sweepDeg}deg 360deg)`,
+          boxShadow: `0 28px 90px ${withAlpha(accent, 0.1)}`,
+        },
+        children: [
+          {
+            kind: 'semantic-stat-field',
+            role: 'semantic-stat-magnitude-field-core',
+            style: {
+              position: 'absolute',
+              inset: '18%',
+              borderRadius: '50%',
+              background: `radial-gradient(circle, ${withAlpha(surface, 0.52)} 0%, ${withAlpha(primary, 0.18)} 100%)`,
+              border: `1px solid ${withAlpha(accent, 0.18)}`,
+            },
+          },
+        ],
+      },
+      {
+        kind: 'semantic-stat-axis',
+        role: 'semantic-stat-magnitude-axis',
+        style: {
+          position: 'absolute',
+          left: '9%',
+          right: '9%',
+          bottom: '16%',
+          height: '9%',
+          borderRadius: 999,
+          background: `linear-gradient(90deg, ${withAlpha(primary, 0.1)} 0%, ${withAlpha(accent, 0.22)} 42%, ${withAlpha(accent, 0.56)} 100%)`,
+          boxShadow: `0 18px 58px ${withAlpha(accent, 0.1)}`,
+        },
+        children: buildScaleTicks(accent),
+      },
+    ];
+  }
+
+  if (kind === 'concept') {
+    return [
+      {
+        kind: 'semantic-concept-map',
+        role: 'semantic-concept-claim-map',
+        style: {
+          position: 'absolute',
+          inset: '11% 8% 14%',
+          borderRadius: radius,
+          border: `1px solid ${withAlpha(accent, 0.22)}`,
+          background: [
+            `radial-gradient(circle at 50% 50%, ${withAlpha(accent, 0.18)} 0%, transparent 32%)`,
+            `linear-gradient(135deg, ${withAlpha(surface, 0.26)} 0%, ${withAlpha(primary, 0.16)} 100%)`,
+          ].join(', '),
+          boxShadow: `inset 0 0 80px ${withAlpha(primary, 0.12)}`,
+        },
+        children: [
+          semanticNode('semantic-concept-node-main', '50%', '42%', '26%', '20%', accent, surface),
+          semanticNode('semantic-concept-node-context', '24%', '63%', '18%', '13%', primary, surface),
+          semanticNode('semantic-concept-node-proof', '76%', '64%', '18%', '13%', accent, surface),
+          {
+            kind: 'semantic-concept-node',
+            role: 'semantic-concept-connector-left',
+            style: {
+              position: 'absolute',
+              left: '33%',
+              top: '58%',
+              width: '22%',
+              height: 3,
+              transform: 'rotate(18deg)',
+              transformOrigin: 'right center',
+              borderRadius: 999,
+              background: withAlpha(accent, 0.46),
+            },
+          },
+          {
+            kind: 'semantic-concept-node',
+            role: 'semantic-concept-connector-right',
+            style: {
+              position: 'absolute',
+              right: '33%',
+              top: '58%',
+              width: '22%',
+              height: 3,
+              transform: 'rotate(-18deg)',
+              transformOrigin: 'left center',
+              borderRadius: 999,
+              background: withAlpha(accent, 0.46),
+            },
+          },
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      kind: 'semantic-identity-frame',
+      role: 'semantic-identity-speaker-frame',
+      style: {
+        position: 'absolute',
+        left: '8%',
+        right: '8%',
+        bottom: '18%',
+        height: '28%',
+        borderRadius: radius,
+        border: `1px solid ${withAlpha(accent, 0.26)}`,
+        background: `linear-gradient(90deg, ${withAlpha(surface, 0.42)} 0%, ${withAlpha(primary, 0.14)} 58%, ${withAlpha(accent, 0.1)} 100%)`,
+        boxShadow: `0 22px 70px ${withAlpha(surface, 0.28)}`,
+      },
+      children: [
+        {
+          kind: 'semantic-identity-frame',
+          role: 'semantic-identity-portrait-field',
+          style: {
+            position: 'absolute',
+            left: '4%',
+            top: '50%',
+            width: '17%',
+            aspectRatio: '1 / 1',
+            transform: 'translateY(-50%)',
+            borderRadius: '50%',
+            border: `2px solid ${withAlpha(accent, 0.5)}`,
+            background: `radial-gradient(circle, ${withAlpha(accent, 0.2)} 0%, ${withAlpha(surface, 0.46)} 68%, ${withAlpha(primary, 0.18)} 100%)`,
+            boxShadow: `0 0 44px ${withAlpha(accent, 0.18)}`,
+          },
+        },
+        {
+          kind: 'identity-plinth',
+          role: 'semantic-identity-name-plinth',
+          style: {
+            position: 'absolute',
+            left: '25%',
+            right: '9%',
+            bottom: '24%',
+            height: 4,
+            borderRadius: 999,
+            background: `linear-gradient(90deg, ${withAlpha(accent, 0.88)} 0%, ${withAlpha(accent, 0.12)} 100%)`,
+          },
+        },
+      ],
+    },
+  ];
+}
+
+function resolveSemanticContentKind(
+  content: Record<string, unknown>,
+  elements: Pick<ResolvedElement, 'role' | 'primitive' | 'resolvedProps'>[],
+): SemanticContentKind {
+  const roles = new Set(elements.map((element) => element.role));
+  const hasNumericValue = Boolean(contentText(content.value) ?? contentText(content.amount) ?? contentText(content.metric));
+  const hasNumericRole = roles.has('counter') || roles.has('stat') || roles.has('metric');
+  if (hasNumericValue || hasNumericRole || elements.some((element) => looksNumeric(contentText(element.resolvedProps?.text)))) {
+    return 'numeric';
+  }
+
+  const hasName = Boolean(contentText(content.name) || contentText(content.speaker) || contentText(content.person));
+  const hasTitle = Boolean(contentText(content.title) || contentText(content.role));
+  if (hasName && hasTitle) return 'identity';
+
+  const hasConceptTitle = Boolean(contentText(content.title) || contentText(content.keyword) || contentText(content.concept));
+  const hasConceptBody = Boolean(contentText(content.body) || contentText(content.description) || contentText(content.explanation));
+  if (hasConceptTitle && hasConceptBody) return 'concept';
+
+  return 'none';
+}
+
+function semanticNode(
+  role: string,
+  left: string,
+  top: string,
+  width: string,
+  height: string,
+  color: string,
+  surface: string,
+): VisualIntentSceneAtom {
+  return {
+    kind: 'semantic-concept-node',
+    role,
+    style: {
+      position: 'absolute',
+      left,
+      top,
+      width,
+      height,
+      transform: 'translate(-50%, -50%)',
+      borderRadius: 999,
+      border: `1px solid ${withAlpha(color, 0.38)}`,
+      background: `linear-gradient(135deg, ${withAlpha(color, 0.22)} 0%, ${withAlpha(surface, 0.44)} 100%)`,
+      boxShadow: `0 18px 50px ${withAlpha(color, 0.12)}`,
+    },
+  };
+}
+
+function resolveNumericContentRatio(
+  content: Record<string, unknown>,
+  elements: Pick<ResolvedElement, 'resolvedProps'>[],
+): number {
+  const source = contentText(content.value)
+    ?? contentText(content.amount)
+    ?? contentText(content.metric)
+    ?? elements.map((element) => contentText(element.resolvedProps?.text)).find((value) => value && looksNumeric(value));
+  if (!source) return 0.5;
+
+  const numeric = Number.parseFloat(source.replace(/,/g, ''));
+  if (!Number.isFinite(numeric)) return 0.5;
+  if (/%/.test(source)) return clamp01(numeric / 100);
+  if (numeric >= 0 && numeric <= 1) return clamp01(numeric);
+  if (numeric > 1 && numeric <= 100) return clamp01(numeric / 100);
+  return 0.72;
+}
+
+function contentText(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function looksNumeric(value: string | undefined): boolean {
+  return Boolean(value && /^[-+]?\$?\d[\d,]*(?:\.\d+)?%?$/.test(value.trim()));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function deviceDotStyle(color: string, offsetPx: number): React.CSSProperties {
+  return {
+    position: 'absolute',
+    top: '50%',
+    left: 18 + offsetPx,
+    width: 8,
+    height: 8,
+    transform: 'translateY(-50%)',
+    borderRadius: 999,
+    background: withAlpha(color, 0.62),
+  };
+}
+
+function buildScaleTicks(color: string): VisualIntentSceneAtom[] {
+  return [0, 1, 2, 3].map((index): VisualIntentSceneAtom => ({
+    kind: 'rhythm-tick',
+    role: `magnitude-scale-tick-${index + 1}`,
+    style: {
+      position: 'absolute',
+      top: '50%',
+      left: `${12 + index * 24}%`,
+      width: 2,
+      height: `${34 + index * 12}%`,
+      transform: 'translateY(-50%)',
+      borderRadius: 999,
+      background: withAlpha(color, 0.32 + index * 0.12),
+    },
+  }));
+}
+
+function resolveVisualIntentStageChromeKind(visualIntent: NonNullable<VisualIntent>): VisualIntentStageChromeKind | undefined {
+  const directives = visualIntent.renderDirectives;
+  if (visualIntent.stageMode === 'mg-led-transition' || directives.transitionLed) return 'transition-led';
+  if (visualIntent.stageMode === 'device-or-screen-scene' || directives.preferDeviceFrame) return 'device-frame';
+  if (visualIntent.stageMode === 'split-footage-graphic' || directives.preferSplitLayout) return 'split-layout';
+  if (
+    visualIntent.stageMode === 'full-frame-graphic-scene'
+    || visualIntent.stageMode === 'interstitial-graphic-scene'
+    || directives.preferFullFrame
+  ) {
+    return 'full-frame';
+  }
+  return undefined;
+}
+
+function withAlpha(color: string | undefined, alpha: number): string {
+  const source = color?.trim() || '#000000';
+  const hex = source.match(/^#([0-9a-f]{6})$/i);
+  if (!hex) return source;
+  const value = hex[1];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+const VisualIntentStageChromeLayer: React.FC<{ chrome: VisualIntentStageChrome }> = ({ chrome }) => (
+  <div aria-hidden style={chrome.rootStyle}>
+    {chrome.frameStyle ? <div style={chrome.frameStyle} /> : null}
+    {chrome.leftPanelStyle ? <div style={chrome.leftPanelStyle} /> : null}
+    {chrome.rightPanelStyle ? <div style={chrome.rightPanelStyle} /> : null}
+    {chrome.dividerStyle ? <div style={chrome.dividerStyle} /> : null}
+    {chrome.accentStyle ? <div style={chrome.accentStyle} /> : null}
+  </div>
+);
+
+export function resolveVisualIntentSceneAtomAnimatedStyle(
+  atom: VisualIntentSceneAtom,
+  frame: number,
+  fps: number,
+  order = 0,
+): React.CSSProperties {
+  const start = Math.round(order * fps * 0.08);
+  const drawDuration = Math.max(10, Math.round(fps * 0.48));
+  const popDuration = Math.max(8, Math.round(fps * 0.34));
+  const draw = interpolate(frame, [start, start + drawDuration], [0, 1], {
+    easing: Easing.bezier(0.16, 1, 0.3, 1),
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  const pop = interpolate(frame, [start, start + popDuration], [0, 1], {
+    easing: Easing.bezier(0.34, 1.28, 0.64, 1),
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  const baseTransform = typeof atom.style.transform === 'string' ? atom.style.transform : '';
+  const withTransform = (transform: string): string => [baseTransform, transform].filter(Boolean).join(' ');
+
+  switch (atom.kind) {
+    case 'magnitude-scale':
+    case 'semantic-stat-axis':
+    case 'sequence-track':
+    case 'comparison-rail':
+    case 'transition-band':
+    case 'identity-plinth':
+      return {
+        ...atom.style,
+        opacity: draw,
+        transform: withTransform(`scaleX(${draw})`),
+        transformOrigin: 'left center',
+      };
+    case 'proof-bracket':
+      return {
+        ...atom.style,
+        opacity: draw,
+        transform: withTransform(`scaleY(${draw})`),
+        transformOrigin: 'center top',
+      };
+    case 'proportion-ring':
+    case 'semantic-stat-field':
+      return {
+        ...atom.style,
+        opacity: draw,
+        transform: withTransform(`scale(${0.82 + pop * 0.18}) rotate(${Math.round(-24 + draw * 24)}deg)`),
+      };
+    case 'semantic-concept-map':
+    case 'semantic-identity-frame':
+      return {
+        ...atom.style,
+        opacity: draw,
+        transform: withTransform(`scale(${0.96 + pop * 0.04})`),
+        transformOrigin: 'center',
+      };
+    case 'sequence-node':
+    case 'rhythm-tick':
+    case 'semantic-concept-node':
+      return {
+        ...atom.style,
+        opacity: pop,
+        transform: withTransform(`scale(${0.35 + pop * 0.65})`),
+        transformOrigin: 'center',
+      };
+    case 'device-shell':
+    case 'search-field':
+      return {
+        ...atom.style,
+        opacity: draw,
+        transform: withTransform(`translateY(${Math.round((1 - draw) * 12)}px)`),
+      };
+    case 'caption-safe-floor':
+      return {
+        ...atom.style,
+        opacity: draw,
+      };
+    case 'safe-frame':
+    default:
+      return {
+        ...atom.style,
+        opacity: draw,
+        transform: withTransform(`scale(${0.985 + draw * 0.015})`),
+      };
+  }
+}
+
+export function resolveVisualIntentContentElementMotion(
+  element: Pick<ResolvedElement, 'role' | 'primitive'>,
+  visualIntent: VisualIntent,
+  frame: number,
+  fps: number,
+  order = 0,
+): VisualIntentContentElementMotion | undefined {
+  if (!visualIntent || visualIntent.stageMode === 'overlay-on-footage') return undefined;
+
+  const roleDelayFrames = element.role === 'counter' || element.role === 'primary'
+    ? Math.round(fps * 0.22)
+    : element.role === 'secondary'
+      ? Math.round(fps * 0.32)
+      : Math.round(fps * 0.42);
+  const start = roleDelayFrames + Math.round(order * fps * 0.055);
+  const duration = Math.max(9, Math.round(fps * 0.42));
+  const progress = interpolate(frame, [start, start + duration], [0, 1], {
+    easing: Easing.bezier(0.16, 1, 0.3, 1),
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  const pop = interpolate(frame, [start, start + Math.max(8, Math.round(fps * 0.32))], [0, 1], {
+    easing: Easing.bezier(0.34, 1.22, 0.64, 1),
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  const blur = Number((1 - progress) * 5).toFixed(2);
+
+  if (visualIntent.stageMode === 'split-footage-graphic' || visualIntent.renderDirectives.preferSplitLayout) {
+    const fromLeft = element.role === 'secondary' || element.role === 'label';
+    const x = Math.round((1 - progress) * (fromLeft ? -26 : 26));
+    return {
+      opacity: progress,
+      transform: `translateX(${x}px) scale(${0.96 + pop * 0.04})`,
+      filter: `blur(${blur}px)`,
+    };
+  }
+
+  if (visualIntent.stageMode === 'device-or-screen-scene' || visualIntent.renderDirectives.preferDeviceFrame) {
+    return {
+      opacity: progress,
+      transform: `translateY(${Math.round((1 - progress) * 14)}px) scale(${0.97 + pop * 0.03})`,
+      filter: `blur(${blur}px)`,
+    };
+  }
+
+  if (visualIntent.stageMode === 'mg-led-transition' || visualIntent.renderDirectives.transitionLed) {
+    return {
+      opacity: progress,
+      transform: `translateY(${Math.round((1 - progress) * -18)}px) scale(${0.98 + pop * 0.02})`,
+      filter: `blur(${blur}px)`,
+    };
+  }
+
+  return {
+    opacity: progress,
+    transform: `translateY(${Math.round((1 - progress) * 18)}px) scale(${0.94 + pop * 0.06})`,
+    filter: `blur(${blur}px)`,
+  };
+}
+
+function applyVisualIntentContentElementMotion(
+  style: React.CSSProperties,
+  motion: VisualIntentContentElementMotion | undefined,
+): React.CSSProperties {
+  if (!motion) return style;
+  const existingTransform = typeof style.transform === 'string' ? style.transform : '';
+  const existingOpacity = typeof style.opacity === 'number' ? style.opacity : Number(style.opacity ?? 1);
+  return {
+    ...style,
+    opacity: Number.isFinite(existingOpacity) ? existingOpacity * motion.opacity : motion.opacity,
+    transform: [existingTransform, motion.transform].filter(Boolean).join(' '),
+    filter: [style.filter, motion.filter].filter(Boolean).join(' '),
+  };
+}
+
+const VisualIntentSceneAtomLayer: React.FC<{ atoms: VisualIntentSceneAtom[]; frame: number; fps: number }> = ({ atoms, frame, fps }) => (
+  <div aria-hidden style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 0 }}>
+    {atoms.map((atom, atomIndex) => (
+      <div key={atom.role} data-mg-scene-atom={atom.kind} data-role={atom.role} style={resolveVisualIntentSceneAtomAnimatedStyle(atom, frame, fps, atomIndex)}>
+        {atom.children?.map((child, childIndex) => (
+          <div
+            key={child.role}
+            data-mg-scene-atom={child.kind}
+            data-role={child.role}
+            style={resolveVisualIntentSceneAtomAnimatedStyle(child, frame, fps, atomIndex + childIndex + 1)}
+          />
+        ))}
+      </div>
+    ))}
+  </div>
+);
 
 export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = ({
   recipe,
@@ -80,6 +1149,8 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   const flipped = recipe.layout.arrangement === 'horizontal-distributed' && width / height < 1.35;
   const renderLayout = flipped ? { ...recipe.layout, arrangement: 'vertical-stack' as const } : recipe.layout;
   const layoutStyle = resolveLayout(renderLayout);
+  const visualIntent = resolveCompositionVisualIntent(recipe.visualIntent, atomicPlan);
+  const stageChrome = resolveVisualIntentStageChrome(visualIntent, language);
   // G-1: px box width for text fit = canvas width × the layout's max-width fraction.
   const boxWidthPx = width * layoutMaxWidthFraction(renderLayout);
   // When a horizontal comparison is flipped to a vertical stack (above), its baked horizontal
@@ -87,31 +1158,46 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   const elementsToRender = flipped
     ? sorted.map((el) => (el.resolvedProps?.text === '→' ? { ...el, resolvedProps: { ...el.resolvedProps, text: '↓' } } : el))
     : sorted;
+  const contentLayoutStyle = resolveVisualIntentContentLayoutStyle(
+    layoutStyle,
+    stageChrome,
+    renderLayout,
+    elementsToRender.length,
+  );
+  const visualSceneAtoms = resolveVisualIntentSceneAtoms(visualIntent, stageChrome, language);
+  const semanticSceneAtoms = resolveSemanticContentSceneAtoms(content, elementsToRender, language);
+  const sceneAtoms = [...visualSceneAtoms, ...semanticSceneAtoms];
 
   return (
-    <div style={layoutStyle}>
-      {elementsToRender.map((el, idx) => {
-        const timing = choreographyMap.get(el.role);
-        if (!timing) return null;
+    <>
+      {stageChrome ? <VisualIntentStageChromeLayer chrome={stageChrome} /> : null}
+      {sceneAtoms.length > 0 ? <VisualIntentSceneAtomLayer atoms={sceneAtoms} frame={frame} fps={fps} /> : null}
+      <div style={contentLayoutStyle}>
+        {elementsToRender.map((el, idx) => {
+          const timing = choreographyMap.get(el.role);
+          if (!timing) return null;
 
-        return (
-          <PrimitiveElement
-            key={el.renderKey ?? `${el.role}-${idx}`}
-            element={el}
-            timing={timing}
-            frame={frame}
-            fps={fps}
-            content={content}
-            spatial={spatial}
-            signalCurves={signalCurves}
-            atomicElement={findAtomicElement(atomicPlan, el, el.renderKey)}
-            atomicDecision={atomicDecision}
-            boxWidthPx={boxWidthPx}
-            canvasHeight={height}
-          />
-        );
-      })}
-    </div>
+          return (
+            <PrimitiveElement
+              key={el.renderKey ?? `${el.role}-${idx}`}
+              element={el}
+              timing={timing}
+              frame={frame}
+              fps={fps}
+              content={content}
+              spatial={spatial}
+              signalCurves={signalCurves}
+              atomicElement={findAtomicElement(atomicPlan, el, el.renderKey)}
+              atomicDecision={atomicDecision}
+              boxWidthPx={boxWidthPx}
+              canvasHeight={height}
+              visualIntent={visualIntent}
+              contentOrder={idx}
+            />
+          );
+        })}
+      </div>
+    </>
   );
 };
 
@@ -127,6 +1213,8 @@ interface PrimitiveElementProps {
   atomicDecision?: AtomicOverlayDecision;
   boxWidthPx: number;
   canvasHeight: number;
+  visualIntent: VisualIntent;
+  contentOrder: number;
 }
 
 const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
@@ -140,6 +1228,8 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   atomicDecision,
   boxWidthPx,
   canvasHeight,
+  visualIntent,
+  contentOrder,
 }) => {
   // D8: Speed ramp — remap frame through speed curve before computing animation
   const effectiveFrame = element.speedRamp
@@ -178,7 +1268,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
       if (element.entrancePattern === 'scramble' && areTimelinePluginsAvailable()) {
         return <GSAPScrambleTextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
       }
-      return <TextElement element={element} anim={anim} frame={frame} timing={timing} spatial={spatial} signalCurves={signalCurves} atomicElement={atomicElement} atomicDecision={atomicDecision} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} />;
+      return <TextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} spatial={spatial} signalCurves={signalCurves} atomicElement={atomicElement} atomicDecision={atomicDecision} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} visualIntent={visualIntent} contentOrder={contentOrder} />;
     }
     case 'image':
     case 'video-clip':
@@ -686,6 +1776,7 @@ const TextElement: React.FC<{
   element: ResolvedElement;
   anim: ReturnType<typeof computeAnimationState>;
   frame: number;
+  fps: number;
   timing: ComputedChoreography;
   spatial: SpatialConfig;
   signalCurves?: SignalCurves;
@@ -693,12 +1784,18 @@ const TextElement: React.FC<{
   atomicDecision?: AtomicOverlayDecision;
   boxWidthPx: number;
   canvasHeight: number;
-}> = ({ element, anim, frame, timing, spatial, signalCurves, atomicElement, atomicDecision, boxWidthPx, canvasHeight }) => {
+  visualIntent: VisualIntent;
+  contentOrder: number;
+}> = ({ element, anim, frame, fps, timing, spatial, signalCurves, atomicElement, atomicDecision, boxWidthPx, canvasHeight, visualIntent, contentOrder }) => {
   const p = element.resolvedProps;
   const text = String(p.text || '');
   // G-1: shrink text to fit its title-safe box (and cap focal size). undefined → legacy floor.
   const fittedSizePx = computeFittedSize(element, text, boxWidthPx, canvasHeight);
-  const style = applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision);
+  const contentMotion = resolveVisualIntentContentElementMotion(element, visualIntent, frame, fps, contentOrder);
+  const style = applyVisualIntentContentElementMotion(
+    applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision),
+    contentMotion,
+  );
 
   if (element.animation === 'count-up') {
     return <CountUpText element={element} style={style} frame={frame} timing={timing} />;

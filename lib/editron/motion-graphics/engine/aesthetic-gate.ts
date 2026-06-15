@@ -90,7 +90,6 @@ export async function runAestheticGate(
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.1,
-        seed: 42,
         maxOutputTokens: 1024,
       },
     });

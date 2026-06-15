@@ -58,6 +58,44 @@ the creative source of truth.
 - Old agent/manual template paths still exist. They may be useful as references,
   but upload-to-edit should not use them as the primary creative brain.
 
+## Current Production Blockers
+
+These are not side notes. They must be solved as part of the roadmap before
+claiming upload-to-edit quality is production-grade.
+
+1. Decision authority is still brief-led.
+   Current project evidence shows the creative brief is still the executable
+   producer when both systems exist, while signal-driven decisions are advisory
+   or evidence-only. The fix belongs in Phase 2: one planner must own executable
+   MG, caption, zoom, transition, SFX, and pacing decisions after the final cut
+   timeline exists. Signals and atoms must be the deciding layer, not metadata
+   attached after a brief-led choice.
+
+2. Failed-quality runs can still enter learning.
+   The director worker can skip direct bandit updates on critical failures, but
+   `director_completed` can still be consumed by brand-learning and recorded as
+   a low reward. The fix belongs before calibration: learning consumers must
+   reject `needs_review`, zero-quality, or high-critical-count runs unless the
+   run is explicitly marked as a diagnostic sample.
+
+3. Quality details are not persisted deeply enough.
+   Persisting only score, issue count, critical count, and timestamp is not
+   enough. The project record or attached artifact pack must retain the actual
+   issue taxonomy, affected overlay ids, timestamps, and rendered evidence links
+   so failures can be debugged without replaying logs.
+
+4. Quality telemetry names are misleading.
+   Per-action quality gate summaries and full-project quality review summaries
+   must be separated in logs and persisted fields. "0 critical" at the action
+   gate must not look like it contradicts a later full-project review with
+   critical issues.
+
+5. Transitions and SFX are still shallow.
+   Transition decisions, transition overlays, SFX candidates, rejected SFX, and
+   placed SFX must be audited together. Transition/SFX output should be governed
+   by boundary atoms, rhythm, provider quality, repetition memory, and rendered
+   evidence, not by weak hints or default compatibility names.
+
 ## Correct Architecture
 
 ```mermaid

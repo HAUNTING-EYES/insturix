@@ -22,7 +22,18 @@
 import React from 'react';
 import { useCurrentFrame, useVideoConfig, interpolate, Easing } from 'remotion';
 import { useMotionTheme } from '../context/MotionThemeContext';
-import type { StatCounterContent, StructureComponentProps } from '../types';
+
+interface StatCounterContent {
+  value: string;
+  label?: string;
+  prefix?: string;
+  suffix?: string;
+}
+
+interface StructureComponentProps<TContent> {
+  content: TContent;
+  durationInFrames: number;
+}
 
 // CRG constraint:overlay.graphic_too_small = 72px @1080p (stricter than constant 64px)
 const CRG_MIN_STAT_FONT = 72;

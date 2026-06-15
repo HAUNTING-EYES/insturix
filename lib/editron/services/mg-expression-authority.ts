@@ -1,9 +1,14 @@
 import type { MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
+import {
+  resolveVisualExplanationContract,
+  type VisualExplanationContract,
+} from '@/lib/editron/motion-graphics/engine/visual-explanation-contract';
 import type {
   ContentPartRole,
   ContentStructureSignature,
   Recipe,
   RecipeLayout,
+  RecipeVisualIntent,
 } from '@/lib/editron/motion-graphics/engine/recipe-types';
 import type { AtomicMomentBundle } from '@/lib/editron/services/moment-bundle';
 
@@ -17,6 +22,7 @@ export interface MgExpressionAuthorityInput {
   momentBundle?: AtomicMomentBundle;
   placementRegion?: string;
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
+  visualExplanationContract?: VisualExplanationContract;
 }
 
 export interface MgExpressionAuthority {
@@ -28,6 +34,7 @@ export interface MgExpressionAuthority {
   visualStrength: number;
   screenPressure: number;
   captionRedundancy: number;
+  visualExplanationContract: VisualExplanationContract;
   qualityTier: MgExpressionTier;
   reasons: string[];
   layout: {
@@ -90,7 +97,6 @@ const MEANING_ROLES: ContentPartRole[] = [
 
 export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput): MgExpressionAuthority {
   const atoms = input.semanticAtoms ?? objectRecord(input.content.semanticAtoms);
-  const structuralStrength = resolveStructuralStrength(input.content, input.structure, atoms);
   const momentStrength = resolveMomentStrength(input.signals, input.momentBundle);
   const visualStrength = resolveVisualStrength(input.signals, input.momentBundle);
   const screenPressure = resolveScreenPressure(input.signals, input.momentBundle);
@@ -98,6 +104,22 @@ export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput):
     readNumber(input.content, 'captionRedundancy')
       ?? readNumber(atoms, 'captionRedundancy')
       ?? 0,
+  );
+  const visualExplanationContract = input.visualExplanationContract ?? resolveVisualExplanationContract({
+    content: input.content,
+    structure: input.structure,
+    semanticAtoms: atoms ?? undefined,
+    signals: input.signals,
+    activeOverlayContext: {
+      captionRedundancy,
+      activeOverlayCount: readNumber(input.signals, 'active_overlay_count', 'structural.active_overlays_count'),
+    },
+  });
+  const contractObligationStrength = averageObligationConfidence(visualExplanationContract);
+  const hasEvidenceBackedVisualObligation = contractHasEvidenceBackedObligation(visualExplanationContract);
+  const structuralStrength = Math.max(
+    resolveStructuralStrength(input.content, input.structure, atoms),
+    contractObligationStrength * 0.9,
   );
   const keywordOnly = isKeywordOnly(input.content, input.structure);
   const longCopy = readableWordCount(input.content) >= 9 || readableCharCount(input.content) >= 72;
@@ -114,7 +136,9 @@ export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput):
   const strongStructureOverride = structuralStrength >= THRESHOLDS.strongStructureOverride
     && momentStrength >= THRESHOLDS.supportingMomentOverride
     && screenPressure < 0.88;
-  const allowMotionGraphic = relevanceScore >= threshold || strongStructureOverride;
+  const allowMotionGraphic = visualExplanationContract.allow
+    && hasEvidenceBackedVisualObligation
+    && (relevanceScore >= threshold || strongStructureOverride);
   const qualityTier = resolveTier(allowMotionGraphic, relevanceScore, structuralStrength, screenPressure);
   const layoutPosition = regionToLayoutPosition(input.placementRegion, input.momentBundle);
   const maxWidth = resolveMaxWidth(layoutPosition, qualityTier, longCopy, screenPressure);
@@ -130,20 +154,24 @@ export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput):
     visualStrength: round4(visualStrength),
     screenPressure: round4(screenPressure),
     captionRedundancy: round4(captionRedundancy),
+    visualExplanationContract,
     qualityTier,
-    reasons: buildReasons({
-      allowMotionGraphic,
-      keywordOnly,
-      longCopy,
-      structuralStrength,
-      momentStrength,
-      visualStrength,
-      screenPressure,
-      captionRedundancy,
-      threshold,
-      relevanceScore,
-      layoutPosition,
-    }),
+    reasons: [
+      ...buildReasons({
+        allowMotionGraphic,
+        keywordOnly,
+        longCopy,
+        structuralStrength,
+        momentStrength,
+        visualStrength,
+        screenPressure,
+        captionRedundancy,
+        threshold,
+        relevanceScore,
+        layoutPosition,
+      }),
+      ...buildVisualContractReasons(visualExplanationContract, hasEvidenceBackedVisualObligation),
+    ],
     layout: {
       position: layoutPosition,
       maxWidth,
@@ -197,14 +225,17 @@ export function applyMgExpressionAuthorityToRecipe(
   authority: MgExpressionAuthority,
 ): Recipe {
   if (!authority.allowMotionGraphic || recipe.id === 'suppressed') return recipe;
+  const visualIntent = recipeVisualIntentFromContract(authority.visualExplanationContract);
+  const authorityLayout: RecipeLayout = {
+    ...recipe.layout,
+    position: authority.layout.position,
+    maxWidth: authority.layout.maxWidth,
+    captionZoneAware: authority.layout.captionZoneAware,
+  };
   return {
     ...recipe,
-    layout: {
-      ...recipe.layout,
-      position: authority.layout.position,
-      maxWidth: authority.layout.maxWidth,
-      captionZoneAware: authority.layout.captionZoneAware,
-    },
+    layout: applyVisualIntentToLayout(authorityLayout, visualIntent),
+    visualIntent,
   };
 }
 
@@ -409,6 +440,124 @@ function buildReasons(input: {
   return reasons;
 }
 
+function averageObligationConfidence(contract: VisualExplanationContract): number {
+  if (contract.obligations.length === 0) return 0;
+  const total = contract.obligations.reduce((sum, obligation) => sum + obligation.confidence, 0);
+  return clamp01(total / contract.obligations.length);
+}
+
+function contractHasEvidenceBackedObligation(contract: VisualExplanationContract): boolean {
+  return contract.obligations.some((obligation) => obligation.evidenceAtomKeys.length > 0);
+}
+
+function buildVisualContractReasons(
+  contract: VisualExplanationContract,
+  hasEvidenceBackedVisualObligation: boolean,
+): string[] {
+  const reasons: string[] = [];
+  if (!hasEvidenceBackedVisualObligation) reasons.push('visual-contract:no-evidence-backed-obligation');
+  if (!contract.allow) reasons.push('visual-contract:observe-only-risk-or-low-gain');
+  if (contract.stageMode !== 'overlay-on-footage') reasons.push(`visual-contract:stage:${contract.stageMode}`);
+  for (const missing of contract.missingEvidence.slice(0, 4)) reasons.push(`visual-contract:missing:${missing}`);
+  return reasons;
+}
+
+function recipeVisualIntentFromContract(contract: VisualExplanationContract): RecipeVisualIntent {
+  const obligationKinds = uniqueValues(contract.obligations.map((obligation) => obligation.kind));
+  const constraintKinds = uniqueValues(contract.constraints.map((constraint) => constraint.kind));
+  const preferFullFrame = contract.stageMode === 'full-frame-graphic-scene'
+    || contract.stageMode === 'interstitial-graphic-scene';
+  const preferSplitLayout = contract.stageMode === 'split-footage-graphic';
+  const preferDeviceFrame = contract.stageMode === 'device-or-screen-scene';
+  const transitionLed = contract.stageMode === 'mg-led-transition';
+  const captionZoneAware = preferFullFrame
+    || preferSplitLayout
+    || preferDeviceFrame
+    || transitionLed
+    || constraintKinds.includes('caption-zone-aware')
+    || contract.choreography.shouldCoordinateWithCaptions;
+  const preferDataViz = obligationKinds.some((kind) => [
+    'show-cardinality',
+    'show-magnitude',
+    'show-proportion',
+    'compare-peers',
+    'preserve-order',
+    'show-sequence',
+  ].includes(kind));
+
+  return {
+    source: contract.version,
+    stageMode: contract.stageMode,
+    obligationKinds,
+    constraintKinds,
+    evidenceAtomKeys: [...contract.evidenceAtomKeys],
+    missingEvidence: [...contract.missingEvidence],
+    renderDirectives: {
+      preferFullFrame,
+      preferSplitLayout,
+      preferDeviceFrame,
+      transitionLed,
+      captionZoneAware,
+      suppressDecorativeAccents: preferFullFrame || preferDeviceFrame || constraintKinds.includes('safe-zone') || contract.renderRisk >= 0.58,
+      preferDataViz,
+    },
+    choreography: {
+      coordinateWithCaptions: contract.choreography.shouldCoordinateWithCaptions,
+      coordinateWithZoom: contract.choreography.shouldCoordinateWithZoom,
+      coordinateWithTransition: contract.choreography.shouldCoordinateWithTransition,
+      coordinateWithSfx: contract.choreography.shouldCoordinateWithSfx,
+      rhythmEvidenceKeys: [...contract.choreography.rhythmEvidenceKeys],
+    },
+  };
+}
+
+function applyVisualIntentToLayout(
+  layout: RecipeLayout,
+  visualIntent: RecipeVisualIntent,
+): RecipeLayout {
+  if (visualIntent.renderDirectives.preferSplitLayout) {
+    return {
+      ...layout,
+      position: 'center',
+      maxWidth: '92%',
+      arrangement: 'horizontal-distributed',
+      captionZoneAware: true,
+    };
+  }
+  if (visualIntent.renderDirectives.preferFullFrame) {
+    return {
+      ...layout,
+      position: 'center',
+      maxWidth: '88%',
+      arrangement: 'vertical-stack',
+      captionZoneAware: true,
+    };
+  }
+  if (visualIntent.renderDirectives.preferDeviceFrame) {
+    return {
+      ...layout,
+      position: 'center',
+      maxWidth: '78%',
+      captionZoneAware: true,
+    };
+  }
+  if (visualIntent.renderDirectives.transitionLed) {
+    return {
+      ...layout,
+      position: 'full-width-top',
+      maxWidth: '100%',
+      captionZoneAware: true,
+    };
+  }
+  if (visualIntent.renderDirectives.captionZoneAware) {
+    return {
+      ...layout,
+      captionZoneAware: true,
+    };
+  }
+  return layout;
+}
+
 function isKeywordOnly(content: Record<string, unknown>, structure: ContentStructureSignature | undefined): boolean {
   const roles = new Set((structure?.parts ?? []).map((part) => part.role));
   const hasMeaningRole = MEANING_ROLES.some((role) => roles.has(role));
@@ -507,4 +656,8 @@ function clamp(value: number, min: number, max: number): number {
 
 function round4(value: number): number {
   return Math.round(value * 10000) / 10000;
+}
+
+function uniqueValues<T extends string>(values: T[]): T[] {
+  return [...new Set(values)];
 }

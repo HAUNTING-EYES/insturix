@@ -5,6 +5,7 @@ import type {
   ExitPattern,
   PrimitiveType,
   Recipe,
+  RecipeVisualIntent,
   ResolvedElement,
   ShapeKind,
   TextSplitMode,
@@ -128,6 +129,7 @@ export interface AtomicOverlayPlan {
   exitStyle: Recipe['exitStyle'];
   brand?: AtomicBrandProfile;
   visualContext?: AtomicVisualContext;
+  visualIntent?: RecipeVisualIntent;
   intensity: AtomicOverlayIntensity;
   elements: AtomicElementPlan[];
 }
@@ -151,8 +153,7 @@ export function buildAtomicOverlayPlan(
 ): AtomicOverlayPlan {
   const resolved = flattenResolvedElements(resolveElements(recipe.elements, tokens, content));
   const elements = resolved.map((entry, index) => elementToAtomicPlan(entry, index, tokens));
-
-  return {
+  const plan: AtomicOverlayPlan = {
     recipeId: recipe.id,
     layout: recipe.layout,
     exitStyle: recipe.exitStyle,
@@ -161,6 +162,8 @@ export function buildAtomicOverlayPlan(
     intensity: deriveOverlayIntensity(elements, signals, mgScores),
     elements,
   };
+  if (recipe.visualIntent) plan.visualIntent = recipe.visualIntent;
+  return plan;
 }
 
 interface FlattenedResolvedElement {

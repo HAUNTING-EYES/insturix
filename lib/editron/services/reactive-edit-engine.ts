@@ -77,6 +77,80 @@ export interface EditDecisionList {
 const FPS = DEFAULT_CONFIG.timing.fps;
 const msToFrame = (ms: number) => Math.round((ms / 1000) * FPS);
 
+function compactParams(params: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(params).filter(([, value]) => {
+    if (value === undefined || value === null) return false;
+    if (typeof value === 'string') return value.trim().length > 0;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  }));
+}
+
+function inferGraphicKindFromSpeech(seg: SpeechSegment): string {
+  if (seg.contentType === 'statistic') return 'numeric';
+  if (seg.contentType === 'comparison') return 'comparison';
+  if (seg.contentType === 'step_instruction') return 'process';
+  if (seg.contentType === 'cta') return 'brand';
+  if (seg.contentType === 'definition' || seg.contentType === 'claim' || seg.contentType === 'social_proof') return 'structured';
+  return 'emphasis';
+}
+
+function semanticGraphicParamsFromSpeech(seg: SpeechSegment): Record<string, any> {
+  const data = seg.suggestedGraphicData || {};
+  const entities = seg.entities || [];
+  const numericEntity = entities.find(e => ['number', 'percentage', 'currency'].includes(e.type));
+  const nameEntity = entities.find(e => e.type === 'name' || e.type === 'product');
+  const conceptEntity = entities.find(e => e.type === 'concept' || e.type === 'action');
+
+  return compactParams({
+    ...data,
+    kind: data.kind || inferGraphicKindFromSpeech(seg),
+    text: data.text || data.keyword || (seg.contentType === 'emphasis' ? seg.text : undefined),
+    value: data.value || numericEntity?.value,
+    label: data.label || data.metric || numericEntity?.unit || conceptEntity?.value,
+    name: data.name || nameEntity?.value,
+    title: data.title || (seg.contentType === 'definition' ? conceptEntity?.value : undefined),
+    body: data.body || data.claim || (seg.contentType !== 'emphasis' ? seg.text : undefined),
+    from: data.from || data.before,
+    to: data.to || data.after,
+    relation: data.relation,
+    items: data.items || data.steps,
+    contentType: seg.contentType,
+    entities,
+  });
+}
+
+function semanticGraphicParamsFromSubject(
+  group: { label: string; category: string },
+  firstEntry: { box: any },
+): Record<string, any> {
+  if (group.category === 'person') {
+    return compactParams({
+      kind: 'identity',
+      name: group.label,
+      position: firstEntry.box,
+    });
+  }
+
+  return compactParams({
+    kind: group.category === 'logo' ? 'brand' : 'structured',
+    name: group.category === 'logo' ? group.label : undefined,
+    text: group.category === 'logo' ? undefined : group.label,
+    title: group.category === 'product' ? group.label : undefined,
+    position: firstEntry.box,
+    subjectCategory: group.category,
+  });
+}
+
+function semanticGraphicParamsFromTracks(tracks: string[], score: number): Record<string, any> {
+  return {
+    kind: 'emphasis',
+    text: 'Speech emphasis',
+    sourceTracks: tracks,
+    signals: Object.fromEntries(tracks.map(track => [`${track}_peak`, score])),
+  };
+}
+
 export function generateEditDecisionList(
   analyses: AssetAnalysis[],
   projectDurationMs: number,
@@ -282,12 +356,7 @@ function generateSpeechDecisions(
         source: 'speech-semantic',
         signal: `${seg.contentType}_detected`,
         reason: `${seg.contentType}: "${seg.text.substring(0, 50)}"`,
-        params: {
-          graphicType: seg.suggestedGraphicType,
-          graphicData: seg.suggestedGraphicData,
-          text: seg.text,
-          contentType: seg.contentType,
-        },
+        params: semanticGraphicParamsFromSpeech(seg),
         confidence: seg.confidence,
       });
     }
@@ -566,11 +635,7 @@ function generateSubjectDecisions(
         source: 'subjects',
         signal: `${group.category}_detected`,
         reason: `${group.category}: "${group.label}"`,
-        params: {
-          graphicType: group.category === 'logo' ? 'logo-reveal' : 'callout',
-          text: group.label,
-          position: firstEntry.box,
-        },
+        params: semanticGraphicParamsFromSubject(group, firstEntry),
         confidence: firstEntry.confidence,
       });
     }
@@ -585,7 +650,7 @@ function generateSubjectDecisions(
         source: 'subjects',
         signal: 'person_detected',
         reason: `Person: "${group.label}"`,
-        params: { graphicType: 'lower-third', text: group.label },
+        params: semanticGraphicParamsFromSubject(group, firstEntry),
         confidence: firstEntry.confidence * 0.8,
       });
     }
@@ -734,7 +799,7 @@ function detectCinematicMoments(analysis: AssetAnalysis): EditDecision[] {
         params = { speed: 0.3 };
       } else if (tracks.includes('speech') && tracks.includes('music')) {
         editType = 'graphic';
-        params = { graphicType: 'emphasis-pulse' };
+        params = semanticGraphicParamsFromTracks(tracks, combinedScore);
       }
 
       decisions.push({

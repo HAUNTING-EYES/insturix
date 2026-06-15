@@ -25,6 +25,7 @@ const eslintConfig = [
       "reference-repos/**",
       "skills/**",
       "video-review-out*/**",
+      ".calibration-temp/**",
       "app/api/services/thinkforge/**",
       "app/dashboard/thinkforge/**",
       "components/dashboard/ThinkForge/**",

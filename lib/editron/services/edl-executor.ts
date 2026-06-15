@@ -2688,6 +2688,7 @@ async function applyGraphic(
         atomicOverlayDecision,
         atomicPlanObserveMode: true,
         mgExpressionAuthority,
+        visualExplanationContract: mgExpressionAuthority.visualExplanationContract,
         contentStructure: normalizedGraphicContent.structure,
         semanticAtoms: normalizedGraphicContent.semanticAtoms,
         ...atomicMomentBundleMetadata(decision),

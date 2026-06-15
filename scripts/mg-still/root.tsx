@@ -3,19 +3,33 @@
 // from a persisted overlay, so computeFittedSize/fitFontSize/SplitTextElement (the G-1 brushwork)
 // actually execute. No replica logic. Stays UNTRACKED. Bundled by scripts/render-mg-stills.ts.
 import React from 'react';
-import { Composition, AbsoluteFill } from 'remotion';
+import { Composition, AbsoluteFill, type CalculateMetadataFunction } from 'remotion';
 import { MotionGraphicLayerContent } from '@/components/editron/editor/version-7.0.0/components/overlays/motion-graphic/motion-graphic-layer-content';
 import type { MotionGraphicOverlay } from '@/components/editron/editor/version-7.0.0/types';
 
-interface MgStillProps {
+type MgStillProps = {
   overlay: Record<string, unknown>;
   bg: string;
   width: number;
   height: number;
   guide: boolean;
-}
+};
 
-const MgStill: React.FC<MgStillProps> = ({ overlay, bg, guide }) => (
+const defaultProps = {
+  overlay: {},
+  bg: '#12151b',
+  width: 1920,
+  height: 1080,
+  guide: true,
+} satisfies MgStillProps;
+
+const calculateMetadata: CalculateMetadataFunction<MgStillProps> = ({ props }) => ({
+  durationInFrames: Math.max(1, Number(props.overlay.durationInFrames) || 150),
+  width: Number(props.width) || 1920,
+  height: Number(props.height) || 1080,
+});
+
+const MgStill = ({ overlay, bg, guide }: MgStillProps) => (
   <AbsoluteFill style={{ backgroundColor: bg }}>
     <MotionGraphicLayerContent overlay={overlay as unknown as MotionGraphicOverlay} />
     {guide && (
@@ -36,11 +50,7 @@ export const MgStillRoot: React.FC = () => (
     fps={30}
     width={1920}
     height={1080}
-    defaultProps={{ overlay: {}, bg: '#12151b', width: 1920, height: 1080, guide: true }}
-    calculateMetadata={async ({ props }) => ({
-      durationInFrames: Math.max(1, Number((props.overlay as Record<string, unknown>)?.durationInFrames) || 150),
-      width: props.width || 1920,
-      height: props.height || 1080,
-    })}
+    defaultProps={defaultProps}
+    calculateMetadata={calculateMetadata}
   />
 );

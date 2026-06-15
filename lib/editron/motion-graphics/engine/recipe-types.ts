@@ -1,4 +1,9 @@
 import type { MotionTokens } from '../types';
+import type {
+  MgStageMode,
+  VisualContractConstraintKind,
+  VisualObligationKind,
+} from './visual-explanation-contract';
 
 // --- Primitives ---
 
@@ -114,11 +119,37 @@ export interface RecipeChoreography {
   syncTo?: SyncTarget;
 }
 
+export interface RecipeVisualIntent {
+  source: 'visual-explanation-contract-v1';
+  stageMode: MgStageMode;
+  obligationKinds: VisualObligationKind[];
+  constraintKinds: VisualContractConstraintKind[];
+  evidenceAtomKeys: string[];
+  missingEvidence: string[];
+  renderDirectives: {
+    preferFullFrame: boolean;
+    preferSplitLayout: boolean;
+    preferDeviceFrame: boolean;
+    transitionLed: boolean;
+    captionZoneAware: boolean;
+    suppressDecorativeAccents: boolean;
+    preferDataViz: boolean;
+  };
+  choreography: {
+    coordinateWithCaptions: boolean;
+    coordinateWithZoom: boolean;
+    coordinateWithTransition: boolean;
+    coordinateWithSfx: boolean;
+    rhythmEvidenceKeys: string[];
+  };
+}
+
 export interface Recipe {
   id: string;
   elements: RecipeElement[];
   layout: RecipeLayout;
   choreography?: RecipeChoreography;
+  visualIntent?: RecipeVisualIntent;
   exitStyle: ExitStyle;
 }
 

@@ -47,6 +47,7 @@ Not complete yet:
 
 - Rendered aesthetic verification is not built enough.
 - V-JEPA atoms are not behavior-driving everywhere.
+- Cut sequencing still needs visual-understanding-driven planning, not only transcript/silence/filler logic.
 - SFX intent and asset quality strategy are weak.
 - Stickers, shapes, images, HTML scene/sticker, Lottie, speed, fade, and camera-shake have generic receipts but not deep family-specific form intelligence.
 - MG recipe resolving still has legacy/preset-like compatibility paths.
@@ -112,11 +113,20 @@ Use V-JEPA primitives to drive:
 - suppress harsh motion when human attention is high
 - prefer minimal overlays when footage already carries the moment
 
+Cut-sequence TODO:
+
+- use visual understanding before and after the transcript cut plan
+- detect visual dead air, failed takes, camera setup moments, subject absence, repeated frames, focus/exposure failures, screen-state changes, and visual continuity breaks
+- protect visually important silent moments instead of removing them just because transcript/audio is weak
+- let visual rhythm influence keep/remove/shorten decisions, cut density, and boundary placement
+- require raw-to-cut provenance for every visually driven cut so overlays, V-JEPA, and later decisions can still map back to source footage
+
 Verification target:
 
 - same moment with subject left vs right produces different placement
 - text-heavy frame reduces overlay density
 - moving subject influences zoom/transition direction
+- visually weak footage can be shortened even with acceptable transcript/audio, while visually important silent footage can be preserved
 
 ### Phase 4 - Moment Bundle Grammar
 
@@ -309,6 +319,7 @@ Why this is first:
 Editron is aligned when:
 
 - every overlay family has primitive atoms and family-specific form atoms
+- cut sequencing uses transcript, audio, and visual understanding together before overlay decisions are made
 - V-JEPA and screen context drive placement/form
 - moment bundles coordinate effects together
 - renderer output passes deterministic visual checks

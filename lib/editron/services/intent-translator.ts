@@ -68,6 +68,69 @@ export interface TranslationResult {
   };
 }
 
+type SemanticGraphicIntent = CreativeIntentPlan['sceneIntents'][number]['graphicIntents'][number];
+
+function genreParamsToSignals(genreParams?: Record<string, number>): Record<string, number> | undefined {
+  if (!genreParams) return undefined;
+  return {
+    formality: genreParams.formality ?? 0,
+    enthusiasm: genreParams.energy_baseline ?? 0.5,
+    warmth: genreParams.warmth ?? 0.5,
+    emotional_arousal: genreParams.energy_baseline ?? 0.4,
+    pacing_velocity: genreParams.pacing_tolerance ? (1 - genreParams.pacing_tolerance / 20) : 0.5,
+    humor: genreParams.humor ?? 0.1,
+    visceral_impact: genreParams.visceral_impact ?? 0.3,
+    visual_dependency: genreParams.visual_dependency ?? 0.5,
+  };
+}
+
+function buildGraphicParams(graphic: SemanticGraphicIntent, signals?: Record<string, number>): Record<string, any> {
+  const params: Record<string, any> = {};
+  const candidates: Record<string, unknown> = {
+    kind: graphic.kind,
+    text: graphic.text,
+    value: graphic.value,
+    label: graphic.label,
+    name: graphic.name,
+    title: graphic.title,
+    body: graphic.body,
+    quote: graphic.quote,
+    author: graphic.author,
+    from: graphic.from,
+    to: graphic.to,
+    fromLabel: graphic.fromLabel,
+    toLabel: graphic.toLabel,
+    relation: graphic.relation,
+    items: graphic.items,
+  };
+
+  for (const [key, value] of Object.entries(candidates)) {
+    if (Array.isArray(value)) {
+      if (value.length > 0) params[key] = value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) params[key] = trimmed;
+    } else if (value !== undefined && value !== null) {
+      params[key] = value;
+    }
+  }
+
+  if (signals) params.signals = signals;
+  return params;
+}
+
+function describeGraphicEvidence(graphic: SemanticGraphicIntent): string {
+  return graphic.value
+    || graphic.name
+    || graphic.quote
+    || graphic.title
+    || graphic.text
+    || graphic.from
+    || graphic.items?.[0]
+    || graphic.kind
+    || 'semantic visual evidence';
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────
 
 /**
@@ -182,23 +245,8 @@ export function translateCreativeIntentToEDL(
         type: 'graphic',
         frame: graphicFrame,
         durationFrames: Math.round(2.5 * fps), // 2.5s default
-        reason: `${graphic.type}: "${graphic.text || ''}" — ${graphic.triggerMoment}`,
-        params: {
-          graphicType: graphic.type === 'text-overlay' ? 'keyword-highlight' : graphic.type,
-          text: graphic.text || '',
-          // Pass genre parameters as signals for composition engine
-          // Maps: formality→formality, energy_baseline→enthusiasm, warmth→warmth
-          signals: genreParams ? {
-            formality: genreParams.formality ?? 0,
-            enthusiasm: genreParams.energy_baseline ?? 0.5,
-            warmth: genreParams.warmth ?? 0.5,
-            emotional_arousal: genreParams.energy_baseline ?? 0.4,
-            pacing_velocity: genreParams.pacing_tolerance ? (1 - genreParams.pacing_tolerance / 20) : 0.5,
-            humor: genreParams.humor ?? 0.1,
-            visceral_impact: genreParams.visceral_impact ?? 0.3,
-            visual_dependency: genreParams.visual_dependency ?? 0.5,
-          } : undefined,
-        },
+        reason: `visual-explanation: "${describeGraphicEvidence(graphic)}" — ${graphic.triggerMoment}`,
+        params: buildGraphicParams(graphic, genreParamsToSignals(genreParams)),
         confidence: 0.75,
         sources: ['creative-intent', 'script'],
       });
@@ -235,7 +283,6 @@ export function translateCreativeIntentToEDL(
         durationFrames: Math.round(2.5 * fps),
         reason: `onScreenText safety-net: "${trimmed}" (LLM graphicIntents missed this entry)`,
         params: {
-          graphicType: 'keyword-highlight',
           text: trimmed,
         },
         confidence: 0.6,

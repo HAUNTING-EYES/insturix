@@ -22,7 +22,7 @@
  * the system can't change.
  */
 
-import type { RecipeElement } from './recipe-types';
+import type { BindingExpr, RecipeElement } from './recipe-types';
 import type { MotionTokens } from '../types';
 
 /** Thin horizontal accent rule at the bottom of the content block. News/structural. */
@@ -142,7 +142,7 @@ export function moveBadge(value: string): RecipeElement[] {
 export function moveBrackets(): RecipeElement[] {
   const arm = 16, w = 3; // ⚠️ INVENTED — bracket arm length + stroke width
   const side = (role: string, e: 'left' | 'right'): RecipeElement[] => {
-    const edge = e === 'left' ? { left: 0 } : { right: 0 };
+    const edge: Record<string, BindingExpr> = e === 'left' ? { left: 0 } : { right: 0 };
     return [
       { primitive: 'shape', role: `${role}-v`, bind: { ...edge, top: 0, bottom: 0, width: w, fill: 'token:color.accent' } },
       { primitive: 'shape', role: `${role}-t`, bind: { ...edge, top: 0, width: arm, height: w, fill: 'token:color.accent' } },
@@ -152,6 +152,7 @@ export function moveBrackets(): RecipeElement[] {
   return [{
     primitive: 'group', role: 'sm-brackets', layer: 'midground',
     anchor: { mode: 'block-fill', inset: -10 }, // group frames the content block
+    bind: {},
     children: [...side('sm-bracket-l', 'left'), ...side('sm-bracket-r', 'right')],
   }];
 }
@@ -160,8 +161,8 @@ export function moveBrackets(): RecipeElement[] {
 export function moveCornerMarks(): RecipeElement[] {
   const arm = 18, w = 3; // ⚠️ INVENTED — mark arm length + stroke width
   const corner = (role: string, v: 'top' | 'bottom', h: 'left' | 'right'): RecipeElement[] => {
-    const vEdge = v === 'top' ? { top: 0 } : { bottom: 0 };
-    const hEdge = h === 'left' ? { left: 0 } : { right: 0 };
+    const vEdge: Record<string, BindingExpr> = v === 'top' ? { top: 0 } : { bottom: 0 };
+    const hEdge: Record<string, BindingExpr> = h === 'left' ? { left: 0 } : { right: 0 };
     return [
       { primitive: 'shape', role: `${role}-h`, bind: { ...vEdge, ...hEdge, width: arm, height: w, fill: 'token:color.accent' } },
       { primitive: 'shape', role: `${role}-v`, bind: { ...vEdge, ...hEdge, width: w, height: arm, fill: 'token:color.accent' } },
@@ -170,6 +171,7 @@ export function moveCornerMarks(): RecipeElement[] {
   return [{
     primitive: 'group', role: 'sm-corner-marks', layer: 'midground',
     anchor: { mode: 'block-fill', inset: -8 },
+    bind: {},
     children: [
       ...corner('sm-cm-tl', 'top', 'left'),
       ...corner('sm-cm-tr', 'top', 'right'),

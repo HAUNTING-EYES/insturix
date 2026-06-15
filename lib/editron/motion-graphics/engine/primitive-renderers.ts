@@ -549,7 +549,7 @@ export function fitFontSize(
   const phraseTarget = text.trim();
   // INVENTED / CALIBRATION TARGET:
   // Short title phrase-fit threshold. Long copy is allowed to wrap; tune with rendered MG calibration.
-  const shouldFitPhrase = phraseTarget.length <= 34 || words.length <= 5;
+  const shouldFitPhrase = phraseTarget.length <= 34 && words.length <= 5;
   // G-1b: prefer exact measurement when the caller supplies one (browser canvas); fall back to the
   // conservative estimator (Node scripts/tests, or measurement unavailable). measureText is ~linear
   // in fontSize, so the single-step scale below stays accurate.
