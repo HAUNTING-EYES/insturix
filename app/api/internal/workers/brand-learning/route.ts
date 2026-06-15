@@ -20,6 +20,7 @@ import {
   releaseEventClaim,
   type BrandEvent,
 } from '@/lib/shared/brand-events';
+import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -175,14 +176,31 @@ async function handleDirectorCompleted(
     return { action: 'skipped', detail: 'No qualityScore in payload' };
   }
 
+  const learningDecision = resolveEditronLearningOutcome({
+    qualityScore,
+    criticalCount: payload.criticalCount,
+    hasQualityReview: payload.hasQualityReview,
+    autoEditHealth: payload.autoEditHealth,
+    projectStatus: payload.projectStatus,
+    diagnostic: payload.diagnostic,
+    dryRun: payload.dryRun,
+  });
+
+  if (!learningDecision.shouldRecord || learningDecision.qualityScore === null) {
+    return {
+      action: 'bandit_skipped',
+      detail: `learning_gate=${learningDecision.reason ?? 'unsafe_outcome'}`,
+    };
+  }
+
   try {
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, qualityScore);
+    await recordProjectOutcome(userId, projectId, learningDecision.qualityScore);
     return {
       action: 'bandit_updated',
-      detail: `qualityScore=${qualityScore}`,
+      detail: `qualityScore=${learningDecision.qualityScore}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -281,14 +299,31 @@ async function handleQualityReviewed(
     };
   }
 
+  const learningDecision = resolveEditronLearningOutcome({
+    qualityScore,
+    criticalCount: payload.criticalCount,
+    hasQualityReview: payload.hasQualityReview,
+    autoEditHealth: payload.autoEditHealth,
+    projectStatus: payload.projectStatus,
+    diagnostic: payload.diagnostic,
+    dryRun: payload.dryRun,
+  });
+
+  if (!learningDecision.shouldRecord || learningDecision.qualityScore === null) {
+    return {
+      action: 'bandit_skipped',
+      detail: `learning_gate=${learningDecision.reason ?? 'unsafe_outcome'}`,
+    };
+  }
+
   try {
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, qualityScore);
+    await recordProjectOutcome(userId, projectId, learningDecision.qualityScore);
     return {
       action: 'bandit_updated',
-      detail: `qualityScore=${qualityScore}`,
+      detail: `qualityScore=${learningDecision.qualityScore}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

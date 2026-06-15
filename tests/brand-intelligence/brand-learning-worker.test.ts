@@ -202,6 +202,62 @@ describe('brand-learning worker', () => {
     expect(mocks.markEventConsumed).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
   });
 
+  it('does not update learning from failed director outcomes', async () => {
+    mocks.claimEventForConsumer.mockResolvedValue({
+      status: 'claimed',
+      event: brandEvent({
+        projectId: 'project_1',
+        type: 'director_completed',
+        payload: {
+          qualityScore: 0,
+          criticalCount: 8,
+          hasQualityReview: true,
+        },
+      }),
+    });
+
+    const response = await POST(request({ eventId: 'event_1' }) as any);
+
+    expect(response.status).toBe(200);
+    await expect(json(response)).resolves.toMatchObject({
+      success: true,
+      eventId: 'event_1',
+      type: 'director_completed',
+      action: 'bandit_skipped',
+      detail: 'learning_gate=non_positive_quality_score',
+    });
+    expect(mocks.recordProjectOutcome).not.toHaveBeenCalled();
+    expect(mocks.markEventConsumed).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
+  });
+
+  it('does not update learning from quality reviews with too many critical issues', async () => {
+    mocks.claimEventForConsumer.mockResolvedValue({
+      status: 'claimed',
+      event: brandEvent({
+        projectId: 'project_1',
+        type: 'quality_reviewed',
+        payload: {
+          qualityScore: 72,
+          criticalCount: 6,
+          hasQualityReview: true,
+        },
+      }),
+    });
+
+    const response = await POST(request({ eventId: 'event_1' }) as any);
+
+    expect(response.status).toBe(200);
+    await expect(json(response)).resolves.toMatchObject({
+      success: true,
+      eventId: 'event_1',
+      type: 'quality_reviewed',
+      action: 'bandit_skipped',
+      detail: 'learning_gate=too_many_critical_issues',
+    });
+    expect(mocks.recordProjectOutcome).not.toHaveBeenCalled();
+    expect(mocks.markEventConsumed).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
+  });
+
   it('returns 404 when the persisted event is missing', async () => {
     mocks.claimEventForConsumer.mockResolvedValue({ status: 'missing' });
 

@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -52,19 +53,18 @@ interface DirectorCompletionHealth {
   warning?: string;
 }
 
-const CRITICAL_QUALITY_ISSUE_ATTENTION_THRESHOLD = 5;
-
 export function resolveDirectorCompletionHealth(
   qualityReview: DirectorQualityReviewSnapshot | null | undefined,
 ): DirectorCompletionHealth {
   const hasQualityReview = !!qualityReview;
   const qualityScore = readFiniteNumber(qualityReview?.overallScore, 0);
   const criticalCount = Math.max(0, Math.round(readFiniteNumber(qualityReview?.criticalCount, 0)));
-  const needsQualityAttention = (
-    !hasQualityReview ||
-    criticalCount > CRITICAL_QUALITY_ISSUE_ATTENTION_THRESHOLD ||
-    qualityScore <= 0
-  );
+  const learningDecision = resolveEditronLearningOutcome({
+    hasQualityReview,
+    qualityScore,
+    criticalCount,
+  });
+  const needsQualityAttention = !learningDecision.shouldRecord;
 
   return {
     hasQualityReview,
