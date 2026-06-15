@@ -24,10 +24,12 @@ import { scoreContent } from '../data/quality-scorer';
 import { StylistAgent } from './stylist-agent';
 import {
   evaluateContentProfileCompliance,
+  buildThinkForgeSignalTrace,
   formatContentProfileComplianceViolations,
   formatContentSignalProfileForPrompt,
   resolveContentSignalProfile,
   shouldAutoRepairContentProfileViolations,
+  type ThinkForgeSignalTrace,
 } from '../signals';
 import {
   applyContentSignalProfileToClickatronExportMeta,
@@ -56,6 +58,7 @@ export interface ScriptDraftResult {
   qualityScore?: number;
   qualityViolations?: string[];
   stylistFlags?: string[];
+  signalTrace?: ThinkForgeSignalTrace;
 }
 
 export interface ScriptDraftCallbacks {
@@ -327,6 +330,7 @@ export class ScriptDraftAgent {
       qualityScore,
       qualityViolations,
       stylistFlags,
+      signalTrace: buildThinkForgeSignalTrace(contentSignalProfile),
     };
   }
 }

@@ -2,7 +2,7 @@
 
 Version: 1.0
 Date: 2026-05-19
-Status: Part 0 written. Parts 1-8 pending.
+Status: Complete v1.0 foundation. Parts 0-8 present; performance attribution and expansion remain ongoing.
 Authors: Nimit Jain (vision + reviews), Claude (research + synthesis)
 Consumers: ThinkForge agents (outline, contract, author, refinement, coherence, stylist), FORMAT system, Brand Studio, signal executor
 

@@ -14,3 +14,8 @@ export {
   type ContentProfileComplianceSeverity,
   type ContentProfileComplianceViolation,
 } from './content-profile-compliance';
+
+export {
+  buildThinkForgeSignalTrace,
+  type ThinkForgeSignalTrace,
+} from './signal-trace';

@@ -43,6 +43,7 @@ export async function POST(req: Request) {
         content: script.content,
         blocks: script.blocks || [],
         richText: script.richText || null,
+        metadata: script.metadata || {},
         version: script.version ?? 1
       }
     });
@@ -54,4 +55,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

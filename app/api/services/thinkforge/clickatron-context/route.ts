@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       projectMeta,
       projectLink,
       creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
+      signalTrace: script?.metadata?.signalTrace,
       title: toNonEmptyString(body.title),
       aspectRatio: toNonEmptyString(body.aspectRatio),
       scenesCount: typeof body.scenesCount === "number" ? body.scenesCount : undefined,

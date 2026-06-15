@@ -203,4 +203,63 @@ describe("ThinkForge to Clickatron context", () => {
       },
     });
   });
+
+  it("carries ThinkForge signalTrace into Clickatron handoff metadata", () => {
+    const signalTrace = {
+      outputFormat: "linkedin_carousel",
+      platform: "linkedin",
+      selectedIntent: {
+        goal: "turn market news into a brand-safe carousel",
+        forbiddenTerms: ["game-changing"],
+      },
+      enforcedConstraints: ["Use editable text layers for visible copy"],
+    };
+
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_trace",
+      scriptId: "script_trace",
+      projectMeta: {
+        brandId: "brand_trace",
+        platform: "LinkedIn",
+      },
+      signalTrace,
+      creativeSpec: {
+        schemaVersion: 1,
+        kind: "carousel",
+        assetIntent: "carousel",
+        platform: "linkedin",
+        aspectRatio: "1:1",
+        source: {
+          sourceService: "thinkforge",
+          sourceBlockIds: ["block_trace"],
+        },
+        userIntent: {
+          visualMode: "text_forward_graphic",
+          wantsCarousel: true,
+        },
+        creativeBrief: {
+          objective: "educate agency founders",
+          coreMessage: "market events can become planned content",
+        },
+        renderPlan: {
+          textPolicy: "editable_text_layers",
+          imagePrompt: "Carousel cover about turning market events into scheduled brand content.",
+          slides: [
+            {
+              id: "slide_1",
+              index: 0,
+              title: "Market moment",
+              imagePrompt: "Slide one introduces the market event and why agencies should react.",
+            },
+          ],
+        },
+        validation: {
+          status: "ready",
+        },
+      },
+    });
+
+    expect(context.metadata.thinkforge).toMatchObject({ signalTrace });
+    expect(context.sessionDraft?.metadata.thinkforge).toMatchObject({ signalTrace });
+  });
 });

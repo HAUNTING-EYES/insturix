@@ -11,6 +11,7 @@ import {
   formatContentSignalProfileForPrompt,
   type ThinkForgeContentSignalProfile,
 } from '../signals';
+import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 
 export interface ScriptAuthorInput extends AgentInput {
   outline?: ScriptOutline;
@@ -742,8 +743,23 @@ ${outputFormat}`;
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal
   ): Promise<string> {
-    const { text } = await this.runComplete(input, overrides, abortSignal);
-    return text.trim();
+    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const gen = this.resolveGenConfig(overrides);
+
+    try {
+      const { text } = await generateWithWritingContextCache({
+        prompt,
+        modelName: this.config.modelName,
+        temperature: gen.temperature,
+        maxTokens: gen.maxTokens,
+        abortSignal,
+      });
+      return text.trim();
+    } catch (error) {
+      console.warn('[ThinkForge:ScriptAuthor] Writing context cache failed; falling back to standard agent path:', error);
+      const { text } = await this.runComplete(input, overrides, abortSignal);
+      return text.trim();
+    }
   }
 
   async writeStructuredResponse(

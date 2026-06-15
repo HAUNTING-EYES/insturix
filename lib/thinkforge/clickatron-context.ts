@@ -33,6 +33,7 @@ export interface ThinkToClickContextInput {
   projectMeta?: ProjectMeta | null;
   projectLink?: Pick<ProjectLink, "universalId" | "brandId" | "sourceScriptId"> | null;
   creativeSpec?: ClickatronCreativeSpec | null;
+  signalTrace?: unknown;
   title?: string;
   aspectRatio?: string;
   scenesCount?: number;
@@ -84,6 +85,11 @@ function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T>
   return Object.fromEntries(
     Object.entries(record).filter(([, value]) => value !== undefined && value !== null),
   ) as Partial<T>;
+}
+
+function toPlainRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
 }
 
 export function findClickatronCreativeSpecInBlocks(blocks?: ThinkForgeBlock[] | null): ClickatronCreativeSpec | undefined {
@@ -148,6 +154,7 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
   const creativeSpec = input.creativeSpec
     ? normalizeClickatronCreativeSpec(input.creativeSpec)
     : undefined;
+  const signalTrace = toPlainRecord(input.signalTrace);
 
   const sourceContext = compactRecord({
     sourceService: "thinkforge",
@@ -172,6 +179,7 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
       sessionId: sourceSessionId,
       scriptId: sourceScriptId,
       projectMeta,
+      signalTrace,
     }),
     projectLink: universalId ? { universalId } : undefined,
     clickatron: Object.keys(clickatron).length > 0 ? clickatron : undefined,

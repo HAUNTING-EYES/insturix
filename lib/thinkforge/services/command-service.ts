@@ -58,11 +58,15 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
   let nextBlocks: ThinkForgeBlock[] = existing?.blocks ? validateThinkForgeBlocks(existing.blocks) : [];
   let nextTitle = existing?.title || 'Untitled Script';
   let nextRichText: TiptapJSON | null = existing?.richText ? (existing.richText as TiptapJSON) : null;
+  let nextMetadata = existing?.metadata;
 
   if (type === 'ReplaceDocument') {
     nextBlocks = normalizeBlocksFromPayload(payload);
     nextTitle = typeof payload.title === 'string' ? payload.title : nextTitle;
     nextRichText = payload.richText ? (payload.richText as TiptapJSON) : thinkForgeBlocksToTiptapJSON(nextBlocks);
+    nextMetadata = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
+      ? payload.metadata
+      : nextMetadata;
   }
 
   if (type === 'UpdateBlock') {
@@ -120,6 +124,7 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
       content: nextContent,
       blocks: nextBlocks,
       richText: nextRichText || undefined,
+      metadata: nextMetadata,
     },
     baseVersion,
     scriptId

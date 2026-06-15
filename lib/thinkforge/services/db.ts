@@ -167,6 +167,7 @@ export interface Script {
   content: string;
   blocks?: ThinkForgeBlock[];
   richText?: Record<string, any>; // Tiptap JSON AST
+  metadata?: Record<string, any>;
   version?: number;
   documentType?: string;
   parentScriptId?: string;
@@ -718,6 +719,7 @@ const ScriptSchema = new Schema({
   content: { type: String, default: '' },
   blocks: { type: Schema.Types.Mixed },
   richText: { type: Schema.Types.Mixed }, // Tiptap JSON AST
+  metadata: { type: Schema.Types.Mixed, default: {} },
   version: { type: Number, default: 1 },
   documentType: { type: String, default: 'screenplay' },
   parentScriptId: { type: String },
@@ -1224,6 +1226,7 @@ export async function getScript(sessionId: string, scriptId?: string | null): Pr
       content: doc.content || '',
       blocks,
       richText: doc.richText, // Tiptap JSON AST
+      metadata: doc.metadata || {},
       version: typeof doc.version === 'number' ? doc.version : 1,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
@@ -1260,6 +1263,9 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
       if (script.richText !== undefined) {
         updateDoc.richText = script.richText;
       }
+      if (script.metadata !== undefined) {
+        updateDoc.metadata = script.metadata;
+      }
 
       await ScriptModel.findByIdAndUpdate(existing._id, { $set: updateDoc });
       const updated = await ScriptModel.findById(existing._id).lean() as any;
@@ -1273,6 +1279,7 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
         content: updated.content || '',
         blocks: updated.blocks,
         richText: updated.richText,
+        metadata: updated.metadata || {},
         version: typeof updated.version === 'number' ? updated.version : nextVersion,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt
@@ -1295,6 +1302,9 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
       if (script.richText !== undefined) {
         doc.richText = script.richText;
       }
+      if (script.metadata !== undefined) {
+        doc.metadata = script.metadata;
+      }
 
       const created = await ScriptModel.create(doc);
       return {
@@ -1305,6 +1315,7 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
         content: created.content || '',
         blocks: created.blocks,
         richText: (created as any).richText,
+        metadata: (created as any).metadata || {},
         version: typeof (created as any).version === 'number' ? (created as any).version : 1,
         createdAt: created.createdAt,
         updatedAt: created.updatedAt
@@ -1351,6 +1362,9 @@ export async function saveScriptWithVersion(
       if (script.richText !== undefined) {
         doc.richText = script.richText;
       }
+      if (script.metadata !== undefined) {
+        doc.metadata = script.metadata;
+      }
 
       const created = await ScriptModel.create(doc);
       return {
@@ -1363,6 +1377,7 @@ export async function saveScriptWithVersion(
           content: created.content || '',
           blocks: created.blocks,
           richText: (created as any).richText,
+          metadata: (created as any).metadata || {},
           version: typeof (created as any).version === 'number' ? (created as any).version : 1,
           createdAt: created.createdAt,
           updatedAt: created.updatedAt,
@@ -1383,6 +1398,9 @@ export async function saveScriptWithVersion(
     };
     if (script.richText !== undefined) {
       updateDoc.richText = script.richText;
+    }
+    if (script.metadata !== undefined) {
+      updateDoc.metadata = script.metadata;
     }
 
     const updated = await ScriptModel.findOneAndUpdate(
@@ -1409,6 +1427,7 @@ export async function saveScriptWithVersion(
         content: updated.content || '',
         blocks: updated.blocks,
         richText: updated.richText,
+        metadata: updated.metadata || {},
         version: typeof updated.version === 'number' ? updated.version : baseVersion + 1,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,

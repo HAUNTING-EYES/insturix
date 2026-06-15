@@ -403,6 +403,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
                 blocks: draft.blocks,
                 richText: draft.richText as any,
                 documentType: docType,
+                ...(draft.signalTrace ? { metadata: { signalTrace: draft.signalTrace } } : {}),
               },
             }, userId);
 
@@ -875,7 +876,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
               title: draft.title,
               content: draft.content,
               blocks: draft.blocks,
-              richText: draft.richText as any
+              richText: draft.richText as any,
+              ...(draft.signalTrace ? { metadata: { signalTrace: draft.signalTrace } } : {}),
             }
           }, userId);
           if (!saveResult.ok) {
@@ -895,7 +897,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
             blocks: draft.blocks,
             richText: draft.richText,
             content: draft.content,
-            version: savedVersion
+            version: savedVersion,
+            ...(draft.signalTrace ? { metadata: { signalTrace: draft.signalTrace } } : {}),
           },
           metadata: {
             workflow: 'create',

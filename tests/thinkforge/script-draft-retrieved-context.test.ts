@@ -82,7 +82,7 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
       ],
     };
 
-    await agent.generateScript({
+    const result = await agent.generateScript({
       context: {
         projectSummary: 'Audience: agency founders.',
         systemBrief: '## Brand DNA\nVoice: warm, expert, plainspoken',
@@ -110,5 +110,29 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
         'Metric mentioned in brief: 37%',
       ]),
     );
+    expect(result.signalTrace).toMatchObject({
+      outputFormat: 'case_study',
+      goal: 'clear communication',
+      tone: 'warm expert',
+      enforcedConstraints: {
+        brandVoiceId: 'brand_1',
+      },
+      sourceSummary: {
+        brandId: 'brand_1',
+        sessionId: 'session_1',
+        brandContextPresent: true,
+        projectFactsUsed: 1,
+        interactionPatternsUsed: 1,
+      },
+    });
+    expect(result.signalTrace?.selectedIntent.forbiddenTerms).toContain('game-changing');
+    expect(result.signalTrace?.selectedIntent.proofPoints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Approval cycle benchmark'),
+        'Metric mentioned in brief: 37%',
+      ]),
+    );
+    expect(result.signalTrace?.provenanceSummary.some((entry) => entry.signal === 'warmth')).toBe(true);
+    expect(JSON.stringify(result.signalTrace)).not.toContain('## Brand DNA');
   });
 });

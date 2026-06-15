@@ -36,6 +36,7 @@ export async function GET(req: Request) {
         content: script.content,
         blocks: script.blocks || [],
         richText: script.richText || null,
+        metadata: script.metadata || {},
         version: script.version ?? 1,
         updatedAt: script.updatedAt,
         createdAt: script.createdAt,
