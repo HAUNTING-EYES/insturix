@@ -579,6 +579,141 @@ describe('Brand Vault refinery API boundary', () => {
     );
   });
 
+  it('fetches connected Facebook page posts as draft-only social evidence', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const fetchedUrls: string[] = [];
+    const fetchFn = async (url: string): Promise<Response> => {
+      fetchedUrls.push(url);
+      expect(url).toContain('https://graph.facebook.com/v21.0/page_1/feed');
+      expect(url).toContain('access_token=page_token');
+      expect(url).toContain('fields=');
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'page_1_post_1',
+              message: 'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+              story: 'Vaultline shared a launch update.',
+              permalink_url: 'https://www.facebook.com/vaultline/posts/page_1_post_1',
+              created_time: '2026-06-08T10:00:00.000Z',
+              attachments: {
+                data: [
+                  {
+                    title: 'Brand operations for agencies',
+                    description: 'One reviewed brand system before the edit starts.',
+                  },
+                ],
+              },
+            },
+            {
+              id: 'page_1_post_without_text',
+              permalink_url: 'https://www.facebook.com/vaultline/posts/page_1_post_without_text',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://www.facebook.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        sourceEvidenceProvider: async ({ socialLinks }) =>
+          createBrandVaultConnectedSocialEvidence({
+            socialLinks,
+            uploaderXUser: {
+              facebookTokens: {
+                userAccessToken: 'fb_user_token',
+                userId: 'fb_user_1',
+                userName: 'Vaultline Admin',
+                pages: [{ pageId: 'page_1', pageName: 'Vaultline', pageAccessToken: 'page_token' }],
+                expiresAt: '2026-06-10T00:00:00.000Z',
+              },
+            },
+            youtubeConnection: null,
+            apifyApiKey: '',
+            fetchFn,
+            now: NOW,
+          }),
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(fetchedUrls).toHaveLength(1);
+    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent Facebook page post for draft social evidence review.');
+    expect(created.body.job.warnings).not.toContain(
+      'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
+    );
+    expect(created.body.reviewPayload.intake.social).toMatchObject({
+      status: 'complete',
+      linksProvided: 1,
+      connectedAccountCount: 2,
+      fetchedPostCount: 1,
+      needsAuthCount: 0,
+    });
+    expect(created.body.reviewPayload.intake.sources.byOrigin).toMatchObject({
+      connected_metadata: 1,
+      connected_fetch: 1,
+    });
+    expect(created.body.job.inputs.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_profile',
+          platform: 'facebook',
+          evidenceOrigin: 'connected_metadata',
+          connection: expect.objectContaining({
+            provider: 'uploaderx',
+            status: 'connected',
+            accountName: 'Vaultline',
+            canReadPosts: true,
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'facebook',
+          url: 'https://www.facebook.com/vaultline/posts/page_1_post_1',
+          text: [
+            'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+            'Vaultline shared a launch update.',
+            'Brand operations for agencies',
+            'One reviewed brand system before the edit starts.',
+          ].join('\n'),
+          evidenceOrigin: 'connected_fetch',
+        }),
+      ]),
+    );
+    expect(created.body.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.voicePhrases',
+          normalizedValue: expect.arrayContaining(['Stop losing brand consistency between strategy and delivery']),
+        }),
+        expect.objectContaining({
+          extractorId: 'brand-vault-social-evidence.v1',
+          sourceField: 'sourceEvidence.1.social_post.text.proofStyle',
+          normalizedValue: 'community',
+        }),
+      ]),
+    );
+    expect(created.body.record.profile.voice.recurringPhrases.trustLevel).toBe('connected_social_account');
+    expect(created.body.record.profile.voice.recurringPhrases.value).toEqual(
+      expect.arrayContaining(['Stop losing brand consistency between strategy and delivery']),
+    );
+  });
+
   it('fetches connected X post samples as draft-only social evidence when tweet.read is available', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const fetchedUrls: string[] = [];

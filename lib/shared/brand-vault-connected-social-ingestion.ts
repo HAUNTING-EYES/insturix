@@ -133,6 +133,15 @@ async function fetchConnectedPostSources(args: {
       now: args.now,
     });
   }
+  if (args.parsed.platform === 'facebook') {
+    return fetchConnectedFacebookPostSources({
+      parsed: args.parsed,
+      connection: args.connection,
+      tokens: args.uploaderXUser?.facebookTokens,
+      fetchFn: args.fetchFn,
+      now: args.now,
+    });
+  }
   return { sources: [], warnings: [] };
 }
 
@@ -478,25 +487,150 @@ function instagramAccountForHandle(handle: string | undefined, accounts: unknown
     .find((account) => normalizeHandle(account.instagramUsername) === normalizedHandle) ?? null;
 }
 
+async function fetchConnectedFacebookPostSources(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  connection: BrandVaultSocialConnectionEvidence | null;
+  tokens: Record<string, unknown> | null | undefined;
+  fetchFn: BrandVaultSocialFetch;
+  now?: string;
+}): Promise<SocialFetchResult> {
+  if (!args.connection?.canReadPosts || args.connection.status !== 'connected') return { sources: [], warnings: [] };
+  if (args.connection.matchStatus === 'mismatched') return { sources: [], warnings: [] };
+
+  const connection = args.connection;
+  const page = facebookPageForConnection(connection, args.tokens);
+  const pageId = stringValue(page.pageId);
+  const pageAccessToken = stringValue(page.pageAccessToken);
+  if (!pageId || !pageAccessToken) {
+    return { sources: [], warnings: ['Brand Vault skipped Facebook page posts: connected UploaderX Page token was not available.'] };
+  }
+  if (isExpired(args.tokens?.expiresAt, args.now)) {
+    return { sources: [], warnings: ['Brand Vault skipped Facebook page posts: UploaderX Facebook token is expired and must be refreshed before read enrichment.'] };
+  }
+
+  const url = new URL(`https://graph.facebook.com/v21.0/${encodeURIComponent(pageId)}/feed`);
+  url.searchParams.set('fields', 'id,message,story,permalink_url,created_time,attachments{title,description,url}');
+  url.searchParams.set('limit', '5');
+  url.searchParams.set('access_token', pageAccessToken);
+
+  const response = await args.fetchFn(url.href);
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    return {
+      sources: [],
+      warnings: [`Brand Vault skipped Facebook page posts: Facebook Graph API returned ${response.status}${apiErrorMessage(payload)}.`],
+    };
+  }
+
+  const posts = Array.isArray(payload.data) ? payload.data : [];
+  const sources = posts
+    .map((post) => facebookPostSource(post, connection, args.parsed, page))
+    .filter((source): source is BrandVaultSourceInput => Boolean(source))
+    .slice(0, 5);
+
+  if (sources.length === 0) {
+    return {
+      sources: [],
+      warnings: ['Brand Vault found Facebook Page read access, but no recent readable post text was returned.'],
+    };
+  }
+
+  return {
+    sources,
+    warnings: [`Brand Vault fetched ${sources.length} recent Facebook page post${sources.length === 1 ? '' : 's'} for draft social evidence review.`],
+  };
+}
+
+function facebookPostSource(
+  post: unknown,
+  connection: BrandVaultSocialConnectionEvidence,
+  parsed: BrandVaultParsedSocialUrl,
+  page: Record<string, unknown>,
+): BrandVaultSourceInput | null {
+  const record = asRecord(post);
+  const id = stringValue(record.id);
+  const text = facebookPostText(record);
+  if (!id || !text) return null;
+
+  return {
+    kind: 'social_post',
+    url: stringValue(record.permalink_url) ?? parsed.normalizedUrl,
+    platform: 'facebook',
+    name: `Facebook page post ${id}`,
+    note: [
+      'Fetched from connected UploaderX Facebook Page token for Brand Vault draft review.',
+      stringValue(page.pageName) ? `Page: ${stringValue(page.pageName)}.` : '',
+    ].filter(Boolean).join(' '),
+    text,
+    evidenceOrigin: 'connected_fetch',
+    pinned: false,
+    connection,
+  };
+}
+
+function facebookPostText(record: Record<string, unknown>): string | undefined {
+  const attachments = asRecord(record.attachments);
+  const attachmentData = Array.isArray(attachments.data) ? attachments.data.map(asRecord) : [];
+  const parts = [
+    stringValue(record.message),
+    stringValue(record.story),
+    ...attachmentData.flatMap((attachment) => [
+      stringValue(attachment.title),
+      stringValue(attachment.description),
+    ]),
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? Array.from(new Set(parts)).join('\n') : undefined;
+}
+
 function facebookConnection(handle: string | undefined, tokens: Record<string, unknown> | null | undefined): BrandVaultSocialConnectionEvidence | null {
   if (!tokens?.userAccessToken) return null;
   const pages = Array.isArray(tokens.pages) ? tokens.pages : [];
+  const matchedPage = facebookPageForHandle(handle, pages) ?? asRecord(pages[0]);
   const pageHandles = pages.flatMap((page) => {
     const record = asRecord(page);
     return [record.pageName, record.pageId];
   });
   const matchStatus = handleMatch(handle, pageHandles);
+  const accountName = stringValue(matchedPage.pageName) ?? stringValue(tokens.userName);
+  const accountId = stringValue(matchedPage.pageId) ?? stringValue(tokens.userId);
+  const canReadPosts = Boolean(matchedPage.pageAccessToken) && matchStatus !== 'mismatched';
   return {
     provider: 'uploaderx',
     status: matchStatus === 'mismatched' ? 'connected_different_account' : 'connected',
-    accountId: stringValue(tokens.userId),
-    accountName: stringValue(tokens.userName),
-    accountHandle: stringValue(tokens.userName),
+    accountId,
+    accountName,
+    accountHandle: accountName,
     canReadProfile: true,
-    canReadPosts: false,
+    canReadPosts,
     canReadPinned: false,
     matchStatus,
   };
+}
+
+function facebookPageForHandle(handle: string | undefined, pages: unknown[]): Record<string, unknown> | null {
+  const normalizedHandle = normalizeHandle(handle);
+  if (!normalizedHandle) return null;
+  return pages
+    .map(asRecord)
+    .find((page) => {
+      const candidates = [page.pageName, page.pageId, page.vanityName, page.username].map(normalizeHandle).filter(Boolean);
+      return candidates.includes(normalizedHandle);
+    }) ?? null;
+}
+
+function facebookPageForConnection(
+  connection: BrandVaultSocialConnectionEvidence,
+  tokens: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const pages = Array.isArray(tokens?.pages) ? tokens.pages.map(asRecord) : [];
+  const normalizedAccountId = normalizeHandle(connection.accountId);
+  const normalizedAccountName = normalizeHandle(connection.accountName ?? connection.accountHandle);
+  return pages.find((page) =>
+    [page.pageId, page.pageName, page.vanityName, page.username]
+      .map(normalizeHandle)
+      .filter(Boolean)
+      .some((candidate) => candidate === normalizedAccountId || candidate === normalizedAccountName),
+  ) ?? {};
 }
 
 function publicFallbackEvidenceForPlatform(
