@@ -127,13 +127,69 @@ describe('canonical caption track', () => {
     expect(caption.height).toBeLessThanOrEqual(150);
     expect(caption.top).toBeGreaterThan(800);
     expect(caption.styles).toMatchObject({
-      backgroundColor: 'rgba(0,0,0,0.62)',
+      backgroundColor: 'rgba(0,0,0,0.74)',
       fontSize: '34px',
       lineHeight: 1.26,
     });
     expect(caption.metadata.evidence.captionAesthetic).toMatchObject({
       layout: 'subtitle-lower',
       surface: 'subtitle-panel',
+    });
+    expect(caption.metadata.evidence.readability).toMatchObject({
+      version: 'caption-readability-policy-v1',
+      maxWordsPerLine: 6,
+      maxCharsPerCaption: 38,
+      contrastFloor: 4.5,
+      status: 'invented-needs-calibration',
+    });
+  });
+
+  it('keeps high-energy fancy captions expressive while enforcing readable grouping and contrast', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 240, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'fancy',
+      genreParams: {
+        formality: 0.26,
+        energy_baseline: 0.88,
+        pacing_tolerance: 4,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(['this', 'completely', 'changed', 'everything', 'for', 'creators']),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.template).toBe('hormozi');
+    expect(caption.displayConfig).toMatchObject({
+      mode: 'hormozi',
+      wordsPerGroup: 3,
+      maxWordsPerLine: 2,
+      useSpringScale: true,
+    });
+    expect(caption.styles).toMatchObject({
+      backgroundColor: 'rgba(0,0,0,0.42)',
+      backdropFilter: 'blur(2px)',
+      padding: '8px 14px',
+      highlight: expect.objectContaining({
+        backgroundColor: 'rgba(0,0,0,0.84)',
+        animation: 'bounce',
+        effect: 'pop',
+      }),
+    });
+    expect(caption.captions.every((item: any) => item.text.length <= 22)).toBe(true);
+    expect(caption.metadata.evidence.readability).toMatchObject({
+      wordsPerGroup: 3,
+      maxWordsPerLine: 2,
+      maxCharsPerCaption: 22,
+      maxGroupDurationMs: 1450,
+      contrastFloor: 4.5,
     });
   });
 

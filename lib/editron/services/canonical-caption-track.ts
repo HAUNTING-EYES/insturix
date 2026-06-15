@@ -82,10 +82,12 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
   if (words.length === 0) return null;
 
   const displayConfig = resolveDisplayConfig(input.presentation);
+  const readability = captionReadabilityPolicy(input.presentation, displayConfig);
   const captions = groupWordsIntoCaptions(words, {
-    wordsPerGroup: displayConfig.wordsPerGroup,
+    wordsPerGroup: readability.wordsPerGroup,
     groupByPunctuation: true,
-    maxGroupDuration: 2200,
+    maxGroupDuration: readability.maxGroupDurationMs,
+    maxCharsPerLine: readability.maxCharsPerCaption,
   });
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
   const protectedRegions = collectCaptionProtectedRegions(input.overlays);
@@ -121,6 +123,7 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         durationFrames: input.editedTimelineContext.durationFrames,
         sourceClipCount: input.editedTimelineContext.sourceClips.length,
         captionAesthetic: input.presentation.aesthetic,
+        readability,
         protectedRegionCount: protectedRegions.length,
         selectedRegion: geometry.region,
       },
@@ -160,9 +163,44 @@ function resolveDisplayConfig(presentation: AtomicCaptionPresentation): CaptionD
   const displayConfig = createDisplayConfig(presentation.displayMode, {
     wordsPerGroup: presentation.wordsPerGroup,
   });
+  const readability = captionReadabilityPolicy(presentation, displayConfig);
   return {
     ...displayConfig,
-    maxWordsPerLine: Math.max(1, Math.min(12, displayConfig.maxWordsPerLine)),
+    wordsPerGroup: readability.wordsPerGroup,
+    maxWordsPerLine: readability.maxWordsPerLine,
+  };
+}
+
+function captionReadabilityPolicy(
+  presentation: AtomicCaptionPresentation,
+  displayConfig: CaptionDisplayConfig,
+) {
+  const mode = presentation.displayMode;
+  const fastSpeech = presentation.signals.speakingRate > 165;
+  const highEnergy = presentation.signals.energy > 0.68 || mode === 'hormozi' || mode === 'instagram' || mode === 'word-by-word';
+  const subtitleLike = mode === 'subtitle' || mode === 'karaoke';
+  const maxWordsPerLine = subtitleLike
+    ? Math.min(8, displayConfig.maxWordsPerLine)
+    : highEnergy
+      ? Math.min(2, displayConfig.maxWordsPerLine)
+      : Math.min(3, displayConfig.maxWordsPerLine);
+  const wordsPerGroup = subtitleLike
+    ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 7 : 8)
+    : highEnergy
+      ? Math.min(displayConfig.wordsPerGroup, mode === 'word-by-word' ? 1 : 3)
+      : Math.min(displayConfig.wordsPerGroup, 4);
+  const maxCharsPerCaption = subtitleLike ? 38 : highEnergy ? 22 : 30;
+  const maxGroupDurationMs = subtitleLike ? 2600 : highEnergy ? 1450 : 1900;
+
+  return {
+    version: 'caption-readability-policy-v1',
+    wordsPerGroup: Math.max(1, wordsPerGroup),
+    maxWordsPerLine: Math.max(1, maxWordsPerLine),
+    maxCharsPerCaption,
+    maxGroupDurationMs,
+    contrastFloor: 4.5,
+    surface: presentation.aesthetic.surface,
+    status: 'invented-needs-calibration',
   };
 }
 
@@ -293,9 +331,11 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
   const aesthetic = presentation.aesthetic;
   const panelSurface = aesthetic.surface === 'subtitle-panel';
   const activeWordPill = aesthetic.surface === 'active-word-pill';
+  const readabilitySurface = panelSurface || activeWordPill;
   const fontSize = `${aesthetic.fontSizePx}px`;
   const accentColor = isHighEnergy ? '#FFD84D' : isFormal ? '#A7D3FF' : '#FF8A8A';
   const shadowAlpha = Math.max(0.65, Math.min(0.95, aesthetic.shadowStrength));
+  const surfaceAlpha = panelSurface ? 0.74 : activeWordPill ? 0.42 : 0.34;
 
   return {
     fontFamily: isFormal ? 'font-sans' : 'font-league-spartan',
@@ -304,18 +344,20 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
     color: '#ffffff',
     textAlign: 'center',
     lineHeight: aesthetic.lineHeight,
-    textShadow: `0 3px 12px rgba(0,0,0,${shadowAlpha}), 0 0 3px rgba(0,0,0,0.95)`,
-    backgroundColor: panelSurface ? 'rgba(0,0,0,0.62)' : 'transparent',
-    padding: panelSurface ? '8px 18px' : '4px 8px',
+    textShadow: `0 4px 16px rgba(0,0,0,${shadowAlpha}), 0 0 5px rgba(0,0,0,0.98), 0 1px 1px rgba(0,0,0,1)`,
+    backgroundColor: readabilitySurface || !isFormal ? `rgba(0,0,0,${surfaceAlpha})` : 'rgba(0,0,0,0.28)',
+    backdropFilter: 'blur(2px)',
+    padding: panelSurface ? '10px 20px' : '8px 14px',
     borderRadius: panelSurface ? '8px' : undefined,
     highlight: {
       color: accentColor,
-      backgroundColor: activeWordPill ? 'rgba(0,0,0,0.72)' : 'transparent',
+      backgroundColor: activeWordPill ? 'rgba(0,0,0,0.84)' : 'rgba(0,0,0,0.44)',
       scale: aesthetic.emphasisScale,
       fontWeight: 900,
       effect: isHighEnergy ? 'pop' : 'glow',
       animation: isHighEnergy ? 'bounce' : 'none',
-      textShadow: `0 2px 10px rgba(0,0,0,${shadowAlpha})`,
+      textShadow: `0 2px 12px rgba(0,0,0,${shadowAlpha}), 0 0 3px rgba(0,0,0,1)`,
+      padding: activeWordPill ? '5px 9px' : '4px 8px',
       borderRadius: activeWordPill ? '7px' : '4px',
     },
   };
