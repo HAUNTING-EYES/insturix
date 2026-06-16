@@ -33,6 +33,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/process-brand-vault-refinery-queue",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/cleanup-stale-uploads",
       "schedule": "0 4 * * *"
     },
