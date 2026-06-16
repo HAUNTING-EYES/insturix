@@ -43,12 +43,12 @@ Phase 6 - Multi-overlay choreography:
 - Still needed: rendered artifacts proving the live visual result is good across real projects.
 
 Phase 7 - Rendered aesthetic gate:
-- Status: partial, now has a first MG-specific taste regression.
+- Status: calibration cohort pass, real-video proof still pending.
 - Evidence: `lib/editron/motion-graphics/engine/eval/rendered-aesthetic.ts` includes a `motion-graphic` dimension that fails sparse-rate MG evidence when it carries generic shell/card atoms (`sm-backdrop`, `semantic-stat-field`, `semantic-stat-axis`) or reserves a large frame area while painting mostly empty/text-only pixels. `tests/editron/rendered-aesthetic.test.ts` covers both the failing old sparse-rate shell and the passing licensed `numeric-sparse-rate-trace` case.
 - Calibration cohort: `scripts/build-mg-rendered-calibration-input.ts` generates a deterministic rendered-aesthetic project input through the live planner, token resolver, atomic plan builder, and atomic decision engine. These six probe cases are fixture inputs for calibration only, not style selectors. The cohort covers sparse rate, bounded percent, big magnitude, fraction, keyword/concept, and speaker intro MGs. `tests/editron/mg-rendered-calibration-input.test.ts` proves the cohort exists and that sparse-rate evidence stays out of generic stat shell atoms.
-- Rendered calibration run: `npx tsx scripts\render-editron-aesthetic.ts .calibration-temp\mg-rendered-calibration-input.json --tag=mg-rendered-calibration-check --overlay-only --max-samples=24` now completes with `summary: warn score=0.82 pass=1 warn=5 fail=0`. Report artifacts are `.calibration-temp/rendered-aesthetic/mg-rendered-calibration-check/rendered-aesthetic.json` and `.calibration-temp/rendered-aesthetic/mg-rendered-calibration-check/report.html`.
-- Current hard-failure fixes from the calibration run: `composition-planner.ts` keeps text-heavy MGs in wide top lanes when bottom text occupancy is protected, suppresses decorative visual density in those protected frames, and moves bottom identity layouts to a wide top lane when required for fit. `composition-renderer.tsx` suppresses global semantic scene atoms when the atomic visual context says existing text must be protected, centers wide top/bottom lanes against the title-safe width, reduces compact top-lane type caps, and prevents short speaker phrases from being split into word-by-word fragments. `data-viz-renderers.tsx` adds deterministic text outlines for SVG data labels. This removed hard occlusion/contrast failures from the six-case calibration cohort.
-- Still needed: rendered quality is not done. The current warnings are safe-area/title-safe warnings, and visual inspection of the speaker-intro sample still shows right-side clipping in at least one sampled still. Next Phase 7 work should fix the renderer/layout animation mechanics for compact top lanes, then rerun real-video taste gates. This is calibration/tuning work, not a menu or preset path.
+- Rendered calibration run: `npx tsx scripts\render-editron-aesthetic.ts .calibration-temp\mg-rendered-calibration-input.json --tag=mg-rendered-calibration-check --overlay-only --max-samples=24` now completes with `summary: pass score=1 pass=6 warn=0 fail=0`. Report artifacts are `.calibration-temp/rendered-aesthetic/mg-rendered-calibration-check/rendered-aesthetic.json` and `.calibration-temp/rendered-aesthetic/mg-rendered-calibration-check/report.html`.
+- Current hard-failure fixes from the calibration run: `composition-planner.ts` keeps text-heavy MGs in wide top lanes when bottom text occupancy is protected, suppresses decorative visual density in those protected frames, and moves bottom identity layouts to a wide top lane when required for fit. `composition-renderer.tsx` suppresses global semantic scene atoms when the atomic visual context says existing text must be protected, uses deterministic safe insets for compact full-width lanes instead of transform-based centering, strips compact-lane horizontal child transforms, reduces compact top-lane type caps, and prevents short speaker phrases from being split into word-by-word fragments. `data-viz-renderers.tsx` adds deterministic text outlines for SVG data labels. This removed hard occlusion/contrast failures and safe-area warnings from the six-case calibration cohort.
+- Still needed: rendered quality is not done. The six-case calibration cohort now passes, but Phase 7 still needs real project/video taste gates and current project dumps/stills/clips before claiming live MG quality. This remains calibration/tuning work, not a menu or preset path.
 
 Known live-render blocker - repeated stat shell:
 - Symptom observed on a new video: scalar stat MG for `0.02` / `human beings per day` still looks like the same stat shell used elsewhere: centered value, large translucent conic field, horizontal axis bar, and top phrase strip.
@@ -62,8 +62,8 @@ Known live-render blocker - repeated stat shell:
 
 Phase 8 - Calibration:
 - Status: not complete.
-- Evidence: numeric scores are deterministic local priors for this slice.
-- Still needed: offline weight tuning against reference renders.
+- Evidence: numeric scores are deterministic local priors for this slice, and the first six-case rendered calibration cohort now passes after renderer-safe-lane fixes.
+- Still needed: offline weight tuning against reference renders, plus real-video calibration cases beyond the six deterministic probes.
 
 ## Claude Encoding-Law Claim Check
 

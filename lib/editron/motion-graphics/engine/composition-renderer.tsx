@@ -1877,17 +1877,17 @@ const TextElement: React.FC<{
   // G-1: shrink text to fit its title-safe box (and cap focal size). undefined → legacy floor.
   const fittedSizePx = computeFittedSize(element, text, boxWidthPx, canvasHeight, compactTopLane, anim.fontSize);
   const contentMotion = resolveVisualIntentContentElementMotion(element, visualIntent, frame, fps, contentOrder);
-  const style = applyVisualIntentContentElementMotion(
+  const keepInline = shouldKeepShortPhraseInline(text);
+  const style = resolveCompactTopLaneTextStyle(applyVisualIntentContentElementMotion(
     applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision),
     contentMotion,
-  );
+  ), compactTopLane, keepInline);
 
   if (element.animation === 'count-up') {
     return <CountUpText element={element} style={style} frame={frame} timing={timing} />;
   }
 
   const splitMode = element.textSplit;
-  const keepInline = shouldKeepShortPhraseInline(text);
   if (splitMode && splitMode !== 'none' && text.length > 1 && !keepInline) {
     return (
       <SplitTextElement
@@ -1906,8 +1906,34 @@ const TextElement: React.FC<{
     );
   }
 
-  return <div style={keepInline ? { ...style, alignSelf: 'center', display: 'block', maxWidth: '100%', textAlign: 'center', whiteSpace: 'nowrap', width: `${Math.round(boxWidthPx)}px` } : style}>{text}</div>;
+  return <div style={keepInline ? { ...style, display: 'inline-block', maxWidth: '100%', textAlign: 'center', whiteSpace: 'nowrap' } : style}>{text}</div>;
 };
+
+export function resolveCompactTopLaneTextStyle(
+  style: React.CSSProperties,
+  compactTopLane: boolean,
+  keepInline: boolean,
+): React.CSSProperties {
+  if (!compactTopLane) return style;
+
+  return {
+    ...style,
+    alignSelf: 'center',
+    maxWidth: '100%',
+    textAlign: 'center',
+    transform: stripHorizontalTranslate(style.transform),
+    whiteSpace: keepInline ? 'nowrap' : style.whiteSpace,
+  };
+}
+
+function stripHorizontalTranslate(transform: React.CSSProperties['transform']): React.CSSProperties['transform'] {
+  if (typeof transform !== 'string') return transform;
+  const stripped = transform
+    .replace(/\s*translateX\([^)]*\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped || undefined;
+}
 
 const SplitTextElement: React.FC<{
   element: ResolvedElement;
@@ -2338,7 +2364,7 @@ function maxWidthFraction(maxWidth: string | undefined): number | undefined {
   return Math.max(0.1, Math.min(0.95, pct / 100));
 }
 
-const SAFE_OVERLAY_MARGIN = 0.1;
+const SAFE_OVERLAY_MARGIN = 0.11;
 const SAFE_TOP_INSET = `${(SAFE_OVERLAY_MARGIN + 0.01) * 100}%`;
 
 function isCaptionProtectedTopLayout(layout: RecipeLayout): boolean {
@@ -2348,13 +2374,6 @@ function isCaptionProtectedTopLayout(layout: RecipeLayout): boolean {
 function shouldKeepShortPhraseInline(text: string): boolean {
   const words = text.trim().split(/\s+/).filter(Boolean);
   return words.length > 1 && words.length <= 5 && text.trim().length <= 34;
-}
-
-function resolvedWideLayoutWidth(layout: CompositionRendererProps['recipe']['layout']): string {
-  const layoutWidth = layout.maxWidth
-    ? Math.min(maxWidthFraction(layout.maxWidth) ?? (1 - SAFE_OVERLAY_MARGIN * 2), 1 - SAFE_OVERLAY_MARGIN * 2)
-    : (1 - SAFE_OVERLAY_MARGIN * 2);
-  return `${Math.min(0.95, Math.max(0.1, layoutWidth) * 100)}%`;
 }
 
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {
@@ -2378,6 +2397,7 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
   // ⚠️ 22% bottom offset INVENTED — typical captions occupy bottom 15-20%
   const bottomOffset = layout.captionZoneAware ? '22%' : '12%';
   const layoutMaxWidth = (fallback: string): string => layout.maxWidth ?? fallback;
+  const safeWideInset = `${SAFE_OVERLAY_MARGIN * 100}%`;
 
   // G-1: insets >=5% keep the block inside the title-safe zone (center 90% / 5% margin, SMPTE ST 2046-1).
   switch (layout.position) {
@@ -2392,9 +2412,9 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
     case 'center':
       return { ...base, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', alignItems: 'center', textAlign: 'center', maxWidth: layoutMaxWidth('70%') };
     case 'full-width-bottom':
-      return { ...base, bottom: '15%', left: '50%', right: undefined, alignItems: 'center', width: resolvedWideLayoutWidth(layout), maxWidth: resolvedWideLayoutWidth(layout), transform: 'translateX(-50%)' };
+      return { ...base, bottom: '15%', left: safeWideInset, right: safeWideInset, alignItems: 'center', width: 'auto', maxWidth: 'none' };
     case 'full-width-top':
-      return { ...base, top: SAFE_TOP_INSET, left: '50%', right: undefined, alignItems: 'center', width: resolvedWideLayoutWidth(layout), maxWidth: resolvedWideLayoutWidth(layout), transform: 'translateX(-50%)' };
+      return { ...base, top: SAFE_TOP_INSET, left: safeWideInset, right: safeWideInset, alignItems: 'center', width: 'auto', maxWidth: 'none' };
     default:
       return { ...base, bottom: '12%', left: '5%', maxWidth: layoutMaxWidth('45%') };
   }

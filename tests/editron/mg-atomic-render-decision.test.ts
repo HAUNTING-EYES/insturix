@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyAtomicMotionTracks, applyAtomicRenderDecision, applyAtomicStyleAtoms, findAtomicElement, resolveCompositionVisualIntent, resolveVisualIntentContentLayoutStyle, resolveVisualIntentSceneAtoms, resolveVisualIntentStageChrome } from '../../lib/editron/motion-graphics/engine/composition-renderer';
+import { applyAtomicMotionTracks, applyAtomicRenderDecision, applyAtomicStyleAtoms, findAtomicElement, resolveCompactTopLaneTextStyle, resolveCompositionVisualIntent, resolveVisualIntentContentLayoutStyle, resolveVisualIntentSceneAtoms, resolveVisualIntentStageChrome } from '../../lib/editron/motion-graphics/engine/composition-renderer';
 import type { AtomicOverlayDecision } from '../../lib/editron/motion-graphics/engine/atomic-overlay-decision';
 import type { AtomicElementPlan, AtomicOverlayPlan } from '../../lib/editron/motion-graphics/engine/atomic-overlay-plan';
 import type { ComputedChoreography, RecipeVisualIntent, ResolvedElement } from '../../lib/editron/motion-graphics/engine/recipe-types';
@@ -549,6 +549,21 @@ describe('atomic render decision adapter', () => {
     expect(style.maxWidth).toBe('100%');
     expect(style.whiteSpace).toBe('normal');
     expect(style.wordBreak).toBe('normal');
+  });
+
+  it('removes child horizontal transforms in compact top lanes to protect title-safe fit', () => {
+    const style = resolveCompactTopLaneTextStyle({
+      alignSelf: 'flex-start',
+      maxWidth: '100%',
+      textAlign: 'left',
+      transform: 'translateX(108px) translateY(18px) scale(1.02)',
+      whiteSpace: 'normal',
+    }, true, true);
+
+    expect(style.alignSelf).toBe('center');
+    expect(style.textAlign).toBe('center');
+    expect(style.whiteSpace).toBe('nowrap');
+    expect(style.transform).toBe('translateY(18px) scale(1.02)');
   });
 
   it('fits multi-word MG titles against the whole phrase, not only the longest word', () => {
