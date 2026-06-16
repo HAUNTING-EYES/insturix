@@ -43,9 +43,9 @@ Phase 6 - Multi-overlay choreography:
 - Still needed: rendered artifacts proving the live visual result is good across real projects.
 
 Phase 7 - Rendered aesthetic gate:
-- Status: partial.
-- Evidence: structural gates and rendered-aesthetic tests exist; this slice did not add a new rendered aesthetic gate.
-- Still needed: automated taste check on actual frames, not just candidate legality.
+- Status: partial, now has a first MG-specific taste regression.
+- Evidence: `lib/editron/motion-graphics/engine/eval/rendered-aesthetic.ts` includes a `motion-graphic` dimension that fails sparse-rate MG evidence when it carries generic shell/card atoms (`sm-backdrop`, `semantic-stat-field`, `semantic-stat-axis`) or reserves a large frame area while painting mostly empty/text-only pixels. `tests/editron/rendered-aesthetic.test.ts` covers both the failing old sparse-rate shell and the passing licensed `numeric-sparse-rate-trace` case.
+- Still needed: run this gate on actual rendered project frames across sparse rate, bounded percent, big magnitude, fraction, and keyword/concept MGs; then calibrate thresholds against reference renders.
 
 Known live-render blocker - repeated stat shell:
 - Symptom observed on a new video: scalar stat MG for `0.02` / `human beings per day` still looks like the same stat shell used elsewhere: centered value, large translucent conic field, horizontal axis bar, and top phrase strip.
@@ -54,6 +54,7 @@ Known live-render blocker - repeated stat shell:
 - Code fix status: `composition-renderer.tsx::resolveSemanticContentSceneAtoms` now gates semantic stat scene atoms through licensed evidence. `semantic-stat-field` needs bounded-proportion / `sweep` evidence; `semantic-stat-axis` needs `sweep` or `length` evidence. Bare scalar/rate content such as `0.02 human beings per day` returns no repeated stat shell.
 - Regression coverage: `tests/editron/mg-stage-composition-renderer.test.ts` proves licensed `90%` content still gets stat atoms and unbounded scalar-rate content gets none. `tests/editron/mg-spine-usability.test.ts` also locks the sparse scalar-rate recipe against both one-point data-viz shells and `sm-backdrop`.
 - Rendered proof: `.calibration-temp/mg-stills/mg-stat-rate-current/mg00-unknown-0-02.png` was regenerated from the current planner after the fix. It renders `0.02 human beings per day` as `counter + sm-underline + numeric-sparse-rate-trace + numeric-rate-rule + label`, with no conic stat field, no horizontal magnitude axis, no backdrop card, no render errors, and no fit warnings.
+- Rendered taste gate: `tests/editron/rendered-aesthetic.test.ts` now fails sparse-rate evidence if it still carries generic shell/card atoms, and passes the licensed trace evidence. This is a deterministic gate over rendered evidence, not a new preset selector.
 - Honest visual status: this fixes the repeated shell/card bug class, but the result is still a sparse typographic rate composition, not the final rich full-frame MG standard. The remaining quality work belongs in Phase 7 / calibration: richer licensed atoms for tiny rates and real footage taste gates, not more presets or menu types.
 
 Phase 8 - Calibration:

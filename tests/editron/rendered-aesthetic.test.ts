@@ -313,6 +313,71 @@ describe('rendered frame aesthetic scoring', () => {
       expect.objectContaining({ dimension: 'contrast', severity: 'fail' }),
     ]));
   });
+
+  it('fails sparse-rate MGs that render as generic stat shells or cards', () => {
+    const receipt = motionGraphicReceipt('0.02 human beings per day', [
+      overlayAtom('shape-kind', 'recipe.role.sm-backdrop', 'sm-backdrop', 1, 'decision-param'),
+      overlayAtom('shape-kind', 'scene.atom.semantic-stat-field', 'semantic-stat-field', 1, 'decision-param'),
+    ]);
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'sparse-rate-shell',
+        receipt,
+        box: {
+          x: 80,
+          y: 360,
+          width: 920,
+          height: 820,
+          opacity: 1,
+          visiblePixelRatio: 0.018,
+          contrastRatio: 5.2,
+          textPixelHeight: 74,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'motion-graphic',
+        severity: 'fail',
+        message: expect.stringContaining('generic stat shell/card'),
+      }),
+    ]));
+  });
+
+  it('passes sparse-rate MG evidence when it uses a licensed trace instead of a shell', () => {
+    const receipt = motionGraphicReceipt('0.02 human beings per day', [
+      overlayAtom('shape-kind', 'recipe.role.numeric-sparse-rate-trace', 'numeric-sparse-rate-trace', 1, 'decision-param'),
+      overlayAtom('shape-kind', 'recipe.role.numeric-rate-rule', 'numeric-rate-rule', 1, 'decision-param'),
+    ]);
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'sparse-rate-trace',
+        receipt,
+        box: {
+          x: 220,
+          y: 760,
+          width: 640,
+          height: 240,
+          opacity: 1,
+          visiblePixelRatio: 0.032,
+          contrastRatio: 5.2,
+          textPixelHeight: 74,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.issues).toHaveLength(0);
+    expect(result.subscores['motion-graphic']).toBe(1);
+  });
 });
 
 function captionReceipt(input: {
@@ -390,4 +455,25 @@ function visualOverlay(
       visiblePixelRatio: 0.03,
     },
   };
+}
+
+function motionGraphicReceipt(rawText: string, extraAtoms: AtomicOverlayAtom[] = []): AtomicOverlayReceipt {
+  const words = rawText.split(/\s+/).filter(Boolean);
+  return buildOverlayAtomicReceipt({
+    family: 'motion-graphic',
+    intent: 'composed-numeric',
+    frame: 36,
+    durationFrames: 90,
+    source: 'test',
+    atoms: [
+      overlayAtom('text-content', 'content.text', rawText, 1, 'transcript'),
+      overlayAtom('font-family', 'text.font_family', 'JetBrains Mono', 1, 'decision-param'),
+      overlayAtom('font-size', 'text.font_size', '74', 1, 'decision-param'),
+      overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+      overlayAtom('text-row-capacity', 'text.row_capacity', Math.max(1, words.length), 1, 'decision-param'),
+      overlayAtom('text-target-row-count', 'text.target_row_count', 2, 1, 'decision-param'),
+      ...words.map((word, index) => overlayAtom('caption-word', `mg.word.${index}`, word, 1, 'transcript')),
+      ...extraAtoms,
+    ],
+  });
 }

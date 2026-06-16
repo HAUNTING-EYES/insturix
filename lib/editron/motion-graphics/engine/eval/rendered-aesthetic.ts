@@ -15,6 +15,7 @@ export type RenderedAestheticDimension =
   | 'overlap'
   | 'text'
   | 'contrast'
+  | 'motion-graphic'
   | 'clutter';
 
 export type RenderedAestheticSeverity = 'info' | 'warn' | 'fail';
@@ -100,6 +101,7 @@ const DIMENSIONS: RenderedAestheticDimension[] = [
   'overlap',
   'text',
   'contrast',
+  'motion-graphic',
   'clutter',
 ];
 
@@ -168,6 +170,7 @@ export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput):
     scoreAvoidRegions(overlay, input, addIssue);
     scoreText(overlay, input, addIssue);
     scoreContrast(overlay, addIssue);
+    scoreMotionGraphicTaste(overlay, input, addIssue);
   }
 
   scoreOverlayOverlap(normalized, addIssue);
@@ -367,6 +370,51 @@ function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
   }
 }
 
+function scoreMotionGraphicTaste(overlay: NormalizedOverlay, input: RenderedFrameAestheticInput, addIssue: AddIssue): void {
+  if (overlay.family !== 'motion-graphic') return;
+  const receipt = overlay.item.receipt;
+  if (!receipt) return;
+
+  const text = receipt.form.text;
+  const rawText = text?.rawText ?? stringAtomValue(receipt, 'text-content') ?? '';
+  const atomValues = receipt.atoms.map((atom) => String(atom.value).toLowerCase());
+  const atomKeys = receipt.atoms.map((atom) => atom.key.toLowerCase());
+  const hasLicensedSparseTrace = atomValues.includes('numeric-sparse-rate-trace') || atomKeys.some((key) => key.includes('numeric-sparse-rate-trace'));
+  const hasShellAtom = atomValues.some((value) => (
+    value.includes('sm-backdrop')
+    || value.includes('semantic-stat-field')
+    || value.includes('semantic-stat-axis')
+    || value.includes('stat-shell')
+  )) || atomKeys.some((key) => (
+    key.includes('sm-backdrop')
+    || key.includes('semantic-stat-field')
+    || key.includes('semantic-stat-axis')
+    || key.includes('stat-shell')
+  ));
+  const sparseRate = looksLikeSparseRate(rawText);
+
+  if (sparseRate && hasShellAtom && !hasLicensedSparseTrace) {
+    addIssue('motion-graphic', 0.28, 'sparse rate MG rendered with a generic stat shell/card', {
+      overlay: overlay.item,
+      evidence: `text="${rawText}"; atoms=${matchedAtomEvidence(atomKeys, atomValues)}`,
+      severity: 'fail',
+    });
+  }
+
+  const visibleRatio = overlay.item.box?.visiblePixelRatio;
+  if (overlay.box && visibleRatio !== undefined) {
+    const frameArea = Math.max(1, input.width * input.height);
+    const boxAreaRatio = (overlay.box.width * overlay.box.height) / frameArea;
+    if (boxAreaRatio >= 0.28 && visibleRatio <= 0.025 && text && !hasLicensedSparseTrace) {
+      addIssue('motion-graphic', 0.22, 'motion graphic reserves a large frame area but renders mostly empty/text-only pixels', {
+        overlay: overlay.item,
+        evidence: `boxArea=${boxAreaRatio.toFixed(3)}; visiblePixelRatio=${visibleRatio.toFixed(4)}`,
+        severity: 'fail',
+      });
+    }
+  }
+}
+
 function scoreClutter(normalized: NormalizedOverlay[], addIssue: AddIssue): void {
   const visual = normalized.filter((overlay) => isVisualFamily(overlay.family));
   if (visual.length >= 5) {
@@ -554,8 +602,38 @@ function emptyPenaltyMap(): Record<RenderedAestheticDimension, number> {
     overlap: 0,
     text: 0,
     contrast: 0,
+    'motion-graphic': 0,
     clutter: 0,
   };
+}
+
+function stringAtomValue(receipt: AtomicOverlayReceipt, kind: string): string | undefined {
+  const atom = receipt.atoms.find((candidate) => candidate.kind === kind);
+  return typeof atom?.value === 'string' ? atom.value : undefined;
+}
+
+function looksLikeSparseRate(text: string): boolean {
+  const normalized = text.toLowerCase();
+  const match = normalized.match(/(?:^|\s)(0?\.\d+)(?:\s|$)/);
+  if (!match) return false;
+  const value = Number.parseFloat(match[1]);
+  return Number.isFinite(value)
+    && value > 0
+    && value < 1
+    && /\b(per|rate|daily|weekly|monthly|yearly|frequency|average)\b/.test(normalized);
+}
+
+function matchedAtomEvidence(keys: string[], values: string[]): string {
+  return [...keys, ...values]
+    .filter((item) => (
+      item.includes('sm-backdrop')
+      || item.includes('semantic-stat-field')
+      || item.includes('semantic-stat-axis')
+      || item.includes('stat-shell')
+      || item.includes('numeric-sparse-rate-trace')
+    ))
+    .slice(0, 6)
+    .join(',');
 }
 
 function numberValue(value: unknown): number | undefined {
