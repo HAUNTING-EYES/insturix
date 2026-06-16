@@ -8,7 +8,7 @@ export type Phase0FailureSeverity = 'info' | 'warn' | 'fail';
 export interface Phase0FailureClass {
   id: string;
   severity: Phase0FailureSeverity;
-  source: 'cut' | 'timeline' | 'decision' | 'vjepa' | 'render' | 'overlay' | 'calibration';
+  source: 'cut' | 'timeline' | 'decision' | 'vjepa' | 'render' | 'overlay' | 'calibration' | 'quality';
   message: string;
   evidence?: Record<string, unknown>;
 }
@@ -63,6 +63,7 @@ export function classifyPhase0Fixture(
   addVjepaClasses(classes, manifest);
   addOverlayClasses(classes, manifest);
   addRenderClasses(classes, manifest, artifactPack, renderedReport);
+  addQualityClasses(classes, manifest);
   addCalibrationClasses(classes, manifest);
 
   const summary = summarize(classes);
@@ -197,6 +198,19 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
       },
     });
   }
+
+  if (manifest.unifiedDecisionBundle.authority === 'creative-brief-primary') {
+    classes.push({
+      id: 'decision.authority_creative_primary',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Decision authority is still Creative Brief primary; signal candidates do not own execution.',
+      evidence: {
+        decisionMode: manifest.unifiedDecisionBundle.authority,
+        source: manifest.unifiedDecisionBundle.source,
+      },
+    });
+  }
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -301,6 +315,57 @@ function addRenderClasses(
       source: 'render',
       message: 'Render input exists, but rendered stills/GIFs have not been produced yet.',
       evidence: { artifactDir: manifest.renderArtifacts.artifactDir },
+    });
+  }
+}
+
+function addQualityClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+  if (manifest.qualityReview.status === 'missing') {
+    classes.push({
+      id: 'quality.review_metadata_missing',
+      severity: 'info',
+      source: 'quality',
+      message: 'Quality review metadata is missing from project fixture.',
+      evidence: {
+        issue: manifest.qualityReview.issue ?? 'quality review not persisted',
+      },
+    });
+    return;
+  }
+
+  if (manifest.qualityReview.criticalCount > 0) {
+    classes.push({
+      id: 'quality.critical_issues',
+      severity: 'fail',
+      source: 'quality',
+      message: 'Quality review contains critical issues.',
+      evidence: {
+        criticalCount: manifest.qualityReview.criticalCount,
+        issueCount: manifest.qualityReview.issueCount,
+      },
+    });
+  }
+
+  if (manifest.qualityReview.warningCount > 0) {
+    classes.push({
+      id: 'quality.warning_issues',
+      severity: 'warn',
+      source: 'quality',
+      message: 'Quality review contains warning-level issues.',
+      evidence: {
+        warningCount: manifest.qualityReview.warningCount,
+        autoFixableCount: manifest.qualityReview.autoFixableCount,
+      },
+    });
+  }
+
+  if (manifest.qualityReview.overallScore != null && manifest.qualityReview.overallScore < 0.4) {
+    classes.push({
+      id: 'quality.low_overall_score',
+      severity: manifest.qualityReview.criticalCount > 0 ? 'fail' : 'warn',
+      source: 'quality',
+      message: 'Persisted overall quality score is poor.',
+      evidence: { overallScore: manifest.qualityReview.overallScore },
     });
   }
 }

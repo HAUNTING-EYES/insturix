@@ -4,6 +4,7 @@ import { classifyPhase0Fixture } from '../../lib/editron/services/phase0-failure
 import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
+import type { PersistedQualityReview } from '../../lib/editron/services/quality-review-persistence';
 
 describe('phase0 failure taxonomy', () => {
   it('keeps a clean fixture passable while recording read-only render/calibration state', () => {
@@ -19,9 +20,10 @@ describe('phase0 failure taxonomy', () => {
     const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
 
     expect(taxonomy.status).toBe('pass');
-    expect(taxonomy.summary).toEqual({ total: 2, fail: 0, warn: 0, info: 2 });
+    expect(taxonomy.summary).toEqual({ total: 3, fail: 0, warn: 0, info: 3 });
     expect(taxonomy.classes.map((item) => item.id)).toEqual([
       'render.not_executed',
+      'quality.review_metadata_missing',
       'calibration.learning_writes_blocked',
     ]);
   });
@@ -240,6 +242,59 @@ describe('phase0 failure taxonomy', () => {
           evidence: 'contrast=1.37; required=4.5',
         }],
       },
+    });
+  });
+
+  it('flags persisted quality review defects with severity', () => {
+    const project = cleanProject();
+    project.qualityReview = {
+      overallScore: 0.18,
+      issueCount: 2,
+      criticalCount: 1,
+      warningCount: 1,
+      infoCount: 0,
+      autoFixableCount: 1,
+      issuesPersistedCount: 2,
+      issuesTruncated: false,
+      issues: [{
+        type: 'overlay-density',
+        severity: 'critical',
+        description: 'too many MG overlays on one segment',
+        frameRange: { start: 1, end: 24 },
+        overlayId: 7,
+        suggestedFix: 'reduce overlay density',
+        autoFixable: false,
+      }],
+      suggestions: ['remove one MG at 12s'],
+      analyzedAt: new Date('2026-06-14T00:00:00.000Z'),
+      reviewedAt: new Date('2026-06-14T00:00:00.000Z'),
+      version: 'quality-review-persistence-v1',
+    } as Record<string, unknown>;
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_quality_issues',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_quality_issues',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(taxonomy.status).toBe('fail');
+    expect(classIds).toEqual(expect.arrayContaining([
+      'quality.critical_issues',
+      'quality.warning_issues',
+      'quality.low_overall_score',
+    ]));
+    expect(taxonomy.classes.find((item) => item.id === 'quality.critical_issues')).toMatchObject({
+      severity: 'fail',
+      evidence: {
+        criticalCount: 1,
+        issueCount: 2,
+      },
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'quality.low_overall_score')).toMatchObject({
+      severity: 'fail',
     });
   });
 
