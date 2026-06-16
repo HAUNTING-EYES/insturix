@@ -11,7 +11,7 @@ import type {
   ContentStructureSignature,
   ContentPartRole,
 } from './recipe-types';
-import { analyzeContentShape, analyzeNumericValueForm, isCountUpValue } from './content-shape-analyzer';
+import { analyzeContentShape } from './content-shape-analyzer';
 import {
   moveAccentLine, moveSideBar, moveBackdropCard,
   moveDivider, moveUnderline, moveKicker,
@@ -20,6 +20,16 @@ import {
 import { generateBrandPattern } from './brand-pattern-generator';
 import { deriveBrandRules } from './brand-composition-rules';
 import { getCompositionTemplate } from './composition-templates';
+import {
+  enumerateNumericEncodingCandidates,
+  selectNumericEncodingCandidate,
+  type NumericEncodingCandidate,
+  type NumericEncodingCandidateLayerScores,
+  type NumericEncodingFacts,
+} from './encoding-wires';
+import { scoreAesthetic } from './eval/aesthetic';
+import { combineLayers } from './eval/composite';
+import { scoreLegibility } from './eval/legibility';
 
 export type MgOverlayScores = Record<string, { score: number; values: Record<string, number | string | boolean> }>;
 
@@ -444,29 +454,6 @@ function hasRelation(structure: ContentStructureSignature, type: ContentStructur
   return structure.relations.some((relation) => relation.type === type);
 }
 
-type NumericVisualMode = 'count' | 'rate' | 'fraction' | 'ratio' | 'percent' | 'currency' | 'magnitude' | 'static';
-
-function resolveNumericVisualMode(shape: Extract<ContentShape, { kind: 'numeric' }>): NumericVisualMode {
-  const analysis = analyzeNumericValueForm(shape.value);
-  const label = String(shape.label ?? '').toLowerCase();
-  if (!analysis) return 'static';
-  if (analysis.form === 'fraction') return 'fraction';
-  if (analysis.form === 'ratio') return 'ratio';
-  if (analysis.form === 'percent') return 'percent';
-  if (analysis.form === 'currency') return 'currency';
-  if (analysis.form === 'magnitude') return 'magnitude';
-  if (analysis.form === 'tiny-decimal') return 'rate';
-  if (/\b(per|rate|daily|weekly|monthly|yearly|frequency|average)\b/.test(label)) return 'rate';
-  return analysis.canCountUp ? 'count' : 'static';
-}
-
-function numericAnimationForMode(mode: NumericVisualMode, value: unknown): 'count-up' | 'none' {
-  if (mode === 'count' || mode === 'percent' || mode === 'currency') {
-    return isCountUpValue(value) ? 'count-up' : 'none';
-  }
-  return 'none';
-}
-
 function applyStructuralAffordanceMotion(
   elements: RecipeElement[],
   strategy: CompositionStrategy,
@@ -506,29 +493,73 @@ function composeNumeric(
   const primaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.1);
   const secondaryLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.3);
   const letterTracking = mgVal(mgScores, 'mg.typography.letter_tracking', 'letterTracking', 0);
-  const visualMode = resolveNumericVisualMode(shape);
   const evidence = structure.evidence;
-  const isProportion = evidence.proportionAffordance === true
-    || evidence.quantityKind === 'percent'
-    || evidence.quantityKind === 'percentage'
-    || evidence.quantityKind === 'fraction'
-    || evidence.quantityKind === 'ratio';
-  const isNegated = evidence.negationAffordance === true
-    || evidence.negated === true
-    || evidence.refuted === true
-    || evidence.polarity === 'false'
-    || evidence.polarity === 'negative';
-  const monoValue = visualMode === 'rate' || visualMode === 'fraction' || visualMode === 'ratio';
-  const compactStatic = visualMode === 'rate' || visualMode === 'fraction' || visualMode === 'ratio' || visualMode === 'magnitude';
+  const recentEncodingKeys = String(signals.recent_numeric_encoding_key ?? signals.recentNumericEncodingKey ?? '')
+    .split(',')
+    .map((key) => key.trim())
+    .filter(Boolean);
+  const encodingInput = {
+    value: shape.value,
+    label: shape.label,
+    prefix: shape.prefix,
+    suffix: shape.suffix,
+    evidence,
+  };
+  const encodingOptions = {
+    signalEnergy: Math.max(signals.enthusiasm, signals.emotional_arousal, signals.visceral_impact),
+    visualRisk: visualFormRisk(signals),
+    formality: signals.formality,
+    recentEncodingKeys,
+  };
+  const candidateSet = enumerateNumericEncodingCandidates(encodingInput, encodingOptions);
+  const candidateLayerScores = scoreNumericEncodingCandidateRecipes(
+    candidateSet.candidates,
+    candidateSet.facts,
+    shape,
+    language,
+    fontSize,
+    primaryLineHeight,
+    recentEncodingKeys,
+  );
+  const encoding = selectNumericEncodingCandidate(encodingInput, {
+    ...encodingOptions,
+    candidateLayerScores,
+  });
+  const facts = encoding.facts;
+  const selectedEncoding = encoding.selected;
+  const labelText = String(shape.label ?? '').toLowerCase();
+  const isRate = facts.valueKind === 'tiny-decimal'
+    || /\b(per|rate|daily|weekly|monthly|yearly|frequency|average)\b/.test(labelText);
+  const monoValue = isRate || facts.valueKind === 'fraction' || facts.valueKind === 'ratio';
+  const compactStatic = monoValue || facts.valueKind === 'magnitude';
   const valueSize = compactStatic ? Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, fontSize / 1.18) : fontSize;
+
+  if (
+    selectedEncoding.renderKind === 'data-viz'
+    && selectedEncoding.encodingChannel
+    && selectedEncoding.dataValues
+  ) {
+    elements.push({
+      primitive: 'data-viz',
+      role: `numeric-${selectedEncoding.encodingChannel}`,
+      layer: 'foreground',
+      animation: 'grow-up',
+      bind: {
+        values: selectedEncoding.dataValues,
+        labels: shape.label ?? '',
+        encodingChannel: selectedEncoding.encodingChannel,
+        color: 'token:color.accent',
+        textColor: 'token:color.textPrimary',
+        font: 'token:typography.bodyFamily',
+      },
+    });
+  }
 
   elements.push({
     primitive: 'text',
     role: 'counter',
     layer: 'foreground',
-    // count-up only for plain magnitudes; fractions/ratios/suffixed values render statically
-    // (the renderer's count-up does parseFloat → would mangle "1/3" to "1"). Static still fades in.
-    animation: numericAnimationForMode(visualMode, shape.value),
+    animation: facts.canCountUp ? 'count-up' : 'none',
     bind: {
       text: 'content:value',
       prefix: 'content:prefix',
@@ -537,29 +568,34 @@ function composeNumeric(
         ? 'token:typography.monoFamily'
         : 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
-      color: visualMode === 'percent' ? 'token:color.accent' : 'token:color.textPrimary',
+      color: selectedEncoding.primaryWire === 'sweep' || facts.valueKind === 'percent'
+        ? 'token:color.accent'
+        : 'token:color.textPrimary',
       sizeScale: 'token:typography.sizeScale',
       minSize: valueSize,
       lineHeight: primaryLineHeight,
     },
   });
 
-  if (visualMode === 'rate' || visualMode === 'fraction' || visualMode === 'ratio') {
+  const ruleKind = isRate
+    ? 'rate'
+    : facts.valueKind === 'fraction' || facts.valueKind === 'ratio' ? facts.valueKind : undefined;
+  if (ruleKind) {
     elements.push({
       primitive: 'decoration',
-      role: `numeric-${visualMode}-rule`,
+      role: `numeric-${ruleKind}-rule`,
       layer: 'foreground',
       shape: 'line',
-      anchor: { mode: 'flow-span', thickness: visualMode === 'rate' ? 2 : 1 },
+      anchor: { mode: 'flow-span', thickness: ruleKind === 'rate' ? 2 : 1 },
       bind: {
         color: 'token:color.accent',
-        width: visualMode === 'rate' ? 2 : 1,
-        opacity: visualMode === 'rate' ? 0.7 : 0.45,
+        width: ruleKind === 'rate' ? 2 : 1,
+        opacity: ruleKind === 'rate' ? 0.7 : 0.45,
       },
     });
   }
 
-  if (isProportion) {
+  if (facts.boundedProportion) {
     elements.push({
       primitive: 'decoration',
       role: 'proportion-boundary-rule',
@@ -574,7 +610,7 @@ function composeNumeric(
     });
   }
 
-  if (isNegated) {
+  if (facts.negated) {
     elements.push({
       primitive: 'decoration',
       role: 'truth-negation-strike',
@@ -602,7 +638,7 @@ function composeNumeric(
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',
-        tracking: visualMode === 'rate'
+        tracking: isRate
           ? '0.08em'
           : letterTracking > 0 ? `${letterTracking.toFixed(3)}em` : 'token:typography.headingTracking',
         minSize: labelSize,
@@ -610,6 +646,94 @@ function composeNumeric(
       },
     });
   }
+}
+
+function scoreNumericEncodingCandidateRecipes(
+  candidates: NumericEncodingCandidate[],
+  facts: NumericEncodingFacts,
+  shape: Extract<ContentShape, { kind: 'numeric' }>,
+  language: MotionTokens,
+  fontSize: number,
+  lineHeight: number,
+  recentEncodingKeys: string[],
+): Record<string, NumericEncodingCandidateLayerScores> {
+  const scores: Record<string, NumericEncodingCandidateLayerScores> = {};
+  for (const candidate of candidates) {
+    const recipe: Recipe = {
+      id: `composed-${candidate.encodingKey}`,
+      layout: { position: 'center', arrangement: 'vertical-stack' },
+      exitStyle: 'simultaneous-fade',
+      elements: buildNumericEncodingCandidateElements(candidate, facts, shape, fontSize, lineHeight),
+    };
+    const legibility = scoreLegibility(recipe, language);
+    const aesthetic = scoreAesthetic(recipe, { recentForms: recentEncodingKeys, window: 4 });
+    const composite = combineLayers([legibility, aesthetic], { ok: true });
+    scores[candidate.encodingKey] = {
+      legibility: legibility.score,
+      aesthetic: aesthetic.score,
+      composite: composite.composite,
+      failsLegibilityFloor: composite.failsLegibilityFloor,
+    };
+  }
+  return scores;
+}
+
+function buildNumericEncodingCandidateElements(
+  candidate: NumericEncodingCandidate,
+  facts: NumericEncodingFacts,
+  shape: Extract<ContentShape, { kind: 'numeric' }>,
+  fontSize: number,
+  lineHeight: number,
+): RecipeElement[] {
+  const elements: RecipeElement[] = [];
+  if (candidate.renderKind === 'data-viz' && candidate.encodingChannel && candidate.dataValues) {
+    elements.push({
+      primitive: 'data-viz',
+      role: `numeric-${candidate.encodingChannel}`,
+      layer: 'foreground',
+      animation: 'grow-up',
+      bind: {
+        values: candidate.dataValues,
+        labels: shape.label ?? '',
+        encodingChannel: candidate.encodingChannel,
+        color: 'token:color.accent',
+        textColor: 'token:color.textPrimary',
+        font: 'token:typography.bodyFamily',
+      },
+    });
+  }
+  elements.push({
+    primitive: 'text',
+    role: 'counter',
+    layer: 'foreground',
+    animation: facts.canCountUp ? 'count-up' : 'none',
+    bind: {
+      text: 'content:value',
+      prefix: 'content:prefix',
+      suffix: 'content:suffix',
+      font: 'token:typography.headingFamily',
+      weight: 'token:typography.headingWeight',
+      color: candidate.primaryWire === 'sweep' ? 'token:color.accent' : 'token:color.textPrimary',
+      minSize: fontSize,
+      lineHeight,
+    },
+  });
+  if (shape.label) {
+    elements.push({
+      primitive: 'text',
+      role: 'label',
+      layer: 'foreground',
+      bind: {
+        text: 'content:label',
+        font: 'token:typography.bodyFamily',
+        weight: 'token:typography.bodyWeight',
+        color: 'token:color.textSecondary',
+        minSize: Math.max(CRG.LOWER_THIRD_TITLE_MIN_FONT, fontSize / 2),
+        lineHeight: 1.2,
+      },
+    });
+  }
+  return elements;
 }
 
 // Comparison (before/after or versus). The "to" is the visual PAYOFF (accent colour, full size,

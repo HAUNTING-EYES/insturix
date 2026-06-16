@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { planComposition, type MgOverlayScores } from '../../lib/editron/motion-graphics/engine/composition-planner';
 import { resolveMotionTokens } from '../../lib/editron/data/motion-theme-resolver';
 import type { GraphicIntent } from '../../lib/editron/motion-graphics/engine/recipe-types';
+import {
+  ENCODING_WIRE_TABLE,
+  enumerateNumericEncodingCandidates,
+  selectNumericEncodingCandidate,
+} from '../../lib/editron/motion-graphics/engine/encoding-wires';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,6 +34,101 @@ function numericIntent(value = '100', label = 'Score'): GraphicIntent {
 function identityIntent(name = 'John', title = 'CEO'): GraphicIntent {
   return { kind: 'identity', content: { name, title } };
 }
+
+// ---------------------------------------------------------------------------
+// 0. Numeric Encoding Law
+// ---------------------------------------------------------------------------
+
+describe('numeric encoding law', () => {
+  const tokens = makeTokens();
+  const primaryWires = (value: string) => (
+    enumerateNumericEncodingCandidates({ value }).candidates.map((candidate) => candidate.primaryWire)
+  );
+
+  it('defines wires by licensing facts, not surface presets', () => {
+    const licensingFacts = ENCODING_WIRE_TABLE.map((wire) => wire.licensingFact);
+    expect(licensingFacts).toEqual(expect.arrayContaining([
+      'bounded-proportion',
+      'comparable-magnitude',
+      'negation-or-refutation',
+      'salience-or-hierarchy',
+    ]));
+    expect(licensingFacts).not.toContain('percent');
+    expect(licensingFacts).not.toContain('bar-chart');
+    expect(licensingFacts).not.toContain('percentage-ring');
+  });
+
+  it('enumerates text, sweep, and length candidates for 90%', () => {
+    const selection = enumerateNumericEncodingCandidates({ value: '90%' });
+    expect(selection.facts.licensingFacts).toEqual(expect.arrayContaining([
+      'bounded-proportion',
+      'comparable-magnitude',
+    ]));
+    expect(primaryWires('90%')).toEqual(expect.arrayContaining(['literal', 'sweep', 'length']));
+    expect(selection.selected.primaryWire).toBe('sweep');
+    expect(selection.selected.encodingChannel).toBe('sweep');
+  });
+
+  it('does not invent a bounded data-viz candidate for 100M', () => {
+    const selection = enumerateNumericEncodingCandidates({ value: '100M' });
+    expect(selection.facts.valueKind).toBe('magnitude');
+    expect(selection.candidates.map((candidate) => candidate.primaryWire)).toEqual(['literal']);
+    expect(selection.candidates.some((candidate) => candidate.renderKind === 'data-viz')).toBe(false);
+
+    const recipe = planComposition(numericIntent('100M', 'Users'), tokens);
+    expect(recipe.elements.some((element) => element.primitive === 'data-viz')).toBe(false);
+  });
+
+  it('licenses bounded fraction candidates while keeping the exact fraction literal', () => {
+    const selection = enumerateNumericEncodingCandidates({ value: '1/3' });
+    expect(primaryWires('1/3')).toEqual(expect.arrayContaining(['literal', 'sweep', 'length']));
+    expect(selection.selected.primaryWire).toBe('literal');
+
+    const recipe = planComposition(numericIntent('1/3', 'Share'), tokens);
+    expect(recipe.elements.find((element) => element.role === 'numeric-fraction-rule')).toBeDefined();
+    expect(recipe.elements.find((element) => element.role === 'counter')?.animation).toBe('none');
+  });
+
+  it('penalizes repeated numeric encodings so consecutive bounded stats vary', () => {
+    const first = enumerateNumericEncodingCandidates({ value: '90%' });
+    const repeated = enumerateNumericEncodingCandidates(
+      { value: '90%' },
+      { recentEncodingKeys: [first.selected.encodingKey] },
+    );
+    expect(repeated.selected.encodingKey).not.toBe(first.selected.encodingKey);
+    expect(repeated.selected.primaryWire).toBe('length');
+  });
+
+  it('lets deterministic eval layer scores participate in candidate ranking', () => {
+    const selection = selectNumericEncodingCandidate(
+      { value: '90%' },
+      {
+        candidateLayerScores: {
+          'literal+emphasis': { legibility: 0.98, aesthetic: 0.95, composite: 0.97 },
+          'literal+sweep+emphasis': { legibility: 0.2, aesthetic: 0.2, composite: 0.2, failsLegibilityFloor: true },
+          'literal+length+emphasis': { legibility: 0.35, aesthetic: 0.35, composite: 0.35, failsLegibilityFloor: true },
+        },
+      },
+    );
+    expect(selection.selected.primaryWire).toBe('literal');
+    expect(selection.selected.scoreBreakdown.legibility).toBeGreaterThan(0);
+    expect(selection.candidates.find((candidate) => candidate.primaryWire === 'sweep')?.scoreBreakdown.legibilityFloorPenalty)
+      .toBeLessThan(0);
+  });
+
+  it('plans a bounded numeric MG with a fact channel instead of a surface role', () => {
+    const recipe = planComposition(
+      numericIntent('90%', 'Completion'),
+      tokens,
+      { enthusiasm: 0.8, emotional_arousal: 0.7 } as never,
+    );
+    const dataViz = recipe.elements.find((element) => element.primitive === 'data-viz');
+    expect(dataViz).toBeDefined();
+    expect(dataViz!.role).toBe('numeric-sweep');
+    expect(dataViz!.bind.encodingChannel).toBe('sweep');
+    expect(dataViz!.role).not.toMatch(/bar|ring|percentage/);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 1. Suppression

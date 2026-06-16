@@ -7,6 +7,7 @@ import { computeChoreography, type SyncData } from './choreography-computer';
 import { computeAnimationState, buildShapeStyle, buildTextStyle, fitFontSize, buildTransformStyle, deriveSpatialConfig, applyAudioReactiveModulation, type SpatialConfig, type SignalCurves, type AnimationState } from './primitive-renderers';
 import type { MGKeyframe, MGKeyframeTrack, MGSpeedRamp } from './recipe-types';
 import { BarChart, PercentageRing, Sparkline } from './data-viz-renderers';
+import { parseNumericEncodingDatum } from './encoding-wires';
 import { useGSAPTimeline, buildScrambleEntrance, buildScrambleExit, buildDrawSVGEntrance, buildDrawSVGExit, buildMorphHold, areTimelinePluginsAvailable } from './gsap-timeline';
 import { noise2D } from '@remotion/noise';
 import { atomicElementRenderKey, type AtomicElementPlan, type AtomicKeyframe, type AtomicMotionPhase, type AtomicMotionProperty, type AtomicOverlayPlan } from './atomic-overlay-plan';
@@ -1688,7 +1689,18 @@ function numericOpacity(value: React.CSSProperties['opacity']): number {
   return isFinite(opacity) ? opacity : 1;
 }
 
-/** Data-viz element: dispatches to BarChart, PercentageRing, or Sparkline based on role. */
+function parseDataVizValues(input: unknown): number[] {
+  if (Array.isArray(input)) {
+    return input.map((value) => Number(value)).filter(isFinite);
+  }
+
+  return String(input || '')
+    .split(',')
+    .map((part) => parseNumericEncodingDatum(part))
+    .filter((value): value is number => value !== null && isFinite(value));
+}
+
+/** Data-viz element: dispatches to channel realizers first, then legacy role names. */
 const DataVizElement: React.FC<{
   element: ResolvedElement;
   anim: ReturnType<typeof computeAnimationState>;
@@ -1703,9 +1715,7 @@ const DataVizElement: React.FC<{
   const holdDuration = Math.max(1, timing.holdEndFrame - timing.holdStartFrame);
   const progress = Math.min(1, Math.max(0, (frame - holdStart) / Math.min(45, holdDuration)));
 
-  const values: number[] = Array.isArray(p.values)
-    ? (p.values as unknown as number[])
-    : String(p.values || '').split(',').map(Number).filter(isFinite);
+  const values = parseDataVizValues(p.values);
   const labels: string[] | undefined = p.labels
     ? String(p.labels).split(',').map(s => s.trim())
     : undefined;
@@ -1721,13 +1731,18 @@ const DataVizElement: React.FC<{
     height: 200,
   };
 
-  // Dispatch by role — role is set by composition-planner based on content shape
+  // New numeric MGs bind a fact-derived channel; old data-series recipes still dispatch by role.
   const role = element.role;
-  const ChartComponent = role.includes('ring') || role.includes('percentage')
+  const encodingChannel = String(p.encodingChannel || '');
+  const ChartComponent = encodingChannel === 'sweep'
     ? PercentageRing
-    : role.includes('sparkline') || role.includes('line')
-      ? Sparkline
-      : BarChart;
+    : encodingChannel === 'length'
+      ? BarChart
+      : role.includes('ring') || role.includes('percentage')
+        ? PercentageRing
+        : role.includes('sparkline') || role.includes('line')
+          ? Sparkline
+          : BarChart;
 
   return (
     <div style={transformStyle}>
