@@ -413,6 +413,7 @@ const SIGNAL_EXECUTION_MIN_CONFIDENCE: Partial<Record<ReactiveEditDecision['type
   'camera-shake': 0.8,
   sfx: 0.78,
   'sfx-trigger': 0.78,
+  graphic: 0.78,
   'caption-emphasis': 0.72,
   pacing: 0.68,
   'audio-duck': 0.82,
@@ -426,6 +427,7 @@ const SIGNAL_EXECUTION_MIN_SPACING_FRAMES: Partial<Record<ReactiveEditDecision['
   'camera-shake': 120,
   sfx: 90,
   'sfx-trigger': 90,
+  graphic: 90,
   'caption-emphasis': 45,
   pacing: 120,
   'audio-duck': 150,
@@ -439,6 +441,7 @@ const SIGNAL_EXECUTION_MAX_PER_MINUTE: Partial<Record<ReactiveEditDecision['type
   'camera-shake': 2,
   sfx: 4,
   'sfx-trigger': 4,
+  graphic: 4,
   'caption-emphasis': 7,
   'audio-duck': 6,
   pacing: 5,
@@ -449,6 +452,16 @@ const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'graphicType',
   'intensity',
   'keyword',
+  'value',
+  'label',
+  'name',
+  'title',
+  'body',
+  'quote',
+  'author',
+  'from',
+  'to',
+  'relation',
   'role',
   'semanticRole',
   'sfxType',
@@ -678,7 +691,7 @@ function completenessForSignalDecision(decision: ReactiveEditDecision): number {
     }
     case 'graphic':
     case 'caption-emphasis': {
-      if (hasAnyParam(decision, ['text', 'keyword', 'semanticRole', 'role', 'graphicType'])) score += 0.25;
+      if (decision.type === 'graphic' ? hasEvidenceBackedGraphicContent(decision) : hasAnyParam(decision, ['text', 'keyword', 'semanticRole', 'role', 'graphicType'])) score += 0.25;
       break;
     }
     case 'zoom':
@@ -715,6 +728,10 @@ function riskFlagsForSignalDecision(decision: ReactiveEditDecision, completeness
     if (!sfxType || sfxType === 'none') flags.push('missing-sfx-intent');
   }
 
+  if (decision.type === 'graphic' && !hasEvidenceBackedGraphicContent(decision)) {
+    flags.push('missing-graphic-content-evidence');
+  }
+
   return flags;
 }
 
@@ -724,6 +741,18 @@ function hasAnyParam(decision: ReactiveEditDecision, keys: string[]): boolean {
     if (typeof value === 'string') return value.trim().length > 0;
     return value !== undefined && value !== null;
   });
+}
+
+function hasEvidenceBackedGraphicContent(decision: ReactiveEditDecision): boolean {
+  const params = decision.params ?? {};
+  if (hasAnyParam(decision, ['value', 'name', 'quote', 'semanticAtoms', 'contentStructure'])) return true;
+  if (hasAnyParam(decision, ['title']) && hasAnyParam(decision, ['body'])) return true;
+  if (hasAnyParam(decision, ['from']) && hasAnyParam(decision, ['to', 'relation'])) return true;
+
+  const items = params.items;
+  if (Array.isArray(items)) return items.length > 0;
+
+  return false;
 }
 
 function createMutableAuditBucket(): MutableSignalDecisionAuditBucket {
@@ -843,6 +872,10 @@ function resolveSignalExecutionLicense(
     if (!sfxType || sfxType === 'none') {
       return { executable: false, reason: 'missing-sfx-intent' };
     }
+  }
+
+  if (signalDecision.type === 'graphic' && !hasEvidenceBackedGraphicContent(signalDecision)) {
+    return { executable: false, reason: 'missing-graphic-content-evidence' };
   }
 
   const budget = budgets[signalDecision.type] ?? 0;

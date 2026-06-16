@@ -92,6 +92,109 @@ describe('unified decision bundle merge', () => {
     expect(merged.expectedSkipped).toBe(0);
   });
 
+  it('lets high-confidence signal graphics execute only when backed by content facts', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'graphic',
+        frame: 180,
+        source: 'signal-executor:number',
+        signal: 'entity.number',
+        confidence: 0.86,
+        params: {
+          value: '42%',
+          label: 'retention lift',
+          semanticAtoms: {
+            quantity: {
+              displayText: '42%',
+              kind: 'percentage',
+            },
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.authority).toMatchObject({
+      executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
+    });
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['zoom', 'graphic']);
+    expect(merged.edl.decisions[1].params).toEqual(expect.objectContaining({
+      value: '42%',
+      label: 'retention lift',
+      unifiedDecisionMerge: expect.objectContaining({
+        role: 'signal-supplement',
+        executionLicense: 'licensed-by-signal-policy',
+      }),
+    }));
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
+    }));
+    expect(merged.evidence.signalDecisionAudit.byFamily.graphic).toEqual(expect.objectContaining({
+      count: 1,
+      sources: { 'signal-executor:number': 1 },
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'licensed-by-signal-policy': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('keeps text-only signal graphics as evidence instead of executable MGs', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'graphic',
+        frame: 180,
+        source: 'signal-executor:text-only',
+        signal: 'speech.emphasis_word',
+        confidence: 0.92,
+        params: {
+          text: 'this sounds important',
+          keyword: 'important',
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'graphic',
+      family: 'graphic',
+      outcome: 'evidence-only',
+      reason: 'missing-graphic-content-evidence',
+      params: {
+        keyword: 'important',
+        text: 'this sounds important',
+      },
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-graphic-content-evidence': expect.objectContaining({ count: 1 }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.samples[0].candidate.riskFlags).toEqual(expect.arrayContaining([
+      'missing-graphic-content-evidence',
+    ]));
+  });
+
   it('lets a weak creative primary supplement with bounded signal-driven decisions', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
