@@ -373,19 +373,36 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
 
   const run = async (): Promise<void> => {
     const runningAt = dependencies.clock?.() ?? new Date().toISOString();
+    const runningJob: BrandRefineryJob = {
+      ...queuedJob,
+      status: 'running',
+      warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
+      updatedAt: runningAt,
+    };
     await dependencies.store.saveJobSnapshot({
-      job: {
-        ...queuedJob,
-        status: 'running',
-        warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
-        updatedAt: runningAt,
-      },
+      job: runningJob,
       candidates: [],
     });
-    await createBrandVaultRefineryJobFromWebsite(
-      { ...args, jobId },
-      dependencies,
-    );
+    try {
+      await createBrandVaultRefineryJobFromWebsite(
+        { ...args, jobId },
+        dependencies,
+      );
+    } catch (error) {
+      const failedAt = dependencies.clock?.() ?? new Date().toISOString();
+      await dependencies.store.saveJobSnapshot({
+        job: {
+          ...runningJob,
+          status: 'failed',
+          warnings: mergeWarnings(runningJob.warnings, [
+            `Brand Vault scan failed after it started: ${errorMessage(error)}`,
+          ]),
+          updatedAt: failedAt,
+        },
+        candidates: [],
+      });
+      throw error;
+    }
   };
 
   return {

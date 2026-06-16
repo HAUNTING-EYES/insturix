@@ -1,3 +1,5 @@
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import type {
   BrandSignal,
   BrandSignalEvidence,
@@ -84,6 +86,7 @@ const DEFAULT_LINKED_STYLESHEET_TIMEOUT_MS = 4_000;
 const DEFAULT_SHOPIFY_JSON_TIMEOUT_MS = 4_000;
 const DEFAULT_SHOPIFY_PRODUCTS_LIMIT = 12;
 const DEFAULT_SHOPIFY_COLLECTIONS_LIMIT = 12;
+const DEFAULT_WEBSITE_FETCH_MAX_REDIRECTS = 5;
 const DEFAULT_BRAND_VAULT_USER_AGENT = 'InsturixBrandVault/1.0';
 const DEFAULT_BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -168,26 +171,103 @@ async function fetchWebsiteHtmlAttempt(
   userAgent: string,
   browserLike: boolean,
 ): Promise<WebsiteFetchAttempt> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
-  try {
-    const response = await fetchFn(url, {
-      signal: controller.signal,
-      headers: websiteFetchHeaders(userAgent, browserLike),
-    });
-    const html = await response.text();
-    const contentType = response.headers.get('content-type') ?? undefined;
-    return {
-      normalizedUrl: normalizeBrandWebsiteUrl(response.url || url),
-      html,
-      contentType,
-      httpStatus: response.status,
-      ok: response.ok,
-      reason: detectWebsiteFetchFallbackReason(response.status, contentType, html),
-    };
-  } finally {
-    clearTimeout(timeout);
+  let nextUrl = url;
+  for (let redirectCount = 0; redirectCount <= DEFAULT_WEBSITE_FETCH_MAX_REDIRECTS; redirectCount += 1) {
+    await validatePublicWebsiteFetchTarget(nextUrl, options);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
+    try {
+      const response = await fetchFn(nextUrl, {
+        signal: controller.signal,
+        headers: websiteFetchHeaders(userAgent, browserLike),
+        redirect: 'manual',
+      });
+      if (isRedirectResponse(response)) {
+        const location = response.headers.get('location');
+        if (location && redirectCount < DEFAULT_WEBSITE_FETCH_MAX_REDIRECTS) {
+          nextUrl = normalizeBrandWebsiteUrl(new URL(location, nextUrl).toString());
+          continue;
+        }
+      }
+      const html = await response.text();
+      const contentType = response.headers.get('content-type') ?? undefined;
+      return {
+        normalizedUrl: normalizeBrandWebsiteUrl(response.url || nextUrl),
+        html,
+        contentType,
+        httpStatus: response.status,
+        ok: response.ok,
+        reason: detectWebsiteFetchFallbackReason(response.status, contentType, html),
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  return {
+    normalizedUrl: nextUrl,
+    html: '',
+    httpStatus: 508,
+    ok: false,
+    reason: 'server_error',
+  };
+}
+
+function isRedirectResponse(response: Response): boolean {
+  return response.status === 301 || response.status === 302 || response.status === 303 || response.status === 307 || response.status === 308;
+}
+
+async function validatePublicWebsiteFetchTarget(
+  normalizedUrl: string,
+  options: FetchWebsiteBrandSnapshotOptions,
+): Promise<void> {
+  if (options.allowPrivateNetworkTargets) return;
+  const url = new URL(normalizedUrl);
+  const hostname = url.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  if (isPrivateOrLocalHostname(hostname)) {
+    throw new Error('Brand Vault cannot scan private or local network targets.');
+  }
+  const ipVersion = isIP(hostname);
+  if (ipVersion !== 0) {
+    if (!isPublicIPAddress(hostname, ipVersion)) {
+      throw new Error('Brand Vault cannot scan private or local network targets.');
+    }
+    return;
+  }
+  if (options.fetchFn) return;
+  const addresses = await lookup(hostname, { all: true, verbatim: false });
+  if (addresses.some((entry) => !isPublicIPAddress(entry.address, isIP(entry.address)))) {
+    throw new Error('Brand Vault cannot scan private or local network targets.');
+  }
+}
+
+function isPrivateOrLocalHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === 'metadata.google.internal';
+}
+
+function isPublicIPAddress(address: string, ipVersion: number): boolean {
+  if (ipVersion === 4) return isPublicIPv4(address);
+  if (ipVersion === 6) return isPublicIPv6(address);
+  return true;
+}
+
+function isPublicIPv4(address: string): boolean {
+  const octets = address.split('.').map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = octets;
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 168) return false;
+  return !(a === 198 && (b === 18 || b === 19));
+}
+
+function isPublicIPv6(address: string): boolean {
+  const normalized = address.toLowerCase();
+  if (normalized === '::1' || normalized === '::' || normalized.startsWith('fe80:')) return false;
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return false;
+  if (normalized.startsWith('::ffff:')) return isPublicIPv4(normalized.slice('::ffff:'.length));
+  return true;
 }
 
 function websiteFetchHeaders(userAgent: string, browserLike: boolean): HeadersInit {

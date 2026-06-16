@@ -151,6 +151,60 @@ describe('Brand Vault refinery API boundary', () => {
     expect(completed.body.reviewPayload?.reviewRequired).toBe(true);
   });
 
+  it('marks a queued refinery job failed when the background run crashes', async () => {
+    const backingStore = createInMemoryBrandVaultRefineryStore();
+    const store: BrandVaultRefineryStore = {
+      saveRecord: (record, options) => backingStore.saveRecord(record, options),
+      getRecord: (id) => backingStore.getRecord(id),
+      acceptDraft: (id, options) => backingStore.acceptDraft(id, options),
+      rejectDraft: (id, reason, options) => backingStore.rejectDraft(id, reason, options),
+      getLatestAcceptedProfile: (filter) => backingStore.getLatestAcceptedProfile(filter),
+      saveJobSnapshot: (snapshot) => {
+        if (snapshot.recordId) throw new Error('mongo write failed');
+        return backingStore.saveJobSnapshot(snapshot);
+      },
+      getJobSnapshot: (jobId) => backingStore.getJobSnapshot(jobId),
+      getJobSnapshotByRecordId: (recordId) => backingStore.getJobSnapshotByRecordId(recordId),
+      updateJobStatusForRecord: (recordId, status, options) =>
+        backingStore.updateJobStatusForRecord(recordId, status, options),
+    };
+    const started = await startQueuedBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://x.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+      },
+    );
+
+    expect(started.response.body.ok).toBe(true);
+    if (!started.response.body.ok) throw new Error(started.response.body.error.message);
+    await expect(started.run?.()).rejects.toThrow('mongo write failed');
+
+    const failed = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: started.response.body.job.id },
+      { store },
+    );
+    expect(failed.status).toBe(200);
+    expect(failed.body.ok).toBe(true);
+    if (!failed.body.ok) throw new Error(failed.body.error.message);
+    expect(failed.body.job.status).toBe('failed');
+    expect(failed.body.job.warnings).toEqual(
+      expect.arrayContaining([
+        'Brand Vault scan failed after it started: mongo write failed',
+      ]),
+    );
+    expect(failed.body.record).toBeNull();
+    expect(failed.body.reviewPayload).toBeNull();
+  });
+
   it('creates, stores, and reloads a website-derived review draft for the authenticated user', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
 

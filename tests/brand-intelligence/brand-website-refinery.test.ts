@@ -86,6 +86,43 @@ describe('Brand website refinery', () => {
     expect(() => normalizeBrandWebsiteUrl('mailto:hello@example.com')).toThrow('Unsupported website URL protocol');
   });
 
+  it('rejects private network website targets before fetching', async () => {
+    let fetchCount = 0;
+    await expect(
+      fetchWebsiteBrandSnapshot('http://127.0.0.1:3000/admin', {
+        fetchFn: async () => {
+          fetchCount += 1;
+          return new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+        },
+      }),
+    ).rejects.toThrow('Brand Vault cannot scan private or local network targets.');
+    await expect(
+      fetchWebsiteBrandSnapshot('http://localhost:3000/admin', {
+        fetchFn: async () => {
+          fetchCount += 1;
+          return new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+        },
+      }),
+    ).rejects.toThrow('Brand Vault cannot scan private or local network targets.');
+    expect(fetchCount).toBe(0);
+  });
+
+  it('rejects redirects into private network targets before following them', async () => {
+    const fetchedUrls: string[] = [];
+    await expect(
+      fetchWebsiteBrandSnapshot('https://northstar.example', {
+        fetchFn: async (url) => {
+          fetchedUrls.push(url);
+          return new Response('', {
+            status: 302,
+            headers: { location: 'http://169.254.169.254/latest/meta-data/' },
+          });
+        },
+      }),
+    ).rejects.toThrow('Brand Vault cannot scan private or local network targets.');
+    expect(fetchedUrls).toEqual(['https://northstar.example/']);
+  });
+
   it('creates first-party website evidence candidates and a draft BrandSignalProfile', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://northstar.example',

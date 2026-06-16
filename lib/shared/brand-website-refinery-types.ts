@@ -234,6 +234,7 @@ export interface BrandWebsiteSnapshot {
 export interface FetchWebsiteBrandSnapshotOptions {
   fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
   browserFallbackFetchFn?: (input: BrandWebsiteBrowserFallbackInput) => Promise<BrandWebsiteBrowserFallbackSnapshot | undefined>;
+  allowPrivateNetworkTargets?: boolean;
   timeoutMs?: number;
   now?: string;
   userAgent?: string;
