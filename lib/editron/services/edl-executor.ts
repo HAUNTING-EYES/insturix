@@ -758,21 +758,39 @@ function normalizePlannerSignals(value: unknown): Record<string, number | string
     } else if (typeof raw === 'boolean') {
       signals[key] = raw ? 1 : 0;
     } else if (typeof raw === 'string' && raw.trim()) {
-      signals[key] = raw;
+      const numeric = Number(raw);
+      signals[key] = Number.isFinite(numeric) && raw.trim() !== ''
+        ? signedKeys.has(key)
+          ? clampSigned(numeric)
+          : unboundedNumericKeys.has(key)
+            ? numeric
+            : clamp01(numeric)
+        : raw;
     }
   }
 
   const aliases: Array<[string, string]> = [
+    ['content.formality', 'formality'],
+    ['personality.formality', 'formality'],
+    ['personality.enthusiasm', 'enthusiasm'],
+    ['personality.warmth', 'warmth'],
+    ['personality.emotional_arousal', 'emotional_arousal'],
+    ['personality.pacing_velocity', 'pacing_velocity'],
+    ['personality.humor', 'humor'],
+    ['personality.visceral_impact', 'visceral_impact'],
+    ['personality.visual_dependency', 'visual_dependency'],
     ['visual.motion_intensity', 'motion_intensity'],
     ['visual.significance', 'visual_significance'],
     ['visual.motion_vector.x', 'motion_vector_x'],
     ['visual.motion_vector.y', 'motion_vector_y'],
     ['visual.action_type', 'visual_action_type'],
     ['visual.motion_type', 'visual_motion_type'],
+    ['visual.scene_type', 'scene_type'],
     ['visual.face_emotion', 'visual_face_emotion'],
     ['visual.complexity', 'visual_complexity'],
     ['visual.text_on_screen', 'text_on_screen'],
     ['visual.text_coverage', 'text_coverage'],
+    ['visual_text_coverage', 'text_coverage'],
     ['visual.text_box_count', 'text_box_count'],
     ['visual.object_count', 'object_count'],
     ['visual.face_count', 'face_count'],
@@ -794,6 +812,7 @@ function normalizePlannerSignals(value: unknown): Record<string, number | string
     ['speech.energy_ema', 'speech_energy_ema'],
     ['speech.energy_surprise', 'energy_surprise'],
     ['speech.pitch_variability', 'pitch_variability'],
+    ['speech.pitch_contour', 'pitch_variability'],
     ['speech.speaking_rate_wpm', 'speaking_rate_wpm'],
     ['speech.silence_duration_ms', 'silence_duration_ms'],
     ['speech.silence_normalized', 'silence_normalized'],
@@ -801,6 +820,7 @@ function normalizePlannerSignals(value: unknown): Record<string, number | string
     ['speech.stress_detected', 'stress_detected'],
     ['audio.music_beat', 'music_beat'],
     ['audio.music_energy', 'music_energy'],
+    ['audio.music_section', 'music_section'],
     ['audio.music_tatum', 'music_tatum'],
     ['audio.bpm', 'bpm'],
     ['composite.cinematic_moment', 'cinematic_moment'],
@@ -1338,6 +1358,13 @@ function buildUtilitySignalSnapshot(source: Record<string, unknown>): Record<str
     ['music_tatum', 'audio.music_tatum'],
     ['bpm', 'audio.bpm'],
     ['formality', 'content.formality'],
+    ['enthusiasm', 'personality.enthusiasm'],
+    ['warmth', 'personality.warmth'],
+    ['emotional_arousal', 'personality.emotional_arousal'],
+    ['pacing_velocity', 'personality.pacing_velocity'],
+    ['humor', 'personality.humor'],
+    ['visceral_impact', 'personality.visceral_impact'],
+    ['visual_dependency', 'personality.visual_dependency'],
   ];
 
   for (const [from, to] of aliases) {

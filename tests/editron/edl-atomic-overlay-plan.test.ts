@@ -595,6 +595,141 @@ describe('EDL executor atomic overlay observe mode', () => {
     expect(atomicDecision.rationale).toContain('visual-density:restrained');
   });
 
+  it('normalizes registry signal aliases and numeric strings before MG planning', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    if (DEFAULT_CONFIG.features) {
+      DEFAULT_CONFIG.features.useCompositionEngine = true;
+    }
+
+    const overlays: Overlay[] = [{
+      id: 21,
+      type: OverlayType.VIDEO,
+      from: 20,
+      durationInFrames: 180,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: 'https://example.com/path2.mp4',
+      src: 'https://example.com/path2.mp4',
+      assetId: 'asset-path-2',
+      sourceStartFrame: 900,
+      videoStartTime: 900,
+      styles: { opacity: 1 },
+    } as Overlay];
+
+    const edl: EditDecisionList = {
+      projectId: 'path-2-signal-aliases',
+      generatedAt: new Date('2026-06-17T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'graphic',
+        frame: 40,
+        durationFrames: 90,
+        priority: 3,
+        source: 'creative-brief:test',
+        signal: 'statistic_detected',
+        reason: 'Path 2 signal aliases',
+        confidence: 0.95,
+        params: {
+          graphicType: 'stat-counter',
+          value: '42%',
+          label: 'Completion',
+          brand: {
+            accentColor: '#00ff00',
+            primaryColor: '#f8f8f8',
+            headingFont: 'Inter',
+            bodyFont: 'Inter',
+            monoFont: 'JetBrains Mono',
+          },
+          signals: {
+            'content.formality': '0.2',
+            'personality.enthusiasm': '0.92',
+            'personality.warmth': '0.61',
+            'personality.emotional_arousal': '0.8',
+            'personality.pacing_velocity': '0.73',
+            'personality.visceral_impact': '0.7',
+            'personality.visual_dependency': '0.8',
+            'visual.scene_type': 'action',
+            'visual.text_coverage': '0.74',
+            'visual_text_coverage': '0.74',
+            'speech.pitch_contour': '0.81',
+            'audio.music_section': 'chorus',
+            'composite.cinematic_moment': '0.8',
+            'composite.montage_mode': '0.4',
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.95,
+      },
+    };
+
+    const analyses = new Map<string, any>([
+      ['asset-path-2', {
+        assetId: 'asset-path-2',
+        vjepaAnalysis: {
+          segments: [{
+            startMs: 30000,
+            endMs: 32000,
+            visualSignificance: 0.48,
+            motionIntensity: 0.42,
+            actionType: 'talking',
+            motionType: 'camera',
+            faceEmotion: 'focused',
+            eyeContact: true,
+            textCoverage: 0.12,
+            textBoxCount: 1,
+            objectCount: 2,
+            faceCount: 1,
+          }],
+        },
+      }],
+    ]);
+
+    const result = await executeEDL(
+      edl,
+      'path-2-signal-aliases',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+      analyses,
+      'moderate',
+    );
+
+    const motionGraphic = overlays.find((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC) as any;
+
+    expect(result.overlaysCreated).toBe(1);
+    expect(motionGraphic.contentSignals.formality).toBe(0.2);
+    expect(motionGraphic.contentSignals['content.formality']).toBe(0.2);
+    expect(motionGraphic.contentSignals.enthusiasm).toBe(0.92);
+    expect(motionGraphic.contentSignals['personality.enthusiasm']).toBe(0.92);
+    expect(motionGraphic.contentSignals.warmth).toBe(0.61);
+    expect(motionGraphic.contentSignals.emotional_arousal).toBe(0.8);
+    expect(motionGraphic.contentSignals.pacing_velocity).toBe(0.73);
+    expect(motionGraphic.contentSignals.visceral_impact).toBe(0.7);
+    expect(motionGraphic.contentSignals.visual_dependency).toBe(0.8);
+    expect(motionGraphic.contentSignals.scene_type).toBe('action');
+    expect(motionGraphic.contentSignals.text_coverage).toBe(0.74);
+    expect(motionGraphic.contentSignals['visual.text_coverage']).toBe(0.74);
+    expect(motionGraphic.contentSignals.pitch_variability).toBe(0.81);
+    expect(motionGraphic.contentSignals['speech.pitch_contour']).toBe(0.81);
+    expect(motionGraphic.contentSignals.music_section).toBe('chorus');
+    expect(motionGraphic.contentSignals.cinematic_moment).toBe(0.8);
+    expect(motionGraphic.contentSignals.montage_mode).toBe(0.4);
+    expect(motionGraphic.recipe.id).not.toBe('suppressed');
+  });
+
   it('feeds EDL-created atomic metadata into the renderer adapter without losing source-frame signals', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
