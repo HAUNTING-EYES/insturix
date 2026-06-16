@@ -524,6 +524,6 @@ function shouldRetryResult(result: { action: string }): boolean {
 
 // ==================== Export ====================
 
-export const POST = (process.env.QSTASH_CURRENT_SIGNING_KEY || process.env.NODE_ENV === 'production')
+export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;
