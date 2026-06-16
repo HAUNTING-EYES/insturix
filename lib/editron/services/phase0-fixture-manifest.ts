@@ -6,6 +6,7 @@ import {
   type VjepaCoverageAudit,
   type VjepaCoverageSegment,
 } from './vjepa-coverage-audit';
+import type { PersistedQualityReviewIssue } from './quality-review-persistence';
 
 export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
@@ -36,6 +37,7 @@ export interface Phase0FixtureProject extends JsonRecord {
   aspectRatio?: string;
   overlays?: Phase0OverlayLike[];
   rawFootageAnalysis?: RawFootageAnalysis;
+  qualityReview?: JsonRecord;
   vjepaAnalysis?: {
     segments?: VjepaCoverageSegment[];
     rawFootageSegments?: VjepaCoverageSegment[];
@@ -72,6 +74,7 @@ export interface Phase0FixtureManifest {
   canonicalTimeline: ReturnType<typeof summarizeCanonicalTimeline>;
   unifiedDecisionBundle: ReturnType<typeof summarizeUnifiedDecisionBundle>;
   oldProducerGating: ReturnType<typeof summarizeOldProducerGating>;
+  qualityReview: ReturnType<typeof summarizeQualityReview>;
   vjepaCoverage: ReturnType<typeof summarizeVjepaCoverage>;
   overlayFamilies: ReturnType<typeof summarizeOverlayFamilies>;
   renderArtifacts: {
@@ -115,6 +118,7 @@ export function buildPhase0FixtureManifest(
     canonicalTimeline: summarizeCanonicalTimeline(project, overlays, fps, durationFrames),
     unifiedDecisionBundle: summarizeUnifiedDecisionBundle(project),
     oldProducerGating: summarizeOldProducerGating(project),
+    qualityReview: summarizeQualityReview(project),
     vjepaCoverage: summarizeVjepaCoverage(project, overlays, fps),
     overlayFamilies: summarizeOverlayFamilies(overlays),
     renderArtifacts: {
@@ -346,6 +350,69 @@ function summarizeOldProducerGating(project: Phase0FixtureProject) {
   };
 }
 
+function summarizeQualityReview(project: Phase0FixtureProject) {
+  const qualityReview = project.qualityReview;
+  if (!isRecord(qualityReview)) {
+    return {
+      status: 'missing' as const,
+      overallScore: null,
+      issueCount: 0,
+      criticalCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      autoFixableCount: 0,
+      issuesPersistedCount: 0,
+      issuesTruncated: false,
+      issues: [] as PersistedQualityReviewIssue[],
+      suggestions: [] as string[],
+      reviewedAt: null,
+      issue: 'qualityReview is missing from the project',
+    };
+  }
+
+  const issues = Array.isArray(qualityReview.issues)
+    ? qualityReview.issues.filter(isRecord).slice(0, 50).map(summarizePersistedQualityIssue)
+    : [];
+  const suggestions = Array.isArray(qualityReview.suggestions)
+    ? qualityReview.suggestions.map(readString).filter(Boolean).slice(0, 25)
+    : [];
+
+  return {
+    status: 'present' as const,
+    overallScore: readNullableNumber(qualityReview.overallScore),
+    issueCount: readPositiveNumber(qualityReview.issueCount, issues.length),
+    criticalCount: readPositiveNumber(qualityReview.criticalCount, issues.filter((issue) => issue.severity === 'critical').length),
+    warningCount: readPositiveNumber(qualityReview.warningCount, issues.filter((issue) => issue.severity === 'warning').length),
+    infoCount: readPositiveNumber(qualityReview.infoCount, issues.filter((issue) => issue.severity === 'info').length),
+    autoFixableCount: readPositiveNumber(qualityReview.autoFixableCount, issues.filter((issue) => issue.autoFixable).length),
+    issuesPersistedCount: readPositiveNumber(qualityReview.issuesPersistedCount, issues.length),
+    issuesTruncated: qualityReview.issuesTruncated === true,
+    issues,
+    suggestions,
+    reviewedAt: readDateishString(qualityReview.reviewedAt),
+    issue: null,
+  };
+}
+
+function summarizePersistedQualityIssue(issue: JsonRecord): PersistedQualityReviewIssue {
+  const frameRange = isRecord(issue.frameRange)
+    ? {
+      start: readPositiveNumber(issue.frameRange.start, 0),
+      end: readPositiveNumber(issue.frameRange.end, 0),
+    }
+    : null;
+  const severity = readString(issue.severity);
+  return {
+    type: readString(issue.type) || 'unknown',
+    severity: severity === 'critical' || severity === 'warning' || severity === 'info' ? severity : 'warning',
+    description: preview(issue.description, 240),
+    frameRange,
+    overlayId: readNullableNumber(issue.overlayId),
+    suggestedFix: readString(issue.suggestedFix) || null,
+    autoFixable: issue.autoFixable === true,
+  };
+}
+
 function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0OverlayLike[], fps: number) {
   const persisted = project.intelligence?.vjepaCoverageAudit;
   if (persisted) {
@@ -525,6 +592,11 @@ function readString(value: unknown) {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (isRecord(value) && typeof value.version === 'string') return value.version;
   return '';
+}
+
+function readDateishString(value: unknown) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+  return readString(value) || null;
 }
 
 function readArrayLength(value: unknown, key: string) {

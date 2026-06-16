@@ -31,6 +31,39 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         avgWordGapMs: 2350,
       }],
     },
+    qualityReview: {
+      version: 'quality-review-persistence-v1',
+      overallScore: 41,
+      issueCount: 2,
+      criticalCount: 1,
+      warningCount: 1,
+      infoCount: 0,
+      autoFixableCount: 1,
+      issuesPersistedCount: 2,
+      issuesTruncated: false,
+      issues: [
+        {
+          type: 'graphic_occlusion',
+          severity: 'critical',
+          description: 'Motion graphic covers the speaker face.',
+          frameRange: { start: 30, end: 55 },
+          overlayId: 101,
+          suggestedFix: 'Move graphic to negative-space region.',
+          autoFixable: true,
+        },
+        {
+          type: 'caption_reading_speed',
+          severity: 'warning',
+          description: 'Caption group is too fast to read.',
+          frameRange: { start: 0, end: 20 },
+          overlayId: 102,
+          suggestedFix: null,
+          autoFixable: false,
+        },
+      ],
+      suggestions: ['Reduce overlay collision before calibration.'],
+      reviewedAt: '2026-06-14T00:00:00.000Z',
+    },
     overlays: [
       { id: 'clip-1', type: 'video', from: 0, durationInFrames: 45, sourceStartFrame: 0, assetId: 'asset-a' },
       { id: 'clip-2', type: 'video', from: 45, durationInFrames: 45, sourceStartFrame: 150, assetId: 'asset-a' },
@@ -206,6 +239,17 @@ describe('phase0 fixture manifest', () => {
           allowedTools: ['quality_review'],
         },
       },
+      qualityReview: {
+        status: 'present',
+        overallScore: 41,
+        issueCount: 2,
+        criticalCount: 1,
+        warningCount: 1,
+        autoFixableCount: 1,
+        issuesPersistedCount: 2,
+        issuesTruncated: false,
+        reviewedAt: '2026-06-14T00:00:00.000Z',
+      },
       vjepaCoverage: {
         source: 'persisted',
         status: 'warn',
@@ -251,6 +295,27 @@ describe('phase0 fixture manifest', () => {
         reason: 'transitions_already_owned_by_unified_bundle',
       },
     ]);
+    expect(manifest.qualityReview.issues).toEqual([
+      {
+        type: 'graphic_occlusion',
+        severity: 'critical',
+        description: 'Motion graphic covers the speaker face.',
+        frameRange: { start: 30, end: 55 },
+        overlayId: 101,
+        suggestedFix: 'Move graphic to negative-space region.',
+        autoFixable: true,
+      },
+      {
+        type: 'caption_reading_speed',
+        severity: 'warning',
+        description: 'Caption group is too fast to read.',
+        frameRange: { start: 0, end: 20 },
+        overlayId: 102,
+        suggestedFix: null,
+        autoFixable: false,
+      },
+    ]);
+    expect(manifest.qualityReview.suggestions).toEqual(['Reduce overlay collision before calibration.']);
   });
 
   it('records gaps, overlaps, tail gaps, and missing source maps without rewriting them', () => {
@@ -349,6 +414,7 @@ describe('phase0 fixture manifest', () => {
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.motionVector).toBe(1);
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.mainSubject).toBe(1);
     expect(manifest.unifiedDecisionBundle.status).toBe('missing');
+    expect(manifest.qualityReview.status).toBe('present');
     expect(manifest.oldProducerGating).toMatchObject({
       status: 'not-applicable',
       unifiedDecisionBundleExecuted: false,

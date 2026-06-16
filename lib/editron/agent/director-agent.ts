@@ -49,6 +49,7 @@ import {
   shouldRunLegacyIntelligenceFallback,
 } from '@/lib/editron/agent/director-observability';
 import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
+import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -2899,16 +2900,12 @@ async function executeAction(
         // (video-analysis worker Step 7.1 reads qualityReview.overallScore)
         try {
           const qrDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+          const persistedQualityReview = buildPersistedQualityReview(report);
           await qrDb.collection('projects').updateOne(
             { projectId },
             {
               $set: {
-                qualityReview: {
-                  overallScore: report.overallScore,
-                  issueCount: report.issues.length,
-                  criticalCount: report.issues.filter(i => i.severity === 'critical').length,
-                  reviewedAt: new Date(),
-                },
+                qualityReview: persistedQualityReview,
               },
             },
           );
