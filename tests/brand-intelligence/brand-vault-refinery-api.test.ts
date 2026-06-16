@@ -8,7 +8,10 @@ import {
   startQueuedBrandVaultRefineryJobFromWebsite,
   type BrandVaultRefineryStore,
 } from '../../lib/shared/brand-vault-refinery-api';
-import { createBrandVaultConnectedSocialEvidence } from '../../lib/shared/brand-vault-connected-social-ingestion';
+import {
+  BRAND_VAULT_DEFAULT_APIFY_ACTORS,
+  createBrandVaultConnectedSocialEvidence,
+} from '../../lib/shared/brand-vault-connected-social-ingestion';
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '../../lib/shared/brand-vault-browser-fallback';
 
 const NOW = '2026-06-09T06:00:00.000Z';
@@ -620,6 +623,87 @@ describe('Brand Vault refinery API boundary', () => {
     ]);
     expect(result.warnings).toContain('Brand Vault added 1 connected social evidence source from existing platform integrations.');
     expect(result.warnings.some((warning) => /Apify/i.test(warning))).toBe(false);
+  });
+
+  it('uses the selected LinkedIn Apify actor shape for unmatched company pages', async () => {
+    const fetchedUrls: string[] = [];
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.linkedin.com/company/vaultline/'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: BRAND_VAULT_DEFAULT_APIFY_ACTORS,
+      fetchFn: async (url, init) => {
+        fetchedUrls.push(url);
+        expect(url).toContain('atomus%2Flinkedin-posts-scraper-pro');
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+          companies: ['https://www.linkedin.com/company/vaultline/'],
+          profiles: [],
+          maxPosts: 5,
+          contentType: 'all',
+          includeSharedPosts: true,
+          includeReposts: true,
+        });
+        return new Response(
+          JSON.stringify([
+            {
+              type: 'post',
+              content: 'Brand systems should stay consistent from strategy to delivery.',
+              post_url: 'https://www.linkedin.com/feed/update/urn:li:activity:123/',
+              posted_at: '2026-06-08T10:00:00.000Z',
+              images: ['https://media.licdn.com/image.jpg'],
+              engagement: {
+                total_reactions: 12,
+                comments: 3,
+                shares: 2,
+              },
+              author: {
+                name: 'Vaultline',
+                username: 'vaultline',
+                headline: 'Brand operations software for agencies.',
+                website_url: 'https://vaultline.example',
+              },
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+      now: NOW,
+    });
+
+    expect(fetchedUrls).toHaveLength(1);
+    expect(result.sourceEvidence).toEqual([
+      expect.objectContaining({
+        kind: 'social_profile',
+        platform: 'linkedin',
+        evidenceOrigin: 'public_fallback',
+      }),
+      expect.objectContaining({
+        kind: 'social_post',
+        platform: 'linkedin',
+        evidenceOrigin: 'public_fallback',
+        url: 'https://www.linkedin.com/feed/update/urn:li:activity:123/',
+        text: 'Brand systems should stay consistent from strategy to delivery.',
+        publishedAt: '2026-06-08T10:00:00.000Z',
+        media: expect.objectContaining({
+          mediaType: 'image',
+          mediaUrl: 'https://media.licdn.com/image.jpg',
+          thumbnailUrl: 'https://media.licdn.com/image.jpg',
+        }),
+        metrics: expect.objectContaining({
+          likeCount: 12,
+          commentCount: 3,
+          shareCount: 2,
+          engagementCount: 17,
+        }),
+        profile: expect.objectContaining({
+          bio: 'Brand operations software for agencies.',
+          website: 'https://vaultline.example',
+        }),
+      }),
+    ]);
+    expect(result.warnings).toContain('Brand Vault fetched 1 linkedin public Apify item for review-only social evidence.');
   });
 
   it('uses free public oEmbed for supported social post URLs when no connected account is available', async () => {

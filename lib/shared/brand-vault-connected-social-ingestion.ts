@@ -20,6 +20,10 @@ export interface BrandVaultUploaderXTokenSnapshot {
 
 export type BrandVaultSocialFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
+export const BRAND_VAULT_DEFAULT_APIFY_ACTORS = {
+  linkedin: 'atomus/linkedin-posts-scraper-pro',
+} as const satisfies Partial<Record<'instagram' | 'facebook' | 'linkedin', string>>;
+
 export interface BrandVaultConnectedSocialEvidenceArgs {
   socialLinks: string[];
   uploaderXUser: BrandVaultUploaderXTokenSnapshot | null;
@@ -861,7 +865,7 @@ async function fetchPublicSocialSources(args: {
     args.parsed.platform === 'instagram' || args.parsed.platform === 'facebook' || args.parsed.platform === 'linkedin'
       ? args.apifyActors?.[args.parsed.platform]
       : undefined;
-  if (args.apifyApiKey?.trim() && apifyActorId) {
+  if (args.apifyApiKey?.trim() && apifyActorId && shouldFetchApifyForParsedSocialUrl(args.parsed)) {
     const apify = await fetchApifySocialSources({
       parsed: args.parsed,
       apiKey: args.apifyApiKey,
@@ -932,13 +936,7 @@ async function fetchApifySocialSources(args: {
     const response = await args.fetchFn(endpoint.href, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        directUrls: [args.parsed.normalizedUrl],
-        startUrls: [{ url: args.parsed.normalizedUrl }],
-        resultsLimit: 5,
-        maxItems: 5,
-        maxPosts: 5,
-      }),
+      body: JSON.stringify(apifyRunInput(args.parsed)),
     });
     const payload = await readJsonValue(response);
     if (!response.ok) {
@@ -971,46 +969,76 @@ async function fetchApifySocialSources(args: {
   }
 }
 
+function shouldFetchApifyForParsedSocialUrl(parsed: BrandVaultParsedSocialUrl): boolean {
+  if (parsed.platform !== 'linkedin') return true;
+  return !parsed.isPostUrl && (parsed.accountType === 'company_page' || parsed.accountType === 'creator_profile');
+}
+
+function apifyRunInput(parsed: BrandVaultParsedSocialUrl): Record<string, unknown> {
+  const base = {
+    directUrls: [parsed.normalizedUrl],
+    startUrls: [{ url: parsed.normalizedUrl }],
+    resultsLimit: 5,
+    maxItems: 5,
+    maxPosts: 5,
+  };
+  if (parsed.platform !== 'linkedin') return base;
+  return {
+    ...base,
+    profiles: parsed.accountType === 'creator_profile' ? [parsed.normalizedUrl] : [],
+    companies: parsed.accountType === 'company_page' ? [parsed.normalizedUrl] : [],
+    contentType: 'all',
+    includeSharedPosts: true,
+    includeReposts: true,
+  };
+}
+
 function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): BrandVaultSourceInput | null {
   const record = asRecord(item);
+  const author = asRecord(record.author);
+  const engagement = asRecord(record.engagement);
+  const doc = asRecord(record.doc);
   const text = uniqueStrings([
     stringValue(record.caption),
     stringValue(record.text),
+    stringValue(record.content),
     stringValue(record.description),
     stringValue(record.title),
     stringValue(record.alt),
     stringValue(record.ocrText),
     stringValue(record.transcript),
   ]).join('\n');
-  const sourceUrl = firstString(record.url, record.postUrl, record.permalink, record.link, record.shortUrl) ?? parsed.normalizedUrl;
+  const firstImage = firstStringFromArray(record.images);
+  const firstSlideImage = firstStringFromArray(doc.slide_images);
+  const sourceUrl = firstString(record.url, record.postUrl, record.post_url, record.permalink, record.link, record.shortUrl, record.share_url) ?? parsed.normalizedUrl;
   const media = socialMedia({
-    mediaType: firstString(record.type, record.mediaType, record.productType),
-    mediaUrl: firstString(record.videoUrl, record.mediaUrl, record.displayUrl, record.imageUrl),
-    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl),
+    mediaType: firstString(record.video_url ? 'video' : undefined, firstImage ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
+    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, doc.pdf_url),
+    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, firstImage, firstSlideImage),
     ocrText: stringValue(record.ocrText),
     transcript: stringValue(record.transcript),
   });
-  const metrics = socialMetrics(record);
-  const profile = socialProfile(record);
+  const metrics = socialMetrics({ ...record, ...engagement });
+  const profile = socialProfile({ ...record, ...author });
   if (!text && !media && !metrics && !profile) return null;
   return {
     kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
     url: sourceUrl,
     platform: parsed.platform,
-    name: firstString(record.ownerUsername, record.username, record.author, record.ownerFullName, record.pageName) ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
+    name: firstString(record.ownerUsername, record.username, record.author_name, author.name, record.author, record.ownerFullName, record.pageName) ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
     note: 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
     text: text || undefined,
     evidenceOrigin: 'public_fallback',
     pinned: booleanValue(record.isPinned) ?? booleanValue(record.pinned) ?? false,
-    publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.date),
+    publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.posted_at, record.postedAt, record.date),
     media,
     metrics,
     profile,
     connection: {
       provider: 'alyzitron_apify',
       status: 'public_fallback_available',
-      accountHandle: firstString(record.ownerUsername, record.username, record.author),
-      accountName: firstString(record.ownerFullName, record.fullName, record.pageName),
+      accountHandle: firstString(record.ownerUsername, record.username, author.username, record.author),
+      accountName: firstString(record.ownerFullName, record.fullName, record.author_name, author.name, record.pageName),
       canReadProfile: Boolean(profile),
       canReadPosts: true,
       canReadPinned: false,
@@ -1153,9 +1181,9 @@ function socialMetrics(value: unknown): BrandVaultSocialMetricsEvidence | undefi
   const likesSummary = asRecord(likes.summary);
   const commentsSummary = asRecord(comments.summary);
   const metrics: BrandVaultSocialMetricsEvidence = {
-    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, likesSummary.total_count),
-    commentCount: firstNumber(record.comments_count, record.commentsCount, record.commentCount, commentsSummary.total_count),
-    shareCount: firstNumber(record.shareCount, record.sharesCount, shares.count),
+    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, record.total_reactions, record.reactionsCount, likesSummary.total_count),
+    commentCount: firstNumber(record.comments_count, record.commentsCount, record.commentCount, record.comments, commentsSummary.total_count),
+    shareCount: firstNumber(record.shareCount, record.sharesCount, record.shares, shares.count),
     viewCount: firstNumber(record.viewCount, record.videoViewCount, record.playCount),
     repostCount: firstNumber(record.retweet_count, record.repostCount, record.retweetsCount),
     quoteCount: firstNumber(record.quote_count, record.quoteCount),
@@ -1169,9 +1197,9 @@ function socialMetrics(value: unknown): BrandVaultSocialMetricsEvidence | undefi
 
 function socialProfile(record: Record<string, unknown>): BrandVaultSocialProfileEvidence | undefined {
   const value: BrandVaultSocialProfileEvidence = {
-    bio: firstString(record.biography, record.bio, record.about, record.description),
+    bio: firstString(record.biography, record.bio, record.about, record.description, record.headline),
     category: firstString(record.category, record.businessCategoryName, record.pageCategory),
-    website: firstString(record.externalUrl, record.website, record.url),
+    website: firstString(record.externalUrl, record.website, record.website_url, record.websiteUrl, record.url),
     followerCount: firstNumber(record.followersCount, record.followerCount, record.followers),
   };
   return hasDefinedValue(value) ? value : undefined;
@@ -1266,6 +1294,10 @@ function firstString(...values: unknown[]): string | undefined {
     if (string) return string;
   }
   return undefined;
+}
+
+function firstStringFromArray(value: unknown): string | undefined {
+  return Array.isArray(value) ? firstString(...value) : undefined;
 }
 
 function firstNumber(...values: unknown[]): number | undefined {

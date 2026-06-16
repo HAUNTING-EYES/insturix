@@ -2,6 +2,7 @@ import { auth, clerkClient } from '@clerk/nextjs/server';
 import { after, NextResponse } from 'next/server';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
 import {
+  BRAND_VAULT_DEFAULT_APIFY_ACTORS,
   createBrandVaultConnectedSocialEvidence,
   type BrandVaultUploaderXTokenSnapshot,
 } from '@/lib/shared/brand-vault-connected-social-ingestion';
@@ -82,7 +83,7 @@ async function loadConnectedSocialEvidence(
     apifyActors: {
       instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID,
       facebook: process.env.APIFY_FACEBOOK_ACTOR_ID,
-      linkedin: process.env.APIFY_LINKEDIN_ACTOR_ID,
+      linkedin: process.env.APIFY_LINKEDIN_ACTOR_ID || BRAND_VAULT_DEFAULT_APIFY_ACTORS.linkedin,
     },
   });
 
