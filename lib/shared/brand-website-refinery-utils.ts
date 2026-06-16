@@ -472,13 +472,14 @@ function extractSocialPreviewImages($: ReturnType<typeof load>, normalizedUrl: s
 export function extractLinkedStylesheetUrls(html: string, normalizedUrl: string, limit = 8): string[] {
   const $ = load(html);
   const baseUrl = new URL(normalizedUrl);
+  const trustedCrossOriginStylesheetHosts = new Set(['cdn.shopify.com', 'fonts.googleapis.com', 'fonts.gstatic.com']);
   const urls: string[] = [];
   const add = (rawValue: string | undefined): void => {
     const clean = cleanText(rawValue);
     const url = clean ? resolveWebsiteAssetUrl(clean, baseUrl) : undefined;
     if (!url) return;
     const parsed = new URL(url);
-    if (parsed.origin !== baseUrl.origin) return;
+    if (parsed.origin !== baseUrl.origin && !trustedCrossOriginStylesheetHosts.has(parsed.hostname)) return;
     urls.push(url);
   };
 

@@ -1014,6 +1014,64 @@ describe('Brand website refinery', () => {
     ).rejects.toThrow('Website fetch failed with HTTP 404.');
   });
 
+  it('fetches trusted cross-origin Shopify and font stylesheets while ignoring unknown hosts', async () => {
+    const calls: string[] = [];
+    const html = `
+<!doctype html>
+<html>
+  <head>
+    <title>Glowbar</title>
+    <link rel="stylesheet" href="https://cdn.shopify.com/s/files/theme.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&display=swap">
+    <link rel="stylesheet" href="https://cdn.untrusted.example/theme.css">
+  </head>
+  <body>
+    <h1>Glowbar skincare for sensitive customers</h1>
+  </body>
+</html>`;
+    const snapshot = await fetchWebsiteBrandSnapshot('glowbar.example', {
+      now: NOW,
+      fetchFn: async (url) => {
+        calls.push(url);
+        if (url === 'https://cdn.shopify.com/s/files/theme.css') {
+          return new Response(':root { --brand: #9f5f4f; --accent: #f8d7ca; }', {
+            status: 200,
+            headers: { 'content-type': 'text/css' },
+          });
+        }
+        if (url.startsWith('https://fonts.googleapis.com/')) {
+          return new Response('body { font-family: "Fraunces", serif; }', {
+            status: 200,
+            headers: { 'content-type': 'text/css' },
+          });
+        }
+        return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+      },
+    });
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: snapshot.normalizedUrl,
+      html: snapshot.html,
+      stylesheets: snapshot.stylesheets,
+      brandId: 'brand_glowbar',
+      userId: 'user_1',
+      fetchedAt: snapshot.fetchedAt,
+      jobId: 'job_trusted_cross_origin_css',
+    });
+
+    expect(calls).toEqual(expect.arrayContaining([
+      'https://glowbar.example/',
+      'https://cdn.shopify.com/s/files/theme.css',
+      'https://fonts.googleapis.com/css2?family=Fraunces:wght@600&display=swap',
+    ]));
+    expect(calls).not.toContain('https://cdn.untrusted.example/theme.css');
+    expect([
+      result.profile.palette.primary?.value,
+      result.profile.palette.accent?.value,
+      ...result.profile.palette.supporting.value,
+    ]).toEqual(expect.arrayContaining(['#9f5f4f', '#f8d7ca']));
+    expect(result.profile.typography.raw?.value).toContain('Fraunces');
+  });
+
   it('retries blocked website fetches with browser-like headers and records fetch warnings', async () => {
     const calls: string[] = [];
     const snapshot = await fetchWebsiteBrandSnapshot('northstar.example', {
