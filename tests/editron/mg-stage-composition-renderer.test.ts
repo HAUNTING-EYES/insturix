@@ -232,10 +232,10 @@ describe('MG stage composition renderer', () => {
     expect(transitionText?.transform).toContain('translateY(-18px)');
   });
 
-  it('derives stat graphics from numeric content instead of requiring a preset branch', () => {
+  it('derives stat graphics only when numeric content licenses the visual wires', () => {
     const atoms = resolveSemanticContentSceneAtoms(
-      { value: '90%', label: 'good people' },
-      [{ role: 'counter', primitive: 'text', resolvedProps: { text: '90%' } }],
+      { value: '90%', label: 'good people', quantityKind: 'percent', boundedRange: true },
+      [{ role: 'counter', primitive: 'text', resolvedProps: { text: '90%', encodingChannel: 'sweep' } }],
       language,
     );
 
@@ -245,6 +245,18 @@ describe('MG stage composition renderer', () => {
     ]));
     expect(String(atoms[0].style.background)).toContain('conic-gradient');
     expect(atoms[1].children?.map((atom) => atom.kind)).toContain('rhythm-tick');
+  });
+
+  it('does not add the repeated stat shell to unbounded scalar rate content', () => {
+    const atoms = resolveSemanticContentSceneAtoms(
+      { value: '0.02', label: 'human beings per day' },
+      [{ role: 'counter', primitive: 'text', resolvedProps: { text: '0.02' } }],
+      language,
+    );
+
+    expect(atoms.map((atom) => atom.kind)).not.toContain('semantic-stat-field');
+    expect(atoms.map((atom) => atom.kind)).not.toContain('semantic-stat-axis');
+    expect(atoms).toEqual([]);
   });
 
   it('derives concept maps from title and body content', () => {
