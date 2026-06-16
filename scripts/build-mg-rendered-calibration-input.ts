@@ -18,7 +18,6 @@ import {
 
 export interface MgRenderedCalibrationCase {
   id: string;
-  graphicType: string;
   content: Record<string, string | number | boolean>;
   signals: Partial<PlannerSignals>;
 }
@@ -69,7 +68,6 @@ const BASE_SIGNALS: PlannerSignals = {
 export const MG_RENDERED_CALIBRATION_CASES: MgRenderedCalibrationCase[] = [
   {
     id: 'sparse-rate',
-    graphicType: 'calibration-sparse-rate',
     content: {
       value: '0.02',
       label: 'human beings per day',
@@ -82,7 +80,6 @@ export const MG_RENDERED_CALIBRATION_CASES: MgRenderedCalibrationCase[] = [
   },
   {
     id: 'bounded-percent',
-    graphicType: 'calibration-bounded-percent',
     content: {
       value: '90%',
       label: 'of viewers stayed',
@@ -97,7 +94,6 @@ export const MG_RENDERED_CALIBRATION_CASES: MgRenderedCalibrationCase[] = [
   },
   {
     id: 'big-magnitude',
-    graphicType: 'calibration-big-magnitude',
     content: {
       value: '100M',
       label: 'monthly active users',
@@ -110,7 +106,6 @@ export const MG_RENDERED_CALIBRATION_CASES: MgRenderedCalibrationCase[] = [
   },
   {
     id: 'fraction',
-    graphicType: 'calibration-fraction',
     content: {
       value: '1/3',
       label: 'of teams adopted it',
@@ -124,7 +119,6 @@ export const MG_RENDERED_CALIBRATION_CASES: MgRenderedCalibrationCase[] = [
   },
   {
     id: 'keyword-concept',
-    graphicType: 'calibration-keyword-concept',
     content: {
       keyword: 'selection bias',
       emphasisWord: 'selection bias',
@@ -137,7 +131,6 @@ export const MG_RENDERED_CALIBRATION_CASES: MgRenderedCalibrationCase[] = [
   },
   {
     id: 'speaker-intro',
-    graphicType: 'calibration-speaker-intro',
     content: {
       name: 'Hank Green',
       title: 'Host / science educator',
@@ -183,7 +176,6 @@ export function buildMgRenderedCalibrationInput(): MgRenderedCalibrationInput {
       styles: { opacity: 1, backgroundColor: 'transparent' },
       metadata: {
         sourceType: 'mg-rendered-calibration',
-        graphicType: testCase.graphicType,
         calibrationCase: testCase.id,
         compositionEngine: true,
         atomicOverlayPlan,

@@ -80,6 +80,8 @@ export interface VisualIntentContentElementMotion {
   filter?: string;
 }
 
+type RecipeLayout = CompositionRendererProps['recipe']['layout'];
+
 function warnAtomicFallback(reason: string, details?: string): void {
   const key = `${reason}:${details ?? ''}`;
   if (atomicFallbackWarnings.has(key)) return;
@@ -1199,6 +1201,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   const flipped = recipe.layout.arrangement === 'horizontal-distributed' && width / height < 1.35;
   const renderLayout = flipped ? { ...recipe.layout, arrangement: 'vertical-stack' as const } : recipe.layout;
   const layoutStyle = resolveLayout(renderLayout);
+  const compactTopLane = isCaptionProtectedTopLayout(renderLayout);
   const visualIntent = resolveCompositionVisualIntent(recipe.visualIntent, atomicPlan);
   const stageChrome = resolveVisualIntentStageChrome(visualIntent, language);
   // G-1: px box width for text fit = canvas width × the layout's max-width fraction.
@@ -1245,6 +1248,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
               canvasHeight={height}
               visualIntent={visualIntent}
               contentOrder={idx}
+              compactTopLane={compactTopLane}
             />
           );
         })}
@@ -1275,6 +1279,7 @@ interface PrimitiveElementProps {
   canvasHeight: number;
   visualIntent: VisualIntent;
   contentOrder: number;
+  compactTopLane: boolean;
 }
 
 const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
@@ -1290,6 +1295,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
   canvasHeight,
   visualIntent,
   contentOrder,
+  compactTopLane,
 }) => {
   // D8: Speed ramp — remap frame through speed curve before computing animation
   const effectiveFrame = element.speedRamp
@@ -1328,7 +1334,7 @@ const PrimitiveElement: React.FC<PrimitiveElementProps> = ({
       if (element.entrancePattern === 'scramble' && areTimelinePluginsAvailable()) {
         return <GSAPScrambleTextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} />;
       }
-      return <TextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} spatial={spatial} signalCurves={signalCurves} atomicElement={atomicElement} atomicDecision={atomicDecision} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} visualIntent={visualIntent} contentOrder={contentOrder} />;
+      return <TextElement element={element} anim={anim} frame={frame} fps={fps} timing={timing} spatial={spatial} signalCurves={signalCurves} atomicElement={atomicElement} atomicDecision={atomicDecision} boxWidthPx={boxWidthPx} canvasHeight={canvasHeight} visualIntent={visualIntent} contentOrder={contentOrder} compactTopLane={compactTopLane} />;
     }
     case 'image':
     case 'video-clip':
@@ -1813,6 +1819,7 @@ const DataVizElement: React.FC<{
 // G-1: focal-size cap as a fraction of frame height, by role — keeps the "13% of frame" oversize in
 // check. INVENTED (industry hero text ~6-10% of frame height); owned by G-7 calibration.
 const FOCAL_FRAC: Record<string, number> = { primary: 0.09, counter: 0.09, secondary: 0.055, label: 0.055 };
+const COMPACT_TOP_FOCAL_SCALE: Record<string, number> = { primary: 0.8, counter: 0.82, secondary: 0.82, label: 0.86 };
 
 // G-1b: exact text width via the render's own canvas (no extra dependency). Measures the
 // ACTUALLY-rendered glyphs, so the estimator's wide-glyph (W/M) under-count can't spill the card.
@@ -1828,14 +1835,16 @@ function measureWordWidthPx(word: string, fontPx: number, fontFamily: string, we
 }
 
 /** Render-time fitted font size for a text element, or undefined to fall back to the legacy floor. */
-function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number, canvasHeight: number): number | undefined {
+function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number, canvasHeight: number, compactTopLane: boolean, fontScale = 1): number | undefined {
   const p = el.resolvedProps;
   if (p.minSize == null || !text || boxWidthPx <= 0) return undefined;
+  const safeFontScale = Math.max(0.1, Number.isFinite(fontScale) ? fontScale : 1);
   // desired = the signal-driven loudness (planner value), capped to a sane fraction of frame height.
   const desiredRaw = Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1));
-  const capPx = canvasHeight * (FOCAL_FRAC[el.role] ?? 0.07);
+  const capScale = compactTopLane ? (COMPACT_TOP_FOCAL_SCALE[el.role] ?? 0.86) : 1;
+  const capPx = canvasHeight * (FOCAL_FRAC[el.role] ?? 0.07) * capScale;
   const desired = Math.min(desiredRaw, capPx);
-  const minReadable = Math.min(desired, 36 * (canvasHeight / 1080)); // CRG type-min floor, resolution-scaled
+  const minReadable = Math.min(desired, 36 * (canvasHeight / 1080) * (compactTopLane ? 0.82 : 1)); // CRG type-min floor, resolution-scaled
   const uppercase = /upper/i.test(String(p.transform || ''));
   const bold = Number(p.weight || 400) >= 600;
   const fontFamily = String(p.font || 'sans-serif');
@@ -1843,7 +1852,8 @@ function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number
   // Exact glyph measurement when rendering in the browser (uppercased to match textTransform);
   // NaN in Node → fitFontSize falls back to its estimator.
   const measure = (t: string, px: number) => measureWordWidthPx(uppercase ? t.toUpperCase() : t, px, fontFamily, weight);
-  return fitFontSize(text, boxWidthPx, desired, minReadable, { uppercase, bold }, measure);
+  const finalFittedSize = fitFontSize(text, boxWidthPx, desired, minReadable, { uppercase, bold, safeFraction: compactTopLane ? 0.94 : undefined }, measure);
+  return finalFittedSize / safeFontScale;
 }
 
 const TextElement: React.FC<{
@@ -1860,11 +1870,12 @@ const TextElement: React.FC<{
   canvasHeight: number;
   visualIntent: VisualIntent;
   contentOrder: number;
-}> = ({ element, anim, frame, fps, timing, spatial, signalCurves, atomicElement, atomicDecision, boxWidthPx, canvasHeight, visualIntent, contentOrder }) => {
+  compactTopLane: boolean;
+}> = ({ element, anim, frame, fps, timing, spatial, signalCurves, atomicElement, atomicDecision, boxWidthPx, canvasHeight, visualIntent, contentOrder, compactTopLane }) => {
   const p = element.resolvedProps;
   const text = String(p.text || '');
   // G-1: shrink text to fit its title-safe box (and cap focal size). undefined → legacy floor.
-  const fittedSizePx = computeFittedSize(element, text, boxWidthPx, canvasHeight);
+  const fittedSizePx = computeFittedSize(element, text, boxWidthPx, canvasHeight, compactTopLane, anim.fontSize);
   const contentMotion = resolveVisualIntentContentElementMotion(element, visualIntent, frame, fps, contentOrder);
   const style = applyVisualIntentContentElementMotion(
     applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision),
@@ -1876,7 +1887,8 @@ const TextElement: React.FC<{
   }
 
   const splitMode = element.textSplit;
-  if (splitMode && splitMode !== 'none' && text.length > 1) {
+  const keepInline = shouldKeepShortPhraseInline(text);
+  if (splitMode && splitMode !== 'none' && text.length > 1 && !keepInline) {
     return (
       <SplitTextElement
         element={element}
@@ -1894,7 +1906,7 @@ const TextElement: React.FC<{
     );
   }
 
-  return <div style={style}>{text}</div>;
+  return <div style={keepInline ? { ...style, alignSelf: 'center', display: 'block', maxWidth: '100%', textAlign: 'center', whiteSpace: 'nowrap', width: `${Math.round(boxWidthPx)}px` } : style}>{text}</div>;
 };
 
 const SplitTextElement: React.FC<{
@@ -2307,13 +2319,12 @@ function computeMaskClipPath(shape: string, progress: number, direction: string)
 // fit to size text against its container in px.
 function layoutMaxWidthFraction(layout: CompositionRendererProps['recipe']['layout']): number {
   const override = maxWidthFraction(layout.maxWidth);
-  if (override != null) return override;
 
   switch (layout.position) {
-    case 'center': return 0.70;
+    case 'center': return override ?? 0.70;
     case 'full-width-bottom':
-    case 'full-width-top': return 0.90;
-    default: return 0.45; // corners
+    case 'full-width-top': return Math.min(override ?? (1 - SAFE_OVERLAY_MARGIN * 2), 1 - SAFE_OVERLAY_MARGIN * 2);
+    default: return override ?? 0.45; // corners
   }
 }
 
@@ -2327,16 +2338,36 @@ function maxWidthFraction(maxWidth: string | undefined): number | undefined {
   return Math.max(0.1, Math.min(0.95, pct / 100));
 }
 
+const SAFE_OVERLAY_MARGIN = 0.1;
+const SAFE_TOP_INSET = `${(SAFE_OVERLAY_MARGIN + 0.01) * 100}%`;
+
+function isCaptionProtectedTopLayout(layout: RecipeLayout): boolean {
+  return layout.position === 'full-width-top' && layout.captionZoneAware === true;
+}
+
+function shouldKeepShortPhraseInline(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.length > 1 && words.length <= 5 && text.trim().length <= 34;
+}
+
+function resolvedWideLayoutWidth(layout: CompositionRendererProps['recipe']['layout']): string {
+  const layoutWidth = layout.maxWidth
+    ? Math.min(maxWidthFraction(layout.maxWidth) ?? (1 - SAFE_OVERLAY_MARGIN * 2), 1 - SAFE_OVERLAY_MARGIN * 2)
+    : (1 - SAFE_OVERLAY_MARGIN * 2);
+  return `${Math.min(0.95, Math.max(0.1, layoutWidth) * 100)}%`;
+}
+
 function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): React.CSSProperties {
   // Arrangement is SIGNAL-SCORED (mg.arrangement.*), not hardcoded per form — horizontal = a
   // dynamic side-by-side row, vertical/default = a stacked column. The form's elements flow into
   // whichever direction the engine scored for THIS moment (set in composition-planner).
   const isHorizontal = layout.arrangement === 'horizontal-distributed';
+  const compactTopLane = isCaptionProtectedTopLayout(layout);
   const base: React.CSSProperties = {
     position: 'absolute',
     display: 'flex',
     flexDirection: isHorizontal ? 'row' : 'column',
-    gap: isHorizontal ? '28px' : '4px',
+    gap: isHorizontal ? '28px' : compactTopLane ? '0px' : '4px',
     alignItems: isHorizontal ? 'center' : undefined,
     // Force a stacking context so block-fill backdrops (z-index:-1) stay contained
     // behind this composition's content and don't bleed below the video layer.
@@ -2355,15 +2386,15 @@ function resolveLayout(layout: CompositionRendererProps['recipe']['layout']): Re
     case 'bottom-right':
       return { ...base, bottom: bottomOffset, right: '5%', maxWidth: layoutMaxWidth('45%'), alignItems: 'flex-end' };
     case 'top-left':
-      return { ...base, top: '8%', left: '5%', maxWidth: layoutMaxWidth('45%') };
+      return { ...base, top: SAFE_TOP_INSET, left: '5%', maxWidth: layoutMaxWidth('45%') };
     case 'top-right':
-      return { ...base, top: '8%', right: '5%', maxWidth: layoutMaxWidth('45%'), alignItems: 'flex-end' };
+      return { ...base, top: SAFE_TOP_INSET, right: '5%', maxWidth: layoutMaxWidth('45%'), alignItems: 'flex-end' };
     case 'center':
       return { ...base, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', alignItems: 'center', textAlign: 'center', maxWidth: layoutMaxWidth('70%') };
     case 'full-width-bottom':
-      return { ...base, bottom: '15%', left: '5%', right: '5%', alignItems: 'center', ...(layout.maxWidth ? { maxWidth: layout.maxWidth } : {}) };
+      return { ...base, bottom: '15%', left: '50%', right: undefined, alignItems: 'center', width: resolvedWideLayoutWidth(layout), maxWidth: resolvedWideLayoutWidth(layout), transform: 'translateX(-50%)' };
     case 'full-width-top':
-      return { ...base, top: '8%', left: '5%', right: '5%', alignItems: 'center', ...(layout.maxWidth ? { maxWidth: layout.maxWidth } : {}) };
+      return { ...base, top: SAFE_TOP_INSET, left: '50%', right: undefined, alignItems: 'center', width: resolvedWideLayoutWidth(layout), maxWidth: resolvedWideLayoutWidth(layout), transform: 'translateX(-50%)' };
     default:
       return { ...base, bottom: '12%', left: '5%', maxWidth: layoutMaxWidth('45%') };
   }

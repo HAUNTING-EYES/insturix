@@ -33,6 +33,7 @@ describe('MG rendered calibration input', () => {
       expect((overlay.recipe as { elements?: unknown[] }).elements?.length).toBeGreaterThan(0);
       expect((overlay.metadata as { atomicOverlayPlan?: unknown }).atomicOverlayPlan).toBeDefined();
       expect((overlay.metadata as { atomicOverlayDecision?: unknown }).atomicOverlayDecision).toBeDefined();
+      expect(Object.prototype.hasOwnProperty.call(overlay.metadata, 'graphicType')).toBe(false);
     }
   });
 
