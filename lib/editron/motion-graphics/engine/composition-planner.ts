@@ -236,15 +236,36 @@ export function planComposition(
   // Low centerAvoidance → center is fine (B-roll, no face).
   let layout = strategy.suggestedLayout;
   const centerAvoidance = mgVal(mgScores, 'mg.layout.center_avoidance', 'centerAvoidance', -1);
+  const bottomTextProtected = hasBottomTextOccupancy(s);
   if (centerAvoidance >= 0 && layout.position === 'center') {
     // ⚠️ threshold 0.6 INVENTED — above this, face/speech dominates → move to corner
     if (centerAvoidance > 0.6) {
-      const positions = ['bottom-left', 'top-right', 'bottom-right', 'top-left'] as const;
-      // Pick position based on score magnitude — higher avoidance = bottom-left (safest for lower-thirds)
-      const idx = Math.min(positions.length - 1, Math.floor((centerAvoidance - 0.6) / 0.1));
-      layout = { ...layout, position: positions[idx] };
-      console.log(`[MG-Planner] Spatial: center→${layout.position} (centerAvoidance=${centerAvoidance.toFixed(2)})`);
+      if (needsWideLayoutForFit(strategy, intent.content)) {
+        layout = {
+          ...layout,
+          position: bottomTextProtected ? 'full-width-top' : 'full-width-bottom',
+          maxWidth: '90%',
+          captionZoneAware: bottomTextProtected || layout.captionZoneAware,
+        };
+        console.log(`[MG-Planner] Spatial: center→${layout.position} (centerAvoidance=${centerAvoidance.toFixed(2)}, wide-fit=true)`);
+      } else {
+        const positions = bottomTextProtected
+          ? ['top-right', 'top-left', 'bottom-left', 'bottom-right'] as const
+          : ['bottom-left', 'top-right', 'bottom-right', 'top-left'] as const;
+        const idx = Math.min(positions.length - 1, Math.floor((centerAvoidance - 0.6) / 0.1));
+        layout = { ...layout, position: positions[idx] };
+        console.log(`[MG-Planner] Spatial: center→${layout.position} (centerAvoidance=${centerAvoidance.toFixed(2)})`);
+      }
     }
+  }
+  if (bottomTextProtected && isBottomLayout(layout.position) && needsWideLayoutForFit(strategy, intent.content)) {
+    layout = {
+      ...layout,
+      position: 'full-width-top',
+      maxWidth: '90%',
+      captionZoneAware: true,
+    };
+    console.log(`[MG-Planner] Spatial: bottom→${layout.position} (bottom text protected, wide-fit=true)`);
   }
 
   // Arrangement (row vs column) is SCORED — but LICENSED by an affordance first. Horizontal
@@ -269,6 +290,42 @@ export function planComposition(
   };
 }
 
+function hasBottomTextOccupancy(signals: PlannerSignals): boolean {
+  return signalNum(signals, 'text_on_screen', 'visual.text_on_screen') > 0.45
+    || signalNum(signals, 'text_coverage', 'visual.text_coverage') > 0.04
+    || signalNum(signals, 'text_box_count', 'visual.text_box_count') > 0;
+}
+
+function isBottomLayout(position: string | undefined): boolean {
+  return position === 'bottom-left' || position === 'bottom-right' || position === 'full-width-bottom';
+}
+
+function needsWideLayoutForFit(
+  strategy: CompositionStrategy,
+  content: Record<string, unknown>,
+): boolean {
+  const primaryKind = strategy.shapes[0]?.kind;
+  if (primaryKind === 'numeric') {
+    return isLongReadableCopy(scalarContentText(content.label), 15, 3);
+  }
+  if (primaryKind === 'identity') {
+    return isLongReadableCopy(scalarContentText(content.title), 18, 3);
+  }
+  if (primaryKind === 'free-text') {
+    return isLongReadableCopy(
+      scalarContentText(content.text ?? content.keyword ?? content.emphasisWord),
+      16,
+      2,
+    ) || isLongReadableCopy(scalarContentText(content.body), 24, 4);
+  }
+  return false;
+}
+
+function scalarContentText(value: unknown): string | undefined {
+  if (value == null || Array.isArray(value) || typeof value === 'object') return undefined;
+  return String(value);
+}
+
 function composeElements(
   strategy: CompositionStrategy,
   language: MotionTokens,
@@ -281,7 +338,7 @@ function composeElements(
   // now importance-driven and already factors in cinematic_moment. Single source of truth —
   // no separate cinematic boost here (that double-counted importance).
   const budget = strategy.complexityBudget;
-  const allowDecorativeVisuals = visualFormRisk(signals) < 0.72;
+  const allowDecorativeVisuals = visualFormRisk(signals) < 0.72 && !hasBottomTextOccupancy(signals);
 
   const primary = strategy.shapes[0];
   if (!primary) {

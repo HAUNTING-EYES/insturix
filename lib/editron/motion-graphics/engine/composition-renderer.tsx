@@ -1215,7 +1215,9 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     elementsToRender.length,
   );
   const visualSceneAtoms = resolveVisualIntentSceneAtoms(visualIntent, stageChrome, language);
-  const semanticSceneAtoms = resolveSemanticContentSceneAtoms(content, elementsToRender, language);
+  const semanticSceneAtoms = protectsExistingText(atomicPlan)
+    ? []
+    : resolveSemanticContentSceneAtoms(content, elementsToRender, language);
   const sceneAtoms = [...visualSceneAtoms, ...semanticSceneAtoms];
 
   return (
@@ -1250,6 +1252,14 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     </>
   );
 };
+
+function protectsExistingText(atomicPlan: AtomicOverlayPlan | undefined): boolean {
+  const visualContext = atomicPlan?.visualContext;
+  if (!visualContext) return false;
+  return visualContext.textOnScreen > 0.45
+    || visualContext.textCoverage > 0.04
+    || visualContext.textBoxCount > 0;
+}
 
 interface PrimitiveElementProps {
   element: ResolvedElement;
