@@ -442,13 +442,13 @@ describe('unified decision bundle merge', () => {
       decision({ type: 'sfx-trigger', frame: 360, source: 'signal-executor:sfx', confidence: 0.89, params: { sfxType: 'impact' } }),
     ]));
 
-    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'sfx-trigger']);
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'caption-emphasis', 'sfx-trigger']);
     expect(merged.evidence.signalDecisionAudit).toEqual(expect.objectContaining({
       version: 'signal-decision-audit-v1',
       totalCount: 4,
       outcomes: {
-        'added-executable': 1,
-        'evidence-only': 3,
+        'added-executable': 2,
+        'evidence-only': 2,
         'signal-primary': 0,
         'validated-primary': 0,
       },
@@ -463,10 +463,9 @@ describe('unified decision bundle merge', () => {
       confidence: expect.objectContaining({ min: 0.89, max: 0.89, average: 0.89 }),
     }));
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
-      'unsupported-signal-decision-type': expect.objectContaining({ count: 1 }),
       'below-signal-confidence-floor': expect.objectContaining({ count: 1 }),
       'hard-cut-is-boundary-evidence': expect.objectContaining({ count: 1 }),
-      'licensed-by-signal-policy': expect.objectContaining({ count: 1 }),
+      'licensed-by-signal-policy': expect.objectContaining({ count: 2 }),
     }));
     expect(merged.evidence.signalDecisionAudit.candidates.map((candidate) => ({
       family: candidate.family,
@@ -485,7 +484,7 @@ describe('unified decision bundle merge', () => {
         frame: 50,
         evidenceStrength: 0.91,
         completeness: 0.75,
-        riskFlags: ['unsupported-executable-type', 'incomplete-intent'],
+        riskFlags: ['incomplete-intent'],
         calibrationStatus: 'invented-needs-calibration',
       },
       {
@@ -528,8 +527,8 @@ describe('unified decision bundle merge', () => {
     }))).toEqual(expect.arrayContaining([
       {
         family: 'caption',
-        outcome: 'evidence-only',
-        reason: 'unsupported-signal-decision-type',
+        outcome: 'added-executable',
+        reason: 'licensed-by-signal-policy',
         frame: 50,
         source: 'signal-executor:caption',
       },
