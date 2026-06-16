@@ -23,7 +23,16 @@ export const useOverlays = (initialOverlays?: Overlay[]) => {
       const resolvedOverlays = typeof nextOverlays === "function"
         ? nextOverlays(prevOverlays)
         : nextOverlays;
-      return normalizeEditorOverlays(resolvedOverlays, "editor-set-overlays");
+      return normalizeEditorOverlays(
+        resolvedOverlays.map((overlay) =>
+          ensureLiveAtomicOverlayReceipt(overlay, {
+            source: "editor-set-overlays",
+            intent: `editor-set-${overlay.type}`,
+            reason: "overlays replaced in the editor",
+          }),
+        ),
+        "editor-set-overlays",
+      );
     });
   }, []);
 
