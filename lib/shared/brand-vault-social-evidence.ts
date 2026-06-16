@@ -71,6 +71,10 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         name: args.source.name,
         platform: args.source.platform,
         pinned: args.source.pinned,
+        publishedAt: args.source.publishedAt,
+        media: args.source.media,
+        metrics: args.source.metrics,
+        profile: args.source.profile,
         evidenceOrigin: args.source.evidenceOrigin,
         connection: args.source.connection,
       },
@@ -83,6 +87,10 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         isPostUrl: parsed?.isPostUrl ?? args.source.kind === 'social_post',
         capability,
         pinned: args.source.pinned === true,
+        publishedAt: args.source.publishedAt,
+        media: args.source.media,
+        metrics: args.source.metrics,
+        profile: args.source.profile,
         evidenceOrigin: args.source.evidenceOrigin,
         connection: args.source.connection,
       },
@@ -162,9 +170,13 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
 }
 
 function socialRawValue(source: BrandVaultSourceInput, value: unknown): unknown {
-  if (!source.evidenceOrigin && !source.connection) return value;
+  if (!source.evidenceOrigin && !source.connection && !source.media && !source.metrics && !source.profile && !source.publishedAt) return value;
   return {
     value,
+    publishedAt: source.publishedAt,
+    media: source.media,
+    metrics: source.metrics,
+    profile: source.profile,
     evidenceOrigin: source.evidenceOrigin,
     connection: source.connection,
   };
@@ -389,7 +401,9 @@ function socialIdentityExcerpt(source: BrandVaultSourceInput, parsed: BrandVault
   const pinned = source.pinned ? ' Pinned/featured by user.' : '';
   const connection = source.connection ? ` Connection: ${source.connection.status}.` : '';
   const origin = source.evidenceOrigin ? ` Origin: ${source.evidenceOrigin}.` : '';
-  return `${label} parsed as ${platform} ${parsed?.accountType ?? 'social source'}.${pinned}${connection}${origin}`;
+  const media = source.media?.mediaType ? ` Media: ${source.media.mediaType}.` : '';
+  const metrics = source.metrics?.engagementCount ? ` Engagement: ${source.metrics.engagementCount}.` : '';
+  return `${label} parsed as ${platform} ${parsed?.accountType ?? 'social source'}.${pinned}${media}${metrics}${connection}${origin}`;
 }
 
 function confidenceForSocialIdentity(source: BrandVaultSourceInput, parsed: BrandVaultParsedSocialUrl | undefined): number {

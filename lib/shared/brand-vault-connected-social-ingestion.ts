@@ -4,6 +4,9 @@ import {
 } from './brand-vault-social-evidence';
 import type {
   BrandVaultSocialConnectionEvidence,
+  BrandVaultSocialMediaEvidence,
+  BrandVaultSocialMetricsEvidence,
+  BrandVaultSocialProfileEvidence,
   BrandVaultSourceInput,
   BrandVaultSourcePlatform,
 } from './brand-website-refinery-types';
@@ -22,6 +25,7 @@ export interface BrandVaultConnectedSocialEvidenceArgs {
   uploaderXUser: BrandVaultUploaderXTokenSnapshot | null;
   youtubeConnection: BrandVaultSocialConnectionEvidence | null;
   apifyApiKey?: string;
+  apifyActors?: Partial<Record<'instagram' | 'facebook' | 'linkedin', string>>;
   fetchFn?: BrandVaultSocialFetch;
   now?: string;
 }
@@ -59,7 +63,7 @@ export async function createBrandVaultConnectedSocialEvidence(
       args.uploaderXUser,
       args.youtubeConnection,
     );
-    const evidence = connection ?? publicFallbackEvidenceForPlatform(parsed.platform, args.apifyApiKey);
+    const evidence = connection ?? publicFallbackEvidenceForPlatform(parsed.platform, args.apifyApiKey, args.apifyActors);
     if (evidence) sources.push(profileSourceForSocialLink(parsed, evidence));
 
     const fetched = await fetchConnectedPostSources({
@@ -73,8 +77,10 @@ export async function createBrandVaultConnectedSocialEvidence(
     warnings.push(...fetched.warnings);
 
     if (fetched.sources.length === 0) {
-      const fallback = await fetchPublicPostUrlSource({
+      const fallback = await fetchPublicSocialSources({
         parsed,
+        apifyApiKey: args.apifyApiKey,
+        apifyActors: args.apifyActors,
         fetchFn: args.fetchFn ?? fetch,
       });
       sources.push(...fallback.sources);
@@ -329,6 +335,8 @@ function xPostSource(
     text,
     evidenceOrigin: 'connected_fetch',
     pinned,
+    publishedAt: stringValue(record.created_at),
+    metrics: socialMetrics(record.public_metrics),
     connection,
   };
 }
@@ -352,7 +360,7 @@ async function fetchConnectedInstagramPostSources(args: {
   }
 
   const url = new URL('https://graph.instagram.com/v21.0/me/media');
-  url.searchParams.set('fields', 'id,caption,media_type,permalink,timestamp,username');
+  url.searchParams.set('fields', 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username,like_count,comments_count');
   url.searchParams.set('limit', '5');
   url.searchParams.set('access_token', accessToken);
 
@@ -407,6 +415,13 @@ function instagramMediaSource(
     text,
     evidenceOrigin: 'connected_fetch',
     pinned: false,
+    publishedAt: stringValue(record.timestamp),
+    media: socialMedia({
+      mediaType: stringValue(record.media_type),
+      mediaUrl: stringValue(record.media_url),
+      thumbnailUrl: stringValue(record.thumbnail_url),
+    }),
+    metrics: socialMetrics(record),
     connection,
   };
 }
@@ -493,6 +508,9 @@ function linkedinPostSource(
     text,
     evidenceOrigin: 'connected_fetch',
     pinned: false,
+    publishedAt: stringValue(record.publishedAt) ?? stringValue(record.createdAt) ?? stringValue(record.lastModifiedAt),
+    media: socialMediaFromLinkedIn(record),
+    metrics: socialMetrics(record),
     connection,
   };
 }
@@ -681,7 +699,7 @@ async function fetchConnectedFacebookPostSources(args: {
   }
 
   const url = new URL(`https://graph.facebook.com/v21.0/${encodeURIComponent(pageId)}/feed`);
-  url.searchParams.set('fields', 'id,message,story,permalink_url,created_time,attachments{title,description,url}');
+  url.searchParams.set('fields', 'id,message,story,permalink_url,created_time,shares,likes.summary(true),comments.summary(true),attachments{title,description,url,media,type}');
   url.searchParams.set('limit', '5');
   url.searchParams.set('access_token', pageAccessToken);
 
@@ -736,6 +754,9 @@ function facebookPostSource(
     text,
     evidenceOrigin: 'connected_fetch',
     pinned: false,
+    publishedAt: stringValue(record.created_time),
+    media: socialMediaFromFacebook(record),
+    metrics: socialMetrics(record),
     connection,
   };
 }
@@ -808,9 +829,11 @@ function facebookPageForConnection(
 function publicFallbackEvidenceForPlatform(
   platform: BrandVaultSourcePlatform,
   apifyApiKey: string | undefined,
+  apifyActors: BrandVaultConnectedSocialEvidenceArgs['apifyActors'] | undefined,
 ): BrandVaultSocialConnectionEvidence | null {
   if (!apifyApiKey?.trim()) return null;
-  if (platform !== 'youtube' && platform !== 'instagram') return null;
+  if (platform !== 'instagram' && platform !== 'facebook' && platform !== 'linkedin') return null;
+  if (!apifyActors?.[platform]) return null;
   return {
     provider: 'alyzitron_apify',
     status: 'public_fallback_available',
@@ -821,10 +844,30 @@ function publicFallbackEvidenceForPlatform(
   };
 }
 
-async function fetchPublicPostUrlSource(args: {
+async function fetchPublicSocialSources(args: {
   parsed: BrandVaultParsedSocialUrl;
+  apifyApiKey: string | undefined;
+  apifyActors: BrandVaultConnectedSocialEvidenceArgs['apifyActors'] | undefined;
   fetchFn: BrandVaultSocialFetch;
 }): Promise<SocialFetchResult> {
+  const apifyActorId =
+    args.parsed.platform === 'instagram' || args.parsed.platform === 'facebook' || args.parsed.platform === 'linkedin'
+      ? args.apifyActors?.[args.parsed.platform]
+      : undefined;
+  if (args.apifyApiKey?.trim() && apifyActorId) {
+    const apify = await fetchApifySocialSources({
+      parsed: args.parsed,
+      apiKey: args.apifyApiKey,
+      actorId: apifyActorId,
+      fetchFn: args.fetchFn,
+    });
+    if (apify.sources.length > 0 || apify.warnings.length > 0) return apify;
+  }
+
+  if (args.parsed.isPostUrl && ['youtube', 'x', 'tiktok'].includes(args.parsed.platform)) {
+    return fetchPublicOEmbedPostSource(args);
+  }
+
   if (!args.parsed.isPostUrl) return { sources: [], warnings: [] };
   if (args.parsed.platform !== 'linkedin' && args.parsed.platform !== 'facebook') return { sources: [], warnings: [] };
 
@@ -868,6 +911,179 @@ async function fetchPublicPostUrlSource(args: {
   }
 }
 
+async function fetchApifySocialSources(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  apiKey: string;
+  actorId: string;
+  fetchFn: BrandVaultSocialFetch;
+}): Promise<SocialFetchResult> {
+  const endpoint = new URL(`https://api.apify.com/v2/acts/${encodeURIComponent(args.actorId)}/run-sync-get-dataset-items`);
+  endpoint.searchParams.set('token', args.apiKey);
+  endpoint.searchParams.set('clean', 'true');
+  endpoint.searchParams.set('format', 'json');
+  try {
+    const response = await args.fetchFn(endpoint.href, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        directUrls: [args.parsed.normalizedUrl],
+        startUrls: [{ url: args.parsed.normalizedUrl }],
+        resultsLimit: 5,
+        maxItems: 5,
+        maxPosts: 5,
+      }),
+    });
+    const payload = await readJsonValue(response);
+    if (!response.ok) {
+      return {
+        sources: [],
+        warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: Apify returned ${response.status}.`],
+      };
+    }
+    const payloadRecord = asRecord(payload);
+    const items: unknown[] = Array.isArray(payload) ? payload : Array.isArray(payloadRecord.items) ? payloadRecord.items : [];
+    const sources = items
+      .map((item, index) => apifySocialSource(item, args.parsed, index))
+      .filter((source): source is BrandVaultSourceInput => Boolean(source))
+      .slice(0, 5);
+    if (sources.length === 0) {
+      return {
+        sources: [],
+        warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but no readable public post evidence was returned.`],
+      };
+    }
+    return {
+      sources,
+      warnings: [`Brand Vault fetched ${sources.length} ${args.parsed.platform} public Apify item${sources.length === 1 ? '' : 's'} for review-only social evidence.`],
+    };
+  } catch (error) {
+    return {
+      sources: [],
+      warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: ${errorMessage(error)}`],
+    };
+  }
+}
+
+function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): BrandVaultSourceInput | null {
+  const record = asRecord(item);
+  const text = uniqueStrings([
+    stringValue(record.caption),
+    stringValue(record.text),
+    stringValue(record.description),
+    stringValue(record.title),
+    stringValue(record.alt),
+    stringValue(record.ocrText),
+    stringValue(record.transcript),
+  ]).join('\n');
+  const sourceUrl = firstString(record.url, record.postUrl, record.permalink, record.link, record.shortUrl) ?? parsed.normalizedUrl;
+  const media = socialMedia({
+    mediaType: firstString(record.type, record.mediaType, record.productType),
+    mediaUrl: firstString(record.videoUrl, record.mediaUrl, record.displayUrl, record.imageUrl),
+    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl),
+    ocrText: stringValue(record.ocrText),
+    transcript: stringValue(record.transcript),
+  });
+  const metrics = socialMetrics(record);
+  const profile = socialProfile(record);
+  if (!text && !media && !metrics && !profile) return null;
+  return {
+    kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
+    url: sourceUrl,
+    platform: parsed.platform,
+    name: firstString(record.ownerUsername, record.username, record.author, record.ownerFullName, record.pageName) ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
+    note: 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
+    text: text || undefined,
+    evidenceOrigin: 'public_fallback',
+    pinned: booleanValue(record.isPinned) ?? booleanValue(record.pinned) ?? false,
+    publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.date),
+    media,
+    metrics,
+    profile,
+    connection: {
+      provider: 'alyzitron_apify',
+      status: 'public_fallback_available',
+      accountHandle: firstString(record.ownerUsername, record.username, record.author),
+      accountName: firstString(record.ownerFullName, record.fullName, record.pageName),
+      canReadProfile: Boolean(profile),
+      canReadPosts: true,
+      canReadPinned: false,
+      matchStatus: 'unverified',
+    },
+  };
+}
+
+async function fetchPublicOEmbedPostSource(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  fetchFn: BrandVaultSocialFetch;
+}): Promise<SocialFetchResult> {
+  const endpoint = publicOEmbedEndpoint(args.parsed);
+  if (!endpoint) return { sources: [], warnings: [] };
+  try {
+    const response = await args.fetchFn(endpoint.href);
+    const payload = await readJsonObject(response);
+    if (!response.ok) {
+      return {
+        sources: [],
+        warnings: [`Brand Vault skipped ${args.parsed.platform} oEmbed fallback: public endpoint returned ${response.status}.`],
+      };
+    }
+    const title = stringValue(payload.title);
+    const author = stringValue(payload.author_name);
+    const html = stripHtml(stringValue(payload.html));
+    const text = uniqueStrings([title, author, html]).join('\n');
+    if (!text) {
+      return {
+        sources: [],
+        warnings: [`Brand Vault skipped ${args.parsed.platform} oEmbed fallback: no readable text was returned.`],
+      };
+    }
+    return {
+      sources: [{
+        kind: 'social_post',
+        url: args.parsed.normalizedUrl,
+        platform: args.parsed.platform,
+        name: title ?? `${platformLabel(args.parsed.platform)} public post`,
+        note: 'Fetched public oEmbed metadata for Brand Vault draft review; this is thin review-only evidence.',
+        text,
+        evidenceOrigin: 'public_fallback',
+        pinned: false,
+        media: socialMedia({
+          mediaType: 'link',
+          thumbnailUrl: stringValue(payload.thumbnail_url),
+        }),
+        profile: author ? { bio: author } : undefined,
+      }],
+      warnings: [`Brand Vault fetched ${args.parsed.platform} public oEmbed metadata as review-only social evidence.`],
+    };
+  } catch {
+    return {
+      sources: [],
+      warnings: [`Brand Vault skipped ${args.parsed.platform} oEmbed fallback: public metadata fetch failed.`],
+    };
+  }
+}
+
+function publicOEmbedEndpoint(parsed: BrandVaultParsedSocialUrl): URL | null {
+  if (parsed.platform === 'youtube') {
+    const url = new URL('https://www.youtube.com/oembed');
+    url.searchParams.set('url', parsed.normalizedUrl);
+    url.searchParams.set('format', 'json');
+    return url;
+  }
+  if (parsed.platform === 'tiktok') {
+    const url = new URL('https://www.tiktok.com/oembed');
+    url.searchParams.set('url', parsed.normalizedUrl);
+    return url;
+  }
+  if (parsed.platform === 'x') {
+    const url = new URL('https://publish.twitter.com/oembed');
+    url.searchParams.set('url', parsed.normalizedUrl);
+    url.searchParams.set('omit_script', 'true');
+    return url;
+  }
+  return null;
+}
+
 function socialPostMetadataText(html: string): string | undefined {
   const parts = [
     metaContent(html, 'og:title'),
@@ -877,6 +1093,95 @@ function socialPostMetadataText(html: string): string | undefined {
     metaContent(html, 'description'),
   ].filter((part): part is string => Boolean(part));
   return parts.length > 0 ? Array.from(new Set(parts)).join('\n') : undefined;
+}
+
+function socialMedia(input: {
+  mediaType?: string;
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+  ocrText?: string;
+  transcript?: string;
+  durationSeconds?: number;
+}): BrandVaultSocialMediaEvidence | undefined {
+  const mediaType = normalizeMediaType(input.mediaType);
+  const value: BrandVaultSocialMediaEvidence = {
+    mediaType,
+    mediaUrl: input.mediaUrl,
+    thumbnailUrl: input.thumbnailUrl,
+    ocrText: input.ocrText,
+    transcript: input.transcript,
+    durationSeconds: input.durationSeconds,
+  };
+  return hasDefinedValue(value) ? value : undefined;
+}
+
+function socialMediaFromLinkedIn(record: Record<string, unknown>): BrandVaultSocialMediaEvidence | undefined {
+  const content = asRecord(record.content);
+  const media = asRecord(content.media);
+  const article = asRecord(content.article);
+  return socialMedia({
+    mediaType: firstString(media.mediaType, media.type, article.source) ? 'link' : undefined,
+    mediaUrl: firstString(media.url, article.source),
+    thumbnailUrl: firstString(media.thumbnail, media.thumbnailUrl),
+  });
+}
+
+function socialMediaFromFacebook(record: Record<string, unknown>): BrandVaultSocialMediaEvidence | undefined {
+  const attachments = asRecord(record.attachments);
+  const attachment = Array.isArray(attachments.data) ? asRecord(attachments.data[0]) : {};
+  const media = asRecord(attachment.media);
+  const image = asRecord(media.image);
+  return socialMedia({
+    mediaType: firstString(attachment.type, record.type),
+    mediaUrl: firstString(attachment.url),
+    thumbnailUrl: firstString(image.src, attachment.thumbnail_url),
+  });
+}
+
+function socialMetrics(value: unknown): BrandVaultSocialMetricsEvidence | undefined {
+  const record = asRecord(value);
+  const likes = asRecord(record.likes);
+  const comments = asRecord(record.comments);
+  const shares = asRecord(record.shares);
+  const likesSummary = asRecord(likes.summary);
+  const commentsSummary = asRecord(comments.summary);
+  const metrics: BrandVaultSocialMetricsEvidence = {
+    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, likesSummary.total_count),
+    commentCount: firstNumber(record.comments_count, record.commentsCount, record.commentCount, commentsSummary.total_count),
+    shareCount: firstNumber(record.shareCount, record.sharesCount, shares.count),
+    viewCount: firstNumber(record.viewCount, record.videoViewCount, record.playCount),
+    repostCount: firstNumber(record.retweet_count, record.repostCount, record.retweetsCount),
+    quoteCount: firstNumber(record.quote_count, record.quoteCount),
+  };
+  const engagement = [metrics.likeCount, metrics.commentCount, metrics.shareCount, metrics.repostCount, metrics.quoteCount]
+    .filter((item): item is number => typeof item === 'number')
+    .reduce((sum, item) => sum + item, 0);
+  if (engagement > 0) metrics.engagementCount = engagement;
+  return hasDefinedValue(metrics) ? metrics : undefined;
+}
+
+function socialProfile(record: Record<string, unknown>): BrandVaultSocialProfileEvidence | undefined {
+  const value: BrandVaultSocialProfileEvidence = {
+    bio: firstString(record.biography, record.bio, record.about, record.description),
+    category: firstString(record.category, record.businessCategoryName, record.pageCategory),
+    website: firstString(record.externalUrl, record.website, record.url),
+    followerCount: firstNumber(record.followersCount, record.followerCount, record.followers),
+  };
+  return hasDefinedValue(value) ? value : undefined;
+}
+
+function normalizeMediaType(value: string | undefined): BrandVaultSocialMediaEvidence['mediaType'] | undefined {
+  const lower = value?.toLowerCase() ?? '';
+  if (!lower) return undefined;
+  if (lower.includes('carousel') || lower.includes('album')) return 'carousel';
+  if (lower.includes('video') || lower.includes('reel')) return 'video';
+  if (lower.includes('image') || lower.includes('photo')) return 'image';
+  if (lower.includes('link') || lower.includes('article')) return 'link';
+  return 'unknown';
+}
+
+function hasDefinedValue(value: object): boolean {
+  return Object.values(value as Record<string, unknown>).some((item) => item !== undefined && item !== null && (!Array.isArray(item) || item.length > 0));
 }
 
 function metaContent(html: string, key: string): string | undefined {
@@ -940,8 +1245,55 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const string = stringValue(value);
+    if (string) return string;
+  }
+  return undefined;
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const number = numberValue(value);
+    if (number !== undefined) return number;
+  }
+  return undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.replace(/,/g, ''));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (/^(true|yes|1)$/i.test(value.trim())) return true;
+    if (/^(false|no|0)$/i.test(value.trim())) return false;
+  }
+  return undefined;
+}
+
+function stripHtml(value: string | undefined): string | undefined {
+  return value
+    ?.replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || undefined;
 }
 
 function pinnedTweetIdFromTokens(tokens: Record<string, unknown> | null | undefined): string | undefined {
@@ -983,9 +1335,21 @@ async function readJsonObject(response: Response): Promise<Record<string, unknow
   }
 }
 
+async function readJsonValue(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 function apiErrorMessage(payload: Record<string, unknown>): string {
   const detail = stringValue(payload.detail) ?? stringValue(asRecord(payload.error).message);
   return detail ? `: ${detail}` : '';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function metricsNote(value: unknown): string | undefined {

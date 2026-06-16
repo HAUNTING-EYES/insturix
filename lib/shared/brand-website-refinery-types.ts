@@ -83,6 +83,33 @@ export type BrandVaultSourceEvidenceOrigin =
   | 'connected_fetch'
   | 'public_fallback';
 
+export interface BrandVaultSocialMediaEvidence {
+  mediaType?: 'image' | 'video' | 'carousel' | 'link' | 'unknown';
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+  sampledFrameUrls?: string[];
+  ocrText?: string;
+  transcript?: string;
+  durationSeconds?: number;
+}
+
+export interface BrandVaultSocialMetricsEvidence {
+  likeCount?: number;
+  commentCount?: number;
+  shareCount?: number;
+  viewCount?: number;
+  repostCount?: number;
+  quoteCount?: number;
+  engagementCount?: number;
+}
+
+export interface BrandVaultSocialProfileEvidence {
+  bio?: string;
+  category?: string;
+  website?: string;
+  followerCount?: number;
+}
+
 export interface BrandVaultSourceInput {
   kind: BrandVaultSourceKind;
   url?: string;
@@ -96,6 +123,10 @@ export interface BrandVaultSourceInput {
   dominantColors?: string[];
   assetRole?: BrandVaultUploadedAssetRole;
   pinned?: boolean;
+  publishedAt?: string;
+  media?: BrandVaultSocialMediaEvidence;
+  metrics?: BrandVaultSocialMetricsEvidence;
+  profile?: BrandVaultSocialProfileEvidence;
   evidenceOrigin?: BrandVaultSourceEvidenceOrigin;
   connection?: BrandVaultSocialConnectionEvidence;
 }

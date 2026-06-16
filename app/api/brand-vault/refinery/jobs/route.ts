@@ -79,6 +79,11 @@ async function loadConnectedSocialEvidence(
     uploaderXUser: user,
     youtubeConnection,
     apifyApiKey: process.env.APIFY_API_KEY,
+    apifyActors: {
+      instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID,
+      facebook: process.env.APIFY_FACEBOOK_ACTOR_ID,
+      linkedin: process.env.APIFY_LINKEDIN_ACTOR_ID,
+    },
   });
 
   return {

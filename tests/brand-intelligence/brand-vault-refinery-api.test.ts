@@ -502,14 +502,43 @@ describe('Brand Vault refinery API boundary', () => {
   });
 
   it('labels Apify public fallback social evidence separately from connected evidence', async () => {
+    const fetchedUrls: string[] = [];
     const result = await createBrandVaultConnectedSocialEvidence({
       socialLinks: ['https://www.instagram.com/vaultline'],
       uploaderXUser: null,
       youtubeConnection: null,
       apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async (url, init) => {
+        fetchedUrls.push(url);
+        expect(url).toContain('https://api.apify.com/v2/acts/');
+        expect(url).toContain('run-sync-get-dataset-items');
+        expect(url).toContain('token=apify_key');
+        expect(init?.method).toBe('POST');
+        return new Response(
+          JSON.stringify([
+            {
+              url: 'https://www.instagram.com/p/apify_1/',
+              caption: 'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+              type: 'Video',
+              videoUrl: 'https://cdn.example/video.mp4',
+              thumbnailUrl: 'https://cdn.example/thumb.jpg',
+              likesCount: 120,
+              commentsCount: 8,
+              ownerUsername: 'vaultline',
+              ownerFullName: 'Vaultline',
+              biography: 'Brand operations software for agencies.',
+              followersCount: 4400,
+              timestamp: '2026-06-08T10:00:00.000Z',
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
       now: NOW,
     });
 
+    expect(fetchedUrls).toHaveLength(1);
     expect(result.sourceEvidence).toEqual([
       expect.objectContaining({
         kind: 'social_profile',
@@ -520,9 +549,70 @@ describe('Brand Vault refinery API boundary', () => {
           status: 'public_fallback_available',
         }),
       }),
+      expect.objectContaining({
+        kind: 'social_post',
+        platform: 'instagram',
+        evidenceOrigin: 'public_fallback',
+        url: 'https://www.instagram.com/p/apify_1/',
+        text: 'Stop losing brand consistency between strategy and delivery. Trusted by 80 creative teams. Book a demo.',
+        publishedAt: '2026-06-08T10:00:00.000Z',
+        media: expect.objectContaining({
+          mediaType: 'video',
+          mediaUrl: 'https://cdn.example/video.mp4',
+          thumbnailUrl: 'https://cdn.example/thumb.jpg',
+        }),
+        metrics: expect.objectContaining({
+          likeCount: 120,
+          commentCount: 8,
+          engagementCount: 128,
+        }),
+        profile: expect.objectContaining({
+          bio: 'Brand operations software for agencies.',
+          followerCount: 4400,
+        }),
+      }),
     ]);
-    expect(result.warnings).toContain('Brand Vault staged 1 public social fallback source for review-only enrichment.');
+    expect(result.warnings).toContain('Brand Vault fetched 1 instagram public Apify item for review-only social evidence.');
+    expect(result.warnings).toContain('Brand Vault staged 2 public social fallback sources for review-only enrichment.');
     expect(result.warnings.some((warning) => /connected social evidence source/.test(warning))).toBe(false);
+  });
+
+  it('uses free public oEmbed for supported social post URLs when no connected account is available', async () => {
+    const fetchedUrls: string[] = [];
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.youtube.com/watch?v=video_1'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: '',
+      fetchFn: async (url) => {
+        fetchedUrls.push(url);
+        expect(url).toContain('https://www.youtube.com/oembed');
+        return new Response(
+          JSON.stringify({
+            title: 'Brand systems launch walkthrough',
+            author_name: 'Vaultline',
+            thumbnail_url: 'https://i.ytimg.com/vi/video_1/hqdefault.jpg',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+      now: NOW,
+    });
+
+    expect(fetchedUrls).toHaveLength(1);
+    expect(result.sourceEvidence).toEqual([
+      expect.objectContaining({
+        kind: 'social_post',
+        platform: 'youtube',
+        evidenceOrigin: 'public_fallback',
+        text: 'Brand systems launch walkthrough\nVaultline',
+        media: expect.objectContaining({
+          mediaType: 'link',
+          thumbnailUrl: 'https://i.ytimg.com/vi/video_1/hqdefault.jpg',
+        }),
+      }),
+    ]);
+    expect(result.warnings).toContain('Brand Vault fetched youtube public oEmbed metadata as review-only social evidence.');
   });
 
   it('fetches connected Instagram media captions as draft-only social evidence', async () => {
