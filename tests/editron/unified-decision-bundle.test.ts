@@ -25,7 +25,8 @@ describe('unified decision bundle merge', () => {
     expect(merged.source).toBe('creative-brief+signal-driven');
     expect(merged.authority).toEqual({
       version: 'unified-decision-authority-v1',
-      executableProducer: 'creative-brief',
+      executableProducer: 'unified-planner',
+      decisionMode: 'merged-supplemental',
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'advisor',
       signalDecisionsCanAddExecutable: false,
@@ -69,6 +70,7 @@ describe('unified decision bundle merge', () => {
     expect(merged.authority).toEqual({
       version: 'unified-decision-authority-v1',
       executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
@@ -122,6 +124,7 @@ describe('unified decision bundle merge', () => {
     expect(merged.source).toBe('creative-brief+signal-driven');
     expect(merged.authority).toMatchObject({
       executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
     });
@@ -184,6 +187,7 @@ describe('unified decision bundle merge', () => {
     expect(bundle.authority).toEqual({
       version: 'unified-decision-authority-v1',
       executableProducer: 'signal-driven',
+      decisionMode: 'signal-primary',
       advisoryProducers: [],
       signalDecisionRole: 'primary',
       signalDecisionsCanAddExecutable: true,
@@ -220,6 +224,7 @@ describe('unified decision bundle merge', () => {
     expect(bundle.authority).toEqual({
       version: 'unified-decision-authority-v1',
       executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
@@ -262,6 +267,7 @@ describe('unified decision bundle merge', () => {
     expect(bundle.authority).toEqual({
       version: 'unified-decision-authority-v1',
       executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
@@ -420,6 +426,136 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence.evidenceOnlySignalDecisions[0].reason).toBe('hard-cut-is-boundary-evidence');
     expect(merged.expectedSkipped).toBe(0);
   });
+
+  it('builds a full signal-decision audit without changing executable decisions', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({ type: 'caption-emphasis', frame: 50, source: 'signal-executor:caption', confidence: 0.91 }),
+      decision({ type: 'zoom', frame: 90, source: 'signal-executor:zoom', confidence: 0.4 }),
+      decision({ type: 'transition', frame: 180, source: 'signal-executor:transition', confidence: 0.95, params: { transitionType: 'hard-cut' } }),
+      decision({ type: 'sfx-trigger', frame: 360, source: 'signal-executor:sfx', confidence: 0.89, params: { sfxType: 'impact' } }),
+    ]));
+
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'sfx-trigger']);
+    expect(merged.evidence.signalDecisionAudit).toEqual(expect.objectContaining({
+      version: 'signal-decision-audit-v1',
+      totalCount: 4,
+      outcomes: {
+        'added-executable': 1,
+        'evidence-only': 3,
+        'signal-primary': 0,
+        'validated-primary': 0,
+      },
+    }));
+    expect(merged.evidence.signalDecisionAudit.byFamily.caption).toEqual(expect.objectContaining({
+      count: 1,
+      frames: expect.objectContaining({ first: 50, last: 50, samples: [50] }),
+      sources: { 'signal-executor:caption': 1 },
+    }));
+    expect(merged.evidence.signalDecisionAudit.byFamily.audio).toEqual(expect.objectContaining({
+      count: 1,
+      confidence: expect.objectContaining({ min: 0.89, max: 0.89, average: 0.89 }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'unsupported-signal-decision-type': expect.objectContaining({ count: 1 }),
+      'below-signal-confidence-floor': expect.objectContaining({ count: 1 }),
+      'hard-cut-is-boundary-evidence': expect.objectContaining({ count: 1 }),
+      'licensed-by-signal-policy': expect.objectContaining({ count: 1 }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.candidates.map((candidate) => ({
+      family: candidate.family,
+      role: candidate.role,
+      timing: candidate.timingAnchor.kind,
+      frame: candidate.timingAnchor.frame,
+      evidenceStrength: candidate.evidenceStrength,
+      completeness: candidate.completeness,
+      riskFlags: candidate.riskFlags,
+      calibrationStatus: candidate.calibrationStatus,
+    }))).toEqual(expect.arrayContaining([
+      {
+        family: 'caption',
+        role: 'caption-emphasis',
+        timing: 'moment',
+        frame: 50,
+        evidenceStrength: 0.91,
+        completeness: 0.75,
+        riskFlags: ['unsupported-executable-type', 'incomplete-intent'],
+        calibrationStatus: 'invented-needs-calibration',
+      },
+      {
+        family: 'camera',
+        role: 'camera-motion',
+        timing: 'moment',
+        frame: 90,
+        evidenceStrength: 0.4,
+        completeness: 0.75,
+        riskFlags: ['below-execution-confidence', 'incomplete-intent'],
+        calibrationStatus: 'invented-needs-calibration',
+      },
+      {
+        family: 'transition',
+        role: 'transition-boundary',
+        timing: 'boundary',
+        frame: 180,
+        evidenceStrength: 0.95,
+        completeness: 1,
+        riskFlags: ['hard-cut-boundary-evidence'],
+        calibrationStatus: 'invented-needs-calibration',
+      },
+      {
+        family: 'audio',
+        role: 'audio-emphasis',
+        timing: 'moment',
+        frame: 360,
+        evidenceStrength: 0.89,
+        completeness: 1,
+        riskFlags: [],
+        calibrationStatus: 'invented-needs-calibration',
+      },
+    ]));
+    expect(merged.evidence.signalDecisionAudit.samples.map((sample) => ({
+      family: sample.family,
+      outcome: sample.outcome,
+      reason: sample.reason,
+      frame: sample.frame,
+      source: sample.source,
+    }))).toEqual(expect.arrayContaining([
+      {
+        family: 'caption',
+        outcome: 'evidence-only',
+        reason: 'unsupported-signal-decision-type',
+        frame: 50,
+        source: 'signal-executor:caption',
+      },
+      {
+        family: 'camera',
+        outcome: 'evidence-only',
+        reason: 'below-signal-confidence-floor',
+        frame: 90,
+        source: 'signal-executor:zoom',
+      },
+      {
+        family: 'transition',
+        outcome: 'evidence-only',
+        reason: 'hard-cut-is-boundary-evidence',
+        frame: 180,
+        source: 'signal-executor:transition',
+      },
+      {
+        family: 'audio',
+        outcome: 'added-executable',
+        reason: 'licensed-by-signal-policy',
+        frame: 360,
+        source: 'signal-executor:sfx',
+      },
+    ]));
+  });
 });
 
 function edl(decisions: EditDecision[]): EditDecisionList {
@@ -455,3 +591,4 @@ function decision(overrides: Partial<EditDecision>): EditDecision {
     ...overrides,
   };
 }
+
