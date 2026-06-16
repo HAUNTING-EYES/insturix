@@ -1,7 +1,8 @@
 import React from "react";
-import { useCurrentFrame, useVideoConfig, spring } from "remotion";
+import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { Caption, CaptionOverlay, CaptionWord, HighlightEffect, HighlightAnimation, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
+import type { AtomicOverlayForm, AtomicTextGlyphRole } from "@/lib/editron/engine/atomic-overlay-core";
 
 /**
  * Props for the CaptionLayerContent component
@@ -84,6 +85,132 @@ function normalizeFontSize(fontSize: string | number | undefined): string {
   return fontSize;
 }
 
+type AtomicTextForm = NonNullable<AtomicOverlayForm["text"]>;
+
+type DisplayWord = {
+  word: CaptionWord;
+  state: "active" | "visible" | "faded";
+  globalIndex: number;
+};
+
+const CAPTION_MODES = new Set(Object.keys(DEFAULT_DISPLAY_CONFIGS));
+const HIGHLIGHT_EFFECTS = new Set<HighlightEffect>(["none", "glow", "box", "underline", "pop"]);
+const HIGHLIGHT_ANIMATIONS = new Set<HighlightAnimation>(["none", "bounce", "pulse", "scale"]);
+
+function getAtomicOverlayForm(overlay: CaptionOverlay): AtomicOverlayForm | undefined {
+  const metadata = (overlay as CaptionOverlay & { metadata?: { atomicOverlayForm?: unknown; atomicOverlayReceipt?: { form?: unknown } } }).metadata;
+  const direct = metadata?.atomicOverlayForm;
+  if (isAtomicOverlayForm(direct)) return direct;
+  const receiptForm = metadata?.atomicOverlayReceipt?.form;
+  return isAtomicOverlayForm(receiptForm) ? receiptForm : undefined;
+}
+
+function isAtomicOverlayForm(value: unknown): value is AtomicOverlayForm {
+  return typeof value === "object"
+    && value !== null
+    && (value as Partial<AtomicOverlayForm>).version === "overlay-atomic-form-v1";
+}
+
+function mergeAtomicDisplayConfig(
+  base: CaptionDisplayConfig,
+  atomicDisplay?: AtomicTextForm["display"],
+): CaptionDisplayConfig {
+  if (!atomicDisplay) return base;
+  return {
+    ...base,
+    mode: isCaptionMode(atomicDisplay.mode) ? atomicDisplay.mode : base.mode,
+    wordsPerGroup: atomicDisplay.wordsPerGroup ?? base.wordsPerGroup,
+    maxWordsPerLine: atomicDisplay.maxWordsPerLine ?? base.maxWordsPerLine,
+    showPreviousWords: atomicDisplay.showPreviousWords ?? base.showPreviousWords,
+    fadeOutPreviousWords: atomicDisplay.fadeOutPreviousWords ?? base.fadeOutPreviousWords,
+  };
+}
+
+function isCaptionMode(value: unknown): value is CaptionDisplayConfig["mode"] {
+  return typeof value === "string" && CAPTION_MODES.has(value);
+}
+
+function asHighlightEffect(value: unknown): HighlightEffect {
+  return typeof value === "string" && HIGHLIGHT_EFFECTS.has(value as HighlightEffect)
+    ? value as HighlightEffect
+    : "none";
+}
+
+function asHighlightAnimation(value: unknown): HighlightAnimation {
+  return typeof value === "string" && HIGHLIGHT_ANIMATIONS.has(value as HighlightAnimation)
+    ? value as HighlightAnimation
+    : "none";
+}
+
+function atomicMotionStyles(
+  form: AtomicOverlayForm | undefined,
+  frame: number,
+  durationInFrames: number,
+): React.CSSProperties {
+  if (!form?.text) return {};
+  const entryFrames = Math.max(1, Math.min(12, Math.round((form.text.motion.intensity || 0.5) * 14)));
+  const exitFrames = Math.max(1, Math.min(12, Math.round(entryFrames * 0.8)));
+  const entry = interpolate(frame, [0, entryFrames], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const exit = interpolate(frame, [Math.max(0, durationInFrames - exitFrames), durationInFrames], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const opacity = Math.min(entry, exit);
+  const y = interpolate(entry, [0, 1], [8, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
+  return {
+    opacity,
+    transform: `translateY(${y}px)`,
+  };
+}
+
+function roleAccentColor(role: AtomicTextGlyphRole, fallback: string): string | undefined {
+  if (role === "statistic" || role === "number") return "#86efac";
+  if (role === "cta") return "#7dd3fc";
+  if (role === "keyword" || role === "entity") return fallback;
+  return undefined;
+}
+
+function atomicGlyphColor(
+  atomicText: AtomicTextForm | undefined,
+  glyph: AtomicTextForm["glyphs"][number] | undefined,
+  fallback: string,
+): string | undefined {
+  const role = glyph?.visual?.colorRole;
+  if (!role || !atomicText?.colorPlan) return undefined;
+  if (role === "accent") return atomicText.colorPlan.roles.accent || fallback;
+  if (role === "contrast") return atomicText.colorPlan.roles.contrast || fallback;
+  if (role === "muted") return atomicText.colorPlan.roles.muted || fallback;
+  if (role === "surface") return atomicText.colorPlan.roles.surface || fallback;
+  return atomicText.colorPlan.roles.primary || fallback;
+}
+
+function atomicGlyphFontFamily(
+  atomicText: AtomicTextForm | undefined,
+  glyph: AtomicTextForm["glyphs"][number] | undefined,
+): string | undefined {
+  const role = glyph?.visual?.fontRole;
+  if (!role) return undefined;
+  const fonts = atomicText?.fontPlan?.roles;
+  if (role === "accent") return fonts?.accent ?? fonts?.primary;
+  if (role === "mono") return fonts?.mono ?? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+  if (role === "secondary") return fonts?.secondary ?? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  return fonts?.primary;
+}
+
+function shouldBreakAfter(
+  words: DisplayWord[],
+  index: number,
+  config: CaptionDisplayConfig,
+  atomicText?: AtomicTextForm,
+): boolean {
+  const current = words[index];
+  const next = words[index + 1];
+  if (!current || !next) return false;
+  const currentGlyph = atomicText?.glyphs.find((glyph) => glyph.index === current.globalIndex);
+  const nextGlyph = atomicText?.glyphs.find((glyph) => glyph.index === next.globalIndex);
+  if (currentGlyph && nextGlyph && currentGlyph.lineIndex !== nextGlyph.lineIndex) return true;
+  const rowCapacity = atomicText?.composition.rowCapacity ?? config.maxWordsPerLine;
+  return rowCapacity > 0 && (index + 1) % rowCapacity === 0;
+}
+
 /**
  * CaptionLayerContent Component
  * Renders animated captions with word-by-word highlighting and customizable effects
@@ -96,8 +223,14 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   const { fps } = useVideoConfig();
   const frameMs = (frame / fps) * 1000;
   const styles = overlay.styles || defaultCaptionStyles;
-  const highlight = styles.highlight || styles.highlightStyle || defaultCaptionStyles.highlight;
-  const displayConfig = overlay.displayConfig || defaultDisplayConfig;
+  const atomicForm = getAtomicOverlayForm(overlay);
+  const atomicText = atomicForm?.text;
+  const highlight = {
+    ...(styles.highlight || styles.highlightStyle || defaultCaptionStyles.highlight),
+    ...(atomicText?.highlight ?? {}),
+  };
+  const displayConfig = mergeAtomicDisplayConfig(overlay.displayConfig || defaultDisplayConfig, atomicText?.display);
+  const motionStyles = atomicMotionStyles(atomicForm, frame, overlay.durationInFrames);
 
   // Find current caption based on frame timestamp
   const currentCaption = overlay.captions.find(
@@ -109,9 +242,12 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   /**
    * Determines which words to display based on display mode
    */
-  const getWordsToDisplay = (caption: Caption): { word: CaptionWord; state: "active" | "visible" | "faded" }[] => {
+  const getWordsToDisplay = (caption: Caption): DisplayWord[] => {
     const { mode, showPreviousWords, fadeOutPreviousWords } = displayConfig;
     const words = caption.words || [];
+    const captionWordOffset = overlay.captions
+      .slice(0, overlay.captions.indexOf(caption))
+      .reduce((sum, item) => sum + (item.words?.length ?? 0), 0);
     
     // Find the currently active word index
     const activeWordIndex = words.findIndex(
@@ -121,10 +257,11 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     if (mode === "word-by-word") {
       // Only show the current word
       if (activeWordIndex === -1) return [];
-      return [{ word: words[activeWordIndex], state: "active" }];
+      return [{ word: words[activeWordIndex], state: "active", globalIndex: captionWordOffset + activeWordIndex }];
     }
 
     if (mode === "phrase" || mode === "instagram" || mode === "hormozi") {
+      if (activeWordIndex === -1) return [];
       const halfWindow = Math.floor(displayConfig.wordsPerGroup / 2);
       const start = Math.max(0, activeWordIndex - halfWindow);
       const end = Math.min(words.length, start + displayConfig.wordsPerGroup);
@@ -132,6 +269,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       return words.slice(start, end).map((word, i) => ({
         word,
         state: (start + i) === activeWordIndex ? "active" : "visible",
+        globalIndex: captionWordOffset + start + i,
       }));
     }
 
@@ -140,14 +278,14 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       const isActive = frameMs >= word.startMs && frameMs <= word.endMs;
       const isPast = frameMs > word.endMs;
       
-      if (isActive) return { word, state: "active" as const };
+      if (isActive) return { word, state: "active" as const, globalIndex: captionWordOffset + index };
       
       if (isPast && showPreviousWords) {
-        return { word, state: fadeOutPreviousWords ? "faded" as const : "visible" as const };
+        return { word, state: fadeOutPreviousWords ? "faded" as const : "visible" as const, globalIndex: captionWordOffset + index };
       }
       
       // Future words - show but not highlighted
-      return { word, state: "visible" as const };
+      return { word, state: "visible" as const, globalIndex: captionWordOffset + index };
     });
   };
 
@@ -157,9 +295,14 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   const renderWords = (caption: Caption) => {
     const wordsToDisplay = getWordsToDisplay(caption);
     
-    return wordsToDisplay.map(({ word, state }, index) => {
+    return wordsToDisplay.map(({ word, state, globalIndex }, index) => {
       const isActive = state === "active";
       const isFaded = state === "faded";
+      const atomicGlyph = atomicText?.glyphs.find((glyph) => glyph.index === globalIndex);
+      const glyphRole = atomicGlyph?.emphasis?.role ?? atomicGlyph?.role ?? word.emphasis?.type ?? "word";
+      const roleColor = atomicGlyphColor(atomicText, atomicGlyph, highlight.color) ?? roleAccentColor(glyphRole, highlight.color);
+      const glyphScale = atomicGlyph?.visual?.scale ?? 1;
+      const glyphFontFamily = atomicGlyphFontFamily(atomicText, atomicGlyph);
       
       // Calculate progress within the word's duration for smooth animations
       const wordDuration = word.endMs - word.startMs;
@@ -167,10 +310,12 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
         ? (frameMs - word.startMs) / Math.max(wordDuration, 100)
         : 0;
 
-      const effectStyles = getEffectStyles(highlight.effect, isActive);
-      const animationStyles = getAnimationStyles(highlight.animation, isActive, progress);
+      const highlightEffect = asHighlightEffect(highlight.effect);
+      const highlightAnimation = asHighlightAnimation(highlight.animation);
+      const effectStyles = getEffectStyles(highlightEffect, isActive);
+      const animationStyles = getAnimationStyles(highlightAnimation, isActive, progress);
 
-      // Build the base transform — spring or linear scale on active word
+      // Build the base transform: spring or linear scale on active word
       const wordStartFrame = Math.round((word.startMs / 1000) * fps);
       const framesSinceWordStart = frame - wordStartFrame;
 
@@ -188,48 +333,59 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       } else if (isActive) {
         scaleValue = 1 + (highlight.scale - 1) * Math.min(progress * 3, 1);
       }
+      scaleValue *= glyphScale;
 
       let baseTransform = `scale(${scaleValue})`;
 
       // Merge animation transform if present (for bounce/pulse)
-      if (animationStyles.transform && highlight.animation !== "scale") {
+      if (animationStyles.transform && highlightAnimation !== "scale") {
         baseTransform = `${baseTransform} ${animationStyles.transform}`;
       }
 
-      const hasEmphasis = !!word.emphasis;
+      const hasEmphasis = !!word.emphasis || (glyphRole !== "word" && glyphRole !== "punctuation" && glyphRole !== "unknown" && glyphRole !== "filler");
       const emphasisWeight = hasEmphasis ? 700 : (styles.fontWeight || 400);
-      const emphasisScale = hasEmphasis && !isActive ? 'scale(1.05)' : baseTransform;
-      const emphasisBorder = hasEmphasis && !isActive
-        ? { borderBottom: `2px solid ${highlight.color || styles.color}` }
+      const emphasisScale = hasEmphasis && !isActive ? `scale(${glyphScale})` : baseTransform;
+      const emphasisBorder = hasEmphasis && !isActive && atomicGlyph?.visual?.highlightMode === "underline"
+        ? { borderBottom: `2px solid ${roleColor || highlight.color || styles.color}` }
         : {};
+      const emphasisBackground = hasEmphasis && !isActive && atomicGlyph?.visual?.highlightMode === "fill"
+        ? highlight.backgroundColor
+        : "transparent";
+      const emphasisTextColor = emphasisBackground !== "transparent"
+        ? atomicText?.colorPlan.roles.contrast || highlight.color
+        : roleColor || styles.color;
+      const lineBreak = shouldBreakAfter(wordsToDisplay, index, displayConfig, atomicText);
 
       return (
-        <span
-          key={`${word.word}-${index}`}
-          className={`inline-block ${styles.fontFamily}`}
-          style={{
-            color: isActive ? highlight.color : styles.color,
-            backgroundColor: isActive
-              ? highlight.backgroundColor
-              : "transparent",
-            opacity: isFaded ? 0.5 : (isActive ? 1 : hasEmphasis ? 1 : 0.85),
-            transform: isActive ? baseTransform : emphasisScale,
-            fontWeight: isActive
-              ? highlight.fontWeight || 600
-              : emphasisWeight,
-            textShadow: isActive
-              ? highlight.textShadow
-              : styles.textShadow,
-            padding: highlight.padding || "4px 8px",
-            borderRadius: highlight.borderRadius || "4px",
-            margin: "0 2px",
-            transition: "color 150ms, background-color 150ms, opacity 150ms",
-            ...effectStyles,
-            ...emphasisBorder,
-          }}
-        >
-          {word.word}
-        </span>
+        <React.Fragment key={`${word.word}-${globalIndex}-${index}`}>
+          <span
+            className={`inline-block ${styles.fontFamily}`}
+            style={{
+              color: isActive ? highlight.color : emphasisTextColor,
+              backgroundColor: isActive
+                ? highlight.backgroundColor
+                : emphasisBackground,
+              opacity: isFaded ? 0.5 : (isActive ? 1 : hasEmphasis ? 1 : 0.85),
+              transform: isActive ? baseTransform : emphasisScale,
+              fontWeight: isActive
+                ? highlight.fontWeight || 600
+                : emphasisWeight,
+              fontFamily: glyphFontFamily,
+              textShadow: isActive
+                ? highlight.textShadow
+                : styles.textShadow,
+              padding: highlight.padding || "4px 8px",
+              borderRadius: highlight.borderRadius || "4px",
+              margin: "0 2px",
+              transition: "color 150ms, background-color 150ms, opacity 150ms",
+              ...effectStyles,
+              ...emphasisBorder,
+            }}
+          >
+            {word.word}
+          </span>
+          {lineBreak ? <span style={{ flexBasis: "100%", height: 0 }} /> : null}
+        </React.Fragment>
       );
     });
   };
@@ -249,6 +405,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
         background: styles.background || styles.backgroundColor || undefined,
         backdropFilter: styles.backdropFilter,
         borderRadius: styles.borderRadius,
+        ...motionStyles,
       }}
     >
       <div

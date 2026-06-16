@@ -9,6 +9,7 @@
 import { planComposition, DEFAULT_SIGNALS } from '../lib/editron/motion-graphics/engine/composition-planner';
 import { resolveMotionTokens } from '../lib/editron/data/motion-theme-resolver';
 import { checkCompositionStructure } from '../lib/editron/motion-graphics/engine/structural-gate';
+import type { HoldPattern } from '../lib/editron/motion-graphics/engine/recipe-types';
 
 interface TestProfile {
   name: string;
@@ -19,7 +20,7 @@ interface TestProfile {
     minElements: number;
     maxElements: number;
     hasKeyframes: boolean;
-    holdPattern?: string;
+    holdPattern?: HoldPattern;
     gatePasses: boolean;
   };
 }
@@ -30,7 +31,7 @@ const PROFILES: TestProfile[] = [
     kind: 'identity',
     content: { name: 'Hank Green', title: 'YouTuber & Author' },
     signals: { ...DEFAULT_SIGNALS, formality: 0.3, enthusiasm: 0.6, warmth: 0.7, pacing_velocity: 0.4 },
-    expect: { minElements: 2, maxElements: 5, hasKeyframes: false, holdPattern: 'breathe', gatePasses: true },
+    expect: { minElements: 2, maxElements: 5, hasKeyframes: false, holdPattern: 'gentle-float', gatePasses: true },
   },
   {
     name: '2. STAT COUNTER — dramatic number reveal',
@@ -127,6 +128,7 @@ console.log(`\n${'═'.repeat(70)}`);
 console.log(`RESULTS: ${passed} passed, ${failed} failed out of ${passed + failed} checks`);
 if (failures.length > 0) {
   console.log('\nFAILURES:');
+  process.exitCode = 1;
   failures.forEach(f => console.log(`  ❌ ${f}`));
 }
 console.log('═'.repeat(70));

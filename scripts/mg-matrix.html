@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MG Composition Matrix — 8 Shapes x 3 Formality x 3 Brands</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a14;color:#fff;font-family:Inter,system-ui,sans-serif;padding:24px}
+h1{font-size:20px;color:#D4A652;margin-bottom:4px}
+.sub{color:#555;font-size:12px;margin-bottom:24px}
+.section{margin-bottom:40px}
+.section-title{font-size:16px;color:#888;margin-bottom:12px;border-bottom:1px solid #1a1a2e;padding-bottom:8px}
+.row{display:flex;gap:12px;margin-bottom:16px;align-items:flex-start}
+.row-label{width:100px;flex-shrink:0;font-size:11px;color:#555;padding-top:20px;text-align:right;padding-right:8px}
+.cell{flex:1;background:#111;border-radius:8px;overflow:hidden}
+.cell-header{padding:6px 10px;background:#1a1a2e;font-size:9px;color:#444;display:flex;justify-content:space-between}
+.frame{position:relative;aspect-ratio:16/9;background:#0d0d1a;overflow:hidden}
+.mg{position:absolute;display:flex;flex-direction:column;gap:3px}
+/* Containers */
+.glass{background:rgba(10,10,20,0.85);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 16px rgba(0,0,0,0.15)}
+.pill{border-radius:999px!important}
+.solid{background:rgba(20,20,40,0.95)}
+.minimal{background:rgba(10,10,20,0.6)}
+/* Accent lines */
+.accent{height:3px;border-radius:2px;width:30px}
+/* Legend */
+.legend{display:flex;gap:24px;margin-bottom:20px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#555}
+.legend-swatch{width:16px;height:16px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)}
+</style>
+</head>
+<body>
+
+<h1>Motion Graphics Composition Matrix</h1>
+<p class="sub">8 content shapes x 3 formality levels x 3 brand kits = 72 variations. Each cell shows what the composition engine renders.</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#D4A652"></div> Insturix (Inter + gold)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#C9A96E"></div> Luxury (Playfair + champagne)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#22D3EE"></div> Tech (JetBrains Mono + cyan)</div>
+</div>
+
+<script>
+const BRANDS = [
+  { name: 'Insturix', primary: '#6366F1', accent: '#D4A652', bg: '#0A0A14', heading: 'Inter', body: 'Inter', mono: 'JetBrains Mono' },
+  { name: 'Luxury', primary: '#8B7355', accent: '#C9A96E', bg: '#0F0D0A', heading: 'Georgia', body: 'Georgia', mono: 'Georgia' },
+  { name: 'Tech', primary: '#06B6D4', accent: '#22D3EE', bg: '#0A0F14', heading: "'JetBrains Mono', monospace", body: "'JetBrains Mono', monospace", mono: "'JetBrains Mono', monospace" },
+];
+
+const FORMALITIES = [
+  { name: 'Casual (0.2)', value: 0.2 },
+  { name: 'Standard (0.5)', value: 0.5 },
+  { name: 'Formal (0.8)', value: 0.8 },
+];
+
+const SHAPES = [
+  {
+    name: 'Emphasis',
+    render: (b, f) => {
+      const informal = f < 0.4;
+      const container = informal
+        ? `<div style="background:${b.accent}22;border-radius:999px;padding:8px 16px;display:inline-flex">`
+        : `<div class="glass" style="border-radius:${f>0.7?'8px':'12px'};padding:10px 18px">`;
+      const color = informal ? b.accent : '#fff';
+      const transform = f > 0.7 ? 'text-transform:uppercase;letter-spacing:0.06em;' : '';
+      return `<div class="mg" style="top:8%;left:4%;max-width:50%">
+        ${container}<span style="font-family:${b.heading};font-weight:700;font-size:22px;color:${color};${transform}">hypothesis</span></div>
+        <div class="accent" style="background:${b.accent}"></div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Identity',
+    render: (b, f) => {
+      const hasContainer = f > 0.4;
+      const cont = hasContainer ? `<div class="glass" style="border-radius:8px;padding:10px 18px">` : '<div>';
+      return `<div class="mg" style="bottom:12%;left:4%;max-width:50%">
+        <div class="accent" style="background:${b.accent}"></div>
+        ${cont}
+          <span style="font-family:${b.heading};font-weight:700;font-size:20px;color:#fff;${f>0.7?'letter-spacing:0.04em;text-transform:uppercase;':''}">Hank Green</span>
+          <span style="font-family:${b.body};font-weight:400;font-size:14px;color:#94A3B8;margin-top:2px;display:block">VlogBrothers</span>
+        </div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Quotation',
+    render: (b, f) => {
+      return `<div class="mg" style="top:50%;left:50%;transform:translate(-50%,-50%);align-items:center;text-align:center;max-width:75%">
+        <div class="glass" style="border-radius:${f>0.6?'8px':'12px'};padding:16px 24px">
+          <span style="font-family:${b.heading};font-weight:400;font-size:16px;color:#fff;font-style:italic;line-height:1.5">"The Internet brings out the worst in people"</span>
+          <div class="accent" style="background:${b.accent};margin:8px auto 0"></div>
+        </div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Structured',
+    render: (b, f) => {
+      return `<div class="mg" style="top:8%;right:4%;max-width:45%;align-items:flex-end">
+        <div class="glass" style="border-radius:8px;padding:12px 18px">
+          <span style="font-family:${b.heading};font-weight:700;font-size:18px;color:#fff">Selection Bias</span>
+          <span style="font-family:${b.body};font-weight:400;font-size:12px;color:#94A3B8;margin-top:4px;display:block">Loud minority, silent majority</span>
+        </div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Numeric',
+    render: (b, f) => {
+      const font = f > 0.7 ? b.heading : b.mono;
+      return `<div class="mg" style="top:50%;left:50%;transform:translate(-50%,-50%);align-items:center;text-align:center;max-width:60%">
+        <div class="${f>0.4?'glass':'solid'}" style="border-radius:${f>0.7?'8px':'12px'};padding:16px 32px">
+          <div class="accent" style="background:${b.accent};margin:0 auto 8px"></div>
+          <span style="font-family:${font};font-weight:900;font-size:32px;color:#fff;letter-spacing:-0.02em">4.2M</span>
+          <span style="font-family:${b.body};font-weight:400;font-size:11px;color:#94A3B8;margin-top:4px;display:block;letter-spacing:0.04em">SUBSCRIBERS</span>
+          <div class="accent" style="background:${b.accent};margin:8px auto 0"></div>
+        </div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Brand',
+    render: (b, f) => {
+      return `<div class="mg" style="top:50%;left:50%;transform:translate(-50%,-50%);align-items:center;text-align:center;max-width:70%">
+        <span style="font-family:${b.heading};font-weight:900;font-size:28px;color:${b.primary};letter-spacing:0.08em;text-transform:uppercase">INSTURIX</span>
+        <div class="accent" style="background:${b.accent};margin:8px auto 0"></div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Free Text',
+    render: (b, f) => {
+      const hasContainer = f > 0.4;
+      return `<div class="mg" style="top:50%;left:50%;transform:translate(-50%,-50%);align-items:center;text-align:center;max-width:70%">
+        ${hasContainer ? `<div class="glass" style="border-radius:8px;padding:12px 24px">` : '<div>'}
+          <span style="font-family:${b.heading};font-weight:700;font-size:20px;color:#fff">editing challenge</span>
+        </div>
+      </div>`;
+    }
+  },
+  {
+    name: 'Data Series',
+    render: (b, f) => {
+      // Simple bar chart mockup
+      const bars = [80, 45, 65, 30, 90];
+      const barHTML = bars.map((v, i) =>
+        `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <span style="font-size:9px;color:#94A3B8;width:20px;text-align:right">${['Mon','Tue','Wed','Thu','Fri'][i]}</span>
+          <div style="height:8px;width:${v}%;background:${b.accent};border-radius:4px;opacity:0.85"></div>
+        </div>`
+      ).join('');
+      return `<div class="mg" style="top:50%;left:50%;transform:translate(-50%,-50%);align-items:center;max-width:60%">
+        <div class="glass" style="border-radius:8px;padding:12px 18px;width:100%">
+          <span style="font-family:${b.heading};font-weight:700;font-size:14px;color:#fff;margin-bottom:6px;display:block">Weekly Views</span>
+          ${barHTML}
+        </div>
+      </div>`;
+    }
+  },
+];
+
+// Render the matrix
+const container = document.createElement('div');
+SHAPES.forEach(shape => {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `<div class="section-title">${shape.name}</div>`;
+
+  FORMALITIES.forEach(form => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<div class="row-label">${form.name}</div>`;
+
+    BRANDS.forEach(brand => {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.innerHTML = `
+        <div class="cell-header">
+          <span>${brand.name}</span>
+          <span style="color:${brand.accent}">●</span>
+        </div>
+        <div class="frame">${shape.render(brand, form.value)}</div>
+      `;
+      row.appendChild(cell);
+    });
+
+    section.appendChild(row);
+  });
+
+  container.appendChild(section);
+});
+document.body.appendChild(container);
+</script>
+
+</body>
+</html>

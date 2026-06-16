@@ -3,6 +3,7 @@ import {
   appendClickatronCreativeSidecarInstruction,
   applyContentSignalProfileToClickatronExportMeta,
   extractRequiredClickatronCreativeSidecar,
+  shouldRequestClickatronCreativeSidecar,
 } from '@/lib/thinkforge/utils/clickatron-creative-sidecar';
 import { resolveContentSignalProfile } from '@/lib/thinkforge/signals';
 import type { AgentInput } from '@/lib/thinkforge/agents/types';
@@ -49,6 +50,30 @@ function agentInput(): AgentInput {
 }
 
 describe('Clickatron creative sidecar signal profile', () => {
+  it('requests a Clickatron sidecar for a social post whose topic mentions video production', () => {
+    const input: AgentInput = {
+      context: {
+        projectSummary: 'Platform: LinkedIn. Format: social post.',
+        systemBrief: 'Brand DNA: direct and analytical.',
+      },
+      userPrompt: 'Write a LinkedIn post about scaling video production without burning out creative teams.',
+    };
+
+    expect(shouldRequestClickatronCreativeSidecar(input)).toBe(true);
+  });
+
+  it('does not request a static sidecar for explicit video production deliverables', () => {
+    const input: AgentInput = {
+      context: {
+        projectSummary: 'Format: video script.',
+        systemBrief: 'Create a shootable production plan.',
+      },
+      userPrompt: 'Write a video script and storyboard for a Reel about approval time.',
+    };
+
+    expect(shouldRequestClickatronCreativeSidecar(input)).toBe(false);
+  });
+
   it('adds the resolved profile to the hidden sidecar instruction', () => {
     const profile = resolveInstagramImagePostProfile();
     const next = appendClickatronCreativeSidecarInstruction(agentInput(), profile);

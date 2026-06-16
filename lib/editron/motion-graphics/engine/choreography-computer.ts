@@ -41,17 +41,23 @@ export function computeChoreography(input: ChoreographyInput): Map<string, Compu
 
   const result = new Map<string, ComputedChoreography>();
 
-  if (syncTarget === 'even-stagger' || !recipeChoreography?.pattern || recipeChoreography.pattern === 'staggered') {
-    computeStaggered(sorted, result, {
-      staggerFrames,
-      entranceDurationFrames,
-      exitDurationFrames,
-      durationInFrames,
-      exitStyle,
-      entranceEasing,
-      exitEasing,
-    });
-  } else if (recipeChoreography.pattern === 'simultaneous') {
+  const beatFrames = syncTarget === 'audio-beats' && syncData?.beatTimesMs?.length
+    ? syncData.beatTimesMs.map(ms => Math.round((ms / 1000) * fps))
+    : undefined;
+
+  const staggerParams: StaggerParams = {
+    staggerFrames,
+    entranceDurationFrames,
+    exitDurationFrames,
+    durationInFrames,
+    exitStyle,
+    entranceEasing,
+    exitEasing,
+    beatFrames,
+  };
+
+  const pattern = recipeChoreography?.pattern || 'staggered';
+  if (pattern === 'simultaneous') {
     computeSimultaneous(sorted, result, {
       entranceDurationFrames,
       exitDurationFrames,
@@ -59,16 +65,8 @@ export function computeChoreography(input: ChoreographyInput): Map<string, Compu
       entranceEasing,
       exitEasing,
     });
-  } else if (recipeChoreography.pattern === 'word-stagger' || recipeChoreography.pattern === 'left-to-right-stagger') {
-    computeStaggered(sorted, result, {
-      staggerFrames,
-      entranceDurationFrames,
-      exitDurationFrames,
-      durationInFrames,
-      exitStyle,
-      entranceEasing,
-      exitEasing,
-    });
+  } else {
+    computeStaggered(sorted, result, staggerParams);
   }
 
   validateChoreography(result, durationInFrames);
@@ -99,6 +97,7 @@ interface StaggerParams {
   exitStyle: ExitStyle;
   entranceEasing: (t: number) => number;
   exitEasing: (t: number) => number;
+  beatFrames?: number[];
 }
 
 function computeStaggered(
@@ -106,7 +105,7 @@ function computeStaggered(
   result: Map<string, ComputedChoreography>,
   params: StaggerParams,
 ): void {
-  const { staggerFrames, entranceDurationFrames, exitDurationFrames, durationInFrames, exitStyle, entranceEasing, exitEasing } = params;
+  const { staggerFrames, entranceDurationFrames, exitDurationFrames, durationInFrames, exitStyle, entranceEasing, exitEasing, beatFrames } = params;
 
   const totalEntranceSpan = entranceDurationFrames + (elements.length - 1) * staggerFrames;
   const totalExitSpan = exitStyle === 'reverse-stagger'
@@ -126,7 +125,25 @@ function computeStaggered(
 
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
-    const enterStart = i * scaledStagger;
+    let enterStart = i * scaledStagger;
+
+    // Beat sync: snap enterStart to the nearest musical beat frame.
+    // Only when beat data is available (Essentia analysis succeeded).
+    // ⚠️ snap tolerance = scaledStagger/2 INVENTED — don't snap further than half a stagger
+    if (beatFrames?.length && enterStart < durationInFrames) {
+      const maxSnap = Math.round(scaledStagger / 2);
+      let nearestBeat = enterStart;
+      let nearestDist = Infinity;
+      for (const bf of beatFrames) {
+        const dist = Math.abs(bf - enterStart);
+        if (dist < nearestDist && dist <= maxSnap) {
+          nearestDist = dist;
+          nearestBeat = bf;
+        }
+      }
+      if (nearestDist < Infinity) enterStart = nearestBeat;
+    }
+
     const enterEnd = enterStart + scaledEntrance;
 
     let exitStart: number;

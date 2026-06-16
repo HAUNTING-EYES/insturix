@@ -47,8 +47,9 @@ export async function GET(
           .toArray();
         proxyAssets = proxies as Array<{ assetId: string; filename: string }>;
       }
-    } catch {
+    } catch (err: unknown) {
       // Non-fatal — project still loads, just without proxy info
+      console.warn('[ProjectLoad] proxy asset lookup failed:', err instanceof Error ? err.message : err);
     }
 
     return NextResponse.json({

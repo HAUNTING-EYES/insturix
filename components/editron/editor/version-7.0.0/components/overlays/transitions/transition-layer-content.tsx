@@ -3,6 +3,13 @@ import { useCurrentFrame, interpolate, Easing, OffthreadVideo, Video } from "rem
 import { TransitionOverlay, TransitionStyle, ClipOverlay } from "../../../types";
 import { useAllOverlays, useIsRendering } from "../../../contexts/rendering-context";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
+import {
+  isAtomicTransitionForm,
+  resolveDirectionalWipeClipPath,
+  resolveTransitionRenderParams,
+  resolveTransitionRenderStyle,
+} from "@/lib/editron/services/transition-render-form";
+import type { AtomicTransitionForm } from "@/lib/editron/services/transition-form";
 
 /**
  * TransitionLayerContent — DaVinci-style transition renderer.
@@ -54,6 +61,8 @@ export const TransitionLayerContent: React.FC<{
     : 0;
 
   const VideoComponent = isRendering ? OffthreadVideo : Video;
+  const atomicTransitionForm = resolveOverlayTransitionForm(overlay);
+  const effectiveTransitionStyle = resolveTransitionRenderStyle(transitionStyle, atomicTransitionForm);
 
   const videoPropsA = {
     src: clipASrc || '',
@@ -71,7 +80,7 @@ export const TransitionLayerContent: React.FC<{
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
-      {renderTransition(transitionStyle, progress, VideoComponent, videoPropsA, videoPropsB, clipASrc, clipBSrc)}
+      {renderTransition(effectiveTransitionStyle, progress, VideoComponent, videoPropsA, videoPropsB, clipASrc, clipBSrc, atomicTransitionForm)}
     </div>
   );
 };
@@ -95,6 +104,11 @@ function resolveVideoSrc(clip: ClipOverlay | undefined): string | null {
 
 const ABS: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%' };
 
+function resolveOverlayTransitionForm(overlay: TransitionOverlay): AtomicTransitionForm | undefined {
+  const form = (overlay as any).metadata?.atomicTransitionForm;
+  return isAtomicTransitionForm(form) ? form : undefined;
+}
+
 function renderTransition(
   style: TransitionStyle,
   progress: number,
@@ -103,7 +117,10 @@ function renderTransition(
   propsB: any,
   srcA: string | null,
   srcB: string | null,
+  atomicForm?: AtomicTransitionForm,
 ): React.ReactNode {
+  const renderParams = resolveTransitionRenderParams(style, atomicForm);
+
   switch (style) {
     case 'dissolve':
       return (
@@ -128,62 +145,51 @@ function renderTransition(
         <>
           {!showB && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style }} volume={0} />}
           {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style }} volume={0} />}
-          <div style={{ ...ABS, backgroundColor: '#fff', opacity: Math.max(0, flashOpacity), pointerEvents: 'none' }} />
+          <div style={{ ...ABS, backgroundColor: '#fff', opacity: Math.max(0, flashOpacity) * renderParams.flashOpacityCap, pointerEvents: 'none' }} />
         </>
       );
     }
 
     case 'wipe-left':
-      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(0 ${(1 - progress) * 100}% 0 0)`);
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, resolveDirectionalWipeClipPath(progress, renderParams, 'left'));
 
     case 'wipe-right':
-      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(0 0 0 ${(1 - progress) * 100}%)`);
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, resolveDirectionalWipeClipPath(progress, renderParams, 'right'));
 
     case 'wipe-up':
-      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(0 0 ${(1 - progress) * 100}% 0)`);
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, resolveDirectionalWipeClipPath(progress, renderParams, 'up'));
 
     case 'wipe-down':
-      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, `inset(${(1 - progress) * 100}% 0 0 0)`);
+      return renderWipe(progress, VideoComp, propsA, propsB, srcA, srcB, resolveDirectionalWipeClipPath(progress, renderParams, 'down'));
 
     case 'soft-cut':
       return (
         <>
-          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress, filter: `blur(${progress * 3}px)` }} volume={0} />}
-          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress, filter: `blur(${(1 - progress) * 3}px)` }} volume={0} />}
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, opacity: 1 - progress, filter: `blur(${progress * renderParams.blurPx}px)` }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: progress, filter: `blur(${(1 - progress) * renderParams.blurPx}px)` }} volume={0} />}
         </>
       );
 
     case 'whip-pan': {
-      const blurAmount = Math.sin(progress * Math.PI) * 30;
-      const offsetA = -progress * 120;
-      const offsetB = (1 - progress) * 120;
+      const blurAmount = Math.sin(progress * Math.PI) * renderParams.blurPx;
+      const offsetAX = -progress * renderParams.motionDistancePct * renderParams.directionX;
+      const offsetAY = -progress * renderParams.motionDistancePct * renderParams.directionY;
+      const offsetBX = (1 - progress) * renderParams.motionDistancePct * renderParams.directionX;
+      const offsetBY = (1 - progress) * renderParams.motionDistancePct * renderParams.directionY;
       return (
         <>
-          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateX(${offsetA}%)`, filter: `blur(${blurAmount}px)`, opacity: 1 - progress }} volume={0} />}
-          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateX(${offsetB}%)`, filter: `blur(${blurAmount}px)`, opacity: progress }} volume={0} />}
+          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translate(${offsetAX}%, ${offsetAY}%)`, filter: `blur(${blurAmount}px)`, opacity: 1 - progress }} volume={0} />}
+          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translate(${offsetBX}%, ${offsetBY}%)`, filter: `blur(${blurAmount}px)`, opacity: progress }} volume={0} />}
         </>
       );
     }
 
     case 'slide-up': {
-      const offsetUp = (1 - progress) * 100;
-      return (
-        <>
-          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateY(${-progress * 100}%)` }} volume={0} />}
-          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateY(${offsetUp}%)` }} volume={0} />}
-        </>
-      );
+      return renderDirectionalSlide(progress, VideoComp, propsA, propsB, srcA, srcB, renderParams);
     }
 
-    case 'slide-down': {
-      const offsetDown = -(1 - progress) * 100;
-      return (
-        <>
-          {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translateY(${progress * 100}%)` }} volume={0} />}
-          {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translateY(${offsetDown}%)` }} volume={0} />}
-        </>
-      );
-    }
+    case 'slide-down':
+      return renderDirectionalSlide(progress, VideoComp, propsA, propsB, srcA, srcB, renderParams);
 
     case 'glitch': {
       const glitchOffset = Math.sin(progress * Math.PI * 6) * 5;
@@ -219,12 +225,14 @@ function renderTransition(
       return null;
 
     case 'zoom-punch': {
-      const scaleA = 1 + progress * 0.3;
+      const scaleA = 1 + progress * renderParams.zoomScaleDelta;
       const showB = progress > 0.5;
+      const exposureOpacity = Math.sin(progress * Math.PI) * renderParams.exposure;
       return (
         <>
           {!showB && srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `scale(${scaleA})`, opacity: 1 - progress }} volume={0} />}
           {showB && srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, opacity: interpolate(progress, [0.5, 1], [0, 1]) }} volume={0} />}
+          {exposureOpacity > 0 && <div style={{ ...ABS, backgroundColor: '#fff', opacity: exposureOpacity, mixBlendMode: 'screen', pointerEvents: 'none' }} />}
         </>
       );
     }
@@ -240,8 +248,8 @@ function renderTransition(
     }
 
     case 'blur-transition': {
-      const blurA = progress * 20;
-      const blurB = (1 - progress) * 20;
+      const blurA = progress * renderParams.blurPx;
+      const blurB = (1 - progress) * renderParams.blurPx;
       return (
         <>
           {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, filter: `blur(${blurA}px)`, opacity: 1 - progress }} volume={0} />}
@@ -258,6 +266,28 @@ function renderTransition(
         </>
       );
   }
+}
+
+function renderDirectionalSlide(
+  progress: number,
+  VideoComp: typeof OffthreadVideo | typeof Video,
+  propsA: any,
+  propsB: any,
+  srcA: string | null,
+  srcB: string | null,
+  renderParams: ReturnType<typeof resolveTransitionRenderParams>,
+): React.ReactNode {
+  const offsetAX = -progress * 100 * renderParams.directionX;
+  const offsetAY = -progress * 100 * renderParams.directionY;
+  const offsetBX = (1 - progress) * 100 * renderParams.directionX;
+  const offsetBY = (1 - progress) * 100 * renderParams.directionY;
+
+  return (
+    <>
+      {srcA && <VideoComp {...propsA} style={{ ...ABS, ...propsA.style, transform: `translate(${offsetAX}%, ${offsetAY}%)` }} volume={0} />}
+      {srcB && <VideoComp {...propsB} style={{ ...ABS, ...propsB.style, transform: `translate(${offsetBX}%, ${offsetBY}%)` }} volume={0} />}
+    </>
+  );
 }
 
 function renderDipTransition(

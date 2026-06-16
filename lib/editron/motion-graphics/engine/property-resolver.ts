@@ -89,7 +89,7 @@ function resolveBinding(
   return expr;
 }
 
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+function getNestedValue(obj: unknown, path: string): unknown {
   const parts = path.split('.');
   let current: unknown = obj;
   for (const part of parts) {
@@ -106,7 +106,8 @@ export function resolveElements(
 ): ResolvedElement[] {
   return recipeElements.map((el) => {
     const resolvedProps: Record<string, string | number | boolean> = {};
-    for (const [key, expr] of Object.entries(el.bind)) {
+    const bindings = el.bind ?? {};
+    for (const [key, expr] of Object.entries(bindings)) {
       resolvedProps[key] = resolveBinding(expr, tokens, content);
     }
 
@@ -123,10 +124,17 @@ export function resolveElements(
       keyframeTracks: el.keyframeTracks,
       speedRamp: el.speedRamp,
       layer: el.layer,
+      anchor: el.anchor,
+      // 'group' primitive: resolve sub-primitives recursively so their token/content
+      // bindings resolve too. Children render inside the group (see GroupElement).
+      children: el.children ? resolveElements(el.children, tokens, content) : undefined,
       enterOrder,
       resolvedProps,
       entrancePattern,
       exitPattern,
+      textSplit: el.textSplit,
+      scrambleChars: el.scrambleChars,
+      morphTarget: el.morphTarget,
     };
   });
 }

@@ -166,9 +166,7 @@ export async function r2FileExists(r2Key: string): Promise<boolean> {
       Key: r2Key,
     }));
     return true;
-  } catch {
-    return false;
-  }
+  } catch (err: unknown) { console.warn('[R2] r2FileExists check failed:', err instanceof Error ? err.message : err); return false; }
 }
 
 // ─── URL Helpers ──────────────────────────────────────────────────

@@ -66,7 +66,8 @@ export async function POST(request: NextRequest) {
       try {
         const headRes = await fetch(readUrl, { method: 'HEAD' });
         exists = headRes.ok;
-      } catch {
+      } catch (err: unknown) {
+        console.warn('[Upload] HEAD check failed, assuming exists:', err instanceof Error ? err.message : err);
         exists = true; // Assume exists if HEAD fails (CDN might not support HEAD)
       }
     }
@@ -164,7 +165,9 @@ export async function POST(request: NextRequest) {
             'Authorization': `Bearer ${qstashToken}`,
             'Content-Type': 'application/json',
             'Upstash-Retries': '2',
-            'Upstash-Timeout': '300',
+            // MUST carry a unit — QStash parses as a Go duration; bare '300' → HTTP 400
+            // "missing unit in duration" (same class of bug as the tribe dispatch, fixed 2026-05-30).
+            'Upstash-Timeout': '300s',
           },
           body: JSON.stringify({
             assetId,

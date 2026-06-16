@@ -66,6 +66,10 @@ export interface BrandInputs {
   headingFont?: string;
   bodyFont?: string;
   monoFont?: string;
+  palette?: string[];
+  industry?: string;
+  visualStyle?: string;
+  typography?: string;
 }
 
 export interface MotionTokens {
@@ -207,7 +211,7 @@ type DeepPartial<T> = {
   [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
 
-function deepMerge<T extends Record<string, unknown>>(base: T, overrides: DeepPartial<T>): T {
+function deepMerge<T extends object>(base: T, overrides: DeepPartial<T>): T {
   const result = { ...base };
   for (const key of Object.keys(overrides) as Array<keyof T>) {
     const overrideValue = overrides[key];
@@ -217,7 +221,7 @@ function deepMerge<T extends Record<string, unknown>>(base: T, overrides: DeepPa
       baseValue !== null && typeof baseValue === 'object' && !Array.isArray(baseValue) &&
       overrideValue !== null && typeof overrideValue === 'object' && !Array.isArray(overrideValue)
     ) {
-      result[key] = deepMerge(baseValue as Record<string, unknown>, overrideValue as DeepPartial<Record<string, unknown>>) as T[keyof T];
+      result[key] = deepMerge(baseValue, overrideValue as DeepPartial<typeof baseValue>) as T[keyof T];
     } else {
       result[key] = overrideValue as T[keyof T];
     }

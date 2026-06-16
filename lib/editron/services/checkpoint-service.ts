@@ -7,6 +7,7 @@
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import { ensureAtomicOverlayReceipt } from '../engine/overlay-atomic-receipts';
 import { nanoid } from 'nanoid';
 
 export type CheckpointType = 'initial' | 'before-llm' | 'after-llm' | 'user-edit';
@@ -73,7 +74,13 @@ export class CheckpointService {
     }
 
     // Strip URLs before saving
-    const cleanOverlays = assetResolver.stripUrlsForLLM(input.overlays);
+    const cleanOverlays = assetResolver.stripUrlsForLLM(input.overlays).map((overlay) =>
+      ensureAtomicOverlayReceipt(overlay, {
+        source: 'checkpoint-service-create',
+        intent: `checkpoint-${overlay.type}`,
+        reason: 'overlay persisted in checkpoint state',
+      }),
+    );
 
     const checkpoint: Checkpoint = {
       checkpointId: `ckpt_${nanoid(12)}`,

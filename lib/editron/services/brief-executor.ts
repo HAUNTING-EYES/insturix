@@ -15,6 +15,7 @@
 import type { EditDecision, EditDecisionList } from '../types/edit-decision';
 import type { CreativeBrief, BriefDecision, BriefDecisionType } from './creative-brief';
 import { TYPE_TO_EDL } from '../data/decision-registry';
+import { normalizeMotionGraphicContent } from './mg-content-atoms';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -149,6 +150,7 @@ function resolveDecisionToFrame(
   let targetMs: number | null = null;
   let snappedToEnergy = false;
   let coordinateSource: 'timestamp' | 'beat' | 'word' = 'word';
+  let targetWordIdxForContext: number | null = null;
 
   // Priority 1: Direct timestamp (music/visual mode)
   if (decision.targetTimestampMs !== undefined && decision.targetTimestampMs >= 0) {
@@ -204,6 +206,7 @@ function resolveDecisionToFrame(
     }
 
     const word = transcription[targetWordIdx];
+    targetWordIdxForContext = targetWordIdx;
     targetMs = word.startMs;
 
     // For transition decisions, snap to BETWEEN words
@@ -222,6 +225,10 @@ function resolveDecisionToFrame(
     }
   }
 
+  if (targetWordIdxForContext === null && targetMs !== null) {
+    targetWordIdxForContext = nearestTranscriptWordIndex(transcription, targetMs);
+  }
+
   const frame = Math.round(targetMs / 1000 * fps);
   if (frame < 0 || frame > maxFrame) return null;
 
@@ -231,7 +238,7 @@ function resolveDecisionToFrame(
     confidence,
     source: `creative-brief:${reason}:${coordinateSource}`,
     technique: type,
-    params: { ...params },
+    params: normalizeBriefDecisionParams(type, params, transcription, targetWordIdxForContext) as EditDecision['params'],
     reason: reason,
   };
 
@@ -282,9 +289,222 @@ function isTransitionType(type: BriefDecisionType): boolean {
   return type.startsWith('transition_');
 }
 
+function normalizeBriefDecisionParams(
+  type: BriefDecisionType,
+  params: Record<string, unknown>,
+  transcription: { word: string; startMs: number; endMs: number }[] = [],
+  targetWordIdx: number | null = null,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...(params ?? {}) };
+
+  // Path E owns intent and timing hints only. Concrete legacy form labels are
+  // resolved later by atomic/utility resolvers in executeEDL.
+  delete normalized.zoomType;
+  delete normalized.graphicType;
+  delete normalized.scaleFrom;
+  delete normalized.scaleTo;
+  delete normalized.durationFrames;
+  delete normalized.durationMs;
+  delete normalized.direction;
+
+  normalized.creativeDecisionType = type;
+  if (type.startsWith('transition_')) {
+    const transitionAtoms = transitionAtomsFromBriefType(type);
+    if (transitionAtoms) {
+      normalized.transitionIntent = transitionAtoms.intent;
+      normalized.transitionRelation = transitionAtoms.relation;
+      normalized.transitionEnergy = transitionAtoms.energy;
+      normalized.transitionCompatibilityHint = transitionAtoms.compatibilityHint;
+    }
+  }
+  if (type.startsWith('graphic_')) {
+    atomizeGraphicDecision(normalized, transcription, targetWordIdx);
+  }
+
+  return normalized;
+}
+
+function transitionAtomsFromBriefType(type: BriefDecisionType): {
+  intent: string;
+  relation: string;
+  energy: 'low' | 'medium' | 'high';
+  compatibilityHint: string;
+} | undefined {
+  switch (type) {
+    case 'transition_dissolve':
+      return { intent: 'continuity-blend', relation: 'soft-topic-bridge', energy: 'low', compatibilityHint: 'dissolve' };
+    case 'transition_hard_cut':
+      return { intent: 'editorial-cut', relation: 'direct-continuity', energy: 'medium', compatibilityHint: 'hard-cut' };
+    case 'transition_whip_pan':
+      return { intent: 'motion-transfer', relation: 'directional-momentum', energy: 'high', compatibilityHint: 'whip-pan' };
+    case 'transition_fade_to_black':
+      return { intent: 'soft-release', relation: 'chapter-close', energy: 'low', compatibilityHint: 'dip-to-black' };
+    case 'transition_flash':
+      return { intent: 'impact-transfer', relation: 'beat-accent', energy: 'high', compatibilityHint: 'flash' };
+    case 'transition_soft_cut':
+      return { intent: 'continuity-blend', relation: 'invisible-polish', energy: 'low', compatibilityHint: 'soft-cut' };
+    case 'transition_wipe':
+      return { intent: 'reveal-wipe', relation: 'spatial-reveal', energy: 'medium', compatibilityHint: 'wipe-left' };
+    case 'transition_j_cut':
+      return { intent: 'editorial-cut', relation: 'audio-leads-picture', energy: 'medium', compatibilityHint: 'hard-cut' };
+    case 'transition_l_cut':
+      return { intent: 'editorial-cut', relation: 'audio-trails-picture', energy: 'medium', compatibilityHint: 'hard-cut' };
+    default:
+      return undefined;
+  }
+}
+
+function nearestTranscriptWordIndex(
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetMs: number,
+): number | null {
+  if (transcription.length === 0 || !Number.isFinite(targetMs)) return null;
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < transcription.length; index += 1) {
+    const word = transcription[index];
+    const center = (word.startMs + word.endMs) / 2;
+    const distance = Math.abs(center - targetMs);
+    if (distance < bestDistance) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
+  }
+  return bestIndex;
+}
+
+function atomizeGraphicDecision(
+  normalized: Record<string, unknown>,
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetWordIdx: number | null,
+): void {
+  applySharedGraphicContentNormalization(normalized);
+  enrichGraphicDecisionWithTranscriptAtoms(normalized, transcription, targetWordIdx);
+  deriveGraphicAtomsFromText(normalized);
+  stampGraphicContentStructure(normalized);
+}
+
+function applySharedGraphicContentNormalization(normalized: Record<string, unknown>): void {
+  const content = normalizeMotionGraphicContent(normalized).content;
+  for (const [key, value] of Object.entries(content)) {
+    if (key === 'contentStructure') continue;
+    normalized[key] = value;
+  }
+}
+
+function stampGraphicContentStructure(normalized: Record<string, unknown>): void {
+  normalized.contentStructure = normalizeMotionGraphicContent(normalized).content.contentStructure;
+}
+
+function enrichGraphicDecisionWithTranscriptAtoms(
+  normalized: Record<string, unknown>,
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetWordIdx: number | null,
+): void {
+  if (targetWordIdx === null || targetWordIdx < 0 || targetWordIdx >= transcription.length) return;
+  const phrase = transcriptPhraseAroundWord(transcription, targetWordIdx);
+  if (!phrase) return;
+
+  normalized.contextPhrase = phrase;
+  normalized.contextStartMs = Math.round(transcription[Math.max(0, targetWordIdx - 6)]?.startMs ?? transcription[targetWordIdx].startMs);
+  normalized.contextEndMs = Math.round(transcription[Math.min(transcription.length - 1, targetWordIdx + 8)]?.endMs ?? transcription[targetWordIdx].endMs);
+  normalized.targetWord = cleanTranscriptToken(transcription[targetWordIdx].word);
+  normalized.targetWordStartMs = Math.round(transcription[targetWordIdx].startMs);
+  normalized.targetWordEndMs = Math.round(transcription[targetWordIdx].endMs);
+
+  const existingText = normalized.text ?? normalized.title ?? normalized.quote ?? normalized.name ?? normalized.value;
+  if (existingText !== undefined) {
+    normalized.keyword = String(existingText);
+  }
+}
+
+function deriveGraphicAtomsFromText(normalized: Record<string, unknown>): void {
+  const text = stringParam(normalized.contextPhrase)
+    || stringParam(normalized.body)
+    || stringParam(normalized.text)
+    || stringParam(normalized.title)
+    || '';
+  if (!text) return;
+
+  if (!Array.isArray(normalized.values)) {
+    const numericMatches = [...text.matchAll(/(?:[$€£¥₹]\s*)?\d[\d,.]*(?:\.\d+)?%?/g)];
+    const values = numericMatches
+      .map((match) => parseFloat(match[0].replace(/[^0-9.-]/g, '')))
+      .filter((value) => Number.isFinite(value));
+    if (values.length >= 2) {
+      normalized.values = values;
+      normalized.labels = numericMatches.map((match) => match[0].trim());
+    }
+  }
+
+  if (!normalized.from && !normalized.to) {
+    const comparison = parseComparison(text);
+    if (comparison) {
+      normalized.from = comparison.from;
+      normalized.to = comparison.to;
+      normalized.relation = comparison.relation;
+    }
+  }
+}
+
+function parseComparison(text: string): { from: string; to: string; relation: 'vs' | 'arrow' } | null {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  const vsMatch = cleaned.match(/\b(.{2,48}?)\s+(?:vs\.?|versus)\s+(.{2,48})\b/i);
+  if (vsMatch) return { from: trimComparisonSide(vsMatch[1]), to: trimComparisonSide(vsMatch[2]), relation: 'vs' };
+
+  const fromToMatch = cleaned.match(/\bfrom\s+(.{2,48}?)\s+to\s+(.{2,48})\b/i);
+  if (fromToMatch) return { from: trimComparisonSide(fromToMatch[1]), to: trimComparisonSide(fromToMatch[2]), relation: 'arrow' };
+
+  return null;
+}
+
+function trimComparisonSide(value: string): string {
+  return value
+    .replace(/[,.!?;:]+$/g, '')
+    .replace(/^(the|a|an)\s+/i, '')
+    .trim();
+}
+
+function stringParam(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function transcriptPhraseAroundWord(
+  transcription: { word: string; startMs: number; endMs: number }[],
+  targetWordIdx: number,
+): string {
+  const maxBefore = 7;
+  const maxAfter = 9;
+  let start = targetWordIdx;
+  while (start > 0 && targetWordIdx - start < maxBefore && !endsSentence(transcription[start - 1].word)) {
+    start -= 1;
+  }
+
+  let end = targetWordIdx;
+  while (end < transcription.length - 1 && end - targetWordIdx < maxAfter && !endsSentence(transcription[end].word)) {
+    end += 1;
+  }
+
+  return transcription
+    .slice(start, end + 1)
+    .map((word) => cleanTranscriptToken(word.word))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanTranscriptToken(token: string): string {
+  return String(token ?? '').replace(/^[\s"'“”‘’([{]+|[\s"'“”‘’)\]}]+$/g, '').trim();
+}
+
+function endsSentence(token: string): boolean {
+  return /[.!?]\s*$/.test(String(token ?? ''));
+}
+
 // ─── Original-to-Cut Timeline Mapping ──────────────────────────────────────
 
-interface FrameMapResult {
+export interface FrameMapResult {
   frame: number;
   snapped: boolean;
   distance: number;
@@ -302,7 +522,7 @@ interface FrameMapResult {
  * If it falls in a removed gap, snap to the nearest clip boundary (within tolerance).
  * If no clip is within tolerance, return null (decision should be skipped).
  */
-function mapOriginalFrameToCutTimeline(
+export function mapOriginalFrameToCutTimeline(
   originalFrame: number,
   clips: { from: number; durationInFrames: number; sourceStartFrame?: number }[],
   fps: number,
@@ -351,5 +571,30 @@ function mapOriginalFrameToCutTimeline(
   }
 
   // Gap too large — decision was for deeply removed content
+  return null;
+}
+
+/**
+ * Inverse of mapOriginalFrameToCutTimeline: CUT-timeline frame → ORIGINAL-timeline frame.
+ *
+ * The cut timeline is contiguous (clips laid end-to-end, no gaps), so a cut frame falls inside
+ * exactly one clip — map it back through that clip's source range. Returns null only if the frame
+ * is beyond all clips (no original correspondence).
+ *
+ * Why this exists: V-JEPA / Wav2Vec segments and word timestamps live on the ORIGINAL timeline,
+ * while MG decision `frame`s are on the CUT timeline (clean ≈ 50% of original after silence removal).
+ * Querying segments with a raw cut-frame time lands later decisions in removed-silence gaps → no
+ * segment → per-moment signals fall back to video-level constants. That was the root cause of the
+ * 6/13 missing-signal bug on proj_OzG2qgoYudFa (2026-06-03). Map cut→original BEFORE the lookup.
+ */
+export function mapCutFrameToOriginalFrame(
+  cutFrame: number,
+  clips: { from: number; durationInFrames: number; sourceStartFrame?: number }[],
+): number | null {
+  for (const clip of clips) {
+    if (cutFrame >= clip.from && cutFrame < clip.from + clip.durationInFrames) {
+      return (clip.sourceStartFrame ?? 0) + (cutFrame - clip.from);
+    }
+  }
   return null;
 }

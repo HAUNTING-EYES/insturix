@@ -84,6 +84,10 @@ export async function initializeIndexes(): Promise<void> {
     { key: { projectId: 1 }, name: 'projectId_unique', unique: true },
     { key: { userId: 1, createdAt: -1 }, name: 'userId_createdAt' },
     { key: { userId: 1, updatedAt: -1 }, name: 'userId_updatedAt' },
+    { key: { userId: 1, name: 1 }, name: 'userId_name' },
+    { key: { orgId: 1, visibility: 1, createdAt: -1 }, name: 'org_visibility_createdAt' },
+    { key: { orgId: 1, visibility: 1, updatedAt: -1 }, name: 'org_visibility_updatedAt' },
+    { key: { orgId: 1, visibility: 1, name: 1 }, name: 'org_visibility_name' },
     { key: { status: 1, updatedAt: -1 }, name: 'status_updatedAt' },
     { key: { brandId: 1, status: 1 }, name: 'brandId_status' },
   ]);

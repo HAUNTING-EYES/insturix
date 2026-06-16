@@ -1,0 +1,254 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ImageIcon, Loader2, Send } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import useClickatronStore from "@/stores/useCanvasStore";
+import {
+  buildThinkToClickContext,
+  buildVisibleContentClickatronCreativeSpec,
+  findClickatronCreativeSpecInBlocks,
+  type ThinkToClickContext,
+} from "@/lib/thinkforge/clickatron-context";
+import {
+  buildThinkToClickHandoffState,
+  type ThinkToClickHandoffState,
+  type ThinkToClickUserVisualChoices,
+} from "@/lib/thinkforge/clickatron-handoff-state";
+import { buildClickatronSessionFormData } from "@/lib/thinkforge/clickatron-session-payload";
+import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
+import { ClickatronHandoffPanel } from "./ClickatronHandoffPanel";
+
+interface ClickatronHandoffDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  blocks: unknown[];
+  sessionId?: string;
+  scriptId?: string;
+  title?: string;
+}
+
+const DEFAULT_VISUAL_CHOICES: ThinkToClickUserVisualChoices = {
+  kind: "single_post_visual",
+  platform: "linkedin",
+  aspectRatio: "1:1",
+  visualMode: "text_forward_graphic",
+  textDensity: "medium",
+};
+
+export function ClickatronHandoffDialog({
+  open,
+  onOpenChange,
+  blocks,
+  sessionId,
+  scriptId,
+  title,
+}: ClickatronHandoffDialogProps) {
+  const createClickatronSession = useClickatronStore((state) => state.createSession);
+  const [visualChoices, setVisualChoices] = useState<ThinkToClickUserVisualChoices>(DEFAULT_VISUAL_CHOICES);
+  const [resolvedContext, setResolvedContext] = useState<ThinkToClickContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const setVisualChoice = useCallback((key: keyof ThinkToClickUserVisualChoices, value: string) => {
+    setVisualChoices((prev) => ({
+      ...prev,
+      [key]: value.trim() || undefined,
+    }));
+  }, []);
+
+  const localContext = useMemo<ThinkToClickContext | null>(() => {
+    if (!sessionId) return null;
+    try {
+      const typedBlocks = blocks as ThinkForgeBlock[];
+      const creativeSpec = findClickatronCreativeSpecInBlocks(typedBlocks)
+        || buildVisibleContentClickatronCreativeSpec({
+          sessionId,
+          scriptId,
+          blocks: typedBlocks,
+          userVisualChoices: visualChoices,
+          title,
+          aspectRatio: visualChoices.aspectRatio,
+        });
+      return buildThinkToClickContext({
+        sessionId,
+        scriptId,
+        creativeSpec,
+        blocks: typedBlocks,
+        userVisualChoices: visualChoices,
+        title,
+        aspectRatio: visualChoices.aspectRatio,
+      });
+    } catch {
+      return null;
+    }
+  }, [blocks, scriptId, sessionId, title, visualChoices]);
+
+  const resolveContext = useCallback(async (): Promise<ThinkToClickContext | null> => {
+    if (!sessionId) {
+      setResolvedContext(null);
+      setError("Cannot start Clickatron: ThinkForge session context is missing.");
+      return null;
+    }
+
+    setContextLoading(true);
+    setError("");
+    try {
+      const contextRes = await fetch("/api/services/thinkforge/clickatron-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          scriptId,
+          title,
+          kind: visualChoices.kind,
+          platform: visualChoices.platform,
+          aspectRatio: visualChoices.aspectRatio,
+          visualMode: visualChoices.visualMode,
+          textDensity: visualChoices.textDensity,
+          vibe: visualChoices.vibe,
+          imageStyle: visualChoices.imageStyle,
+          notes: visualChoices.notes,
+        }),
+      });
+      const contextData = await contextRes.json().catch(() => ({}));
+      if (!contextRes.ok || !contextData.context) {
+        throw new Error(contextData.error || `Failed to resolve ThinkForge context (${contextRes.status})`);
+      }
+      const context = contextData.context as ThinkToClickContext;
+      setResolvedContext(context);
+      return context;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to resolve ThinkForge context.";
+      setResolvedContext(null);
+      setError(message);
+      return null;
+    } finally {
+      setContextLoading(false);
+    }
+  }, [scriptId, sessionId, title, visualChoices]);
+
+  useEffect(() => {
+    if (!open) {
+      setResolvedContext(null);
+      setError("");
+      return;
+    }
+    void resolveContext();
+  }, [open, resolveContext]);
+
+  const handoffState = useMemo<ThinkToClickHandoffState | null>(() => {
+    const context = resolvedContext || localContext;
+    if (!context) return null;
+    try {
+      return buildThinkToClickHandoffState({
+        context,
+        blocks: blocks as ThinkForgeBlock[],
+        userVisualChoices: visualChoices,
+      });
+    } catch {
+      return null;
+    }
+  }, [blocks, localContext, resolvedContext, visualChoices]);
+
+  const canSend = Boolean(handoffState?.canSendToClickatron) && !contextLoading && !creating;
+
+  const handleSend = async () => {
+    setCreating(true);
+    setError("");
+    try {
+      const context = await resolveContext();
+      if (!context) {
+        return;
+      }
+
+      const latestState = buildThinkToClickHandoffState({
+        context,
+        blocks: blocks as ThinkForgeBlock[],
+        userVisualChoices: visualChoices,
+      });
+      if (!latestState.canSendToClickatron) {
+        const needsInput = latestState.requiredUserInput.length > 0
+          ? ` Needs: ${latestState.requiredUserInput.join(", ")}.`
+          : "";
+        throw new Error(`${latestState.display.statusLabel}: ${latestState.display.readinessCopy}${needsInput}`);
+      }
+
+      const result = await createClickatronSession(buildClickatronSessionFormData(latestState));
+      if (!result?.sessionId) {
+        throw new Error("Clickatron session was not returned.");
+      }
+
+      window.location.href = `/dashboard/clickatron/lab/${result.sessionId}`;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(`Clickatron handoff failed: ${message}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-h-[88vh] overflow-y-auto text-[#ECE9E1] rounded-md sm:max-w-[680px]"
+        style={{ background: "#131312", borderColor: "#282724" }}
+      >
+        <DialogHeader className="border-b px-4 py-3" style={{ borderColor: "#1C1B19" }}>
+          <div className="flex items-center gap-2">
+            <ImageIcon className="h-4 w-4 shrink-0 text-[#5CB8CC]" />
+            <DialogTitle className="text-[14px] font-semibold text-[#ECE9E1]">
+              Send to Clickatron
+            </DialogTitle>
+          </div>
+          <DialogDescription className="sr-only">
+            Create a Clickatron session from the current ThinkForge script.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 px-4 py-4">
+          <ClickatronHandoffPanel
+            handoffState={handoffState}
+            visualChoices={visualChoices}
+            setVisualChoice={setVisualChoice}
+          />
+
+          {contextLoading && (
+            <p className="text-[11px] text-[#7A776E]">Checking handoff...</p>
+          )}
+
+          {error && (
+            <p className="rounded border border-[#5A2828] bg-[#2A1111] px-3 py-2 text-[11px] leading-relaxed text-[#E06C75]">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => { void handleSend(); }}
+            disabled={!canSend}
+            className="flex w-full items-center justify-center gap-2 rounded-[4px] px-4 py-2.5 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              background: canSend ? "#D4A652" : "#2A2926",
+              color: canSend ? "#0B0B0A" : "#7A776E",
+            }}
+          >
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {creating
+              ? "Creating Session"
+              : canSend
+                ? visualChoices.kind === "carousel" ? "Send Carousel" : "Send Post"
+                : handoffState?.display.statusLabel || "Handoff unavailable"}
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -4,7 +4,10 @@
  * QStash worker for Mode 2 video processing.
  * Architecture: cuts FIRST, analyze SECOND.
  *
- * Stage 1 of two-stage QStash pipeline (Stage 2: /api/internal/workers/director).
+ * Stage 1 of three-stage QStash pipeline:
+ *   Stage 1: THIS (transcription, cuts, VU, genre params)
+ *   Stage 2: /api/internal/workers/tribe-analysis (V-JEPA, Wav2Vec, Essentia, moment weights)
+ *   Stage 3: /api/internal/workers/director (profile detection, Creative Brief, Director execution)
  *
  * Flow:
  * 1.   Transcribe + classify + build cut plan (processRawFootage)
@@ -12,10 +15,8 @@
  * 1.6  Execute silence removal (apply cuts to timeline)
  * 2.   Visual Understanding — segment-aware (Gemini Vision → SyntheticStoryboard)
  * 3.   Genre parameters + Thompson Sampling bandit
- * 3.5  V-JEPA + Wav2Vec GPU analysis (parallel, Modal)
- * 3.6  Moment weight map
- * 4.   Store all results on project doc
- * 5.   Dispatch Director worker via QStash (or run inline in dev)
+ * 4.   Store Phase 1 results on project doc
+ * 4.5  Dispatch TRIBE worker via QStash (or run Steps 3.5-3.7 + Director inline in dev)
  *
  * VU runs AFTER cuts and receives kept-segment context so Gemini
  * focuses on what the viewer will actually see.
@@ -25,7 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 
 export const runtime = 'nodejs';
-export const maxDuration = 800; // Vercel Pro max — 20min videos need: VU ~5min + transcription ~1min + silence removal + Director + 5-Track
+export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
 
 interface VideoAnalysisPayload {
   projectId: string;
@@ -327,144 +328,15 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 3.5: V-JEPA + Wav2Vec GPU analysis (TRIBE Phase 2) ──
-    // Run visual significance (V-JEPA) and vocal emotion (Wav2Vec) in parallel.
-    // Both are non-fatal — pipeline falls back to Phase 0 (Gemini-only) weights.
-    // Results stored on project doc so Director Agent can build Phase 2 weight map.
-    let vjepaAnalysis: any = null;
-    let wav2vecAnalysis: any = null;
-
-    if (rawFootageAnalysis?.segments?.length > 0) {
-      try {
-        await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { autoEditStatus: 'analyzing_deep' } },
-        );
-
-        // Build segment inputs from rawFootageAnalysis transcript segments
-        const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
-          startMs: seg.startMs,
-          endMs: seg.endMs,
-        }));
-
-        console.log(`[VideoAnalysisWorker] TRIBE Phase 2: Dispatching V-JEPA + Wav2Vec for ${segmentInputs.length} segments...`);
-
-        const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-          (async () => {
-            const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
-            return analyzeVideoWithVjepa(videoUrl, segmentInputs);
-          })(),
-          (async () => {
-            const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
-            return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
-          })(),
-          (async () => {
-            const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
-            return analyzeMusicContent(videoUrl);
-          })(),
-        ]);
-
-        // Handle V-JEPA result
-        if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
-          vjepaAnalysis = vjepaResult.value;
-          const avgSig = vjepaAnalysis.segments.reduce((s: number, r: any) => s + r.visualSignificance, 0) / vjepaAnalysis.segments.length;
-          console.log(`[VideoAnalysisWorker] V-JEPA: ${vjepaAnalysis.segments.length} segments analyzed (avg significance=${avgSig.toFixed(2)}, ${vjepaAnalysis.processingTimeMs}ms)`);
-        } else {
-          const msg = vjepaResult.status === 'rejected' ? (vjepaResult.reason?.message || String(vjepaResult.reason)) : 'returned null';
-          console.warn(`[VideoAnalysisWorker] V-JEPA skipped: ${msg}`);
-        }
-
-        // Handle Wav2Vec result
-        if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
-          wav2vecAnalysis = wav2vecResult.value;
-          const avgEmo = wav2vecAnalysis.segments.reduce((s: number, r: any) => s + r.emotionIntensity, 0) / wav2vecAnalysis.segments.length;
-          console.log(`[VideoAnalysisWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments analyzed (avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms)`);
-        } else {
-          const msg = wav2vecResult.status === 'rejected' ? (wav2vecResult.reason?.message || String(wav2vecResult.reason)) : 'returned null';
-          console.warn(`[VideoAnalysisWorker] Wav2Vec skipped: ${msg}`);
-        }
-
-        // Handle Music Analysis result
-        let musicAnalysis: any = null;
-        if (musicResult.status === 'fulfilled' && musicResult.value) {
-          musicAnalysis = musicResult.value;
-          console.log(`[VideoAnalysisWorker] Music: BPM=${musicAnalysis.bpm}, ${musicAnalysis.beats.length} beats, presence=${musicAnalysis.musicPresence.toFixed(2)}, ${musicAnalysis.processingTimeMs}ms`);
-        } else {
-          const msg = musicResult.status === 'rejected' ? (musicResult.reason?.message || String(musicResult.reason)) : 'returned null';
-          console.warn(`[VideoAnalysisWorker] Music analysis skipped: ${msg}`);
-        }
-
-        // Store music analysis on project for Director to read
-        if (musicAnalysis) {
-          try {
-            await db.collection('projects').updateOne(
-              { projectId },
-              { $set: { musicAnalysis } },
-            );
-          } catch { /* non-fatal */ }
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] TRIBE Phase 2 analysis failed (non-fatal): ${msg}`);
-      }
+    // ─── Step 4: Store Phase 1 results on project ──────────────────
+    // Phase 2 fields (vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
+    // segmentAnalysis) are written by the TRIBE worker, not here.
+    let persistedRawFootageAnalysis: any = null;
+    if (rawFootageAnalysis) {
+      const { compactRawFootageAnalysisForProject } = await import('@/lib/editron/services/raw-footage-persistence');
+      persistedRawFootageAnalysis = compactRawFootageAnalysisForProject(rawFootageAnalysis);
     }
 
-    // ─── Step 3.6: Build enriched moment weight map (TRIBE Phase 2) ──
-    // If V-JEPA/Wav2Vec data is available, build Phase 2 weights:
-    //   50% gemini + 30% vjepa + 20% wav2vec + thompson_adjustment
-    // Otherwise falls back to Phase 0 flat weights.
-    let momentWeightMap: any = null;
-    if (vjepaAnalysis || wav2vecAnalysis) {
-      try {
-        const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
-          await import('@/lib/editron/services/moment-weight-service');
-        const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
-        const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
-
-        // Start with flat weights (Phase 0)
-        let weightMap = buildMomentWeightMap(null, rawFootageAnalysis);
-
-        // Integrate V-JEPA visual significance (30% weight)
-        if (vjepaAnalysis) {
-          const vjepaWeights = toVjepaWeightFormat(vjepaAnalysis);
-          weightMap = integrateVjepaScores(weightMap, vjepaWeights);
-        }
-
-        // Integrate Wav2Vec vocal emotion (20% weight)
-        if (wav2vecAnalysis) {
-          const wav2vecWeights = toWav2VecWeightFormat(wav2vecAnalysis);
-          weightMap = integrateWav2vecScores(weightMap, wav2vecWeights);
-        }
-
-        momentWeightMap = weightMap;
-        console.log(`[VideoAnalysisWorker] Moment weights: Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] Moment weight computation failed (non-fatal): ${msg}`);
-      }
-    }
-
-    // ─── Step 3.7: Build unified SegmentAnalysis ───────────────────
-    // One source of truth merging all 5 analysis sources per segment.
-    // Stored alongside the original fields for backward compatibility.
-    let segmentAnalysis: any = null;
-    if (rawFootageAnalysis?.segments?.length > 0) {
-      try {
-        const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
-        segmentAnalysis = buildSegmentAnalysis(
-          rawFootageAnalysis, syntheticStoryboard,
-          vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
-        );
-        if (segmentAnalysis) {
-          console.log(`[VideoAnalysisWorker] SegmentAnalysis: ${segmentAnalysis.meta.segmentCount} segments, vjepa=${segmentAnalysis.meta.hasVjepa}, wav2vec=${segmentAnalysis.meta.hasWav2vec}, phase=${segmentAnalysis.meta.momentWeightPhase}`);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[VideoAnalysisWorker] SegmentAnalysis build failed (non-fatal): ${msg}`);
-      }
-    }
-
-    // ─── Step 4: Store results on project ─────────────────────────
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -473,13 +345,9 @@ async function handler(request: NextRequest) {
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
           ...(editDNA && { referenceEditDNA: editDNA }),
-          ...(rawFootageAnalysis && { rawFootageAnalysis }),
+          ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
           ...(genreParameters && { genreParameters }),
           ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
-          ...(vjepaAnalysis && { vjepaAnalysis }),
-          ...(wav2vecAnalysis && { wav2vecAnalysis }),
-          ...(momentWeightMap && { momentWeightMap }),
-          ...(segmentAnalysis && { segmentAnalysis }),
           updatedAt: new Date(),
         },
       },
@@ -514,16 +382,16 @@ async function handler(request: NextRequest) {
             }),
           });
         }
-      } catch {
+      } catch (err: unknown) {
         // Non-fatal — graph enrichment is best-effort
+        console.warn('[VideoAnalysisWorker] graph enrichment dispatch failed:', err instanceof Error ? err.message : err);
       }
     }
 
-    // ─── Step 5: Dispatch Director to separate worker ─────────────
-    // Analysis complete. Director runs in a SEPARATE Vercel function
-    // to stay under the 800s timeout. 20-min videos timed out with the
-    // single-function approach (proj_YH4AyxeGMWvY: 31 transitions placed,
-    // then killed at 800s — captions, zooms, quality review never ran).
+    // ─── Step 4.5: Dispatch TRIBE worker (or Director directly if no segments) ──
+    // TRIBE worker runs Steps 3.5-3.7 (V-JEPA, Wav2Vec, Essentia, moment weights,
+    // segment analysis) then dispatches Director. If no segments exist (transcription
+    // failed), skip TRIBE and dispatch Director directly.
     const directorPayload = {
       projectId, userId,
       profileId: initialProfileId,
@@ -532,72 +400,203 @@ async function handler(request: NextRequest) {
       motionGraphics, pacingFeel, musicPreference,
     };
 
-    if (process.env.QSTASH_TOKEN) {
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'directing_queued' } },
-      );
+    const hasSegments = rawFootageAnalysis?.segments?.length > 0;
 
+    if (process.env.QSTASH_TOKEN) {
       const qstashBaseUrl = process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL}`
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-      const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
-      const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
 
-      const dispatchRes = await fetch(qstashUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
-          'Content-Type': 'application/json',
-          'Upstash-Retries': '0',
-          'Upstash-Delay': '3s',
-        },
-        body: JSON.stringify(directorPayload),
-      });
+      if (hasSegments) {
+        // Dispatch TRIBE worker for deep analysis (Steps 3.5-3.7) → it dispatches Director
+        const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+        }));
+        const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
+        const tribePayload = {
+          projectId, userId, videoUrl,
+          segmentInputs,
+          visualSegmentInputs,
+          directorPayload,
+        };
 
-      if (!dispatchRes.ok) {
-        const errBody = await dispatchRes.text().catch(() => 'no body');
-        throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+        const tribeUrl = `${qstashBaseUrl}/api/internal/workers/tribe-analysis`;
+        const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${tribeUrl}`;
+
+        const dispatchRes = await fetch(qstashUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '1',
+            'Upstash-Delay': '2s',
+            // QStash's default response-wait (~2min) is far shorter than this worker's ~8min
+            // (V-JEPA/Wav2Vec GPU analysis runs synchronously). Without this header, QStash
+            // times out the still-running worker and fires its retry → a SECOND concurrent
+            // tribe worker → both fight over the Modal GPU → V-JEPA/Wav2Vec abort → per-moment
+            // signals come back empty → monotonous graphics. 800s matches this stage's
+            // maxDuration (tribe route) and is ≤ the QStash free-plan max (900s/15min). 2026-05-30.
+            // NOTE: value MUST carry a unit — QStash parses it as a Go duration; bare '800'
+            // returns HTTP 400 "missing unit in duration". Match the 's' suffix used by Upstash-Delay.
+            'Upstash-Timeout': '800s',
+          },
+          body: JSON.stringify(tribePayload),
+        });
+
+        if (!dispatchRes.ok) {
+          const errBody = await dispatchRes.text().catch(() => 'no body');
+          throw new Error(`TRIBE QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+        }
+
+        directorDispatched = true; // TRIBE owns Director dispatch from here
+        const dispatchData = await dispatchRes.json().catch(() => ({}));
+        const totalMs = Date.now() - startMs;
+        console.log(`[VideoAnalysisWorker] Phase 1 complete: ${projectId} in ${totalMs}ms. TRIBE dispatched (messageId=${dispatchData.messageId || 'unknown'}, speechSegments=${segmentInputs.length}, visualSegments=${visualSegmentInputs.length}).`);
+        return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
+      } else {
+        // No segments — skip TRIBE, dispatch Director directly
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'directing_queued' } },
+        );
+
+        const directorUrl = `${qstashBaseUrl}/api/internal/workers/director`;
+        const qstashUrl = `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${directorUrl}`;
+
+        const dispatchRes = await fetch(qstashUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.QSTASH_TOKEN}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '0',
+            'Upstash-Delay': '3s',
+          },
+          body: JSON.stringify(directorPayload),
+        });
+
+        if (!dispatchRes.ok) {
+          const errBody = await dispatchRes.text().catch(() => 'no body');
+          throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+        }
+
+        directorDispatched = true;
+        const dispatchData = await dispatchRes.json().catch(() => ({}));
+        const totalMs = Date.now() - startMs;
+        console.log(`[VideoAnalysisWorker] Phase 1 complete (no segments, skipped TRIBE): ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
+        return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'director' });
       }
-
-      directorDispatched = true;
-      const dispatchData = await dispatchRes.json().catch(() => ({}));
-      const totalMs = Date.now() - startMs;
-      console.log(`[VideoAnalysisWorker] Analysis complete: ${projectId} in ${totalMs}ms. Director dispatched (messageId=${dispatchData.messageId || 'unknown'}).`);
-      return NextResponse.json({ success: true, totalMs, stage: 'analysis' });
     }
 
-    // ─── Dev fallback: no QStash → run Director inline ────────────
-    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN — running Director inline`);
+    // ─── Dev fallback: no QStash → run TRIBE steps + Director inline ──
+    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN — running TRIBE + Director inline`);
+
+    // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
+    let vjepaAnalysis: any = null;
+    let wav2vecAnalysis: any = null;
+
+    if (hasSegments) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'analyzing_deep' } },
+        );
+
+        const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+        }));
+        const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
+
+        console.log(`[VideoAnalysisWorker] TRIBE Phase 2 (inline): V-JEPA for ${visualSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
+
+        const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
+          (async () => {
+            return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
+          })(),
+          (async () => {
+            const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
+            return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
+          })(),
+          (async () => {
+            const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
+            return analyzeMusicContent(videoUrl);
+          })(),
+        ]);
+
+        if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
+          vjepaAnalysis = vjepaResult.value;
+          console.log(`[VideoAnalysisWorker] V-JEPA (inline): ${vjepaAnalysis.segments.length} segments`);
+        }
+        if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
+          wav2vecAnalysis = wav2vecResult.value;
+          console.log(`[VideoAnalysisWorker] Wav2Vec (inline): ${wav2vecAnalysis.segments.length} segments`);
+        }
+        if (musicResult.status === 'fulfilled' && musicResult.value) {
+          try {
+            await db.collection('projects').updateOne(
+              { projectId },
+              { $set: { musicAnalysis: musicResult.value } },
+            );
+          } catch (err: unknown) { console.warn('[VideoAnalysisWorker] music analysis store failed:', err instanceof Error ? err.message : err); }
+        }
+
+        // Build moment weight map
+        let momentWeightMap: any = null;
+        if (vjepaAnalysis || wav2vecAnalysis) {
+          try {
+            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } =
+              await import('@/lib/editron/services/moment-weight-service');
+            const { toVjepaWeightFormat } = await import('@/lib/editron/services/vjepa-service');
+            const { toWav2VecWeightFormat } = await import('@/lib/editron/services/wav2vec-service');
+            let weightMap = buildMomentWeightMap(null, rawFootageAnalysis);
+            if (vjepaAnalysis) weightMap = integrateVjepaScores(weightMap, toVjepaWeightFormat(vjepaAnalysis));
+            if (wav2vecAnalysis) weightMap = integrateWav2vecScores(weightMap, toWav2VecWeightFormat(wav2vecAnalysis));
+            momentWeightMap = weightMap;
+          } catch (err: unknown) { console.warn('[VideoAnalysisWorker] moment weight map build failed:', err instanceof Error ? err.message : err); }
+        }
+
+        // Build segment analysis
+        let segmentAnalysis: any = null;
+        try {
+          const { buildSegmentAnalysis } = await import('@/lib/editron/services/segment-analysis-builder');
+          segmentAnalysis = buildSegmentAnalysis(
+            rawFootageAnalysis, syntheticStoryboard,
+            vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
+          );
+        } catch (err: unknown) { console.warn('[VideoAnalysisWorker] segment analysis build failed:', err instanceof Error ? err.message : err); }
+
+        // Store Phase 2 data
+        await db.collection('projects').updateOne(
+          { projectId },
+          {
+            $set: {
+              ...(vjepaAnalysis && { vjepaAnalysis }),
+              ...(wav2vecAnalysis && { wav2vecAnalysis }),
+              ...(momentWeightMap && { momentWeightMap }),
+              ...(segmentAnalysis && { segmentAnalysis }),
+            },
+          },
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[VideoAnalysisWorker] TRIBE inline failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // Run Director inline
     await db.collection('projects').updateOne(
       { projectId },
       { $set: { autoEditStatus: 'directing' } },
     );
 
-    let profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
-      profileId = rawFootageAnalysis.contentTypeDetection.profileId;
-      console.log(`[VideoAnalysisWorker] Profile: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType})`);
-    } else {
-      try {
-        const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-        const { profile } = getAutoSelectedProfile({
-          title: syntheticStoryboard?.title || title,
-          contentType: syntheticStoryboard?.contentType || 'video',
-          platform: syntheticStoryboard?.platform || 'youtube',
-          scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
-            narration: s.descriptor?.narration,
-            visualDescription: s.descriptor?.visualDescription,
-            mood: s.descriptor?.mood,
-            editDirections: s.descriptor?.editDirections,
-          })) || [],
-          globalEditDirections: syntheticStoryboard?.globalEditDirections,
-          overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
-        });
-        if (profile?.profileId) profileId = profile.profileId;
-      } catch {
-        console.warn(`[VideoAnalysisWorker] Profile detection failed, using ${profileId}`);
-      }
+    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
+    // Content type still available in rawFootageAnalysis.contentTypeDetection for creative brief context.
+    const profileId = initialProfileId;
+    if (rawFootageAnalysis?.contentTypeDetection) {
+      console.log(`[VideoAnalysisWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
     }
 
     let brief: any = undefined;
@@ -657,7 +656,7 @@ async function handler(request: NextRequest) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
         await recordProjectOutcome(userId, projectId, qualityScore, false, false);
       }
-    } catch { /* non-fatal */ }
+    } catch (err: unknown) { console.warn('[VideoAnalysisWorker] bandit outcome recording failed:', err instanceof Error ? err.message : err); }
 
     return NextResponse.json({ success: true, totalMs });
 
@@ -665,8 +664,8 @@ async function handler(request: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[VideoAnalysisWorker] Failed: ${msg}`);
 
-    // Mark project as failed — but only if Director hasn't already been dispatched
-    // (if dispatched, the Director worker owns the final status)
+    // Mark project as failed — but only if TRIBE/Director hasn't already been dispatched
+    // (if dispatched, the downstream worker owns the final status)
     if (trackedProjectId && !directorDispatched) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
@@ -675,7 +674,7 @@ async function handler(request: NextRequest) {
           { projectId: trackedProjectId },
           { $set: { autoEditStatus: 'failed', autoEditError: msg } },
         );
-      } catch { /* best-effort status update */ }
+      } catch (err: unknown) { console.warn('[VideoAnalysisWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

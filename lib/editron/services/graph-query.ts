@@ -378,8 +378,8 @@ export function evaluateMapping(
   if (!evaluator) return false;
   try {
     return evaluator(signals, genreParams);
-  } catch {
-    // Trigger evaluation failed — skip mapping, don't crash pipeline
+  } catch (err: unknown) {
+    console.warn('[GraphQuery] trigger evaluation failed, skipping mapping:', err instanceof Error ? err.message : err);
     return false;
   }
 }

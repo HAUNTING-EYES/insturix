@@ -142,8 +142,9 @@ export async function POST(request: NextRequest) {
             );
           }
         }
-      } catch {
+      } catch (err: unknown) {
         // Skip overlays that fail (e.g. no transcription available)
+        console.warn('[Analyze] overlay analysis failed:', err instanceof Error ? err.message : err);
         continue;
       }
     }

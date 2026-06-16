@@ -130,9 +130,7 @@ function isExternalUrl(url: string): boolean {
       /tiktok\.com/i.test(parsed.hostname) ||
       /vimeo\.com/i.test(parsed.hostname)
     );
-  } catch {
-    return false;
-  }
+  } catch (err: unknown) { console.warn('[StyleTransfer] URL parse failed:', err instanceof Error ? err.message : err); return false; }
 }
 
 /* ====================================================================== */

@@ -145,6 +145,7 @@ export function executeSignalDrivenEdit(
 ): EditDecisionList {
   const startTime = Date.now();
   const decisions: EditDecision[] = [];
+  const seenEntityNames = new Set<string>();
   let mappingsEvaluated = 0;
   let mappingsFired = 0;
   let decisionsSuppressed = 0;
@@ -339,10 +340,57 @@ export function executeSignalDrivenEdit(
       const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget, signals);
       if (!decision) continue;
 
-      // Add context from event (e.g., the actual number for stat graphic text)
+      // Build structured content payload for composition engine duck-typing.
+      // The content-shape-analyzer infers shape kind from these keys:
+      //   {value} → numeric, {name} → identity, {text} → emphasis
       if (context && decision.type === 'graphic') {
-        decision.params['text'] = context;
-        decision.params['text_source'] = 'transcript';
+        decision.params.text = context;
+        decision.params.text_source = 'transcript';
+
+        const eventSignal = event.signal;
+        if (eventSignal === 'entity.number') {
+          const allNums = [...context.matchAll(/[\d,.]+/g)];
+          if (allNums.length >= 2) {
+            const parsed = allNums.map(m => parseFloat(m[0].replace(/,/g, ''))).filter(n => isFinite(n));
+            const maxN = Math.max(...parsed);
+            const minN = Math.min(...parsed);
+            // ⚠️ ratio threshold 1.5 INVENTED — "visually meaningful difference"
+            const ratioSignificant = minN > 0 && maxN / minN >= 1.5;
+            const formality = typeof signals.formality === 'number' ? signals.formality : 0.5;
+            const chartWorthy = parsed.length >= 2
+              && ratioSignificant
+              && momentWeight > 0.6
+              && formality > 0.3;
+            if (chartWorthy) {
+              decision.params.values = parsed;
+              decision.params.labels = allNums.map(m => m[0]);
+            } else if (parsed.length >= 1) {
+              // Not chart-worthy: fall back to single stat counter with the larger value
+              const best = allNums.reduce((a, b) =>
+                parseFloat(a[0].replace(/,/g, '')) > parseFloat(b[0].replace(/,/g, '')) ? a : b);
+              allNums.length = 0;
+              allNums.push(best);
+            }
+          }
+          if (allNums.length === 1) {
+            const numMatch = allNums[0];
+            decision.params.value = numMatch[0];
+            const before = context.slice(0, numMatch.index).trim();
+            const after = context.slice((numMatch.index ?? 0) + numMatch[0].length).trim();
+            if (before && /^[$€£¥₹]$/.test(before)) decision.params.prefix = before;
+            else if (before) decision.params.label = before;
+            if (after && /^[%xX×]$/.test(after)) decision.params.suffix = after;
+            else if (after) decision.params.label = after;
+          }
+        } else if (eventSignal === 'entity.name') {
+          const normalized = context.toLowerCase();
+          if (seenEntityNames.has(normalized)) {
+            decisionsSuppressed++;
+            continue;
+          }
+          seenEntityNames.add(normalized);
+          decision.params.name = context;
+        }
       }
 
       if (!checkBudget(decision, budget, momentWeight)) {
@@ -754,18 +802,28 @@ function getNearestGridSnapshot(timeline: SignalTimeline, frame: number): Signal
 
 const GRAPH_TO_EDL_TRANSITION: Record<string, string> = {
   hard_cut: 'hard-cut',
+  soft_cut: 'soft-cut',
   dissolve: 'dissolve',
   fade_to_black: 'dip-to-black',
   fade_from_black: 'dip-to-black',
   dip_to_white: 'dip-to-white',
   wipe: 'wipe-left',
+  wipe_right: 'wipe-right',
   whip_pan: 'whip-pan',
+  zoom_punch: 'zoom-punch',
+  glitch: 'glitch',
   flash: 'flash',
   film_burn: 'film-burn',
   iris_wipe: 'iris-wipe',
   blur_transition: 'blur-transition',
   slide_transition: 'slide-up',
+  slide_up: 'slide-up',
+  slide_down: 'slide-down',
   j_cut: 'hard-cut',
+  smash_cut: 'smash-cut',
+  match_cut: 'match-cut',
+  jump_cut: 'jump-cut',
+  cut_on_action: 'cut-on-action',
 };
 
 function mapGraphTransitionToEdl(techniqueId: string): string {
@@ -857,7 +915,6 @@ function getDefaultParams(edlType: string, weight: number): Record<string, numbe
       return { transitionType: 'hard-cut', duration_frames: 0 };
     case 'graphic':
       return {
-        graphic_type: 'stat-counter',
         duration_s: 3,
         position: 'lower-third',
         text: '',

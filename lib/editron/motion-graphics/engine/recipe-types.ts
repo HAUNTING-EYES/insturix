@@ -1,4 +1,9 @@
 import type { MotionTokens } from '../types';
+import type {
+  MgStageMode,
+  VisualContractConstraintKind,
+  VisualObligationKind,
+} from './visual-explanation-contract';
 
 // --- Primitives ---
 
@@ -13,17 +18,18 @@ export type PrimitiveType =
   | 'data-viz'
   | 'particle'
   | 'gradient'
-  | 'pattern';
+  | 'pattern'
+  | 'group'; // sub-composition: child primitives positioned relative to the group, animated as one unit
 
 export type ShapeKind = 'rect' | 'circle' | 'line' | 'path' | 'pill';
 
-export type EntrancePattern = 'fade' | 'slide-up' | 'slide-left' | 'slide-down' | 'slide-right' | 'scale-up' | 'pop' | 'blur-in' | 'draw';
-export type ExitPattern = 'fade' | 'slide-down' | 'slide-left' | 'slide-right' | 'slide-up' | 'scale-down' | 'blur-out' | 'draw-reverse';
+export type EntrancePattern = 'fade' | 'slide-up' | 'slide-left' | 'slide-down' | 'slide-right' | 'scale-up' | 'pop' | 'blur-in' | 'draw' | 'rotate-in' | 'skew-in' | 'zoom-blur' | 'scramble';
+export type ExitPattern = 'fade' | 'slide-down' | 'slide-left' | 'slide-right' | 'slide-up' | 'scale-down' | 'blur-out' | 'draw-reverse' | 'rotate-out' | 'skew-out' | 'zoom-blur-out' | 'scramble-out';
 export type ExitStyle = 'reverse-stagger' | 'simultaneous-fade' | 'simultaneous-scale' | 'hold-then-fade';
 
 export type ElementAnimation = 'count-up' | 'word-by-word' | 'word-highlight' | 'grow-up' | 'grow-right' | 'typewriter' | 'none';
 
-export type HoldPattern = 'static' | 'pulse' | 'breathe' | 'gentle-float';
+export type HoldPattern = 'static' | 'pulse' | 'breathe' | 'gentle-float' | 'glow' | 'morph';
 
 export type SyncTarget = 'audio-beats' | 'word-timings' | 'even-stagger';
 
@@ -64,6 +70,22 @@ export type BindingExpr = string | number | boolean;
 
 export type DepthLayer = 'background' | 'midground' | 'foreground';
 
+export type TextSplitMode = 'none' | 'chars' | 'words';
+
+// Structural-move anchoring. Lets a primitive attach RELATIVE to the content block
+// instead of flowing in the flex column. Resolved deterministically via CSS (no DOM
+// measurement — Remotion renders frame-by-frame and must stay deterministic).
+//   flow       → normal flex child; array order positions it (kicker, divider, underline)
+//   block-fill → position:absolute, inset around content block (backdrop, corner frame)
+//   block-edge → pinned to one side of the block (side-bar = left, accent-line = bottom)
+export interface ElementAnchor {
+  mode: 'flow' | 'flow-span' | 'block-fill' | 'block-edge';
+  side?: 'top' | 'bottom' | 'left' | 'right';
+  thickness?: number; // px — bar width (left/right) or height (top/bottom) for block-edge;
+                      // also the line height for flow-span rules (divider/underline)
+  inset?: number;     // px — padding around content for block-fill (negative bleeds past)
+}
+
 export interface RecipeElement {
   primitive: PrimitiveType;
   role: string;
@@ -73,11 +95,16 @@ export interface RecipeElement {
   count?: number;
   repeat?: string;
   bind: Record<string, BindingExpr>;
+  anchor?: ElementAnchor;
+  children?: RecipeElement[]; // for 'group' primitive — sub-primitives positioned relative to the group
   entranceOverride?: EntrancePattern;
   exitOverride?: ExitPattern;
   holdAnimation?: HoldPattern;
   keyframeTracks?: MGKeyframeTrack[];
   speedRamp?: MGSpeedRamp;
+  textSplit?: TextSplitMode;
+  scrambleChars?: string;
+  morphTarget?: string;
 }
 
 export interface RecipeLayout {
@@ -92,11 +119,37 @@ export interface RecipeChoreography {
   syncTo?: SyncTarget;
 }
 
+export interface RecipeVisualIntent {
+  source: 'visual-explanation-contract-v1';
+  stageMode: MgStageMode;
+  obligationKinds: VisualObligationKind[];
+  constraintKinds: VisualContractConstraintKind[];
+  evidenceAtomKeys: string[];
+  missingEvidence: string[];
+  renderDirectives: {
+    preferFullFrame: boolean;
+    preferSplitLayout: boolean;
+    preferDeviceFrame: boolean;
+    transitionLed: boolean;
+    captionZoneAware: boolean;
+    suppressDecorativeAccents: boolean;
+    preferDataViz: boolean;
+  };
+  choreography: {
+    coordinateWithCaptions: boolean;
+    coordinateWithZoom: boolean;
+    coordinateWithTransition: boolean;
+    coordinateWithSfx: boolean;
+    rhythmEvidenceKeys: string[];
+  };
+}
+
 export interface Recipe {
   id: string;
   elements: RecipeElement[];
   layout: RecipeLayout;
   choreography?: RecipeChoreography;
+  visualIntent?: RecipeVisualIntent;
   exitStyle: ExitStyle;
 }
 
@@ -109,12 +162,17 @@ export interface ResolvedElement {
   animation?: ElementAnimation;
   holdAnimation?: HoldPattern;
   layer?: DepthLayer;
+  anchor?: ElementAnchor;
+  children?: ResolvedElement[]; // resolved sub-primitives for a 'group'
   enterOrder: number;
   resolvedProps: Record<string, string | number | boolean>;
   entrancePattern: EntrancePattern;
   exitPattern: ExitPattern;
   keyframeTracks?: MGKeyframeTrack[];
   speedRamp?: MGSpeedRamp;
+  textSplit?: TextSplitMode;
+  scrambleChars?: string;
+  morphTarget?: string;
 }
 
 export interface ComputedChoreography {
@@ -165,20 +223,88 @@ export type ContentShapeKind =
   | 'data-series'
   | 'brand'
   | 'structured'
+  | 'process'
+  | 'comparison'
   | 'free-text';
+
+export type DataSeriesVisualForm = 'bar-chart' | 'percentage-ring' | 'sparkline';
 
 export type ContentShape =
   | { kind: 'numeric'; value: string; label?: string; prefix?: string; suffix?: string }
   | { kind: 'identity'; name: string; title?: string; avatar?: string }
   | { kind: 'quotation'; quote: string; author?: string }
   | { kind: 'emphasis'; text: string; weight: 'light' | 'medium' | 'heavy' }
-  | { kind: 'data-series'; values: number[]; labels?: string[] }
+  | { kind: 'data-series'; values: number[]; labels?: string[]; visualForm: DataSeriesVisualForm }
   | { kind: 'brand'; text: string; logo?: string }
   | { kind: 'structured'; title: string; body?: string; items?: string[] }
+  | { kind: 'process'; title?: string; body?: string; steps: string[]; ordered: boolean }
+  | { kind: 'comparison'; from: string; to: string; fromLabel?: string; toLabel?: string; relation?: 'arrow' | 'vs' }
   | { kind: 'free-text'; text: string };
+
+export type ContentPrimitiveChannel =
+  | 'scalar'
+  | 'text'
+  | 'series'
+  | 'identity'
+  | 'media'
+  | 'relation'
+  | 'brand'
+  | 'control';
+
+export type ContentPartRole =
+  | 'primary-value'
+  | 'supporting-label'
+  | 'name'
+  | 'title'
+  | 'quote'
+  | 'author'
+  | 'series-values'
+  | 'series-labels'
+  | 'brand-text'
+  | 'logo'
+  | 'avatar'
+  | 'body'
+  | 'list-items'
+  | 'compare-from'
+  | 'compare-to'
+  | 'keyword'
+  | 'context-phrase'
+  | 'emphasis-text'
+  | 'quantity-kind'
+  | 'quantity-unit'
+  | 'quantity-bounds'
+  | 'truth-polarity'
+  | 'truth-negation'
+  | 'salience-score'
+  | 'warranted-state'
+  | 'caption-redundancy'
+  | 'fallback-text';
+
+export interface ContentStructurePart {
+  role: ContentPartRole;
+  channel: ContentPrimitiveChannel;
+  sourceKey: string;
+  value?: string | number | boolean | string[] | number[];
+  confidence: number;
+}
+
+export interface ContentStructureRelation {
+  type: 'label-of' | 'title-of' | 'authored-by' | 'compares' | 'brand-mark' | 'portrait-of' | 'contains-list' | 'context-for' | 'part-of-whole' | 'qualified-by' | 'refutes';
+  fromRole: ContentPartRole;
+  toRole: ContentPartRole;
+}
+
+export interface ContentStructureSignature {
+  parts: ContentStructurePart[];
+  relations: ContentStructureRelation[];
+  channels: Partial<Record<ContentPrimitiveChannel, number>>;
+  evidence: Record<string, number | string | boolean>;
+  primaryChannel: ContentPrimitiveChannel;
+}
 
 export interface CompositionStrategy {
   shapes: ContentShape[];
+  structure: ContentStructureSignature;
   suggestedLayout: RecipeLayout;
   suggestedExitStyle: ExitStyle;
   complexityBudget: number;

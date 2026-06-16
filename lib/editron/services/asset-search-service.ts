@@ -66,8 +66,8 @@ export async function searchUserAssets(
           if (enriched.length > 0) return enriched;
         }
       }
-    } catch {
-      // Neo4j failed — fall through to MongoDB
+    } catch (err: unknown) {
+      console.warn('[AssetSearch] Neo4j search failed, falling through to MongoDB:', err instanceof Error ? err.message : err);
     }
   }
 
@@ -204,7 +204,8 @@ async function embedQuery(text: string): Promise<number[] | null> {
     const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
     const result = await model.embedContent(text);
     return result.embedding?.values ?? null;
-  } catch {
+  } catch (err: unknown) {
+    console.warn('[AssetSearch] embedding failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }

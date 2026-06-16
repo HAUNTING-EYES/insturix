@@ -405,7 +405,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
                 const parsed = JSON.parse(visionText.replace(/```json\n?|\n?```/g, '').trim());
                 visionScore = Math.max(0, Math.min(10, parsed.score || 5));
                 visionIssues = parsed.issues || [];
-              } catch { visionScore = null; }
+              } catch (err: unknown) { console.warn('[VideoWorker] vision JSON parse failed:', err instanceof Error ? err.message : err); visionScore = null; }
             }
           } catch (visionErr: any) {
             console.warn(`[VideoWorker] Vision quality check failed (non-fatal): ${visionErr.message}`);
@@ -456,7 +456,7 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
                 },
               );
             }
-          } catch { /* non-fatal */ }
+          } catch (err: unknown) { console.warn('[VideoWorker] quality warning push failed:', err instanceof Error ? err.message : err); }
         } else {
           console.log(`[VideoWorker] Quality OK (${qualityScore}/100) for scene ${sceneIndex} (5-Track derived)`);
         }
@@ -555,45 +555,11 @@ async function updateBatchStatus(batchId: string): Promise<void> {
       let profileId = project?.pendingDirectorProfileId;
       const userId = project?.pendingDirectorUserId || project?.userId;
 
-      // H6 FIX: If pendingDirectorProfileId is missing, try auto-detection instead of skipping entirely
+      // D-016: Profile detection removed — signal system drives editing decisions.
+      // Finalize always stores 'G-01'. This fallback covers DB write failures.
       if (!profileId) {
-        try {
-          const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-          // Gather metadata from storyboard for profile detection
-          const sbDoc = batch.storyboardId
-            ? await db.collection('storyboards').findOne({ storyboardId: batch.storyboardId }) as any
-            : null;
-          if (sbDoc) {
-            // Bundle 3: include title + onScreenText + rawProductionNotes so profile
-            // detection has enough signal to score emotional/brand-narrative content properly.
-            const thinkforgeMetadata = {
-              title: sbDoc.title || '',
-              scenes: (sbDoc.scenes || []).map((s: any) => ({
-                narration: s.descriptor?.narration || '',
-                visualDescription: s.descriptor?.visualDescription || '',
-                mood: s.descriptor?.mood || '',
-                audioDescription: s.descriptor?.audioDescription || '',
-                rawProductionNotes: s.descriptor?.rawProductionNotes || '',
-                editDirections: {
-                  onScreenText: s.descriptor?.editDirections?.onScreenText || [],
-                  motionGraphicCue: s.descriptor?.editDirections?.motionGraphicCue || '',
-                },
-              })),
-              overallMusicPrompt: sbDoc.overallMusicPrompt || '',
-              environmentNotes: sbDoc.environmentNotes || '',
-              globalEditDirections: sbDoc.globalEditDirections || undefined,
-            };
-            const detected = getAutoSelectedProfile(thinkforgeMetadata);
-            profileId = detected.profile.profileId;
-            console.log(`[VideoWorker] Auto-detected Director profile: ${profileId} confidence=${detected.detection.confidence.toFixed(2)} (was missing from project)`);
-          } else {
-            console.log(`[VideoWorker] Batch ${batchId} complete but no pending Director profile and no storyboard for auto-detection — skipping`);
-            return;
-          }
-        } catch (detectErr: any) {
-          console.log(`[VideoWorker] Batch ${batchId} complete but Director profile detection failed: ${detectErr.message} — skipping`);
-          return;
-        }
+        profileId = 'G-01';
+        console.log(`[VideoWorker] No pendingDirectorProfileId — using G-01 (signal-driven, D-016)`);
       }
 
       // Clear pending flag so Director doesn't run twice

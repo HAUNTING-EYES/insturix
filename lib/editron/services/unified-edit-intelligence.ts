@@ -413,19 +413,28 @@ export async function assembleUnifiedContext(
 // translator module converts creative intents to EDL decisions.
 
 // ─── NEW: Creative Intent Schema ─────────────────────────────────
-// The LLM picks from constrained enums (code can handle every value).
-// No frame numbers — just WHAT and WHY. The intent-translator resolves frames.
+// The LLM decides whether a visual explanation is warranted.
+// It must not choose MG form labels; the executor derives form from content atoms,
+// visual obligations, signals, brand, and screen context.
+// No frame numbers -- just WHAT and WHY. The intent-translator resolves frames.
 
 const GraphicIntentSchema = z.object({
-  type: z.enum(['none', 'text-overlay', 'stat-counter', 'lower-third', 'callout', 'keyword-highlight', 'quote-card', 'logo']).describe('Type of graphic overlay (soft hint for composition engine)'),
-  kind: z.enum(['numeric', 'identity', 'quotation', 'emphasis', 'data-series', 'brand', 'structured', 'free-text']).optional().describe('Content shape hint: what kind of content this graphic displays. If provided, composition engine uses it directly. If omitted, engine detects from content fields.'),
-  text: z.string().optional().describe('Text content for the graphic (use VERBATIM from onScreenText if available)'),
-  value: z.string().optional().describe('Numeric value for stat graphics (e.g. "42%", "$4.2B", "300%")'),
-  label: z.string().optional().describe('Label below a numeric value (e.g. "revenue growth", "customer satisfaction")'),
-  name: z.string().optional().describe('Person or entity name for lower-third / identity graphics'),
-  title: z.string().optional().describe('Title or role for lower-third, or heading for callout/structured graphics'),
-  quote: z.string().optional().describe('Quote text for quote-card graphics'),
-  author: z.string().optional().describe('Attribution for quote-card graphics'),
+  type: z.enum(['none', 'visual-explanation']).describe('Use visual-explanation only when the moment needs MG beyond captions; never choose a graphic type/template.'),
+  kind: z.enum(['numeric', 'identity', 'quotation', 'emphasis', 'data-series', 'brand', 'structured', 'process', 'comparison', 'free-text']).optional().describe('Evidence-backed content shape hint only. The executor may ignore it and re-derive shape from fields.'),
+  text: z.string().optional().describe('Short exact text content, if the visual job is word/concept emphasis. Use VERBATIM from onScreenText when available.'),
+  value: z.string().optional().describe('Numeric/scalar value when the moment contains a measurable fact, e.g. "42%", "$4.2B", "300%".'),
+  label: z.string().optional().describe('Evidence-backed label for a value, e.g. "revenue growth" or "customer satisfaction".'),
+  name: z.string().optional().describe('Person or entity name when the moment introduces an identity.'),
+  title: z.string().optional().describe('Role/title for an identity, or heading for a structured concept.'),
+  body: z.string().optional().describe('Supporting copy for a structured concept or claim.'),
+  quote: z.string().optional().describe('Exact quoted proof when the visual job is quotation/evidence.'),
+  author: z.string().optional().describe('Evidence-backed attribution for a quote.'),
+  from: z.string().optional().describe('First peer/state for a comparison or transformation.'),
+  to: z.string().optional().describe('Second peer/state for a comparison or transformation.'),
+  fromLabel: z.string().optional().describe('Optional label for the first comparison peer/state.'),
+  toLabel: z.string().optional().describe('Optional label for the second comparison peer/state.'),
+  relation: z.enum(['arrow', 'vs']).optional().describe('Evidence-backed relation between comparison peers.'),
+  items: z.array(z.string()).optional().describe('Ordered steps/items when the moment has a process or list.'),
   triggerMoment: z.string().describe('When this appears, in natural language: "when narrator says X", "at scene start", "at emotional peak"'),
 });
 
@@ -485,7 +494,6 @@ const LegacyEditDecisionSchema = z.object({
   durationFrames: z.number().optional(),
   reason: z.string(),
   transitionType: z.string().optional(),
-  graphicType: z.string().optional(),
   graphicText: z.string().optional(),
   zoomScale: z.number().optional(),
   zoomType: z.enum(['punch-in', 'slow-push', 'pull-back']).optional(),
@@ -544,7 +552,6 @@ export async function generateUnifiedEditPlan(
     reason: d.reason,
     params: {
       ...(d.transitionType && { transitionType: d.transitionType }),
-      ...(d.graphicType && { graphicType: d.graphicType }),
       ...(d.graphicText && { text: d.graphicText }),
       ...(d.zoomScale && { scaleFrom: 1.0, scaleTo: d.zoomScale }),
       ...(d.zoomType && { zoomType: d.zoomType }),
@@ -604,7 +611,21 @@ export interface SceneIntent {
   };
   graphicIntents: Array<{
     type: GraphicIntentType;
+    kind?: z.infer<typeof GraphicIntentSchema>['kind'];
     text?: string;
+    value?: string;
+    label?: string;
+    name?: string;
+    title?: string;
+    body?: string;
+    quote?: string;
+    author?: string;
+    from?: string;
+    to?: string;
+    fromLabel?: string;
+    toLabel?: string;
+    relation?: 'arrow' | 'vs';
+    items?: string[];
     triggerMoment: string;
   }>;
   shakeIntent: ShakeIntent;
@@ -677,7 +698,21 @@ export async function generateCreativeIntentPlan(
     },
     graphicIntents: (si.graphicIntents || []).map(g => ({
       type: g.type ?? 'none',
+      kind: g.kind,
       text: g.text,
+      value: g.value,
+      label: g.label,
+      name: g.name,
+      title: g.title,
+      body: g.body,
+      quote: g.quote,
+      author: g.author,
+      from: g.from,
+      to: g.to,
+      fromLabel: g.fromLabel,
+      toLabel: g.toLabel,
+      relation: g.relation,
+      items: g.items,
       triggerMoment: g.triggerMoment ?? 'scene-start',
     })),
     shakeIntent: si.shakeIntent ?? 'none',
@@ -777,18 +812,18 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
     const densityGuidance = options.graphicDensity === 'minimal'
       ? `GRAPHIC RULES (minimal density):
 - At most 1 graphic per 5 scenes. Most scenes: graphicIntents should contain only {type: "none"}.
-- ONLY place a graphic if the scene contains: (a) first appearance of a named person → lower-third, (b) brand/logo at opening or closing scene → logo-reveal.
+- ONLY place a graphic if the scene contains evidence for: (a) first appearance of a named person/entity, (b) brand/logo or CTA at opening/closing.
 - Default for all other scenes: no graphics.
 - onScreenText entries: skip unless they match condition (a) or (b) above.`
       : options.graphicDensity === 'heavy'
       ? `GRAPHIC RULES (heavy density):
 - Up to 2 graphics per scene.
 - Place graphics for: all named people, statistics, key terms, CTAs, brand mentions.
-- Use the most specific graphic type for each entry.
+- Fill the exact evidence fields for each visual explanation; do not choose graphic types.
 - onScreenText entries: include all that are relevant.`
       : `GRAPHIC RULES (moderate density):
 - At most 1 graphic per 2 scenes. Many scenes should have no graphics.
-- ONLY place a graphic if the scene contains: (a) first appearance of a named person → lower-third, (b) a specific number (percentage, dollar amount, count) → stat-counter, (c) brand/logo at opening or closing → logo-reveal, (d) a direct quote → quote-card.
+- ONLY place a graphic if the scene contains evidence for: (a) first appearance of a named person/entity, (b) a specific number/metric, (c) brand/logo or CTA at opening/closing, (d) a direct quote/proof, (e) a comparison/process that needs visual structure.
 - Default for scenes without a matching condition: no graphics.
 - onScreenText entries: include only if they match a condition above.`;
     prompt += `<graphic_density_rules>\n${densityGuidance}\nNarrative arc: opening scenes get introductions, closing scenes get brand moments, middle scenes only get graphics if content matches a condition above.\n</graphic_density_rules>\n`;
@@ -1116,7 +1151,7 @@ OTHER SFX RULES:
       scene.onScreenText.forEach((t, i) => {
         prompt += `    ${i + 1}. "${t}"\n`;
       });
-      prompt += `  → Apply the GRAPHIC RULES for this density level. Only include entries matching a condition (named person, specific number, brand, direct quote). Use the exact string as graphicText. Choose the most appropriate graphicType.\n`;
+      prompt += `  -> Apply the GRAPHIC RULES for this density level. Only include evidence-backed entries. Use the exact string in the right content field; do not choose a graphicType/template.\n`;
     }
 
     // Detected subjects
@@ -1208,15 +1243,16 @@ OTHER SFX RULES:
 - ALWAYS pair with a voiceover emphasis word or visual impact
 
 ### GRAPHICS (type: 'graphic')
-- KEYWORD TEXT: graphicType 'keyword-highlight', graphicText = the emphasized word/phrase.
-  Appears as bold animated text on screen synced to voiceover. Hormozi-style kinetic typography.
-- STAT COUNTER: graphicType 'stat-counter', graphicText = number + label (e.g., "50% OFF").
-  Animated counting number. Use when narration mentions statistics or numbers.
-- LOWER THIRD: graphicType 'lower-third', graphicText = name/title.
-  For speaker introductions or location labels.
-- LOGO REVEAL: graphicType 'logo-reveal', graphicText = brand name.
-  Animated brand reveal for final scenes.
-- DO NOT use graphicType 'callout' — it creates ugly text boxes. Use keyword-highlight instead.
+- Output graphicIntents with type 'visual-explanation' only when the moment has evidence that captions alone cannot carry.
+- Do not output graphicType, template names, or visual form labels.
+- Fill evidence fields instead:
+  - value + label for measurable facts.
+  - name + title for identity/speaker introductions.
+  - quote + author for quoted proof.
+  - title + body for concepts/claims.
+  - from + to + relation for comparisons/transformations.
+  - items for ordered steps/processes.
+- The executor derives layout, size, color, motion, and stage mode from content atoms + signals + brand + screen context.
 
 ### SFX TRIGGERS (type: 'sfx-trigger')
 - Triggers a sound effect at the exact frame
@@ -1240,7 +1276,7 @@ OTHER SFX RULES:
 - Identify the DECISIVE MOMENT in each scene first, then build all decisions around it
 - 60-70% of transitions should be hard-cuts (Rule T-001). Dissolves/flashy transitions are RARE.
 - Every zoom-punch MUST be synced to a voiceover emphasis word or visual impact (Rule Z-010)
-- Keyword-highlight graphics on power words only: numbers, brand names, emotional triggers (Rule G-001)
+- Visual explanation graphics only when evidence supports a content atom beyond caption emphasis: numbers, identities, proof, comparisons, processes, brand/CTA moments (Rule G-001)
 - Slow push (1.03x-1.06x) is the DEFAULT camera move for any static scene (Rule Z-001)
 - EVERY static image/storyboard scene MUST get drift-zoom (Rule Z-030)
 - Contrast is king: after a "loud" decision, the next MUST be "quiet" (Section 1.4)
@@ -1283,7 +1319,7 @@ OTHER SFX RULES:
     return `${low}-${high}`;
   })()} decisions for this ${totalSec}s video (density auto-scaled to content length — denser for short-form social, sparser for sustained long-form per creative doc §5).
 7. First scene: establish visual interest early. For short-form social (TikTok/Reels/Shorts): hook within 2-3s. For long-form/tutorial/documentary: can take 5-10s for context. Adapt to the content, don't force a 1s hook on a lecture (Rule P-002).
-8. Last scene: logo-reveal graphic, pull-back zoom, resolving transition (Rule Z-021, G-020).`;
+8. Last scene: brand/CTA visual explanation when evidence exists, pull-back zoom, resolving transition (Rule Z-021, G-020).`;
 
   return prompt;
 }

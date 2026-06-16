@@ -158,6 +158,22 @@ export interface ProjectBrief {
 export interface DirectorResult {
   success: boolean;
   profileId: ProfileId;
+  decisionAuthority?: {
+    version: 'decision-authority-v1';
+    source: 'unified-decision-bundle' | 'fallback-reactive' | 'profile-driven';
+    executableProducer: 'creative-brief' | 'signal-driven' | 'unified-planner' | 'profile';
+    advisoryProducers: Array<'creative-brief' | 'signal-driven' | 'profile'>;
+    signalDecisionRole: 'none' | 'primary' | 'advisor' | 'co-owner';
+    signalDecisionsCanAddExecutable: boolean;
+    primaryDecisionCount: number;
+    signalDecisionCount: number;
+    addedSignalDecisionCount: number;
+    validatedDecisionCount: number;
+    suppressedSignalDuplicateCount: number;
+    evidenceOnlySignalDecisionCount: number;
+    totalDecisions: number;
+    executedDecisions: number;
+  };
   actionsExecuted: number;
   actionsSkipped: Array<{ action: string; reason: string }>;
   overlaysModified: number;

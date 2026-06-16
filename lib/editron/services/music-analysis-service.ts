@@ -21,6 +21,8 @@
  * Consumer: director-agent.ts Path E → VideoContext.musicFeatures + musicPresence signal
  */
 
+import type { PipelineWarningCollector } from './pipeline-warnings';
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface MusicBeat {
@@ -110,6 +112,7 @@ export function warmupMusicAnalysis(): void {
  */
 export async function analyzeMusicContent(
   audioUrl: string,
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<MusicAnalysisResult | null> {
   if (!audioUrl) return null;
 
@@ -173,6 +176,7 @@ export async function analyzeMusicContent(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[MusicAnalysis] Failed: ${msg}`);
+    pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'Essentia music analysis');
     return null;
   }
 }

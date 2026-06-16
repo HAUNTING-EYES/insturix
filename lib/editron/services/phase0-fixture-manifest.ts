@@ -1,0 +1,555 @@
+import { buildEditedTimelineContext } from './edited-timeline-context';
+import type { RawFootageAnalysis } from './signal-registry';
+import {
+  assessVjepaReliability,
+  auditVjepaCoverage,
+  type VjepaCoverageAudit,
+  type VjepaCoverageSegment,
+} from './vjepa-coverage-audit';
+
+export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
+
+type JsonRecord = Record<string, unknown>;
+
+export interface Phase0OverlayLike extends JsonRecord {
+  id?: string | number;
+  type?: string;
+  from?: number;
+  durationInFrames?: number;
+  sourceStartFrame?: number;
+  videoStartTime?: number;
+  assetId?: string;
+  content?: string;
+  text?: string;
+  captionText?: string;
+  transitionStyle?: string;
+  styles?: JsonRecord;
+  metadata?: JsonRecord;
+}
+
+export interface Phase0FixtureProject extends JsonRecord {
+  projectId?: string;
+  id?: string;
+  durationInFrames?: number;
+  fps?: number;
+  playerDimensions?: { width?: number; height?: number };
+  aspectRatio?: string;
+  overlays?: Phase0OverlayLike[];
+  rawFootageAnalysis?: RawFootageAnalysis;
+  vjepaAnalysis?: {
+    segments?: VjepaCoverageSegment[];
+    rawFootageSegments?: VjepaCoverageSegment[];
+  };
+  intelligence?: {
+    unifiedDecisionBundle?: JsonRecord;
+    postBundleProfileActionPolicy?: JsonRecord;
+    vjepaCoverageAudit?: VjepaCoverageAudit;
+  };
+}
+
+export interface BuildPhase0FixtureManifestOptions {
+  capturedAt?: string;
+  source?: string;
+  artifactDir?: string;
+}
+
+export interface Phase0FixtureManifest {
+  version: typeof PHASE0_FIXTURE_VERSION;
+  projectId: string;
+  capturedAt: string;
+  source: string;
+  fps: number;
+  durationFrames: number;
+  durationSeconds: number;
+  canvas: {
+    width: number | null;
+    height: number | null;
+    aspectRatio: string | null;
+  };
+  overlayCounts: Record<string, number>;
+  cutContinuity: ReturnType<typeof summarizeCutContinuity>;
+  sourceMapping: ReturnType<typeof summarizeSourceMapping>;
+  canonicalTimeline: ReturnType<typeof summarizeCanonicalTimeline>;
+  unifiedDecisionBundle: ReturnType<typeof summarizeUnifiedDecisionBundle>;
+  oldProducerGating: ReturnType<typeof summarizeOldProducerGating>;
+  vjepaCoverage: ReturnType<typeof summarizeVjepaCoverage>;
+  overlayFamilies: ReturnType<typeof summarizeOverlayFamilies>;
+  renderArtifacts: {
+    status: 'not-rendered';
+    artifactDir: string | null;
+    pendingFamilies: string[];
+  };
+  failureClasses: string[];
+  calibrationSafety: {
+    renderQualityRequiredBeforeWrites: true;
+    learningWritesAllowed: false;
+    reason: string;
+  };
+}
+
+export function buildPhase0FixtureManifest(
+  project: Phase0FixtureProject,
+  options: BuildPhase0FixtureManifestOptions = {},
+): Phase0FixtureManifest {
+  const overlays = Array.isArray(project.overlays) ? project.overlays : [];
+  const fps = readPositiveNumber(project.fps, 30);
+  const durationFrames = resolveDurationFrames(project, overlays);
+  const projectId = String(project.projectId ?? project.id ?? 'unknown-project');
+
+  return {
+    version: PHASE0_FIXTURE_VERSION,
+    projectId,
+    capturedAt: options.capturedAt ?? new Date(0).toISOString(),
+    source: options.source ?? 'in-memory-project',
+    fps,
+    durationFrames,
+    durationSeconds: round(durationFrames / fps),
+    canvas: {
+      width: readNullableNumber(project.playerDimensions?.width),
+      height: readNullableNumber(project.playerDimensions?.height),
+      aspectRatio: typeof project.aspectRatio === 'string' ? project.aspectRatio : null,
+    },
+    overlayCounts: countByType(overlays),
+    cutContinuity: summarizeCutContinuity(overlays, durationFrames),
+    sourceMapping: summarizeSourceMapping(overlays),
+    canonicalTimeline: summarizeCanonicalTimeline(project, overlays, fps, durationFrames),
+    unifiedDecisionBundle: summarizeUnifiedDecisionBundle(project),
+    oldProducerGating: summarizeOldProducerGating(project),
+    vjepaCoverage: summarizeVjepaCoverage(project, overlays, fps),
+    overlayFamilies: summarizeOverlayFamilies(overlays),
+    renderArtifacts: {
+      status: 'not-rendered',
+      artifactDir: options.artifactDir ?? null,
+      pendingFamilies: ['motion-graphic', 'caption', 'transition', 'sound', 'zoom'],
+    },
+    failureClasses: [],
+    calibrationSafety: {
+      renderQualityRequiredBeforeWrites: true,
+      learningWritesAllowed: false,
+      reason: 'phase0 fixture is evidence-only; calibration writes require rendered aesthetic artifacts',
+    },
+  };
+}
+
+function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: number) {
+  const clips = videoClips(overlays);
+  const transitions = transitionOverlays(overlays);
+  const gaps: Array<{ afterClipId: string; beforeClipId: string; startFrame: number; endFrame: number; durationFrames: number }> = [];
+  const overlaps: Array<{
+    clipId: string;
+    previousClipId: string;
+    startFrame: number;
+    previousEndFrame: number;
+    overlapFrames: number;
+    classification: 'intentional-transition-handle' | 'unclassified-overlap';
+    transitionId: string | null;
+    transitionStartFrame: number | null;
+    transitionDurationFrames: number | null;
+  }> = [];
+
+  for (let index = 1; index < clips.length; index++) {
+    const previous = clips[index - 1];
+    const current = clips[index];
+    const previousEnd = readFrame(previous.from) + readDuration(previous.durationInFrames);
+    const currentStart = readFrame(current.from);
+    const delta = currentStart - previousEnd;
+    if (delta > 1) {
+      gaps.push({
+        afterClipId: overlayId(previous),
+        beforeClipId: overlayId(current),
+        startFrame: previousEnd,
+        endFrame: currentStart,
+        durationFrames: delta,
+      });
+    } else if (delta < -1) {
+      const overlapStartFrame = currentStart;
+      const overlapEndFrame = previousEnd;
+      const transition = findTransitionHandleForOverlap(transitions, overlapStartFrame, overlapEndFrame);
+      overlaps.push({
+        clipId: overlayId(current),
+        previousClipId: overlayId(previous),
+        startFrame: currentStart,
+        previousEndFrame: previousEnd,
+        overlapFrames: Math.abs(delta),
+        classification: transition ? 'intentional-transition-handle' : 'unclassified-overlap',
+        transitionId: transition ? overlayId(transition) : null,
+        transitionStartFrame: transition ? readFrame(transition.from) : null,
+        transitionDurationFrames: transition ? readDuration(transition.durationInFrames) : null,
+      });
+    }
+  }
+
+  const lastClip = clips[clips.length - 1];
+  const lastEnd = lastClip ? readFrame(lastClip.from) + readDuration(lastClip.durationInFrames) : 0;
+  return {
+    clipCount: clips.length,
+    firstStartFrame: clips[0] ? readFrame(clips[0].from) : null,
+    lastEndFrame: clips.length ? lastEnd : null,
+    tailGapFrames: clips.length ? Math.max(0, durationFrames - lastEnd) : durationFrames,
+    midTimelineGapCount: gaps.length,
+    overlapCount: overlaps.length,
+    intentionalTransitionOverlapCount: overlaps.filter((overlap) => overlap.classification === 'intentional-transition-handle').length,
+    unclassifiedOverlapCount: overlaps.filter((overlap) => overlap.classification === 'unclassified-overlap').length,
+    gaps: gaps.slice(0, 20),
+    overlaps: overlaps.slice(0, 20),
+    firstClips: clips.slice(0, 12).map((clip) => ({
+      id: overlayId(clip),
+      from: readFrame(clip.from),
+      durationInFrames: readDuration(clip.durationInFrames),
+      sourceStartFrame: readNullableNumber(clip.sourceStartFrame ?? clip.videoStartTime),
+      assetId: typeof clip.assetId === 'string' ? clip.assetId : null,
+    })),
+  };
+}
+
+function summarizeSourceMapping(overlays: Phase0OverlayLike[]) {
+  const clips = videoClips(overlays);
+  const mappedClipCount = clips.filter((clip) => Number.isFinite(clip.sourceStartFrame ?? clip.videoStartTime)).length;
+  return {
+    clipCount: clips.length,
+    mappedClipCount,
+    missingSourceMappingCount: Math.max(0, clips.length - mappedClipCount),
+    hasCompleteSourceMapping: clips.length === 0 || mappedClipCount === clips.length,
+  };
+}
+
+function summarizeCanonicalTimeline(
+  project: Phase0FixtureProject,
+  overlays: Phase0OverlayLike[],
+  fps: number,
+  durationFrames: number,
+) {
+  if (!project.rawFootageAnalysis) {
+    return {
+      status: 'missing-raw-footage' as const,
+      durationFrames: null,
+      durationMs: null,
+      transcriptionWordCount: null,
+      evidence: null,
+      issue: 'rawFootageAnalysis is not present on the project',
+    };
+  }
+
+  try {
+    const context = buildEditedTimelineContext({
+      rawFootage: project.rawFootageAnalysis,
+      overlays,
+      fps,
+      projectDurationFrames: durationFrames,
+    });
+    return {
+      status: context.evidence.isCanonicalDecisionTimeline ? 'ok' as const : 'unsafe' as const,
+      durationFrames: context.durationFrames,
+      durationMs: context.durationMs,
+      transcriptionWordCount: context.transcription.length,
+      evidence: context.evidence,
+      issue: context.evidence.isCanonicalDecisionTimeline ? null : 'edited timeline lacks complete source mapping',
+    };
+  } catch (error) {
+    return {
+      status: 'error' as const,
+      durationFrames: null,
+      durationMs: null,
+      transcriptionWordCount: null,
+      evidence: null,
+      issue: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
+  const bundle = project.intelligence?.unifiedDecisionBundle;
+  if (!bundle) {
+    return {
+      status: 'missing' as const,
+      source: null,
+      authority: null,
+      totalDecisions: 0,
+      counts: {},
+      evidence: null,
+    };
+  }
+
+  const decisions = Array.isArray(bundle.decisions)
+    ? bundle.decisions
+    : Array.isArray((bundle.edl as JsonRecord | undefined)?.decisions)
+      ? ((bundle.edl as JsonRecord).decisions as unknown[])
+      : [];
+
+  return {
+    status: 'present' as const,
+    source: readString(bundle.source),
+    authority: readString(bundle.authority),
+    totalDecisions: readPositiveNumber(bundle.totalDecisions, decisions.length),
+    counts: (isRecord(bundle.counts) ? bundle.counts : isRecord(bundle.decisionCounts) ? bundle.decisionCounts : countDecisions(decisions)),
+    evidence: isRecord(bundle.evidence) ? bundle.evidence : null,
+  };
+}
+
+function summarizeOldProducerGating(project: Phase0FixtureProject) {
+  const bundle = project.intelligence?.unifiedDecisionBundle;
+  if (!bundle) {
+    return {
+      status: 'not-applicable' as const,
+      unifiedDecisionBundleExecuted: false,
+      skippedLegacyActionCount: 0,
+      allowedLegacyActionCount: 0,
+      skippedLegacyActions: [],
+      unknownReasonCount: 0,
+      evidence: null,
+      issue: 'unified decision bundle is missing',
+    };
+  }
+
+  const policy = project.intelligence?.postBundleProfileActionPolicy;
+  if (!isRecord(policy)) {
+    return {
+      status: 'missing' as const,
+      unifiedDecisionBundleExecuted: null,
+      skippedLegacyActionCount: 0,
+      allowedLegacyActionCount: 0,
+      skippedLegacyActions: [],
+      unknownReasonCount: 0,
+      evidence: null,
+      issue: 'post-bundle profile action policy evidence is missing',
+    };
+  }
+
+  const skippedLegacyActions = Array.isArray(policy.skippedActions)
+    ? policy.skippedActions
+      .filter(isRecord)
+      .slice(0, 50)
+      .map((item) => ({
+        tool: readString(item.tool) || null,
+        action: readString(item.action) || null,
+        reason: readString(item.reason) || null,
+      }))
+    : [];
+  const allowedTools = Array.isArray(policy.allowedTools)
+    ? policy.allowedTools.map(readString).filter(Boolean).slice(0, 50)
+    : [];
+  const unknownReasonCount = skippedLegacyActions.filter((item) => !item.reason).length;
+
+  return {
+    status: 'present' as const,
+    unifiedDecisionBundleExecuted: policy.unifiedDecisionBundleExecuted === true,
+    skippedLegacyActionCount: readPositiveNumber(policy.skippedActionCount, skippedLegacyActions.length),
+    allowedLegacyActionCount: readPositiveNumber(policy.allowedActionCount, allowedTools.length),
+    skippedLegacyActions,
+    unknownReasonCount,
+    evidence: {
+      version: readString(policy.version),
+      evaluatedAt: readString(policy.evaluatedAt) || null,
+      allowedTools,
+    },
+    issue: null,
+  };
+}
+
+function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0OverlayLike[], fps: number) {
+  const persisted = project.intelligence?.vjepaCoverageAudit;
+  if (persisted) {
+    const reliability = persisted.reliability ?? assessVjepaReliability(persisted.segmentCoverage, persisted.overlayHitRate);
+    return {
+      source: 'persisted' as const,
+      status: persisted.status,
+      issues: persisted.issues,
+      overlayHitRate: persisted.overlayHitRate,
+      segmentCoverage: persisted.segmentCoverage,
+      rawFootageCoverage: persisted.rawFootageCoverage ?? null,
+      reliability,
+    };
+  }
+
+  const segments = project.vjepaAnalysis?.segments;
+  if (!Array.isArray(segments)) {
+    return {
+      source: 'missing' as const,
+      status: null,
+      issues: ['vjepaAnalysis.segments is not present on the project'],
+    overlayHitRate: null,
+    segmentCoverage: null,
+    rawFootageCoverage: null,
+    reliability: null,
+  };
+  }
+
+  const audit = auditVjepaCoverage({
+    fps,
+    originalDurationMs: readNullableNumber(project.rawFootageAnalysis?.originalDurationMs) ?? undefined,
+    cleanDurationMs: readNullableNumber(project.rawFootageAnalysis?.estimatedCleanDurationMs) ?? undefined,
+    vjepaSegments: segments,
+    rawFootageSegments: project.vjepaAnalysis?.rawFootageSegments,
+    overlays,
+  });
+  return {
+    source: 'computed' as const,
+    status: audit.status,
+    issues: audit.issues,
+    overlayHitRate: audit.overlayHitRate,
+    segmentCoverage: audit.segmentCoverage,
+    rawFootageCoverage: audit.rawFootageCoverage ?? null,
+    reliability: audit.reliability ?? null,
+  };
+}
+
+function summarizeOverlayFamilies(overlays: Phase0OverlayLike[]) {
+  return {
+    motionGraphics: overlays
+      .filter((overlay) => overlay.type === 'motion-graphic')
+      .map((overlay) => ({
+        id: overlayId(overlay),
+        from: readFrame(overlay.from),
+        durationInFrames: readDuration(overlay.durationInFrames),
+        contentPreview: preview(overlay.content ?? overlay.text),
+        graphicType: readString(overlay.metadata?.graphicType ?? overlay.metadata?.creativeDecisionType),
+        hasAtomicPlan: Boolean(overlay.metadata?.atomicOverlayPlan),
+        hasAtomicReceipt: Boolean(overlay.metadata?.atomicOverlayReceipt),
+        semanticAtomCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'semanticAtoms'),
+        relationCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'relations'),
+      })),
+    captions: {
+      count: overlays.filter((overlay) => overlay.type === 'caption' || overlay.type === 'text').length,
+      styleSignatures: unique(overlays
+        .filter((overlay) => overlay.type === 'caption' || overlay.type === 'text')
+        .map(captionStyleSignature)
+        .filter(Boolean)),
+    },
+    transitions: {
+      count: overlays.filter((overlay) => overlay.type === 'transition').length,
+      types: unique(overlays
+        .filter((overlay) => overlay.type === 'transition')
+        .map((overlay) => readString(overlay.transitionStyle ?? overlay.metadata?.transitionType ?? overlay.metadata?.atomicTransitionForm))
+        .filter(Boolean)),
+      withAtomicForm: overlays.filter((overlay) => overlay.type === 'transition' && overlay.metadata?.atomicTransitionForm).length,
+    },
+    sfx: {
+      count: overlays.filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio').length,
+      roles: unique(overlays
+        .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+        .map((overlay) => readString(overlay.metadata?.role ?? (overlay.metadata?.atomicSfxForm as JsonRecord | undefined)?.role))
+        .filter(Boolean)),
+      withAtomicForm: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && overlay.metadata?.atomicSfxForm).length,
+    },
+    zoom: {
+      videoOverlayCount: videoClips(overlays).length,
+      overlaysWithKeyframes: overlays.filter((overlay) => overlay.type === 'video' && Array.isArray(overlay.metadata?.zoomKeyframes)).length,
+    },
+  };
+}
+
+function countByType(overlays: Phase0OverlayLike[]) {
+  return overlays.reduce<Record<string, number>>((counts, overlay) => {
+    const type = String(overlay.type ?? 'unknown');
+    counts[type] = (counts[type] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function countDecisions(decisions: unknown[]) {
+  return decisions.reduce<Record<string, number>>((counts, decision) => {
+    const type = isRecord(decision) ? String(decision.type ?? 'unknown') : 'unknown';
+    counts[type] = (counts[type] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function resolveDurationFrames(project: Phase0FixtureProject, overlays: Phase0OverlayLike[]) {
+  const explicitDuration = readNullableNumber(project.durationInFrames);
+  if (explicitDuration != null && explicitDuration > 0) return explicitDuration;
+  return overlays.reduce((maxFrame, overlay) => {
+    return Math.max(maxFrame, readFrame(overlay.from) + readDuration(overlay.durationInFrames));
+  }, 0);
+}
+
+function videoClips(overlays: Phase0OverlayLike[]) {
+  return overlays
+    .filter((overlay) => overlay.type === 'video')
+    .sort((a, b) => readFrame(a.from) - readFrame(b.from));
+}
+
+function transitionOverlays(overlays: Phase0OverlayLike[]) {
+  return overlays
+    .filter((overlay) => overlay.type === 'transition')
+    .sort((a, b) => readFrame(a.from) - readFrame(b.from));
+}
+
+function findTransitionHandleForOverlap(
+  transitions: Phase0OverlayLike[],
+  overlapStartFrame: number,
+  overlapEndFrame: number,
+) {
+  const overlapDuration = Math.max(0, overlapEndFrame - overlapStartFrame);
+  const toleranceFrames = Math.max(2, Math.ceil(overlapDuration / 2));
+  return transitions.find((transition) => {
+    const transitionStartFrame = readFrame(transition.from);
+    const transitionEndFrame = transitionStartFrame + readDuration(transition.durationInFrames);
+    const transitionCenterFrame = transitionStartFrame + readDuration(transition.durationInFrames) / 2;
+    const overlapsRange = transitionStartFrame < overlapEndFrame && transitionEndFrame > overlapStartFrame;
+    const startsNearOverlap = transitionStartFrame >= overlapStartFrame - toleranceFrames && transitionStartFrame <= overlapEndFrame + toleranceFrames;
+    const centerNearOverlap = transitionCenterFrame >= overlapStartFrame - toleranceFrames && transitionCenterFrame <= overlapEndFrame + toleranceFrames;
+    return overlapsRange || startsNearOverlap || centerNearOverlap;
+  });
+}
+
+function captionStyleSignature(overlay: Phase0OverlayLike) {
+  const styles = overlay.styles ?? {};
+  const metadata = overlay.metadata ?? {};
+  return [
+    readString(styles.fontFamily),
+    readString(styles.fontSize),
+    readString(styles.color),
+    readString(metadata.captionStyle),
+    readString(metadata.captionPresentation),
+  ].filter(Boolean).join('|');
+}
+
+function readFrame(value: unknown) {
+  return readPositiveNumber(value, 0);
+}
+
+function readDuration(value: unknown) {
+  return readPositiveNumber(value, 0);
+}
+
+function readPositiveNumber(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function readNullableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readString(value: unknown) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (isRecord(value) && typeof value.version === 'string') return value.version;
+  return '';
+}
+
+function readArrayLength(value: unknown, key: string) {
+  if (!isRecord(value)) return 0;
+  const candidate = value[key];
+  return Array.isArray(candidate) ? candidate.length : 0;
+}
+
+function overlayId(overlay: Phase0OverlayLike) {
+  return String(overlay.id ?? `${overlay.type ?? 'overlay'}:${readFrame(overlay.from)}`);
+}
+
+function preview(value: unknown, limit = 120) {
+  const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function round(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}

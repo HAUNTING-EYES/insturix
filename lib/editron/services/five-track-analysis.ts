@@ -19,6 +19,7 @@
  */
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import type { PipelineWarningCollector } from './pipeline-warnings';
 
 // ─── Gemini 429 Retry ───────────────────────────────────────────
 // Gemini rate limits are transient. Exponential backoff (2s, 4s, 8s) recovers
@@ -134,7 +135,9 @@ export interface SpeechSegment {
     isGrowth?: boolean;
     comparisonTarget?: string;
   }>;
+  /** Legacy field name. New analyses must use only "visual-explanation" or "none"; never a template/form label. */
   suggestedGraphicType: string;
+  /** Semantic evidence fields for the downstream MG engine: value, label, name, title, body, from/to, items, etc. */
   suggestedGraphicData: Record<string, any>;
   confidence: number;
   keywordHighlights: Array<{ word: string; startMs: number; endMs: number; importance: WordImportance }>;
@@ -312,10 +315,10 @@ async function uploadToGeminiFiles(
           try {
             const stat = fs.statSync(path.join(tmpDir, f));
             if (now - stat.mtimeMs > 60000) fs.unlinkSync(path.join(tmpDir, f));
-          } catch {}
+          } catch (err: unknown) { console.warn('[5Track] tmp cleanup failed:', err instanceof Error ? err.message : err); }
         }
       }
-    } catch {}
+    } catch (err: unknown) { console.warn('[5Track] tmp dir scan failed:', err instanceof Error ? err.message : err); }
 
     const tmpPath = path.join(os.tmpdir(), `gemini_${assetId}_${Date.now()}.mp4`);
 
@@ -370,7 +373,7 @@ async function uploadToGeminiFiles(
         try {
           const checkResult = await fileManager.getFile(fileName!);
           fileState = checkResult?.state;
-        } catch {}
+        } catch (err: unknown) { console.warn('[5Track] file state check failed:', err instanceof Error ? err.message : err); }
         retries++;
       }
 
@@ -381,7 +384,7 @@ async function uploadToGeminiFiles(
 
       return fileUri;
     } finally {
-      try { fs.unlinkSync(tmpPath); } catch {}
+      try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[5Track] tmp file cleanup failed:', err instanceof Error ? err.message : err); }
     }
   } catch (err: any) {
     console.error(`[GeminiFiles] Failed: ${err.message}`);
@@ -516,7 +519,7 @@ RULE 5 — Return ONLY valid JSON, no markdown.
 }
 </output_format>`;
 
-    const result = await withRetry(
+    const result = await withRetry<{ response: { text: () => string } }>(
       () => model.generateContent([
         { fileData: { fileUri, mimeType: 'video/mp4' } },
         { text: prompt },
@@ -819,8 +822,8 @@ export async function classifySpeech(
 RULE 1 — For each segment return: startMs, endMs (approximate from word positions), text (the segment text), contentType, entities, suggestedGraphicType, suggestedGraphicData, confidence (0-1), and keywordHighlights.
 RULE 2 — contentType must be one of: statistic, claim, question, step_instruction, story_moment, cta, transition_phrase, emphasis, comparison, social_proof, definition, neutral.
 RULE 3 — entities: [{type: "number"|"percentage"|"currency"|"name"|"product"|"concept"|"action"|"emotion", value: "...", unit?: "x"|"%"|"$", isGrowth?: true/false}].
-RULE 4 — suggestedGraphicType: what visual should appear (animated-growth-chart, counter-animation, step-label, definition-card, cta-button, bold-statement-card, question-card, side-by-side-comparison, kinetic-text-highlight, or "none").
-RULE 5 — suggestedGraphicData: {key: value} data for the graphic template.
+RULE 4 — suggestedGraphicType must be only "visual-explanation" or "none". NEVER output template/form labels such as animated-growth-chart, counter-animation, definition-card, side-by-side-comparison, kinetic-text-highlight, lower-third, callout, or stat-counter.
+RULE 5 — suggestedGraphicData must contain semantic evidence only: {kind, text, value, label, name, title, body, quote, author, from, to, fromLabel, toLabel, relation, items}. Do not choose layout, color, motion, size, or template.
 RULE 6 — keywordHighlights: [{word, importance: "normal"|"keyword"|"emphasis"|"stat"|"name"}] — the 3-5 most important words.
 RULE 7 — Return ONLY a JSON array, no markdown, no explanation.
 </rules>
@@ -1039,6 +1042,7 @@ export async function runFullAnalysis(
     /** Pre-existing Gemini file URI from VideoUnderstanding — avoids redundant CDN download + upload */
     geminiFileUri?: string;
   },
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<AssetAnalysis> {
   const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated', geminiFileUri: preloadedFileUri } = options;
 
@@ -1116,6 +1120,7 @@ export async function runFullAnalysis(
           } catch (uploadErr: any) {
             t1.fail(uploadErr.message);
             console.error(`[Analysis] Upload failed:`, uploadErr.message);
+            pipelineWarnings?.errorSwallowed('analysis', uploadErr instanceof Error ? uploadErr : new Error(String(uploadErr)), 'Gemini file upload');
           }
         }
 
@@ -1135,6 +1140,7 @@ export async function runFullAnalysis(
           } catch (mergeErr: any) {
             t2.fail(mergeErr.message);
             console.warn(`[Analysis] Merged analysis failed: ${mergeErr.message}, trying individual calls`);
+            pipelineWarnings?.errorSwallowed('analysis', mergeErr instanceof Error ? mergeErr : new Error(String(mergeErr)), 'merged vision analysis (L2+L4+L5)');
 
             // Fallback to individual calls
             const t3 = traceStep('fallback_individual_calls');
@@ -1153,6 +1159,7 @@ export async function runFullAnalysis(
               t3.ok(`motion=${motionOk}, keyframes=${kfOk}, subjects=${subOk}`);
             } catch (fallbackErr: any) {
               t3.fail(fallbackErr.message);
+              pipelineWarnings?.errorSwallowed('analysis', fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)), 'fallback individual vision calls');
             }
           }
 
@@ -1168,6 +1175,7 @@ export async function runFullAnalysis(
       const tOuter = traceStep('outer_catch');
       tOuter.fail(err.message);
       console.error(`[Analysis] Video analysis failed: ${err.message}`);
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'video analysis outer');
     }
   } else {
     trace.push({ step: 'video_url', status: 'skipped: no videoUrl provided', durationMs: 0 });
@@ -1215,6 +1223,7 @@ export async function runFullAnalysis(
       audioData = await analyzeAudio(audioUrl, durationMs);
     } catch (err: any) {
       console.warn(`[Layer3] Audio analysis failed: ${err.message}`);
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'Layer 3 audio analysis');
     }
   }
 
@@ -1298,6 +1307,7 @@ export async function runFullAnalysis(
         `[TrackA] Transcription verification failed for ${assetId}: ${err.message}. ` +
         `Proceeding without hallucination flag — downstream will treat as silent.`,
       );
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), 'Track A transcription verification');
     }
   }
 
@@ -1330,7 +1340,12 @@ export async function runFullAnalysis(
     if (ed.motionGraphicCue && speechSegments.length > 0) {
       const bestSeg = speechSegments.find(s => s.contentType !== 'neutral') || speechSegments[0];
       if (bestSeg && !bestSeg.suggestedGraphicType) {
-        bestSeg.suggestedGraphicType = ed.motionGraphicCue;
+        bestSeg.suggestedGraphicType = 'visual-explanation';
+        bestSeg.suggestedGraphicData = {
+          ...(bestSeg.suggestedGraphicData || {}),
+          kind: bestSeg.suggestedGraphicData?.kind || 'free-text',
+          text: bestSeg.suggestedGraphicData?.text || ed.motionGraphicCue,
+        };
       }
     }
   }
@@ -1438,6 +1453,7 @@ export async function analyzeProjectAssets(
   userId: string,
   /** Max time budget in ms. Analysis stops when exceeded. Default 120s. */
   timeBudgetMs: number = 120_000,
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<{ analyzed: number; cached: number; failed: number; timedOut: boolean }> {
   const startMs = Date.now();
   const db = await getDatabase();
@@ -1469,10 +1485,11 @@ export async function analyzeProjectAssets(
       if (!videoUrl) { failed++; continue; }
 
       const durationMs = (overlay.durationInFrames / 30) * 1000;
-      await runFullAnalysis(assetId, userId, { videoUrl, durationMs });
+      await runFullAnalysis(assetId, userId, { videoUrl, durationMs }, pipelineWarnings);
       analyzed++;
     } catch (err: any) {
       console.error(`[Analysis] Failed ${assetId}:`, err.message);
+      pipelineWarnings?.errorSwallowed('analysis', err instanceof Error ? err : new Error(String(err)), `asset analysis ${assetId}`);
       failed++;
     }
   }

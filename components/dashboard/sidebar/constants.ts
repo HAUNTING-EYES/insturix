@@ -8,6 +8,7 @@ import {
   CreditCard,
   Users,
   Upload,
+  Archive,
 } from "lucide-react"
 import type { Product } from "./types"
 
@@ -87,6 +88,15 @@ export const growthLegalTools: Product[] = [
     description: "Collaborate",
     color: "#9088D4",
     hoverColor: "#A49CDE",
+    isPro: false,
+  },
+  {
+    name: "Vault",
+    path: "/dashboard/brand-vault",
+    icon: Archive,
+    description: "Brand memory",
+    color: "#D4A652",
+    hoverColor: "#D4A652",
     isPro: false,
   },
   {

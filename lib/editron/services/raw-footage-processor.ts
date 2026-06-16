@@ -656,13 +656,28 @@ export async function processRawFootage(
   }, 0);
   const estimatedCleanDurationMs = videoDurationMs - totalRemovedMs;
 
-  // Speech coverage: fraction of video duration with speech (from word timestamps)
-  const speechMs = transcription.words.reduce((sum, w) => {
-    const endVal = w.endMs ?? w.end ?? 0;
-    const startVal = w.startMs ?? w.start ?? 0;
-    const dur = endVal - startVal;
-    return sum + (Number.isFinite(dur) && dur > 0 ? dur : 0);
-  }, 0);
+  // Speech coverage: fraction of video duration with speech.
+  // Gap-based: consecutive words with < 2s gap = continuous speech block.
+  // Robust against STT timestamp style differences (Grok file upload returns
+  // "tight" per-word durations ~200ms vs url path "inclusive" ~500ms).
+  // Old per-word-duration sum gave 46% for the same video that was 99% before.
+  let speechMs = 0;
+  const words = transcription.words;
+  if (words.length > 0) {
+    const MAX_GAP_MS = 2000; // ⚠️ INVENTED — normal speech gaps 200-500ms, 2s covers sentence pauses
+    let blockStart = (words[0] as any).startMs ?? (words[0] as any).start ?? 0;
+    let blockEnd = (words[0] as any).endMs ?? (words[0] as any).end ?? blockStart;
+    for (let i = 1; i < words.length; i++) {
+      const wStart = (words[i] as any).startMs ?? (words[i] as any).start ?? 0;
+      const wEnd = (words[i] as any).endMs ?? (words[i] as any).end ?? wStart;
+      if (wStart - blockEnd > MAX_GAP_MS) {
+        speechMs += Math.max(0, blockEnd - blockStart);
+        blockStart = wStart;
+      }
+      blockEnd = Math.max(blockEnd, wEnd);
+    }
+    speechMs += Math.max(0, blockEnd - blockStart);
+  }
   const speechCoverage = (videoDurationMs > 0 && Number.isFinite(speechMs)) ? Math.min(1, speechMs / videoDurationMs) : 0;
   const VISUAL_EDITING_THRESHOLD = 0.3; // ← below 30% speech, transcript-based editing is insufficient
   const needsVisualDrivenEditing = speechCoverage < VISUAL_EDITING_THRESHOLD;

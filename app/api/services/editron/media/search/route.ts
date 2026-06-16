@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
           source: 'graph',
         });
       }
-    } catch { /* graph search failed — fall through to MongoDB */ }
+    } catch (err: unknown) { console.warn('[MediaSearch] graph search failed, falling back to MongoDB:', err instanceof Error ? err.message : err); }
 
     // Fallback: direct MongoDB search
     const db = await getDatabase();
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
         let url = asset.cachedUrl || '';
         try {
           url = await (assetResolver as any).getOrRefreshUrl(asset) || url;
-        } catch { /* use cached */ }
+        } catch (err: unknown) { console.warn('[MediaSearch] URL refresh failed, using cached:', err instanceof Error ? err.message : err); }
 
         scored.push({
           assetId: asset.assetId,

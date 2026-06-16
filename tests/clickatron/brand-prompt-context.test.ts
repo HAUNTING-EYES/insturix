@@ -5,6 +5,8 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from "@/lib/clickatron/brand-prompt-context";
+import { generateModelPayload } from "@/lib/config/clickatron-models";
+import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 
 const unifiedBrand: UnifiedBrand = {
@@ -29,6 +31,58 @@ const unifiedBrand: UnifiedBrand = {
   },
 };
 
+function creativeSpec() {
+  return {
+    schemaVersion: CLICKATRON_CREATIVE_SPEC_VERSION,
+    kind: "carousel",
+    assetIntent: "carousel",
+    platform: "linkedin",
+    aspectRatio: "4:5",
+    source: {
+      sourceService: "thinkforge",
+      sourceSessionId: "tf_session_secret",
+      sourceScriptId: "script_secret",
+      sourceBlockIds: ["blk_secret"],
+    },
+    userIntent: {
+      visualMode: "text_forward_graphic",
+      textDensity: "medium",
+      wantsCarousel: true,
+    },
+    creativeBrief: {
+      objective: "Turn the post into a carousel.",
+      coreMessage: "Context should travel with creative work.",
+      hook: "Stop rebuilding context for every tool.",
+      cta: "Design this in Clickatron",
+    },
+    renderPlan: {
+      textPolicy: "editable_text_layers",
+      imagePrompt: "Editorial carousel system with connected creative workflow nodes.",
+      layoutIntent: "Use generous headline-safe space.",
+      textLayers: [
+        {
+          id: "txt_hook",
+          text: "Stop rebuilding context for every tool.",
+          role: "headline",
+          priority: 100,
+          sourceBlockId: "blk_secret",
+        },
+      ],
+      slides: [
+        {
+          id: "slide_1",
+          index: 0,
+          title: "Hook",
+          imagePrompt: "Bold opening slide with workflow nodes.",
+        },
+      ],
+    },
+    validation: {
+      status: "ready",
+    },
+  };
+}
+
 describe("Clickatron brand prompt context", () => {
   it("enriches generation prompts with safe ThinkForge metadata and BrandVault context", () => {
     const metadata = {
@@ -44,6 +98,7 @@ describe("Clickatron brand prompt context", () => {
       thinkforge: {
         script: { title: "Launch Story" },
         projectMeta: {
+          brandId: "brand_1",
           idea: "Launch the new analytics workflow",
           platform: "YouTube",
           brandBrief: "Use uploaded logo only. Keep copy terse.",
@@ -85,9 +140,11 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("<clickatron_thumbnail_request>");
     expect(prompt).toContain("Create a high-click thumbnail.");
     expect(prompt).toContain("Do not invent logos");
+    expect(prompt).toContain("Do not render readable words");
     expect(prompt).not.toContain("tf_session_secret");
     expect(prompt).not.toContain("script_secret");
     expect(prompt).not.toContain("plink_secret");
+    expect(prompt).not.toContain("brand_1");
     expect(prompt).not.toContain("project_secret");
     expect(prompt).not.toContain("doNotLeak");
   });
@@ -131,6 +188,40 @@ describe("Clickatron brand prompt context", () => {
     expect(block).not.toContain("doNotLeak");
   });
 
+  it("enriches prompts with the ThinkForge-authored Clickatron creative plan without leaking IDs", () => {
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create the Clickatron graphic.",
+      metadata: {
+        handoff: "think-to-click",
+        sourceContext: {
+          sourceService: "thinkforge",
+          sourceSessionId: "tf_session_secret",
+          sourceScriptId: "script_secret",
+        },
+        clickatron: {
+          title: "Carousel handoff",
+          creativeSpec: creativeSpec(),
+        },
+      },
+    });
+
+    expect(prompt).toContain("Creative kind: carousel");
+    expect(prompt).toContain("Asset intent: carousel");
+    expect(prompt).toContain("Image prompt: Editorial carousel system");
+    expect(prompt).toContain("Core message concepts:");
+    expect(prompt).toContain("Text layers: headline layer planned");
+    expect(prompt).toContain("exact copy withheld from raster prompt");
+    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).toContain("Carousel slides: Slide 1 (Hook): Bold opening slide");
+    expect(prompt).toContain("Generate the raster image as a text-free visual/background");
+    expect(prompt).toContain("Use Clickatron text-layer summaries only to reserve safe zones");
+    expect(prompt).not.toContain("Stop rebuilding context for every tool.");
+    expect(prompt).not.toContain("Design this in Clickatron");
+    expect(prompt).not.toContain("tf_session_secret");
+    expect(prompt).not.toContain("script_secret");
+    expect(prompt).not.toContain("blk_secret");
+  });
+
   it("prefers task brandId and resolves BrandVault context through injected deps", async () => {
     expect(
       resolveClickatronPromptBrandId("brand_direct", {
@@ -153,5 +244,40 @@ describe("Clickatron brand prompt context", () => {
     });
 
     expect(brandBlock).toBe("BrandVault: Signal Supply");
+  });
+
+  it("carries resolved BrandVault context into the final model payload prompt", async () => {
+    const brandContextBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct", {
+      getBrand: async () => unifiedBrand,
+      formatBrand: (brand) => [
+        "<brand_context>",
+        `Brand: ${brand?.name}`,
+        `Voice: ${brand?.voice.voiceLock}`,
+        "</brand_context>",
+      ].join("\n"),
+    });
+    const enrichedPrompt = buildClickatronGenerationPrompt({
+      prompt: "Create a Clickatron visual.",
+      metadata: {
+        sourceContext: {
+          sourceService: "thinkforge",
+          brandId: "brand_direct",
+        },
+      },
+      brandContextBlock,
+    });
+    const payload = generateModelPayload(
+      "fal-ai/imagen4/preview",
+      { num_images: 1 },
+      { prompt: enrichedPrompt },
+      "1:1",
+      1024,
+      1024,
+    );
+
+    expect(payload.prompt).toContain("<brand_context>");
+    expect(payload.prompt).toContain("Brand: Signal Supply");
+    expect(payload.prompt).toContain("Voice: Plainspoken, sharp, no hype.");
+    expect(payload.prompt).toContain("<clickatron_thumbnail_request>");
   });
 });

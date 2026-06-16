@@ -13,7 +13,14 @@
  * Consumed by Director Agent Path D via signal-registry.
  */
 
-import type { VjepaActionType, VjepaMotionType, VjepaFaceEmotion } from '../services/vjepa-service';
+import type {
+  VjepaActionType,
+  VjepaMotionType,
+  VjepaFaceEmotion,
+  VjepaPrimitiveBox,
+  VjepaPrimitivePresence,
+  VjepaTextBox,
+} from '../services/vjepa-service';
 import type { EmotionalValence } from '../services/wav2vec-service';
 import type { VisualSetup } from '../services/video-understanding-service';
 
@@ -39,6 +46,23 @@ export interface SegmentRecord {
     motionType: VjepaMotionType;
     faceEmotion: VjepaFaceEmotion | null;
     eyeContact: boolean | null;
+    motionVectorX: number;
+    motionVectorY: number;
+    mainSubject: VjepaPrimitiveBox;
+    mainSubjectX: number;
+    mainSubjectY: number;
+    mainSubjectWidth: number;
+    mainSubjectHeight: number;
+    textBoxes: VjepaTextBox[];
+    textBoxCount: number;
+    textCoverage: number;
+    objectCount: number;
+    faceCount: number;
+    negativeSpaceTop: number;
+    negativeSpaceRight: number;
+    negativeSpaceBottom: number;
+    negativeSpaceLeft: number;
+    primitivePresence: VjepaPrimitivePresence;
   } | null;
 
   vocal: {

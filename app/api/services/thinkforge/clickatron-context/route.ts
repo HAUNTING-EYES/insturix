@@ -6,6 +6,7 @@ import {
   buildThinkToClickContext,
   findClickatronCreativeSpecInBlocks,
   toNonEmptyString,
+  type ThinkToClickVisibleContentChoices,
 } from "@/lib/thinkforge/clickatron-context";
 
 export const runtime = "nodejs";
@@ -53,6 +54,21 @@ export async function POST(request: Request) {
       });
     }
 
+    const rawVisualChoices =
+      body.userVisualChoices && typeof body.userVisualChoices === "object" && !Array.isArray(body.userVisualChoices)
+        ? body.userVisualChoices as Record<string, unknown>
+        : body;
+    const userVisualChoices: ThinkToClickVisibleContentChoices = {
+      kind: toNonEmptyString(rawVisualChoices.kind) as ThinkToClickVisibleContentChoices["kind"],
+      platform: toNonEmptyString(rawVisualChoices.platform) as ThinkToClickVisibleContentChoices["platform"],
+      aspectRatio: toNonEmptyString(rawVisualChoices.aspectRatio) || toNonEmptyString(body.aspectRatio),
+      visualMode: toNonEmptyString(rawVisualChoices.visualMode) as ThinkToClickVisibleContentChoices["visualMode"],
+      textDensity: toNonEmptyString(rawVisualChoices.textDensity) as ThinkToClickVisibleContentChoices["textDensity"],
+      vibe: toNonEmptyString(rawVisualChoices.vibe),
+      imageStyle: toNonEmptyString(rawVisualChoices.imageStyle),
+      notes: toNonEmptyString(rawVisualChoices.notes),
+    };
+
     const context = buildThinkToClickContext({
       sessionId,
       scriptId: requestedScriptId,
@@ -60,6 +76,8 @@ export async function POST(request: Request) {
       projectMeta,
       projectLink,
       creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
+      blocks: script?.blocks,
+      userVisualChoices,
       signalTrace: script?.metadata?.signalTrace,
       title: toNonEmptyString(body.title),
       aspectRatio: toNonEmptyString(body.aspectRatio),

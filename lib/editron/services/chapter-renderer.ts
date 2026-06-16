@@ -362,8 +362,8 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
             },
           );
         }
-      } catch {
-        // Progress check failed — non-fatal
+      } catch (err: unknown) {
+        console.warn('[ChapterRenderer] progress check failed (non-fatal):', err instanceof Error ? err.message : err);
       }
     }
 

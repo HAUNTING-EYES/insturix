@@ -44,6 +44,7 @@ tsconfig.tsbuildinfo
 /cloud-run-renderer/package-lock.json
 .vercel
 .env*.local
+.env.local.*
 .env.neo4j
 
 # Claude Code context file (not part of codebase)
@@ -74,8 +75,20 @@ scripts/debug-proj.mjs
 scripts/debug-proj-storyboard.mjs
 graphify-out/
 
+# Local Editron verification artifacts
+.calibration-temp/
+__pycache__/
+modal/__pycache__/
+
 
 thinkforge-ui.html
 DESIGN_BIBLE.md
 yarn.lock
 package-lock.json
+.gstack/
+
+# Local agent working notes / design docs (not shipped)
+docs/agents/
+
+# Vercel env-check (contains secrets, never commit)
+.env.vercel-check

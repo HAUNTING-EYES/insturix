@@ -1,6 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, type SetStateAction } from "react";
 import { Overlay, OverlayType, CaptionStyles, CaptionOverlay } from "../types";
 import { defaultCaptionStyles } from "../components/overlays/captions/caption-settings";
+import {
+  ensureLiveAtomicOverlayReceipt,
+  withAtomicOverlayUpdateReceipt,
+  withEditorAtomicOverlayReceipt,
+} from "../utils/atomic-overlay-receipts";
 
 /**
  * Hook to manage overlay elements in the editor
@@ -9,7 +14,18 @@ import { defaultCaptionStyles } from "../components/overlays/captions/caption-se
  */
 export const useOverlays = (initialOverlays?: Overlay[]) => {
   // Initialize with provided overlays or default overlays
-  const [overlays, setOverlays] = useState<Overlay[]>(initialOverlays || []);
+  const [overlays, setOverlayState] = useState<Overlay[]>(() =>
+    normalizeEditorOverlays(initialOverlays || [], "editor-initial-overlays")
+  );
+
+  const setOverlays = useCallback((nextOverlays: SetStateAction<Overlay[]>) => {
+    setOverlayState((prevOverlays) => {
+      const resolvedOverlays = typeof nextOverlays === "function"
+        ? nextOverlays(prevOverlays)
+        : nextOverlays;
+      return normalizeEditorOverlays(resolvedOverlays, "editor-set-overlays");
+    });
+  }, []);
 
   // Tracks which overlay is currently selected for editing
   const [selectedOverlayId, setSelectedOverlayId] = useState<number | null>(
@@ -33,13 +49,24 @@ export const useOverlays = (initialOverlays?: Overlay[]) => {
       setOverlays((prevOverlays) =>
         prevOverlays.map((overlay) => {
           if (overlay.id !== overlayId) return overlay;
-          return typeof updater === "function"
-            ? updater(overlay)
-            : ({ ...overlay, ...updater } as Overlay);
+          if (typeof updater === "function") {
+            return ensureLiveAtomicOverlayReceipt(updater(overlay), {
+              source: "editor-change-overlay",
+              intent: `editor-change-${overlay.type}`,
+              reason: "overlay changed through the editor UI",
+              appendReceipt: false,
+            });
+          }
+          return withAtomicOverlayUpdateReceipt(overlay, updater, {
+            source: "editor-change-overlay",
+            intent: `editor-change-${overlay.type}`,
+            reason: "overlay changed through the editor UI",
+            appendReceipt: false,
+          });
         })
       );
     },
-    []
+    [setOverlays]
   );
 
   /**
@@ -54,7 +81,14 @@ export const useOverlays = (initialOverlays?: Overlay[]) => {
         prevOverlays.length > 0
           ? Math.max(...prevOverlays.map((o) => o.id)) + 1
           : 0;
-      const overlayWithNewId = { ...newOverlay, id: newId } as Overlay;
+      const overlayWithNewId = withEditorAtomicOverlayReceipt(
+        { ...newOverlay, id: newId } as Overlay,
+        {
+          source: "editor-add-overlay",
+          intent: `editor-add-${newOverlay.type}`,
+          reason: "overlay added through the editor UI",
+        }
+      );
       return [...prevOverlays, overlayWithNewId];
     });
     setSelectedOverlayId(newId!);
@@ -132,11 +166,18 @@ export const useOverlays = (initialOverlays?: Overlay[]) => {
         }
       }
 
-      const duplicatedOverlay: Overlay = {
-        ...overlayToDuplicate,
-        id: newId,
-        from: newFrom,
-      };
+      const duplicatedOverlay = withEditorAtomicOverlayReceipt(
+        {
+          ...overlayToDuplicate,
+          id: newId,
+          from: newFrom,
+        },
+        {
+          source: "editor-duplicate-overlay",
+          intent: `editor-duplicate-${overlayToDuplicate.type}`,
+          reason: "overlay duplicated in the editor UI",
+        }
+      );
 
       return [...prevOverlays, duplicatedOverlay];
     });
@@ -237,6 +278,16 @@ export const useOverlays = (initialOverlays?: Overlay[]) => {
     resetOverlays,
   };
 };
+
+const normalizeEditorOverlays = (overlays: Overlay[], source: string): Overlay[] =>
+  overlays.map((overlay) =>
+    ensureLiveAtomicOverlayReceipt(overlay, {
+      source,
+      intent: `editor-live-${overlay.type}`,
+      reason: "overlay array entered live editor state",
+      appendReceipt: false,
+    })
+  );
 
 /**
  * Calculates the starting time for the second half of a split media overlay
@@ -365,7 +416,18 @@ const createSplitOverlays = (
       captions: secondHalfCaptions,
     };
 
-    return [firstHalf, secondHalf];
+    return [
+      withEditorAtomicOverlayReceipt(firstHalf, {
+        source: "editor-split-overlay",
+        intent: `editor-split-${original.type}-first`,
+        reason: "first segment produced by splitting an overlay in the editor UI",
+      }),
+      withEditorAtomicOverlayReceipt(secondHalf, {
+        source: "editor-split-overlay",
+        intent: `editor-split-${original.type}-second`,
+        reason: "second segment produced by splitting an overlay in the editor UI",
+      }),
+    ];
   }
 
   const firstHalf: Overlay = {
@@ -386,5 +448,16 @@ const createSplitOverlays = (
     }),
   };
 
-  return [firstHalf, secondHalf];
+  return [
+    withEditorAtomicOverlayReceipt(firstHalf, {
+      source: "editor-split-overlay",
+      intent: `editor-split-${original.type}-first`,
+      reason: "first segment produced by splitting an overlay in the editor UI",
+    }),
+    withEditorAtomicOverlayReceipt(secondHalf, {
+      source: "editor-split-overlay",
+      intent: `editor-split-${original.type}-second`,
+      reason: "second segment produced by splitting an overlay in the editor UI",
+    }),
+  ];
 };

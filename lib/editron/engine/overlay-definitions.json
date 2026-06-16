@@ -2135,6 +2135,90 @@
   },
 
   {
+    "id": "mg.arrangement.horizontal",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content -> dynamic side-by-side (horizontal) flow"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
+        "invert": false,
+        "description": "Fast pacing -> horizontal punch, read left-to-right quickly"
+      }
+    ],
+    "outputParams": [
+      { "name": "arrangementScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.arrangement.vertical",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal content -> composed vertical stack"
+      },
+      {
+        "signalId": "warmth",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.25 },
+        "invert": false,
+        "description": "Warm content -> calm stacked reveal"
+      }
+    ],
+    "outputParams": [
+      { "name": "arrangementScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.emphasis.scale_contrast",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content -> dramatic size hierarchy (larger modular-scale steps)"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Formal content -> gentle, measured hierarchy (smaller scale steps, inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "scaleContrast", "mode": "proportional", "minValue": 1.4, "maxValue": 2.2 }
+    ]
+  },
+
+  {
     "id": "mg.layout.center_avoidance",
     "category": "mg-property",
     "rank": 50,
@@ -2150,7 +2234,7 @@
         "description": "Low visual dependency (face dominant) → avoid center (inverted)"
       },
       {
-        "signalId": "speech.coverage",
+        "signalId": "speech_coverage",
         "curveType": "logistic",
         "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
         "invert": false,
@@ -2322,18 +2406,18 @@
     "minGapFrames": 0,
     "considerations": [
       {
-        "signalId": "formality",
+        "signalId": "visceral_impact",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
-        "invert": false,
-        "description": "Formal content → fade entrance preferred (CRG: default for formal)"
+        "params": { "slope": 2.5, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Low impact → fade (calm moments). PER-MOMENT primary: yields to pop/scale as impact rises. (default curve — Phase-2 tuner calibrates)"
       },
       {
-        "signalId": "warmth",
-        "curveType": "linear",
-        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.3 },
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 3, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Warm content → gentle fade suits the tone"
+        "description": "Formal content → fade (brand-character baseline)"
       }
     ],
     "outputParams": [
@@ -2349,25 +2433,18 @@
     "minGapFrames": 0,
     "considerations": [
       {
-        "signalId": "enthusiasm",
-        "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
-        "invert": false,
-        "description": "Energetic → pop entrance (CRG: overshoot 102-105%)"
-      },
-      {
         "signalId": "visceral_impact",
-        "curveType": "linear",
-        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "curveType": "logistic",
+        "params": { "slope": 3, "exponent": 2, "xShift": -0.1, "yShift": 0 },
         "invert": false,
-        "description": "High impact → snappy pop entrance"
+        "description": "High visceral impact → snappy pop (PER-MOMENT primary driver). (default curve — Phase-2 tuner calibrates)"
       },
       {
         "signalId": "formality",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": true,
-        "description": "CRG anti-pattern: scale_pop when formality > 0.5 (inverted)"
+        "description": "CRG anti-pattern: pop suppressed when formal (brand-character baseline)"
       }
     ],
     "outputParams": [
@@ -2383,18 +2460,18 @@
     "minGapFrames": 0,
     "considerations": [
       {
-        "signalId": "pacing_velocity",
+        "signalId": "visual_change_rate",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2, "exponent": 1.5, "xShift": -0.1, "yShift": 0 },
         "invert": false,
-        "description": "Faster pacing → dynamic slide entrance"
+        "description": "Motion present → directional slide fits (PER-MOMENT primary, replaces the constant pacing/speech_coverage that pinned slide as the always-winner). (default curve — Phase-2 tuner calibrates)"
       },
       {
-        "signalId": "speech.coverage",
-        "curveType": "linear",
-        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.2 },
-        "invert": false,
-        "description": "Speaking content → sequential/directional slide"
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 2.5, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "High impact → slide YIELDS to pop/scale (graph part-2-mappings.json:2462-2464: slide is directional/neutral, distracting at high-significance moments)"
       }
     ],
     "outputParams": [
@@ -2410,25 +2487,18 @@
     "minGapFrames": 0,
     "considerations": [
       {
+        "signalId": "visual_change_rate",
+        "curveType": "logistic",
+        "params": { "slope": 2, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Low motion → atmospheric/contemplative blur (PER-MOMENT primary driver). (default curve — Phase-2 tuner calibrates)"
+      },
+      {
         "signalId": "warmth",
         "curveType": "logistic",
         "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Warm content → atmospheric blur entrance"
-      },
-      {
-        "signalId": "emotional_arousal",
-        "curveType": "linear",
-        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
-        "invert": false,
-        "description": "High emotion → dramatic materialization"
-      },
-      {
-        "signalId": "pacing_velocity",
-        "curveType": "linear",
-        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.2 },
-        "invert": true,
-        "description": "Slow pacing → contemplative (inverted from fast)"
+        "description": "Warm content → atmospheric blur (brand-character baseline)"
       }
     ],
     "outputParams": [
@@ -2445,21 +2515,130 @@
     "considerations": [
       {
         "signalId": "visceral_impact",
-        "curveType": "polynomial",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "curveType": "logistic",
+        "params": { "slope": 2.5, "exponent": 1.5, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "High impact → dramatic scale entrance"
+        "description": "High impact → dramatic scale reveal (PER-MOMENT primary driver). (default curve — Phase-2 tuner calibrates)"
       },
       {
-        "signalId": "emotional_arousal",
-        "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "signalId": "visual_significance",
+        "curveType": "linear",
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.1 },
         "invert": false,
-        "description": "High emotional arousal → dramatic entrance"
+        "description": "Visually-standout moment → scale emphasizes the reveal (per-moment; sparse signal — paired with visceral so the dial still scores when significance is absent)"
       }
     ],
     "outputParams": [
       { "name": "scaleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_rotate",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal content → rotation entrance for gravitas (title reveals)"
+      },
+      {
+        "signalId": "visceral_impact",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Moderate impact → rotation adds weight to reveals"
+      }
+    ],
+    "outputParams": [
+      { "name": "rotateScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_skew",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visual_change_rate",
+        "curveType": "logistic",
+        "params": { "slope": 2, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Fast motion → dynamic skew (broadcast style; PER-MOMENT primary, replaces the constant pacing that made skew a constant-score dial). (default curve — Phase-2 tuner calibrates)"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Casual content → skew fits dynamic tone (brand-character baseline)"
+      }
+    ],
+    "outputParams": [
+      { "name": "skewScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.animation.entrance_zoom_blur",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "polynomial",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Very high impact → dramatic zoom-blur reveal (squared response — only fires on extreme impact)"
+      },
+      {
+        "signalId": "visual_change_rate",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High motion → zoom-blur energy (PER-MOMENT; replaces near-constant enthusiasm)"
+      }
+    ],
+    "outputParams": [
+      { "name": "zoomBlurScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+
+  {
+    "id": "mg.animation.hold_glow",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → neon glow emphasis during hold"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Energetic → glow adds visual energy"
+      }
+    ],
+    "outputParams": [
+      { "name": "glowScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
     ]
   },
 
@@ -2474,16 +2653,16 @@
       {
         "signalId": "enthusiasm",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Energetic → rhythmic pulse during hold"
+        "description": "Energetic → pulse (slope 2.5: enthusiasm=0.5 scores ~0.6, enough to clear 0.15 threshold)"
       },
       {
         "signalId": "pacing_velocity",
         "curveType": "linear",
-        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.15 },
         "invert": false,
-        "description": "Fast pace → rhythmic pulse"
+        "description": "Fast pace → rhythmic pulse (boosted baseline)"
       }
     ],
     "outputParams": [
@@ -2501,9 +2680,9 @@
       {
         "signalId": "warmth",
         "curveType": "logistic",
-        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "params": { "slope": 2.5, "exponent": 2, "xShift": 0, "yShift": 0 },
         "invert": false,
-        "description": "Warm content → gentle breathing hold"
+        "description": "Warm content → breathe (slope 2.5: warmth=0.5 scores ~0.6)"
       },
       {
         "signalId": "pacing_velocity",
@@ -2535,16 +2714,16 @@
       {
         "signalId": "enthusiasm",
         "curveType": "linear",
-        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "params": { "slope": 0.8, "exponent": 1, "xShift": 0, "yShift": 0.2 },
         "invert": false,
-        "description": "Mild enthusiasm → playful float"
+        "description": "Mild enthusiasm → float (boosted baseline 0.2: even default 0.5 scores 0.6)"
       },
       {
         "signalId": "warmth",
         "curveType": "linear",
-        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.2 },
         "invert": false,
-        "description": "Warm content → friendly floating"
+        "description": "Warm content → friendly floating (boosted baseline)"
       },
       {
         "signalId": "humor",
@@ -2568,22 +2747,447 @@
     "minGapFrames": 0,
     "considerations": [
       {
-        "signalId": "pacing_velocity",
+        "signalId": "visceral_impact",
         "curveType": "polynomial",
         "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
         "invert": true,
-        "description": "Fast pacing → shorter entrance duration (inverted: high signal → low output → fast)"
+        "description": "High impact → shorter/snappier entrance (PER-MOMENT primary; inverted: high signal → low duration → fast). (default curve — Phase-2 tuner calibrates)"
+      },
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Fast video pacing → snappier baseline (brand-character; inverted)"
+      }
+    ],
+    "outputParams": [
+      { "name": "entranceSpeed", "mode": "proportional", "minValue": 0.15, "maxValue": 0.6 }
+    ]
+  },
+  {
+    "id": "mg.particle.confetti",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "High enthusiasm → celebration confetti burst"
+      },
+      {
+        "signalId": "humor",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Humor → playful confetti accent"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "High formality suppresses confetti (too playful)"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.particle.bokeh",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "warmth",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Warm emotional content → dreamy bokeh atmosphere"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Emotionally charged → atmospheric depth"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.particle.dust",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 0.8, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Visceral moments → cinematic dust atmosphere"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Formal content → subtle atmospheric texture"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.particle.sparks",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → energy sparks"
+      },
+      {
+        "signalId": "enthusiasm",
+        "curveType": "linear",
+        "params": { "slope": 0.7, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic → spark effects"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "High formality suppresses sparks (too flashy)"
+      }
+    ],
+    "outputParams": [
+      { "name": "particleScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.mask.circle_reveal",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High impact → dramatic circle iris reveal"
+      },
+      {
+        "signalId": "cinematic_moment",
+        "curveType": "linear",
+        "params": { "slope": 0.7, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Cinematic moments → iris reveal emphasis"
+      }
+    ],
+    "outputParams": [
+      { "name": "maskScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.mask.wipe_reveal",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "pacing_velocity",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Active pacing → directional wipe energy"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Formal content → clean structured reveals"
+      }
+    ],
+    "outputParams": [
+      { "name": "maskScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.accent_line",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal/structured content → clean horizontal rule"
       },
       {
         "signalId": "enthusiasm",
         "curveType": "linear",
         "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
         "invert": true,
-        "description": "Energetic → snappier entrance (inverted: high signal → low output → fast)"
+        "description": "Calm content favors structural rules; energetic content does not"
       }
     ],
     "outputParams": [
-      { "name": "entranceSpeed", "mode": "proportional", "minValue": 0.15, "maxValue": 0.6 }
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.side_bar",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Broadcast/authoritative register → vertical side bar"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Composed/authoritative tone, not high-arousal"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.backdrop_card",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visual_dependency",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Busy/visually-dependent scene → card separates text from background"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0.1 },
+        "invert": false,
+        "description": "Clean modern card reads as produced/formal"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.divider",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Editorial/structured content → hairline separating stacked text"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.underline",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "enthusiasm",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Energetic content → bold accent stroke under the headline"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "High arousal → marker-style emphasis"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.kicker",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "News/category register → small uppercase kicker label above headline"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.badge",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Ranked/numbered/structured content → numbered chip"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.brackets",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "formality",
+        "curveType": "logistic",
+        "params": { "slope": 1, "exponent": 1.5, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Editorial register → bracket framing"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.4, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": true,
+        "description": "Composed editorial tone, not high-arousal"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.corner_marks",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "cinematic_moment",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "Premium/cinematic production moment → broadcast corner-mark framing"
+      },
+      {
+        "signalId": "formality",
+        "curveType": "linear",
+        "params": { "slope": 0.5, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Formal/produced content reinforces the broadcast package look"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
+    ]
+  },
+  {
+    "id": "mg.structure.annotation",
+    "category": "mg-property",
+    "rank": 50,
+    "weight": 1,
+    "minScore": 0.01,
+    "minGapFrames": 0,
+    "considerations": [
+      {
+        "signalId": "visceral_impact",
+        "curveType": "logistic",
+        "params": { "slope": 1.2, "exponent": 2, "xShift": 0.1, "yShift": 0 },
+        "invert": false,
+        "description": "High-impact rhetorical beat → pointing annotation callout"
+      },
+      {
+        "signalId": "emotional_arousal",
+        "curveType": "linear",
+        "params": { "slope": 0.6, "exponent": 1, "xShift": 0, "yShift": 0 },
+        "invert": false,
+        "description": "Emphatic moment → callout draws the eye"
+      }
+    ],
+    "outputParams": [
+      { "name": "structureScore", "mode": "proportional", "minValue": 0, "maxValue": 1 }
     ]
   }
 ]

@@ -40,6 +40,7 @@ import { TokenTracker } from '../utils/token-tracker';
 // the module on EVERY agent invocation (adds ~10-30ms cold overhead each call).
 // Moving them here means the module is loaded once at startup.
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -620,7 +621,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
       const functionDeclarations = _functionDeclarationsCache[projectId];
       
       const directModel = genAI.getGenerativeModel({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: CHAT_MODEL_NAME,
         generationConfig: {
           temperature: 0,
           maxOutputTokens: 8192,
@@ -705,7 +706,8 @@ export const createAgent = (userId: string, projectContext?: string) => {
                 (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
               try {
                 parsed[key] = JSON.parse(trimmed);
-              } catch {
+              } catch (err: unknown) {
+                console.warn('[AgentGraph] JSON parse fallback for key', key, ':', err instanceof Error ? err.message : err);
                 parsed[key] = value;
               }
             } else {

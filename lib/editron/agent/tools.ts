@@ -42,6 +42,7 @@ import {
 } from "../services/motion-graphics-service";
 import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-transfer-service";
 import { DEFAULT_CONFIG } from '../config/editron-config';
+import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
 import { resolveMotionTokens } from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
@@ -52,10 +53,10 @@ import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 // NEW: getLLMModel(temperature) → shared singleton
 const _llmModelCache: Record<string, ChatGoogleGenerativeAI> = {};
 function getLLMModel(temperature: number): ChatGoogleGenerativeAI {
-  const key = `gemini-3.1-flash-lite-preview-t${temperature}`;
+  const key = `${CHAT_MODEL_NAME}-t${temperature}`;
   if (!_llmModelCache[key]) {
     _llmModelCache[key] = new ChatGoogleGenerativeAI({
-      model: 'gemini-3.1-flash-lite-preview',
+      model: CHAT_MODEL_NAME,
       apiKey: process.env.GEMINI_API_KEY,
       temperature,
     });
@@ -254,7 +255,8 @@ export const createTools = (userId: string, projectId: string) => {
         }
 
         return successEnvelope(parsed, "continue");
-      } catch {
+      } catch (err: unknown) {
+        console.warn('[Tools] JSON parse fallback:', err instanceof Error ? err.message : err);
         return successEnvelope({ text: trimmed }, "continue");
       }
     }
@@ -3729,9 +3731,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           return `Scene ${i + 1} (${startSec}s-${startSec + durSec}s): "${narration}"`;
         }).join('\n');
 
-        const { GoogleGenerativeAI } = await import('@google/generative-ai');
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
+        const genAI = await getGenAI();
+        const model = genAI.getGenerativeModel({ model: CHAT_MODEL_NAME });
 
         const densityGuide = input.density === 'minimal' ? '1-2 total' : input.density === 'heavy' ? 'one per scene' : '2-3 total';
 
@@ -3765,7 +3766,8 @@ ${sceneContext}
         let placements: any[];
         try {
           placements = JSON.parse(jsonStr);
-        } catch {
+        } catch (err: unknown) {
+          console.warn('[Tools] failed to parse Gemini motion graphic suggestions:', err instanceof Error ? err.message : err);
           return JSON.stringify({ status: 'error', message: 'Failed to parse Gemini motion graphic suggestions' });
         }
 
@@ -4509,6 +4511,21 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
+
+        const MAX_GRAPHICS_PER_TYPE: Record<string, number> = {
+          'logo-reveal': 2, 'logo': 2, 'lower-third': 5, 'stat-counter': 4,
+          'keyword-highlight': 4, 'quote-card': 3, 'callout': 2,
+        };
+        const reqType = input.graphicType || '';
+        const typeCap = MAX_GRAPHICS_PER_TYPE[reqType];
+        if (typeCap !== undefined) {
+          const existing = (project.overlays || []).filter(
+            (o: any) => o.metadata?.graphicType === reqType,
+          );
+          if (existing.length >= typeCap) {
+            return JSON.stringify({ status: 'skipped', message: `${reqType} cap reached (${existing.length}/${typeCap})` });
+          }
+        }
 
         // ── COMPOSITION ENGINE PATH ──
         const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;

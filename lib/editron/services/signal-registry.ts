@@ -154,6 +154,8 @@ const CTA_PATTERNS = /\b(?:subscribe|sign up|click|visit|download|get started|tr
 const QUESTION_PATTERN = /\?\s*$/;
 const HEDGED_PATTERNS = /\b(?:maybe|perhaps|around|about|roughly|approximately|could be|might be|probably|I think|it seems)\b/i;
 const NAME_PATTERN = /\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b/; // "John Smith", "Apple Inc"
+// ⚠️ Lookahead window 4 INVENTED — typical comparison phrase "from X to Y" spans ~4 words between numbers.
+const COMPARISON_CONNECTORS = /^(?:to|vs|versus|and|or|compared|than|over|under|from|between)$/i;
 
 // ─── V-JEPA / Wav2Vec Segment Lookup ───────────────────────────────────────
 // Both services produce segments with startMs/endMs. Grid points may fall
@@ -198,6 +200,12 @@ function findWav2VecSegmentAt(
  *   - Wav2Vec: replaces heuristic speech.energy, adds speech.emotion_intensity,
  *              speech.emotional_valence, speech.pitch_variability, speech.stress_detected
  */
+function setOptionalNumber(snapshot: SignalSnapshot, key: string, value: unknown): void {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    snapshot[key] = value;
+  }
+}
+
 export function buildSignalTimeline(
   analyses: AssetAnalysis[],
   rawFootage: RawFootageAnalysis | null,
@@ -299,6 +307,20 @@ export function buildSignalTimeline(
         if (vjepaSeg.eyeContact !== null && vjepaSeg.eyeContact !== undefined) {
           snapshot['visual.eye_contact'] = vjepaSeg.eyeContact;
         }
+        setOptionalNumber(snapshot, 'visual.motion_vector.x', vjepaSeg.motionVectorX);
+        setOptionalNumber(snapshot, 'visual.motion_vector.y', vjepaSeg.motionVectorY);
+        setOptionalNumber(snapshot, 'visual.main_subject.x', vjepaSeg.mainSubjectX);
+        setOptionalNumber(snapshot, 'visual.main_subject.y', vjepaSeg.mainSubjectY);
+        setOptionalNumber(snapshot, 'visual.main_subject.width', vjepaSeg.mainSubjectWidth);
+        setOptionalNumber(snapshot, 'visual.main_subject.height', vjepaSeg.mainSubjectHeight);
+        setOptionalNumber(snapshot, 'visual.text_coverage', vjepaSeg.textCoverage);
+        setOptionalNumber(snapshot, 'visual.text_box_count', vjepaSeg.textBoxCount);
+        setOptionalNumber(snapshot, 'visual.object_count', vjepaSeg.objectCount);
+        setOptionalNumber(snapshot, 'visual.face_count', vjepaSeg.faceCount);
+        setOptionalNumber(snapshot, 'visual.negative_space.top', vjepaSeg.negativeSpaceTop);
+        setOptionalNumber(snapshot, 'visual.negative_space.right', vjepaSeg.negativeSpaceRight);
+        setOptionalNumber(snapshot, 'visual.negative_space.bottom', vjepaSeg.negativeSpaceBottom);
+        setOptionalNumber(snapshot, 'visual.negative_space.left', vjepaSeg.negativeSpaceLeft);
         // Enrich scene_type with V-JEPA action semantics (more accurate than heuristic)
         if (vjepaSeg.actionType === 'talking' || vjepaSeg.actionType === 'still') {
           snapshot['visual.scene_type'] = 'talking-head';
@@ -387,6 +409,7 @@ export function buildSignalTimeline(
     // cinematic_moment: 2+ tracks peaking within 500ms (15 frames at 30fps)
     // Enhanced: V-JEPA visual.significance + Wav2Vec stress_detected contribute as peak sources
     snapshot['composite.cinematic_moment'] = computeCinematicMoment(snapshot, neighbors);
+    snapshot['cinematic_moment'] = snapshot['composite.cinematic_moment'];
 
     // NEW composite: emotional_alignment — do visual and vocal emotions agree?
     // When V-JEPA face_emotion and Wav2Vec emotional_valence are both present,
@@ -474,6 +497,27 @@ export function buildSignalTimeline(
           value: true,
           context: word.word,
         });
+
+        // Number sequence: "from 10% to 85%", "50 vs 300", "between 2 and 5"
+        // Look ahead up to 4 words for a second number with a comparison connector.
+        for (let j = i + 1; j <= Math.min(i + 4, words.length - 1); j++) {
+          if (NUMBER_PATTERN.test(words[j].word)) {
+            const between = words.slice(i + 1, j).map(w => w.word);
+            // EVERY between-word must be a connector — a real comparison has only connectors
+            // between the two numbers. `.some` over-consolidated sentences like
+            // "6 and left at 8" into a false sequence (adversarial sweep finding).
+            if (between.length === 0 || between.every(w => COMPARISON_CONNECTORS.test(w))) {
+              timeline.eventSignals.push({
+                timestampMs: word.startMs,
+                frame,
+                signal: 'entity.number',
+                value: true,
+                context: words.slice(i, j + 1).map(w => w.word).join(' '),
+              });
+            }
+            break;
+          }
+        }
       }
 
       // Entity: CTA
@@ -626,7 +670,7 @@ export function buildSignalTimeline(
 
   // V-JEPA face coverage (if available)
   const vjFace = hasVjepa && vjepaSegments?.length
-    ? vjepaSegments.filter(s => (s.eyeContact ?? 0) > 0.3 || s.faceEmotion != null).length / vjepaSegments.length
+    ? vjepaSegments.filter(s => s.eyeContact === true || s.faceEmotion != null).length / vjepaSegments.length
     : (speechCov > 0.3 ? 0.5 : 0.2); // ⚠️ INVENTED fallback
 
   // enthusiasm ← vocal energy + emotion boost. Fallback: speechCoverage proxy.
@@ -671,6 +715,18 @@ export function buildSignalTimeline(
     + Math.min(rhetoricalCount * 0.05, 0.15)
     + positiveEnergy
   ));
+
+  // Bare-key aliases: overlay definitions use bare IDs ("formality"), signal registry
+  // uses namespaced ("content.formality"). Without aliases, Path D scoring resolves
+  // 86 of 158 signalId references to undefined — 45% of input data silently lost.
+  timeline.globalSignals['formality'] = timeline.globalSignals['content.formality'];
+  timeline.globalSignals['enthusiasm'] = timeline.globalSignals['personality.enthusiasm'];
+  timeline.globalSignals['warmth'] = timeline.globalSignals['personality.warmth'];
+  timeline.globalSignals['emotional_arousal'] = timeline.globalSignals['personality.emotional_arousal'];
+  timeline.globalSignals['pacing_velocity'] = timeline.globalSignals['personality.pacing_velocity'];
+  timeline.globalSignals['visceral_impact'] = timeline.globalSignals['personality.visceral_impact'];
+  timeline.globalSignals['visual_dependency'] = timeline.globalSignals['personality.visual_dependency'];
+  timeline.globalSignals['humor'] = timeline.globalSignals['personality.humor'];
 
   return timeline;
 }
@@ -1086,7 +1142,7 @@ function getBrightnessStabilityAt(analysis: AssetAnalysis, frame: number): numbe
   return Math.max(0, 1 - delta * 3);
 }
 
-function computeVES(snapshot: Record<string, number | boolean | string>): number {
+function computeVES(snapshot: SignalSnapshot): number {
   let weightSum = 0;
   let valueSum = 0;
   const components: Array<{ key: string; weight: number }> = [
@@ -1127,15 +1183,48 @@ export function buildSignalTimelineFromAnalysis(
 
   for (const seg of segmentAnalysis.segments) {
     if (seg.visual) {
+      const visual = seg.visual;
+      const mainSubject = visual.mainSubject ?? {
+        x: visual.mainSubjectX ?? 0,
+        y: visual.mainSubjectY ?? 0,
+        width: visual.mainSubjectWidth ?? 0,
+        height: visual.mainSubjectHeight ?? 0,
+        confidence: 0,
+      };
       vjepaSegments.push({
         startMs: seg.startMs,
         endMs: seg.endMs,
-        visualSignificance: seg.visual.significance,
-        motionIntensity: seg.visual.motionIntensity,
-        actionType: seg.visual.actionType,
-        motionType: seg.visual.motionType,
-        faceEmotion: seg.visual.faceEmotion,
-        eyeContact: seg.visual.eyeContact,
+        visualSignificance: visual.significance,
+        motionIntensity: visual.motionIntensity,
+        actionType: visual.actionType,
+        motionType: visual.motionType,
+        faceEmotion: visual.faceEmotion,
+        eyeContact: visual.eyeContact,
+        motionVectorX: visual.motionVectorX ?? 0,
+        motionVectorY: visual.motionVectorY ?? 0,
+        mainSubject,
+        mainSubjectX: visual.mainSubjectX ?? mainSubject.x,
+        mainSubjectY: visual.mainSubjectY ?? mainSubject.y,
+        mainSubjectWidth: visual.mainSubjectWidth ?? mainSubject.width,
+        mainSubjectHeight: visual.mainSubjectHeight ?? mainSubject.height,
+        textBoxes: visual.textBoxes ?? [],
+        textBoxCount: visual.textBoxCount ?? 0,
+        textCoverage: visual.textCoverage ?? 0,
+        objectCount: visual.objectCount ?? 0,
+        faceCount: visual.faceCount ?? 0,
+        negativeSpaceTop: visual.negativeSpaceTop ?? 0,
+        negativeSpaceRight: visual.negativeSpaceRight ?? 0,
+        negativeSpaceBottom: visual.negativeSpaceBottom ?? 0,
+        negativeSpaceLeft: visual.negativeSpaceLeft ?? 0,
+        primitivePresence: visual.primitivePresence ?? {
+          motionVector: false,
+          mainSubject: false,
+          textBoxes: false,
+          textCoverage: false,
+          objectCount: false,
+          faceCount: false,
+          negativeSpace: false,
+        },
       });
     }
     if (seg.vocal) {

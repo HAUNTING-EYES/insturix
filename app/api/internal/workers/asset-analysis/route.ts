@@ -314,7 +314,7 @@ Return JSON only:
           { $set: { analysisStatus: 'failed', analysisError: error.message } },
         );
       }
-    } catch { /* best effort */ }
+    } catch (err: unknown) { console.warn('[AssetAnalysis] best-effort failure mark failed:', err instanceof Error ? err.message : err); }
 
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }

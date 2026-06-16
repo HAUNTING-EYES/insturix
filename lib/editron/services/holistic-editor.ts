@@ -15,6 +15,7 @@
  */
 
 import type { TranscriptSegment, SilenceRemovalAction } from './raw-footage-processor';
+import type { PipelineWarningCollector } from './pipeline-warnings';
 
 export interface HolisticEditResult {
   /** Segment indices to KEEP */
@@ -29,6 +30,7 @@ export interface HolisticEditResult {
 
 export async function makeHolisticEditDecisions(
   segments: TranscriptSegment[],
+  pipelineWarnings?: PipelineWarningCollector,
 ): Promise<HolisticEditResult | null> {
   if (segments.length < 5) return null;
 
@@ -124,6 +126,7 @@ ${segmentList}
     };
   } catch (err: any) {
     console.warn(`[HolisticEditor] Failed: ${err.message}. Falling back to fragment-based pipeline.`);
+    pipelineWarnings?.errorSwallowed('director', err instanceof Error ? err : new Error(String(err)), 'holistic editor decisions');
     return null;
   }
 }

@@ -29,6 +29,7 @@ export interface AnimationState {
   opacity: number;
   translateX: number;
   translateY: number;
+  translateZ?: number;
   scaleX: number;
   scaleY: number;
   rotation: number;
@@ -154,6 +155,27 @@ function applyEntranceState(progress: number, pattern: EntrancePattern, s: Spati
       return { ...NEUTRAL, opacity: progress, filterBlur: (1 - progress) * 20 };
     case 'draw':
       return { ...NEUTRAL, clipProgress: progress };
+    case 'rotate-in':
+      // ⚠️ 15deg INVENTED — AE practice: 10-20deg for subtle rotation reveals
+      return { ...NEUTRAL, opacity: progress, rotation: (1 - progress) * 15, scaleX: s.scaleFrom + progress * (1 - s.scaleFrom), scaleY: s.scaleFrom + progress * (1 - s.scaleFrom) };
+    case 'skew-in':
+      // ⚠️ 10deg INVENTED — AE practice: 8-15deg for dynamic slide feel (broadcast news style)
+      return { ...NEUTRAL, opacity: progress,
+        skewX: (1 - progress) * 10,
+        translateX: (1 - progress) * -s.horizontalSlidePx * 0.5,
+      };
+    case 'zoom-blur':
+      // Dramatic impact reveal: element starts large + blurred, settles to normal
+      // ⚠️ scale 2.0, blur 30px INVENTED — AE practice for dramatic MG reveals
+      return { ...NEUTRAL, opacity: progress,
+        scaleX: 1 + (1 - progress) * 1.0,
+        scaleY: 1 + (1 - progress) * 1.0,
+        filterBlur: (1 - progress) * 30,
+      };
+    case 'scramble':
+      // CSS fallback for GSAP ScrambleTextPlugin — opacity fade only.
+      // Actual text scramble handled by GSAP timeline in composition-renderer.
+      return { ...NEUTRAL, opacity: progress };
     default:
       return { ...NEUTRAL, opacity: progress };
   }
@@ -195,9 +217,19 @@ function getSettleFrames(pattern: EntrancePattern): number {
     case 'slide-down':
       // ⚠️ 6 frames INVENTED — position overshoots less visibly than scale
       return 6;
+    case 'rotate-in':
+      // ⚠️ 6 frames INVENTED — rotational inertia similar to translational (same class as slide)
+      return 6;
+    case 'skew-in':
+      // ⚠️ 4 frames INVENTED — lighter visual weight than rotation
+      return 4;
+    case 'zoom-blur':
+      // ⚠️ 8 frames INVENTED — heavy visual element, same class as scale
+      return 8;
     case 'fade':
     case 'blur-in':
     case 'draw':
+    case 'scramble':
     default:
       return 0;
   }
@@ -225,6 +257,15 @@ function applyFollowThrough(progress: number, pattern: EntrancePattern): Animati
       return { ...NEUTRAL, translateY: wave * -3 };
     case 'slide-down':
       return { ...NEUTRAL, translateY: wave * 3 };
+    case 'rotate-in':
+      // ⚠️ 1.5deg overshoot INVENTED — 10% of 15deg entrance rotation
+      return { ...NEUTRAL, rotation: wave * -1.5 };
+    case 'skew-in':
+      // ⚠️ 1deg overshoot INVENTED — 10% of 10deg entrance skew
+      return { ...NEUTRAL, skewX: wave * -1 };
+    case 'zoom-blur':
+      // ⚠️ 0.04 (4%) scale overshoot — same range as scale-up/pop
+      return { ...NEUTRAL, scaleX: 1 + wave * 0.04, scaleY: 1 + wave * 0.04 };
     default:
       return { ...NEUTRAL };
   }
@@ -254,6 +295,17 @@ function applyHoldAnimation(frame: number, timing: ComputedChoreography, pattern
       const wave = Math.sin(phase * Math.PI * 2);
       return { ...NEUTRAL, translateY: wave * 3 };
     }
+    case 'glow': {
+      // Pulsing text shadow + brightness for neon/emphasis effect
+      // ⚠️ 8px shadow, 1.1 brightness INVENTED — AE practice: 6-12px glow, 105-115% brightness for neon pulse
+      const wave = (1 + Math.sin(phase * Math.PI * 2)) * 0.5;
+      return { ...NEUTRAL, textShadowBlur: wave * 8, filterBrightness: 1 + wave * 0.1 };
+    }
+    case 'morph':
+      // CSS fallback for GSAP MorphSVGPlugin — subtle scale oscillation.
+      // Actual SVG path morphing handled by GSAP timeline in composition-renderer.
+      // ⚠️ 0.015 amplitude INVENTED — weaker than pulse (0.02), morph is subtle shape change
+      return { ...NEUTRAL, scaleX: 1 + Math.sin(phase * Math.PI * 2) * 0.015, scaleY: 1 + Math.cos(phase * Math.PI * 2) * 0.015 };
     case 'static':
     default:
       return { ...NEUTRAL };
@@ -299,6 +351,22 @@ function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig
       return { ...NEUTRAL, opacity: inv, filterBlur: progress * 20 };
     case 'draw-reverse':
       return { ...NEUTRAL, clipProgress: inv };
+    case 'rotate-out':
+      return { ...NEUTRAL, opacity: inv, rotation: progress * -15, scaleX: inv, scaleY: inv };
+    case 'skew-out':
+      return { ...NEUTRAL, opacity: inv,
+        skewX: progress * -10,
+        translateX: progress * s.horizontalSlidePx * 0.5,
+      };
+    case 'zoom-blur-out':
+      return { ...NEUTRAL, opacity: inv,
+        scaleX: 1 + progress * 1.0,
+        scaleY: 1 + progress * 1.0,
+        filterBlur: progress * 30,
+      };
+    case 'scramble-out':
+      // CSS fallback — opacity fade. Actual text un-scramble handled by GSAP.
+      return { ...NEUTRAL, opacity: inv };
     default:
       return { ...NEUTRAL, opacity: inv };
   }
@@ -306,8 +374,10 @@ function applyExitState(progress: number, pattern: ExitPattern, s: SpatialConfig
 
 export function buildTransformStyle(anim: AnimationState): React.CSSProperties {
   const transforms: string[] = [];
+  if ((anim.translateZ ?? 0) !== 0) transforms.push('perspective(800px)');
   if (anim.translateX !== 0) transforms.push(`translateX(${anim.translateX}px)`);
   if (anim.translateY !== 0) transforms.push(`translateY(${anim.translateY}px)`);
+  if ((anim.translateZ ?? 0) !== 0) transforms.push(`translateZ(${anim.translateZ}px)`);
   if (anim.scaleX !== 1 || anim.scaleY !== 1) {
     transforms.push(anim.scaleX === anim.scaleY
       ? `scale(${anim.scaleX})`
@@ -325,6 +395,7 @@ export function buildTransformStyle(anim: AnimationState): React.CSSProperties {
   return {
     opacity: anim.opacity,
     transform: transforms.length > 0 ? transforms.join(' ') : undefined,
+    transformStyle: (anim.translateZ ?? 0) !== 0 ? 'preserve-3d' : undefined,
     filter: filters.length > 0 ? filters.join(' ') : undefined,
     willChange: 'transform, opacity',
   };
@@ -388,19 +459,134 @@ export function buildShapeStyle(
     style.borderRadius = '50%';
   }
 
+  // Structural-move anchoring: position relative to the content block via CSS.
+  // Deterministic (no DOM measurement) — Remotion-safe. The content flex container
+  // is the positioning context (see resolveLayout: position absolute + isolation).
+  if (el.anchor && el.anchor.mode !== 'flow') {
+    const a = el.anchor;
+    if (a.mode === 'flow-span') {
+      // Stays in the flex flow (between elements) but stretches to full column width.
+      // For rules (divider/underline): thickness sets the line height.
+      style.alignSelf = 'stretch';
+      style.width = '100%';
+      if (a.thickness != null) style.height = `${a.thickness}px`;
+    } else {
+      style.position = 'absolute';
+      if (a.mode === 'block-fill') {
+        const ins = a.inset ?? 0;
+        style.top = `${ins}px`;
+        style.right = `${ins}px`;
+        style.bottom = `${ins}px`;
+        style.left = `${ins}px`;
+        // Backdrop sits BEHIND static-flow content. z-index:-1 + wrapper isolation
+        // keeps it contained below the text without touching every text element.
+        if (el.layer === 'background') style.zIndex = -1;
+      } else if (a.mode === 'block-edge') {
+        const t = a.thickness ?? 4;
+        const side = a.side ?? 'bottom';
+        if (side === 'left') { style.left = 0; style.top = 0; style.bottom = 0; style.width = `${t}px`; style.height = undefined; }
+        else if (side === 'right') { style.right = 0; style.top = 0; style.bottom = 0; style.width = `${t}px`; style.height = undefined; }
+        else if (side === 'top') { style.top = 0; style.left = 0; style.right = 0; style.height = `${t}px`; }
+        else { style.bottom = 0; style.left = 0; style.right = 0; style.height = `${t}px`; }
+      }
+    }
+  }
+
   return style;
+}
+
+// ─── Text fit-to-box (G-1 brushwork) ─────────────────────────────────────────
+// buildTextStyle is a PURE style builder with no DOM/canvas access, so the actual
+// fit (which needs the container px width) is computed by the renderer component via
+// fitFontSize() and passed into buildTextStyle as `fittedSizePx`. Absent → legacy floor.
+//
+// Measurement is a CONSERVATIVE estimator: it OVER-estimates width so the fit can never
+// overflow. It is isolated behind estimateTextWidth() so @remotion/layout-utils measureText
+// can replace it for pixel precision later (G-1b) without touching any caller.
+// ⚠️ glyph-advance ratios INVENTED — conservative-by-design; calibrate / replace with layout-utils.
+const GLYPH_ADVANCE_RATIO = 0.6;        // avg glyph width / fontSize, mixed-case geometric sans
+const GLYPH_ADVANCE_RATIO_CAPS = 0.68;  // uppercase runs wider
+const BOLD_WIDTH_FACTOR = 1.05;         // bold adds ~5% advance
+
+export interface TextFitOpts {
+  uppercase?: boolean;
+  bold?: boolean;
+  letterSpacingPx?: number;
+  safeFraction?: number; // fraction of the box the text may occupy (title-safe margin)
+}
+
+/** Conservative single-line width estimate (px). Over-estimates so a fit never overflows. */
+export function estimateTextWidth(text: string, fontSizePx: number, opts?: TextFitOpts): number {
+  if (!text || fontSizePx <= 0) return 0;
+  const ratio = opts?.uppercase ? GLYPH_ADVANCE_RATIO_CAPS : GLYPH_ADVANCE_RATIO;
+  const boldFactor = opts?.bold ? BOLD_WIDTH_FACTOR : 1;
+  const glyphs = fontSizePx * ratio * boldFactor * text.length;
+  const tracking = (opts?.letterSpacingPx || 0) * Math.max(0, text.length - 1);
+  return glyphs + tracking;
+}
+
+/**
+ * Largest font size (px) at which `text` fits its box without overflowing or breaking a word.
+ * The LONGEST WORD must fit on one line within boxWidthPx (multi-word phrases wrap at spaces).
+ * Returns min(desired, width-fit). If even the readable floor can't fit the longest word, returns the
+ * smaller width-fit size (stays on-frame) and logs (fail-loud) — fit always beats the floor, never overflows.
+ */
+export function fitFontSize(
+  text: string,
+  boxWidthPx: number,
+  desiredPx: number,
+  minReadablePx: number,
+  opts?: TextFitOpts,
+  measure?: (text: string, fontPx: number) => number, // G-1b: exact width (canvas) in the render browser; NaN → estimator
+): number {
+  if (!text || boxWidthPx <= 0 || desiredPx <= 0) return desiredPx;
+  const safe = boxWidthPx * (opts?.safeFraction ?? 0.9);
+  const words = text.split(/\s+/).filter(Boolean);
+  // The longest word guards no-mid-word breaks. The full phrase only guards short titles that
+  // should remain one-line; long sentence/quote/body copy must be allowed to wrap at spaces.
+  const longestWord = words.reduce((a, b) => (b.length > a.length ? b : a), '');
+  const wordTarget = longestWord || text;
+  const phraseTarget = text.trim();
+  // INVENTED / CALIBRATION TARGET:
+  // Short title phrase-fit threshold. Long copy is allowed to wrap; tune with rendered MG calibration.
+  const shouldFitPhrase = phraseTarget.length <= 34 && words.length <= 5;
+  // G-1b: prefer exact measurement when the caller supplies one (browser canvas); fall back to the
+  // conservative estimator (Node scripts/tests, or measurement unavailable). measureText is ~linear
+  // in fontSize, so the single-step scale below stays accurate.
+  const widthAt = (target: string, px: number): number => {
+    const m = measure ? measure(target, px) : NaN;
+    return Number.isFinite(m) ? m : estimateTextWidth(target, px, opts);
+  };
+  const wordWidthAtDesired = widthAt(wordTarget, desiredPx);
+  const phraseWidthAtDesired = shouldFitPhrase ? widthAt(phraseTarget, desiredPx) : 0;
+  const widthAtDesired = Math.max(wordWidthAtDesired, phraseWidthAtDesired);
+  const logTarget = phraseWidthAtDesired >= wordWidthAtDesired ? phraseTarget : wordTarget;
+  const target = logTarget;
+  let size = widthAtDesired <= safe ? desiredPx : desiredPx * (safe / widthAtDesired);
+  if (size < minReadablePx) {
+    // The longest word can't reach the readable floor in this box. FIT WINS over the floor — a slightly
+    // small word that stays on-frame beats one clamped up to minReadable and clipped off-frame (the
+    // 9:16 / 1:1 narrow-box overflow bug). `size` already fits `safe` by construction, so keep it.
+    console.warn(`[MG-Fit] "${target}" fits ${Math.round(boxWidthPx)}px only at ${Math.round(size)}px (< min ${Math.round(minReadablePx)}px) — kept small to avoid overflow`);
+  }
+  return Math.min(size, desiredPx);
 }
 
 export function buildTextStyle(
   el: ResolvedElement,
   anim: AnimationState,
+  fittedSizePx?: number, // G-1: render-time fit-to-box result; overrides the legacy floor when present
 ): React.CSSProperties {
   const base = buildTransformStyle(anim);
   const p = el.resolvedProps;
 
-  const baseFontSize = p.minSize
-    ? Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1))
-    : undefined;
+  // G-1: prefer the render-time fitted size (fits the title-safe box, never overflows).
+  // Legacy floor only when no fit was supplied (group children, scripts) — backward-compatible.
+  const baseFontSize = fittedSizePx != null
+    ? fittedSizePx
+    : p.minSize
+      ? Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1))
+      : undefined;
 
   const computedFontSize = baseFontSize && anim.fontSize !== 1
     ? baseFontSize * anim.fontSize
@@ -420,6 +606,13 @@ export function buildTextStyle(
     letterSpacing: computedLetterSpacing,
     textTransform: p.transform as React.CSSProperties['textTransform'] || undefined,
     lineHeight: p.lineHeight != null ? Number(p.lineHeight) : 1.2,
+    // G-1: never break inside a word. Long words are sized to fit (fitFontSize); multi-word
+    // phrases wrap at spaces. Explicit here to override any inherited mid-word-break behaviour.
+    minWidth: 0,
+    maxWidth: '100%',
+    whiteSpace: 'normal',
+    overflowWrap: 'normal',
+    wordBreak: 'normal',
   };
 
   if (p.anchorX != null || p.anchorY != null) {
@@ -431,6 +624,18 @@ export function buildTextStyle(
   if (anim.textShadowBlur > 0) {
     const shadowColor = p.color as string || '#FFFFFF';
     style.textShadow = `0 0 ${anim.textShadowBlur}px ${shadowColor}`;
+  }
+
+  // Gradient text fill (composable, planner-gated to rare brand/hero moments). The fill is
+  // clipped to the glyphs via background-clip:text — supported by Remotion's headless
+  // Chromium and already used in this project's editor overlay templates. The planner never
+  // sets textSplit on a gradient element (a per-char split would break the continuous fill).
+  if (p.textGradient) {
+    style.background = String(p.textGradient);
+    style.backgroundClip = 'text';
+    style.WebkitBackgroundClip = 'text';
+    style.WebkitTextFillColor = 'transparent';
+    style.color = 'transparent';
   }
 
   return style;

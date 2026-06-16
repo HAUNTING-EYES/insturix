@@ -372,10 +372,10 @@ async function sendAudioToGemini(params: {
   summary: string;
 }> {
   // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
-  const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
+  const { getGenAI, ANALYSIS_MODEL_NAME } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
   const model = genAI.getGenerativeModel({
-    model: process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview',
+    model: ANALYSIS_MODEL_NAME,
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 2048,
@@ -486,10 +486,10 @@ export async function sendVideoToGemini(params: {
   theme: string;
 }> {
   // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
-  const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
+  const { getGenAI, ANALYSIS_MODEL_NAME } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
   const model = genAI.getGenerativeModel({
-    model: process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview',
+    model: ANALYSIS_MODEL_NAME,
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 2048,

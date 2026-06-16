@@ -2,23 +2,34 @@
  * Tier 1 Aesthetic Gate — Structural Quality Check (No API, No Rendering)
  *
  * Checks Recipe + MotionTokens + video analysis BEFORE rendering.
- * Catches 80% of aesthetic issues at zero cost, zero latency.
+ * Catches the structural aesthetic issues at zero cost, zero latency.
  *
  * Checks:
  *   1. Contrast ratio: text vs surface (WCAG AA: 4.5:1 normal, 3:1 large)
- *   2. CRG size compliance: all text meets minimum font sizes
+ *   2. CRG per-role font floors: each text element's minSize meets its role's CRG minimum
+ *      (counter 64 / primary 48 / secondary 36 / label 36, else general 72) — the
+ *      constraint:overlay.graphic_too_small check (was: a weak <24px-only check).
  *   3. Element density: too many foreground elements = visual clutter
  *   4. Frame brightness match: dark-on-dark or light-on-light detection
+ *   5. Focal hierarchy: exactly one hero text element (no two competing focal points)
  *
- * Called inline by EDL executor after planComposition, before overlay creation.
- * If gate fails, recipe is logged but NOT blocked (first iteration = observe, not enforce).
+ * NOT checked here (deliberately): title-safe pixel clipping. The recipe carries no
+ * measured pixel bounds at plan time; title-safe is already enforced by (a) the layout's
+ * 5% insets (composition-renderer.tsx resolveLayout, = title_safe 90%) and (b) G-1's
+ * render-time text fit (composition-renderer.tsx computeFittedSize, which fails loud via
+ * [MG-Fit]). A plan-time title-safe heuristic would be redundant + false-positive-prone.
+ *
+ * Phase E — OBSERVE MODE. Called inline by the EDL executor after planComposition
+ * (edl-executor.ts:1169). The result's `pass` is LOGGED, never acted on (no blocking, no
+ * correction). The log line is structured so an offline sweep over real projects can tally
+ * the would-suppress rate by dimension BEFORE we ever flip the gate to enforce (Rule 29).
  */
 
-import type { Recipe, RecipeElement } from './recipe-types';
+import type { Recipe } from './recipe-types';
 import type { MotionTokens } from '../types';
 
 export interface StructuralIssue {
-  dimension: 'contrast' | 'readability' | 'density' | 'brightness-match';
+  dimension: 'contrast' | 'readability' | 'density' | 'brightness-match' | 'hierarchy';
   severity: 'low' | 'medium' | 'high';
   description: string;
 }
@@ -30,6 +41,25 @@ export interface StructuralGateResult {
 }
 
 const PASS_THRESHOLD = 60;
+
+// CRG per-role font floors @1080p (constraint:overlay.graphic_too_small + per-role constants,
+// verified against creative-knowledge-graph.json this session). Specific role floors win;
+// roles not listed fall back to the general "unreadable on mobile" floor. These are GRAPHIC
+// floors — captions are a separate overlay type with their own 48px floor (BBC/Facebook), not
+// validated by this gate.
+const CRG_MIN_FONTS: Record<string, number> = {
+  counter: 64,    // constant:typography.stat_counter_min_font (graph 16725)
+  primary: 48,    // constant:typography.lower_third_name_min_font (graph 16667)
+  secondary: 36,  // constant:typography.lower_third_title_min_font (graph 16696)
+  label: 36,      // constant:typography.callout_label_min_font (graph 16812)
+};
+const GENERAL_MIN_FONT = 72; // constraint:overlay.graphic_too_small (graph 9947): "<72px @1080p unreadable on mobile"
+const UNREADABLE_FLOOR = 24; // hard floor — below this is unreadable at any role
+
+// Text roles that occupy a hero (focal) size. The render maps these to the largest FOCAL_FRAC
+// (~0.09 of frame height vs ~0.055 for secondary/label — composition-renderer.tsx:291), so a
+// recipe with two of them has no single focal point.
+const HERO_ROLES = new Set(['primary', 'counter', 'hero']);
 
 export function checkCompositionStructure(
   recipe: Recipe,
@@ -53,13 +83,21 @@ export function checkCompositionStructure(
     deductions += 15;
   }
 
-  // 2. CRG size compliance: text elements with minSize must meet CRG minimums
+  // 2. CRG per-role font floors (constraint:overlay.graphic_too_small + per-role constants).
+  // A declared minSize below the role's CRG floor means the text can render unreadably small
+  // (G-1's render-time fit may shrink toward minReadable). <24px is the hard unreadable line;
+  // below the per-role floor is the CRG-ideal miss. OBSERVE-ONLY (logged, not corrected).
   const textElements = recipe.elements.filter(el => el.primitive === 'text');
   for (const el of textElements) {
     const minSize = el.bind.minSize;
-    if (typeof minSize === 'number' && minSize < 24) {
-      issues.push({ dimension: 'readability', severity: 'high', description: `Element "${el.role}" minSize=${minSize}px — below 24px readable minimum` });
+    if (typeof minSize !== 'number') continue;
+    const roleFloor = CRG_MIN_FONTS[el.role] ?? GENERAL_MIN_FONT;
+    if (minSize < UNREADABLE_FLOOR) {
+      issues.push({ dimension: 'readability', severity: 'high', description: `Element "${el.role}" minSize=${minSize}px — below ${UNREADABLE_FLOOR}px unreadable floor` });
       deductions += 20;
+    } else if (minSize < roleFloor) {
+      issues.push({ dimension: 'readability', severity: 'medium', description: `Element "${el.role}" minSize=${minSize}px — below CRG ${el.role} floor ${roleFloor}px (graphic_too_small)` });
+      deductions += 8; // ⚠️ INVENTED magnitude — observe-mode calibration target
     }
   }
 
@@ -103,8 +141,10 @@ export function checkCompositionStructure(
     if (brightness > 0.7 && textBright) {
       // ⚠️ threshold 0.7 INVENTED — light text on bright frame = low contrast
       issues.push({ dimension: 'brightness-match', severity: 'medium', description: `Light text on bright frame (frame=${brightness.toFixed(2)}) — may be hard to read without surface` });
-      // Check if surface provides contrast
-      const surfaceOpacity = tokens.surface.surfaceOpacity;
+      // Check if surface provides contrast. surfaceOpacity lives under `color`, not `surface`
+      // (MotionTokens.color.surfaceOpacity) — the wrong namespace was undefined, so this
+      // legibility deduction silently never fired (found via real-resolver render check 2026-05-30).
+      const surfaceOpacity = tokens.color.surfaceOpacity;
       if (surfaceOpacity < 0.3) {
         deductions += 15;
       }
@@ -114,11 +154,25 @@ export function checkCompositionStructure(
     }
   }
 
+  // 5. Focal hierarchy: exactly one hero. The render assigns focal size by role (FOCAL_FRAC),
+  // so hierarchy is normally built in. Flag the failure case: 2+ text elements both claim a
+  // hero role → no single focal point. The gate VALIDATES hierarchy; the spine AUTHORS it
+  // (Director GAP4). OBSERVE-ONLY.
+  const heroRoles = textElements.filter(el => HERO_ROLES.has(el.role)).map(el => el.role);
+  if (heroRoles.length > 1) {
+    issues.push({ dimension: 'hierarchy', severity: 'medium', description: `${heroRoles.length} hero-scale text elements (${heroRoles.join(', ')}) — no single focal point` });
+    deductions += 12; // ⚠️ INVENTED magnitude — observe-mode calibration target
+  }
+
   const score = Math.max(0, 100 - deductions);
   const pass = score >= PASS_THRESHOLD;
 
+  // OBSERVE-ONLY: the caller (edl-executor.ts:1169) does NOT block on `pass`. Structured so an
+  // offline sweep (scripts/eval-mg-gate.ts) can tally the would-suppress rate by dimension over
+  // real projects before we flip to enforce (Rule 29: enforce only at FP-suppression ≈ 0).
   if (!pass) {
-    console.warn(`[MG-StructuralGate] FAIL (${score}/100): ${issues.map(i => i.description).join('; ')}`);
+    const dims = [...new Set(issues.map(i => i.dimension))].join(',');
+    console.warn(`[MG-Gate] WOULD-SUPPRESS ${recipe.id} (${score}/100) dims=[${dims}]: ${issues.map(i => i.description).join('; ')}`);
   }
 
   return { pass, score, issues };

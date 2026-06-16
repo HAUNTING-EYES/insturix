@@ -130,9 +130,7 @@ export async function isNeo4jAvailable(): Promise<boolean> {
     const driver = getDriver();
     const info = await driver.getServerInfo();
     return !!info;
-  } catch {
-    return false;
-  }
+  } catch (err: unknown) { console.warn('[Neo4j] availability check failed:', err instanceof Error ? err.message : err); return false; }
 }
 
 /**

@@ -36,6 +36,28 @@ export type VjepaFaceEmotion =
   | 'happy' | 'sad' | 'angry' | 'surprised'
   | 'fearful' | 'disgusted' | 'neutral' | 'contempt';
 
+export interface VjepaPrimitiveBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence?: number;
+}
+
+export interface VjepaTextBox extends VjepaPrimitiveBox {
+  text?: string;
+}
+
+export interface VjepaPrimitivePresence {
+  motionVector: boolean;
+  mainSubject: boolean;
+  textBoxes: boolean;
+  textCoverage: boolean;
+  objectCount: boolean;
+  faceCount: boolean;
+  negativeSpace: boolean;
+}
+
 export interface VjepaSegmentResult {
   startMs: number;
   endMs: number;
@@ -45,6 +67,23 @@ export interface VjepaSegmentResult {
   motionType: VjepaMotionType;
   faceEmotion: VjepaFaceEmotion | null;
   eyeContact: boolean | null;
+  motionVectorX: number;         // -1..1, signed dominant visual movement
+  motionVectorY: number;         // -1..1, signed dominant visual movement
+  mainSubject: VjepaPrimitiveBox;
+  mainSubjectX: number;
+  mainSubjectY: number;
+  mainSubjectWidth: number;
+  mainSubjectHeight: number;
+  textBoxes: VjepaTextBox[];
+  textBoxCount: number;
+  textCoverage: number;
+  objectCount: number;
+  faceCount: number;
+  negativeSpaceTop: number;
+  negativeSpaceRight: number;
+  negativeSpaceBottom: number;
+  negativeSpaceLeft: number;
+  primitivePresence: VjepaPrimitivePresence;
 }
 
 export interface VjepaAnalysisResult {
@@ -64,6 +103,22 @@ interface ModalVjepaSegment {
   motion_type?: string;
   face_emotion?: string;
   eye_contact?: boolean;
+  motion_vector_x?: number;
+  motion_vector_y?: number;
+  main_subject?: Partial<VjepaPrimitiveBox>;
+  main_subject_x?: number;
+  main_subject_y?: number;
+  main_subject_width?: number;
+  main_subject_height?: number;
+  text_boxes?: Array<Partial<VjepaTextBox>>;
+  text_box_count?: number;
+  text_coverage?: number;
+  object_count?: number;
+  face_count?: number;
+  negative_space_top?: number;
+  negative_space_right?: number;
+  negative_space_bottom?: number;
+  negative_space_left?: number;
 }
 
 interface ModalVjepaResponse {
@@ -91,11 +146,10 @@ const VALID_FACE_EMOTIONS: Set<string> = new Set([
   'fearful', 'disgusted', 'neutral', 'contempt',
 ]);
 
-const REQUEST_TIMEOUT_MS = 45_000; // 45s per batch — Modal warm container responds in ~10-20s.
-                                   // Cold start takes 60-90s → will timeout and return null.
-                                   // Use warmupVjepa() during upload to pre-warm the container.
-const BATCH_SIZE = 30;             // ⚠️ INVENTED — based on "warm container handles ~20 in 10-20s"
-                                   // with margin. Keeps each batch well within 45s timeout.
+const REQUEST_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_REQUEST_TIMEOUT_MS', 90_000);
+const BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_BATCH_SIZE', 20);
+const RETRY_BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_RETRY_BATCH_SIZE', 5);
+const TOTAL_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_TOTAL_TIMEOUT_MS', 600_000);
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
 
@@ -161,54 +215,20 @@ export async function analyzeVideoWithVjepa(
 
     console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     const batchStartMs = Date.now();
+    const deadlineMs = batchStartMs + TOTAL_TIMEOUT_MS;
 
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      const response = await fetch(MODAL_VJEPA_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Token ${tokenId}:${tokenSecret}`,
-        },
-        body: JSON.stringify({
-          video_url: videoUrl,
-          segments: batch.map(s => ({
-            start_ms: s.startMs,
-            end_ms: s.endMs,
-          })),
-          features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
-        }),
-        signal: controller.signal,
+      const mapped = await analyzeBatchWithFallback({
+        videoUrl,
+        batch,
+        batchIndex: b,
+        batchCount: batches.length,
+        tokenId,
+        tokenSecret,
+        deadlineMs,
       });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        console.error(`[VjepaService] Batch ${b + 1}/${batches.length} failed: ${response.status} ${response.statusText}`);
-        // Short-circuit on first failure — partial V-JEPA data is worse than none
-        // (moment weights expect full coverage or null, not partial)
-        return null;
-      }
-
-      const data = (await response.json()) as ModalVjepaResponse;
-      if (!data?.segments?.length) {
-        console.warn(`[VjepaService] Batch ${b + 1}/${batches.length}: empty response`);
-        return null;
-      }
-
-      const mapped: VjepaSegmentResult[] = data.segments.map(s => ({
-        startMs: s.start_ms,
-        endMs: s.end_ms,
-        visualSignificance: clamp(s.visual_significance, 0, 1),
-        motionIntensity: clamp(s.motion_intensity, 0, 1),
-        actionType: parseActionType(s.action_type),
-        motionType: parseMotionType(s.motion_type),
-        faceEmotion: parseFaceEmotion(s.face_emotion),
-        eyeContact: s.eye_contact ?? null,
-      }));
+      if (!mapped?.length) return null;
 
       allResults.push(...mapped);
       console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
@@ -229,6 +249,103 @@ export async function analyzeVideoWithVjepa(
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[VjepaService] Analysis failed: ${msg}`);
     return null;
+  }
+}
+
+async function analyzeBatchWithFallback(args: {
+  videoUrl: string;
+  batch: VjepaSegmentInput[];
+  batchIndex: number;
+  batchCount: number;
+  tokenId: string;
+  tokenSecret: string;
+  deadlineMs: number;
+}): Promise<VjepaSegmentResult[] | null> {
+  if (Date.now() >= args.deadlineMs) {
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: total V-JEPA deadline exceeded`);
+    return null;
+  }
+
+  const primary = await fetchVjepaBatch(args);
+  if (primary) return primary;
+
+  if (args.batch.length <= RETRY_BATCH_SIZE) return null;
+
+  console.warn(
+    `[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount}: retrying as ` +
+    `${Math.ceil(args.batch.length / RETRY_BATCH_SIZE)} smaller request(s)`,
+  );
+
+  const retryResults: VjepaSegmentResult[] = [];
+  const retryBatches = chunkSegments(args.batch, RETRY_BATCH_SIZE);
+  for (let i = 0; i < retryBatches.length; i++) {
+    const retry = await fetchVjepaBatch({
+      ...args,
+      batch: retryBatches[i],
+      batchIndex: i,
+      batchCount: retryBatches.length,
+    });
+    if (!retry?.length) return null;
+    retryResults.push(...retry);
+  }
+  return retryResults;
+}
+
+async function fetchVjepaBatch(args: {
+  videoUrl: string;
+  batch: VjepaSegmentInput[];
+  batchIndex: number;
+  batchCount: number;
+  tokenId: string;
+  tokenSecret: string;
+  deadlineMs: number;
+}): Promise<VjepaSegmentResult[] | null> {
+  const remainingMs = args.deadlineMs - Date.now();
+  if (remainingMs <= 1_000) {
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: no V-JEPA time budget remaining`);
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(REQUEST_TIMEOUT_MS, remainingMs));
+
+  try {
+    const response = await fetch(MODAL_VJEPA_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Token ${args.tokenId}:${args.tokenSecret}`,
+      },
+      body: JSON.stringify({
+        video_url: args.videoUrl,
+        segments: args.batch.map(s => ({
+          start_ms: s.startMs,
+          end_ms: s.endMs,
+        })),
+        features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
+        primitive_features: ['motion_vector', 'main_subject', 'text_boxes', 'text_coverage', 'object_count', 'face_count', 'negative_space'],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const data = (await response.json()) as ModalVjepaResponse;
+    if (!data?.segments?.length) {
+      console.warn(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount}: empty response`);
+      return null;
+    }
+
+    return data.segments.map(normalizeModalVjepaSegment);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} failed: ${msg}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -263,6 +380,105 @@ export function toSignalEnrichment(
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
 
+export function normalizeModalVjepaSegment(s: ModalVjepaSegment): VjepaSegmentResult {
+  const primitivePresence: VjepaPrimitivePresence = {
+    motionVector: isFiniteNumber(s.motion_vector_x) && isFiniteNumber(s.motion_vector_y),
+    mainSubject: hasCompleteBox(s.main_subject) || (
+      isFiniteNumber(s.main_subject_x) &&
+      isFiniteNumber(s.main_subject_y) &&
+      isFiniteNumber(s.main_subject_width) &&
+      isFiniteNumber(s.main_subject_height)
+    ),
+    textBoxes: Array.isArray(s.text_boxes) || isFiniteNumber(s.text_box_count),
+    textCoverage: isFiniteNumber(s.text_coverage),
+    objectCount: isFiniteNumber(s.object_count),
+    faceCount: isFiniteNumber(s.face_count),
+    negativeSpace: (
+      isFiniteNumber(s.negative_space_top) &&
+      isFiniteNumber(s.negative_space_right) &&
+      isFiniteNumber(s.negative_space_bottom) &&
+      isFiniteNumber(s.negative_space_left)
+    ),
+  };
+  const mainSubject = normalizeBox(s.main_subject, {
+    x: s.main_subject_x,
+    y: s.main_subject_y,
+    width: s.main_subject_width,
+    height: s.main_subject_height,
+    confidence: s.main_subject?.confidence,
+  });
+  const textBoxes = Array.isArray(s.text_boxes)
+    ? s.text_boxes
+      .map(box => normalizeBox(box, { x: 0, y: 0, width: 0, height: 0, confidence: 0 }))
+      .filter(box => box.width > 0 && box.height > 0)
+    : [];
+
+  return {
+    startMs: s.start_ms,
+    endMs: s.end_ms,
+    visualSignificance: clampNumber(s.visual_significance, 0, 1, 0.5),
+    motionIntensity: clampNumber(s.motion_intensity, 0, 1, 0),
+    actionType: parseActionType(s.action_type),
+    motionType: parseMotionType(s.motion_type),
+    faceEmotion: parseFaceEmotion(s.face_emotion),
+    eyeContact: s.eye_contact ?? null,
+    motionVectorX: clampNumber(s.motion_vector_x, -1, 1, 0),
+    motionVectorY: clampNumber(s.motion_vector_y, -1, 1, 0),
+    mainSubject,
+    mainSubjectX: mainSubject.x,
+    mainSubjectY: mainSubject.y,
+    mainSubjectWidth: mainSubject.width,
+    mainSubjectHeight: mainSubject.height,
+    textBoxes,
+    textBoxCount: Math.max(0, Math.round(s.text_box_count ?? textBoxes.length)),
+    textCoverage: clampNumber(s.text_coverage, 0, 1, textBoxes.reduce((sum, box) => sum + box.width * box.height, 0)),
+    objectCount: Math.max(0, Math.round(s.object_count ?? (mainSubject.confidence && mainSubject.confidence > 0.25 ? 1 : 0))),
+    faceCount: Math.max(0, Math.round(s.face_count ?? 0)),
+    negativeSpaceTop: clampNumber(s.negative_space_top, 0, 1, mainSubject.y),
+    negativeSpaceRight: clampNumber(s.negative_space_right, 0, 1, 1 - (mainSubject.x + mainSubject.width)),
+    negativeSpaceBottom: clampNumber(s.negative_space_bottom, 0, 1, 1 - (mainSubject.y + mainSubject.height)),
+    negativeSpaceLeft: clampNumber(s.negative_space_left, 0, 1, mainSubject.x),
+    primitivePresence,
+  };
+}
+
+function hasCompleteBox(box: Partial<VjepaPrimitiveBox> | undefined): boolean {
+  return (
+    !!box &&
+    isFiniteNumber(box.x) &&
+    isFiniteNumber(box.y) &&
+    isFiniteNumber(box.width) &&
+    isFiniteNumber(box.height)
+  );
+}
+
+const DEFAULT_VISUAL_SEGMENT_MS = 5_000;
+const DEFAULT_MAX_VISUAL_SEGMENTS = 360;
+
+export function buildVjepaCoverageSegments(
+  durationMs: unknown,
+  fallbackSegments: VjepaSegmentInput[] = [],
+  options: { segmentDurationMs?: number; maxSegments?: number } = {},
+): VjepaSegmentInput[] {
+  const fallbackDurationMs = fallbackSegments.reduce((max, segment) => {
+    return Math.max(max, readPositiveMs(segment.endMs) ?? 0);
+  }, 0);
+  const resolvedDurationMs = readPositiveMs(durationMs) ?? fallbackDurationMs;
+  if (!resolvedDurationMs) return fallbackSegments;
+
+  const maxSegments = Math.max(1, Math.floor(options.maxSegments ?? DEFAULT_MAX_VISUAL_SEGMENTS));
+  const desiredSegmentMs = Math.max(1_000, Math.floor(options.segmentDurationMs ?? DEFAULT_VISUAL_SEGMENT_MS));
+  const segmentMs = Math.max(desiredSegmentMs, Math.ceil(resolvedDurationMs / maxSegments));
+  const segments: VjepaSegmentInput[] = [];
+  for (let startMs = 0; startMs < resolvedDurationMs; startMs += segmentMs) {
+    segments.push({
+      startMs,
+      endMs: Math.min(resolvedDurationMs, startMs + segmentMs),
+    });
+  }
+  return segments;
+}
+
 function parseActionType(v: string | undefined): VjepaActionType {
   if (v && VALID_ACTION_TYPES.has(v)) return v as VjepaActionType;
   return 'other';
@@ -276,6 +492,47 @@ function parseMotionType(v: string | undefined): VjepaMotionType {
 function parseFaceEmotion(v: string | undefined): VjepaFaceEmotion | null {
   if (v && VALID_FACE_EMOTIONS.has(v)) return v as VjepaFaceEmotion;
   return null;
+}
+
+function normalizeBox(
+  box: Partial<VjepaPrimitiveBox> | undefined,
+  fallback?: Partial<VjepaPrimitiveBox>,
+): VjepaPrimitiveBox {
+  return {
+    x: clampNumber(box?.x, 0, 1, clampNumber(fallback?.x, 0, 1, 0.25)),
+    y: clampNumber(box?.y, 0, 1, clampNumber(fallback?.y, 0, 1, 0.15)),
+    width: clampNumber(box?.width, 0, 1, clampNumber(fallback?.width, 0, 1, 0.5)),
+    height: clampNumber(box?.height, 0, 1, clampNumber(fallback?.height, 0, 1, 0.7)),
+    confidence: clampNumber(box?.confidence, 0, 1, clampNumber(fallback?.confidence, 0, 1, 0)),
+  };
+}
+
+function clampNumber(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (!isFiniteNumber(value)) return fallback;
+  return clamp(value, min, max);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function readPositiveMs(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function chunkSegments(segments: VjepaSegmentInput[], size: number): VjepaSegmentInput[][] {
+  const safeSize = Math.max(1, Math.floor(size));
+  const chunks: VjepaSegmentInput[][] = [];
+  for (let i = 0; i < segments.length; i += safeSize) {
+    chunks.push(segments.slice(i, i + safeSize));
+  }
+  return chunks;
 }
 
 function clamp(value: number, min: number, max: number): number {

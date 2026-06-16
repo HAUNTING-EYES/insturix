@@ -20,6 +20,7 @@ import {
   releaseEventClaim,
   type BrandEvent,
 } from '@/lib/shared/brand-events';
+import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -175,14 +176,31 @@ async function handleDirectorCompleted(
     return { action: 'skipped', detail: 'No qualityScore in payload' };
   }
 
+  const learningDecision = resolveEditronLearningOutcome({
+    qualityScore,
+    criticalCount: payload.criticalCount,
+    hasQualityReview: payload.hasQualityReview,
+    autoEditHealth: payload.autoEditHealth,
+    projectStatus: payload.projectStatus,
+    diagnostic: payload.diagnostic,
+    dryRun: payload.dryRun,
+  });
+
+  if (!learningDecision.shouldRecord || learningDecision.qualityScore === null) {
+    return {
+      action: 'bandit_skipped',
+      detail: `learning_gate=${learningDecision.reason ?? 'unsafe_outcome'}`,
+    };
+  }
+
   try {
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, qualityScore);
+    await recordProjectOutcome(userId, projectId, learningDecision.qualityScore);
     return {
       action: 'bandit_updated',
-      detail: `qualityScore=${qualityScore}`,
+      detail: `qualityScore=${learningDecision.qualityScore}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -281,14 +299,31 @@ async function handleQualityReviewed(
     };
   }
 
+  const learningDecision = resolveEditronLearningOutcome({
+    qualityScore,
+    criticalCount: payload.criticalCount,
+    hasQualityReview: payload.hasQualityReview,
+    autoEditHealth: payload.autoEditHealth,
+    projectStatus: payload.projectStatus,
+    diagnostic: payload.diagnostic,
+    dryRun: payload.dryRun,
+  });
+
+  if (!learningDecision.shouldRecord || learningDecision.qualityScore === null) {
+    return {
+      action: 'bandit_skipped',
+      detail: `learning_gate=${learningDecision.reason ?? 'unsafe_outcome'}`,
+    };
+  }
+
   try {
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, qualityScore);
+    await recordProjectOutcome(userId, projectId, learningDecision.qualityScore);
     return {
       action: 'bandit_updated',
-      detail: `qualityScore=${qualityScore}`,
+      detail: `qualityScore=${learningDecision.qualityScore}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -308,8 +343,9 @@ async function handleBrandUpdated(
   try {
     const { invalidateCache } = await import('@/lib/shared/brand-registry');
     invalidateCache(event.userId);
-  } catch {
+  } catch (err: unknown) {
     // brand-registry may not be loadable in all contexts
+    console.warn('[BrandLearning] brand-registry cache invalidation failed:', err instanceof Error ? err.message : err);
   }
   return {
     action: 'cache_invalidated',
@@ -488,6 +524,6 @@ function shouldRetryResult(result: { action: string }): boolean {
 
 // ==================== Export ====================
 
-export const POST = (process.env.QSTASH_CURRENT_SIGNING_KEY || process.env.NODE_ENV === 'production')
+export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;

@@ -209,7 +209,7 @@ export async function POST(
                     subOverlay.metadata.slopRangesAvoided = slopRanges.length;
                   }
                 }
-              } catch { /* analysis not available — use clip from start */ }
+              } catch (err: unknown) { console.warn('[Finalize] sub-shot smart clip selection failed:', err instanceof Error ? err.message : err); }
             }
             overlays.push(subOverlay);
           } else if (sub.imageUrl) {
@@ -371,7 +371,7 @@ export async function POST(
                 (mainVideoOverlay as any).metadata = { ...(mainVideoOverlay as any).metadata, slopRangesAvoided: slopRanges.length };
               }
             }
-          } catch { /* analysis not available — use clip from start */ }
+          } catch (err: unknown) { console.warn('[Finalize] main video smart clip selection failed:', err instanceof Error ? err.message : err); }
         }
         overlays.push(mainVideoOverlay);
       }
@@ -1071,78 +1071,17 @@ export async function POST(
       }
     }
 
-    // ─── Store detected edit profile on project for Director ──────────
-    // Director runs AFTER video generation completes (dispatched from video worker),
-    // NOT here — because videos aren't ready yet at finalize time.
-    // We store the profile detection result so the video worker can use it.
+    // D-016: Profile detection removed — signal system + Utility AI drive all editing decisions.
+    // Store G-01 (universal default) for Director. Director uses standard actions + overlay scoring.
     try {
-      const { getAutoSelectedProfileWithEmbeddings, getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-      // Bundle 3 (2026-04-08) fix: previously this object was a FLAT pre-extracted-signals
-      // shape (narration: "...", visual: "...") which does NOT match the ThinkForgeMetadata
-      // interface getAutoSelectedProfile() expects (`scenes: Array<{...}>`). The function's
-      // extractSignals() then called `metadata.scenes || []` → empty scenes → all empty
-      // signal strings → every profile scored 0 → always fell through to G-01 Universal Clean.
-      // This is why the user saw G-01 applied to a nostalgia brand ad in proj_r8E_z9WVaBX9
-      // despite my Bundle 2 E-04 keyword work. Now we pass the correct shape.
-      const thinkforgeMetadata = {
-        title: storyboard.title || (storyboard as any).sourceScriptTitle || '',
-        scenes: storyboard.scenes.map(s => ({
-          narration: s.descriptor.narration || '',
-          visualDescription: s.descriptor.visualDescription || '',
-          mood: s.descriptor.mood || '',
-          audioDescription: s.descriptor.audioDescription || '',
-          rawProductionNotes: (s.descriptor as any).rawProductionNotes || '',
-          editDirections: {
-            onScreenText: (s.descriptor.editDirections as any)?.onScreenText || [],
-            motionGraphicCue: s.descriptor.editDirections?.motionGraphicCue || '',
-          },
-        })),
-        overallMusicPrompt: storyboard.overallMusicPrompt || '',
-        environmentNotes: (storyboard as any).environmentNotes || '',
-        characterDescriptions: (storyboard as any).characterDescriptions || {},
-        globalEditDirections: storyboard.globalEditDirections || undefined,
-        // LLM-suggested profile category (2026-04-17): semantic content classification from
-        // parser's full-script understanding. Drives category-filtered profile detection,
-        // eliminating cross-category false positives (e.g., Nike ≠ Screen Demo).
-        suggestedProfileCategory: (storyboard as any).suggestedProfileCategory || undefined,
-      };
-      // Use embedding-enhanced detection (async, Gemini API). Falls back to keyword-only if unavailable.
-      let { profile: detectedProfile, autoSelected, detection } = await getAutoSelectedProfileWithEmbeddings(thinkforgeMetadata).catch(() => getAutoSelectedProfile(thinkforgeMetadata));
-
-      // Phase 4b: Graphiti preference boost (server-side only)
-      try {
-        const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
-        const graphitiGroupId = typeof brandId === 'string' && brandId.trim()
-          ? brandId.trim()
-          : userId;
-        const facts = await searchGraphitiFacts(
-          'What editing profile does this user prefer or override to?',
-          graphitiGroupId,
-          3,
-        );
-        if (facts.length > 0) {
-          const { EDIT_PROFILES } = await import('@/lib/editron/data/edit-profiles');
-          const profileIds = Object.keys(EDIT_PROFILES);
-          const preferred = profileIds.find(id => facts.some(f => f.includes(id)));
-          if (preferred && preferred !== detectedProfile.profileId) {
-            console.log(`[Finalize] Graphiti suggests profile ${preferred} over detected ${detectedProfile.profileId}`);
-            detectedProfile = EDIT_PROFILES[preferred as keyof typeof EDIT_PROFILES];
-            detection = { ...detection, confidence: Math.min(1.0, detection.confidence + 0.15), reasoning: [...detection.reasoning, `Graphiti: user historically prefers ${preferred}`] };
-          }
-        }
-      } catch { /* Graphiti unavailable */ }
-
-      console.log(`[Finalize] Profile detection: ${detectedProfile.profileId} confidence=${detection.confidence.toFixed(2)} auto=${autoSelected} reasoning=[${detection.reasoning.slice(0, 3).join('; ')}]`);
-      const profileId = detectedProfile.profileId;
-      // Store on project so video worker can dispatch Director with correct profile
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId: project.projectId },
-        { $set: { pendingDirectorProfileId: profileId, pendingDirectorUserId: userId } },
+        { $set: { pendingDirectorProfileId: 'G-01', pendingDirectorUserId: userId } },
       );
-      console.log(`[Finalize] Director profile detected: ${profileId} (will run after video gen completes)`);
+      console.log(`[Finalize] Director profile: G-01 (signal-driven, D-016)`);
     } catch (dirErr: any) {
-      console.warn(`[Finalize] Profile detection failed: ${dirErr.message}`);
-      warnings.push(`Edit profile auto-detection failed: ${dirErr.message}`);
+      console.warn(`[Finalize] Failed to store Director profile: ${dirErr.message}`);
+      warnings.push(`Director profile storage failed: ${dirErr.message}`);
     }
 
     // Log pipeline warning summary

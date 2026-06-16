@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -37,6 +38,45 @@ interface DirectorWorkerPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+}
+
+interface DirectorQualityReviewSnapshot {
+  overallScore?: unknown;
+  criticalCount?: unknown;
+}
+
+interface DirectorCompletionHealth {
+  hasQualityReview: boolean;
+  qualityScore: number;
+  criticalCount: number;
+  needsQualityAttention: boolean;
+  warning?: string;
+}
+
+export function resolveDirectorCompletionHealth(
+  qualityReview: DirectorQualityReviewSnapshot | null | undefined,
+): DirectorCompletionHealth {
+  const hasQualityReview = !!qualityReview;
+  const qualityScore = readFiniteNumber(qualityReview?.overallScore, 0);
+  const criticalCount = Math.max(0, Math.round(readFiniteNumber(qualityReview?.criticalCount, 0)));
+  const learningDecision = resolveEditronLearningOutcome({
+    hasQualityReview,
+    qualityScore,
+    criticalCount,
+  });
+  const needsQualityAttention = !learningDecision.shouldRecord;
+
+  return {
+    hasQualityReview,
+    qualityScore,
+    criticalCount,
+    needsQualityAttention,
+    ...(needsQualityAttention && {
+      warning: !hasQualityReview
+        ? 'Director completed without a persisted quality review.'
+        : `Director completed with quality score ${qualityScore} and ${criticalCount} critical issue(s).`,
+    }),
+  };
 }
 
 async function handler(request: NextRequest) {
@@ -84,32 +124,10 @@ async function handler(request: NextRequest) {
       console.warn(`[DirectorWorker] rawFootageAnalysis is null for ${projectId} — Stage 1 data may not have replicated. Director will run with degraded profile detection.`);
     }
 
-    // ─── Profile detection ────────────────────────────────────────
-    let profileId = initialProfileId;
-    if (rawFootageAnalysis?.contentTypeDetection?.confidence >= 0.5) {
-      profileId = rawFootageAnalysis.contentTypeDetection.profileId;
-      console.log(`[DirectorWorker] Profile from content-type detector: ${profileId} (${rawFootageAnalysis.contentTypeDetection.contentType}, confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)})`);
-    } else {
-      try {
-        const { getAutoSelectedProfile } = await import('@/lib/editron/services/profile-detection-service');
-        const { profile } = getAutoSelectedProfile({
-          title: syntheticStoryboard?.title || title || '',
-          contentType: syntheticStoryboard?.contentType || 'video',
-          platform: syntheticStoryboard?.platform || 'youtube',
-          scenes: syntheticStoryboard?.scenes?.map((s: any) => ({
-            narration: s.descriptor?.narration,
-            visualDescription: s.descriptor?.visualDescription,
-            mood: s.descriptor?.mood,
-            editDirections: s.descriptor?.editDirections,
-          })) || [],
-          globalEditDirections: syntheticStoryboard?.globalEditDirections,
-          overallMusicPrompt: syntheticStoryboard?.overallMusicPrompt,
-        });
-        if (profile?.profileId) profileId = profile.profileId;
-        console.log(`[DirectorWorker] Profile from SyntheticStoryboard: ${profileId}`);
-      } catch {
-        console.warn(`[DirectorWorker] Profile detection failed, using ${profileId}`);
-      }
+    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
+    const profileId = initialProfileId;
+    if (rawFootageAnalysis?.contentTypeDetection) {
+      console.log(`[DirectorWorker] Content type: ${rawFootageAnalysis.contentTypeDetection.contentType} (confidence=${rawFootageAnalysis.contentTypeDetection.confidence.toFixed(2)}, profile=${profileId})`);
     }
 
     // ─── Build brief from preferences + editDNA (from MongoDB) ────
@@ -153,42 +171,63 @@ async function handler(request: NextRequest) {
     const totalPipelineMs = pipelineStartedAt
       ? Date.now() - new Date(pipelineStartedAt).getTime()
       : directorMs;
-    await db.collection('projects').updateOne(
+    const directorDecisionAuthority = directorResult.decisionAuthority;
+    const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
-      {
-        $set: {
-          autoEditStatus: 'complete',
-          autoEditCompletedAt: new Date(),
-          autoEditDurationMs: totalPipelineMs,
-          directorDurationMs: directorMs,
-          directorProfileUsed: profileId,
-        },
-      },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
     );
+    const completionHealth = resolveDirectorCompletionHealth(projectAfterDirector?.qualityReview);
+    const completionSet: Record<string, unknown> = {
+      autoEditStatus: 'complete',
+      autoEditCompletedAt: new Date(),
+      autoEditDurationMs: totalPipelineMs,
+      directorDurationMs: directorMs,
+      directorProfileUsed: profileId,
+      ...(directorDecisionAuthority ? { 'intelligence.decisionAuthority': directorDecisionAuthority } : {}),
+    };
+    const completionUpdate: Record<string, unknown> = { $set: completionSet };
+    if (completionHealth.needsQualityAttention) {
+      completionSet.projectStatus = 'needs-attention';
+      completionSet.autoEditHealth = 'needs_review';
+      completionSet.autoEditWarning = completionHealth.warning;
+    } else {
+      completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
+    }
 
+    await db.collection('projects').updateOne({ projectId }, completionUpdate);
+
+    if (directorDecisionAuthority) {
+      console.log(
+        `[DirectorWorker] Decision authority: source=${directorDecisionAuthority.source}, ` +
+        `executable=${directorDecisionAuthority.executableProducer}, ` +
+        `signal-role=${directorDecisionAuthority.signalDecisionRole}, ` +
+        `added=${directorDecisionAuthority.addedSignalDecisionCount}`
+      );
+    }
     console.log(`[DirectorWorker] Complete: ${projectId} in ${directorMs}ms (${directorResult.actionsExecuted} actions)`);
+    if (completionHealth.needsQualityAttention) {
+      console.warn(`[DirectorWorker] Needs attention: ${projectId} qualityScore=${completionHealth.qualityScore} criticalCount=${completionHealth.criticalCount}`);
+    }
 
     // ─── Bandit outcome recording ─────────────────────────────────
     try {
-      const projectAfterDirector = await db.collection('projects').findOne(
-        { projectId },
-        { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
-      );
-      const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
-      const criticalCount = projectAfterDirector?.qualityReview?.criticalCount ?? 0;
-
-      if (criticalCount > 5) {
-        console.log(`[DirectorWorker] Bandit: skipping — ${criticalCount} critical issues suggests system failure`);
+      if (completionHealth.needsQualityAttention) {
+        console.log(`[DirectorWorker] Bandit: skipping — ${completionHealth.criticalCount} critical issues suggests system failure`);
       } else {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+        await recordProjectOutcome(userId, projectId, completionHealth.qualityScore, false, false);
       }
     } catch (banditErr: unknown) {
       const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
       console.warn(`[DirectorWorker] Bandit outcome recording failed (non-fatal): ${msg}`);
     }
 
-    return NextResponse.json({ success: true, totalMs: directorMs, actionsExecuted: directorResult.actionsExecuted });
+    return NextResponse.json({
+      success: true,
+      totalMs: directorMs,
+      actionsExecuted: directorResult.actionsExecuted,
+      decisionAuthority: directorDecisionAuthority,
+    });
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -202,7 +241,7 @@ async function handler(request: NextRequest) {
           { projectId: trackedProjectId },
           { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
         );
-      } catch { /* best-effort status update */ }
+      } catch (err: unknown) { console.warn('[DirectorWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
@@ -212,3 +251,7 @@ async function handler(request: NextRequest) {
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;
+
+function readFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}

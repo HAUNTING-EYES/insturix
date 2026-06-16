@@ -3,6 +3,7 @@ import { validateThinkForgeBlocks } from '@/lib/thinkforge/schemas/thinkforge-bl
 import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
 import { tiptapJSONToThinkForgeBlocks } from '@/lib/thinkforge/mappers/tiptap-to-thinkforge';
 import { applyThinkForgeBlockPatches, extractTextFromRichText, type ThinkForgeBlockPatch } from '@/lib/thinkforge/utils/thinkforge-block-patch';
+import { preserveExportMetaForUnchangedBlocks } from '@/lib/thinkforge/utils/preserve-export-meta';
 import type { TiptapJSON } from '@/lib/thinkforge/schemas/tiptap-schema';
 import * as db from '@/lib/thinkforge/services/db';
 
@@ -61,7 +62,7 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
   let nextMetadata = existing?.metadata;
 
   if (type === 'ReplaceDocument') {
-    nextBlocks = normalizeBlocksFromPayload(payload);
+    nextBlocks = preserveExportMetaForUnchangedBlocks(normalizeBlocksFromPayload(payload), nextBlocks);
     nextTitle = typeof payload.title === 'string' ? payload.title : nextTitle;
     nextRichText = payload.richText ? (payload.richText as TiptapJSON) : thinkForgeBlocksToTiptapJSON(nextBlocks);
     nextMetadata = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)

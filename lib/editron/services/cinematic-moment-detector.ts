@@ -33,6 +33,15 @@ export interface CinematicMoment {
 const FPS = 30;
 const WINDOW_FRAMES = 15; // 0.5s
 
+function semanticGraphicParamsFromTracks(tracks: string[], score: number): Record<string, any> {
+  return {
+    kind: 'emphasis',
+    text: 'Speech emphasis',
+    sourceTracks: tracks,
+    signals: Object.fromEntries(tracks.map(track => [`${track}_peak`, score])),
+  };
+}
+
 /**
  * Detect cinematic moments from a full asset analysis.
  * Returns moments sorted by intensity (highest first).
@@ -120,7 +129,7 @@ function suggestCinematicEdit(
   if (tracks.includes('speech') && tracks.includes('music')) {
     return {
       type: 'graphic-reveal',
-      params: { graphicType: 'emphasis-pulse' },
+      params: semanticGraphicParamsFromTracks(tracks, intensity),
       reason: 'Speech emphasis meets musical moment',
     };
   }

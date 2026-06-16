@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MG Composition Engine Preview — Hank Green Video</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; color: #fff; font-family: Inter, system-ui, sans-serif; padding: 40px; }
+  h1 { font-size: 24px; margin-bottom: 8px; color: #6366F1; }
+  .subtitle { color: #666; margin-bottom: 40px; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 1400px; }
+  .card { background: #1a1a2e; border-radius: 16px; overflow: hidden; }
+  .card-header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .card-header h2 { font-size: 14px; color: #6366F1; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card-header p { font-size: 12px; color: #666; margin-top: 4px; }
+  .video-frame {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: linear-gradient(135deg, #1a1a2e, #0d0d1a);
+    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50" y="55" text-anchor="middle" fill="%23333" font-family="system-ui" font-size="12">VIDEO</text></svg>');
+    background-size: 100px;
+    overflow: hidden;
+  }
+  /* Shared MG styles */
+  .mg-overlay {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .mg-container {
+    background: rgba(10, 10, 20, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    border-radius: 8px;
+    padding: 16px 24px;
+  }
+  .mg-accent-line {
+    width: 40px;
+    height: 3px;
+    background: #10B981;
+    border-radius: 2px;
+  }
+  .mg-text-primary {
+    font-family: Inter, system-ui, sans-serif;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.2;
+  }
+  .mg-text-secondary {
+    font-family: Inter, system-ui, sans-serif;
+    font-weight: 400;
+    color: #94A3B8;
+    line-height: 1.4;
+  }
+  .notes { padding: 16px 20px; font-size: 11px; color: #555; line-height: 1.5; }
+  .notes strong { color: #888; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; margin-right: 6px; }
+  .badge-p0 { background: #dc2626; color: #fff; }
+  .badge-new { background: #10B981; color: #fff; }
+  .badge-fixed { background: #6366F1; color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>Motion Graphics Composition Engine Preview</h1>
+<p class="subtitle">What each graphic type looks like with the Hank Green "Editing Challenge" video content. Default brand: Inter + #6366F1 primary + #10B981 accent.</p>
+
+<div class="grid">
+
+  <!-- 1. EMPHASIS (keyword-highlight) — BEFORE fix -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Emphasis — BEFORE Fix (RC-1)</h2>
+      <p>What users saw: naked floating text, no container, no accent line</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 8%; left: 4%; max-width: 45%;">
+        <!-- Only text renders, container + accent invisible -->
+        <span class="mg-text-primary" style="font-size: 48px; color: #10B981;">hypothesis</span>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="badge badge-p0">P0 BUG</span>
+      container (primitive='container') hit default:null. decoration (accent line) hit default:null. Only text rendered. 2/3 elements invisible.
+    </div>
+  </div>
+
+  <!-- 2. EMPHASIS (keyword-highlight) — AFTER fix -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Emphasis — AFTER Fix <span class="badge badge-fixed">FIXED</span></h2>
+      <p>Pill container + accent text + accent line. formality=0.2 (informal vlog)</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 8%; left: 4%; max-width: 45%;">
+        <div style="background: rgba(16, 185, 129, 0.15); border-radius: 999px; padding: 12px 24px; display: inline-flex; align-items: center; gap: 8px;">
+          <span class="mg-text-primary" style="font-size: 48px; color: #10B981;">hypothesis</span>
+        </div>
+        <div class="mg-accent-line"></div>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="badge badge-new">NOW VISIBLE</span>
+      3 elements: pill container (accent 15% opacity) + text (accent color, pop entrance, 48px CRG min) + accent line. formality < 0.4 = informal style.
+    </div>
+  </div>
+
+  <!-- 3. EMPHASIS with high formality -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Emphasis — High Formality (0.7+)</h2>
+      <p>Same content, but if the video had formal tone (corporate, brand film)</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 8%; left: 4%; max-width: 45%;">
+        <div class="mg-container">
+          <span class="mg-text-primary" style="font-size: 48px; color: #FFFFFF; letter-spacing: 0.06em;">HYPOTHESIS</span>
+        </div>
+        <div class="mg-accent-line"></div>
+      </div>
+    </div>
+    <div class="notes">
+      formality > 0.7: glass container instead of pill. White text instead of accent. Uppercase transform. Wider tracking. Same content, completely different feel.
+    </div>
+  </div>
+
+  <!-- 4. IDENTITY (lower-third) -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Identity (Lower-Third) <span class="badge badge-new">SHOULD EXIST</span></h2>
+      <p>Speaker introduction. Currently shows "John Smith" (hallucinated)</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="bottom: 12%; left: 4%; max-width: 45%;">
+        <div class="mg-accent-line"></div>
+        <div class="mg-container">
+          <span class="mg-text-primary" style="font-size: 48px; letter-spacing: 0.02em;">Hank Green</span>
+          <span class="mg-text-secondary" style="font-size: 36px; margin-top: 4px;">VlogBrothers</span>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <strong>CRG:</strong> constant:typography.lower_third_name_min_font = 48px. constant:typography.lower_third_title_min_font = 36px.
+      Position: bottom-left, captionZoneAware. Exit: reverse-stagger. Hold: 4.7s (CRG verified).
+    </div>
+  </div>
+
+  <!-- 5. QUOTATION (quote-card) -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Quotation (Quote Card) <span class="badge badge-new">SHOULD EXIST</span></h2>
+      <p>The central thesis — currently has ZERO visual treatment</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 50%; left: 50%; transform: translate(-50%, -50%); align-items: center; text-align: center; max-width: 70%;">
+        <div class="mg-container" style="padding: 28px 36px;">
+          <span class="mg-text-primary" style="font-size: 42px; font-weight: 400; font-style: italic; line-height: 1.5;">
+            "The Internet brings out the worst in people"
+          </span>
+          <div class="mg-accent-line" style="margin: 12px auto 0;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <strong>CRG:</strong> constant:typography.quote_card_min_font = 42px. Position: center. Exit: simultaneous-fade.
+      This is the strongest line in the video. A professional editor would ALWAYS give it a quote card.
+    </div>
+  </div>
+
+  <!-- 6. STRUCTURED (callout) -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Structured (Callout) <span class="badge badge-new">SHOULD EXIST</span></h2>
+      <p>Key concept explanation — "Selection Bias"</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 8%; right: 4%; max-width: 45%; align-items: flex-end;">
+        <div class="mg-container">
+          <span class="mg-text-primary" style="font-size: 42px;">Selection Bias</span>
+          <span class="mg-text-secondary" style="font-size: 36px; margin-top: 6px;">
+            We hear from the loud minority, not the silent majority
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <strong>CRG:</strong> "Key concepts that deserve visual reinforcement. Use sparingly."
+      Position: top-right. Exit: simultaneous-fade. This concept is the intellectual core of the video.
+    </div>
+  </div>
+
+  <!-- 7. NUMERIC (stat-counter) -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Numeric (Stat Counter)</h2>
+      <p>Not applicable for this video (no statistics). Shown for reference.</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 50%; left: 50%; transform: translate(-50%, -50%); align-items: center; text-align: center; max-width: 70%;">
+        <div class="mg-container" style="padding: 24px 48px;">
+          <div class="mg-accent-line" style="margin: 0 auto 12px;"></div>
+          <span class="mg-text-primary" style="font-size: 64px; font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em;">42%</span>
+          <span class="mg-text-secondary" style="margin-top: 8px; letter-spacing: 0.04em;">Growth Rate</span>
+          <div class="mg-accent-line" style="margin: 12px auto 0;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <strong>CRG:</strong> constant:typography.stat_counter_min_font = 64px. Position: center. count-up animation. Exit: reverse-stagger. Mono font for numbers (formality < 0.7).
+    </div>
+  </div>
+
+  <!-- 8. BRAND (logo/outro) -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Brand (Logo)</h2>
+      <p>Channel/brand identity moment. Outro or intro.</p>
+    </div>
+    <div class="video-frame">
+      <div class="mg-overlay" style="top: 50%; left: 50%; transform: translate(-50%, -50%); align-items: center; text-align: center; max-width: 70%;">
+        <span class="mg-text-primary" style="font-size: 56px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #6366F1;">
+          VLOGBROTHERS
+        </span>
+        <div class="mg-accent-line" style="margin: 16px auto 0;"></div>
+      </div>
+    </div>
+    <div class="notes">
+      Position: center. Exit: hold-then-fade. Primary color text. Uppercase + wide tracking. Accent line below.
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top: 48px; padding: 24px; background: #1a1a2e; border-radius: 12px; max-width: 1400px;">
+  <h2 style="color: #6366F1; font-size: 16px; margin-bottom: 12px;">What changed with the P0 fixes</h2>
+  <ul style="color: #888; font-size: 13px; line-height: 2; list-style: none;">
+    <li><span class="badge badge-fixed">RC-1</span> Container + decoration primitives now render. Every graphic gets its background and accent line.</li>
+    <li><span class="badge badge-fixed">RC-2</span> Genre signals (formality, enthusiasm, warmth) now flow from Director to composition engine. Styling matches content tone.</li>
+    <li><span class="badge badge-fixed">RC-3</span> usedGraphicTemplateIds ReferenceError fixed. 5 previously-crashed graphics now render.</li>
+    <li><span class="badge badge-p0">RC-4</span> <strong>Still open:</strong> All graphics are keyword-highlights. No quote-cards, callouts, or diverse types. Needs Creative Brief prompt update.</li>
+    <li><span class="badge badge-p0">RC-5</span> <strong>Still open:</strong> Lower-third goes through old template path, not composition engine. Shows "John Smith" (hallucinated).</li>
+  </ul>
+</div>
+
+</body>
+</html>

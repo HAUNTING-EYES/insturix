@@ -6,6 +6,7 @@
  */
 
 import { getCreditCost } from '@/lib/config/creditCosts';
+import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 
 export interface TokenUsageMetadata {
   promptTokenCount?: number;
@@ -18,7 +19,7 @@ export class TokenTracker {
   private outputTokens = 0;
   private model: string;
 
-  constructor(model: string = 'gemini-3.1-flash-lite-preview') {
+  constructor(model: string = CHAT_MODEL_NAME) {
     this.model = model;
   }
 

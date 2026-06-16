@@ -30,6 +30,130 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import type { GridPointDecision, OverlayCategory } from '@/lib/editron/engine/utility-types';
 import { resolveDirectorBrandScope } from '@/lib/editron/agent/director-brand-scope';
+import { resolveAtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
+import {
+  planUnifiedDecisionBundleFromCandidates,
+  type UnifiedDecisionBundle,
+  type UnifiedDecisionProducerCandidate,
+} from '@/lib/editron/services/unified-decision-bundle';
+import { enforceCanonicalDecisionTimeline } from '@/lib/editron/services/decision-timeline-guard';
+import {
+  shouldInjectGlobalCaptionAction,
+  shouldRunPostBundleProfileAction,
+  shouldRunPostEdlUtilityScoring,
+  shouldRunUtilityLiveProducer,
+} from '@/lib/editron/agent/post-edl-action-policy';
+import {
+  LEGACY_INTELLIGENCE_FALLBACK_ENV,
+  formatVjepaCoverageAuditWarning,
+  shouldRunLegacyIntelligenceFallback,
+} from '@/lib/editron/agent/director-observability';
+import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
+
+// D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
+// ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
+function densityFromGenreParams(graphicDensity: number | undefined): 'heavy' | 'moderate' | 'minimal' | undefined {
+  if (graphicDensity == null) return undefined;
+  if (graphicDensity < 2) return 'minimal';
+  if (graphicDensity < 5) return 'moderate';
+  return 'heavy';
+}
+
+function summarizeUnifiedDecisionBundle(bundle: UnifiedDecisionBundle) {
+  const byType: Record<string, number> = {};
+  for (const decision of bundle.edl.decisions) {
+    byType[decision.type] = (byType[decision.type] || 0) + 1;
+  }
+
+  return {
+    version: 1,
+    source: bundle.source,
+    authority: bundle.authority,
+    totalDecisions: bundle.edl.totalDecisions,
+    expectedExecuted: bundle.expectedExecuted,
+    expectedSkipped: bundle.expectedSkipped,
+    graphicsDensity: bundle.graphicsDensity ?? null,
+    byType,
+    canonicalTimeline: summarizeCanonicalTimelineFromDecisions(bundle.edl.decisions),
+    evidence: bundle.evidence,
+  };
+}
+
+function summarizeCanonicalTimelineFromDecisions(decisions: UnifiedDecisionBundle['edl']['decisions']) {
+  const stamps = decisions
+    .map((decision) => decision.params?.canonicalTimeline)
+    .filter((stamp): stamp is Record<string, unknown> => typeof stamp === 'object' && stamp !== null);
+
+  if (stamps.length === 0) return null;
+
+  return {
+    version: 'canonical-decision-timeline-v1',
+    frameSpace: 'cut',
+    stampedDecisionCount: stamps.length,
+    sourceMappedCount: stamps.filter((stamp) => stamp.sourceMapped === true).length,
+    invalidDecisionCount: stamps.filter((stamp) => stamp.status !== 'ok').length,
+  };
+}
+
+async function persistUnifiedDecisionBundleSummary(
+  projectId: string,
+  summary: ReturnType<typeof summarizeUnifiedDecisionBundle>,
+): Promise<void> {
+  try {
+    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+    await bundleDb.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: {
+          'intelligence.unifiedDecisionBundle': {
+            ...summary,
+            persistedAt: new Date().toISOString(),
+          },
+        },
+      },
+    );
+  } catch (err: unknown) {
+    console.warn('[Director] non-fatal unified decision bundle persistence:', err instanceof Error ? err.message : err);
+  }
+}
+
+type PostBundleProfileActionPolicySummary = {
+  version: 'post-bundle-profile-action-policy-v1';
+  unifiedDecisionBundleExecuted: true;
+  evaluatedAt: string;
+  allowedActionCount: number;
+  skippedActionCount: number;
+  allowedTools: string[];
+  skippedActions: Array<{
+    tool: string;
+    action: string;
+    reason: string;
+  }>;
+};
+
+async function persistPostBundleProfileActionPolicy(
+  projectId: string,
+  summary: PostBundleProfileActionPolicySummary,
+): Promise<void> {
+  try {
+    const bundleDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+    await bundleDb.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: {
+          'intelligence.postBundleProfileActionPolicy': summary,
+        },
+      },
+    );
+  } catch (err: unknown) {
+    console.warn('[Director] non-fatal post-bundle profile action policy persistence:', err instanceof Error ? err.message : err);
+  }
+}
+
+function isCanonicalDecisionTimelineError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('canonical decision timeline');
+}
+
 
 /**
  * Execute a Director Agent plan on a project.
@@ -75,6 +199,22 @@ export async function executeDirectorPlan(
   const result: DirectorResult = {
     success: false,
     profileId: effectiveProfile.profileId,
+    decisionAuthority: {
+      version: 'decision-authority-v1',
+      source: 'profile-driven',
+      executableProducer: 'creative-brief',
+      advisoryProducers: [],
+      signalDecisionRole: 'none',
+      signalDecisionsCanAddExecutable: false,
+      primaryDecisionCount: 0,
+      signalDecisionCount: 0,
+      addedSignalDecisionCount: 0,
+      validatedDecisionCount: 0,
+      suppressedSignalDuplicateCount: 0,
+      evidenceOnlySignalDecisionCount: 0,
+      totalDecisions: 0,
+      executedDecisions: 0,
+    },
     actionsExecuted: 0,
     actionsSkipped: [],
     overlaysModified: 0,
@@ -120,6 +260,8 @@ export async function executeDirectorPlan(
     let briefCaptionStyle: string | undefined;
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
+    let unifiedDecisionBundleExecuted = false;
+    let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummary | null = null;
 
     const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
@@ -241,7 +383,7 @@ export async function executeDirectorPlan(
                 console.log(`[Director] Scene ${i}: matching footage found in library — ${match.assetId} (score=${match.score.toFixed(2)})`);
                 result.warnings.push(`Scene ${i}: user footage "${match.filename}" matches this scene (score=${match.score.toFixed(2)}) — consider reusing`);
               }
-            } catch { /* non-fatal: no media assets or no Gemini key */ }
+            } catch (err: unknown) { console.warn('[Director] non-fatal: no media assets or no Gemini key:', err instanceof Error ? err.message : err); }
           }
 
           // Check cache first
@@ -280,7 +422,7 @@ export async function executeDirectorPlan(
                   words = voAsset.wordTimestamps;
                   console.log(`[Director] Scene ${i}: using REAL word timestamps (${words.length} words)`);
                 }
-              } catch { /* non-fatal */ }
+              } catch (err: unknown) { console.warn('[Director] non-fatal word timestamp lookup:', err instanceof Error ? err.message : err); }
             }
 
             // Fallback: proportional estimate with variable word-length weighting
@@ -344,7 +486,39 @@ export async function executeDirectorPlan(
       // resolves word indices to exact frames deterministically.
       // Enable via env: USE_CREATIVE_BRIEF=true
       let pathDHandled = false;
-      if (process.env.USE_CREATIVE_BRIEF === 'true' && projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
+      let unifiedDecisionBundle: UnifiedDecisionBundle | null = null;
+      const unifiedDecisionCandidates: UnifiedDecisionProducerCandidate[] = [];
+      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
+      let editedTimelineContext: any = null;
+      if (hasRawFootage) {
+        try {
+          const { buildEditedTimelineContext } = await import('@/lib/editron/services/edited-timeline-context');
+          editedTimelineContext = buildEditedTimelineContext({
+            rawFootage: projectDoc.rawFootageAnalysis,
+            overlays,
+            fps: project.fps || 30,
+            projectDurationFrames: project.durationInFrames,
+          });
+          console.log(
+            `[Director] Edited timeline context: ${editedTimelineContext.evidence.keptWordCount}/${editedTimelineContext.evidence.inputWordCount} words kept, ` +
+            `${editedTimelineContext.durationFrames} frames, sourceMap=${editedTimelineContext.evidence.hasSourceMapping}, ` +
+            `canonical=${editedTimelineContext.evidence.isCanonicalDecisionTimeline}`
+          );
+        } catch (timelineErr: any) {
+          console.warn(`[Director] Edited timeline context unavailable: ${timelineErr.message}`);
+        }
+      }
+      if (hasRawFootage && !editedTimelineContext) {
+        throw new Error('[Director] Canonical edited timeline unavailable; refusing raw-timeline overlay decisions');
+      }
+      if (editedTimelineContext?.evidence?.requiresSourceMapping && !editedTimelineContext.evidence.isCanonicalDecisionTimeline) {
+        throw new Error(
+          `[Director] Unsafe canonical edited timeline: ${editedTimelineContext.evidence.missingSourceMappingCount}/` +
+          `${editedTimelineContext.evidence.inputClipCount} video clips are missing source mapping`
+        );
+      }
+      const creativeBriefRawFootageActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;
+      if (creativeBriefRawFootageActive) {
         try {
           onProgress?.(0, 0, 'Creative Brief: generating holistic edit plan...');
           console.log('[Director] Path E: Creative Brief architecture (USE_CREATIVE_BRIEF=true)');
@@ -354,17 +528,33 @@ export async function executeDirectorPlan(
           const { executeBrief } = await import('@/lib/editron/services/brief-executor');
           const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
           const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
-          const { executeEDL: executeEDLPathE } = await import('@/lib/editron/services/edl-executor');
 
           const pathEFps = project.fps || 30;
           const rfa = projectDoc.rawFootageAnalysis;
+          const decisionRawFootage = editedTimelineContext?.editedRawFootage ?? rfa;
 
-          // Build transcription from rawFootageAnalysis segments
-          const transcription: { word: string; startMs: number; endMs: number }[] = [];
-          for (const seg of rfa.segments || []) {
-            if (seg.words && Array.isArray(seg.words)) {
-              for (const w of seg.words) {
-                transcription.push({ word: w.word || w.text || '', startMs: w.startMs ?? w.start ?? 0, endMs: w.endMs ?? w.end ?? 0 });
+          // Build transcription from the single persisted word-timing source.
+          // Older projects may still have segment.words, so keep a compatibility fallback.
+          const transcription: { word: string; startMs: number; endMs: number }[] =
+            Array.isArray(editedTimelineContext?.transcription) && editedTimelineContext.transcription.length > 0
+              ? editedTimelineContext.transcription.map((w: any) => ({
+                word: w.word || w.text || '',
+                startMs: w.startMs ?? w.start ?? 0,
+                endMs: w.endMs ?? w.end ?? 0,
+              }))
+              : Array.isArray(rfa.transcription?.words)
+              ? rfa.transcription.words.map((w: any) => ({
+                word: w.word || w.text || '',
+                startMs: w.startMs ?? w.start ?? 0,
+                endMs: w.endMs ?? w.end ?? 0,
+              }))
+              : [];
+          if (transcription.length === 0) {
+            for (const seg of rfa.segments || []) {
+              if (seg.words && Array.isArray(seg.words)) {
+                for (const w of seg.words) {
+                  transcription.push({ word: w.word || w.text || '', startMs: w.startMs ?? w.start ?? 0, endMs: w.endMs ?? w.end ?? 0 });
+                }
               }
             }
           }
@@ -390,16 +580,16 @@ export async function executeDirectorPlan(
 
           // Use estimated clean duration (post-transcript-editor), not durationInFrames
           // which may reflect a buggy silence-removal output.
-          const cleanDurationSec = (rfa.estimatedCleanDurationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000) / 1000;
+          const cleanDurationSec = (editedTimelineContext?.durationMs || rfa.estimatedCleanDurationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000) / 1000;
 
           // Build video context for Creative Brief
           const videoContext = {
             transcription,
             totalDurationSec: cleanDurationSec,
-            segmentCount: rfa.segments?.length || 0,
+            segmentCount: decisionRawFootage.segments?.length || 0,
             audioFeatures: audioEnergyCurve.length > 0 ? {
               rmsEnergyCurve: audioEnergyCurve,
-              silenceGaps: (rfa.silenceGaps || []).map((g: any) => ({ startMs: g.startMs || g.start || 0, endMs: g.endMs || g.end || 0 })),
+              silenceGaps: (decisionRawFootage.silenceGaps || []).map((g: any) => ({ startMs: g.startMs || g.start || 0, endMs: g.endMs || g.end || 0 })),
             } : undefined,
             vjepaFeatures: projectDoc.vjepaAnalysis?.segments?.length > 0 ? { segments: projectDoc.vjepaAnalysis.segments } : undefined,
             wav2vecFeatures: projectDoc.wav2vecAnalysis?.segments?.length > 0 ? { segments: projectDoc.wav2vecAnalysis.segments } : undefined,
@@ -410,7 +600,7 @@ export async function executeDirectorPlan(
           try {
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
             const genreResult = computeGenreParameters({
-              rawFootage: rfa,
+              rawFootage: decisionRawFootage,
               analyses,
               videoDurationSec: cleanDurationSec,
             });
@@ -453,7 +643,7 @@ export async function executeDirectorPlan(
           // ── Content mode routing (D-004) ──
           // Compute from measured signals. musicPresence from Essentia analysis (Modal endpoint).
           // Falls back to 0 if music analysis hasn't run.
-          const speechCoverage = Number.isFinite(rfa.speechCoverage) ? rfa.speechCoverage : 0;
+          const speechCoverage = Number.isFinite((decisionRawFootage as any).speechCoverage) ? (decisionRawFootage as any).speechCoverage : 0;
           const musicAnalysis = projectDoc.musicAnalysis;
           let musicPresence = musicAnalysis?.musicPresence ?? 0;
           // Penalize musicPresence when speech is present — speech rhythm creates
@@ -491,25 +681,23 @@ export async function executeDirectorPlan(
           console.log(`[Director] Path E: Content routing — speech=${speechCoverage.toFixed(2)}, music=${musicPresence.toFixed(2)}${beatDensityBpm ? ` (${beatDensityBpm} BPM)` : ''}, visual=${visualChangeRate.toFixed(2)}${!vjepaSegs?.length && visualChangeRate > 0 ? ' (segment proxy)' : ''} → ${contentMode}`);
 
           // Generate Creative Brief (Gemini call — context-cached creative doc + decision registry)
-          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode);
+          const creativeBrief = await generateCreativeBrief(videoContext, userPrefs, geminiFileUri, pathEGenreParams, contentMode, pipelineWarnings);
 
           if (creativeBrief && creativeBrief.decisions.length > 0) {
             console.log(`[Director] Path E: Creative Brief generated — ${creativeBrief.decisions.length} decisions, pacing=${creativeBrief.overallPacing}`);
 
             // Brief Executor: resolve word indices → frame numbers
-            // Use ORIGINAL video duration, not post-cut durationInFrames. Word timestamps
-            // reference the original video (up to 1172s). Using clean duration (527s) kills
-            // every decision targeting the second half of the video as "out of range."
-            const totalDurationMs = rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
+            // Resolve against the canonical edited timeline when available. The raw source
+            // mapping is kept separately for V-JEPA/Wav2Vec lookup; decisions themselves
+            // must land on the final cut timeline.
+            const totalDurationMs = editedTimelineContext?.durationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
             const briefResult = executeBrief({
               brief: creativeBrief,
               transcription,
               fps: pathEFps,
               audioEnergyCurve: audioEnergyCurve.length > 0 ? audioEnergyCurve : undefined,
               totalDurationMs,
-              // Pass overlays for original-to-cut timeline frame mapping.
-              // Word timestamps reference the original video; overlays are on the cut timeline.
-              overlays: overlays.filter((o: any) => o.type === 'video').map((o: any) => ({
+              overlays: editedTimelineContext ? undefined : overlays.filter((o: any) => o.type === 'video').map((o: any) => ({
                 from: o.from, durationInFrames: o.durationInFrames,
                 sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime, type: 'video',
               })),
@@ -518,7 +706,7 @@ export async function executeDirectorPlan(
             console.log(`[Director] Path E: Brief Executor — ${briefResult.stats.resolvedToFrame} resolved, ${briefResult.stats.snappedToEnergy} snapped to energy`);
 
             // Humanize pass (organic imperfection)
-            const humanizedEdl = humanizeEdl(briefResult.edl, projectId, rfa, pathEFps);
+            const humanizedEdl = humanizeEdl(briefResult.edl, projectId, decisionRawFootage, pathEFps);
 
             // Constraint enforcement (8-pass safety net)
             const overlayInfos = overlays.map((o: any) => ({
@@ -530,11 +718,11 @@ export async function executeDirectorPlan(
             try {
               const { loadGraph } = await import('@/lib/editron/services/graph-query');
               graphIndex = loadGraph();
-            } catch { /* constraint enforcement optional if graph unavailable */ }
+            } catch (err: unknown) { console.warn('[Director] constraint enforcement optional, graph unavailable:', err instanceof Error ? err.message : err); }
 
             if (graphIndex) {
               const constraintResult = enforceConstraints(
-                humanizedEdl.decisions, overlayInfos, graphIndex, rfa, pathEFps
+                humanizedEdl.decisions, overlayInfos, graphIndex, decisionRawFootage, pathEFps
               );
               if (constraintResult.totalViolations > 0) {
                 console.log(`[Director] Path E: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected)`);
@@ -597,37 +785,81 @@ export async function executeDirectorPlan(
               'speech.coverage': speechCoverage,
               'content.formality': genreFormality,
             };
+            // Per-frame signal injection: give each decision the unified facts of the MOMENT it lands on,
+            // not one video-level average. V-JEPA/Wav2Vec live on the ORIGINAL timeline, while Path E
+            // decisions live on the CUT timeline, so UnifiedMomentContext owns the cut→original mapping
+            // and exposes the same atomic packet Path D can consume.
+            const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
+            const { buildUnifiedMomentContext } = await import('@/lib/editron/services/unified-moment-context');
+            const cutToOriginalClips = editedTimelineContext?.sourceClips ?? (overlays as any[])
+              .filter((o) => o.type === 'video')
+              .map((o) => ({ from: o.from, durationInFrames: o.durationInFrames, sourceStartFrame: o.sourceStartFrame ?? o.videoStartTime }));
+            const pathESignalTimeline = buildSignalTimeline(
+              analyses,
+              rfa,
+              overlayInfos,
+              pathEFps,
+              projectDoc.vjepaAnalysis ?? null,
+              projectDoc.wav2vecAnalysis ?? null,
+              musicAnalysis ?? null,
+            );
+            Object.assign(pathESignalTimeline.globalSignals, signalCtx);
+            let sigCoverageTotal = 0;
+            let sigCoverageMiss = 0;
+            const pathEContextAtFrame = (frameNum: number) => buildUnifiedMomentContext({
+              timeline: pathESignalTimeline,
+              frame: frameNum,
+              sourceClips: cutToOriginalClips,
+              baseSignals: signalCtx,
+              eventWindowMs: 500,
+            });
+            const signalsFromContext = (context: ReturnType<typeof pathEContextAtFrame>): Record<string, unknown> => {
+              return {
+                ...context.signals,
+                visceral_impact: Math.max(Number(context.signals.visceral_impact ?? 0), Number(context.signals.visual_significance ?? context.signals['visual.significance'] ?? 0)),
+              };
+            };
             for (const d of briefResult.edl.decisions) {
-              if (!d.params.signals) {
-                (d.params as Record<string, unknown>).signals = signalCtx;
+              const decisionParams = d.params as Record<string, any>;
+              const context = pathEContextAtFrame(d.frame);
+              sigCoverageTotal++;
+              if (!context.evidence.hasSnapshot || (vjepaSegs?.length && !context.evidence.hasScreenPrimitives)) {
+                sigCoverageMiss++;
+              }
+              decisionParams.signals = { ...signalsFromContext(context), ...(decisionParams.signals ?? {}) };
+              decisionParams.atomicMomentBundle = context.atomicMomentBundle;
+              decisionParams.unifiedMomentEvidence = context.evidence;
+            }
+            // LOUD FALLBACK (R18N): silent no-segment misses are exactly what hid the timeline bug.
+            // Warn if a meaningful fraction of decisions get no exact per-moment coverage even after the
+            // cut→original map. Threshold 15% chosen as "more than ~1 in 7 starved" — operational, tunable.
+            if (sigCoverageTotal > 0) {
+              const missPct = Math.round((sigCoverageMiss / sigCoverageTotal) * 100);
+              if (missPct > 15) {
+                console.warn(`[Director] Path E: SIGNAL COVERAGE LOW — ${sigCoverageMiss}/${sigCoverageTotal} decisions (${missPct}%) had no unified source snapshot or screen primitives after cut→original mapping. Check segment coverage / the clip mapping.`);
+              } else {
+                console.log(`[Director] Path E: signal coverage ${sigCoverageTotal - sigCoverageMiss}/${sigCoverageTotal} (${100 - missPct}%) matched unified moment context.`);
               }
             }
 
-            // Execute EDL (apply to overlays)
-            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-            const analysesMap = new Map<string, any>();
-            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathE(briefResult.edl as any, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
-
-            // Update summary for downstream quality review
-            edlSummary.totalDecisions = humanizedEdl.decisions.length;
-            edlSummary.executed = briefResult.stats.resolvedToFrame;
-            edlSummary.skipped = briefResult.stats.skippedOutOfRange;
-            for (const d of humanizedEdl.decisions) {
-              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
-            }
+            unifiedDecisionCandidates.push({
+              source: 'creative-brief',
+              edl: briefResult.edl,
+              graphicsDensity: densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity,
+              expectedExecuted: briefResult.stats.resolvedToFrame,
+              expectedSkipped: briefResult.stats.skippedOutOfRange,
+            });
 
             // Snapshot decisions for threshold calibration feedback loop
             try {
               const vjepaLookup = vjepaSegs?.length
                 ? (frameNum: number) => {
-                    const timeMs = frameNum / pathEFps * 1000;
-                    const seg = vjepaSegs.find((s: any) => timeMs >= s.startMs && timeMs < s.endMs);
+                    const context = pathEContextAtFrame(frameNum);
                     return {
                       speech_coverage: speechCoverage,
-                      visual_change_rate: seg?.motionIntensity ?? visualChangeRate,
+                      visual_change_rate: Number(context.signals.motion_intensity ?? context.signals['visual.motion_intensity'] ?? visualChangeRate),
                       music_presence: musicPresence,
-                      visual_significance: seg?.visualSignificance ?? 0,
+                      visual_significance: Number(context.signals.visual_significance ?? context.signals['visual.significance'] ?? 0),
                     };
                   }
                 : { speech_coverage: speechCoverage, visual_change_rate: visualChangeRate, music_presence: musicPresence };
@@ -643,7 +875,7 @@ export async function executeDirectorPlan(
                   { projectId },
                   { $set: { 'intelligence.decisionLog': decisionLog } },
                 );
-              } catch { /* persistence is non-fatal */ }
+              } catch (err: unknown) { console.warn('[Director] persistence is non-fatal:', err instanceof Error ? err.message : err); }
               console.log(`[Director] Path E: Snapshotted ${decisionLog.snapshots.length} decisions for calibration`);
             } catch (snapErr: any) {
               console.warn(`[Director] Path E: Decision snapshot failed (non-fatal): ${snapErr.message}`);
@@ -655,8 +887,7 @@ export async function executeDirectorPlan(
             briefSignalContext = { ...signalCtx };
             console.log(`[Director] Path E: Brief outputs — captionStyle=${briefCaptionStyle || 'none'}, pacing=${briefPacing}`);
 
-            pathDHandled = true;
-            console.log(`[Director] Path E: Creative Brief execution COMPLETE — ${humanizedEdl.decisions.length} decisions applied`);
+            console.log(`[Director] Path E: Creative Brief decision bundle READY — ${humanizedEdl.decisions.length} decisions`);
           } else {
             console.warn('[Director] Path E: Creative Brief returned null or empty — falling through to Path D');
           }
@@ -673,9 +904,8 @@ export async function executeDirectorPlan(
       // USE_CREATIVE_BRIEF=true skipped 5-Track and Path E failed, Path D was
       // also blocked, leaving zero intelligence. Fixed: Mode 2 projects (with
       // rawFootageAnalysis) can run Path D without 5-Track.
-      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
       const canRunPathD = hasRawFootage && (analyses.length > 0 || projectDoc?.segmentAnalysis?.version === 1);
-      if (canRunPathD && !pathDHandled) {
+      if (canRunPathD) {
         try {
           const { loadGraph } = await import('@/lib/editron/services/graph-query');
           const graphIndex = loadGraph();
@@ -686,19 +916,20 @@ export async function executeDirectorPlan(
 
             const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
-            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores, applyBanditAdjustments } = await import('@/lib/editron/services/moment-weight-service');
+            const { buildMomentWeightMap, integrateVjepaScores, integrateWav2vecScores } = await import('@/lib/editron/services/moment-weight-service');
             const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
             const { humanizeEdl } = await import('@/lib/editron/services/humanize-pass');
             const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
 
             // Use project fps (not hardcoded 30 — real footage may be 24/29.97/60)
             const pathDFps = project.fps || 30;
+            const pathDDecisionRawFootage = editedTimelineContext?.editedRawFootage ?? projectDoc.rawFootageAnalysis;
 
             // Step D.1: Compute genre parameters from signals
             const genreOutput = computeGenreParameters({
-              rawFootage: projectDoc.rawFootageAnalysis,
+              rawFootage: pathDDecisionRawFootage,
               analyses,
-              videoDurationSec: (project.durationInFrames || 900) / pathDFps,
+              videoDurationSec: (editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000,
               userPlatform: brief?.platform,
               userIntent: brief?.intent,
             });
@@ -764,6 +995,20 @@ export async function executeDirectorPlan(
               );
             }
 
+            const sourceSignalTimeline = signalTimeline;
+            if (editedTimelineContext) {
+              const {
+                projectMomentWeightMapToEditedTimeline,
+                projectSignalTimelineToEditedTimeline,
+              } = await import('@/lib/editron/services/edited-timeline-context');
+              signalTimeline = projectSignalTimelineToEditedTimeline(signalTimeline, editedTimelineContext);
+              weightMap = projectMomentWeightMapToEditedTimeline(weightMap, editedTimelineContext);
+              console.log(
+                `[Director] Path D: projected signal timeline to edited time ` +
+                `(${signalTimeline.gridSignals.size} grid points, ${signalTimeline.eventSignals.length} events)`
+              );
+            }
+
             console.log(`[Director] Path D: Moment weights Phase ${weightMap.computation_phase}, ${weightMap.weights.length} segments, avg=${(weightMap.weights.reduce((s: number, w: any) => s + w.final_weight, 0) / Math.max(weightMap.weights.length, 1)).toFixed(2)}`);
 
             // Step D.3b: Threshold bandit — sample adjusted thresholds for this project
@@ -776,7 +1021,7 @@ export async function executeDirectorPlan(
                 const banditContext = {
                   contentType: rfa?.contentTypeDetection?.contentType || 'unknown',
                   speechCoverageBucket: buildSpeechCoverageBucket(rfa?.speechCoverage ?? 0),
-                  durationBucket: buildDurationBucket((project.durationInFrames || 900) / pathDFps),
+                  durationBucket: buildDurationBucket((editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000),
                   platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
                 };
                 const adj = sampleThresholdAdjustments(banditState, banditContext);
@@ -810,6 +1055,14 @@ export async function executeDirectorPlan(
               let utilityAboveMin = 0;
               const sampleLogs: string[] = [];
               const gridPointDecisions: GridPointDecision[] = [];
+              const utilityLiveProducer = shouldRunUtilityLiveProducer({
+                utilityLiveEnabled: useUtilityLive,
+                creativeBriefEnabled: process.env.USE_CREATIVE_BRIEF === 'true',
+                hasRawFootage,
+              });
+              if (useUtilityLive && !utilityLiveProducer.run) {
+                console.log(`[Director] Utility AI LIVE producer disabled (${utilityLiveProducer.reason}); scoring remains shadow evidence`);
+              }
               for (const frame of gridFrames) {
                 const snap = signalTimeline.gridSignals.get(frame)!;
                 const numericSnap: Record<string, number> = {};
@@ -821,7 +1074,7 @@ export async function executeDirectorPlan(
                 const results = scoreAllOverlays(overlayDefs, numericSnap);
                 utilityTotal += overlayDefs.length;
                 utilityAboveMin += results.length;
-                if (useUtilityLive) {
+                if (utilityLiveProducer.run) {
                   const winners = selectWinners(results, recentUtilityDecisions, frame);
                   for (const [category, winner] of Object.entries(winners) as Array<[OverlayCategory, GridPointDecision['winners'][OverlayCategory]]>) {
                     if (winner) recentUtilityDecisions.set(category, frame);
@@ -833,11 +1086,11 @@ export async function executeDirectorPlan(
                   sampleLogs.push(formatInspectorLog(inspectGridPoint(decision)));
                 }
               }
-              console.log(`[Director] Utility AI ${useUtilityLive ? 'LIVE' : 'shadow'}: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
+              console.log(`[Director] Utility AI ${utilityLiveProducer.run ? 'LIVE' : 'shadow'}: scored ${overlayDefs.length} overlays × ${gridFrames.length} grid points. ${utilityAboveMin} above minScore.`);
               if (sampleLogs.length > 0) {
                 console.log(`[Director] Utility AI sample decisions:\n${sampleLogs.slice(0, 3).join('\n')}`);
               }
-              if (useUtilityLive && gridPointDecisions.length > 0) {
+              if (utilityLiveProducer.run && gridPointDecisions.length > 0) {
                 const { overlayResultsToEditDecisions } = await import('@/lib/editron/engine/overlay-bridge');
                 const utilityEdl = overlayResultsToEditDecisions(gridPointDecisions, signalTimeline, pathDFps);
                 const merged = [...signalEdl.decisions.filter(d => d.type === 'graphic'), ...utilityEdl.decisions.filter(d => d.type !== 'graphic')];
@@ -845,7 +1098,14 @@ export async function executeDirectorPlan(
                 console.log(`[Director] Utility AI LIVE: ${utilityEdl.decisions.length} overlay decisions produced (${utilityEdl.metadata.executionTimeMs}ms). Merged with ${signalEdl.decisions.filter(d => d.type === 'graphic').length} signal-executor graphics.`);
               }
             } catch (utilityErr) {
-              console.log(`[Director] Utility AI scoring: skipped (${utilityErr instanceof Error ? utilityErr.message : 'unknown error'})`);
+              const msg = utilityErr instanceof Error ? utilityErr.message : 'unknown error';
+              // FAIL LOUD (R18N): this catch silently swallowed a hard crash for ages, making a dead path
+              // look "skipped". In dev, surface it so it can't hide again; in prod, log loudly but stay
+              // non-fatal — utility scoring is optional/shadow and must not abort the director run.
+              if (process.env.NODE_ENV !== 'production') {
+                throw new Error(`[Director] Utility AI scoring crashed (failing loud in dev): ${msg}`);
+              }
+              console.error(`[Director] Utility AI scoring failed (non-fatal): ${msg}`);
             }
 
             // Step D.4c: Utility AI profile override — real signals (Phase 2.4)
@@ -902,11 +1162,11 @@ export async function executeDirectorPlan(
             }
 
             // Step D.5: Humanize pass (organic imperfection injection)
-            const humanizedEdl = humanizeEdl(signalEdl, projectId, projectDoc.rawFootageAnalysis, pathDFps);
+            const humanizedEdl = humanizeEdl(signalEdl, projectId, pathDDecisionRawFootage, pathDFps);
 
             // Step D.6: Constraint enforcement (8-pass ordered)
             const constraintResult = enforceConstraints(
-              humanizedEdl.decisions, overlayInfos, graphIndex, projectDoc.rawFootageAnalysis, pathDFps
+              humanizedEdl.decisions, overlayInfos, graphIndex, pathDDecisionRawFootage, pathDFps
             );
             if (constraintResult.totalViolations > 0) {
               console.log(`[Director] Path D: ${constraintResult.totalViolations} constraint violations (${constraintResult.totalAutoCorrected} auto-corrected, ${constraintResult.totalUncorrectable} uncorrectable)`);
@@ -944,28 +1204,190 @@ export async function executeDirectorPlan(
               },
             };
 
-            // Execute EDL (same as other paths)
-            const { executeEDL: executeEDLPathD } = await import('@/lib/editron/services/edl-executor');
-            const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-            const analysesMap = new Map<string, any>();
-            for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
-            await executeEDLPathD(edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
-
-            for (const d of edl.decisions) {
-              edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+            // Remap decision frames from original-video space to cut-timeline space.
+            // Signal executor uses 5-Track data (original frames), but overlays are on the
+            // cut timeline after silence removal. Without remapping, decisions in removed gaps
+            // are lost (was: 8/31 dropped on Hank Green 1175s video).
+            const videoClips = overlays
+              .filter(o => o.type === 'video')
+              .sort((a, b) => ((a as any).sourceStartFrame || 0) - ((b as any).sourceStartFrame || 0));
+            const hasSourceMapping = videoClips.some(c => (c as any).sourceStartFrame !== undefined);
+            if (hasSourceMapping && !editedTimelineContext) {
+              const { mapOriginalFrameToCutTimeline } = await import('@/lib/editron/services/brief-executor');
+              const preCount = edl.decisions.length;
+              edl.decisions = edl.decisions.filter(d => {
+                const mapped = mapOriginalFrameToCutTimeline(d.frame, videoClips as any, pathDFps);
+                if (mapped === null) {
+                  console.warn(`[Director] Path D: Decision at frame ${d.frame} (${d.type}) falls in removed gap — SKIPPED`);
+                  return false;
+                }
+                if (mapped.frame !== d.frame) {
+                  d.frame = mapped.frame;
+                }
+                return true;
+              });
+              edl.totalDecisions = edl.decisions.length;
+              const dropped = preCount - edl.decisions.length;
+              if (dropped > 0) {
+                console.log(`[Director] Path D: Frame remapping complete — ${dropped} decisions in removed gaps dropped, ${edl.decisions.length} remain`);
+              }
             }
 
-            pathDHandled = true;
-            console.log(`[Director] Path D: Signal-driven execution COMPLETE — ${edl.totalDecisions} decisions applied`);
+            // Attach the same unified moment packet shape used by Path E. Path D decisions are now on
+            // the cut timeline after the remap above; UnifiedMomentContext maps them back to source
+            // frames to read the original-timeline signal snapshot.
+            const { buildUnifiedMomentContext } = await import('@/lib/editron/services/unified-moment-context');
+            const pathDSourceClips = editedTimelineContext?.sourceClips ?? videoClips.map((clip: any) => ({
+              from: clip.from,
+              durationInFrames: clip.durationInFrames,
+              sourceStartFrame: clip.sourceStartFrame ?? clip.videoStartTime,
+            }));
+            for (const d of edl.decisions) {
+              const context = buildUnifiedMomentContext({
+                timeline: sourceSignalTimeline,
+                frame: d.frame,
+                sourceClips: pathDSourceClips,
+                eventWindowMs: 500,
+              });
+              const decisionParams = d.params as Record<string, any>;
+              d.params = {
+                ...d.params,
+                signals: {
+                  ...context.signals,
+                  ...(decisionParams.signals ?? {}),
+                },
+                atomicMomentBundle: context.atomicMomentBundle,
+                unifiedMomentEvidence: context.evidence,
+              } as any;
+            }
+
+            unifiedDecisionCandidates.push({
+              source: 'signal-driven',
+              edl,
+              graphicsDensity: densityFromGenreParams(pathDGenreParams?.graphic_density) || effectiveProfile.graphicsDensity,
+              expectedExecuted: edl.totalDecisions,
+              expectedSkipped: 0,
+            });
+            console.log(`[Director] Path D: Signal-driven decision candidate READY - ${edl.totalDecisions} decisions`);
           }
         } catch (pathDErr: any) {
-          console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to Unified Intelligence`);
+          console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to legacy intelligence fallback gate`);
           // Fall through to existing paths below
         }
       }
 
+      unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates);
+      if (unifiedDecisionBundle?.source === 'creative-brief+signal-driven') {
+        console.log(
+          `[Director] Unified decision planner: creative primary + signal advisor - ` +
+          `+${unifiedDecisionBundle.evidence.addedSignalDecisionCount} signal decisions, ` +
+          `${unifiedDecisionBundle.evidence.validatedDecisionCount} validated, ` +
+          `${unifiedDecisionBundle.edl.totalDecisions} total`
+        );
+      }
+
+      if (unifiedDecisionBundle) {
+        try {
+          const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+          const analysesMap = new Map<string, any>();
+          for (const a of analyses) { if (a.assetId) analysesMap.set(a.assetId, a); }
+
+          if (editedTimelineContext) {
+            const canonicalTimelineEvidence = enforceCanonicalDecisionTimeline(
+              unifiedDecisionBundle.edl.decisions,
+              editedTimelineContext,
+            );
+            (result as any).canonicalDecisionTimeline = canonicalTimelineEvidence;
+            console.log(
+              `[Director] Canonical decision timeline: ${canonicalTimelineEvidence.stampedDecisionCount}/` +
+              `${canonicalTimelineEvidence.decisionCount} decisions stamped as cut-frame decisions`
+            );
+          }
+
+          await executeEDL(
+            unifiedDecisionBundle.edl,
+            projectId,
+            userId,
+            overlays,
+            canvas,
+            analysesMap,
+            unifiedDecisionBundle.graphicsDensity,
+          );
+
+          edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
+          edlSummary.executed = unifiedDecisionBundle.expectedExecuted;
+          edlSummary.skipped = unifiedDecisionBundle.expectedSkipped;
+          for (const d of unifiedDecisionBundle.edl.decisions) {
+            edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
+          }
+
+          const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle);
+          (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
+          await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
+          result.decisionAuthority = {
+            version: 'decision-authority-v1',
+            source: 'unified-decision-bundle',
+            executableProducer: unifiedDecisionBundle.authority.executableProducer,
+            advisoryProducers: unifiedDecisionBundle.authority.advisoryProducers,
+            signalDecisionRole: unifiedDecisionBundle.authority.signalDecisionRole,
+            signalDecisionsCanAddExecutable: unifiedDecisionBundle.authority.signalDecisionsCanAddExecutable,
+            primaryDecisionCount: unifiedDecisionBundle.evidence.primaryDecisionCount,
+            signalDecisionCount: unifiedDecisionBundle.evidence.signalDecisionCount,
+            addedSignalDecisionCount: unifiedDecisionBundle.evidence.addedSignalDecisionCount,
+            validatedDecisionCount: unifiedDecisionBundle.evidence.validatedDecisionCount,
+            suppressedSignalDuplicateCount: unifiedDecisionBundle.evidence.suppressedSignalDuplicateCount,
+            evidenceOnlySignalDecisionCount: unifiedDecisionBundle.evidence.evidenceOnlySignalDecisionCount,
+            totalDecisions: unifiedDecisionBundle.edl.totalDecisions,
+            executedDecisions: unifiedDecisionBundle.expectedExecuted,
+          };
+
+          if (editedTimelineContext) {
+            const captionPresentation = resolveAtomicCaptionPresentation({
+              requestedStyle: briefCaptionStyle,
+              profileStyle: effectiveProfile.captionStyle,
+              genreParams: pathDGenreParams,
+            });
+            const captionTrackResult = installCanonicalCaptionTrack({
+              overlays,
+              editedTimelineContext,
+              playerDimensions: canvas,
+              presentation: captionPresentation,
+            });
+            if (captionTrackResult.created > 0) {
+              result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
+              console.log(
+                `[Director] Canonical caption track: ${captionTrackResult.captionCount} groups, ` +
+                `${captionTrackResult.wordCount} words, style=${captionPresentation.style}, ` +
+                `mode=${captionPresentation.displayMode}, removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            } else {
+              console.log(
+                `[Director] Canonical caption track skipped (${captionTrackResult.skippedReason || 'unknown'}), ` +
+                `removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            }
+          }
+
+          pathDHandled = true;
+          unifiedDecisionBundleExecuted = true;
+          console.log(
+            `[Director] Unified decision bundle execution COMPLETE (${unifiedDecisionBundle.source}) — ` +
+            `${unifiedDecisionBundle.edl.totalDecisions} decisions applied`
+          );
+        } catch (bundleErr: any) {
+          if (isCanonicalDecisionTimelineError(bundleErr)) {
+            result.warnings.push(bundleErr.message);
+            throw bundleErr;
+          }
+          console.error(`[Director] Unified decision bundle execution failed (${bundleErr.message}), falling through to legacy intelligence fallback gate`);
+          result.warnings.push(`Unified decision bundle: ${bundleErr.message}`);
+          pipelineWarnings.errorSwallowed('director', bundleErr, 'unified decision bundle execution');
+        }
+      }
+
       // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
-      if (!pathDHandled && analyses.length > 0) {
+      const legacyFallbackEnabled = shouldRunLegacyIntelligenceFallback();
+      if (!pathDHandled && analyses.length > 0 && legacyFallbackEnabled) {
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
 
@@ -1115,6 +1537,22 @@ export async function executeDirectorPlan(
           edlSummary.executed = edlResult.decisionsExecuted;
           edlSummary.skipped = edlResult.decisionsSkipped;
           edlSummary.cinematicMoments = moments.length;
+          result.decisionAuthority = {
+            version: 'decision-authority-v1',
+            source: 'fallback-reactive',
+            executableProducer: 'signal-driven',
+            advisoryProducers: [],
+            signalDecisionRole: 'primary',
+            signalDecisionsCanAddExecutable: true,
+            primaryDecisionCount: 0,
+            signalDecisionCount: edlSummary.totalDecisions,
+            addedSignalDecisionCount: edlSummary.executed,
+            validatedDecisionCount: 0,
+            suppressedSignalDuplicateCount: 0,
+            evidenceOnlySignalDecisionCount: 0,
+            totalDecisions: edlSummary.totalDecisions,
+            executedDecisions: edlSummary.executed,
+          };
 
           result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
 
@@ -1162,12 +1600,16 @@ export async function executeDirectorPlan(
                 'intelligence.lastRun': new Date(),
               }},
             );
-          } catch { /* non-fatal */ }
+          } catch (err: unknown) { console.warn('[Director] non-fatal intelligence persistence:', err instanceof Error ? err.message : err); }
         } catch (edlErr: any) {
           console.error(`[Director] EDL generation/execution failed: ${edlErr.message}`);
           result.warnings.push(`EDL: ${edlErr.message}`);
           pipelineWarnings.errorSwallowed('director', edlErr, 'EDL generation/execution');
         }
+      } else if (!pathDHandled && analyses.length > 0) {
+        const legacyMsg = `Legacy intelligence fallback disabled (${LEGACY_INTELLIGENCE_FALLBACK_ENV}!=true); skipped Unified Intelligence/Reactive fallback after Path E/D did not handle.`;
+        console.warn(`[Director] ${legacyMsg}`);
+        result.warnings.push(legacyMsg);
       } else if (!pathDHandled) {
         // C6 FIX: Zero assets analyzed AND Path D didn't run — skip EDL but STILL
         // run profile-based steps (filters, transitions, captions, motion graphics).
@@ -1187,18 +1629,56 @@ export async function executeDirectorPlan(
               'intelligence.message': failMsg,
             }},
           );
-        } catch { /* non-fatal */ }
+        } catch (err: unknown) { console.warn('[Director] non-fatal intelligence failure persistence:', err instanceof Error ? err.message : err); }
       }
     }
 
     // Attach EDL summary to result for frontend inspection
     (result as any).edlSummary = edlSummary;
 
-    // ─── Step 1.9: Utility AI caption/filter scoring (runs after BOTH Path E and Path D) ──
-    // The overlay-based scoring for caption style and filter preset was previously
-    // inside Path D only. When Path E handled intelligence, the utility scoring was
-    // skipped — leaving captions/filters profile-driven. Now it runs unconditionally.
-    if (process.env.USE_UTILITY_ENGINE === 'true' && briefSignalContext.speech_coverage !== undefined) {
+    try {
+      const hasUploadToEditSignals = Array.isArray(projectDoc?.rawFootageAnalysis?.segments) || Array.isArray(projectDoc?.vjepaAnalysis?.segments);
+      if (hasUploadToEditSignals) {
+        const { auditVjepaCoverage } = await import('@/lib/editron/services/vjepa-coverage-audit');
+        const fpsForAudit = project.fps || 30;
+        const rawFootageSegments = projectDoc?.rawFootageAnalysis?.segments;
+        const vjepaAudit = auditVjepaCoverage({
+          fps: fpsForAudit,
+          originalDurationMs: projectDoc?.rawFootageAnalysis?.originalDurationMs,
+          cleanDurationMs: projectDoc?.rawFootageAnalysis?.estimatedCleanDurationMs,
+          vjepaSegments: projectDoc?.vjepaAnalysis?.segments ?? [],
+          rawFootageSegments: Array.isArray(rawFootageSegments) ? rawFootageSegments : undefined,
+          overlays: overlays as any[],
+        });
+        (result as any).vjepaCoverageAudit = vjepaAudit;
+        const auditWarning = formatVjepaCoverageAuditWarning(vjepaAudit);
+        if (auditWarning) {
+          console.warn(`[Director] ${auditWarning}`);
+          result.warnings.push(auditWarning);
+        }
+        try {
+          const auditDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+          await auditDb.collection('projects').updateOne(
+            { projectId },
+            { $set: { 'intelligence.vjepaCoverageAudit': vjepaAudit } },
+          );
+        } catch (err: unknown) {
+          console.warn('[Director] non-fatal V-JEPA coverage audit persistence:', err instanceof Error ? err.message : err);
+        }
+      }
+    } catch (auditErr: any) {
+      console.warn(`[Director] V-JEPA coverage audit failed (non-fatal): ${auditErr.message}`);
+    }
+
+    // ─── Step 1.9: Utility AI caption/filter scoring ──
+    // This compatibility scorer is allowed only when no unified bundle handled the edit.
+    // Once executeEDL applied the bundle, later profile-level scoring must not override it.
+    const postEdlUtilityScoring = shouldRunPostEdlUtilityScoring({
+      utilityEngineEnabled: useUtilityEngine,
+      hasSpeechCoverage: briefSignalContext.speech_coverage !== undefined,
+      unifiedDecisionBundleExecuted,
+    });
+    if (postEdlUtilityScoring.run) {
       try {
         const { scoreAllOverlays } = await import('@/lib/editron/engine/utility-scorer');
         const { getOverlayDefinitions } = await import('@/lib/editron/engine/overlay-definitions-loader');
@@ -1225,29 +1705,77 @@ export async function executeDirectorPlan(
       } catch (utilErr: any) {
         console.warn(`[Director] Utility AI caption/filter scoring failed (non-fatal): ${utilErr.message}`);
       }
+    } else if (postEdlUtilityScoring.reason === 'unified-bundle-already-executed') {
+      console.log('[Director] Utility AI caption/filter scoring skipped after unified decision bundle execution');
     }
 
-    // ─── Step 2: Check conditions and filter actions ──────────
-    const profileActions = [...effectiveProfile.actions];
-    const hasCaptionAction = profileActions.some(a => a.tool === 'add_captions' || a.tool === 'add_fancy_captions');
+    // ─── Step 2: Standard action sequence (D-016: signal-driven, not profile-driven) ──────────
+    // Filter: no hardcoded filterPresetId — uses effectiveProfile.filterPresetId (Utility AI winner from Step D.4c/1.5).
+    // Transitions: handled by EDL/signal executor (not an action).
+    // MGs: handled by composition engine (not an action).
+    // Captions: injected below if resolvedCaptionStyle is set.
+    const profileActions: EditProfileAction[] = [
+      {
+        tool: 'batch_update_overlays',
+        params: { targetTypes: ['image', 'video'] },
+        description: 'Apply signal-driven filter to all visual overlays',
+        order: 1,
+        failBehavior: 'warn' as const,
+      },
+      {
+        tool: 'audio_ducking',
+        params: {
+          duckLevel: DEFAULT_CONFIG.audio.duckLevel,
+          rampDownMs: DEFAULT_CONFIG.audio.rampDownMs,
+          rampUpMs: DEFAULT_CONFIG.audio.rampUpMs,
+          lookAheadMs: DEFAULT_CONFIG.audio.lookAheadMs,
+        },
+        condition: 'hasBGM' as const,
+        description: 'Audio ducking (standard levels)',
+        order: 6,
+        failBehavior: 'warn' as const,
+      },
+      {
+        tool: 'quality_review',
+        params: { deterministic: true, geminiVision: false },
+        description: 'Quality review (deterministic)',
+        order: 10,
+        failBehavior: 'skip' as const,
+      },
+    ];
+    const hasCaptionAction = false; // standard actions never include captions — injection below handles it
     // Utility AI output takes priority → brief output → profile fallback.
     const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
+    const captionVideoOverlays = overlays.filter((overlay: any) => overlay?.type === 'video');
+    const mappedCaptionVideoOverlays = captionVideoOverlays.filter((overlay: any) => {
+      const sourceStartFrame = overlay?.sourceStartFrame ?? overlay?.videoStartTime;
+      return typeof sourceStartFrame === 'number' && Number.isFinite(sourceStartFrame);
+    });
+    const hasRawFootageForGlobalCaptions = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
+    const hasCanonicalEditedTimelineForGlobalCaptions = hasRawFootageForGlobalCaptions
+      && captionVideoOverlays.length > 0
+      && mappedCaptionVideoOverlays.length === captionVideoOverlays.length;
 
-    if (!hasCaptionAction && resolvedCaptionStyle && resolvedCaptionStyle !== 'none') {
-      // User chose a caption style (or profile default is not 'none') but profile has no caption action
+    const globalCaptionAction = shouldInjectGlobalCaptionAction({
+      captionStyle: resolvedCaptionStyle,
+      hasRawFootage: hasRawFootageForGlobalCaptions,
+      hasCanonicalEditedTimeline: hasCanonicalEditedTimelineForGlobalCaptions,
+    });
+
+    if (globalCaptionAction.run) {
       const style = resolvedCaptionStyle === 'fancy' ? 'kinetic' : resolvedCaptionStyle;
       const tool = resolvedCaptionStyle === 'fancy' ? 'add_fancy_captions' : 'add_captions';
       profileActions.push({
         tool,
         params: { style },
         condition: 'hasVoiceover' as any,
-        description: `Add ${style} captions (from user selection)`,
+        description: `Add ${style} captions (signal-driven)`,
         order: 5,
         failBehavior: 'warn' as any,
       });
-      console.log(`[Director] Profile ${effectiveProfile.profileId} missing caption action — injecting ${tool}(${style}) from user/profile captionStyle`);
-    } else if (!hasCaptionAction) {
-      console.log(`[Director] Profile ${effectiveProfile.profileId}: no captions (captionStyle=${resolvedCaptionStyle || 'unset'})`);
+      console.log(`[Director] Caption injection: ${tool}(${style}) from ${briefCaptionStyle ? 'Utility AI' : 'profile fallback'}`);
+    } else {
+      console.log(`[Director] No global caption action (${globalCaptionAction.reason}, resolvedCaptionStyle=${resolvedCaptionStyle || 'unset'})`);
     }
 
     const actions = profileActions
@@ -1360,6 +1888,48 @@ export async function executeDirectorPlan(
       });
       if (beforeCount !== filteredActions.length) {
         console.log(`[Director] Path D: ${beforeCount - filteredActions.length} profile action(s) skipped (handled by signal-driven EDL)`);
+      }
+    }
+
+    if (unifiedDecisionBundleExecuted) {
+      const beforeCount = filteredActions.length;
+      const skippedPostBundleActions: PostBundleProfileActionPolicySummary['skippedActions'] = [];
+      const allowedPostBundleTools: string[] = [];
+      filteredActions = filteredActions.filter(a => {
+        const profileActionDecision = shouldRunPostBundleProfileAction({
+          tool: a.tool,
+          unifiedDecisionBundleExecuted,
+        });
+        if (!profileActionDecision.run) {
+          console.log(
+            `[Director] Unified bundle: Skipping legacy profile action '${a.tool}' ` +
+            `(${profileActionDecision.reason})`,
+          );
+          result.actionsSkipped.push({
+            action: a.description,
+            reason: profileActionDecision.reason,
+          });
+          skippedPostBundleActions.push({
+            tool: a.tool,
+            action: a.description,
+            reason: profileActionDecision.reason,
+          });
+          return false;
+        }
+        allowedPostBundleTools.push(a.tool);
+        return true;
+      });
+      postBundleProfileActionPolicy = {
+        version: 'post-bundle-profile-action-policy-v1',
+        unifiedDecisionBundleExecuted: true,
+        evaluatedAt: new Date().toISOString(),
+        allowedActionCount: allowedPostBundleTools.length,
+        skippedActionCount: skippedPostBundleActions.length,
+        allowedTools: Array.from(new Set(allowedPostBundleTools)).slice(0, 50),
+        skippedActions: skippedPostBundleActions.slice(0, 50),
+      };
+      if (beforeCount !== filteredActions.length) {
+        console.log(`[Director] Unified bundle: ${beforeCount - filteredActions.length} legacy profile action(s) skipped after EDL execution`);
       }
     }
 
@@ -1605,6 +2175,9 @@ export async function executeDirectorPlan(
       fps: project.fps,
       durationInFrames: project.durationInFrames,
     });
+    if (postBundleProfileActionPolicy) {
+      await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
+    }
 
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
@@ -1620,7 +2193,9 @@ export async function executeDirectorPlan(
       const { getDatabase: getBrandDb } = await import('@/lib/editron/db/mongodb');
       const brandDb = await getBrandDb();
       const projectDoc = await brandDb.collection('projects').findOne({ projectId });
-      const actualQualityScore = projectDoc?.qualityReview?.overallScore;
+      const actualQualityReview = projectDoc?.qualityReview;
+      const actualQualityScore = actualQualityReview?.overallScore;
+      const actualCriticalCount = actualQualityReview?.criticalCount;
 
       emitBrandEvent({
         userId,
@@ -1634,7 +2209,9 @@ export async function executeDirectorPlan(
           actionsSkipped: result.actionsSkipped.length,
           sceneCount: storyboardScenes.length,
           durationSec: Math.round((project.durationInFrames || 0) / (project.fps || 30)),
+          hasQualityReview: !!actualQualityReview,
           ...(typeof actualQualityScore === 'number' && { qualityScore: actualQualityScore }),
+          ...(typeof actualCriticalCount === 'number' && { criticalCount: actualCriticalCount }),
         },
       }).catch((e) => console.warn('[Director] Brand event failed:', e));
     } catch (brandErr: unknown) {
@@ -1747,7 +2324,7 @@ export async function executeDirectorPlan(
         projectId, userId, 'failed', 'director_error',
         { message: err.message, service: 'editron' },
       );
-    } catch { /* best-effort */ }
+    } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
   }
 
   // E2 FIX: Release project lock (always, even on error)
@@ -1758,7 +2335,7 @@ export async function executeDirectorPlan(
       { projectId },
       { $unset: { directorLock: '', directorLockAt: '' } },
     );
-  } catch {}
+  } catch (err: unknown) { console.warn('[Director] lock release failed:', err instanceof Error ? err.message : err); }
 
   result.executionMs = Date.now() - startTime;
   const pwAll = pipelineWarnings.getAll();
@@ -1785,6 +2362,7 @@ async function executeAction(
   constraintViolations?: any[],
   /** Path D: computed genre params for pacing validation */
   genreParams?: any,
+  /** Caption style from creative brief or utility AI (was out of scope — ReferenceError fix) */
   captionStyleOverride?: string,
   graphitiGroupId?: string,
 ): Promise<number> {
@@ -1968,43 +2546,28 @@ async function executeAction(
     case 'sync_cuts_to_beats': {
       // Signal-driven caption style + display mode selection
       // Signals determine both the visual style AND the display mode (word grouping + animation)
-      if (action.tool === 'add_captions' && genreParams && !action.params?.style) {
-        const formality = genreParams.formality ?? 0.5;
-        const energy = genreParams.energy_baseline ?? 0.5;
-        const speakingRate = Math.max(100, 220 - (genreParams.pacing_tolerance * 10));
-        const enthusiasm = energy; // energy_baseline is our best proxy for enthusiasm at this point
+      if (action.tool === 'add_captions') {
+        const captionPresentation = resolveAtomicCaptionPresentation({
+          requestedStyle: action.params?.style,
+          profileStyle: captionStyleOverride || profile.captionStyle,
+          displayMode: action.params?.displayMode,
+          wordsPerGroup: action.params?.wordsPerGroup,
+          genreParams,
+        });
 
-        let signalStyle = 'minimal';
-        let displayMode = 'phrase';
-
-        // CRG: formality 0.7+ → restrained, formal
-        if (formality > 0.7 && speakingRate < 140) {
-          signalStyle = 'subtitle';
-          displayMode = 'subtitle';
-        }
-        // High energy + fast pace → hormozi (bold punch, spring pop)
-        else if (enthusiasm > 0.7 && speakingRate > 160) {
-          signalStyle = 'bold';
-          displayMode = 'hormozi';
-        }
-        // Moderate casual → instagram (center block, spring scale)
-        else if (formality < 0.4 && enthusiasm > 0.4) {
-          signalStyle = 'bold';
-          displayMode = 'instagram';
-        }
-        // Moderate formal → karaoke (all words visible, active highlighted)
-        else if (formality > 0.5) {
-          signalStyle = 'minimal';
-          displayMode = 'karaoke';
-        }
-        // Low formality → phrase with bold
-        else if (formality < 0.4) {
-          signalStyle = 'bold';
-          displayMode = 'phrase';
-        }
-
-        console.log(`[Director] Caption from signals: formality=${formality.toFixed(2)}, energy=${enthusiasm.toFixed(2)}, rate~${Math.round(speakingRate)}WPM → style="${signalStyle}", mode="${displayMode}"`);
-        action = { ...action, params: { ...action.params, style: signalStyle, displayMode } };
+        console.log(
+          `[Director] Caption form: source=${captionPresentation.source}, formality=${captionPresentation.signals.formality.toFixed(2)}, energy=${captionPresentation.signals.energy.toFixed(2)}, rate~${Math.round(captionPresentation.signals.speakingRate)}WPM -> style="${captionPresentation.style}", mode="${captionPresentation.displayMode}", words=${captionPresentation.wordsPerGroup}`,
+        );
+        action = {
+          ...action,
+          params: {
+            ...action.params,
+            style: captionPresentation.style,
+            displayMode: captionPresentation.displayMode,
+            wordsPerGroup: captionPresentation.wordsPerGroup,
+            captionPresentation,
+          },
+        };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
       modified = await invokeAITool(action, userId, projectId, profile, overlays, captionStyleOverride);
@@ -2079,7 +2642,7 @@ async function executeAction(
               transType = preferred;
             }
           }
-        } catch { /* Graphiti unavailable — use profile default */ }
+        } catch (err: unknown) { console.warn('[Director] Graphiti unavailable, using profile default:', err instanceof Error ? err.message : err); }
       }
 
       // 'hard-cut' means no transition overlay — skip entirely
@@ -2323,8 +2886,8 @@ async function executeAction(
               },
             },
           );
-        } catch {
-          // Non-fatal — quality review storage is best-effort
+        } catch (err: unknown) {
+          console.warn('[Director] non-fatal quality review storage:', err instanceof Error ? err.message : err);
         }
       } catch (qrErr: any) {
         console.error(`[Director] Quality review failed: ${qrErr.message}`);
@@ -2402,9 +2965,11 @@ async function invokeAITool(
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
       };
-      // captionStyleOverride (from Utility AI via caller) takes priority over profile/action params
-      const rawCaptionStyle = captionStyleOverride || params.style || profile.captionStyle || 'subtitle';
+      // params.style is resolved upstream from caption atoms/signals; override/profile are compatibility fallbacks.
+      const rawCaptionStyle = params.style || captionStyleOverride || profile.captionStyle || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
+      const captionDisplayMode = params.displayMode;
+      const captionWordsPerGroup = typeof params.wordsPerGroup === 'number' ? params.wordsPerGroup : undefined;
 
       // ── Mode 2 FIX: Seed transcription cache from rawFootageAnalysis ──
       // In Mode 2, Grok STT transcription is stored on the PROJECT doc
@@ -2463,7 +3028,7 @@ async function invokeAITool(
       } catch (warmErr: any) {
         console.warn(`[Director] add_captions: transcription warm-up error: ${warmErr.message}`);
       }
-      console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}`);
+      console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}, mode=${captionDisplayMode || 'default'}, words=${captionWordsPerGroup || 'default'}`);
 
       // Caption each video sequentially — tool.invoke handles transcription + caption creation.
       // Track which voiceover assetIds already produced captions → prevent duplicates.
@@ -2487,7 +3052,14 @@ async function invokeAITool(
             continue;
           }
 
-          const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom', overwrite: true };
+          const captionParams = {
+            videoOverlayId: vo.id,
+            style: captionStyle,
+            position: 'bottom',
+            overwrite: true,
+            ...(captionDisplayMode ? { displayMode: captionDisplayMode } : {}),
+            ...(captionWordsPerGroup ? { wordsPerGroup: captionWordsPerGroup } : {}),
+          };
           console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length}), type=${vo.type}, assetId=${vo.assetId}, from=${vo.from}`);
           const resultStr = await tool.invoke(captionParams);
           const result = JSON.parse(resultStr);

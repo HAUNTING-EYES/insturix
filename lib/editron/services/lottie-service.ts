@@ -201,9 +201,7 @@ export async function getLottieAnimation(id: string): Promise<LottieAnimation | 
       tags: item.tags || [],
       createdBy: item.createdBy?.name,
     };
-  } catch {
-    return null;
-  }
+  } catch (err: unknown) { console.warn('[Lottie] Failed to get animation by ID:', err instanceof Error ? err.message : err); return null; }
 }
 
 // ─── Preset Categories for Edit Profiles ─────────────────────────
