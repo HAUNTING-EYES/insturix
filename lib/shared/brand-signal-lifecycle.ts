@@ -4,6 +4,7 @@ import type {
   BrandSignalProfile,
   BrandSignalTrustLevel,
 } from './brand-signal-profile';
+import { BRAND_CONFIDENCE } from './brand-confidence';
 import { getBrandSignalEffectWeight } from './brand-signal-profile';
 
 export type BrandSignalProfileStatus = 'draft' | 'accepted' | 'rejected' | 'superseded';
@@ -225,7 +226,7 @@ function validateSignal(
   if (signal.authorityClass === 'unsafe_or_untrusted') {
     issues.push(error('unsafe_signal', path, 'Unsafe or untrusted signal cannot be accepted as brand truth.'));
   }
-  if (signal.trustLevel === 'fallback_default' || signal.confidence < 0.55 || getBrandSignalEffectWeight(signal) === 0) {
+  if (signal.trustLevel === 'fallback_default' || signal.confidence < BRAND_CONFIDENCE.ACTIONABLE_SIGNAL || getBrandSignalEffectWeight(signal) === 0) {
     issues.push(warning('review_required', path, 'Signal is fallback, low-confidence, or non-actionable and should remain review-only.'));
   }
   for (const id of signal.evidenceIds) {

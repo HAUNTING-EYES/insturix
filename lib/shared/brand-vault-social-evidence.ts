@@ -1,3 +1,4 @@
+import { BRAND_CONFIDENCE } from './brand-confidence';
 import { sanitizeEvidenceExcerpt } from './brand-signal-profile';
 import type {
   BrandEvidenceCandidate,
@@ -113,7 +114,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         rawValue: socialRawValue(args.source, text),
         normalizedValue: voicePhrases,
         excerpt: voicePhrases.join(' | '),
-        confidence: args.source.pinned ? 0.74 : 0.62,
+        confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.VOICE_PHRASES_PINNED : BRAND_CONFIDENCE.SOCIAL.VOICE_PHRASES_SAMPLE,
       }),
     );
   }
@@ -129,7 +130,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         rawValue: socialRawValue(args.source, firstMeaningfulSentence(text)),
         normalizedValue: hookArchetypes,
         excerpt: firstMeaningfulSentence(text),
-        confidence: args.source.pinned ? 0.68 : 0.56,
+        confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.HOOK_ARCHETYPES_PINNED : BRAND_CONFIDENCE.SOCIAL.HOOK_ARCHETYPES_SAMPLE,
       }),
     );
   }
@@ -145,7 +146,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         rawValue: socialRawValue(args.source, text),
         normalizedValue: proofStyle,
         excerpt: firstMeaningfulSentence(text),
-        confidence: args.source.pinned ? 0.66 : 0.52,
+        confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.PROOF_STYLE_PINNED : BRAND_CONFIDENCE.SOCIAL.PROOF_STYLE_SAMPLE,
       }),
     );
   }
@@ -161,7 +162,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         rawValue: socialRawValue(args.source, ctas),
         normalizedValue: scoreSocialCtaDirectness(ctas),
         excerpt: ctas.join(' | '),
-        confidence: args.source.pinned ? 0.64 : 0.5,
+        confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.CTA_DIRECTNESS_PINNED : BRAND_CONFIDENCE.SOCIAL.CTA_DIRECTNESS_SAMPLE,
       }),
     );
   }
@@ -247,7 +248,7 @@ function parseSocialPath(
   if (platform === 'tiktok') return parseTikTokPath(segments);
   if (platform === 'x') return parseXPath(segments);
   if (platform === 'facebook') return parseFacebookPath(segments);
-  return { accountType: 'unknown', isPostUrl: false, confidence: 0.24 };
+  return { accountType: 'unknown', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_UNKNOWN_WITHOUT_PLATFORM };
 }
 
 function parseYouTubePath(
@@ -255,49 +256,49 @@ function parseYouTubePath(
   segments: string[],
 ): Omit<BrandVaultParsedSocialUrl, 'originalUrl' | 'normalizedUrl' | 'platform'> {
   if (url.hostname.includes('youtu.be') && segments[0]) {
-    return { contentId: segments[0], accountType: 'video', isPostUrl: true, confidence: 0.74 };
+    return { contentId: segments[0], accountType: 'video', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_POST_STANDARD };
   }
   const videoId = url.searchParams.get('v');
-  if (segments[0] === 'watch' && videoId) return { contentId: videoId, accountType: 'video', isPostUrl: true, confidence: 0.74 };
+  if (segments[0] === 'watch' && videoId) return { contentId: videoId, accountType: 'video', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_POST_STANDARD };
   if ((segments[0] === 'shorts' || segments[0] === 'embed') && segments[1]) {
-    return { contentId: segments[1], accountType: 'video', isPostUrl: true, confidence: 0.72 };
+    return { contentId: segments[1], accountType: 'video', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_YOUTUBE_SHORT };
   }
-  if (segments[0]?.startsWith('@')) return { handle: segments[0], accountType: 'channel', isPostUrl: false, confidence: 0.78 };
+  if (segments[0]?.startsWith('@')) return { handle: segments[0], accountType: 'channel', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_STRONG };
   if (['channel', 'c', 'user'].includes(segments[0] ?? '') && segments[1]) {
-    return { handle: segments[1], accountType: 'channel', isPostUrl: false, confidence: 0.7 };
+    return { handle: segments[1], accountType: 'channel', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_STANDARD };
   }
-  return { accountType: 'channel', isPostUrl: false, confidence: 0.4 };
+  return { accountType: 'channel', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_WEAK };
 }
 
 function parseLinkedInPath(
   segments: string[],
 ): Omit<BrandVaultParsedSocialUrl, 'originalUrl' | 'normalizedUrl' | 'platform'> {
-  if (segments[0] === 'company' && segments[1]) return { handle: segments[1], accountType: 'company_page', isPostUrl: false, confidence: 0.78 };
-  if (segments[0] === 'in' && segments[1]) return { handle: segments[1], accountType: 'creator_profile', isPostUrl: false, confidence: 0.68 };
+  if (segments[0] === 'company' && segments[1]) return { handle: segments[1], accountType: 'company_page', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_STRONG };
+  if (segments[0] === 'in' && segments[1]) return { handle: segments[1], accountType: 'creator_profile', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_LINKEDIN_CREATOR };
   if (segments[0] === 'posts' || segments[0] === 'feed' || segments[0] === 'pulse') {
-    return { contentId: segments.slice(1).join('/'), accountType: 'post', isPostUrl: true, confidence: 0.66 };
+    return { contentId: segments.slice(1).join('/'), accountType: 'post', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_LINKEDIN_POST };
   }
-  return { accountType: 'unknown', isPostUrl: false, confidence: 0.28 };
+  return { accountType: 'unknown', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_UNKNOWN };
 }
 
 function parseInstagramPath(
   segments: string[],
 ): Omit<BrandVaultParsedSocialUrl, 'originalUrl' | 'normalizedUrl' | 'platform'> {
   if (['p', 'reel', 'tv'].includes(segments[0] ?? '') && segments[1]) {
-    return { contentId: segments[1], accountType: 'post', isPostUrl: true, confidence: 0.74 };
+    return { contentId: segments[1], accountType: 'post', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_POST_STANDARD };
   }
-  if (segments[0]) return { handle: segments[0], accountType: 'profile', isPostUrl: false, confidence: 0.7 };
-  return { accountType: 'profile', isPostUrl: false, confidence: 0.3 };
+  if (segments[0]) return { handle: segments[0], accountType: 'profile', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_STANDARD };
+  return { accountType: 'profile', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_FALLBACK };
 }
 
 function parseTikTokPath(
   segments: string[],
 ): Omit<BrandVaultParsedSocialUrl, 'originalUrl' | 'normalizedUrl' | 'platform'> {
   if (segments[0]?.startsWith('@') && segments[1] === 'video' && segments[2]) {
-    return { handle: segments[0], contentId: segments[2], accountType: 'post', isPostUrl: true, confidence: 0.76 };
+    return { handle: segments[0], contentId: segments[2], accountType: 'post', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_POST_STRONG };
   }
-  if (segments[0]?.startsWith('@')) return { handle: segments[0], accountType: 'profile', isPostUrl: false, confidence: 0.72 };
-  return { accountType: 'unknown', isPostUrl: false, confidence: 0.28 };
+  if (segments[0]?.startsWith('@')) return { handle: segments[0], accountType: 'profile', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_HIGH };
+  return { accountType: 'unknown', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_UNKNOWN };
 }
 
 function parseXPath(
@@ -305,22 +306,22 @@ function parseXPath(
 ): Omit<BrandVaultParsedSocialUrl, 'originalUrl' | 'normalizedUrl' | 'platform'> {
   const handle = segments[0];
   if (handle && ['status', 'statuses'].includes(segments[1] ?? '') && segments[2]) {
-    return { handle, contentId: segments[2], accountType: 'post', isPostUrl: true, confidence: 0.76 };
+    return { handle, contentId: segments[2], accountType: 'post', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_POST_STRONG };
   }
   if (handle && !['home', 'explore', 'i', 'intent'].includes(handle)) {
-    return { handle, accountType: 'profile', isPostUrl: false, confidence: 0.7 };
+    return { handle, accountType: 'profile', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_STANDARD };
   }
-  return { accountType: 'unknown', isPostUrl: false, confidence: 0.26 };
+  return { accountType: 'unknown', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_UNKNOWN_WEAK };
 }
 
 function parseFacebookPath(
   segments: string[],
 ): Omit<BrandVaultParsedSocialUrl, 'originalUrl' | 'normalizedUrl' | 'platform'> {
   if (['posts', 'watch', 'reel', 'share'].includes(segments[0] ?? '') && segments[1]) {
-    return { contentId: segments[1], accountType: 'post', isPostUrl: true, confidence: 0.58 };
+    return { contentId: segments[1], accountType: 'post', isPostUrl: true, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_FACEBOOK };
   }
-  if (segments[0]) return { handle: segments[0], accountType: 'page', isPostUrl: false, confidence: 0.58 };
-  return { accountType: 'page', isPostUrl: false, confidence: 0.28 };
+  if (segments[0]) return { handle: segments[0], accountType: 'page', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_FACEBOOK };
+  return { accountType: 'page', isPostUrl: false, confidence: BRAND_CONFIDENCE.SOCIAL.PARSED_PROFILE_UNKNOWN };
 }
 
 function inferSocialPlatformFromUrl(url: URL, fallbackPlatform?: BrandVaultSourcePlatform): BrandVaultSourcePlatform {
@@ -407,15 +408,15 @@ function socialIdentityExcerpt(source: BrandVaultSourceInput, parsed: BrandVault
 }
 
 function confidenceForSocialIdentity(source: BrandVaultSourceInput, parsed: BrandVaultParsedSocialUrl | undefined): number {
-  const parsedConfidence = parsed?.confidence ?? (source.platform ? 0.36 : 0.24);
+  const parsedConfidence = parsed?.confidence ?? (source.platform ? BRAND_CONFIDENCE.SOCIAL.PARSED_PLATFORM_FALLBACK : BRAND_CONFIDENCE.SOCIAL.PARSED_UNKNOWN_WITHOUT_PLATFORM);
   if (!source.connection) return parsedConfidence;
-  if (source.evidenceOrigin === 'connected_fetch' && source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, 0.82);
-  if (source.evidenceOrigin === 'connected_fetch' && source.connection.status === 'connected') return Math.max(parsedConfidence, 0.68);
-  if (source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, 0.76);
-  if (source.connection.status === 'connected' && source.connection.matchStatus === 'unverified') return Math.max(parsedConfidence, 0.58);
-  if (source.connection.status === 'scope_missing') return Math.max(parsedConfidence, 0.5);
-  if (source.connection.status === 'connected_different_account') return Math.min(parsedConfidence, 0.34);
-  if (source.connection.status === 'public_fallback_available') return Math.max(parsedConfidence, 0.42);
+  if (source.evidenceOrigin === 'connected_fetch' && source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_FETCH_MATCHED_MIN);
+  if (source.evidenceOrigin === 'connected_fetch' && source.connection.status === 'connected') return Math.max(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_FETCH_UNVERIFIED_MIN);
+  if (source.connection.status === 'connected' && source.connection.matchStatus === 'matched') return Math.max(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_MATCHED_MIN);
+  if (source.connection.status === 'connected' && source.connection.matchStatus === 'unverified') return Math.max(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_UNVERIFIED_MIN);
+  if (source.connection.status === 'scope_missing') return Math.max(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_SCOPE_MISSING_MIN);
+  if (source.connection.status === 'connected_different_account') return Math.min(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_MISMATCHED_MAX);
+  if (source.connection.status === 'public_fallback_available') return Math.max(parsedConfidence, BRAND_CONFIDENCE.SOCIAL.CONNECTION_PUBLIC_FALLBACK_MIN);
   return parsedConfidence;
 }
 

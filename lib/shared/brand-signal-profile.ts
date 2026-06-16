@@ -1,3 +1,4 @@
+import { BRAND_CONFIDENCE } from './brand-confidence';
 import type { UnifiedBrand } from './brand-registry';
 
 export type BrandSignalTrustLevel =
@@ -165,7 +166,7 @@ export function deriveBrandSignalProfile(
   };
 
   const fallback = <T>(path: string, value: T, reason: string): BrandSignal<T> =>
-    makeSignal(path, value, 0.15, 'inferred_hint', undefined, reason, 'fallback_default', reason);
+    makeSignal(path, value, BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', undefined, reason, 'fallback_default', reason);
 
   if (!brand) {
     return buildFallbackProfile(makeSignal, fallback, generatedAt, evidence);
@@ -198,40 +199,40 @@ export function deriveBrandSignalProfile(
         ? makeSignal('identity.industry', brand.visual.industry, 0.85, 'brand_fact', 'visual.industry', brand.visual.industry)
         : undefined,
       category: brand.visual.industry
-        ? makeSignal('identity.category', brand.visual.industry, 0.55, 'inferred_hint', 'visual.industry', brand.visual.industry)
+        ? makeSignal('identity.category', brand.visual.industry, BRAND_CONFIDENCE.ACTIONABLE_SIGNAL, 'inferred_hint', 'visual.industry', brand.visual.industry)
         : fallback('identity.category', 'unknown', 'No industry/category field available.'),
       audience: brand.voice.nicheMap
         ? makeSignal('identity.audience', [brand.voice.nicheMap], 0.7, 'brand_preference', 'voice.nicheMap', brand.voice.nicheMap)
         : fallback('identity.audience', [], 'No audience or niche map available.'),
-      proofStyle: makeSignal('identity.proofStyle', inferProofStyle(styleText + ' ' + voiceText), styleText || voiceText ? 0.45 : 0.15, 'inferred_hint', 'visual.visualStyle', styleText || voiceText || 'No proof-style evidence.'),
+      proofStyle: makeSignal('identity.proofStyle', inferProofStyle(styleText + ' ' + voiceText), styleText || voiceText ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.visualStyle', styleText || voiceText || 'No proof-style evidence.'),
     },
     palette: {
       primary: primary ? makeSignal('palette.primary', primary, 0.9, 'brand_fact', 'visual.colors', primary) : undefined,
       accent: accent ? makeSignal('palette.accent', accent, 0.75, 'brand_preference', 'visual.colors', colors.join(', ')) : undefined,
-      neutrals: makeSignal('palette.neutrals', neutrals, colors.length ? 0.65 : 0.15, 'inferred_hint', 'visual.colors', colors.join(', ') || 'No colors.'),
-      supporting: makeSignal('palette.supporting', supporting, colors.length ? 0.6 : 0.15, 'inferred_hint', 'visual.colors', colors.join(', ') || 'No colors.'),
-      unsafeOnDark: makeSignal('palette.unsafeOnDark', unsafeOnDark, colors.length ? 0.8 : 0.15, 'process_default', 'visual.colors', colors.join(', ') || 'No colors.'),
-      unsafeOnLight: makeSignal('palette.unsafeOnLight', unsafeOnLight, colors.length ? 0.8 : 0.15, 'process_default', 'visual.colors', colors.join(', ') || 'No colors.'),
-      contrastBias: makeSignal('palette.contrastBias', inferContrastBias(colors), colors.length ? 0.55 : 0.15, 'inferred_hint', 'visual.colors', colors.join(', ') || 'No colors.'),
-      harmony: makeSignal('palette.harmony', inferHarmony(primary, accent), primary && accent ? 0.45 : 0.15, 'inferred_hint', 'visual.colors', colors.join(', ') || 'Need at least two colors.'),
+      neutrals: makeSignal('palette.neutrals', neutrals, colors.length ? 0.65 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.colors', colors.join(', ') || 'No colors.'),
+      supporting: makeSignal('palette.supporting', supporting, colors.length ? 0.6 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.colors', colors.join(', ') || 'No colors.'),
+      unsafeOnDark: makeSignal('palette.unsafeOnDark', unsafeOnDark, colors.length ? 0.8 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'process_default', 'visual.colors', colors.join(', ') || 'No colors.'),
+      unsafeOnLight: makeSignal('palette.unsafeOnLight', unsafeOnLight, colors.length ? 0.8 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'process_default', 'visual.colors', colors.join(', ') || 'No colors.'),
+      contrastBias: makeSignal('palette.contrastBias', inferContrastBias(colors), colors.length ? BRAND_CONFIDENCE.ACTIONABLE_SIGNAL : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.colors', colors.join(', ') || 'No colors.'),
+      harmony: makeSignal('palette.harmony', inferHarmony(primary, accent), primary && accent ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.colors', colors.join(', ') || 'Need at least two colors.'),
     },
     typography: {
       raw: brand.visual.typography ? makeSignal('typography.raw', brand.visual.typography, 0.8, 'brand_preference', 'visual.typography', brand.visual.typography) : undefined,
-      category: makeSignal('typography.category', inferTypographyCategory(brand.visual.typography ?? ''), brand.visual.typography ? 0.55 : 0.15, 'inferred_hint', 'visual.typography', brand.visual.typography ?? 'No typography evidence.'),
-      casingBias: makeSignal('typography.casingBias', inferCasingBias(brand.visual.typography ?? ''), brand.visual.typography ? 0.45 : 0.15, 'inferred_hint', 'visual.typography', brand.visual.typography ?? 'No typography evidence.'),
+      category: makeSignal('typography.category', inferTypographyCategory(brand.visual.typography ?? ''), brand.visual.typography ? BRAND_CONFIDENCE.ACTIONABLE_SIGNAL : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.typography', brand.visual.typography ?? 'No typography evidence.'),
+      casingBias: makeSignal('typography.casingBias', inferCasingBias(brand.visual.typography ?? ''), brand.visual.typography ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.typography', brand.visual.typography ?? 'No typography evidence.'),
     },
     visual: deriveVisualSignals(styleText, makeSignal),
     motion: deriveMotionSignals(styleText, makeSignal),
     voice: {
-      assertiveness: makeSignal('voice.assertiveness', score(voiceText, ['bold', 'direct', 'confident', 'sharp'], ['soft', 'gentle']), voiceText ? 0.5 : 0.15, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
-      warmth: makeSignal('voice.warmth', score(voiceText, ['warm', 'friendly', 'human', 'community'], ['clinical', 'formal']), voiceText ? 0.5 : 0.15, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
-      jargonDensity: makeSignal('voice.jargonDensity', score(voiceText, ['technical', 'expert', 'b2b', 'developer'], ['simple', 'plain']), voiceText ? 0.5 : 0.15, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
-      humor: makeSignal('voice.humor', score(voiceText, ['funny', 'witty', 'playful', 'irreverent'], ['serious', 'formal']), voiceText ? 0.5 : 0.15, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
-      defaultFormality: makeSignal('voice.defaultFormality', score(voiceText, ['formal', 'professional', 'premium', 'enterprise'], ['casual', 'irreverent', 'playful']), voiceText ? 0.5 : 0.15, 'voice_default', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
-      ctaDirectness: makeSignal('voice.ctaDirectness', score(voiceText, ['direct', 'urgent', 'performance', 'sales'], ['soft', 'editorial']), voiceText ? 0.5 : 0.15, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
-      recurringPhrases: makeSignal('voice.recurringPhrases', brand.voice.structuralHabits, brand.voice.structuralHabits.length ? 0.75 : 0.15, 'voice_default', 'voice.structuralHabits', brand.voice.structuralHabits.join(', ') || 'No recurring phrases.', brand.voice.structuralHabits.length ? 'manual_user_entry' : 'fallback_default', brand.voice.structuralHabits.length ? undefined : 'No recurring phrases.'),
-      killList: makeSignal('voice.killList', brand.voice.killList, brand.voice.killList.length ? 0.95 : 0.15, 'brand_constraint', 'voice.killList', brand.voice.killList.join(', ') || 'No kill list.', brand.voice.killList.length ? 'manual_user_entry' : 'fallback_default', brand.voice.killList.length ? undefined : 'No kill list.'),
-      hookArchetypes: makeSignal('voice.hookArchetypes', brand.voice.hookArchetypes, brand.voice.hookArchetypes.length ? 0.8 : 0.15, 'voice_default', 'voice.hookArchetypes', brand.voice.hookArchetypes.join(', ') || 'No hook archetypes.', brand.voice.hookArchetypes.length ? 'manual_user_entry' : 'fallback_default', brand.voice.hookArchetypes.length ? undefined : 'No hook archetypes.'),
+      assertiveness: makeSignal('voice.assertiveness', score(voiceText, ['bold', 'direct', 'confident', 'sharp'], ['soft', 'gentle']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
+      warmth: makeSignal('voice.warmth', score(voiceText, ['warm', 'friendly', 'human', 'community'], ['clinical', 'formal']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
+      jargonDensity: makeSignal('voice.jargonDensity', score(voiceText, ['technical', 'expert', 'b2b', 'developer'], ['simple', 'plain']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
+      humor: makeSignal('voice.humor', score(voiceText, ['funny', 'witty', 'playful', 'irreverent'], ['serious', 'formal']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
+      defaultFormality: makeSignal('voice.defaultFormality', score(voiceText, ['formal', 'professional', 'premium', 'enterprise'], ['casual', 'irreverent', 'playful']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'voice_default', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
+      ctaDirectness: makeSignal('voice.ctaDirectness', score(voiceText, ['direct', 'urgent', 'performance', 'sales'], ['soft', 'editorial']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
+      recurringPhrases: makeSignal('voice.recurringPhrases', brand.voice.structuralHabits, brand.voice.structuralHabits.length ? 0.75 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'voice_default', 'voice.structuralHabits', brand.voice.structuralHabits.join(', ') || 'No recurring phrases.', brand.voice.structuralHabits.length ? 'manual_user_entry' : 'fallback_default', brand.voice.structuralHabits.length ? undefined : 'No recurring phrases.'),
+      killList: makeSignal('voice.killList', brand.voice.killList, brand.voice.killList.length ? 0.95 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'brand_constraint', 'voice.killList', brand.voice.killList.join(', ') || 'No kill list.', brand.voice.killList.length ? 'manual_user_entry' : 'fallback_default', brand.voice.killList.length ? undefined : 'No kill list.'),
+      hookArchetypes: makeSignal('voice.hookArchetypes', brand.voice.hookArchetypes, brand.voice.hookArchetypes.length ? 0.8 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'voice_default', 'voice.hookArchetypes', brand.voice.hookArchetypes.join(', ') || 'No hook archetypes.', brand.voice.hookArchetypes.length ? 'manual_user_entry' : 'fallback_default', brand.voice.hookArchetypes.length ? undefined : 'No hook archetypes.'),
     },
     evidence,
   };
@@ -242,14 +243,14 @@ export function sanitizeEvidenceExcerpt(input: string, maxLength = 220): string 
   return cleaned.length > maxLength ? `${cleaned.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...` : cleaned;
 }
 
-export function getBrandSignalEffectWeight(signal: BrandSignal<unknown>, minConfidence = 0.55): number {
+export function getBrandSignalEffectWeight(signal: BrandSignal<unknown>, minConfidence = BRAND_CONFIDENCE.ACTIONABLE_SIGNAL): number {
   if (signal.trustLevel === 'fallback_default' || signal.authorityClass === 'unsafe_or_untrusted') return 0;
   if (signal.confidence < minConfidence) return 0;
   const trustWeight = signal.trustLevel === 'manual_user_entry' || signal.trustLevel === 'uploaded_brand_guideline' ? 1 : 0.75;
   return clamp01(((signal.confidence - minConfidence) / (1 - minConfidence)) * trustWeight);
 }
 
-export function isBrandSignalActionable(signal: BrandSignal<unknown>, minConfidence = 0.55): boolean {
+export function isBrandSignalActionable(signal: BrandSignal<unknown>, minConfidence = BRAND_CONFIDENCE.ACTIONABLE_SIGNAL): boolean {
   return getBrandSignalEffectWeight(signal, minConfidence) > 0;
 }
 
@@ -274,7 +275,7 @@ function buildFallbackProfile(
 }
 
 function deriveVisualSignals(text: string, makeSignal: <T>(path: string, value: T, confidence: number, authorityClass: BrandSignalAuthorityClass, sourceField?: string, excerpt?: string, trustLevel?: BrandSignalTrustLevel, fallbackReason?: string) => BrandSignal<T>): BrandSignalProfile['visual'] {
-  const confidence = text ? 0.5 : 0.15;
+  const confidence = text ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL;
   const excerpt = text || 'No visual style evidence.';
   const trustLevel = text ? 'manual_user_entry' : 'fallback_default';
   const fallbackReason = text ? undefined : 'No visual style evidence.';
@@ -292,7 +293,7 @@ function deriveVisualSignals(text: string, makeSignal: <T>(path: string, value: 
 }
 
 function deriveMotionSignals(text: string, makeSignal: <T>(path: string, value: T, confidence: number, authorityClass: BrandSignalAuthorityClass, sourceField?: string, excerpt?: string, trustLevel?: BrandSignalTrustLevel, fallbackReason?: string) => BrandSignal<T>): BrandSignalProfile['motion'] {
-  const confidence = text ? 0.45 : 0.15;
+  const confidence = text ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL;
   const excerpt = text || 'No motion style evidence.';
   const trustLevel = text ? 'manual_user_entry' : 'fallback_default';
   const fallbackReason = text ? undefined : 'No motion style evidence.';

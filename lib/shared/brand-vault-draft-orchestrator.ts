@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { BRAND_CONFIDENCE } from './brand-confidence';
 import type {
   BrandSignal,
   BrandSignalEvidence,
@@ -286,7 +287,7 @@ const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
 const HARD_CRAWL_MAX_DEPTH = 3;
-const SIGNAL_ACTION_CONFIDENCE = 0.55;
+const SIGNAL_ACTION_CONFIDENCE = BRAND_CONFIDENCE.ACTIONABLE_SIGNAL;
 const MAX_SIGNAL_DIAGNOSTIC_PRIORITY_ITEMS = 12;
 const DEFAULT_CRAWL_EXCLUDE_PATHS = [
   '/legal',
@@ -1545,7 +1546,7 @@ function createCrawlSnapshotCandidates(args: {
     rawValue: { url: args.snapshot.normalizedUrl, contentType: args.snapshot.contentType },
     normalizedValue: { url: args.snapshot.normalizedUrl, title: content.title, contentType: args.snapshot.contentType },
     excerpt: sanitizeEvidenceExcerpt(`Crawled page included in Brand Vault draft: ${args.snapshot.normalizedUrl}`),
-    confidence: 0.45,
+    confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_PAGE_REFERENCE,
     authorityClass: 'owned',
     observedAt: args.observedAt,
     extractorId: CRAWL_EXTRACTOR,
@@ -1610,7 +1611,7 @@ function crawlSignalCandidates(args: {
       rawValue: promotableHeadings,
       normalizedValue: promotableHeadings,
       excerpt: `Crawled page headings: ${promotableHeadings.join(' | ')}`,
-      confidence: 0.52,
+      confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_RECURRING_PHRASES,
     });
   }
 
@@ -1622,7 +1623,7 @@ function crawlSignalCandidates(args: {
       rawValue: args.content.headings,
       normalizedValue: hookArchetypes,
       excerpt: `Crawled page hook language: ${args.content.headings.join(' | ')}`,
-      confidence: 0.48,
+      confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_HOOK_ARCHETYPES,
     });
   }
   if (args.content.ctas.length > 0) {
@@ -1632,7 +1633,7 @@ function crawlSignalCandidates(args: {
       rawValue: args.content.ctas,
       normalizedValue: crawlCtaDirectness(args.content.ctas),
       excerpt: `Crawled page CTAs: ${args.content.ctas.join(' | ')}`,
-      confidence: 0.58,
+      confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_CTA_DIRECTNESS,
     });
   }
   if (args.content.proofSnippets.length > 0) {
@@ -1642,7 +1643,7 @@ function crawlSignalCandidates(args: {
       rawValue: args.content.proofSnippets,
       normalizedValue: crawlProofStyle(args.content.proofSnippets.join(' ')),
       excerpt: `Crawled proof evidence: ${args.content.proofSnippets.join(' | ')}`,
-      confidence: 0.58,
+      confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_PROOF_STYLE,
     });
   }
   const audience = args.content.bodyText ? inferAudience(args.content.bodyText) : [];
@@ -1653,7 +1654,7 @@ function crawlSignalCandidates(args: {
       rawValue: args.content.bodyText,
       normalizedValue: audience,
       excerpt: args.content.bodyText,
-      confidence: 0.42,
+      confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_AUDIENCE,
     });
   }
 
@@ -1921,7 +1922,7 @@ function createUploadedSourceCandidates(args: {
         rawValue: colors,
         normalizedValue: colors,
         excerpt: `Uploaded ${uploadLabel(args.source)} color evidence: ${colors.join(', ')}`,
-        confidence: args.source.kind === 'uploaded_guideline' ? 0.78 : 0.62,
+        confidence: args.source.kind === 'uploaded_guideline' ? BRAND_CONFIDENCE.UPLOAD.GUIDELINE_COLORS : BRAND_CONFIDENCE.UPLOAD.ASSET_COLORS,
       }),
     );
   }
@@ -1937,7 +1938,7 @@ function createUploadedSourceCandidates(args: {
         rawValue: rules,
         normalizedValue: rules,
         excerpt: rules.join(' | '),
-        confidence: 0.82,
+        confidence: BRAND_CONFIDENCE.UPLOAD.BRAND_RULES,
       }),
     );
   }
@@ -1953,7 +1954,7 @@ function createUploadedSourceCandidates(args: {
         rawValue: voiceGuidelines,
         normalizedValue: voiceGuidelines,
         excerpt: voiceGuidelines.join(' | '),
-        confidence: args.source.kind === 'uploaded_guideline' ? 0.76 : 0.58,
+        confidence: args.source.kind === 'uploaded_guideline' ? BRAND_CONFIDENCE.UPLOAD.GUIDELINE_VOICE : BRAND_CONFIDENCE.UPLOAD.ASSET_VOICE,
       }),
     );
   }
@@ -1974,7 +1975,7 @@ function createUploadedSourceCandidates(args: {
           assetRole: args.source.assetRole,
         },
         excerpt: `Uploaded logo asset candidate: ${logoValue}`,
-        confidence: 0.7,
+        confidence: BRAND_CONFIDENCE.UPLOAD.LOGO_ASSET,
       }),
     );
   }
@@ -1995,7 +1996,7 @@ function createUploadedSourceCandidates(args: {
           assetRole: args.source.assetRole,
         },
         excerpt: `Uploaded brand asset reference: ${uploadLabel(args.source)}`,
-        confidence: 0.54,
+        confidence: BRAND_CONFIDENCE.UPLOAD.ASSET_REFERENCE,
       }),
     );
   }
@@ -2384,12 +2385,12 @@ function signalPathForSource(kind: BrandVaultSourceInput['kind']): string {
 }
 
 function confidenceForSource(kind: BrandVaultSourceInput['kind']): number {
-  if (kind === 'uploaded_guideline') return 0.72;
-  if (kind === 'uploaded_asset') return 0.58;
-  if (kind === 'social_post') return 0.42;
-  if (kind === 'social_profile') return 0.32;
-  if (kind === 'crawl_seed') return 0.25;
-  return 0.3;
+  if (kind === 'uploaded_guideline') return BRAND_CONFIDENCE.SOURCE_REFERENCE.UPLOADED_GUIDELINE;
+  if (kind === 'uploaded_asset') return BRAND_CONFIDENCE.SOURCE_REFERENCE.UPLOADED_ASSET;
+  if (kind === 'social_post') return BRAND_CONFIDENCE.SOURCE_REFERENCE.SOCIAL_POST;
+  if (kind === 'social_profile') return BRAND_CONFIDENCE.SOURCE_REFERENCE.SOCIAL_PROFILE;
+  if (kind === 'crawl_seed') return BRAND_CONFIDENCE.SOURCE_REFERENCE.CRAWL_SEED;
+  return BRAND_CONFIDENCE.SOURCE_REFERENCE.DEFAULT;
 }
 
 function authorityForSource(kind: BrandVaultSourceInput['kind']): BrandEvidenceCandidate['authorityClass'] {
