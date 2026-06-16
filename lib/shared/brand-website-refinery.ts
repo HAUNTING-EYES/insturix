@@ -19,6 +19,7 @@ import type {
   BrandWebsiteSignalProfileResult,
   BrandWebsiteSnapshot,
   BrandWebsiteStylesheetSnapshot,
+  BrandWebsiteSupplementalTextEvidence,
   FallbackSignal,
   FetchWebsiteBrandSnapshotOptions,
   MakeSignal,
@@ -80,12 +81,16 @@ const UNKNOWN_ASSET_CONFIDENCE_CEILING = 0.38;
 const DEFAULT_LINKED_STYLESHEET_MAX_COUNT = 8;
 const DEFAULT_LINKED_STYLESHEET_MAX_BYTES = 320_000;
 const DEFAULT_LINKED_STYLESHEET_TIMEOUT_MS = 4_000;
+const DEFAULT_SHOPIFY_JSON_TIMEOUT_MS = 4_000;
+const DEFAULT_SHOPIFY_PRODUCTS_LIMIT = 12;
+const DEFAULT_SHOPIFY_COLLECTIONS_LIMIT = 12;
 const DEFAULT_BRAND_VAULT_USER_AGENT = 'InsturixBrandVault/1.0';
 const DEFAULT_BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|attention required|verify you are human|captcha|cloudflare|datadome|akamai|incapsula|perimeterx|pardon our interruption|access denied|request blocked)\b/i;
 const JAVASCRIPT_SHELL_PATTERN = /\b(?:please enable javascript|enable javascript|requires javascript|enable cookies|please use a different browser|javascript is disabled)\b/i;
 const HYDRATION_ROOT_MARKER_PATTERN = /\b__NEXT_DATA__\b|<[^>]+\bid=["'](?:__next|root|app)["']|<[^>]+\bdata-reactroot\b/i;
+const SHOPIFY_MARKER_PATTERN = /\b(?:cdn\.shopify\.com|Shopify\.theme|myshopify\.com)\b/i;
 
 interface WebsiteFetchAttempt {
   normalizedUrl: string;
@@ -268,6 +273,7 @@ async function resolveBrowserFallbackSnapshot(args: {
     fetchedAt: args.now ?? new Date().toISOString(),
     contentType: fallback.contentType ?? 'text/html',
     stylesheets: fallback.stylesheets,
+    supplementalText: fallback.supplementalText,
     stylesheetWarnings: fallback.stylesheetWarnings,
     fetchWarnings: uniqueText([
       `Brand Vault used browser-rendered fallback evidence because the direct website scan looked blocked (${describeFetchFallbackReason(args.attempt.reason ?? 'browser_challenge')}).`,
@@ -292,6 +298,12 @@ async function snapshotFromAttempt(args: {
     fetchFn: args.fetchFn,
     options: args.options,
   });
+  const shopifyResult = await fetchShopifySupplementalText({
+    normalizedUrl: args.attempt.normalizedUrl,
+    html: args.attempt.html,
+    fetchFn: args.fetchFn,
+    options: args.options,
+  });
 
   return {
     normalizedUrl: args.attempt.normalizedUrl,
@@ -299,11 +311,140 @@ async function snapshotFromAttempt(args: {
     fetchedAt: args.options.now ?? new Date().toISOString(),
     contentType: args.attempt.contentType,
     stylesheets: stylesheetResult.stylesheets,
+    supplementalText: shopifyResult.supplementalText,
     stylesheetWarnings: stylesheetResult.warnings,
-    fetchWarnings: uniqueText(args.fetchWarnings),
+    fetchWarnings: uniqueText([...args.fetchWarnings, ...shopifyResult.warnings]),
     browserFallbackRequired: args.browserFallbackRequired,
     fetchFallbackReason: args.fetchFallbackReason,
   };
+}
+
+async function fetchShopifySupplementalText(args: {
+  normalizedUrl: string;
+  html: string;
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['fetchFn']>;
+  options: FetchWebsiteBrandSnapshotOptions;
+}): Promise<{ supplementalText: BrandWebsiteSupplementalTextEvidence[]; warnings: string[] }> {
+  if (!SHOPIFY_MARKER_PATTERN.test(args.html)) return { supplementalText: [], warnings: [] };
+  const baseUrl = new URL(args.normalizedUrl);
+  const [products, collections] = await Promise.all([
+    fetchShopifyJsonEndpoint({
+      baseUrl,
+      path: '/products.json',
+      sourceField: 'shopify.products',
+      fetchFn: args.fetchFn,
+      options: args.options,
+      limit: DEFAULT_SHOPIFY_PRODUCTS_LIMIT,
+      readItems: readShopifyProducts,
+    }),
+    fetchShopifyJsonEndpoint({
+      baseUrl,
+      path: '/collections.json',
+      sourceField: 'shopify.collections',
+      fetchFn: args.fetchFn,
+      options: args.options,
+      limit: DEFAULT_SHOPIFY_COLLECTIONS_LIMIT,
+      readItems: readShopifyCollections,
+    }),
+  ]);
+
+  return {
+    supplementalText: [...products.supplementalText, ...collections.supplementalText],
+    warnings: [...products.warnings, ...collections.warnings],
+  };
+}
+
+async function fetchShopifyJsonEndpoint(args: {
+  baseUrl: URL;
+  path: string;
+  sourceField: string;
+  fetchFn: NonNullable<FetchWebsiteBrandSnapshotOptions['fetchFn']>;
+  options: FetchWebsiteBrandSnapshotOptions;
+  limit: number;
+  readItems: (value: unknown, limit: number) => string[];
+}): Promise<{ supplementalText: BrandWebsiteSupplementalTextEvidence[]; warnings: string[] }> {
+  const url = new URL(args.path, args.baseUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), args.options.stylesheetTimeoutMs ?? DEFAULT_SHOPIFY_JSON_TIMEOUT_MS);
+  try {
+    const response = await args.fetchFn(url.href, {
+      signal: controller.signal,
+      headers: {
+        'user-agent': args.options.userAgent ?? DEFAULT_BRAND_VAULT_USER_AGENT,
+        accept: 'application/json,text/plain,*/*;q=0.8',
+      },
+    });
+    if (!response.ok) {
+      return { supplementalText: [], warnings: [`Brand Vault skipped ${args.sourceField}: HTTP ${response.status}.`] };
+    }
+    const contentType = response.headers.get('content-type') ?? '';
+    const raw = await response.text();
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      return {
+        supplementalText: [],
+        warnings: [`Brand Vault skipped ${args.sourceField}: non-JSON response${contentType ? ` (${contentType})` : ''}.`],
+      };
+    }
+    const supplementalText = args.readItems(json, args.limit).map((text) => ({
+      sourceField: args.sourceField,
+      sourceUrl: url.href,
+      text,
+      confidence: 0.58,
+    }));
+    return { supplementalText, warnings: [] };
+  } catch (error) {
+    return { supplementalText: [], warnings: [`Brand Vault skipped ${args.sourceField}: ${formatUnknownError(error)}`] };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readShopifyProducts(value: unknown, limit: number): string[] {
+  if (!isRecord(value) || !Array.isArray(value.products)) return [];
+  return uniqueText(value.products.slice(0, limit).flatMap((item) => {
+    if (!isRecord(item)) return undefined;
+    const title = readRecordString(item, 'title');
+    const description = stripHtml(readRecordString(item, 'body_html'));
+    return [
+      title,
+      description,
+      readRecordString(item, 'product_type'),
+      uniqueText([title, description, readRecordString(item, 'vendor')]).join('. '),
+    ];
+  }));
+}
+
+function readShopifyCollections(value: unknown, limit: number): string[] {
+  if (!isRecord(value) || !Array.isArray(value.collections)) return [];
+  return uniqueText(value.collections.slice(0, limit).flatMap((item) => {
+    if (!isRecord(item)) return undefined;
+    const title = readRecordString(item, 'title');
+    const description = stripHtml(readRecordString(item, 'body_html'));
+    return [title, description, uniqueText([title, description]).join('. ')];
+  }));
+}
+
+function readRecordString(value: Record<string, unknown>, key: string): string | undefined {
+  const item = value[key];
+  return typeof item === 'string' ? item.trim() || undefined : undefined;
+}
+
+function stripHtml(value: string | undefined): string | undefined {
+  return value
+    ?.replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim() || undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function describeFetchFallbackReason(reason: BrandWebsiteFetchFallbackReason): string {
@@ -555,6 +696,14 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
     nextDataText: parsed.nextDataText,
     candidates,
   });
+  appendSupplementalTextSignalCandidates({
+    input,
+    normalizedUrl,
+    observedAt,
+    extractor,
+    supplementalText: parsed.supplementalText,
+    candidates,
+  });
 
   return { profile, candidates, normalizedUrl, warnings: parsed.colors.length ? [] : ['No website colors were detected.'] };
 }
@@ -597,6 +746,56 @@ function appendNextDataSignalCandidates(args: {
 
   const proofStyle = inferProofStyle(text);
   if (proofStyle !== 'unknown') add('identity.proofStyle', proofStyle, 0.56);
+}
+
+function appendSupplementalTextSignalCandidates(args: {
+  input: BrandWebsiteDraftInput;
+  normalizedUrl: string;
+  observedAt: string;
+  extractor: string;
+  supplementalText: BrandWebsiteSupplementalTextEvidence[];
+  candidates: BrandEvidenceCandidate[];
+}): void {
+  const groups = new Map<string, BrandWebsiteSupplementalTextEvidence[]>();
+  for (const item of args.supplementalText) {
+    if (!item.text.trim()) continue;
+    groups.set(item.sourceField, [...(groups.get(item.sourceField) ?? []), item]);
+  }
+
+  for (const [sourceField, items] of groups) {
+    const textValues = uniqueText(items.map((item) => item.text));
+    const text = textValues.join('. ');
+    if (!text) continue;
+    const confidence = Math.max(...items.map((item) => item.confidence ?? 0.52));
+    const sourceUrl = items.map((item) => item.sourceUrl).find((value): value is string => Boolean(value));
+    const add = (signalPath: string, normalizedValue: unknown): void => {
+      args.candidates.push({
+        id: `candidate_${sourceField.replace(/[^a-z0-9]+/gi, '_')}_${signalPath.replace(/[^a-z0-9]+/gi, '_')}`,
+        brandId: args.input.brandId,
+        jobId: args.input.jobId,
+        sourceType: 'website',
+        sourceUrl: sourceUrl ?? args.normalizedUrl,
+        sourceField,
+        signalPath,
+        rawValue: textValues,
+        normalizedValue,
+        excerpt: sanitizeEvidenceExcerpt(text),
+        confidence,
+        authorityClass: 'owned',
+        observedAt: args.observedAt,
+        extractorId: args.extractor,
+      });
+    };
+
+    const audience = inferAudience(text);
+    if (audience.length > 0) add('identity.audience', audience);
+
+    const phrases = inferRecurringPhrases(textValues, []);
+    if (phrases.length > 0) add('voice.recurringPhrases', phrases);
+
+    const proofStyle = inferProofStyle(text);
+    if (proofStyle !== 'unknown') add('identity.proofStyle', proofStyle);
+  }
 }
 
 export function createWebsiteBrandSignalProfileDraft(

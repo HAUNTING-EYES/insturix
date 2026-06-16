@@ -1158,4 +1158,107 @@ describe('Brand website refinery', () => {
       }),
     ]));
   });
+
+  it('fetches Shopify product and collection JSON as free supplemental evidence', async () => {
+    const calls: string[] = [];
+    const shopifyHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Glowbar</title>
+    <script>window.Shopify = { theme: { name: 'Dawn' } };</script>
+  </head>
+  <body>
+    <h1>Glowbar skincare</h1>
+    <script src="https://cdn.shopify.com/s/files/theme.js"></script>
+  </body>
+</html>`;
+    const snapshot = await fetchWebsiteBrandSnapshot('glowbar.example', {
+      now: NOW,
+      fetchLinkedStylesheets: false,
+      fetchFn: async (url) => {
+        calls.push(url);
+        if (url.endsWith('/products.json')) {
+          return new Response(JSON.stringify({
+            products: [
+              {
+                title: 'Daily Barrier Serum',
+                body_html: '<p>Dermatologist-tested skincare for sensitive Indian skin, trusted by 20000 customers.</p>',
+                vendor: 'Glowbar',
+                product_type: 'Serum',
+              },
+            ],
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (url.endsWith('/collections.json')) {
+          return new Response(JSON.stringify({
+            collections: [
+              {
+                title: 'Daily skincare essentials',
+                body_html: '<p>Simple routines for busy skincare customers.</p>',
+              },
+            ],
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return new Response(shopifyHtml, { status: 200, headers: { 'content-type': 'text/html' } });
+      },
+    });
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: snapshot.normalizedUrl,
+      html: snapshot.html,
+      supplementalText: snapshot.supplementalText,
+      brandId: 'brand_glowbar',
+      userId: 'user_1',
+      fetchedAt: snapshot.fetchedAt,
+      jobId: 'job_shopify_json',
+    });
+
+    expect(calls).toEqual(expect.arrayContaining([
+      'https://glowbar.example/products.json',
+      'https://glowbar.example/collections.json',
+    ]));
+    expect(snapshot.supplementalText?.map((item) => item.sourceField)).toEqual(expect.arrayContaining(['shopify.products', 'shopify.collections']));
+    expect(result.profile.identity.category.value).toBe('beauty/personal care');
+    expect(result.profile.voice.recurringPhrases.value).toContain('Daily Barrier Serum');
+    expect(result.profile.identity.proofStyle.value).toBe('testimonial');
+    expect(result.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceField: 'shopify.products',
+        signalPath: 'identity.proofStyle',
+        sourceType: 'website',
+        confidence: 0.58,
+      }),
+      expect.objectContaining({
+        sourceField: 'shopify.products',
+        signalPath: 'voice.recurringPhrases',
+        sourceType: 'website',
+        confidence: 0.58,
+      }),
+    ]));
+  });
+
+  it('warns but continues when Shopify JSON endpoints are unavailable', async () => {
+    const snapshot = await fetchWebsiteBrandSnapshot('glowbar.example', {
+      now: NOW,
+      fetchLinkedStylesheets: false,
+      fetchFn: async (url) => {
+        if (url.endsWith('/products.json')) {
+          return new Response('not found', { status: 404, headers: { 'content-type': 'text/plain' } });
+        }
+        if (url.endsWith('/collections.json')) {
+          return new Response('<html>blocked</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+        }
+        return new Response('<html><body><script>Shopify.theme = {}</script><h1>Glowbar skincare</h1></body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      },
+    });
+
+    expect(snapshot.supplementalText).toEqual([]);
+    expect(snapshot.fetchWarnings).toEqual(expect.arrayContaining([
+      'Brand Vault skipped shopify.products: HTTP 404.',
+      'Brand Vault skipped shopify.collections: non-JSON response (text/html).',
+    ]));
+  });
 });

@@ -245,11 +245,14 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
   const socialPreviewImages = extractSocialPreviewImages($, normalizedUrl);
   const nextDataText = extractNextDataTextEvidence($);
+  const supplementalText = input.supplementalText ?? [];
+  const supplementalTextValues = supplementalText.map((item) => item.text);
 
   removeNonBrandBodyNoise($);
   const headings = uniqueText([
     ...$('h1,h2,h3').map((_, el) => cleanText($(el).text())).get(),
     ...nextDataText.filter(isNextDataHeadingCandidate),
+    ...supplementalTextValues.filter(isNextDataHeadingCandidate),
   ]).slice(0, 16);
   const ctas = uniqueText($('a,button').map((_, el) => cleanText($(el).text())).get())
     .filter((text) => text.length <= 80 && CTA_PATTERN.test(text))
@@ -259,10 +262,11 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
       .map((_, el) => cleanText($(el).text()))
       .get(),
     ...nextDataText.filter(isNextDataProofSnippet),
+    ...supplementalTextValues.filter(isNextDataProofSnippet),
   ])
     .filter((text) => text.length >= 12)
     .slice(0, 8);
-  const bodyText = sanitizeEvidenceExcerpt(uniqueText([readBodyText($), ...nextDataText]).join('. '), 1200);
+  const bodyText = sanitizeEvidenceExcerpt(uniqueText([readBodyText($), ...nextDataText, ...supplementalTextValues]).join('. '), 1200);
   return {
     normalizedUrl,
     host,
@@ -281,6 +285,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     socialPreviewImages,
     bodyText,
     nextDataText,
+    supplementalText,
   };
 }
 

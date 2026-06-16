@@ -385,6 +385,7 @@ export async function createBrandVaultWebsiteDraftJob(
         websiteUrl: snapshot.normalizedUrl,
         html: snapshot.html,
         stylesheets: snapshot.stylesheets,
+        supplementalText: snapshot.supplementalText,
         brandId: input.brandId,
         userId: input.userId,
         companyName: input.companyName,

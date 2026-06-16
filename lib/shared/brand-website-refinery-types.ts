@@ -137,6 +137,7 @@ export interface BrandWebsiteDraftInput {
   websiteUrl: string;
   html: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
+  supplementalText?: BrandWebsiteSupplementalTextEvidence[];
   brandId?: string;
   userId?: string;
   companyName?: string;
@@ -149,6 +150,13 @@ export interface BrandWebsiteStylesheetSnapshot {
   url: string;
   css: string;
   contentType?: string;
+}
+
+export interface BrandWebsiteSupplementalTextEvidence {
+  sourceField: string;
+  sourceUrl?: string;
+  text: string;
+  confidence?: number;
 }
 
 export type BrandWebsiteFetchFallbackReason =
@@ -174,6 +182,7 @@ export interface BrandWebsiteBrowserFallbackSnapshot {
   html: string;
   contentType?: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
+  supplementalText?: BrandWebsiteSupplementalTextEvidence[];
   stylesheetWarnings?: string[];
   fetchWarnings?: string[];
 }
@@ -184,6 +193,7 @@ export interface BrandWebsiteSnapshot {
   fetchedAt: string;
   contentType?: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
+  supplementalText?: BrandWebsiteSupplementalTextEvidence[];
   stylesheetWarnings?: string[];
   fetchWarnings?: string[];
   browserFallbackRequired?: boolean;
@@ -266,6 +276,7 @@ export interface ParsedWebsiteEvidence {
   socialPreviewImages: string[];
   bodyText: string;
   nextDataText: string[];
+  supplementalText: BrandWebsiteSupplementalTextEvidence[];
 }
 
 export interface SignalSource {
