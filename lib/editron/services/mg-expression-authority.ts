@@ -383,9 +383,13 @@ function regionToLayoutPosition(
   switch (region) {
     case 'top-left':
     case 'top':
+    case 'middle-left':
+    case 'center-left':
       return 'top-left';
     case 'top-right':
     case 'right':
+    case 'middle-right':
+    case 'center-right':
       return 'top-right';
     case 'bottom-left':
     case 'left':

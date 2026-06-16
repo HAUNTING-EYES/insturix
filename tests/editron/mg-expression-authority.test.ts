@@ -335,4 +335,34 @@ describe('MG expression authority', () => {
     expect(resolvedRecipe.layout.position).toBe('bottom-right');
     expect(resolvedRecipe.layout.maxWidth).toMatch(/%$/);
   });
+
+  it('does not recenter middle-right atomic placement when applying recipe authority', () => {
+    const authority = resolveMgExpressionAuthority({
+      content: { value: '0.02', label: 'humans spoken to per day' },
+      structure: structure([
+        { role: 'primary-value', channel: 'scalar', sourceKey: 'value', value: '0.02', confidence: 1 },
+        { role: 'supporting-label', channel: 'text', sourceKey: 'label', value: 'humans spoken to per day', confidence: 0.88 },
+      ]),
+      signals: {
+        speech_energy: 0.795,
+        visual_significance: 0.34,
+        main_subject_width: 0.92,
+        main_subject_height: 0.88,
+        negative_space_right: 0,
+      },
+      placementRegion: 'middle-right',
+      graphicsDensity: 'moderate',
+    });
+    const recipe: Recipe = {
+      id: 'composed-numeric',
+      elements: [],
+      layout: { position: 'center' },
+      exitStyle: 'hold-then-fade',
+    };
+
+    const resolvedRecipe = applyMgExpressionAuthorityToRecipe(recipe, authority);
+
+    expect(authority.layout.position).toBe('top-right');
+    expect(resolvedRecipe.layout.position).toBe('top-right');
+  });
 });

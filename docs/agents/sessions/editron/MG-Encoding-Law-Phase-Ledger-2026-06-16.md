@@ -60,6 +60,17 @@ Known live-render blocker - repeated stat shell:
 - Rendered taste gate: `tests/editron/rendered-aesthetic.test.ts` now fails sparse-rate evidence if it still carries generic shell/card atoms, and passes the licensed trace evidence. This is a deterministic gate over rendered evidence, not a new preset selector.
 - Honest visual status: this fixes the repeated shell/card bug class, but the result is still a sparse typographic rate composition, not the final rich full-frame MG standard. The remaining quality work belongs in Phase 7 / calibration: richer licensed atoms for tiny rates and real footage taste gates, not more presets or menu types.
 
+Known real-project blocker - one bad MG in `proj_sH-nZy0DtNOq`:
+- Symptom observed on 2026-06-17: the saved project has a 547.57s final timeline but only one `motion-graphic` overlay. The visible MG is `0.02` / `humans spoken to per day`, lasts 72 frames / 2.4s, and sits visually over the talking-head frame while the canonical karaoke caption is also active.
+- Evidence: `npx tsx scripts\inspect-project-mg.ts proj_sH-nZy0DtNOq` reports overlay counts `{ video: 38, sound: 3, transition: 3, motion-graphic: 1, caption: 1 }`, `directorProfileUsed: A-01`, `genreParameters.graphic_density: 0.8310666483250496`, one global caption track, and the MG metadata `placementRegion: "middle-right"` with persisted recipe layout `position: "center"`.
+- Root cause split:
+  - Count/source issue: the deterministic Encoding Law composer only realized the one graphic decision it received. Richer concept/topic/key-claim MG candidates are not being deterministically extracted yet. This is the semantic fact extractor gap from Phase 8/next build, not a renderer preset issue.
+  - Bad candidate issue: the upstream decision selected a satirical tiny decimal count as the only stat MG. Current semantic atoms say only `quantity.displayText = "0.02"`, `kind = "count"`, `unit = "people"`; no richer rhetorical/satire/factual-salience facts exist to downrank or replace it.
+  - Placement issue: EDL/atomic placement chose `middle-right`, but `mg-expression-authority.ts::regionToLayoutPosition` did not understand `middle-right` / `middle-left`, so the recipe authority silently fell back to `center`.
+- Code fix status: `mg-expression-authority.ts` now maps `middle-right` / `center-right` to `top-right` and `middle-left` / `center-left` to `top-left` instead of recentering. This fixes the verified placement vocabulary loss for new runs; existing persisted project recipes must be regenerated.
+- Regression coverage: `tests/editron/mg-expression-authority.test.ts` now has `does not recenter middle-right atomic placement when applying recipe authority`, using the same `0.02` / `humans spoken to per day` content shape.
+- Still needed: this does not fix MG count or candidate quality. Next real work is semantic fact extraction plus real-project taste gates: generate multiple candidate facts from claims/concepts/quotes/relations, suppress low-value rhetorical tiny-number stats unless licensed by salience/truth evidence, then rerun `proj_sH-nZy0DtNOq` and inspect rendered stills/clips.
+
 Phase 8 - Calibration:
 - Status: not complete.
 - Evidence: numeric scores are deterministic local priors for this slice, and the first six-case rendered calibration cohort now passes after renderer-safe-lane fixes.
