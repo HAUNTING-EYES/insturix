@@ -142,11 +142,12 @@ export function BrandVaultReview() {
   const brandName = profileBrandName(snapshot);
   const facets = useMemo(() => buildFacets(snapshot, signals), [signals, snapshot]);
   const canReview = Boolean(snapshot.record?.id && snapshot.record.status === 'draft');
+  const activeScanStatus = snapshot.job?.status === 'queued' || snapshot.job?.status === 'running';
+  const scanBusy = createDraft.isPending || activeScanStatus;
   const busy =
-    createDraft.isPending ||
+    scanBusy ||
     acceptDraft.isPending ||
     rejectDraft.isPending ||
-    jobQuery.isFetching ||
     profileQuery.isFetching ||
     uploadStatus === 'extracting';
   const currentError =
@@ -378,6 +379,7 @@ export function BrandVaultReview() {
             guidance={intakeGuidance}
             activeWorkflow={activeGuidanceWorkflow}
             busy={busy}
+            scanBusy={scanBusy}
             socialLinksText={socialLinksText}
             uploadStatus={uploadStatus}
             uploadedSourceCount={uploadedSources.length}
@@ -400,6 +402,7 @@ export function BrandVaultReview() {
               uploadedSources={uploadedSources}
               uploadWarnings={uploadWarnings}
               busy={busy}
+              scanBusy={scanBusy}
               uploadStatus={uploadStatus}
               onWebsiteUrlChange={setWebsiteUrl}
               onCompanyNameChange={setCompanyName}
@@ -487,6 +490,7 @@ interface IntakeGuidancePanelProps {
   guidance: BrandVaultIntakeGuidance;
   activeWorkflow: string | null;
   busy: boolean;
+  scanBusy: boolean;
   socialLinksText: string;
   uploadStatus: UploadStatus;
   uploadedSourceCount: number;
@@ -502,6 +506,7 @@ function IntakeGuidancePanel({
   guidance,
   activeWorkflow,
   busy,
+  scanBusy,
   socialLinksText,
   uploadStatus,
   uploadedSourceCount,
@@ -579,8 +584,8 @@ function IntakeGuidancePanel({
                     Choose files
                   </button>
                   <button type="button" className="bv-c1-primary" disabled={!canRescan} onClick={onRescan}>
-                    {uploadStatus === 'extracting' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                    Refresh draft
+                    {uploadStatus === 'extracting' || scanBusy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    {uploadStatus === 'extracting' ? 'Reading files' : scanBusy ? 'Scanning site' : 'Refresh draft'}
                   </button>
                 </div>
               </div>
@@ -595,8 +600,8 @@ function IntakeGuidancePanel({
                     </button>
                   )}
                   <button type="button" className="bv-c1-primary" disabled={!canRescan} onClick={onRescan}>
-                    <RefreshCw size={13} />
-                    Refresh draft
+                    {scanBusy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    {scanBusy ? 'Scanning site' : 'Refresh draft'}
                   </button>
                 </div>
               </div>
@@ -664,6 +669,7 @@ interface FastSetupPanelProps {
   uploadedSources: BrandVaultUploadSourceEvidence[];
   uploadWarnings: string[];
   busy: boolean;
+  scanBusy: boolean;
   uploadStatus: UploadStatus;
   onWebsiteUrlChange: (value: string) => void;
   onCompanyNameChange: (value: string) => void;
@@ -686,6 +692,7 @@ function FastSetupPanel({
   uploadedSources,
   uploadWarnings,
   busy,
+  scanBusy,
   uploadStatus,
   onWebsiteUrlChange,
   onCompanyNameChange,
@@ -782,8 +789,8 @@ function FastSetupPanel({
             />
           </label>
           <button type="submit" className="bv-c1-primary min-h-10 w-full" disabled={busy}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-            {uploadStatus === 'extracting' ? 'Reading files' : 'Start scan'}
+            {scanBusy || uploadStatus === 'extracting' ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            {uploadStatus === 'extracting' ? 'Reading files' : scanBusy ? 'Scanning site' : 'Start scan'}
           </button>
         </div>
       </form>
