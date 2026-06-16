@@ -90,6 +90,10 @@ export function useBrandVaultJob(jobId: string | null) {
     queryKey: BRAND_VAULT_KEYS.job(jobId ?? ''),
     queryFn: () => fetchJob(jobId as string),
     enabled: Boolean(isSignedIn && jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.job?.status;
+      return status === 'queued' || status === 'running' ? 2500 : false;
+    },
     staleTime: 30 * 1000,
   });
 }

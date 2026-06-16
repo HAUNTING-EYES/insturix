@@ -5,6 +5,7 @@ import {
   getBrandVaultRefineryJob,
   getBrandVaultSignalProfile,
   reviewBrandVaultSignalProfileDraft,
+  startQueuedBrandVaultRefineryJobFromWebsite,
   type BrandVaultRefineryStore,
 } from '../../lib/shared/brand-vault-refinery-api';
 import { createBrandVaultConnectedSocialEvidence } from '../../lib/shared/brand-vault-connected-social-ingestion';
@@ -80,6 +81,73 @@ function createPromiseBackedStore(): BrandVaultRefineryStore {
 }
 
 describe('Brand Vault refinery API boundary', () => {
+  it('queues a refinery job before running slow website and social enrichment work', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    let websiteFetchCount = 0;
+    let providerCallCount = 0;
+
+    const started = await startQueuedBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://x.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: {
+          fetchFn: async () => {
+            websiteFetchCount += 1;
+            return htmlResponse();
+          },
+        },
+        sourceEvidenceProvider: async () => {
+          providerCallCount += 1;
+          return { warnings: ['connected social enrichment ran'] };
+        },
+      },
+    );
+
+    expect(started.response.status).toBe(202);
+    expect(started.response.body.ok).toBe(true);
+    if (!started.response.body.ok) throw new Error(started.response.body.error.message);
+    expect(started.response.body.job.status).toBe('queued');
+    expect(started.response.body.record).toBeNull();
+    expect(started.response.body.reviewPayload).toBeNull();
+    expect(websiteFetchCount).toBe(0);
+    expect(providerCallCount).toBe(0);
+
+    const queued = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: started.response.body.job.id },
+      { store },
+    );
+    expect(queued.status).toBe(200);
+    expect(queued.body.ok).toBe(true);
+    if (!queued.body.ok) throw new Error(queued.body.error.message);
+    expect(queued.body.job.status).toBe('queued');
+    expect(queued.body.record).toBeNull();
+
+    await started.run?.();
+    expect(websiteFetchCount).toBeGreaterThan(0);
+    expect(providerCallCount).toBe(1);
+
+    const completed = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: started.response.body.job.id },
+      { store },
+    );
+    expect(completed.status).toBe(200);
+    expect(completed.body.ok).toBe(true);
+    if (!completed.body.ok) throw new Error(completed.body.error.message);
+    expect(completed.body.job.status).toBe('needs_review');
+    expect(completed.body.job.id).toBe(started.response.body.job.id);
+    expect(completed.body.job.warnings).toContain('connected social enrichment ran');
+    expect(completed.body.record?.id).toBe(`${started.response.body.job.id}_profile`);
+    expect(completed.body.reviewPayload?.reviewRequired).toBe(true);
+  });
+
   it('creates, stores, and reloads a website-derived review draft for the authenticated user', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
 

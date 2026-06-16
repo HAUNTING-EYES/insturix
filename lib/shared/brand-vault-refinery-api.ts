@@ -116,6 +116,24 @@ export type CreateBrandVaultRefineryJobSuccessBody = {
   candidates: BrandEvidenceCandidate[];
 };
 
+export type CreateQueuedBrandVaultRefineryJobSuccessBody = {
+  ok: true;
+  job: BrandRefineryJob;
+  record: null;
+  reviewPayload: null;
+  candidates: [];
+};
+
+export type QueuedBrandVaultRefineryJobStart =
+  | {
+      response: BrandVaultApiResult<CreateQueuedBrandVaultRefineryJobSuccessBody>;
+      run: () => Promise<void>;
+    }
+  | {
+      response: BrandVaultApiResult<BrandVaultApiErrorBody>;
+      run?: undefined;
+    };
+
 export type GetBrandVaultRefineryJobSuccessBody = {
   ok: true;
   job: BrandRefineryJob;
@@ -224,6 +242,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
     userId: string;
     body: unknown;
     actorId?: string;
+    jobId?: string;
   },
   dependencies: {
     store: BrandVaultRefineryStore;
@@ -256,6 +275,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       sourceEvidence,
       actorId: args.actorId ?? args.userId,
       now: dependencies.clock?.(),
+      jobId: args.jobId,
     },
     {
       repository: dependencies.store,
@@ -311,6 +331,78 @@ export async function createBrandVaultRefineryJobFromWebsite(
   };
 }
 
+export async function startQueuedBrandVaultRefineryJobFromWebsite(
+  args: {
+    userId: string;
+    body: unknown;
+    actorId?: string;
+  },
+  dependencies: {
+    store: BrandVaultRefineryStore;
+    fetchOptions?: FetchWebsiteBrandSnapshotOptions;
+    clock?: () => string;
+    sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
+  },
+): Promise<QueuedBrandVaultRefineryJobStart> {
+  const parsed = parseCreateBody(args.body);
+  if (!parsed.ok) return { response: parsed.result };
+
+  const now = dependencies.clock?.() ?? new Date().toISOString();
+  const jobId = createDefaultRefineryJobId({
+    userId: args.userId,
+    brandId: parsed.value.brandId,
+    websiteUrl: parsed.value.websiteUrl,
+    now,
+  });
+  const queuedJob: BrandRefineryJob = {
+    id: jobId,
+    userId: args.userId,
+    brandId: parsed.value.brandId,
+    status: 'queued',
+    inputs: {
+      websiteUrl: parsed.value.websiteUrl,
+      companyName: parsed.value.companyName,
+      socialLinks: parsed.value.socialLinks,
+      sourceEvidence: parsed.value.sourceEvidence,
+    },
+    warnings: ['Brand Vault scan queued; refresh or poll this job id for review results.'],
+    createdAt: now,
+    updatedAt: now,
+  };
+  await dependencies.store.saveJobSnapshot({ job: queuedJob, candidates: [] });
+
+  const run = async (): Promise<void> => {
+    const runningAt = dependencies.clock?.() ?? new Date().toISOString();
+    await dependencies.store.saveJobSnapshot({
+      job: {
+        ...queuedJob,
+        status: 'running',
+        warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
+        updatedAt: runningAt,
+      },
+      candidates: [],
+    });
+    await createBrandVaultRefineryJobFromWebsite(
+      { ...args, jobId },
+      dependencies,
+    );
+  };
+
+  return {
+    response: {
+      status: 202,
+      body: {
+        ok: true,
+        job: queuedJob,
+        record: null,
+        reviewPayload: null,
+        candidates: [],
+      },
+    },
+    run,
+  };
+}
+
 async function resolveSourceEvidenceProvider(args: {
   provider?: BrandVaultSourceEvidenceProvider;
   userId: string;
@@ -349,6 +441,22 @@ function appendWarningsToJob(job: BrandRefineryJob, warnings: string[]): BrandRe
 
 function mergeWarnings(...groups: string[][]): string[] {
   return [...new Set(groups.flat().filter(Boolean))];
+}
+
+function createDefaultRefineryJobId(args: {
+  userId: string;
+  brandId?: string;
+  websiteUrl: string;
+  now: string;
+}): string {
+  const owner = idPart(args.brandId ?? args.userId, 'brand');
+  const website = idPart(args.websiteUrl, 'website');
+  return `brand_refinery_job_${owner}_${website}_${Date.parse(args.now) || 0}`;
+}
+
+function idPart(value: string, fallback: string): string {
+  const clean = value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+  return clean || fallback;
 }
 
 function errorMessage(error: unknown): string {

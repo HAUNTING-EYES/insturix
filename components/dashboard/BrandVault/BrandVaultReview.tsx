@@ -195,7 +195,7 @@ export function BrandVaultReview() {
     setLookupId(nextJobId ?? nextProfileId ?? '');
     setResolvedConflicts(new Set());
     setResolvingConflictPath(null);
-    showToast('Draft ready for review.', 'good');
+    showToast(result.job?.status === 'queued' || result.job?.status === 'running' ? 'Scan queued. Results will appear here.' : 'Draft ready for review.', 'good');
   }
 
   function handleGuidanceAction(actionId: string) {

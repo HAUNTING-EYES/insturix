@@ -1,14 +1,14 @@
 import { auth, clerkClient } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
 import {
   createBrandVaultConnectedSocialEvidence,
   type BrandVaultUploaderXTokenSnapshot,
 } from '@/lib/shared/brand-vault-connected-social-ingestion';
 import {
-  createBrandVaultRefineryJobFromWebsite,
   getBrandVaultRefineryJob,
   getDefaultBrandVaultRefineryStore,
+  startQueuedBrandVaultRefineryJobFromWebsite,
   type BrandVaultSourceEvidenceProviderResult,
 } from '@/lib/shared/brand-vault-refinery-api';
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
@@ -32,17 +32,25 @@ export async function POST(req: Request) {
     );
   }
 
-  const result = await createBrandVaultRefineryJobFromWebsite(
+  const store = getDefaultBrandVaultRefineryStore();
+  const start = await startQueuedBrandVaultRefineryJobFromWebsite(
     { userId, actorId: userId, body },
     {
-      store: getDefaultBrandVaultRefineryStore(),
+      store,
       fetchOptions: {
         browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
       },
       sourceEvidenceProvider: ({ socialLinks }) => loadConnectedSocialEvidence(userId, socialLinks),
     },
   );
-  return NextResponse.json(result.body, { status: result.status });
+  if (start.run) {
+    after(() => {
+      start.run?.().catch((error) => {
+        console.error('[BrandVault] queued refinery job failed:', error);
+      });
+    });
+  }
+  return NextResponse.json(start.response.body, { status: start.response.status });
 }
 
 export async function GET(req: Request) {
