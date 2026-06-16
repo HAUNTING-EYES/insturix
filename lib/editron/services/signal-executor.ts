@@ -30,6 +30,7 @@ import {
 import type { SignalTimeline, SignalSnapshot, EventSignal, OverlayInfo } from './signal-registry';
 import type { MomentWeightMap } from './moment-weight-service';
 import { getWeightAtTimestamp } from './moment-weight-service';
+import { enrichMotionGraphicFactParams } from './mg-semantic-facts';
 
 // ─── Output Types (compatible with EDL Executor) ────────────────────────────
 
@@ -41,7 +42,7 @@ export interface EditDecision {
   confidence: number;
   source: string;               // mapping ID that produced this
   technique: string;            // technique ID applied
-  params: Record<string, number | string>;
+  params: Record<string, unknown>;
   complements?: EditDecision[];  // paired SFX, caption emphasis, etc.
   reason?: string;               // from mapping's "why" field
 }
@@ -321,6 +322,11 @@ export function executeSignalDrivenEdit(
       [signal]: value,
       [`${signal}_context`]: context ?? '',
     };
+    if (signal === 'entity.number') {
+      const claimStrength = inferLocalClaimStrength(context ?? '');
+      signals.claim_strength = claimStrength;
+      signals['entity.claim_strength'] = claimStrength;
+    }
 
     for (const mapping of mappings) {
       if (!evaluateMapping(graphIndex, mapping.id, signals, genreParams)) {
@@ -340,57 +346,16 @@ export function executeSignalDrivenEdit(
       const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget, signals);
       if (!decision) continue;
 
-      // Build structured content payload for composition engine duck-typing.
-      // The content-shape-analyzer infers shape kind from these keys:
-      //   {value} → numeric, {name} → identity, {text} → emphasis
       if (context && decision.type === 'graphic') {
-        decision.params.text = context;
-        decision.params.text_source = 'transcript';
-
-        const eventSignal = event.signal;
-        if (eventSignal === 'entity.number') {
-          const allNums = [...context.matchAll(/[\d,.]+/g)];
-          if (allNums.length >= 2) {
-            const parsed = allNums.map(m => parseFloat(m[0].replace(/,/g, ''))).filter(n => isFinite(n));
-            const maxN = Math.max(...parsed);
-            const minN = Math.min(...parsed);
-            // ⚠️ ratio threshold 1.5 INVENTED — "visually meaningful difference"
-            const ratioSignificant = minN > 0 && maxN / minN >= 1.5;
-            const formality = typeof signals.formality === 'number' ? signals.formality : 0.5;
-            const chartWorthy = parsed.length >= 2
-              && ratioSignificant
-              && momentWeight > 0.6
-              && formality > 0.3;
-            if (chartWorthy) {
-              decision.params.values = parsed;
-              decision.params.labels = allNums.map(m => m[0]);
-            } else if (parsed.length >= 1) {
-              // Not chart-worthy: fall back to single stat counter with the larger value
-              const best = allNums.reduce((a, b) =>
-                parseFloat(a[0].replace(/,/g, '')) > parseFloat(b[0].replace(/,/g, '')) ? a : b);
-              allNums.length = 0;
-              allNums.push(best);
-            }
-          }
-          if (allNums.length === 1) {
-            const numMatch = allNums[0];
-            decision.params.value = numMatch[0];
-            const before = context.slice(0, numMatch.index).trim();
-            const after = context.slice((numMatch.index ?? 0) + numMatch[0].length).trim();
-            if (before && /^[$€£¥₹]$/.test(before)) decision.params.prefix = before;
-            else if (before) decision.params.label = before;
-            if (after && /^[%xX×]$/.test(after)) decision.params.suffix = after;
-            else if (after) decision.params.label = after;
-          }
-        } else if (eventSignal === 'entity.name') {
+        if (event.signal === 'entity.name') {
           const normalized = context.toLowerCase();
           if (seenEntityNames.has(normalized)) {
             decisionsSuppressed++;
             continue;
           }
           seenEntityNames.add(normalized);
-          decision.params.name = context;
         }
+        enrichMotionGraphicFactParams(decision.params, { signal: event.signal, context });
       }
 
       if (!checkBudget(decision, budget, momentWeight)) {
@@ -453,6 +418,12 @@ function getWeightTier(weight: number): 'high' | 'medium' | 'low' | 'skip' {
   if (weight >= 0.5) return 'medium';
   if (weight >= 0.3) return 'low';
   return 'skip';
+}
+
+function inferLocalClaimStrength(context: string): 'assertive' | 'hedged' {
+  return /\b(maybe|perhaps|around|about|roughly|approximately|could be|might be|probably|i think|it seems)\b/i.test(context)
+    ? 'hedged'
+    : 'assertive';
 }
 
 function isAntiPatternViolated(
@@ -536,7 +507,7 @@ function buildDecision(
   const edlType = technique?.details?.edlDecisionType ?? inferEdlType(primary, mapping.category);
 
   // Interpolate parameters based on weight
-  const params = technique
+  const params: Record<string, unknown> = technique
     ? interpolateParams(technique, momentWeight)
     : getDefaultParams(edlType, momentWeight);
 
@@ -902,7 +873,7 @@ function inferSfxType(description: string): string {
   return 'impact';
 }
 
-function getDefaultParams(edlType: string, weight: number): Record<string, number | string> {
+function getDefaultParams(edlType: string, weight: number): Record<string, unknown> {
   switch (edlType) {
     case 'zoom':
       return {

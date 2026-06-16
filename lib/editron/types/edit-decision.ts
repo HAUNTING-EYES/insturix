@@ -25,7 +25,7 @@ export interface EditDecision {
   confidence: number;
   source: string;               // mapping ID that produced this
   technique: string;            // technique ID applied
-  params: Record<string, number | string>;
+  params: Record<string, unknown>;
   complements?: EditDecision[];  // paired SFX, caption emphasis, etc.
   reason?: string;               // from mapping's "why" field
 }

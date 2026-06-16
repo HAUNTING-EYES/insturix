@@ -11,6 +11,7 @@
 import type { EditDecision, EditDecisionList } from '../types/edit-decision';
 import type { ScoringResult, OverlayCategory } from './utility-types';
 import type { SignalTimeline, EventSignal } from '../services/signal-registry';
+import { enrichMotionGraphicFactParams } from '../services/mg-semantic-facts';
 
 interface GridPointDecision {
   frame: number;
@@ -27,36 +28,26 @@ const CATEGORY_TO_TYPE: Record<string, EditDecision['type']> = {
   sfx: 'sfx-trigger',
 };
 
-const GRAPHIC_CONTEXT_RESOLVERS: Record<string, (events: EventSignal[], frame: number, gridInterval: number) => Record<string, string> | null> = {
+const GRAPHIC_CONTEXT_RESOLVERS: Record<string, (events: EventSignal[], frame: number, gridInterval: number) => { signal: string; context: string } | null> = {
   stat_graphic(events, frame, gi) {
     const evt = findNearestEvent(events, frame, gi, 'entity.number');
     if (!evt?.context) return null;
-    const ctx = evt.context;
-    const match = ctx.match(/^([^0-9]*)([\d,.]+)(.*)$/);
-    if (match) {
-      const payload: Record<string, string> = { value: match[2] ?? ctx, text: ctx };
-      const prefix = match[1]?.trim();
-      const suffix = match[3]?.trim();
-      if (prefix) payload.prefix = prefix;
-      if (suffix) payload.suffix = suffix;
-      return payload;
-    }
-    return { value: ctx, text: ctx };
+    return { signal: evt.signal, context: evt.context };
   },
   lower_third(events, frame, gi) {
     const evt = findNearestEvent(events, frame, gi, 'entity.name');
     if (!evt?.context) return null;
-    return { name: evt.context, text: evt.context };
+    return { signal: evt.signal, context: evt.context };
   },
   keyword_highlight(events, frame, gi) {
     const evt = findNearestEvent(events, frame, gi, 'speech.emphasis_word');
     if (!evt?.context) return null;
-    return { text: evt.context, keyword: evt.context };
+    return { signal: evt.signal, context: evt.context };
   },
   callout(events, frame, gi) {
     const evt = findNearestEvent(events, frame, gi, 'entity.claim_strength');
     if (!evt?.context) return null;
-    return { text: evt.context, body: evt.context };
+    return { signal: evt.signal, context: evt.context };
   },
 };
 
@@ -138,7 +129,7 @@ export function overlayResultsToEditDecisions(
       const defGap = getMinGapForCategory(cat);
       if (gd.frame - lastFrame < defGap) continue;
 
-      const params: Record<string, number | string> = {};
+      const params: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(winner.outputValues)) {
         if (v != null) params[k] = typeof v === 'boolean' ? (v ? 1 : 0) : v;
       }
@@ -153,9 +144,10 @@ export function overlayResultsToEditDecisions(
         const graphicType = params.graphicType as string;
         const resolver = graphicType ? GRAPHIC_CONTEXT_RESOLVERS[graphicType] : null;
         if (resolver) {
-          const textContent = resolver(timeline.eventSignals, gd.frame, timeline.gridInterval);
-          if (!textContent) continue;
-          Object.assign(params, textContent);
+          const factSource = resolver(timeline.eventSignals, gd.frame, timeline.gridInterval);
+          if (!factSource) continue;
+          enrichMotionGraphicFactParams(params, factSource);
+          delete params.graphicType;
         } else if (!params.text) {
           continue;
         }

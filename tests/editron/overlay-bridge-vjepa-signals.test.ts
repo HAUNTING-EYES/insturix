@@ -123,4 +123,57 @@ describe('overlay bridge V-JEPA signal handoff', () => {
       expect.objectContaining({ kind: 'subject-gaze', key: 'visual.eye_contact', value: true, source: 'vjepa' }),
     ]));
   });
+
+  it('enriches utility graphic winners with semantic facts and removes graphicType render authority', () => {
+    const timeline: SignalTimeline = {
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+      globalSignals: { formality: 0.4 },
+      eventSignals: [{
+        timestampMs: 1000,
+        frame: 30,
+        signal: 'entity.number',
+        value: true,
+        context: '90% completion rate',
+      }],
+      gridSignals: new Map([[30, {
+        frame: 30,
+        timestampMs: 1000,
+        'speech.energy': 0.62,
+        'visual.face_present': true,
+      }]]),
+    };
+
+    const result = overlayResultsToEditDecisions([
+      {
+        frame: 30,
+        timestampMs: 1000,
+        winners: {
+          graphic: {
+            overlayId: 'stat_graphic',
+            category: 'graphic',
+            rank: 1,
+            totalScore: 0.91,
+            considerationScores: [],
+            outputValues: { graphicType: 'stat_graphic' },
+          },
+        },
+      },
+    ], timeline, 30);
+
+    const params = result.decisions[0]?.params as Record<string, any>;
+    expect(params.graphicType).toBeUndefined();
+    expect(params.value).toBe('90%');
+    expect(params.semanticAtoms.quantity).toEqual(expect.objectContaining({
+      displayText: '90%',
+      kind: 'percent',
+      bounded: true,
+      label: 'completion rate',
+    }));
+    expect(params.contentStructure.evidence).toEqual(expect.objectContaining({
+      hasScalar: true,
+      proportionAffordance: true,
+    }));
+  });
 });

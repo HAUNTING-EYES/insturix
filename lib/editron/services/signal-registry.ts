@@ -156,6 +156,8 @@ const HEDGED_PATTERNS = /\b(?:maybe|perhaps|around|about|roughly|approximately|c
 const NAME_PATTERN = /\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b/; // "John Smith", "Apple Inc"
 // ⚠️ Lookahead window 4 INVENTED — typical comparison phrase "from X to Y" spans ~4 words between numbers.
 const COMPARISON_CONNECTORS = /^(?:to|vs|versus|and|or|compared|than|over|under|from|between)$/i;
+const NUMERIC_CONTEXT_AFTER_WORDS = 5;
+const NUMERIC_CONTEXT_BEFORE_WORDS = 1;
 
 // ─── V-JEPA / Wav2Vec Segment Lookup ───────────────────────────────────────
 // Both services produce segments with startMs/endMs. Grid points may fall
@@ -495,7 +497,7 @@ export function buildSignalTimeline(
           frame,
           signal: 'entity.number',
           value: true,
-          context: word.word,
+          context: transcriptPhraseAround(words, i, NUMERIC_CONTEXT_BEFORE_WORDS, NUMERIC_CONTEXT_AFTER_WORDS),
         });
 
         // Number sequence: "from 10% to 85%", "50 vs 300", "between 2 and 5"
@@ -512,7 +514,7 @@ export function buildSignalTimeline(
                 frame,
                 signal: 'entity.number',
                 value: true,
-                context: words.slice(i, j + 1).map(w => w.word).join(' '),
+                context: transcriptPhraseAround(words, i, NUMERIC_CONTEXT_BEFORE_WORDS, Math.max(NUMERIC_CONTEXT_AFTER_WORDS, j - i)),
               });
             }
             break;
@@ -729,6 +731,22 @@ export function buildSignalTimeline(
   timeline.globalSignals['humor'] = timeline.globalSignals['personality.humor'];
 
   return timeline;
+}
+
+function transcriptPhraseAround(
+  words: Array<{ word: string; startMs: number; endMs: number }>,
+  index: number,
+  beforeWords: number,
+  afterWords: number,
+): string {
+  const start = Math.max(0, index - beforeWords);
+  const end = Math.min(words.length, index + afterWords + 1);
+  return words
+    .slice(start, end)
+    .map((word) => word.word)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ─── Signal Computation Helpers ─────────────────────────────────────────────

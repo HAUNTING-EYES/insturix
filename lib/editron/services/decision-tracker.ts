@@ -26,7 +26,7 @@ export interface DecisionSnapshot {
   confidence: number;
   reason: string;
   source: string;
-  params: Record<string, number | string>;
+  params: Record<string, unknown>;
   signalContext: Record<string, number>;
   overlayId?: string;
 }

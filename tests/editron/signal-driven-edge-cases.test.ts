@@ -242,6 +242,111 @@ describe('signal-executor', () => {
     // Should not exceed budget (3) + at most 1 override for weight > 0.9
     expect(zoomDecisions.length).toBeLessThanOrEqual(4);
   });
+
+  it('emits semantic facts for numeric MG claims instead of shallow text params', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const timeline = {
+      gridSignals: new Map([[30, {
+        frame: 30,
+        timestampMs: 1000,
+        'speech.energy': 0.45,
+        'speech.energy_delta': 0,
+        'visual.motion_intensity': 0.1,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [{
+        timestampMs: 1000,
+        frame: 30,
+        signal: 'entity.number',
+        value: true,
+        context: '0.02 humans spoken to per day',
+      }],
+      globalSignals: { 'content.formality': 0.4, formality: 0.4 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    };
+
+    const result = executeSignalDrivenEdit(timeline, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex!, [{ id: 'video', type: 'video', from: 0, durationInFrames: 180 }]);
+
+    const graphic = result.decisions.find((d) => d.type === 'graphic');
+    expect(graphic).toBeDefined();
+    const params = graphic!.params as Record<string, any>;
+    expect(params.value).toBe('0.02');
+    expect(params.label).toBe('humans spoken to per day');
+    expect(params.semanticAtoms.quantity).toEqual(expect.objectContaining({
+      displayText: '0.02',
+      kind: 'rate',
+      label: 'humans spoken to per day',
+      unit: 'per day',
+    }));
+    expect(params.contentStructure.evidence).toEqual(expect.objectContaining({
+      hasScalar: true,
+      quantityKind: 'rate',
+    }));
+    expect(params.graphicType).toBeUndefined();
+  });
+
+  it('does not license hedged numeric claims as executable MGs', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map(),
+      eventSignals: [{
+        timestampMs: 1000,
+        frame: 30,
+        signal: 'entity.number',
+        value: true,
+        context: 'maybe around 42 people',
+      }],
+      globalSignals: { formality: 0.4 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex!, [{ id: 'video', type: 'video', from: 0, durationInFrames: 180 }]);
+
+    expect(result.decisions.some((d) => d.type === 'graphic')).toBe(false);
+  });
+
+  it('uses transcript phrase context for numeric events so MG labels have evidence', async () => {
+    const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
+    const timeline = buildSignalTimeline([], {
+      transcription: {
+        words: [
+          { word: 'talked', startMs: 0, endMs: 100 },
+          { word: 'to', startMs: 120, endMs: 180 },
+          { word: '0.02', startMs: 200, endMs: 280 },
+          { word: 'humans', startMs: 300, endMs: 420 },
+          { word: 'spoken', startMs: 440, endMs: 520 },
+          { word: 'to', startMs: 540, endMs: 600 },
+          { word: 'per', startMs: 620, endMs: 700 },
+          { word: 'day', startMs: 720, endMs: 800 },
+        ],
+      },
+      originalDurationMs: 3000,
+    }, [], 30);
+
+    const numberEvent = timeline.eventSignals.find((event) => event.signal === 'entity.number');
+    expect(numberEvent?.context).toBe('to 0.02 humans spoken to per day');
+  });
 });
 
 // ─── graph-query.ts edge cases ──────────────────────────────────────────────
