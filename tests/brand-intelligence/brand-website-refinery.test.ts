@@ -1088,4 +1088,74 @@ describe('Brand website refinery', () => {
     expect(snapshot.browserFallbackRequired).toBe(true);
     expect(snapshot.fetchWarnings?.join(' ')).toMatch(/required JavaScript/i);
   });
+
+  it('extracts useful Next.js data payload copy before declaring a shell empty', async () => {
+    const nextData = {
+      props: {
+        pageProps: {
+          hero: {
+            headline: 'Launch faster campaigns with proof-led product stories',
+            description: 'Built for marketing teams and ecommerce operators who need reliable product storytelling.',
+          },
+          products: [
+            {
+              title: 'Revenue Story Engine',
+              description: 'Trusted by 1200 ecommerce brands to turn product launches into measurable growth.',
+            },
+          ],
+        },
+      },
+    };
+    const shellHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Storyline OS</title>
+    <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(nextData)}</script>
+  </head>
+  <body><div id="__next"></div></body>
+</html>`;
+    const snapshot = await fetchWebsiteBrandSnapshot('storyline.example', {
+      now: NOW,
+      disableBrowserLikeRetry: true,
+      fetchFn: async () => new Response(shellHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    });
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: snapshot.normalizedUrl,
+      html: snapshot.html,
+      brandId: 'brand_storyline',
+      userId: 'user_1',
+      fetchedAt: snapshot.fetchedAt,
+      jobId: 'job_next_data',
+    });
+
+    expect(snapshot.fetchFallbackReason).toBeUndefined();
+    expect(snapshot.browserFallbackRequired).toBe(false);
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['marketing teams and ecommerce operators', 'ecommerce brands']));
+    expect(result.profile.voice.recurringPhrases.value).toContain('Launch faster campaigns with proof-led product stories');
+    expect(result.profile.identity.proofStyle.value).toBe('testimonial');
+    expect(result.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceField: 'nextData.pageProps',
+        signalPath: 'identity.audience',
+        sourceType: 'website_metadata',
+        confidence: 0.54,
+      }),
+      expect.objectContaining({
+        sourceField: 'nextData.pageProps',
+        signalPath: 'voice.recurringPhrases',
+        sourceType: 'website_metadata',
+        confidence: 0.56,
+      }),
+      expect.objectContaining({
+        sourceField: 'nextData.pageProps',
+        signalPath: 'identity.proofStyle',
+        sourceType: 'website_metadata',
+        confidence: 0.56,
+      }),
+    ]));
+  });
 });

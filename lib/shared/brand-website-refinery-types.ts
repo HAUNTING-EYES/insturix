@@ -265,6 +265,7 @@ export interface ParsedWebsiteEvidence {
   logoCandidates: BrandWebsiteLogoCandidate[];
   socialPreviewImages: string[];
   bodyText: string;
+  nextDataText: string[];
 }
 
 export interface SignalSource {

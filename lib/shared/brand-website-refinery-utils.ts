@@ -244,18 +244,25 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const fonts = extractFonts($, stylesheetCss);
   const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
   const socialPreviewImages = extractSocialPreviewImages($, normalizedUrl);
+  const nextDataText = extractNextDataTextEvidence($);
 
   removeNonBrandBodyNoise($);
-  const headings = uniqueText($('h1,h2,h3').map((_, el) => cleanText($(el).text())).get()).slice(0, 16);
+  const headings = uniqueText([
+    ...$('h1,h2,h3').map((_, el) => cleanText($(el).text())).get(),
+    ...nextDataText.filter(isNextDataHeadingCandidate),
+  ]).slice(0, 16);
   const ctas = uniqueText($('a,button').map((_, el) => cleanText($(el).text())).get())
     .filter((text) => text.length <= 80 && CTA_PATTERN.test(text))
     .slice(0, 12);
-  const proofSnippets = uniqueText($('[class*="testimonial"],[class*="case"],[class*="customer"],[class*="proof"],blockquote')
-    .map((_, el) => cleanText($(el).text()))
-    .get())
+  const proofSnippets = uniqueText([
+    ...$('[class*="testimonial"],[class*="case"],[class*="customer"],[class*="proof"],blockquote')
+      .map((_, el) => cleanText($(el).text()))
+      .get(),
+    ...nextDataText.filter(isNextDataProofSnippet),
+  ])
     .filter((text) => text.length >= 12)
     .slice(0, 8);
-  const bodyText = sanitizeEvidenceExcerpt(readBodyText($) ?? '', 1200);
+  const bodyText = sanitizeEvidenceExcerpt(uniqueText([readBodyText($), ...nextDataText]).join('. '), 1200);
   return {
     normalizedUrl,
     host,
@@ -273,7 +280,67 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     logoCandidates,
     socialPreviewImages,
     bodyText,
+    nextDataText,
   };
+}
+
+export function extractNextDataTextEvidenceFromHtml(html: string): string[] {
+  return extractNextDataTextEvidence(load(html));
+}
+
+function extractNextDataTextEvidence($: ReturnType<typeof load>): string[] {
+  const raw = $('script#__NEXT_DATA__').first().text();
+  if (!raw.trim()) return [];
+  try {
+    const values: string[] = [];
+    collectNextDataText(JSON.parse(raw) as unknown, [], values);
+    return uniqueText(values.map(cleanText))
+      .filter((value) => isUsefulNextDataText(value))
+      .slice(0, 24);
+  } catch {
+    return [];
+  }
+}
+
+function collectNextDataText(value: unknown, path: string[], output: string[]): void {
+  if (output.length >= 80) return;
+  if (typeof value === 'string') {
+    if (isNextDataContentPath(path)) output.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectNextDataText(item, path, output);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    collectNextDataText(child, [...path, key], output);
+    if (output.length >= 80) return;
+  }
+}
+
+function isNextDataContentPath(path: string[]): boolean {
+  const joined = path.join('.').toLowerCase();
+  if (/\b(?:url|href|src|image|icon|asset|slug|id|key|class|style|color|font|route|path|locale)\b/.test(joined)) return false;
+  return /\b(?:pageprops|props|product|products|collection|collections|vendor|product_type|title|heading|headline|description|subtitle|tagline|body|copy|content|summary|excerpt|audience|benefit|proof|testimonial|case)\b/.test(joined);
+}
+
+function isUsefulNextDataText(value: string): boolean {
+  const text = value.trim();
+  if (text.length < 12 || text.length > 240) return false;
+  if (/^https?:\/\//i.test(text) || /^\/[\w-]+(?:\/[\w-]+)*\/?$/i.test(text)) return false;
+  if (/[{}<>]|(?:function|const|var|=>|\.__)/.test(text)) return false;
+  if (!/[a-z]/i.test(text) || text.split(/\s+/).length < 3) return false;
+  return true;
+}
+
+function isNextDataHeadingCandidate(value: string): boolean {
+  const text = value.trim();
+  return text.length >= 14 && text.length <= 140 && !/[.!?]\s+[A-Z]/.test(text);
+}
+
+function isNextDataProofSnippet(value: string): boolean {
+  return /\b(?:trusted by|customers?|clients?|teams?|case stud|results?|roi|growth|revenue|\d+[%x+]|\d+\s*(?:k|m|b)?\+?)\b/i.test(value);
 }
 
 function removeNonBrandBodyNoise($: ReturnType<typeof load>): void {

@@ -47,6 +47,7 @@ import {
   candidateOnly,
   DARK_SURFACE,
   domainBrand,
+  extractNextDataTextEvidenceFromHtml,
   extractLinkedStylesheetUrls,
   firstDefined,
   inferAudience,
@@ -213,6 +214,7 @@ function detectWebsiteFetchFallbackReason(
   const visibleText = visibleBodyTextFromHtml(html);
   if (BROWSER_CHALLENGE_PATTERN.test(compact)) return 'browser_challenge';
   if (JAVASCRIPT_SHELL_PATTERN.test(compact)) return 'javascript_shell';
+  if (visibleText.length < 40 && extractNextDataTextEvidenceFromHtml(html).length > 0) return undefined;
   if (visibleText.length < 40 && HYDRATION_ROOT_MARKER_PATTERN.test(html)) return 'javascript_shell';
   if (!visibleText || visibleText.length < 40) return 'empty_html';
   return undefined;
@@ -545,8 +547,56 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   for (const image of parsed.socialPreviewImages) {
     candidates.push(candidateOnly('assets.socialPreviewImages', image, 'website_metadata', 'metadata.socialPreviewImage', normalizedUrl, observedAt, extractor, input));
   }
+  appendNextDataSignalCandidates({
+    input,
+    normalizedUrl,
+    observedAt,
+    extractor,
+    nextDataText: parsed.nextDataText,
+    candidates,
+  });
 
   return { profile, candidates, normalizedUrl, warnings: parsed.colors.length ? [] : ['No website colors were detected.'] };
+}
+
+function appendNextDataSignalCandidates(args: {
+  input: BrandWebsiteDraftInput;
+  normalizedUrl: string;
+  observedAt: string;
+  extractor: string;
+  nextDataText: string[];
+  candidates: BrandEvidenceCandidate[];
+}): void {
+  const text = uniqueText(args.nextDataText).join('. ');
+  if (!text) return;
+
+  const add = (signalPath: string, normalizedValue: unknown, confidence: number): void => {
+    args.candidates.push({
+      id: `candidate_next_data_${signalPath.replace(/[^a-z0-9]+/gi, '_')}`,
+      brandId: args.input.brandId,
+      jobId: args.input.jobId,
+      sourceType: 'website_metadata',
+      sourceUrl: args.normalizedUrl,
+      sourceField: 'nextData.pageProps',
+      signalPath,
+      rawValue: args.nextDataText,
+      normalizedValue,
+      excerpt: sanitizeEvidenceExcerpt(text),
+      confidence,
+      authorityClass: 'owned',
+      observedAt: args.observedAt,
+      extractorId: args.extractor,
+    });
+  };
+
+  const audience = inferAudience(text);
+  if (audience.length > 0) add('identity.audience', audience, 0.54);
+
+  const phrases = inferRecurringPhrases(args.nextDataText, []);
+  if (phrases.length > 0) add('voice.recurringPhrases', phrases, 0.56);
+
+  const proofStyle = inferProofStyle(text);
+  if (proofStyle !== 'unknown') add('identity.proofStyle', proofStyle, 0.56);
 }
 
 export function createWebsiteBrandSignalProfileDraft(
