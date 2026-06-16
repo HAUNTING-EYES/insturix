@@ -9,7 +9,10 @@ import {
 } from '../../lib/editron/motion-graphics/engine/brand-composition-rules';
 import { planComposition, type MgOverlayScores } from '../../lib/editron/motion-graphics/engine/composition-planner';
 import { buildAtomicOverlayPlan } from '../../lib/editron/motion-graphics/engine/atomic-overlay-plan';
-import { analyzeContentShape } from '../../lib/editron/motion-graphics/engine/content-shape-analyzer';
+import {
+  analyzeContentShape,
+  enumerateDataSeriesVisualForms,
+} from '../../lib/editron/motion-graphics/engine/content-shape-analyzer';
 import { fitFontSize } from '../../lib/editron/motion-graphics/engine/primitive-renderers';
 
 const energeticSignals = {
@@ -550,26 +553,44 @@ describe('MG spine usability', () => {
     expect(longSentence).toBe(64);
   });
 
-  it('infers data-viz form in the structural signature before planning', () => {
+  it('licenses data-viz forms from series facts before planning', () => {
     const bar = analyzeContentShape({ values: [12, 19, 31, 47], labels: ['Q1', 'Q2', 'Q3', 'Q4'] });
     const ring = analyzeContentShape({ values: [72], labels: ['Progress'] });
     const arbitraryScalar = analyzeContentShape({ values: [0.02], labels: ['human beings per day'] });
     const spark = analyzeContentShape({ values: [12, 19, 31, 47, 51], labels: ['A', 'B', 'C', 'D', 'E'] });
     const ranked = analyzeContentShape({ values: [92, 78, 64, 51, 33], labels: ['A', 'B', 'C', 'D', 'E'] });
+    const sparkCandidates = enumerateDataSeriesVisualForms([12, 19, 31, 47, 51], ['A', 'B', 'C', 'D', 'E']);
+    const rankedCandidates = enumerateDataSeriesVisualForms([92, 78, 64, 51, 33], ['A', 'B', 'C', 'D', 'E']);
 
     expect(bar.structure.evidence.dataSeriesVisualForm).toBe('bar-chart');
     expect(ring.structure.evidence.dataSeriesVisualForm).toBe('percentage-ring');
     expect(arbitraryScalar.structure.evidence.dataSeriesVisualForm).toBe('bar-chart');
     expect(spark.structure.evidence.dataSeriesVisualForm).toBe('sparkline');
     expect(ranked.structure.evidence.dataSeriesVisualForm).toBe('bar-chart');
+    expect(spark.structure.evidence.dataSeriesCandidateForms).toContain('sparkline');
+    expect(spark.structure.evidence.dataSeriesSelectedWires).toContain('slope');
+    expect(ranked.structure.evidence.dataSeriesCandidateForms).toContain('bar-chart');
+    expect(ranked.structure.evidence.dataSeriesSelectedWires).toContain('length');
     expect(spark.structure.evidence.seriesCardinality).toBe(5);
     expect(spark.structure.evidence.seriesTrend).toBe('rising');
     expect(ranked.structure.evidence.seriesRanked).toBe(true);
     expect(ranked.structure.evidence.seriesComparison).toBe(true);
+    expect(sparkCandidates.map((candidate) => candidate.visualForm)).toEqual(expect.arrayContaining(['sparkline', 'bar-chart']));
+    expect(rankedCandidates.map((candidate) => candidate.visualForm)).toEqual(expect.arrayContaining(['bar-chart', 'sparkline']));
     expect(bar.shapes[0]).toEqual(expect.objectContaining({ kind: 'data-series', visualForm: 'bar-chart' }));
     expect(ring.shapes[0]).toEqual(expect.objectContaining({ kind: 'data-series', visualForm: 'percentage-ring' }));
-    expect(spark.shapes[0]).toEqual(expect.objectContaining({ kind: 'data-series', visualForm: 'sparkline' }));
-    expect(ranked.shapes[0]).toEqual(expect.objectContaining({ kind: 'data-series', visualForm: 'bar-chart' }));
+    expect(spark.shapes[0]).toEqual(expect.objectContaining({
+      kind: 'data-series',
+      visualForm: 'sparkline',
+      candidateVisualForms: expect.arrayContaining(['sparkline', 'bar-chart']),
+      visualFormLicense: expect.stringContaining('slope'),
+    }));
+    expect(ranked.shapes[0]).toEqual(expect.objectContaining({
+      kind: 'data-series',
+      visualForm: 'bar-chart',
+      candidateVisualForms: expect.arrayContaining(['bar-chart', 'sparkline']),
+      visualFormLicense: expect.stringContaining('length'),
+    }));
   });
 
   it('routes composers from structural evidence instead of the projected legacy kind', () => {

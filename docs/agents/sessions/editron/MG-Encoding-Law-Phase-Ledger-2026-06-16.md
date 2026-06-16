@@ -33,9 +33,9 @@ Phase 4 - Scene atom library expansion:
 - Still needed: expand atom coverage after semantic fact extraction, not by adding presets.
 
 Phase 5 - Generative assembler:
-- Status: numeric slice complete; broader assembler partial.
-- Evidence: numeric encoding now does generate -> hard gate -> score -> pick, and candidate ranking accepts deterministic `eval/legibility.ts`, `eval/aesthetic.ts`, and composite layer scores before choosing. The larger planner still has named composers and data-series still returns one named visual form.
-- Still needed: convert additional form classifiers after the numeric slice is reviewed.
+- Status: numeric and data-series slices complete; broader assembler partial.
+- Evidence: numeric encoding now does generate -> hard gate -> score -> pick, and candidate ranking accepts deterministic `eval/legibility.ts`, `eval/aesthetic.ts`, and composite layer scores before choosing. Data-series now enumerates licensed visual-form candidates from facts (`length`, `sweep`, `slope`, `position`, `label`) before selecting the existing renderer key.
+- Still needed: convert remaining non-series composer/template fallback authority and validate with rendered taste gates.
 
 Phase 6 - Multi-overlay choreography:
 - Status: partially live.
@@ -57,13 +57,28 @@ Phase 8 - Calibration:
 Confirmed problems that still mattered:
 - `composeNumeric` had a single `resolveNumericVisualMode` classifier and one fixed text-counter path.
 - Data-viz rendering capability existed, but numeric form selection did not enumerate licensed encodings.
-- Data-series still has a one-form classifier; it is explicitly out of this first slice.
+- Data-series had a one-form classifier in the first slice; it is now converted to licensed candidate enumeration, but still realizes through existing `data-viz` renderer keys.
 
 Implemented solution shape:
 - Added `lib/editron/motion-graphics/engine/encoding-wires.ts`.
 - Numeric wires are fact-keyed: `bounded-proportion`, `comparable-magnitude`, `negation-or-refutation`, `salience-or-hierarchy`.
 - `composeNumeric` now asks for the licensed candidate set, scores shadow candidate recipes through existing deterministic legibility/aesthetic/composite eval layers, and realizes the selected candidate through existing text/data-viz primitives.
 - New numeric data-viz roles are fact-channel roles such as `numeric-sweep`; renderer maps `encodingChannel` to existing realizers.
+
+## Data-Series Classifier Conversion Proof Points
+
+Candidate set checks now covered in `tests/editron/mg-spine-usability.test.ts`:
+- Four comparable values license `bar-chart` through `length + position + label`.
+- One bounded part-of-whole value licenses `percentage-ring` through `sweep`.
+- Five ordered rising values license both `sparkline` and `bar-chart`; `sparkline` wins through `slope + position + label`.
+- Five ranked values license both `bar-chart` and `sparkline`; `bar-chart` wins through `length + position + label`.
+- The selected renderer key is compatibility only; the test checks candidate forms and selected wire licenses so this does not regress into a one-form menu.
+
+Verification run after the data-series slice:
+- `npx vitest run tests\editron\mg-spine-usability.test.ts tests\editron\mg-atomic-overlay-decision.test.ts tests\editron\mg-composition-planner.test.ts` - passed, 75 tests.
+- `npx vitest run tests\editron\mg-atomic-overlay-plan.test.ts tests\editron\mg-atomic-overlay-decision.test.ts tests\editron\mg-layer-content-sanitize.test.ts tests\editron\mg-primitive-renderers.test.ts tests\editron\mg-spine-usability.test.ts tests\editron\mg-visual-explanation-contract.test.ts` - passed, 99 tests.
+- `npx eslint . --quiet` - passed.
+- Touched-file typecheck filter - no errors in `content-shape-analyzer`, `recipe-types`, or `mg-spine-usability`.
 
 ## Section 22 Proof Points
 

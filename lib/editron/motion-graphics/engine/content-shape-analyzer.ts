@@ -277,11 +277,16 @@ function detectShapes(
     const rawValues = Array.isArray(content.values) ? content.values : [];
     const nums = rawValues.filter((v): v is number => typeof v === 'number' && isFinite(v));
     if (nums.length > 0) {
+      const labels = Array.isArray(content.labels) ? content.labels.map(String) : undefined;
+      const candidates = enumerateDataSeriesVisualForms(nums, labels);
+      const selected = selectDataSeriesVisualForm(candidates);
       shapes.push({
         kind: 'data-series',
         values: nums,
-        labels: Array.isArray(content.labels) ? content.labels.map(String) : undefined,
-        visualForm: inferDataSeriesVisualForm(nums, Array.isArray(content.labels) ? content.labels.map(String) : undefined),
+        labels,
+        visualForm: selected.visualForm,
+        candidateVisualForms: candidates.map((candidate) => candidate.visualForm),
+        visualFormLicense: selected.wires.join('+'),
       });
     }
   }
@@ -564,6 +569,8 @@ function firstDisplayTextRole(parts: ContentStructurePart[]): ContentStructurePa
 
 interface DataSeriesStructureAnalysis {
   dataSeriesVisualForm?: DataSeriesVisualForm;
+  dataSeriesCandidateForms?: string;
+  dataSeriesSelectedWires?: string;
   seriesCardinality: number;
   seriesTrend: 'single' | 'rising' | 'falling' | 'mixed' | 'flat';
   seriesVariance: number;
@@ -591,9 +598,13 @@ function analyzeDataSeriesStructure(values: number[], labels?: string[]): DataSe
   const flat = deltas.every((delta) => Math.abs(delta) < 0.0001);
   const ranked = values.length > 1 && falling && !!labels?.length;
   const comparison = values.length <= 4 || ranked || (!!labels?.length && normalizedVariance > 0.35);
+  const candidates = enumerateDataSeriesVisualForms(values, labels);
+  const selected = selectDataSeriesVisualForm(candidates);
 
   return {
-    dataSeriesVisualForm: inferDataSeriesVisualForm(values, labels),
+    dataSeriesVisualForm: selected.visualForm,
+    dataSeriesCandidateForms: candidates.map((candidate) => candidate.visualForm).join(','),
+    dataSeriesSelectedWires: selected.wires.join('+'),
     seriesCardinality: values.length,
     seriesTrend: values.length === 1 ? 'single' : flat ? 'flat' : rising ? 'rising' : falling ? 'falling' : 'mixed',
     seriesVariance: Number(normalizedVariance.toFixed(3)),
@@ -602,17 +613,99 @@ function analyzeDataSeriesStructure(values: number[], labels?: string[]): DataSe
   };
 }
 
-export function inferDataSeriesVisualForm(values: number[], labels?: string[]): DataSeriesVisualForm {
-  const analysis = values.length === 0 ? undefined : {
-    cardinality: values.length,
-    hasLabels: !!labels?.length,
-    ranked: values.length > 1 && values.slice(1).every((value, index) => value <= values[index]) && !!labels?.length,
-  };
+type DataSeriesWireKey = 'length' | 'sweep' | 'slope' | 'position' | 'label';
 
-  if (values.length === 1 && values[0] >= 0 && values[0] <= 100 && isPartOfWholeSeries(labels)) return 'percentage-ring';
-  if (analysis?.ranked || values.length <= 4) return 'bar-chart';
-  if (values.length >= 5) return 'sparkline';
-  return 'bar-chart';
+interface DataSeriesVisualFormCandidate {
+  visualForm: DataSeriesVisualForm;
+  wires: DataSeriesWireKey[];
+  licensingFacts: string[];
+  score: number;
+}
+
+export function enumerateDataSeriesVisualForms(values: number[], labels?: string[]): DataSeriesVisualFormCandidate[] {
+  if (values.length === 0) return [];
+
+  const facts = dataSeriesFacts(values, labels);
+  const candidates: DataSeriesVisualFormCandidate[] = [];
+
+  if (facts.hasMagnitude) {
+    candidates.push({
+      visualForm: 'bar-chart',
+      wires: facts.hasLabels ? ['length', 'position', 'label'] : ['length', 'position'],
+      licensingFacts: [
+        'magnitude',
+        facts.ranked ? 'ranked-comparison' : facts.smallComparison ? 'small-comparison' : 'comparable-magnitude',
+      ],
+      score: 0.54
+        + (facts.ranked ? 0.32 : 0)
+        + (facts.smallComparison ? 0.2 : 0)
+        + (facts.highVariance ? 0.12 : 0)
+        - (facts.orderedSeries && !facts.ranked && values.length >= 5 ? 0.16 : 0),
+    });
+  }
+
+  if (facts.boundedProportion) {
+    candidates.push({
+      visualForm: 'percentage-ring',
+      wires: facts.hasLabels ? ['sweep', 'label'] : ['sweep'],
+      licensingFacts: ['bounded-proportion', 'part-of-whole'],
+      score: 0.94,
+    });
+  }
+
+  if (facts.orderedSeries) {
+    candidates.push({
+      visualForm: 'sparkline',
+      wires: facts.hasLabels ? ['slope', 'position', 'label'] : ['slope', 'position'],
+      licensingFacts: ['ordered-series', facts.trend === 'flat' ? 'stable-series' : 'trend'],
+      score: 0.58
+        + (facts.trend !== 'flat' ? 0.22 : 0)
+        + (values.length >= 5 ? 0.16 : 0)
+        - (facts.ranked ? 0.28 : 0),
+    });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score || a.visualForm.localeCompare(b.visualForm));
+}
+
+function selectDataSeriesVisualForm(candidates: DataSeriesVisualFormCandidate[]): DataSeriesVisualFormCandidate {
+  return candidates[0] ?? {
+    visualForm: 'bar-chart',
+    wires: ['length'],
+    licensingFacts: ['magnitude'],
+    score: 0,
+  };
+}
+
+function dataSeriesFacts(values: number[], labels?: string[]): {
+  hasMagnitude: boolean;
+  hasLabels: boolean;
+  boundedProportion: boolean;
+  orderedSeries: boolean;
+  ranked: boolean;
+  smallComparison: boolean;
+  highVariance: boolean;
+  trend: 'rising' | 'falling' | 'mixed' | 'flat';
+} {
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / values.length;
+  const normalizedVariance = Math.min(1, Math.sqrt(variance) / Math.max(1, Math.abs(mean)));
+  const deltas = values.slice(1).map((value, index) => value - values[index]);
+  const rising = deltas.length > 0 && deltas.every((delta) => delta >= 0);
+  const falling = deltas.length > 0 && deltas.every((delta) => delta <= 0);
+  const flat = deltas.every((delta) => Math.abs(delta) < 0.0001);
+  const ranked = values.length > 1 && falling && !!labels?.length;
+
+  return {
+    hasMagnitude: values.some((value) => isFinite(value)),
+    hasLabels: !!labels?.length,
+    boundedProportion: values.length === 1 && values[0] >= 0 && values[0] <= 100 && isPartOfWholeSeries(labels),
+    orderedSeries: values.length >= 5,
+    ranked,
+    smallComparison: values.length > 1 && values.length <= 4,
+    highVariance: normalizedVariance > 0.35,
+    trend: flat ? 'flat' : rising ? 'rising' : falling ? 'falling' : 'mixed',
+  };
 }
 
 function isPartOfWholeSeries(labels?: string[]): boolean {
