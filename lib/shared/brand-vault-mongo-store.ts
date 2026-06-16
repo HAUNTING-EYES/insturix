@@ -13,7 +13,11 @@ import type {
   BrandSignalProfileRepositoryResult,
 } from './brand-signal-profile-repository';
 import { createBrandVaultDraftReviewPayload } from './brand-vault-draft-orchestrator';
-import type { BrandVaultRefineryJobSnapshot, BrandVaultRefineryStore } from './brand-vault-refinery-api';
+import type {
+  BrandVaultRefineryJobListFilter,
+  BrandVaultRefineryJobSnapshot,
+  BrandVaultRefineryStore,
+} from './brand-vault-refinery-api';
 import type { BrandRefineryJob } from './brand-website-refinery-types';
 
 export const BRAND_VAULT_COLLECTIONS = {
@@ -165,6 +169,20 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     const collections = await this.getCollections();
     const doc = await collections.jobs.findOne({ recordId } as Filter<BrandVaultMongoJobDocument>);
     return doc ? clone(doc.snapshot) : null;
+  }
+
+  async listJobSnapshots(filter: BrandVaultRefineryJobListFilter = {}): Promise<BrandVaultRefineryJobSnapshot[]> {
+    const collections = await this.getCollections();
+    const query: Record<string, unknown> = {};
+    if (filter.statuses?.length) query.status = { $in: filter.statuses };
+    if (filter.updatedBefore) query.updatedAt = { $lt: filter.updatedBefore };
+    const limit = Math.max(1, Math.min(filter.limit ?? 25, 100));
+    const docs = await collections.jobs
+      .find(query as Filter<BrandVaultMongoJobDocument>)
+      .sort({ updatedAt: 1 })
+      .limit(limit)
+      .toArray();
+    return docs.map((doc) => clone(doc.snapshot));
   }
 
   async updateJobStatusForRecord(

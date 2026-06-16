@@ -4,6 +4,7 @@ import {
   createInMemoryBrandVaultRefineryStore,
   getBrandVaultRefineryJob,
   getBrandVaultSignalProfile,
+  processNextQueuedBrandVaultRefineryJob,
   reviewBrandVaultSignalProfileDraft,
   startQueuedBrandVaultRefineryJobFromWebsite,
   type BrandVaultRefineryStore,
@@ -149,6 +150,117 @@ describe('Brand Vault refinery API boundary', () => {
     expect(completed.body.job.warnings).toContain('connected social enrichment ran');
     expect(completed.body.record?.id).toBe(`${started.response.body.job.id}_profile`);
     expect(completed.body.reviewPayload?.reviewRequired).toBe(true);
+  });
+
+  it('processes a persisted queued refinery job through the reusable queue processor', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    let websiteFetchCount = 0;
+    let providerCallCount = 0;
+
+    const started = await startQueuedBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          socialLinks: ['https://x.com/vaultline'],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: {
+          fetchFn: async () => {
+            websiteFetchCount += 1;
+            return htmlResponse();
+          },
+        },
+        sourceEvidenceProvider: async () => {
+          providerCallCount += 1;
+          return { warnings: ['connected social enrichment ran'] };
+        },
+      },
+    );
+    expect(started.response.body.ok).toBe(true);
+    if (!started.response.body.ok) throw new Error(started.response.body.error.message);
+    expect(websiteFetchCount).toBe(0);
+    expect(providerCallCount).toBe(0);
+
+    const processed = await processNextQueuedBrandVaultRefineryJob({
+      store,
+      clock: () => NOW,
+      updatedBefore: '2026-06-09T06:00:01.000Z',
+      fetchOptions: {
+        fetchFn: async () => {
+          websiteFetchCount += 1;
+          return htmlResponse();
+        },
+      },
+      sourceEvidenceProvider: async () => {
+        providerCallCount += 1;
+        return { warnings: ['connected social enrichment ran'] };
+      },
+    });
+
+    expect(processed).toMatchObject({
+      processed: true,
+      jobId: started.response.body.job.id,
+      status: 'needs_review',
+    });
+    expect(websiteFetchCount).toBeGreaterThan(0);
+    expect(providerCallCount).toBe(1);
+
+    const completed = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: started.response.body.job.id },
+      { store },
+    );
+    expect(completed.status).toBe(200);
+    expect(completed.body.ok).toBe(true);
+    if (!completed.body.ok) throw new Error(completed.body.error.message);
+    expect(completed.body.job.status).toBe('needs_review');
+    expect(completed.body.record?.id).toBe(`${started.response.body.job.id}_profile`);
+  });
+
+  it('fails malformed persisted queued jobs instead of leaving them running forever', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_missing_website',
+        userId: 'user_vault',
+        brandId: 'brand_vaultline',
+        status: 'queued',
+        inputs: {
+          socialLinks: [],
+        },
+        warnings: ['Brand Vault scan queued; refresh or poll this job id for review results.'],
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      candidates: [],
+    });
+
+    const processed = await processNextQueuedBrandVaultRefineryJob({
+      store,
+      clock: () => NOW,
+      updatedBefore: '2026-06-09T06:00:01.000Z',
+    });
+
+    expect(processed).toMatchObject({
+      processed: true,
+      jobId: 'brand_refinery_job_missing_website',
+      status: 'failed',
+    });
+    const failed = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: 'brand_refinery_job_missing_website' },
+      { store, clock: () => NOW },
+    );
+    expect(failed.status).toBe(200);
+    expect(failed.body.ok).toBe(true);
+    if (!failed.body.ok) throw new Error(failed.body.error.message);
+    expect(failed.body.job.status).toBe('failed');
+    expect(failed.body.job.warnings).toContain(
+      'Brand Vault scan could not run because the queued job is missing websiteUrl.',
+    );
   });
 
   it('marks a queued refinery job failed when the background run crashes', async () => {

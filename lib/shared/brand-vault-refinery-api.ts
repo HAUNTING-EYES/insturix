@@ -68,10 +68,17 @@ export interface BrandVaultRefineryJobSnapshot {
   reviewPayload?: BrandVaultWebsiteDraftReviewPayload;
 }
 
+export type BrandVaultRefineryJobListFilter = {
+  statuses?: BrandRefineryJob['status'][];
+  updatedBefore?: string;
+  limit?: number;
+};
+
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot>;
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
+  listJobSnapshots?(filter?: BrandVaultRefineryJobListFilter): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot[]>;
   updateJobStatusForRecord(
     recordId: string,
     status: BrandRefineryJob['status'],
@@ -148,6 +155,21 @@ type GetBrandVaultRefineryJobDependencies = {
   staleAfterMs?: number;
 };
 
+type BrandVaultRefineryJobExecutionDependencies = {
+  store: BrandVaultRefineryStore;
+  fetchOptions?: FetchWebsiteBrandSnapshotOptions;
+  clock?: () => string;
+  sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
+};
+
+export type ProcessQueuedBrandVaultRefineryJobResult = {
+  processed: boolean;
+  jobId?: string;
+  status?: BrandRefineryJob['status'];
+  reason?: 'store_does_not_support_listing' | 'empty_queue';
+  error?: string;
+};
+
 export type ReviewBrandVaultSignalProfileSuccessBody = {
   ok: true;
   record: BrandSignalProfileRecord;
@@ -198,6 +220,22 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
   getJobSnapshotByRecordId(recordId: string): BrandVaultRefineryJobSnapshot | null {
     const jobId = this.recordToJob.get(recordId);
     return jobId ? this.getJobSnapshot(jobId) : null;
+  }
+
+  listJobSnapshots(filter: BrandVaultRefineryJobListFilter = {}): BrandVaultRefineryJobSnapshot[] {
+    const statuses = new Set(filter.statuses);
+    const updatedBeforeMs = filter.updatedBefore ? Date.parse(filter.updatedBefore) : null;
+    const limit = Math.max(1, Math.min(filter.limit ?? 25, 100));
+    return Array.from(this.jobs.values())
+      .filter((snapshot) => statuses.size === 0 || statuses.has(snapshot.job.status))
+      .filter((snapshot) => {
+        if (updatedBeforeMs === null || !Number.isFinite(updatedBeforeMs)) return true;
+        const updatedAt = Date.parse(snapshot.job.updatedAt);
+        return Number.isFinite(updatedAt) && updatedAt < updatedBeforeMs;
+      })
+      .sort((a, b) => Date.parse(a.job.updatedAt) - Date.parse(b.job.updatedAt))
+      .slice(0, limit)
+      .map(cloneSnapshot);
   }
 
   updateJobStatusForRecord(
@@ -252,12 +290,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
     actorId?: string;
     jobId?: string;
   },
-  dependencies: {
-    store: BrandVaultRefineryStore;
-    fetchOptions?: FetchWebsiteBrandSnapshotOptions;
-    clock?: () => string;
-    sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
-  },
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
 ): Promise<BrandVaultApiResult<CreateBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const parsed = parseCreateBody(args.body);
   if (!parsed.ok) return parsed.result;
@@ -345,12 +378,7 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
     body: unknown;
     actorId?: string;
   },
-  dependencies: {
-    store: BrandVaultRefineryStore;
-    fetchOptions?: FetchWebsiteBrandSnapshotOptions;
-    clock?: () => string;
-    sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
-  },
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
 ): Promise<QueuedBrandVaultRefineryJobStart> {
   const parsed = parseCreateBody(args.body);
   if (!parsed.ok) return { response: parsed.result };
@@ -380,37 +408,7 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
   await dependencies.store.saveJobSnapshot({ job: queuedJob, candidates: [] });
 
   const run = async (): Promise<void> => {
-    const runningAt = dependencies.clock?.() ?? new Date().toISOString();
-    const runningJob: BrandRefineryJob = {
-      ...queuedJob,
-      status: 'running',
-      warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
-      updatedAt: runningAt,
-    };
-    await dependencies.store.saveJobSnapshot({
-      job: runningJob,
-      candidates: [],
-    });
-    try {
-      await createBrandVaultRefineryJobFromWebsite(
-        { ...args, jobId },
-        dependencies,
-      );
-    } catch (error) {
-      const failedAt = dependencies.clock?.() ?? new Date().toISOString();
-      await dependencies.store.saveJobSnapshot({
-        job: {
-          ...runningJob,
-          status: 'failed',
-          warnings: mergeWarnings(runningJob.warnings, [
-            `Brand Vault scan failed after it started: ${errorMessage(error)}`,
-          ]),
-          updatedAt: failedAt,
-        },
-        candidates: [],
-      });
-      throw error;
-    }
+    await runQueuedBrandVaultRefineryJobSnapshot({ job: queuedJob, candidates: [] }, dependencies);
   };
 
   return {
@@ -426,6 +424,109 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
     },
     run,
   };
+}
+
+export async function processNextQueuedBrandVaultRefineryJob(
+  dependencies: BrandVaultRefineryJobExecutionDependencies & { updatedBefore?: string },
+): Promise<ProcessQueuedBrandVaultRefineryJobResult> {
+  if (!dependencies.store.listJobSnapshots) {
+    return { processed: false, reason: 'store_does_not_support_listing' };
+  }
+
+  const snapshots = await dependencies.store.listJobSnapshots({
+    statuses: ['queued'],
+    updatedBefore: dependencies.updatedBefore ?? dependencies.clock?.() ?? new Date().toISOString(),
+    limit: 1,
+  });
+  const snapshot = snapshots[0];
+  if (!snapshot) return { processed: false, reason: 'empty_queue' };
+
+  try {
+    const completed = await runQueuedBrandVaultRefineryJobSnapshot(snapshot, dependencies);
+    return {
+      processed: true,
+      jobId: completed.job.id,
+      status: completed.job.status,
+    };
+  } catch (error) {
+    const failed = await dependencies.store.getJobSnapshot(snapshot.job.id);
+    return {
+      processed: true,
+      jobId: snapshot.job.id,
+      status: failed?.job.status ?? 'failed',
+      error: errorMessage(error),
+    };
+  }
+}
+
+export async function runQueuedBrandVaultRefineryJobSnapshot(
+  snapshot: BrandVaultRefineryJobSnapshot,
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): Promise<BrandVaultRefineryJobSnapshot> {
+  if (snapshot.recordId || !isActiveRefineryJobStatus(snapshot.job.status)) return snapshot;
+  if (!snapshot.job.inputs.websiteUrl) {
+    const failedAt = dependencies.clock?.() ?? new Date().toISOString();
+    return dependencies.store.saveJobSnapshot({
+      ...snapshot,
+      job: {
+        ...snapshot.job,
+        status: 'failed',
+        warnings: mergeWarnings(snapshot.job.warnings, [
+          'Brand Vault scan could not run because the queued job is missing websiteUrl.',
+        ]),
+        updatedAt: failedAt,
+      },
+      candidates: [],
+      reviewPayload: undefined,
+    });
+  }
+
+  const runningAt = dependencies.clock?.() ?? new Date().toISOString();
+  const runningJob: BrandRefineryJob = {
+    ...snapshot.job,
+    status: 'running',
+    warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
+    updatedAt: runningAt,
+  };
+  await dependencies.store.saveJobSnapshot({
+    ...snapshot,
+    job: runningJob,
+    candidates: [],
+    reviewPayload: undefined,
+  });
+
+  try {
+    await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: runningJob.userId,
+        actorId: runningJob.userId,
+        jobId: runningJob.id,
+        body: {
+          websiteUrl: runningJob.inputs.websiteUrl,
+          brandId: runningJob.brandId,
+          companyName: runningJob.inputs.companyName,
+          socialLinks: runningJob.inputs.socialLinks,
+          sourceEvidence: runningJob.inputs.sourceEvidence,
+        },
+      },
+      dependencies,
+    );
+    return (await dependencies.store.getJobSnapshot(runningJob.id)) ?? { ...snapshot, job: runningJob };
+  } catch (error) {
+    const failedAt = dependencies.clock?.() ?? new Date().toISOString();
+    await dependencies.store.saveJobSnapshot({
+      job: {
+        ...runningJob,
+        status: 'failed',
+        warnings: mergeWarnings(runningJob.warnings, [
+          `Brand Vault scan failed after it started: ${errorMessage(error)}`,
+        ]),
+        updatedAt: failedAt,
+      },
+      candidates: [],
+    });
+    throw error;
+  }
 }
 
 async function resolveSourceEvidenceProvider(args: {

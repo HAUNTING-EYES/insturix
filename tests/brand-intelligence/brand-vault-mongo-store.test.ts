@@ -100,6 +100,57 @@ describe('Brand Vault Mongo refinery store', () => {
       expect.arrayContaining(['draft_saved', 'draft_accepted', 'record_superseded']),
     );
   });
+
+  it('lists queued job snapshots by status and cutoff for worker processing', async () => {
+    const store = createBrandVaultMongoRefineryStore({ collections: createMemoryCollections() });
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_old',
+        userId: 'user_mongo',
+        brandId: 'brand_mongo',
+        status: 'queued',
+        inputs: { websiteUrl: 'old.example', socialLinks: [] },
+        warnings: [],
+        createdAt: '2026-06-10T05:00:00.000Z',
+        updatedAt: '2026-06-10T05:00:00.000Z',
+      },
+      candidates: [],
+    });
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_running',
+        userId: 'user_mongo',
+        brandId: 'brand_mongo',
+        status: 'running',
+        inputs: { websiteUrl: 'running.example', socialLinks: [] },
+        warnings: [],
+        createdAt: '2026-06-10T05:01:00.000Z',
+        updatedAt: '2026-06-10T05:01:00.000Z',
+      },
+      candidates: [],
+    });
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_new',
+        userId: 'user_mongo',
+        brandId: 'brand_mongo',
+        status: 'queued',
+        inputs: { websiteUrl: 'new.example', socialLinks: [] },
+        warnings: [],
+        createdAt: '2026-06-10T05:10:00.000Z',
+        updatedAt: '2026-06-10T05:10:00.000Z',
+      },
+      candidates: [],
+    });
+
+    const queued = await store.listJobSnapshots({
+      statuses: ['queued'],
+      updatedBefore: '2026-06-10T05:05:00.000Z',
+      limit: 5,
+    });
+
+    expect(queued.map((snapshot) => snapshot.job.id)).toEqual(['brand_refinery_job_old']);
+  });
 });
 
 function htmlResponse(): Response {
@@ -165,7 +216,8 @@ class MemoryMongoCursor<TDocument> implements BrandVaultMongoCursor<TDocument> {
     this.docs = [...this.docs].sort((a, b) => {
       const left = String((a as Record<string, unknown>)[key] ?? '');
       const right = String((b as Record<string, unknown>)[key] ?? '');
-      return direction * right.localeCompare(left);
+      const order = left.localeCompare(right);
+      return direction === 1 ? order : -order;
     });
     return this;
   }
@@ -181,7 +233,20 @@ class MemoryMongoCursor<TDocument> implements BrandVaultMongoCursor<TDocument> {
 }
 
 function matchesFilter(doc: Record<string, unknown>, filter: Record<string, unknown>): boolean {
-  return Object.entries(filter).every(([key, value]) => doc[key] === value);
+  return Object.entries(filter).every(([key, value]) => matchesFilterValue(doc[key], value));
+}
+
+function matchesFilterValue(actual: unknown, expected: unknown): boolean {
+  if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+    const operators = expected as Record<string, unknown>;
+    if ('$in' in operators) {
+      return Array.isArray(operators.$in) && operators.$in.includes(actual);
+    }
+    if ('$lt' in operators) {
+      return String(actual ?? '') < String(operators.$lt ?? '');
+    }
+  }
+  return actual === expected;
 }
 
 function clone<T>(value: T): T {
