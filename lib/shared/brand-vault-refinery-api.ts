@@ -179,6 +179,7 @@ export type ReviewBrandVaultSignalProfileSuccessBody = {
 };
 
 const DEFAULT_REFINERY_JOB_STALE_AFTER_MS = 10 * 60 * 1000;
+const DEFAULT_REFINERY_RUNNING_RETRY_AFTER_MS = 6 * 60 * 1000;
 
 export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore {
   private readonly profiles = createInMemoryBrandSignalProfileRepository();
@@ -433,11 +434,19 @@ export async function processNextQueuedBrandVaultRefineryJob(
     return { processed: false, reason: 'store_does_not_support_listing' };
   }
 
-  const snapshots = await dependencies.store.listJobSnapshots({
+  const now = dependencies.clock?.() ?? new Date().toISOString();
+  let snapshots = await dependencies.store.listJobSnapshots({
     statuses: ['queued'],
-    updatedBefore: dependencies.updatedBefore ?? dependencies.clock?.() ?? new Date().toISOString(),
+    updatedBefore: dependencies.updatedBefore ?? now,
     limit: 1,
   });
+  if (!snapshots[0]) {
+    snapshots = await dependencies.store.listJobSnapshots({
+      statuses: ['running'],
+      updatedBefore: isoBefore(now, DEFAULT_REFINERY_RUNNING_RETRY_AFTER_MS),
+      limit: 1,
+    });
+  }
   const snapshot = snapshots[0];
   if (!snapshot) return { processed: false, reason: 'empty_queue' };
 
@@ -654,6 +663,11 @@ function isStaleRefineryJob(job: BrandRefineryJob, now: string, staleAfterMs: nu
   const nowMs = Date.parse(now);
   if (!Number.isFinite(updatedAt) || !Number.isFinite(nowMs)) return false;
   return nowMs - updatedAt >= staleAfterMs;
+}
+
+function isoBefore(now: string, deltaMs: number): string {
+  const nowMs = Date.parse(now);
+  return new Date((Number.isFinite(nowMs) ? nowMs : Date.now()) - deltaMs).toISOString();
 }
 
 export async function getBrandVaultSignalProfile(

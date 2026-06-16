@@ -10,7 +10,7 @@ import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const { userId } = await auth();

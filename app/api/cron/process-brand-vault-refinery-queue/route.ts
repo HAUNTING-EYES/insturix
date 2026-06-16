@@ -7,7 +7,7 @@ import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/share
 import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-connected-social-loader';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');

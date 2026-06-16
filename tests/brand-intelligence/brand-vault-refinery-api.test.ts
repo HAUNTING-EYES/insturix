@@ -380,6 +380,48 @@ describe('Brand Vault refinery API boundary', () => {
     expect(failedRunning.body.record).toBeNull();
   });
 
+  it('recovers stale running refinery jobs through the queue processor', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const retryNow = '2026-06-09T06:07:00.000Z';
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_running_retry',
+        userId: 'user_vault',
+        brandId: 'brand_vaultline',
+        status: 'running',
+        inputs: {
+          websiteUrl: 'vaultline.example',
+          socialLinks: [],
+        },
+        warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      candidates: [],
+    });
+
+    const processed = await processNextQueuedBrandVaultRefineryJob({
+      store,
+      clock: () => retryNow,
+      fetchOptions: { fetchFn: async () => htmlResponse() },
+    });
+
+    expect(processed).toMatchObject({
+      processed: true,
+      jobId: 'brand_refinery_job_running_retry',
+      status: 'needs_review',
+    });
+    const completed = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: 'brand_refinery_job_running_retry' },
+      { store, clock: () => retryNow },
+    );
+    expect(completed.status).toBe(200);
+    expect(completed.body.ok).toBe(true);
+    if (!completed.body.ok) throw new Error(completed.body.error.message);
+    expect(completed.body.job.status).toBe('needs_review');
+    expect(completed.body.record?.id).toBe('brand_refinery_job_running_retry_profile');
+  });
+
   it('creates, stores, and reloads a website-derived review draft for the authenticated user', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
 
