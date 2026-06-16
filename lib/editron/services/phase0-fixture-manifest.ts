@@ -12,6 +12,16 @@ export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
 type JsonRecord = Record<string, unknown>;
 
+type Phase0UnifiedDecisionAuthoritySummary = {
+  version: string;
+  executableProducer: string;
+  advisoryProducers: string[];
+  signalDecisionRole: string;
+  signalDecisionsCanAddExecutable: boolean;
+  decisionMode: string | null;
+  legacyAuthority?: string;
+};
+
 export interface Phase0OverlayLike extends JsonRecord {
   id?: string | number;
   type?: string;
@@ -283,11 +293,67 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
   return {
     status: 'present' as const,
     source: readString(bundle.source),
-    authority: readString(bundle.authority),
+    authority: normalizeUnifiedDecisionAuthority(bundle.authority),
     totalDecisions: readPositiveNumber(bundle.totalDecisions, decisions.length),
     counts: (isRecord(bundle.counts) ? bundle.counts : isRecord(bundle.decisionCounts) ? bundle.decisionCounts : countDecisions(decisions)),
     evidence: isRecord(bundle.evidence) ? bundle.evidence : null,
   };
+}
+
+function normalizeUnifiedDecisionAuthority(authority: unknown): Phase0UnifiedDecisionAuthoritySummary | null {
+  if (!authority) return null;
+
+  if (isRecord(authority)) {
+    return {
+      version: readString(authority.version) || 'unified-decision-authority-v1',
+      executableProducer: readString(authority.executableProducer),
+      advisoryProducers: Array.isArray(authority.advisoryProducers)
+        ? authority.advisoryProducers.map(readString).filter(Boolean)
+        : [],
+      signalDecisionRole: readString(authority.signalDecisionRole),
+      signalDecisionsCanAddExecutable: authority.signalDecisionsCanAddExecutable === true,
+      decisionMode: readDecisionMode(authority.decisionMode),
+    };
+  }
+
+  if (typeof authority === 'string') {
+    const decisionMode = inferDecisionModeFromLegacyAuthority(authority);
+    if (!decisionMode) return null;
+    return {
+      version: 'unified-decision-authority-legacy-v0',
+      executableProducer: '',
+      advisoryProducers: [],
+      signalDecisionRole: '',
+      signalDecisionsCanAddExecutable: false,
+      decisionMode,
+      legacyAuthority: authority,
+    };
+  }
+
+  return null;
+}
+
+function readDecisionMode(value: unknown): string | null {
+  const candidate = readString(value);
+  if (!candidate) return null;
+
+  if (
+    candidate === 'creative-brief-primary' ||
+    candidate === 'signal-primary' ||
+    candidate === 'merged-supplemental' ||
+    candidate === 'unified-planner'
+  ) {
+    return candidate;
+  }
+  return null;
+}
+
+function inferDecisionModeFromLegacyAuthority(value: string): string | null {
+  if (value === 'creative-primary-signal-evidence') return 'creative-brief-primary';
+  if (value === 'signal-primary') return 'signal-primary';
+  if (value === 'merged-supplemental') return 'merged-supplemental';
+  if (value === 'unified-planner') return 'unified-planner';
+  return null;
 }
 
 function summarizeOldProducerGating(project: Phase0FixtureProject) {

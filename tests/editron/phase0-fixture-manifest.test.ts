@@ -110,7 +110,14 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
     intelligence: {
       unifiedDecisionBundle: {
         source: 'creative-brief+signal-driven',
-        authority: 'creative-primary-signal-evidence',
+        authority: {
+          version: 'unified-decision-authority-v1',
+          executableProducer: 'creative-brief',
+          advisoryProducers: ['signal-driven'],
+          signalDecisionRole: 'advisor',
+          signalDecisionsCanAddExecutable: false,
+          decisionMode: 'creative-brief-primary',
+        },
         totalDecisions: 3,
         counts: { graphic: 1, transition: 1, sound: 1 },
         evidence: { canonicalTimeline: true },
@@ -221,10 +228,17 @@ describe('phase0 fixture manifest', () => {
           droppedWordCount: 1,
         },
       },
-      unifiedDecisionBundle: {
+    unifiedDecisionBundle: {
         status: 'present',
         source: 'creative-brief+signal-driven',
-        authority: 'creative-primary-signal-evidence',
+        authority: {
+          version: 'unified-decision-authority-v1',
+          executableProducer: 'creative-brief',
+          advisoryProducers: ['signal-driven'],
+          signalDecisionRole: 'advisor',
+          signalDecisionsCanAddExecutable: false,
+          decisionMode: 'creative-brief-primary',
+        },
         totalDecisions: 3,
       },
       oldProducerGating: {

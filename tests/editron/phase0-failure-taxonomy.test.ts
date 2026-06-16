@@ -392,7 +392,14 @@ function cleanProject(): Phase0FixtureProject {
     intelligence: {
       unifiedDecisionBundle: {
         source: 'creative-brief+signal-driven',
-        authority: 'creative-primary-signal-evidence',
+        authority: {
+          version: 'unified-decision-authority-v1',
+          executableProducer: 'creative-brief',
+          advisoryProducers: ['signal-driven'],
+          signalDecisionRole: 'advisor',
+          signalDecisionsCanAddExecutable: false,
+          decisionMode: 'unified-planner',
+        },
         counts: { graphic: 1 },
       },
       postBundleProfileActionPolicy: {

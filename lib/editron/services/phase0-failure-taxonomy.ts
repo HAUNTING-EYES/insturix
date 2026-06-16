@@ -199,14 +199,15 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
     });
   }
 
-  if (manifest.unifiedDecisionBundle.authority === 'creative-brief-primary') {
+  const decisionMode = resolveDecisionMode(manifest.unifiedDecisionBundle.authority);
+  if (decisionMode === 'creative-brief-primary') {
     classes.push({
       id: 'decision.authority_creative_primary',
       severity: 'warn',
       source: 'decision',
       message: 'Decision authority is still Creative Brief primary; signal candidates do not own execution.',
       evidence: {
-        decisionMode: manifest.unifiedDecisionBundle.authority,
+        decisionMode,
         source: manifest.unifiedDecisionBundle.source,
       },
     });
@@ -496,6 +497,24 @@ function groupRenderedIssues(issues: ReturnType<typeof collectRenderedIssues>) {
     const severityRank = severityWeight(b.severity) - severityWeight(a.severity);
     return severityRank || b.count - a.count || a.dimension.localeCompare(b.dimension);
   });
+}
+
+function resolveDecisionMode(authority: unknown): string | null {
+  if (typeof authority === 'string') {
+    if (authority === 'creative-primary-signal-evidence') {
+      return 'creative-brief-primary';
+    }
+    return authority;
+  }
+
+  if (authority && typeof authority === 'object' && 'decisionMode' in authority) {
+    const decisionMode = authority.decisionMode;
+    if (typeof decisionMode === 'string') {
+      return decisionMode;
+    }
+  }
+
+  return null;
 }
 
 function normalizeIssueToken(value: string): string {
