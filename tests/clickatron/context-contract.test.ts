@@ -28,6 +28,25 @@ describe('Clickatron context contract', () => {
     });
   });
 
+  it('accepts absent source context for native Clickatron blank sessions', () => {
+    const parsed = CreateSessionRequestSchema.parse({
+      prompt: '',
+      aspectRatio: '16:9',
+      modelId: 'fal-ai/flux-kontext/dev',
+      brandId: null,
+      projectId: null,
+      universalId: null,
+      sourceService: null,
+      sourceSessionId: null,
+      sourceScriptId: null,
+      metadata: null,
+    });
+
+    expect(parsed.sourceService).toBeUndefined();
+    expect(parsed.sourceSessionId).toBeUndefined();
+    expect(parsed.sourceScriptId).toBeUndefined();
+  });
+
   it('rejects malformed metadata instead of silently dropping it', () => {
     expect(() =>
       CreateSessionRequestSchema.parse({
