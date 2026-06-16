@@ -84,6 +84,7 @@ const DEFAULT_BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|attention required|verify you are human|captcha|cloudflare|datadome|akamai|incapsula|perimeterx|pardon our interruption|access denied|request blocked)\b/i;
 const JAVASCRIPT_SHELL_PATTERN = /\b(?:please enable javascript|enable javascript|requires javascript|enable cookies|please use a different browser|javascript is disabled)\b/i;
+const HYDRATION_ROOT_MARKER_PATTERN = /\b__NEXT_DATA__\b|<[^>]+\bid=["'](?:__next|root|app)["']|<[^>]+\bdata-reactroot\b/i;
 
 interface WebsiteFetchAttempt {
   normalizedUrl: string;
@@ -209,10 +210,28 @@ function detectWebsiteFetchFallbackReason(
   if (httpStatus >= 500) return 'server_error';
   if (!isHtmlPayload(contentType, html)) return undefined;
   const compact = html.replace(/\s+/g, ' ').trim();
+  const visibleText = visibleBodyTextFromHtml(html);
   if (BROWSER_CHALLENGE_PATTERN.test(compact)) return 'browser_challenge';
   if (JAVASCRIPT_SHELL_PATTERN.test(compact)) return 'javascript_shell';
-  if (!compact || compact.length < 80) return 'empty_html';
+  if (visibleText.length < 40 && HYDRATION_ROOT_MARKER_PATTERN.test(html)) return 'javascript_shell';
+  if (!visibleText || visibleText.length < 40) return 'empty_html';
   return undefined;
+}
+
+function visibleBodyTextFromHtml(html: string): string {
+  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
+  return body
+    .replace(/<head\b[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<template\b[\s\S]*?<\/template>/gi, ' ')
+    .replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function shouldRetryWithBrowserHeaders(reason: BrandWebsiteFetchFallbackReason): boolean {

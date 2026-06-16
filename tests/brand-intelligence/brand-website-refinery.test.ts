@@ -1063,4 +1063,29 @@ describe('Brand website refinery', () => {
     ]));
     expect(snapshot.browserFallbackRequired).toBe(false);
   });
+
+  it('classifies hydration-only app shells by visible body text, not raw HTML size', async () => {
+    const shellHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Vaultline</title>
+    <script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { copy: 'x'.repeat(600) } } })}</script>
+    <script>${'window.__bundle = true;'.repeat(200)}</script>
+  </head>
+  <body><div id="__next"></div></body>
+</html>`;
+    const snapshot = await fetchWebsiteBrandSnapshot('vaultline.example', {
+      now: NOW,
+      disableBrowserLikeRetry: true,
+      fetchFn: async () => new Response(shellHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    });
+
+    expect(snapshot.fetchFallbackReason).toBe('javascript_shell');
+    expect(snapshot.browserFallbackRequired).toBe(true);
+    expect(snapshot.fetchWarnings?.join(' ')).toMatch(/required JavaScript/i);
+  });
 });
