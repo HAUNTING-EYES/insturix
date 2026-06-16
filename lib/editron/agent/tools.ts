@@ -44,7 +44,7 @@ import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-tra
 import { DEFAULT_CONFIG } from '../config/editron-config';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
-import { resolveMotionTokens } from '../data/motion-theme-resolver';
+import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
@@ -348,6 +348,166 @@ export const createTools = (userId: string, projectId: string) => {
       type: o.type as OverlayType
     }));
   };
+
+  type SignalValueMap = Record<string, unknown>;
+  type ProjectSignalInputs = Partial<ContentSignals>;
+
+  function normalizeSignalNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+    return undefined;
+  }
+
+  function normalizeSignalString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+  }
+
+  function normalizeSignalBoolean(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    const numeric = normalizeSignalNumber(value);
+    if (numeric == null) return undefined;
+    return numeric > 0.5;
+  }
+
+  function readSignalNumber(values: SignalValueMap | undefined, ...keys: string[]): number | undefined {
+    if (!values) return undefined;
+    for (const key of keys) {
+      const value = normalizeSignalNumber(values[key]);
+      if (value != null) return value;
+    }
+    return undefined;
+  }
+
+  function readSignalString(values: SignalValueMap | undefined, ...keys: string[]): string | undefined {
+    if (!values) return undefined;
+    for (const key of keys) {
+      const value = normalizeSignalString(values[key]);
+      if (value != null) return value;
+    }
+    return undefined;
+  }
+
+  function readSignalBoolean(values: SignalValueMap | undefined, ...keys: string[]): boolean | undefined {
+    if (!values) return undefined;
+    for (const key of keys) {
+      const value = normalizeSignalBoolean(values[key]);
+      if (value != null) return value;
+    }
+    return undefined;
+  }
+
+  function mapSignalToContentSignals(values: SignalValueMap): ProjectSignalInputs {
+    const toContentSignals: ProjectSignalInputs = {};
+    const set = <K extends keyof ContentSignals>(key: K, value: ContentSignals[K] | undefined) => {
+      if (value !== undefined) {
+        toContentSignals[key] = value;
+      }
+    };
+
+    set('formality', readSignalNumber(values, 'formality', 'content.formality'));
+    set('enthusiasm', readSignalNumber(values, 'enthusiasm', 'personality.enthusiasm'));
+    set('warmth', readSignalNumber(values, 'warmth', 'personality.warmth'));
+    set('emotional_arousal', readSignalNumber(values, 'emotional_arousal', 'personality.emotional_arousal', 'speech.emotion_intensity', 'speech.emotional_valence'));
+    set('pacing_velocity', readSignalNumber(values, 'pacing_velocity', 'personality.pacing_velocity', 'speech.speaking_rate_wpm'));
+    set('humor', readSignalNumber(values, 'humor', 'personality.humor'));
+    set('visceral_impact', readSignalNumber(values, 'visceral_impact', 'personality.visceral_impact'));
+    set('visual_dependency', readSignalNumber(values, 'visual_dependency', 'personality.visual_dependency', 'text_coverage', 'visual.text_coverage'));
+    set('emotion_intensity', readSignalNumber(values, 'emotion_intensity', 'speech.emotion_intensity', 'speech.emotional_valence'));
+    set('pitch_variability', readSignalNumber(values, 'pitch_variability', 'speech.pitch_variability', 'speech.pitch_contour'));
+    set('speaking_rate_wpm', readSignalNumber(values, 'speaking_rate_wpm', 'speech.speaking_rate_wpm'));
+    set('silence_duration_ms', readSignalNumber(values, 'silence_duration_ms', 'speech.silence_duration_ms'));
+    set('face_present', readSignalBoolean(values, 'face_present', 'visual.face_present'));
+    set('music_energy', readSignalNumber(values, 'music_energy', 'audio.music_energy'));
+    set('music_section', readSignalString(values, 'music_section', 'audio.music_section'));
+    set('position_in_video', readSignalNumber(values, 'position_in_video', 'structural.position_in_video'));
+    set('narrative_pressure', readSignalNumber(values, 'narrative_pressure', 'composite.narrative_pressure'));
+    set('motion_intensity', readSignalNumber(values, 'motion_intensity', 'visual.motion_intensity'));
+    set('shot_scale', readSignalNumber(values, 'shot_scale', 'visual.shot_scale'));
+    set('face_emotion', readSignalString(values, 'face_emotion', 'visual.face_emotion'));
+    set('speech_energy', readSignalNumber(values, 'speech_energy', 'speech.energy'));
+    set('stress_detected', readSignalBoolean(values, 'stress_detected', 'speech.stress_detected'));
+    set('time_since_last_cut', readSignalNumber(values, 'time_since_last_cut', 'structural.time_since_last_cut'));
+    set('cinematic_moment', readSignalNumber(values, 'cinematic_moment', 'composite.cinematic_moment'));
+    return toContentSignals;
+  }
+
+  function nearestSignalFrame(candidates: number[], targetFrame: number): number {
+    return candidates.reduce((best, current) => {
+      return Math.abs(current - targetFrame) < Math.abs(best - targetFrame) ? current : best;
+    }, candidates[0]);
+  }
+
+  async function resolveCompositionSignalsFromProject(
+    project: any,
+    frame: number,
+    overlays: any[],
+    fps = 30,
+  ): Promise<ProjectSignalInputs> {
+    const projectSignals = {
+      rawFootageAnalysis: (project as any).rawFootageAnalysis ?? null,
+      segmentAnalysis: (project as any).segmentAnalysis ?? null,
+      vjepaAnalysis: (project as any).vjepaAnalysis ?? null,
+      wav2vecAnalysis: (project as any).wav2vecAnalysis ?? null,
+      essentiaAnalysis: (project as any).essentiaAnalysis ?? null,
+    };
+
+    if (!projectSignals.rawFootageAnalysis && !projectSignals.segmentAnalysis && !(overlays?.length > 0)) {
+      return {};
+    }
+
+    try {
+      const { buildSignalTimelineFromAnalysis, buildSignalTimeline } = await import('../services/signal-registry');
+      const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+      const overlayInfos = (overlays || []).map((o: any) => ({
+        id: o.id,
+        type: o.type,
+        from: Number.isFinite(o.from) ? o.from : 0,
+        durationInFrames: Number.isFinite(o.durationInFrames) ? o.durationInFrames : 0,
+        row: o.row,
+        assetId: o.assetId,
+      }));
+      const sourceFrame = Math.max(0, Math.floor(frame));
+      const timeline = projectSignals.segmentAnalysis?.segments?.length
+        ? buildSignalTimelineFromAnalysis(
+          projectSignals.segmentAnalysis,
+          [],
+          projectSignals.rawFootageAnalysis,
+          overlayInfos,
+          safeFps,
+          projectSignals.essentiaAnalysis,
+        )
+        : buildSignalTimeline(
+          [],
+          projectSignals.rawFootageAnalysis,
+          overlayInfos,
+          safeFps,
+          projectSignals.vjepaAnalysis,
+          projectSignals.wav2vecAnalysis,
+          projectSignals.essentiaAnalysis,
+        );
+
+      const totalFrames = Math.max(1, timeline.totalFrames || 1);
+      const clampedFrame = Math.min(sourceFrame, totalFrames - 1);
+      const gridFrames = Array.from(timeline.gridSignals.keys()).sort((a, b) => a - b);
+      if (!gridFrames.length) return {};
+
+      const frameKey = nearestSignalFrame(gridFrames, clampedFrame);
+      const snapshot = timeline.gridSignals.get(frameKey);
+      if (!snapshot) return {};
+
+      return mapSignalToContentSignals({
+        ...timeline.globalSignals,
+        ...snapshot,
+      } as Record<string, unknown>);
+    } catch (error) {
+      console.warn(
+        `[Tools:addMotionGraphic] Failed resolving composition signals for project ${(project as any)?.projectId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return {};
+    }
+  }
 
   /**
    * Helper to coerce LLM inputs to correct types.
@@ -4566,8 +4726,31 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             content = parsed.content;
           }
 
-          const { DEFAULT_SIGNALS } = await import('../motion-graphics/engine/composition-planner');
-          const tokens = resolveMotionTokens(DEFAULT_SIGNALS as any, {});
+          let graphicBrandInputs: Partial<BrandInputs> = {};
+          try {
+            if ((project as any).brandId && userId) {
+              const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+              const { brandInputsFromUnifiedBrandAtomic } = await import(
+                '@/lib/editron/motion-graphics/engine/brand-composition-rules'
+              );
+              const brand = await getUnifiedBrand(userId, (project as any).brandId);
+              graphicBrandInputs = brandInputsFromUnifiedBrandAtomic(brand);
+              if (graphicBrandInputs.accentColor) {
+                console.log(
+                  `[Tools:addMotionGraphic] Brand accent ${graphicBrandInputs.accentColor} applied for project ${project.projectId}`,
+                );
+              }
+            }
+          } catch (err: unknown) {
+            console.warn(
+              `[Tools:addMotionGraphic] Brand resolve failed for project ${(project as any).projectId} (non-fatal): ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
+
+          const compositionSignals = await resolveCompositionSignalsFromProject(project, input.start, project.overlays || [], project.fps || 30);
+          const tokens = resolveMotionTokens(compositionSignals, graphicBrandInputs);
           const recipe = planComposition(
             { kind, content, triggerMoment: 'agent-placed' },
             tokens,
@@ -4597,7 +4780,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             isDragging: false,
             recipe,
             resolvedTokens: tokens,
-            contentSignals: {},
+            contentSignals: compositionSignals,
             content,
             styles: { opacity: 1, backgroundColor: 'transparent' },
             metadata: {
