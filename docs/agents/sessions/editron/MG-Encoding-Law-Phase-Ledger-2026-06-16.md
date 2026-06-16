@@ -47,6 +47,13 @@ Phase 7 - Rendered aesthetic gate:
 - Evidence: structural gates and rendered-aesthetic tests exist; this slice did not add a new rendered aesthetic gate.
 - Still needed: automated taste check on actual frames, not just candidate legality.
 
+Known live-render blocker - repeated stat shell:
+- Symptom observed on a new video: scalar stat MG for `0.02` / `human beings per day` still looks like the same stat shell used elsewhere: centered value, large translucent conic field, horizontal axis bar, and top phrase strip.
+- Root cause: `composeNumeric` and data-series selection now avoid the old classifier/menu path, but `composition-renderer.tsx::resolveSemanticContentSceneAtoms` still emits `semantic-stat-magnitude-field`, `semantic-stat-magnitude-field-core`, and `semantic-stat-magnitude-axis` for any numeric content or `counter` role. That renderer scene layer behaves template-like even when the upstream encoding selection is fact/wire based.
+- Encoding-law status: this is not a menu/preset in the new selector, but it is still an unlicensed renderer shell and must be treated as a Phase 7 blocker before claiming MG quality.
+- Fix acceptance: scalar/rate facts such as `0.02 people spoken to per day` must not receive bounded-proportion/ring-like scene atoms unless the `sweep`/part-of-whole wire is licensed; rate/tiny-magnitude stats need their own atom treatment or restraint gate, with rendered-frame proof.
+- Tests to add when fixing: a renderer-level regression proving `resolveSemanticContentSceneAtoms` does not emit `semantic-stat-field`/`semantic-stat-axis` for unbounded scalar rate content, plus a rendered aesthetic fixture for the live screenshot class.
+
 Phase 8 - Calibration:
 - Status: not complete.
 - Evidence: numeric scores are deterministic local priors for this slice.
