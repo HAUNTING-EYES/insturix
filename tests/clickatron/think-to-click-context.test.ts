@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildThinkToClickContext, pickThinkForgeProjectMeta } from "@/lib/thinkforge/clickatron-context";
 import { mergeThinkForgeProjectMetadata } from "@/lib/thinkforge/state/types";
+import type { ClickatronCreativeSpec } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
+import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 
 describe("ThinkForge to Clickatron context", () => {
   it("preserves BrandVault and project-link provenance for Clickatron", () => {
@@ -261,5 +263,72 @@ describe("ThinkForge to Clickatron context", () => {
 
     expect(context.metadata.thinkforge).toMatchObject({ signalTrace });
     expect(context.sessionDraft?.metadata.thinkforge).toMatchObject({ signalTrace });
+  });
+
+  it("derives carousel fallback from visible blocks without putting exact copy in the raster prompt", () => {
+    const blocks: ThinkForgeBlock[] = [
+      {
+        id: "blk_hook",
+        kind: "paragraph",
+        content: [{ type: "text", text: "Your brand team just hit 500 video requests for Q3.", styles: {} }],
+      },
+      {
+        id: "blk_link",
+        kind: "paragraph",
+        content: [
+          {
+            type: "link",
+            href: "https://example.com",
+            content: [{ type: "text", text: "Bridge the 10x production gap without burnout.", styles: {} }],
+          },
+        ],
+      },
+    ];
+    const signalTrace = {
+      outputFormat: "linkedin_carousel",
+      platform: "linkedin",
+      selectedIntent: { goal: "turn a post into a Clickatron carousel" },
+    };
+
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_visible",
+      scriptId: "script_visible",
+      title: "Scaling Video Post",
+      blocks,
+      signalTrace,
+      projectMeta: {
+        brandId: "brand_visible",
+        campaignId: "campaign_visible",
+      },
+      userVisualChoices: {
+        kind: "carousel",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+        vibe: "urgent but sober",
+        imageStyle: "editorial collage",
+      },
+    });
+
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(spec.kind).toBe("carousel");
+    expect(spec.platform).toBe("linkedin");
+    expect(spec.aspectRatio).toBe("4:5");
+    expect(spec.renderPlan.textPolicy).toBe("editable_text_layers");
+    expect(spec.renderPlan.imagePrompt).toContain("Image style: editorial collage");
+    expect(spec.renderPlan.imagePrompt).toContain("Concept keywords to interpret, not draw as text");
+    expect(spec.renderPlan.slides).toHaveLength(2);
+    expect(spec.renderPlan.slides?.[0].textLayers?.[0]).toMatchObject({
+      text: "Your brand team just hit 500 video requests for Q3.",
+      sourceBlockId: "blk_hook",
+      locked: true,
+    });
+    expect(spec.renderPlan.slides?.[1].textLayers?.[0]?.text).toBe("Bridge the 10x production gap without burnout.");
+    expect(context.sessionDraft?.prompt).toContain("Text rendering policy: do not rasterize readable text");
+    expect(context.sessionDraft?.prompt).not.toContain("Your brand team just hit 500 video requests for Q3.");
+    expect(context.sessionDraft?.prompt).not.toContain("Bridge the 10x production gap without burnout.");
+    expect(context.metadata.thinkforge).toMatchObject({ signalTrace });
   });
 });

@@ -136,10 +136,17 @@ describe("ThinkForge to Clickatron session payload", () => {
     expect(state.canSendToClickatron).toBe(true);
     expect(formData.get("prompt")).toContain("Create a text-free linkedin single-post visual background");
     expect(formData.get("prompt")).toContain("Do not render any readable words");
+    expect(formData.get("prompt")).toContain("Text rendering policy: do not rasterize readable text");
     expect(formData.get("prompt")).not.toContain("Launch one idea once");
     expect(formData.get("sourceSessionId")).toBe("tf_session_123");
     expect(formData.get("sourceScriptId")).toBe("script_456");
     expect(metadata.clickatronHandoff.sourceBlockIds).toEqual(["blk_intro"]);
+    expect(metadata.clickatron.creativeSpec.renderPlan.textPolicy).toBe("editable_text_layers");
+    expect(metadata.clickatron.creativeSpec.renderPlan.textLayers[0]).toMatchObject({
+      text: "Launch one idea once and keep its context connected.",
+      sourceBlockId: "blk_intro",
+      locked: true,
+    });
     expect(metadata.clickatron.creativeSpec.validation.issues).toEqual([
       expect.objectContaining({ code: "derived_from_visible_content" }),
     ]);

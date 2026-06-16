@@ -198,7 +198,7 @@ export function ClickatronHandoffDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[520px] text-[#ECE9E1] rounded-md"
+        className="max-h-[88vh] overflow-y-auto text-[#ECE9E1] rounded-md sm:max-w-[680px]"
         style={{ background: "#131312", borderColor: "#282724" }}
       >
         <DialogHeader className="border-b px-4 py-3" style={{ borderColor: "#1C1B19" }}>
@@ -241,7 +241,11 @@ export function ClickatronHandoffDialog({
             }}
           >
             {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {visualChoices.kind === "carousel" ? "Send Carousel" : "Send Post"}
+            {creating
+              ? "Creating Session"
+              : canSend
+                ? visualChoices.kind === "carousel" ? "Send Carousel" : "Send Post"
+                : handoffState?.display.statusLabel || "Handoff unavailable"}
           </button>
         </div>
       </DialogContent>

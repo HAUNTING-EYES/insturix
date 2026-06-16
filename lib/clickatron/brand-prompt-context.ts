@@ -23,7 +23,6 @@ const PROJECT_META_FIELDS = [
   ["platform", "Platform"],
   ["tone", "Tone"],
   ["sessionName", "Session"],
-  ["brandId", "Brand ID"],
   ["brandBrief", "Brand brief"],
   ["clientId", "Client ID"],
   ["clientName", "Client"],

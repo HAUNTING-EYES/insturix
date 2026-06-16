@@ -19,6 +19,10 @@ export const THINKFORGE_CLICKATRON_EXPORT_END = 'END_THINKFORGE_CLICKATRON_EXPOR
 
 const SIDECAR_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\s*([\s\S]*?)\s*END_THINKFORGE_CLICKATRON_EXPORT\s*-->/i;
 const SIDECAR_START_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\b/i;
+const NON_VIDEO_CREATIVE_INTENT_RE =
+  /\b(post|posts|caption|captions|carousel|carousels|thread|threads|blog|article|newsletter|social|linkedin|instagram|facebook|pinterest|graphic|static creative|ad creative|blog header|x post)\b/;
+const VIDEO_PRODUCTION_DELIVERABLE_RE =
+  /\b(video script|videos? with scenes?|youtube video|tiktok video|scripted reel|reel script|reels?|shorts?|storyboard|shot list|scene breakdown|b-roll|voiceover|commercial script|ugc script)\b/;
 const CALENDAR_FIELDS: Array<keyof ClickatronCreativeCalendarScope> = [
   'contentCardId',
   'campaignId',
@@ -63,21 +67,24 @@ export function shouldRequestClickatronCreativeSidecar(
   input: SidecarProfileInput,
   profile?: ThinkForgeContentSignalProfile,
 ): boolean {
-  const text = compactText([
-    input.userPrompt,
-    input.context.projectSummary,
-    input.context.currentScript,
-    input.context.systemBrief,
-  ]);
+  const userPrompt = compactText([input.userPrompt]);
+  const supportingContext = compactText([input.context.projectSummary, input.context.systemBrief]);
+  const currentScript = compactText([input.context.currentScript]);
 
-  const hasNonVideoCreativeIntent = /\b(post|posts|carousel|carousels|thread|threads|blog|article|newsletter|social|linkedin|instagram|facebook|pinterest|graphic|static creative|ad creative|blog header|x post)\b/.test(text);
-  const hasVideoIntent = /\b(video|videos|reel|reels|shorts|youtube video|tiktok video|script|scripts|storyboard|shot list|scene breakdown|b-roll|voiceover|commercial|ugc)\b/.test(text);
+  const promptRequestsCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(userPrompt);
+  const contextRequestsCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(supportingContext);
+  const currentScriptLooksCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(currentScript);
+  const promptRequestsVideoProductionDeliverable = VIDEO_PRODUCTION_DELIVERABLE_RE.test(userPrompt);
 
   const profileStaticCreative = profile?.intent.clickatron.requested === true
     && profile.intent.clickatron.assetIntent === 'static_image'
     && (profile.intent.outputFormat === 'social_post' || profile.intent.outputFormat === 'caption');
 
-  return (hasNonVideoCreativeIntent || profileStaticCreative) && !hasVideoIntent;
+  if (promptRequestsVideoProductionDeliverable && !promptRequestsCreative && !profileStaticCreative) {
+    return false;
+  }
+
+  return promptRequestsCreative || contextRequestsCreative || currentScriptLooksCreative || profileStaticCreative;
 }
 
 export function appendClickatronCreativeSidecarInstruction(
