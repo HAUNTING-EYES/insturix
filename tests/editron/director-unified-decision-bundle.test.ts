@@ -51,7 +51,9 @@ describe('director unified decision bundle control flow', () => {
     const source = directorSource();
 
     expect(source).toContain('summarizeUnifiedDecisionBundle(unifiedDecisionBundle)');
+    expect(source).toContain('summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle)');
     expect(source).toContain('authority: bundle.authority');
+    expect(source).toContain('signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle)');
     expect(source).toContain("(result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary");
     expect(source).toContain("await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary)");
     expect(source).toContain("'intelligence.unifiedDecisionBundle'");

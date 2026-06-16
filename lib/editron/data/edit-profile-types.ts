@@ -161,6 +161,7 @@ export interface DirectorResult {
   decisionAuthority?: {
     version: 'decision-authority-v1';
     source: 'unified-decision-bundle' | 'fallback-reactive' | 'profile-driven';
+    decisionMode?: 'creative-brief-primary' | 'signal-primary' | 'merged-supplemental' | 'unified-planner' | 'profile';
     executableProducer: 'creative-brief' | 'signal-driven' | 'unified-planner' | 'profile';
     advisoryProducers: Array<'creative-brief' | 'signal-driven' | 'profile'>;
     signalDecisionRole: 'none' | 'primary' | 'advisor' | 'co-owner';
@@ -173,6 +174,16 @@ export interface DirectorResult {
     evidenceOnlySignalDecisionCount: number;
     totalDecisions: number;
     executedDecisions: number;
+    signalAudit?: {
+      version: 'signal-decision-audit-summary-v1';
+      totalCount: number;
+      outcomes: Record<string, number>;
+      byType: Record<string, number>;
+      byFamily: Record<string, number>;
+      byReason: Record<string, number>;
+      candidateCount: number;
+      sampleCount: number;
+    };
   };
   actionsExecuted: number;
   actionsSkipped: Array<{ action: string; reason: string }>;

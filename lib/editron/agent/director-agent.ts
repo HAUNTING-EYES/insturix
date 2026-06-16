@@ -95,6 +95,30 @@ function summarizeCanonicalTimelineFromDecisions(decisions: UnifiedDecisionBundl
   };
 }
 
+function summarizeSignalDecisionAuditForAuthority(bundle: UnifiedDecisionBundle) {
+  const audit = bundle.evidence.signalDecisionAudit;
+  return {
+    version: 'signal-decision-audit-summary-v1' as const,
+    totalCount: audit.totalCount,
+    outcomes: audit.outcomes,
+    byType: summarizeSignalAuditBucketCounts(audit.byType),
+    byFamily: summarizeSignalAuditBucketCounts(audit.byFamily),
+    byReason: summarizeSignalAuditBucketCounts(audit.byReason),
+    candidateCount: audit.candidates.length,
+    sampleCount: audit.samples.length,
+  };
+}
+
+function summarizeSignalAuditBucketCounts(
+  buckets: Record<string, { count: number }>,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(buckets)
+      .filter(([, bucket]) => bucket.count > 0)
+      .map(([key, bucket]) => [key, bucket.count]),
+  );
+}
+
 async function persistUnifiedDecisionBundleSummary(
   projectId: string,
   summary: ReturnType<typeof summarizeUnifiedDecisionBundle>,
@@ -1279,7 +1303,7 @@ export async function executeDirectorPlan(
       unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates);
       if (unifiedDecisionBundle?.source === 'creative-brief+signal-driven') {
         console.log(
-          `[Director] Unified decision planner: creative primary + signal advisor - ` +
+          `[Director] Unified decision planner (mode=${unifiedDecisionBundle.authority.decisionMode ?? 'creative-brief-primary'}) - ` +
           `+${unifiedDecisionBundle.evidence.addedSignalDecisionCount} signal decisions, ` +
           `${unifiedDecisionBundle.evidence.validatedDecisionCount} validated, ` +
           `${unifiedDecisionBundle.edl.totalDecisions} total`
@@ -1327,6 +1351,7 @@ export async function executeDirectorPlan(
           result.decisionAuthority = {
             version: 'decision-authority-v1',
             source: 'unified-decision-bundle',
+            decisionMode: unifiedDecisionBundle.authority.decisionMode,
             executableProducer: unifiedDecisionBundle.authority.executableProducer,
             advisoryProducers: unifiedDecisionBundle.authority.advisoryProducers,
             signalDecisionRole: unifiedDecisionBundle.authority.signalDecisionRole,
@@ -1339,6 +1364,7 @@ export async function executeDirectorPlan(
             evidenceOnlySignalDecisionCount: unifiedDecisionBundle.evidence.evidenceOnlySignalDecisionCount,
             totalDecisions: unifiedDecisionBundle.edl.totalDecisions,
             executedDecisions: unifiedDecisionBundle.expectedExecuted,
+            signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
 
           if (editedTimelineContext) {

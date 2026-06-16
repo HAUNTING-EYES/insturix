@@ -197,11 +197,14 @@ async function handler(request: NextRequest) {
     await db.collection('projects').updateOne({ projectId }, completionUpdate);
 
     if (directorDecisionAuthority) {
+      const signalAuditTotal = directorDecisionAuthority.signalAudit?.totalCount ?? 0;
       console.log(
         `[DirectorWorker] Decision authority: source=${directorDecisionAuthority.source}, ` +
+        `mode=${directorDecisionAuthority.decisionMode ?? 'unknown'}, ` +
         `executable=${directorDecisionAuthority.executableProducer}, ` +
         `signal-role=${directorDecisionAuthority.signalDecisionRole}, ` +
-        `added=${directorDecisionAuthority.addedSignalDecisionCount}`
+        `added=${directorDecisionAuthority.addedSignalDecisionCount}, ` +
+        `audit=${signalAuditTotal}`
       );
     }
     console.log(`[DirectorWorker] Complete: ${projectId} in ${directorMs}ms (${directorResult.actionsExecuted} actions)`);
