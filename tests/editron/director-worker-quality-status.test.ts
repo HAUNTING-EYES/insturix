@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { resolveDirectorCompletionHealth } from '../../app/api/internal/workers/director/route';
 
@@ -52,5 +54,20 @@ describe('director worker completion health', () => {
       criticalCount: 0,
       needsQualityAttention: true,
     });
+  });
+
+  it('keeps inline worker bandit writes behind the shared learning gate', () => {
+    for (const routePath of [
+      'app/api/internal/workers/video-analysis/route.ts',
+      'app/api/internal/workers/tribe-analysis/route.ts',
+    ]) {
+      const source = readFileSync(join(process.cwd(), routePath), 'utf8');
+
+      expect(source).toContain("import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate'");
+      expect(source).toContain('const learningDecision = resolveEditronLearningOutcome({');
+      expect(source).toContain('learningDecision.shouldRecord && learningDecision.qualityScore !== null');
+      expect(source).not.toContain('if (criticalCount <= 5)');
+      expect(source).not.toContain('?? 50');
+    }
   });
 });

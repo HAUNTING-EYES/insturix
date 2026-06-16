@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
@@ -345,11 +346,16 @@ async function handler(request: NextRequest) {
         { projectId },
         { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
       );
-      const qualityScore = projectAfterDirector?.qualityReview?.overallScore ?? 50;
-      const criticalCount = projectAfterDirector?.qualityReview?.criticalCount ?? 0;
-      if (criticalCount <= 5) {
+      const learningDecision = resolveEditronLearningOutcome({
+        hasQualityReview: !!projectAfterDirector?.qualityReview,
+        qualityScore: projectAfterDirector?.qualityReview?.overallScore,
+        criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
+      });
+      if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, qualityScore, false, false);
+        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false);
+      } else {
+        console.log(`[TribeWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
       }
     } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
 
