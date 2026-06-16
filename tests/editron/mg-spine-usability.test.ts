@@ -242,9 +242,11 @@ describe('MG spine usability', () => {
     expect(recipe.elements).toEqual(expect.arrayContaining([
       expect.objectContaining({ primitive: 'text', role: 'counter' }),
       expect.objectContaining({ primitive: 'text', role: 'label' }),
+      expect.objectContaining({ primitive: 'decoration', role: 'numeric-sparse-rate-trace' }),
       expect.objectContaining({ primitive: 'decoration', role: 'numeric-rate-rule' }),
     ]));
     expect(recipe.elements.find((element) => element.role === 'counter')?.animation).toBe('none');
+    expect(recipe.elements.some((element) => element.role === 'sm-backdrop')).toBe(false);
   });
 
   it('varies numeric motion by atomic value form instead of one stat preset', () => {

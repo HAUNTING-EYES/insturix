@@ -577,6 +577,21 @@ function composeNumeric(
     },
   });
 
+  if (facts.valueKind === 'tiny-decimal' && isRate) {
+    elements.push({
+      primitive: 'decoration',
+      role: 'numeric-sparse-rate-trace',
+      layer: 'foreground',
+      shape: 'line',
+      anchor: { mode: 'flow-span', thickness: 1 },
+      bind: {
+        color: 'token:color.accent',
+        width: 1,
+        opacity: 0.22,
+      },
+    });
+  }
+
   const ruleKind = isRate
     ? 'rate'
     : facts.valueKind === 'fraction' || facts.valueKind === 'ratio' ? facts.valueKind : undefined;
@@ -1328,6 +1343,7 @@ function runStructuralMoves(
     : typeof content.rank === 'string' ? content.rank
     : typeof content.rank === 'number' ? String(content.rank) : '';
   const annotText = typeof content.annotation === 'string' ? content.annotation : '';
+  const sparseScalarRate = isSparseScalarRateContent(content);
 
   const insertBeforePrimary = (moves: RecipeElement[]): void => {
     const i = elements.findIndex(e => e.role === 'primary' || e.role === 'counter');
@@ -1346,7 +1362,7 @@ function runStructuralMoves(
   // mutually-exclusive families (only the top scorer in a group survives).
   interface Candidate { id: string; minBudget: number; available: boolean; group?: string; emit: () => void }
   const candidates: Candidate[] = [
-    { id: 'mg.structure.backdrop_card', minBudget: 2, available: true, emit: () => elements.push(...moveBackdropCard(language)) },
+    { id: 'mg.structure.backdrop_card', minBudget: 2, available: !sparseScalarRate, emit: () => elements.push(...moveBackdropCard(language)) },
     { id: 'mg.structure.side_bar', minBudget: 2, available: true, emit: () => elements.push(...moveSideBar()) },
     { id: 'mg.structure.accent_line', minBudget: 3, available: hasAccent, group: 'h-rule', emit: () => elements.push(...moveAccentLine()) },
     { id: 'mg.structure.underline', minBudget: 3, available: hasAccent, group: 'h-rule', emit: () => insertAfterPrimary(moveUnderline()) },
@@ -1377,6 +1393,20 @@ function runStructuralMoves(
   // ⚠️ cap mapping INVENTED — budget 2-3 → 1, budget 4 → 2, budget 5 → 3.
   const cap = budget >= 5 ? 3 : budget >= 4 ? 2 : 1;
   for (const { c } of deconflicted.slice(0, cap)) c.emit();
+}
+
+function isSparseScalarRateContent(content: Record<string, unknown>): boolean {
+  const rawValue = typeof content.value === 'string' || typeof content.value === 'number'
+    ? String(content.value).trim()
+    : '';
+  if (!rawValue || rawValue.includes('%')) return false;
+  const numeric = Number.parseFloat(rawValue.replace(/,/g, ''));
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 1) return false;
+  const quantityKind = String(content.quantityKind ?? '').toLowerCase();
+  if (['percent', 'percentage', 'fraction', 'ratio'].includes(quantityKind)) return false;
+  if (content.bounded === true || content.boundedRange === true || content.hasBoundedRange === true) return false;
+  const label = String(content.label ?? '').toLowerCase();
+  return /\b(per|rate|daily|weekly|monthly|yearly|frequency|average|per day)\b/.test(label);
 }
 
 function makeTextElement(
