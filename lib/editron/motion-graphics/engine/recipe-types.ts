@@ -234,7 +234,14 @@ export type ContentShape =
   | { kind: 'identity'; name: string; title?: string; avatar?: string }
   | { kind: 'quotation'; quote: string; author?: string }
   | { kind: 'emphasis'; text: string; weight: 'light' | 'medium' | 'heavy' }
-  | { kind: 'data-series'; values: number[]; labels?: string[]; visualForm: DataSeriesVisualForm }
+  | {
+    kind: 'data-series';
+    values: number[];
+    labels?: string[];
+    visualForm: DataSeriesVisualForm;
+    candidateVisualForms?: DataSeriesVisualForm[];
+    visualFormLicense?: string;
+  }
   | { kind: 'brand'; text: string; logo?: string }
   | { kind: 'structured'; title: string; body?: string; items?: string[] }
   | { kind: 'process'; title?: string; body?: string; steps: string[]; ordered: boolean }

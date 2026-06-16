@@ -33,9 +33,9 @@ Phase 4 - Scene atom library expansion:
 - Still needed: expand atom coverage after semantic fact extraction, not by adding presets.
 
 Phase 5 - Generative assembler:
-- Status: numeric slice complete; broader assembler partial.
-- Evidence: numeric encoding now does generate -> hard gate -> score -> pick, and candidate ranking accepts deterministic `eval/legibility.ts`, `eval/aesthetic.ts`, and composite layer scores before choosing. The larger planner still has named composers and data-series still returns one named visual form.
-- Still needed: convert additional form classifiers after the numeric slice is reviewed.
+- Status: numeric and data-series slices complete; broader assembler partial.
+- Evidence: numeric encoding now does generate -> hard gate -> score -> pick, and candidate ranking accepts deterministic `eval/legibility.ts`, `eval/aesthetic.ts`, and composite layer scores before choosing. Data-series now enumerates licensed visual-form candidates from facts (`length`, `sweep`, `slope`, `position`, `label`) before selecting the existing renderer key.
+- Still needed: convert remaining non-series composer/template fallback authority and validate with rendered taste gates.
 
 Phase 6 - Multi-overlay choreography:
 - Status: partially live.
@@ -43,9 +43,22 @@ Phase 6 - Multi-overlay choreography:
 - Still needed: rendered artifacts proving the live visual result is good across real projects.
 
 Phase 7 - Rendered aesthetic gate:
-- Status: partial.
-- Evidence: structural gates and rendered-aesthetic tests exist; this slice did not add a new rendered aesthetic gate.
-- Still needed: automated taste check on actual frames, not just candidate legality.
+- Status: partial, now has a first MG-specific taste regression.
+- Evidence: `lib/editron/motion-graphics/engine/eval/rendered-aesthetic.ts` includes a `motion-graphic` dimension that fails sparse-rate MG evidence when it carries generic shell/card atoms (`sm-backdrop`, `semantic-stat-field`, `semantic-stat-axis`) or reserves a large frame area while painting mostly empty/text-only pixels. `tests/editron/rendered-aesthetic.test.ts` covers both the failing old sparse-rate shell and the passing licensed `numeric-sparse-rate-trace` case.
+- Calibration cohort: `scripts/build-mg-rendered-calibration-input.ts` generates a deterministic rendered-aesthetic project input through the live planner, token resolver, atomic plan builder, and atomic decision engine. The cohort covers sparse rate, bounded percent, big magnitude, fraction, keyword/concept, and speaker intro MGs. `tests/editron/mg-rendered-calibration-input.test.ts` proves the cohort exists and that sparse-rate evidence stays out of generic stat shell atoms.
+- Rendered calibration run: `npx tsx scripts\render-editron-aesthetic.ts .calibration-temp\mg-rendered-calibration-input.json --tag=mg-rendered-calibration --overlay-only --max-samples=24` now completes with `summary: warn score=0.64 pass=0 warn=6 fail=0`. Report artifacts are `.calibration-temp/rendered-aesthetic/mg-rendered-calibration/rendered-aesthetic.json` and `.calibration-temp/rendered-aesthetic/mg-rendered-calibration/report.html`.
+- Current hard-failure fixes from the calibration run: `composition-planner.ts` keeps text-heavy MGs in wide top lanes when bottom text occupancy is protected, suppresses decorative visual density in those protected frames, and moves bottom identity layouts to a wide top lane when required for fit. `composition-renderer.tsx` suppresses global semantic scene atoms when the atomic visual context says existing text must be protected. This removed the fit warnings and occlusion failures from the six-case calibration cohort.
+- Still needed: inspect/tune remaining warnings: title-safe margin warnings on the 90%-width top lane and near-threshold contrast warnings for bounded percent/fraction cases. This is calibration/tuning work, not a menu or preset path.
+
+Known live-render blocker - repeated stat shell:
+- Symptom observed on a new video: scalar stat MG for `0.02` / `human beings per day` still looks like the same stat shell used elsewhere: centered value, large translucent conic field, horizontal axis bar, and top phrase strip.
+- Root cause: `composeNumeric` and data-series selection now avoid the old classifier/menu path, but `composition-renderer.tsx::resolveSemanticContentSceneAtoms` still emits `semantic-stat-magnitude-field`, `semantic-stat-magnitude-field-core`, and `semantic-stat-magnitude-axis` for any numeric content or `counter` role. That renderer scene layer behaves template-like even when the upstream encoding selection is fact/wire based.
+- Encoding-law status: this is not a menu/preset in the new selector, but it is still an unlicensed renderer shell and must be treated as a Phase 7 blocker before claiming MG quality.
+- Code fix status: `composition-renderer.tsx::resolveSemanticContentSceneAtoms` now gates semantic stat scene atoms through licensed evidence. `semantic-stat-field` needs bounded-proportion / `sweep` evidence; `semantic-stat-axis` needs `sweep` or `length` evidence. Bare scalar/rate content such as `0.02 human beings per day` returns no repeated stat shell.
+- Regression coverage: `tests/editron/mg-stage-composition-renderer.test.ts` proves licensed `90%` content still gets stat atoms and unbounded scalar-rate content gets none. `tests/editron/mg-spine-usability.test.ts` also locks the sparse scalar-rate recipe against both one-point data-viz shells and `sm-backdrop`.
+- Rendered proof: `.calibration-temp/mg-stills/mg-stat-rate-current/mg00-unknown-0-02.png` was regenerated from the current planner after the fix. It renders `0.02 human beings per day` as `counter + sm-underline + numeric-sparse-rate-trace + numeric-rate-rule + label`, with no conic stat field, no horizontal magnitude axis, no backdrop card, no render errors, and no fit warnings.
+- Rendered taste gate: `tests/editron/rendered-aesthetic.test.ts` now fails sparse-rate evidence if it still carries generic shell/card atoms, and passes the licensed trace evidence. This is a deterministic gate over rendered evidence, not a new preset selector.
+- Honest visual status: this fixes the repeated shell/card bug class, but the result is still a sparse typographic rate composition, not the final rich full-frame MG standard. The remaining quality work belongs in Phase 7 / calibration: richer licensed atoms for tiny rates and real footage taste gates, not more presets or menu types.
 
 Phase 8 - Calibration:
 - Status: not complete.
@@ -57,13 +70,28 @@ Phase 8 - Calibration:
 Confirmed problems that still mattered:
 - `composeNumeric` had a single `resolveNumericVisualMode` classifier and one fixed text-counter path.
 - Data-viz rendering capability existed, but numeric form selection did not enumerate licensed encodings.
-- Data-series still has a one-form classifier; it is explicitly out of this first slice.
+- Data-series had a one-form classifier in the first slice; it is now converted to licensed candidate enumeration, but still realizes through existing `data-viz` renderer keys.
 
 Implemented solution shape:
 - Added `lib/editron/motion-graphics/engine/encoding-wires.ts`.
 - Numeric wires are fact-keyed: `bounded-proportion`, `comparable-magnitude`, `negation-or-refutation`, `salience-or-hierarchy`.
 - `composeNumeric` now asks for the licensed candidate set, scores shadow candidate recipes through existing deterministic legibility/aesthetic/composite eval layers, and realizes the selected candidate through existing text/data-viz primitives.
 - New numeric data-viz roles are fact-channel roles such as `numeric-sweep`; renderer maps `encodingChannel` to existing realizers.
+
+## Data-Series Classifier Conversion Proof Points
+
+Candidate set checks now covered in `tests/editron/mg-spine-usability.test.ts`:
+- Four comparable values license `bar-chart` through `length + position + label`.
+- One bounded part-of-whole value licenses `percentage-ring` through `sweep`.
+- Five ordered rising values license both `sparkline` and `bar-chart`; `sparkline` wins through `slope + position + label`.
+- Five ranked values license both `bar-chart` and `sparkline`; `bar-chart` wins through `length + position + label`.
+- The selected renderer key is compatibility only; the test checks candidate forms and selected wire licenses so this does not regress into a one-form menu.
+
+Verification run after the data-series slice:
+- `npx vitest run tests\editron\mg-spine-usability.test.ts tests\editron\mg-atomic-overlay-decision.test.ts tests\editron\mg-composition-planner.test.ts` - passed, 75 tests.
+- `npx vitest run tests\editron\mg-atomic-overlay-plan.test.ts tests\editron\mg-atomic-overlay-decision.test.ts tests\editron\mg-layer-content-sanitize.test.ts tests\editron\mg-primitive-renderers.test.ts tests\editron\mg-spine-usability.test.ts tests\editron\mg-visual-explanation-contract.test.ts` - passed, 99 tests.
+- `npx eslint . --quiet` - passed.
+- Touched-file typecheck filter - no errors in `content-shape-analyzer`, `recipe-types`, or `mg-spine-usability`.
 
 ## Section 22 Proof Points
 

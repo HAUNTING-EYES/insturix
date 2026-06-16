@@ -17,6 +17,13 @@ const OptionalNonEmptyStringSchema = z.preprocess((value) => {
   return trimmed.length > 0 ? trimmed : undefined;
 }, z.string().min(1).optional());
 
+const OptionalSourceServiceSchema = z.preprocess((value) => {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, ClickatronSourceServiceSchema.optional());
+
 const MetadataInputSchema = z.preprocess((value) => {
   if (value == null || value === '') return undefined;
   if (typeof value !== 'string') return value;
@@ -173,7 +180,7 @@ export const CreateSessionRequestSchema = z.object({
   brandId: OptionalNonEmptyStringSchema,
   projectId: OptionalNonEmptyStringSchema,
   universalId: OptionalNonEmptyStringSchema,
-  sourceService: ClickatronSourceServiceSchema.optional(),
+  sourceService: OptionalSourceServiceSchema,
   sourceSessionId: OptionalNonEmptyStringSchema,
   sourceScriptId: OptionalNonEmptyStringSchema,
   metadata: MetadataInputSchema,

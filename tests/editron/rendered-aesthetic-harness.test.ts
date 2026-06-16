@@ -497,6 +497,7 @@ function fakeHarnessReport(): RenderedAestheticHarnessReport {
           text: 1,
           contrast: 0.82,
           clutter: 1,
+          'motion-graphic': 1,
         },
         render: {
           status: { ok: true },

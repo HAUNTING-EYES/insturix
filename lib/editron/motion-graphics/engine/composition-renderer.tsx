@@ -610,6 +610,11 @@ export function resolveVisualIntentSceneAtoms(
 
 type SemanticContentKind = 'numeric' | 'concept' | 'identity' | 'none';
 
+interface SemanticStatSceneLicense {
+  sweep: boolean;
+  length: boolean;
+}
+
 export function resolveSemanticContentSceneAtoms(
   content: Record<string, unknown>,
   elements: Pick<ResolvedElement, 'role' | 'primitive' | 'resolvedProps'>[],
@@ -624,10 +629,15 @@ export function resolveSemanticContentSceneAtoms(
   const radius = Math.max(10, language.surface.cornerRadius + 8);
 
   if (kind === 'numeric') {
+    const statLicense = resolveSemanticStatSceneLicense(content, elements);
+    if (!statLicense.sweep && !statLicense.length) return [];
+
     const ratio = resolveNumericContentRatio(content, elements);
     const sweepDeg = Math.round(32 + ratio * 296);
-    return [
-      {
+    const atoms: VisualIntentSceneAtom[] = [];
+
+    if (statLicense.sweep) {
+      atoms.push({
         kind: 'semantic-stat-field',
         role: 'semantic-stat-magnitude-field',
         style: {
@@ -653,8 +663,11 @@ export function resolveSemanticContentSceneAtoms(
             },
           },
         ],
-      },
-      {
+      });
+    }
+
+    if (statLicense.sweep || statLicense.length) {
+      atoms.push({
         kind: 'semantic-stat-axis',
         role: 'semantic-stat-magnitude-axis',
         style: {
@@ -668,8 +681,10 @@ export function resolveSemanticContentSceneAtoms(
           boxShadow: `0 18px 58px ${withAlpha(accent, 0.1)}`,
         },
         children: buildScaleTicks(accent),
-      },
-    ];
+      });
+    }
+
+    return atoms;
   }
 
   if (kind === 'concept') {
@@ -775,6 +790,40 @@ export function resolveSemanticContentSceneAtoms(
       ],
     },
   ];
+}
+
+function resolveSemanticStatSceneLicense(
+  content: Record<string, unknown>,
+  elements: Pick<ResolvedElement, 'role' | 'primitive' | 'resolvedProps'>[],
+): SemanticStatSceneLicense {
+  const quantityKind = String(content.quantityKind ?? content.kind ?? '').toLowerCase();
+  const boundedRange = content.bounded === true || content.boundedRange === true || content.hasBoundedRange === true;
+  const relationKind = String(content.relationKind ?? content.relation ?? '').toLowerCase();
+  const labelText = String(content.label ?? '').toLowerCase();
+  const valueText = contentText(content.value) ?? contentText(content.amount) ?? contentText(content.metric);
+  const hasPercentLiteral = Boolean(valueText && /%/.test(valueText));
+  const hasPartOfWholeLabel = /\b(percent|percentage|progress|completion|complete|share|portion|ratio|coverage|of total)\b/.test(labelText);
+  const elementChannels = elements
+    .map((element) => contentText(element.resolvedProps?.encodingChannel) ?? String(element.role ?? '').replace(/^numeric-/, ''))
+    .map((channel) => channel.toLowerCase());
+
+  const sweep = elementChannels.includes('sweep')
+    || quantityKind === 'percent'
+    || quantityKind === 'percentage'
+    || quantityKind === 'fraction'
+    || quantityKind === 'ratio'
+    || boundedRange
+    || relationKind === 'part-of-whole'
+    || hasPercentLiteral
+    || hasPartOfWholeLabel;
+  const length = elementChannels.includes('length')
+    || quantityKind === 'magnitude'
+    || quantityKind === 'count'
+    || quantityKind === 'currency'
+    || quantityKind === 'integer'
+    || quantityKind === 'decimal';
+
+  return { sweep, length };
 }
 
 function resolveSemanticContentKind(
@@ -1166,7 +1215,9 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     elementsToRender.length,
   );
   const visualSceneAtoms = resolveVisualIntentSceneAtoms(visualIntent, stageChrome, language);
-  const semanticSceneAtoms = resolveSemanticContentSceneAtoms(content, elementsToRender, language);
+  const semanticSceneAtoms = protectsExistingText(atomicPlan)
+    ? []
+    : resolveSemanticContentSceneAtoms(content, elementsToRender, language);
   const sceneAtoms = [...visualSceneAtoms, ...semanticSceneAtoms];
 
   return (
@@ -1201,6 +1252,14 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     </>
   );
 };
+
+function protectsExistingText(atomicPlan: AtomicOverlayPlan | undefined): boolean {
+  const visualContext = atomicPlan?.visualContext;
+  if (!visualContext) return false;
+  return visualContext.textOnScreen > 0.45
+    || visualContext.textCoverage > 0.04
+    || visualContext.textBoxCount > 0;
+}
 
 interface PrimitiveElementProps {
   element: ResolvedElement;
