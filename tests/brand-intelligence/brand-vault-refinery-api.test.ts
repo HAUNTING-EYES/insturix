@@ -125,7 +125,7 @@ describe('Brand Vault refinery API boundary', () => {
 
     const queued = await getBrandVaultRefineryJob(
       { userId: 'user_vault', jobId: started.response.body.job.id },
-      { store },
+      { store, clock: () => NOW },
     );
     expect(queued.status).toBe(200);
     expect(queued.body.ok).toBe(true);
@@ -203,6 +203,69 @@ describe('Brand Vault refinery API boundary', () => {
     );
     expect(failed.body.record).toBeNull();
     expect(failed.body.reviewPayload).toBeNull();
+  });
+
+  it('marks stale queued and running jobs failed during polling', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const staleNow = '2026-06-09T06:11:00.000Z';
+    const started = await startQueuedBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+      },
+    );
+    expect(started.response.body.ok).toBe(true);
+    if (!started.response.body.ok) throw new Error(started.response.body.error.message);
+
+    const failedQueued = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: started.response.body.job.id },
+      { store, clock: () => staleNow },
+    );
+    expect(failedQueued.status).toBe(200);
+    expect(failedQueued.body.ok).toBe(true);
+    if (!failedQueued.body.ok) throw new Error(failedQueued.body.error.message);
+    expect(failedQueued.body.job.status).toBe('failed');
+    expect(failedQueued.body.job.warnings).toContain(
+      'Brand Vault scan timed out after 10 minutes without progress. Start a new scan to retry.',
+    );
+    expect(failedQueued.body.record).toBeNull();
+
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_running_stale',
+        userId: 'user_vault',
+        brandId: 'brand_vaultline',
+        status: 'running',
+        inputs: {
+          websiteUrl: 'vaultline.example',
+          socialLinks: [],
+        },
+        warnings: ['Brand Vault scan is running; refresh or poll this job id for review results.'],
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      candidates: [],
+    });
+    const failedRunning = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: 'brand_refinery_job_running_stale' },
+      { store, clock: () => staleNow },
+    );
+    expect(failedRunning.status).toBe(200);
+    expect(failedRunning.body.ok).toBe(true);
+    if (!failedRunning.body.ok) throw new Error(failedRunning.body.error.message);
+    expect(failedRunning.body.job.status).toBe('failed');
+    expect(failedRunning.body.job.warnings).toContain(
+      'Brand Vault scan timed out after 10 minutes without progress. Start a new scan to retry.',
+    );
+    expect(failedRunning.body.record).toBeNull();
   });
 
   it('creates, stores, and reloads a website-derived review draft for the authenticated user', async () => {

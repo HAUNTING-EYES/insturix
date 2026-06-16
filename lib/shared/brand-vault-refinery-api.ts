@@ -142,6 +142,12 @@ export type GetBrandVaultRefineryJobSuccessBody = {
   candidates: BrandEvidenceCandidate[];
 };
 
+type GetBrandVaultRefineryJobDependencies = {
+  store: BrandVaultRefineryStore;
+  clock?: () => string;
+  staleAfterMs?: number;
+};
+
 export type ReviewBrandVaultSignalProfileSuccessBody = {
   ok: true;
   record: BrandSignalProfileRecord;
@@ -149,6 +155,8 @@ export type ReviewBrandVaultSignalProfileSuccessBody = {
   reviewPayload: BrandVaultWebsiteDraftReviewPayload | null;
   superseded: BrandSignalProfileRecord[];
 };
+
+const DEFAULT_REFINERY_JOB_STALE_AFTER_MS = 10 * 60 * 1000;
 
 export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore {
   private readonly profiles = createInMemoryBrandSignalProfileRepository();
@@ -482,12 +490,15 @@ function errorMessage(error: unknown): string {
 
 export async function getBrandVaultRefineryJob(
   args: { userId: string; jobId: string },
-  dependencies: { store: BrandVaultRefineryStore },
+  dependencies: GetBrandVaultRefineryJobDependencies,
 ): Promise<BrandVaultApiResult<GetBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const jobId = args.jobId.trim();
   if (!jobId) return invalidRequest('Missing jobId.');
 
-  const snapshot = await dependencies.store.getJobSnapshot(jobId);
+  const storedSnapshot = await dependencies.store.getJobSnapshot(jobId);
+  const snapshot = storedSnapshot
+    ? await failStaleActiveJobSnapshot(storedSnapshot, dependencies)
+    : null;
   if (!snapshot || snapshot.job.userId !== args.userId) return notFound('Brand Vault refinery job was not found.');
 
   const record = snapshot.recordId ? await dependencies.store.getRecord(snapshot.recordId) : null;
@@ -509,6 +520,39 @@ export async function getBrandVaultRefineryJob(
       candidates: snapshot.candidates,
     },
   };
+}
+
+async function failStaleActiveJobSnapshot(
+  snapshot: BrandVaultRefineryJobSnapshot,
+  dependencies: GetBrandVaultRefineryJobDependencies,
+): Promise<BrandVaultRefineryJobSnapshot> {
+  if (snapshot.recordId || !isActiveRefineryJobStatus(snapshot.job.status)) return snapshot;
+  const now = dependencies.clock?.() ?? new Date().toISOString();
+  const staleAfterMs = dependencies.staleAfterMs ?? DEFAULT_REFINERY_JOB_STALE_AFTER_MS;
+  if (!isStaleRefineryJob(snapshot.job, now, staleAfterMs)) return snapshot;
+  const staleMinutes = Math.max(1, Math.round(staleAfterMs / 60_000));
+  return dependencies.store.saveJobSnapshot({
+    ...snapshot,
+    job: {
+      ...snapshot.job,
+      status: 'failed',
+      warnings: mergeWarnings(snapshot.job.warnings, [
+        `Brand Vault scan timed out after ${staleMinutes} minutes without progress. Start a new scan to retry.`,
+      ]),
+      updatedAt: now,
+    },
+  });
+}
+
+function isActiveRefineryJobStatus(status: BrandRefineryJob['status']): boolean {
+  return status === 'queued' || status === 'running';
+}
+
+function isStaleRefineryJob(job: BrandRefineryJob, now: string, staleAfterMs: number): boolean {
+  const updatedAt = Date.parse(job.updatedAt);
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(updatedAt) || !Number.isFinite(nowMs)) return false;
+  return nowMs - updatedAt >= staleAfterMs;
 }
 
 export async function getBrandVaultSignalProfile(
