@@ -148,25 +148,54 @@ export function deriveContentStructure(content: Record<string, unknown>): Conten
     if (keyword) relations.push({ type: 'context-for', fromRole: 'context-phrase', toRole: 'keyword' });
   }
 
+  const semanticText = semanticSourceText(content);
+  const semanticFacts = semanticText ? analyzeSemanticTextFacts(semanticText.text) : undefined;
+  if (semanticText && !hasDisplayTextPart(parts) && !content.brand) {
+    addPart('emphasis-text', 'text', semanticText.sourceKey, semanticText.text, 0.8);
+  }
+  if (semanticFacts?.fuzzyBounded && !parts.some((part) => part.role === 'quantity-kind')) {
+    addPart('quantity-kind', 'control', semanticText?.sourceKey ?? 'text', 'fuzzy-proportion', 0.7);
+  }
+  if (semanticFacts?.fuzzyBounded && !parts.some((part) => part.role === 'quantity-bounds')) {
+    addPart('quantity-bounds', 'control', semanticText?.sourceKey ?? 'text', true, 0.7);
+    const textRole = firstDisplayTextRole(parts);
+    if (textRole) relations.push({ type: 'part-of-whole', fromRole: textRole, toRole: 'quantity-bounds' });
+  }
+  if (semanticFacts?.transition && !semanticFacts.refute && !parts.some((part) => part.role === 'compare-from' || part.role === 'compare-to')) {
+    addPart('compare-from', 'relation', semanticText?.sourceKey ?? 'text', semanticFacts.transition.from, 0.72);
+    addPart('compare-to', 'relation', semanticText?.sourceKey ?? 'text', semanticFacts.transition.to, 0.72);
+    relations.push({ type: 'compares', fromRole: 'compare-from', toRole: 'compare-to' });
+  }
+
   const polarity = stringContent(content, 'polarity');
   const negated = booleanContent(content, 'negated');
   const refuted = booleanContent(content, 'refuted');
   const salience = numberContent(content, 'salience');
   const warranted = booleanContent(content, 'warranted');
   const captionRedundancy = numberContent(content, 'captionRedundancy');
-  const negationSignal = negated === true || refuted === true || polarity === 'false' || polarity === 'negative';
-  if (polarity) addPart('truth-polarity', 'control', 'polarity', polarity, 0.78);
+  const semanticPolarity = semanticFacts?.polarity;
+  const resolvedPolarity = polarity ?? semanticPolarity;
+  const explicitNegatingPolarity = polarity === 'false' || polarity === 'negative';
+  const negationSignal = negated === true
+    || refuted === true
+    || semanticFacts?.negated === true
+    || semanticFacts?.refute === true
+    || explicitNegatingPolarity;
+  if (resolvedPolarity) addPart('truth-polarity', 'control', polarity ? 'polarity' : semanticText?.sourceKey ?? 'text', resolvedPolarity, polarity ? 0.78 : 0.68);
   if (negated !== undefined) addPart('truth-negation', 'control', 'negated', negated, 0.8);
   if (refuted !== undefined) addPart('truth-negation', 'control', 'refuted', refuted, 0.82);
-  if (negationSignal && negated === undefined && refuted === undefined) addPart('truth-negation', 'control', 'polarity', true, 0.76);
+  if (negationSignal && negated === undefined && refuted === undefined) addPart('truth-negation', 'control', semanticFacts?.refute ? 'semantic-refute' : 'semantic-negation', true, 0.76);
   if (salience !== undefined) addPart('salience-score', 'control', 'salience', salience, 0.72);
   if (warranted !== undefined) addPart('warranted-state', 'control', 'warranted', warranted, 0.7);
   if (captionRedundancy !== undefined) addPart('caption-redundancy', 'control', 'captionRedundancy', captionRedundancy, 0.68);
   if (negationSignal && hasNumericValue(content)) {
     relations.push({ type: 'refutes', fromRole: 'truth-negation', toRole: 'primary-value' });
+  } else if (negationSignal) {
+    const textRole = firstDisplayTextRole(parts);
+    if (textRole) relations.push({ type: 'refutes', fromRole: 'truth-negation', toRole: textRole });
   }
 
-  if (parts.length === 0 && typeof content.text === 'string') {
+  if (!hasDisplayTextPart(parts) && typeof content.text === 'string') {
     addPart('emphasis-text', 'text', 'text', content.text, 0.8);
   }
 
@@ -288,10 +317,12 @@ function detectShapes(
   // Comparison: two comparable values present (before/after or versus). The 2-value structure
   // IS the affordance (a fact about the content) — detected here, never an LLM/preset choice.
   if (hasPart(structure, 'compare-from') && hasPart(structure, 'compare-to')) {
+    const from = stringContent(content, 'from') ?? stringPartValue(structure.parts, 'compare-from') ?? '';
+    const to = stringContent(content, 'to') ?? stringPartValue(structure.parts, 'compare-to') ?? '';
     shapes.push({
       kind: 'comparison',
-      from: String(content.from),
-      to: String(content.to),
+      from,
+      to,
       fromLabel: content.fromLabel != null ? String(content.fromLabel) : undefined,
       toLabel: content.toLabel != null ? String(content.toLabel) : undefined,
       relation: content.relation === 'vs' ? 'vs' : 'arrow',
@@ -338,13 +369,19 @@ function structuralControlEvidence(
   parts: ContentStructurePart[],
   relations: ContentStructureRelation[],
 ): Record<string, number | string | boolean> {
-  const quantityKind = stringContent(content, 'quantityKind');
+  const quantityKind = stringContent(content, 'quantityKind')
+    ?? stringPartValue(parts, 'quantity-kind');
   const quantityUnit = stringContent(content, 'unit') ?? stringContent(content, 'quantityUnit');
-  const boundedRange = booleanContent(content, 'bounded') ?? booleanContent(content, 'hasBoundedRange');
+  const boundedRange = booleanContent(content, 'bounded')
+    ?? booleanContent(content, 'hasBoundedRange')
+    ?? booleanPartValue(parts, 'quantity-bounds');
   const denominator = numberContent(content, 'denominator');
-  const polarity = stringContent(content, 'polarity');
-  const negated = booleanContent(content, 'negated');
-  const refuted = booleanContent(content, 'refuted');
+  const explicitPolarity = stringContent(content, 'polarity');
+  const polarity = explicitPolarity ?? stringPartValue(parts, 'truth-polarity');
+  const negated = booleanContent(content, 'negated')
+    ?? booleanPartValue(parts, 'truth-negation');
+  const refuted = booleanContent(content, 'refuted')
+    ?? (relations.some((relation) => relation.type === 'refutes') ? true : undefined);
   const salience = numberContent(content, 'salience');
   const warranted = booleanContent(content, 'warranted');
   const captionRedundancy = numberContent(content, 'captionRedundancy');
@@ -352,7 +389,9 @@ function structuralControlEvidence(
     || quantityKind === 'percent'
     || quantityKind === 'percentage'
     || quantityKind === 'fraction'
-    || quantityKind === 'ratio';
+    || quantityKind === 'ratio'
+    || quantityKind === 'fuzzy-proportion'
+    || boundedRange === true;
   const listPart = parts.find((part) => part.role === 'list-items');
   const listValues = Array.isArray(listPart?.value) ? listPart.value.map(String).filter(Boolean) : [];
   const listIntent = [
@@ -388,9 +427,19 @@ function structuralControlEvidence(
     ...(listValues.length >= 2 ? { listAffordance: true } : {}),
     ...(processAffordance ? { processAffordance: true } : {}),
     ...((stringArrayContent(content, 'steps') != null || booleanContent(content, 'ordered') === true) ? { orderedListAffordance: true } : {}),
-    ...((negated === true || refuted === true || polarity === 'false' || polarity === 'negative') ? { negationAffordance: true } : {}),
+    ...((negated === true || refuted === true || explicitPolarity === 'false' || explicitPolarity === 'negative') ? { negationAffordance: true } : {}),
     ...(parts.some((part) => part.role === 'salience-score') ? { hasSalienceAtom: true } : {}),
   };
+}
+
+function stringPartValue(parts: ContentStructurePart[], role: ContentStructurePart['role']): string | undefined {
+  const value = parts.find((part) => part.role === role)?.value;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function booleanPartValue(parts: ContentStructurePart[], role: ContentStructurePart['role']): boolean | undefined {
+  const value = parts.find((part) => part.role === role)?.value;
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function isPartOfWholeRelation(
@@ -439,6 +488,78 @@ function booleanContent(content: Record<string, unknown>, key: string): boolean 
     if (text === 'false') return false;
   }
   return undefined;
+}
+
+interface SemanticTextFacts {
+  fuzzyBounded: boolean;
+  negated: boolean;
+  refute: boolean;
+  polarity?: 'positive' | 'negative';
+  transition?: { from: string; to: string };
+}
+
+function semanticSourceText(content: Record<string, unknown>): { sourceKey: string; text: string } | undefined {
+  for (const key of ['text', 'quote', 'title', 'body']) {
+    const value = stringContent(content, key);
+    if (value) return { sourceKey: key, text: value };
+  }
+  return undefined;
+}
+
+function analyzeSemanticTextFacts(text: string): SemanticTextFacts {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const lower = normalized.toLowerCase();
+  const refute = /\bnot\s+[^.!?]{1,50}?\s+(?:but|instead|rather)\s+[^.!?]{1,50}/i.test(normalized);
+  const negated = refute || /\b(no|not|never|without|isn't|aren't|wasn't|weren't|don't|doesn't|didn't|can't|won't)\b/i.test(normalized);
+  const transition = refute ? undefined : extractSemanticTransition(normalized);
+  const fuzzyBounded = /\b(most|few|rarely|almost everyone|almost everybody|almost all|nearly all|majority|minority|half|a fraction|only a few)\b/i.test(normalized);
+  const positive = /\b(gain|gained|growth|grew|win|wins|won|better|smarter|millionaire|profit|profitable|up|increase|increased|beats|beat|outperform|outperforms)\b/.test(lower);
+  const negative = /\b(quit|quits|lost|loss|lose|broke|fail|fails|failed|bad|down|drop|dropped|debt|worse|rarely)\b/.test(lower);
+
+  return {
+    fuzzyBounded,
+    negated,
+    refute,
+    polarity: transition && positive ? 'positive' : negative && !positive ? 'negative' : positive && !negative ? 'positive' : undefined,
+    transition,
+  };
+}
+
+function extractSemanticTransition(text: string): SemanticTextFacts['transition'] {
+  const state = text.match(/\b(broke|poor|zero|nothing|debt|lost\s+\$?[\d,.]+[kmbtKMBT]?)\s+(?:to|into|before becoming)\s+(millionaire|rich|profitable|profit|free|positive|winner)\b/i);
+  if (state) return cleanTransition(state[1], state[2]);
+
+  const fromTo = text.match(/\bfrom\s+([^.!?]{1,36}?)\s+(?:to|into)\s+([^.!?]{1,36})(?:[.!?]|$)/i);
+  if (fromTo) return cleanTransition(fromTo[1], fromTo[2]);
+
+  const beats = text.match(/^\s*([^.!?]{1,36}?)\s+(?:beats|beat|outperforms|wins over)\s+([^.!?]{1,36})(?:[.!?]|$)/i);
+  if (beats) return cleanTransition(beats[2], beats[1]);
+
+  return undefined;
+}
+
+function cleanTransition(from: string | undefined, to: string | undefined): SemanticTextFacts['transition'] {
+  const clean = (value: string | undefined) => String(value ?? '')
+    .replace(/^(a|an|the)\s+/i, '')
+    .replace(/[,;:]$/g, '')
+    .trim();
+  const cleanedFrom = clean(from);
+  const cleanedTo = clean(to);
+  return cleanedFrom && cleanedTo ? { from: cleanedFrom, to: cleanedTo } : undefined;
+}
+
+function hasDisplayTextPart(parts: ContentStructurePart[]): boolean {
+  return firstDisplayTextRole(parts) !== undefined;
+}
+
+function firstDisplayTextRole(parts: ContentStructurePart[]): ContentStructurePart['role'] | undefined {
+  return parts.find((part) => (
+    part.channel === 'text'
+      || part.channel === 'identity'
+      || part.channel === 'brand'
+      || part.channel === 'relation'
+      || part.channel === 'scalar'
+  ))?.role;
 }
 
 interface DataSeriesStructureAnalysis {

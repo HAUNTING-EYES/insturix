@@ -348,6 +348,55 @@ describe('MG spine usability', () => {
     expect(negated.elements.find((element) => element.role === 'truth-negation-strike')?.entranceOverride).toBe('draw');
   });
 
+  it('extracts semantic facts from language without turning them into preset forms', () => {
+    const fuzzy = analyzeContentShape({ text: 'Most people quit.' });
+    const refute = analyzeContentShape({ text: 'Not harder, but smarter.' });
+    const transition = analyzeContentShape({ text: 'Broke to millionaire.' });
+    const beats = analyzeContentShape({ text: 'Consistency beats talent.' });
+
+    expect(fuzzy.structure.evidence.quantityKind).toBe('fuzzy-proportion');
+    expect(fuzzy.structure.evidence.boundedRange).toBe(true);
+    expect(fuzzy.structure.evidence.proportionAffordance).toBe(true);
+    expect(fuzzy.structure.evidence.polarity).toBe('negative');
+    expect(fuzzy.structure.evidence.negationAffordance).toBeUndefined();
+    expect(fuzzy.structure.relations.some((relation) => relation.type === 'refutes')).toBe(false);
+
+    expect(refute.structure.evidence.negationAffordance).toBe(true);
+    expect(refute.structure.relations).toContainEqual({
+      type: 'refutes',
+      fromRole: 'truth-negation',
+      toRole: 'emphasis-text',
+    });
+    expect(refute.structure.relations.some((relation) => relation.type === 'compares')).toBe(false);
+    expect(refute.shapes.some((shape) => shape.kind === 'comparison')).toBe(false);
+
+    expect(transition.structure.relations).toContainEqual({
+      type: 'compares',
+      fromRole: 'compare-from',
+      toRole: 'compare-to',
+    });
+    expect(transition.structure.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'compare-from', value: 'Broke' }),
+      expect.objectContaining({ role: 'compare-to', value: 'millionaire' }),
+    ]));
+    expect(transition.shapes).toContainEqual(expect.objectContaining({
+      kind: 'comparison',
+      from: 'Broke',
+      to: 'millionaire',
+    }));
+    expect(transition.structure.evidence.polarity).toBe('positive');
+
+    expect(beats.structure.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'compare-from', value: 'talent' }),
+      expect.objectContaining({ role: 'compare-to', value: 'Consistency' }),
+    ]));
+    expect(beats.shapes).toContainEqual(expect.objectContaining({
+      kind: 'comparison',
+      from: 'talent',
+      to: 'Consistency',
+    }));
+  });
+
   it('uses support and salience atoms as form gates, not graphic labels', () => {
     const tokens = resolveMotionTokens(energeticSignals);
     const scores = mgScoresFor(energeticSignals);
