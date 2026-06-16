@@ -76,7 +76,7 @@ export async function createBrandVaultConnectedSocialEvidence(
     sources.push(...fetched.sources);
     warnings.push(...fetched.warnings);
 
-    if (fetched.sources.length === 0) {
+    if (fetched.sources.length === 0 && shouldFetchPublicFallback(connection)) {
       const fallback = await fetchPublicSocialSources({
         parsed,
         apifyApiKey: args.apifyApiKey,
@@ -842,6 +842,13 @@ function publicFallbackEvidenceForPlatform(
     canReadPinned: false,
     matchStatus: 'unverified',
   };
+}
+
+function shouldFetchPublicFallback(connection: BrandVaultSocialConnectionEvidence | null): boolean {
+  if (!connection) return true;
+  if (connection.provider === 'alyzitron_apify') return true;
+  if (connection.status === 'connected_different_account' || connection.matchStatus === 'mismatched') return true;
+  return false;
 }
 
 async function fetchPublicSocialSources(args: {

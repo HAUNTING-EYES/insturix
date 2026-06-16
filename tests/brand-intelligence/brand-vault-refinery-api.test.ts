@@ -577,6 +577,51 @@ describe('Brand Vault refinery API boundary', () => {
     expect(result.warnings.some((warning) => /connected social evidence source/.test(warning))).toBe(false);
   });
 
+  it('does not spend on Apify when the submitted account matches an existing UploaderX connection', async () => {
+    const fetchedUrls: string[] = [];
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/vaultline'],
+      uploaderXUser: {
+        instagramTokens: {
+          userAccessToken: 'ig_token',
+          userName: 'vaultline',
+          accounts: [{ instagramUsername: 'vaultline', instagramAccountId: 'ig_account_1' }],
+        },
+      },
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async (url) => {
+        fetchedUrls.push(url);
+        expect(url).toContain('https://graph.instagram.com/v21.0/me/media');
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+      now: NOW,
+    });
+
+    expect(fetchedUrls).toHaveLength(1);
+    expect(fetchedUrls[0]).toContain('graph.instagram.com');
+    expect(fetchedUrls.some((url) => url.includes('api.apify.com'))).toBe(false);
+    expect(result.sourceEvidence).toEqual([
+      expect.objectContaining({
+        kind: 'social_profile',
+        platform: 'instagram',
+        evidenceOrigin: 'connected_metadata',
+        connection: expect.objectContaining({
+          provider: 'uploaderx',
+          status: 'connected',
+          accountHandle: 'vaultline',
+          matchStatus: 'matched',
+        }),
+      }),
+    ]);
+    expect(result.warnings).toContain('Brand Vault added 1 connected social evidence source from existing platform integrations.');
+    expect(result.warnings.some((warning) => /Apify/i.test(warning))).toBe(false);
+  });
+
   it('uses free public oEmbed for supported social post URLs when no connected account is available', async () => {
     const fetchedUrls: string[] = [];
     const result = await createBrandVaultConnectedSocialEvidence({
