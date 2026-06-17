@@ -333,6 +333,124 @@ describe('phase0 failure taxonomy', () => {
       },
     });
   });
+
+  it('classifies timeline-level zoom, transition, and SFX timing defects from artifact evidence', () => {
+    const project = cleanProject();
+    project.durationInFrames = 260;
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 260, sourceStartFrame: 0 },
+      {
+        id: 'mg-1',
+        type: 'motion-graphic',
+        from: 12,
+        durationInFrames: 50,
+        content: 'clean',
+        metadata: {
+          atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+          atomicOverlayReceipt: { family: 'motion-graphic' },
+          atomicMomentBundle: { semanticAtoms: [{ kind: 'text' }], relations: [] },
+        },
+      },
+      {
+        id: 'tr-1',
+        type: 'transition',
+        from: 30,
+        durationInFrames: 12,
+        transitionStyle: 'cross-dissolve',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'cross-dissolve' } },
+      },
+      {
+        id: 'tr-2',
+        type: 'transition',
+        from: 70,
+        durationInFrames: 12,
+        transitionStyle: 'cross-dissolve',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'cross-dissolve' } },
+      },
+      {
+        id: 'tr-3',
+        type: 'transition',
+        from: 110,
+        durationInFrames: 12,
+        transitionStyle: 'cross-dissolve',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'cross-dissolve' } },
+      },
+      {
+        id: 'zoom-1',
+        type: 'zoom',
+        from: 150,
+        durationInFrames: 30,
+        metadata: { atomicZoomForm: { intent: 'emphasis-push' } },
+      },
+      {
+        id: 'zoom-2',
+        type: 'zoom',
+        from: 205,
+        durationInFrames: 30,
+        metadata: { atomicZoomForm: { intent: 'emphasis-push' } },
+      },
+      {
+        id: 'sfx-1',
+        type: 'sound',
+        from: 40,
+        durationInFrames: 12,
+        assetId: 'sfx-1',
+        metadata: { atomicSfxForm: { role: 'whoosh' } },
+      },
+      {
+        id: 'sfx-2',
+        type: 'sound',
+        from: 48,
+        durationInFrames: 12,
+        assetId: 'sfx-2',
+        metadata: { atomicSfxForm: { role: 'impact' } },
+      },
+      {
+        id: 'sfx-3',
+        type: 'sound',
+        from: 70,
+        durationInFrames: 12,
+        assetId: 'sfx-3',
+        metadata: { atomicSfxForm: { role: 'whoosh' } },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_timing_defects',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_timing_defects',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(taxonomy.status).toBe('warn');
+    expect(classIds).toEqual(expect.arrayContaining([
+      'timeline.transition_repetition',
+      'timeline.zoom_too_dense',
+      'timeline.sfx_too_dense',
+      'timeline.sfx_timing_drift',
+      'timeline.transition_sfx_missing',
+    ]));
+    expect(taxonomy.classes.find((item) => item.id === 'timeline.transition_repetition')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        threshold: 3,
+        samples: [{
+          style: 'cross-dissolve',
+          runLength: 3,
+          startFrame: 30,
+          overlayIds: ['tr-1', 'tr-2', 'tr-3'],
+        }],
+      },
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'timeline.sfx_timing_drift')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        syncWindowFrames: 3,
+      },
+    });
+  });
 });
 
 function cleanProject(): Phase0FixtureProject {

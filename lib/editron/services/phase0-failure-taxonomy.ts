@@ -1,9 +1,17 @@
-import type { Phase0FixtureManifest } from './phase0-fixture-manifest';
+import type { Phase0FixtureManifest, Phase0OverlayLike } from './phase0-fixture-manifest';
 import type { Phase0RenderArtifactPack } from './phase0-render-artifact-pack';
 
 export const PHASE0_FAILURE_TAXONOMY_VERSION = 'editron-phase0-failure-taxonomy-v1' as const;
 
 export type Phase0FailureSeverity = 'info' | 'warn' | 'fail';
+
+type JsonRecord = Record<string, unknown>;
+
+const TRANSITION_REPETITION_RUN = 3;
+const MIN_ZOOM_GAP_FRAMES = 90;
+const MIN_SFX_GAP_FRAMES = 15;
+const SFX_SYNC_WINDOW_FRAMES = 3;
+const TIMELINE_SAMPLE_LIMIT = 8;
 
 export interface Phase0FailureClass {
   id: string;
@@ -320,6 +328,7 @@ function addRenderClasses(
       },
     });
   }
+  addTimelineEvidenceClasses(classes, artifactPack);
   if (renderedReport) {
     addRenderedAestheticClasses(classes, renderedReport);
     return;
@@ -331,6 +340,226 @@ function addRenderClasses(
       source: 'render',
       message: 'Render input exists, but rendered stills/GIFs have not been produced yet.',
       evidence: { artifactDir: manifest.renderArtifacts.artifactDir },
+    });
+  }
+}
+
+function addTimelineEvidenceClasses(
+  classes: Phase0FailureClass[],
+  artifactPack: Phase0RenderArtifactPack,
+): void {
+  const overlays = artifactPack.renderInput.overlays;
+  const fps = positiveNumber(artifactPack.renderInput.fps, 30);
+
+  addTransitionRepetitionClass(classes, overlays);
+  addZoomTimingClass(classes, overlays);
+  addSfxTimingClasses(classes, overlays, fps);
+}
+
+function addTransitionRepetitionClass(classes: Phase0FailureClass[], overlays: Phase0OverlayLike[]): void {
+  const transitions = overlays
+    .filter((overlay) => overlay.type === 'transition')
+    .map((overlay) => ({
+      id: overlayId(overlay),
+      frame: frameOf(overlay),
+      style: transitionStyle(overlay),
+    }))
+    .sort((a, b) => a.frame - b.frame);
+  const samples: Array<{ style: string; runLength: number; startFrame: number; overlayIds: string[] }> = [];
+  let runStart = 0;
+
+  for (let index = 1; index <= transitions.length; index += 1) {
+    const previous = transitions[index - 1];
+    const current = transitions[index];
+    if (current && previous && current.style === previous.style) continue;
+
+    const run = transitions.slice(runStart, index);
+    if (run.length >= TRANSITION_REPETITION_RUN && run[0]?.style !== 'unknown') {
+      samples.push({
+        style: run[0].style,
+        runLength: run.length,
+        startFrame: run[0].frame,
+        overlayIds: run.map((item) => item.id).slice(0, TIMELINE_SAMPLE_LIMIT),
+      });
+    }
+    runStart = index;
+  }
+
+  if (samples.length > 0) {
+    classes.push({
+      id: 'timeline.transition_repetition',
+      severity: 'warn',
+      source: 'timeline',
+      message: 'Three or more consecutive transition overlays use the same physical form.',
+      evidence: {
+        threshold: TRANSITION_REPETITION_RUN,
+        count: samples.length,
+        samples: samples.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
+}
+
+function addZoomTimingClass(classes: Phase0FailureClass[], overlays: Phase0OverlayLike[]): void {
+  const zooms = collectZoomEvents(overlays).sort((a, b) => a.frame - b.frame);
+  const samples: Array<{ previousId: string; currentId: string; previousFrame: number; currentFrame: number; gapFrames: number; role: string | null }> = [];
+
+  for (let index = 1; index < zooms.length; index += 1) {
+    const previous = zooms[index - 1];
+    const current = zooms[index];
+    const gapFrames = current.frame - previous.frame;
+    if (gapFrames >= 0 && gapFrames < MIN_ZOOM_GAP_FRAMES) {
+      samples.push({
+        previousId: previous.id,
+        currentId: current.id,
+        previousFrame: previous.frame,
+        currentFrame: current.frame,
+        gapFrames,
+        role: current.role,
+      });
+    }
+  }
+
+  if (samples.length > 0) {
+    classes.push({
+      id: 'timeline.zoom_too_dense',
+      severity: 'warn',
+      source: 'timeline',
+      message: 'Zoom/camera-motion events are clustered closer than the signal-owned spacing floor.',
+      evidence: {
+        minGapFrames: MIN_ZOOM_GAP_FRAMES,
+        count: samples.length,
+        samples: samples.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
+}
+
+function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0OverlayLike[], fps: number): void {
+  const sfx = overlays
+    .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+    .map((overlay) => ({
+      id: overlayId(overlay),
+      frame: frameOf(overlay),
+      role: sfxRole(overlay),
+    }))
+    .sort((a, b) => a.frame - b.frame);
+  const anchors = collectVisualSyncAnchors(overlays).sort((a, b) => a.frame - b.frame);
+  const denseSamples: Array<{ previousId: string; currentId: string; previousFrame: number; currentFrame: number; gapFrames: number }> = [];
+  const driftSamples: Array<{ id: string; frame: number; nearestAnchorFrame: number; nearestAnchorType: string; distanceFrames: number; role: string | null }> = [];
+  const orphanSamples: Array<{ id: string; frame: number; nearestAnchorFrame: number | null; nearestAnchorType: string | null; distanceFrames: number | null; role: string | null }> = [];
+
+  for (let index = 1; index < sfx.length; index += 1) {
+    const previous = sfx[index - 1];
+    const current = sfx[index];
+    const gapFrames = current.frame - previous.frame;
+    if (gapFrames >= 0 && gapFrames < MIN_SFX_GAP_FRAMES) {
+      denseSamples.push({
+        previousId: previous.id,
+        currentId: current.id,
+        previousFrame: previous.frame,
+        currentFrame: current.frame,
+        gapFrames,
+      });
+    }
+  }
+
+  for (const item of sfx) {
+    const nearest = nearestAnchor(item.frame, anchors);
+    if (!nearest) {
+      orphanSamples.push({
+        id: item.id,
+        frame: item.frame,
+        nearestAnchorFrame: null,
+        nearestAnchorType: null,
+        distanceFrames: null,
+        role: item.role,
+      });
+      continue;
+    }
+    if (nearest.distanceFrames > SFX_SYNC_WINDOW_FRAMES && nearest.distanceFrames <= fps) {
+      driftSamples.push({
+        id: item.id,
+        frame: item.frame,
+        nearestAnchorFrame: nearest.frame,
+        nearestAnchorType: nearest.type,
+        distanceFrames: nearest.distanceFrames,
+        role: item.role,
+      });
+    } else if (nearest.distanceFrames > fps) {
+      orphanSamples.push({
+        id: item.id,
+        frame: item.frame,
+        nearestAnchorFrame: nearest.frame,
+        nearestAnchorType: nearest.type,
+        distanceFrames: nearest.distanceFrames,
+        role: item.role,
+      });
+    }
+  }
+
+  const missingTransitionSfx = overlays
+    .filter((overlay) => overlay.type === 'transition')
+    .map((overlay) => ({
+      id: overlayId(overlay),
+      frame: frameOf(overlay),
+      style: transitionStyle(overlay),
+    }))
+    .filter((transition) => transitionNeedsSfx(transition.style))
+    .filter((transition) => !sfx.some((item) => Math.abs(item.frame - transition.frame) <= SFX_SYNC_WINDOW_FRAMES))
+    .slice(0, TIMELINE_SAMPLE_LIMIT);
+
+  if (denseSamples.length > 0) {
+    classes.push({
+      id: 'timeline.sfx_too_dense',
+      severity: 'warn',
+      source: 'timeline',
+      message: 'SFX events are clustered closer than the timing floor.',
+      evidence: {
+        minGapFrames: MIN_SFX_GAP_FRAMES,
+        count: denseSamples.length,
+        samples: denseSamples.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
+  if (driftSamples.length > 0) {
+    classes.push({
+      id: 'timeline.sfx_timing_drift',
+      severity: 'warn',
+      source: 'timeline',
+      message: 'SFX events exist near visual anchors but miss the sync window.',
+      evidence: {
+        syncWindowFrames: SFX_SYNC_WINDOW_FRAMES,
+        orphanWindowFrames: fps,
+        count: driftSamples.length,
+        samples: driftSamples.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
+  if (orphanSamples.length > 0) {
+    classes.push({
+      id: 'timeline.sfx_orphan',
+      severity: 'info',
+      source: 'timeline',
+      message: 'SFX events have no nearby visual, transition, cut, or zoom anchor.',
+      evidence: {
+        orphanWindowFrames: fps,
+        count: orphanSamples.length,
+        samples: orphanSamples.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
+  if (missingTransitionSfx.length > 0) {
+    classes.push({
+      id: 'timeline.transition_sfx_missing',
+      severity: 'warn',
+      source: 'timeline',
+      message: 'One or more non-hard-cut transitions have no paired SFX inside the sync window.',
+      evidence: {
+        syncWindowFrames: SFX_SYNC_WINDOW_FRAMES,
+        count: missingTransitionSfx.length,
+        samples: missingTransitionSfx,
+      },
     });
   }
 }
@@ -540,6 +769,138 @@ function severityWeight(severity: Phase0FailureSeverity): number {
   if (severity === 'fail') return 3;
   if (severity === 'warn') return 2;
   return 1;
+}
+
+function collectZoomEvents(overlays: Phase0OverlayLike[]): Array<{ id: string; frame: number; role: string | null }> {
+  const events: Array<{ id: string; frame: number; role: string | null }> = [];
+  for (const overlay of overlays) {
+    const metadata = asRecord(overlay.metadata);
+    if (overlay.type === 'zoom') {
+      const zoomForm = asRecord(metadata.atomicZoomForm);
+      events.push({
+        id: overlayId(overlay),
+        frame: frameOf(overlay),
+        role: readString(zoomForm.intent ?? metadata.role) ?? null,
+      });
+      continue;
+    }
+
+    if (overlay.type === 'video' && Array.isArray(metadata.zoomKeyframes)) {
+      metadata.zoomKeyframes.forEach((keyframe, index) => {
+        const record = asRecord(keyframe);
+        const localFrame = readNumber(record.frame ?? record.atFrame ?? record.timeFrame);
+        if (localFrame == null) return;
+        events.push({
+          id: `${overlayId(overlay)}:zoom-${index}`,
+          frame: frameOf(overlay) + localFrame,
+          role: readString(record.intent ?? record.type ?? record.kind) ?? 'zoom-keyframe',
+        });
+      });
+    }
+  }
+  return events;
+}
+
+function collectVisualSyncAnchors(overlays: Phase0OverlayLike[]): Array<{ frame: number; type: string }> {
+  const visualAnchorTypes = new Set([
+    'caption',
+    'html-scene',
+    'html-sticker',
+    'image',
+    'motion-graphic',
+    'shape',
+    'sticker',
+    'text',
+    'transition',
+    'zoom',
+  ]);
+  const anchors: Array<{ frame: number; type: string }> = [];
+
+  for (const overlay of overlays) {
+    const type = String(overlay.type ?? 'unknown');
+    if (type === 'video') {
+      anchors.push({ frame: frameOf(overlay), type: 'cut' });
+      continue;
+    }
+    if (visualAnchorTypes.has(type)) {
+      anchors.push({ frame: frameOf(overlay), type });
+    }
+  }
+
+  return anchors;
+}
+
+function nearestAnchor(frame: number, anchors: Array<{ frame: number; type: string }>): { frame: number; type: string; distanceFrames: number } | null {
+  let best: { frame: number; type: string; distanceFrames: number } | null = null;
+  for (const anchor of anchors) {
+    const distanceFrames = Math.abs(anchor.frame - frame);
+    if (!best || distanceFrames < best.distanceFrames) {
+      best = { ...anchor, distanceFrames };
+    }
+  }
+  return best;
+}
+
+function transitionNeedsSfx(style: string): boolean {
+  return ![
+    'cut',
+    'hard-cut',
+    'hard_cut',
+    'invisible-cut',
+    'match-cut',
+    'match_cut',
+    'none',
+    'unknown',
+  ].includes(style);
+}
+
+function transitionStyle(overlay: Phase0OverlayLike): string {
+  const metadata = asRecord(overlay.metadata);
+  const form = asRecord(metadata.atomicTransitionForm);
+  return normalizeStyle(
+    readString(overlay.transitionStyle)
+      ?? readString(metadata.transitionType)
+      ?? readString(metadata.transitionStyle)
+      ?? readString(form.style)
+      ?? readString(form.compatibilityType)
+      ?? readString(form.job)
+      ?? 'unknown',
+  );
+}
+
+function sfxRole(overlay: Phase0OverlayLike): string | null {
+  const metadata = asRecord(overlay.metadata);
+  const form = asRecord(metadata.atomicSfxForm);
+  return readString(form.role ?? metadata.role ?? metadata.sfxRole ?? metadata.sfxType) ?? null;
+}
+
+function overlayId(overlay: Phase0OverlayLike): string {
+  return String(overlay.id ?? `${overlay.type ?? 'overlay'}:${frameOf(overlay)}`);
+}
+
+function frameOf(overlay: Phase0OverlayLike): number {
+  return Math.max(0, Math.round(readNumber(overlay.from) ?? 0));
+}
+
+function positiveNumber(value: unknown, fallback: number): number {
+  const number = readNumber(value);
+  return number != null && number > 0 ? number : fallback;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function normalizeStyle(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-') || 'unknown';
 }
 
 function addCalibrationClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
