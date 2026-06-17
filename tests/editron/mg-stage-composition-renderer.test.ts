@@ -421,6 +421,28 @@ describe('MG stage composition renderer', () => {
     expect(pureNegation[0].role).toBe('semantic-concept-causal-map');
   });
 
+  it('derives quote proof atoms only from quoted source content', () => {
+    const atoms = resolveSemanticContentSceneAtoms(
+      { quote: 'The machine can weave algebraic patterns.', author: 'Ada' },
+      [{ role: 'quote', primitive: 'text', resolvedProps: { text: 'The machine can weave algebraic patterns.' } }],
+      language,
+    );
+
+    expect(atoms.map((atom) => atom.kind)).toContain('semantic-quote-proof');
+    expect(atoms[0].role).toBe('semantic-quote-proof-source-frame');
+    expect(atoms[0].style).toMatchObject({
+      inset: '12% 8% 14%',
+      border: 0,
+      boxShadow: 'none',
+    });
+    expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-quote-proof-paper-field',
+      'semantic-quote-proof-left-citation-rule',
+      'semantic-quote-proof-evidence-tab',
+      'semantic-quote-proof-author-anchor',
+    ]));
+  });
+
   it('derives speaker identity framing from name and title content', () => {
     const atoms = resolveSemanticContentSceneAtoms(
       { name: 'Hank Green', title: 'YouTuber' },

@@ -66,6 +66,7 @@ export type VisualIntentSceneAtomKind =
   | 'semantic-concept-map'
   | 'semantic-concept-node'
   | 'semantic-concept-field'
+  | 'semantic-quote-proof'
   | 'semantic-identity-frame';
 
 export interface VisualIntentSceneAtom {
@@ -694,7 +695,7 @@ export function resolveVisualIntentSceneAtoms(
   return atoms;
 }
 
-type SemanticContentKind = 'numeric' | 'concept' | 'identity' | 'none';
+type SemanticContentKind = 'numeric' | 'concept' | 'identity' | 'quote' | 'none';
 type SemanticConceptSceneRegister = 'problem' | 'negation' | 'causal' | 'contrast' | 'affirming' | 'claim';
 const SEMANTIC_CONCEPT_SCENE_REGISTERS: readonly SemanticConceptSceneRegister[] = ['problem', 'negation', 'causal', 'contrast', 'affirming', 'claim'];
 
@@ -799,6 +800,10 @@ export function resolveSemanticContentSceneAtoms(
     return [buildSemanticConceptSceneMap(content, accent, primary, surface)];
   }
 
+  if (kind === 'quote') {
+    return [buildSemanticQuoteProofScene(content, accent, primary, surface)];
+  }
+
   return [
     {
       kind: 'semantic-identity-frame',
@@ -884,6 +889,35 @@ function buildSemanticConceptSceneMap(
     role: `semantic-concept-${register}-map`,
     style: baseStyle,
     children: semanticConceptSceneChildren(register, content, accent, primary, surface),
+  };
+}
+
+function buildSemanticQuoteProofScene(
+  content: Record<string, unknown>,
+  accent: string,
+  primary: string,
+  surface: string,
+): VisualIntentSceneAtom {
+  const hasAuthor = Boolean(contentText(content.author) || contentText(content.source) || contentText(content.speaker));
+  return {
+    kind: 'semantic-quote-proof',
+    role: 'semantic-quote-proof-source-frame',
+    style: {
+      position: 'absolute',
+      inset: '12% 8% 14%',
+      borderRadius: 0,
+      border: 0,
+      background: 'transparent',
+      boxShadow: 'none',
+    },
+    children: [
+      semanticField('semantic-quote-proof-paper-field', '16%', '18%', '56%', '58%', surface, 'polygon(0 0, 94% 0, 100% 88%, 7% 100%)', 0.18),
+      semanticBar('semantic-quote-proof-left-citation-rule', '14%', '18%', '5px', 430, accent, 'none', 0.78),
+      semanticBar('semantic-quote-proof-top-source-rule', '18%', '21%', '42%', 4, accent, 'none', 0.52),
+      semanticBar('semantic-quote-proof-baseline-rule', '20%', '78%', '44%', 4, primary, 'none', 0.38),
+      semanticField('semantic-quote-proof-evidence-tab', '63%', '13%', '13%', '17%', accent, 'polygon(0 0, 100% 16%, 86% 100%, 0 84%)', 0.26),
+      ...(hasAuthor ? [semanticBar('semantic-quote-proof-author-anchor', '65%', '69%', '20%', 4, accent, 'rotate(-8deg)', 0.5)] : []),
+    ],
   };
 }
 
@@ -1085,6 +1119,8 @@ function resolveSemanticContentKind(
   const hasTitle = Boolean(contentText(content.title) || contentText(content.role));
   if (hasName && hasTitle) return 'identity';
 
+  if (contentText(content.quote)) return 'quote';
+
   const hasConceptTitle = Boolean(contentText(content.title) || contentText(content.keyword) || contentText(content.concept));
   const hasConceptBody = Boolean(contentText(content.body) || contentText(content.description) || contentText(content.explanation));
   if (hasConceptTitle && hasConceptBody) return 'concept';
@@ -1269,6 +1305,7 @@ export function resolveVisualIntentSceneAtomAnimatedStyle(
         transform: withTransform(`scale(${0.82 + pop * 0.18}) rotate(${Math.round(-24 + draw * 24)}deg)`),
       };
     case 'semantic-concept-map':
+    case 'semantic-quote-proof':
     case 'semantic-identity-frame':
       return {
         ...atom.style,
