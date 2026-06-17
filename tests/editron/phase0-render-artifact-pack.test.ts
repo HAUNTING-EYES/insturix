@@ -123,6 +123,107 @@ describe('phase0 render artifact pack', () => {
     expect(pack.samplePlan.samples.every((sample) => sample.frame >= 0 && sample.frame < 180)).toBe(true);
   });
 
+  it('counts video-attached zoom receipts as zoom motion evidence', () => {
+    const project: Phase0FixtureProject = {
+      projectId: 'proj_video_zoom',
+      fps: 30,
+      durationInFrames: 120,
+      playerDimensions: { width: 1080, height: 1920 },
+      overlays: [
+        {
+          id: 'clip-zoom',
+          type: 'video',
+          from: 0,
+          durationInFrames: 120,
+          sourceStartFrame: 0,
+          keyframeTracks: [{
+            property: 'scale',
+            keyframes: [
+              { frame: 30, value: 1, easing: 'ease-in' },
+              { frame: 48, value: 1.08, easing: 'ease-out' },
+            ],
+          }],
+          metadata: {
+            atomicOverlayReceipts: [{
+              family: 'zoom',
+              frame: 30,
+              durationFrames: 18,
+              target: { overlayId: 'clip-zoom', localFrame: 30 },
+              payload: { zoomType: 'punch-in', direction: 'push-in' },
+            }],
+          },
+        },
+        { id: 'mg-1', type: 'motion-graphic', from: 20, durationInFrames: 30, content: 'hook' },
+        {
+          id: 'caption-1',
+          type: 'caption',
+          from: 5,
+          durationInFrames: 40,
+          captions: [{ text: 'hello world' }],
+          metadata: { atomicOverlayReceipt: { family: 'caption' } },
+        },
+        {
+          id: 'transition-1',
+          type: 'transition',
+          from: 60,
+          durationInFrames: 12,
+          metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1' } },
+        },
+        {
+          id: 'sound-1',
+          type: 'sound',
+          from: 60,
+          durationInFrames: 12,
+          assetId: 'sfx_asset_1',
+          metadata: { atomicSfxForm: { role: 'impact' } },
+        },
+      ],
+    };
+    const manifest = buildPhase0FixtureManifest(project);
+
+    const pack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_video_zoom',
+    });
+
+    expect(pack.status).toBe('ready');
+    expect(pack.issues).toEqual([]);
+    expect(pack.familyCoverage.counts.zoom).toBe(1);
+    expect(pack.familyCoverage.countsByFamily.zoom).toBe(1);
+    expect(pack.familyCoverage.auditedMotionCount).toBe(1);
+    expect(pack.familyCoverage.presentRequiredFamilies).toEqual([
+      'caption',
+      'motion-graphic',
+      'sfx',
+      'transition',
+      'zoom',
+    ]);
+    expect(pack.familyCoverage.missingRequiredFamilies).toEqual([]);
+    expect(pack.familyCoverage.evidenceCompleteness.zoom).toEqual({
+      count: 1,
+      auditableCount: 1,
+      issues: [],
+      sampleOverlayIds: [],
+    });
+    expect(pack.samplePlan.samples).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        frame: 30,
+        roles: ['zoom-anchor'],
+        sourceOverlayIds: ['clip-zoom'],
+        sourceOverlayTypes: ['video'],
+        sourceFamilies: ['zoom'],
+        evidenceKinds: ['motion'],
+      }),
+      expect.objectContaining({
+        frame: 39,
+        roles: ['zoom-motion'],
+        sourceOverlayIds: ['clip-zoom'],
+        sourceOverlayTypes: ['video'],
+        sourceFamilies: ['zoom'],
+        evidenceKinds: ['motion'],
+      }),
+    ]));
+  });
+
   it('marks packs not-renderable instead of pretending missing visual evidence exists', () => {
     const project: Phase0FixtureProject = {
       projectId: 'proj_audio_only',

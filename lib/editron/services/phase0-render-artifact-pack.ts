@@ -16,6 +16,14 @@ interface AuditedOverlayType {
   evidenceKind: AuditedEvidenceKind;
 }
 
+interface VideoAttachedZoomEvidence {
+  overlay: Phase0OverlayLike;
+  id: string;
+  frame: number;
+  durationInFrames: number;
+  issues: string[];
+}
+
 const AUDITED_OVERLAY_TYPES: AuditedOverlayType[] = [
   { type: 'motion-graphic', family: 'motion-graphic', evidenceKind: 'visual' },
   { type: 'text', family: 'text', evidenceKind: 'visual' },
@@ -185,6 +193,7 @@ function planPhase0RenderSamples(
   maxSamples: number,
 ): Phase0RenderArtifactPack['samplePlan'] {
   const specsByType = new Map(AUDITED_OVERLAY_TYPES.map((spec) => [spec.type, spec]));
+  const zoomSpec = specsByType.get('zoom');
   const samples = new Map<number, Phase0RenderSample>();
   const boundedMaxSamples = Math.max(1, Math.floor(maxSamples));
 
@@ -198,6 +207,12 @@ function planPhase0RenderSamples(
     addSample(samples, from + Math.min(duration - 1, Math.max(1, Math.min(8, Math.floor(duration * 0.22)))), durationInFrames, 'entry-settle', overlay, spec);
     addSample(samples, from + Math.floor(duration * 0.55), durationInFrames, 'hold', overlay, spec);
     addSample(samples, from + Math.max(0, duration - Math.max(2, Math.min(8, Math.floor(duration * 0.18)))), durationInFrames, 'exit-prep', overlay, spec);
+  }
+  if (zoomSpec) {
+    for (const zoom of collectVideoAttachedZoomEvidence(overlays)) {
+      addSample(samples, zoom.frame, durationInFrames, 'zoom-anchor', zoom.overlay, zoomSpec);
+      addSample(samples, zoom.frame + Math.max(1, Math.floor(zoom.durationInFrames * 0.5)), durationInFrames, 'zoom-motion', zoom.overlay, zoomSpec);
+    }
   }
 
   const sorted = [...samples.values()].sort((a, b) => a.frame - b.frame);
@@ -252,6 +267,7 @@ function selectEvenlySpacedSamples(samples: Phase0RenderSample[], maxSamples: nu
 
 function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
   const specsByType = new Map(AUDITED_OVERLAY_TYPES.map((spec) => [spec.type, spec]));
+  const videoAttachedZooms = collectVideoAttachedZoomEvidence(overlays);
   const auditedOverlays = overlays.filter((overlay) => specsByType.has(String(overlay.type ?? 'unknown')));
   const counts = overlays.reduce<Record<string, number>>((result, overlay) => {
     const type = String(overlay.type ?? 'unknown');
@@ -259,6 +275,9 @@ function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
     result[type] = (result[type] ?? 0) + 1;
     return result;
   }, {});
+  if (videoAttachedZooms.length > 0) {
+    counts.zoom = (counts.zoom ?? 0) + videoAttachedZooms.length;
+  }
   const countsByFamily = Object.entries(counts).reduce<Record<string, number>>((result, [type, count]) => {
     const family = specsByType.get(type)?.family;
     if (!family) return result;
@@ -271,7 +290,7 @@ function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
   const auditedAudioTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'audio'));
   const requiredFamilies = [...REQUIRED_PHASE0_FAMILIES].sort((a, b) => a.localeCompare(b));
   const presentAuditedFamilies = Object.keys(countsByFamily).sort((a, b) => a.localeCompare(b));
-  const evidenceCompleteness = summarizeEvidenceCompleteness(auditedOverlays, specsByType);
+  const evidenceCompleteness = summarizeEvidenceCompleteness(auditedOverlays, specsByType, videoAttachedZooms);
   const incompleteFamilies = Object.entries(evidenceCompleteness)
     .filter(([, summary]) => summary.count > 0 && summary.auditableCount < summary.count)
     .map(([family]) => family)
@@ -301,6 +320,7 @@ function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
 function summarizeEvidenceCompleteness(
   overlays: Phase0OverlayLike[],
   specsByType: Map<string, AuditedOverlayType>,
+  videoAttachedZooms: VideoAttachedZoomEvidence[] = [],
 ) {
   const result: Record<string, { count: number; auditableCount: number; issues: string[]; sampleOverlayIds: string[] }> = {};
   for (const family of NON_MG_COMPLETENESS_FAMILIES) {
@@ -325,7 +345,81 @@ function summarizeEvidenceCompleteness(
     if (summary.sampleOverlayIds.length < 8) summary.sampleOverlayIds.push(overlayId(overlay));
   }
 
+  for (const zoom of videoAttachedZooms) {
+    const summary = result.zoom;
+    summary.count += 1;
+    if (zoom.issues.length === 0) {
+      summary.auditableCount += 1;
+      continue;
+    }
+    for (const issue of zoom.issues) {
+      if (!summary.issues.includes(issue)) summary.issues.push(issue);
+    }
+    if (summary.sampleOverlayIds.length < 8) summary.sampleOverlayIds.push(zoom.id);
+  }
+
   return result;
+}
+
+function collectVideoAttachedZoomEvidence(overlays: Phase0OverlayLike[]): VideoAttachedZoomEvidence[] {
+  const zooms: VideoAttachedZoomEvidence[] = [];
+  for (const overlay of overlays) {
+    if (overlay.type !== 'video') continue;
+
+    const metadata = asRecord(overlay.metadata);
+    const receipts = overlayReceipts(metadata).filter((receipt) => readString(receipt.family) === 'zoom');
+    const forms = [
+      asRecord(metadata.atomicZoomForm),
+      ...(Array.isArray(metadata.atomicZoomForms) ? metadata.atomicZoomForms.map(asRecord) : []),
+    ].filter((form) => Object.keys(form).length > 0);
+    const hasScaleKeyframes = hasVideoZoomKeyframes(overlay);
+    if (receipts.length === 0 && forms.length === 0 && !hasScaleKeyframes) continue;
+
+    const evidenceRecords = receipts.length > 0 ? receipts : forms.length > 0 ? forms : [{}];
+    evidenceRecords.forEach((record, index) => {
+      const payload = asRecord(record.payload);
+      const target = asRecord(record.target);
+      const overlayFrom = Math.max(0, readFrame(overlay.from));
+      const localFrame = firstPositiveNumber(target.localFrame, payload.localFrame, 0);
+      const frame = firstPositiveNumber(record.frame, overlayFrom + localFrame, overlayFrom, 0);
+      const durationInFrames = firstPositiveNumber(
+        record.durationFrames,
+        payload.durationFrames,
+        overlay.durationInFrames,
+        1,
+      );
+      const issues: string[] = [];
+      if (receipts.length === 0 && forms.length === 0) issues.push('missing-atomic-zoom-form');
+      if (!hasScaleKeyframes) issues.push('missing-zoom-keyframes');
+      zooms.push({
+        overlay,
+        id: `${overlayId(overlay)}:zoom-${index}`,
+        frame,
+        durationInFrames,
+        issues,
+      });
+    });
+  }
+  return zooms;
+}
+
+function overlayReceipts(metadata: JsonRecord): JsonRecord[] {
+  return [
+    asRecord(metadata.atomicOverlayReceipt),
+    ...(Array.isArray(metadata.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts.map(asRecord) : []),
+  ].filter((receipt) => Object.keys(receipt).length > 0);
+}
+
+function hasVideoZoomKeyframes(overlay: Phase0OverlayLike): boolean {
+  const metadata = asRecord(overlay.metadata);
+  if (Array.isArray(metadata.zoomKeyframes) && metadata.zoomKeyframes.length > 0) return true;
+  if (!Array.isArray(overlay.keyframeTracks)) return false;
+  return overlay.keyframeTracks.some((track) => {
+    const record = asRecord(track);
+    return readString(record.property) === 'scale'
+      && Array.isArray(record.keyframes)
+      && record.keyframes.length > 0;
+  });
 }
 
 function overlayEvidenceIssues(overlay: Phase0OverlayLike, family: string): string[] {
@@ -368,6 +462,10 @@ function asRecord(value: unknown): JsonRecord {
 
 function hasText(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function overlayId(overlay: Phase0OverlayLike): string {
