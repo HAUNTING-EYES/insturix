@@ -18,7 +18,10 @@ import {
 } from '../lib/editron/motion-graphics/engine/eval/rendered-aesthetic';
 import { classifyPhase0Fixture } from '../lib/editron/services/phase0-failure-taxonomy';
 import type { Phase0FixtureManifest } from '../lib/editron/services/phase0-fixture-manifest';
-import type { Phase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
+import type {
+  Phase0RenderArtifactPack,
+  Phase0RenderInput,
+} from '../lib/editron/services/phase0-render-artifact-pack';
 import type {
   RenderImageStats,
   RenderLogEntry,
@@ -328,7 +331,10 @@ function writePhase0FailureTaxonomyIfPresent(report: RenderedAestheticHarnessRep
 
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Phase0FixtureManifest;
-    const artifactPack = JSON.parse(fs.readFileSync(artifactPackPath, 'utf8')) as Phase0RenderArtifactPack;
+    const artifactPack = hydratePhase0RenderArtifactPackForTaxonomy(
+      JSON.parse(fs.readFileSync(artifactPackPath, 'utf8')) as Phase0RenderArtifactPack,
+      runDir,
+    );
     const taxonomy = classifyPhase0Fixture(manifest, artifactPack, report);
     fs.writeFileSync(taxonomyPath, `${JSON.stringify(taxonomy, null, 2)}\n`, 'utf8');
     console.log(`Phase 0 rendered failure taxonomy updated -> ${taxonomyPath}`);
@@ -338,6 +344,38 @@ function writePhase0FailureTaxonomyIfPresent(report: RenderedAestheticHarnessRep
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+export function hydratePhase0RenderArtifactPackForTaxonomy(
+  artifactPack: Phase0RenderArtifactPack,
+  runDir: string,
+): Phase0RenderArtifactPack {
+  const existingRenderInput = (artifactPack as { renderInput?: unknown }).renderInput;
+  if (
+    existingRenderInput &&
+    typeof existingRenderInput === 'object' &&
+    Array.isArray((existingRenderInput as { overlays?: unknown }).overlays)
+  ) {
+    return artifactPack;
+  }
+
+  const renderInputPath = typeof artifactPack.paths?.renderInput === 'string' && artifactPack.paths.renderInput.trim()
+    ? artifactPack.paths.renderInput
+    : path.join(runDir, 'render-input.json');
+  const resolvedRenderInputPath = path.resolve(runDir, renderInputPath);
+  if (!fs.existsSync(resolvedRenderInputPath)) {
+    throw new Error(`Phase 0 render input missing for taxonomy update: ${resolvedRenderInputPath}`);
+  }
+
+  const renderInput = JSON.parse(fs.readFileSync(resolvedRenderInputPath, 'utf8')) as Phase0RenderInput;
+  if (!Array.isArray(renderInput.overlays)) {
+    throw new Error(`Phase 0 render input has no overlays array: ${resolvedRenderInputPath}`);
+  }
+
+  return {
+    ...artifactPack,
+    renderInput,
+  };
 }
 
 export function planRenderedAestheticSamples(

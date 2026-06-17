@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import { OverlayType, type KeyframeTrack, type Overlay } from '../../components/editron/editor/version-7.0.0/types';
@@ -11,6 +14,7 @@ import {
   buildFrameAwareOverlayReceipt,
   buildOverlayOnlyRenderOverlays,
   changedPixelBounds,
+  hydratePhase0RenderArtifactPackForTaxonomy,
   pickRenderedAestheticSampleFrames,
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
@@ -247,6 +251,61 @@ describe('rendered aesthetic harness helpers', () => {
     expect(html).toContain('localFrame=4/18');
     expect(html).toContain('atomicForm=yes');
     expect(html).toContain('text:1');
+  });
+
+  it('hydrates stripped Phase 0 artifact packs from sibling render input for taxonomy updates', () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'editron-phase0-pack-'));
+    try {
+      const renderInputPath = path.join(tempDir, 'render-input.json');
+      writeFileSync(renderInputPath, JSON.stringify({
+        projectId: 'proj_pack',
+        tag: 'proj-pack-phase0',
+        width: 1080,
+        height: 1920,
+        fps: 30,
+        durationInFrames: 90,
+        overlays: [textOverlay({ id: 44 })],
+      }), 'utf8');
+
+      const hydrated = hydratePhase0RenderArtifactPackForTaxonomy({
+        version: 'editron-phase0-render-artifact-pack-v1',
+        projectId: 'proj_pack',
+        status: 'ready',
+        issues: [],
+        artifactDir: tempDir,
+        paths: {
+          renderInput: renderInputPath,
+          renderedAestheticDir: path.join(tempDir, 'rendered-aesthetic'),
+          renderedAestheticJson: path.join(tempDir, 'rendered-aesthetic', 'rendered-aesthetic.json'),
+          renderedAestheticHtml: path.join(tempDir, 'rendered-aesthetic', 'report.html'),
+        },
+        renderCommand: '',
+        familyCoverage: {
+          auditedOverlayTypes: ['text'],
+          auditedVisualTypes: ['text'],
+          auditedMotionTypes: [],
+          auditedAudioTypes: [],
+          requiredFamilies: [],
+          auditedVisualCount: 1,
+          auditedMotionCount: 0,
+          auditedAudioCount: 0,
+          auditedOverlayCount: 1,
+          counts: { text: 1 },
+          countsByFamily: { text: 1 },
+          presentAuditedFamilies: ['text'],
+          missingAuditedFamilies: [],
+          presentRequiredFamilies: [],
+          missingRequiredFamilies: [],
+          evidenceCompleteness: {},
+          incompleteFamilies: [],
+        },
+      } as any, tempDir);
+
+      expect(hydrated.renderInput.overlays).toHaveLength(1);
+      expect(hydrated.renderInput.overlays[0]?.id).toBe(44);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
