@@ -84,6 +84,14 @@ export interface RawFootageAnalysis {
   };
   silenceGaps?: Array<{ startMs: number; endMs: number; durationMs: number }>;
   fillerWords?: Array<{ word: string; startMs: number; endMs: number; hasSurroundingSilence: boolean }>;
+  silenceRemovalPlan?: Array<{
+    startMs: number;
+    endMs: number;
+    action?: string;
+    reason?: string;
+    shortenToMs?: number;
+    metadata?: Record<string, unknown>;
+  }>;
   segments?: Array<{
     text: string;
     startMs: number;

@@ -48,6 +48,12 @@ describe('phase0 failure taxonomy', () => {
         estimatedCleanDurationMs: 6000,
         transcription: { words: [{ word: 'hello', startMs: 0, endMs: 200 }] },
         segments: [{ text: 'hello', startMs: 0, endMs: 200, fillerCount: 0, silenceGapCount: 0, avgWordGapMs: 0 }],
+        silenceRemovalPlan: [{
+          startMs: 1200,
+          endMs: 1200,
+          action: 'split',
+          reason: 'pacing-split',
+        }],
       },
       overlays: [
         { id: 'clip-1', type: 'video', from: 0, durationInFrames: 30, sourceStartFrame: 0 },
@@ -105,6 +111,7 @@ describe('phase0 failure taxonomy', () => {
     expect(taxonomy.classes.map((item) => item.id)).toEqual(expect.arrayContaining([
       'cut.mid_timeline_gaps',
       'cut.overlapping_video_clips',
+      'cut.pacing_split_evidence_missing',
       'cut.tail_gap',
       'timeline.source_mapping_incomplete',
       'timeline.canonical_context_not_safe',
@@ -250,6 +257,27 @@ describe('phase0 failure taxonomy', () => {
           message: 'rendered text contrast is below accessibility floor',
           evidence: 'contrast=1.37; required=4.5',
         }],
+      },
+    });
+  });
+
+  it('warns when cut plan evidence is missing from a Phase 0 fixture', () => {
+    const project = cleanProject();
+    project.rawFootageAnalysis = undefined;
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_cut_plan_missing',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_cut_plan_missing',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.classes.find((item) => item.id === 'cut.plan_missing')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        status: 'missing-raw-footage',
+        issue: 'rawFootageAnalysis is not present on the project',
       },
     });
   });
@@ -544,6 +572,18 @@ function cleanProject(): Phase0FixtureProject {
       estimatedCleanDurationMs: 3000,
       transcription: { words: [{ word: 'hello', startMs: 0, endMs: 300 }] },
       segments: [{ text: 'hello', startMs: 0, endMs: 300, fillerCount: 0, silenceGapCount: 0, avgWordGapMs: 0 }],
+      silenceRemovalPlan: [{
+        startMs: 0,
+        endMs: 0,
+        action: 'split',
+        reason: 'pacing-split',
+        metadata: {
+          kind: 'pacing-split',
+          source: 'transcript-segment-boundary',
+          boundaryReasons: ['transcript-segment-boundary'],
+          speechGapMs: 0,
+        },
+      }],
     },
     overlays: [
       { id: 'clip-1', type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 0 },

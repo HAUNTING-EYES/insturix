@@ -86,6 +86,36 @@ export function classifyPhase0Fixture(
 
 function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
   const cut = manifest.cutContinuity;
+  const cutPlan = manifest.cutPlan;
+  if (cutPlan.status !== 'present') {
+    classes.push({
+      id: 'cut.plan_missing',
+      severity: 'warn',
+      source: 'cut',
+      message: 'Cut plan actions are missing from the Phase 0 fixture, so pacing/removal intent cannot be audited.',
+      evidence: {
+        status: cutPlan.status,
+        issue: cutPlan.issue,
+      },
+    });
+  }
+  if (cutPlan.pacingSplitsMissingEvidenceCount > 0) {
+    classes.push({
+      id: 'cut.pacing_split_evidence_missing',
+      severity: 'warn',
+      source: 'cut',
+      message: 'One or more pacing split actions are missing boundary evidence.',
+      evidence: {
+        count: cutPlan.pacingSplitsMissingEvidenceCount,
+        samples: cutPlan.actions
+          .filter((action) => (
+            (action.reason === 'pacing-split' || action.action === 'split') &&
+            (action.pacingEvidence.boundaryReasons.length === 0 || action.pacingEvidence.speechGapMs == null)
+          ))
+          .slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
   if (cut.clipCount === 0) {
     classes.push({
       id: 'cut.no_video_clips',

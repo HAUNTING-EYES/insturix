@@ -82,6 +82,7 @@ export interface Phase0FixtureManifest {
   };
   overlayCounts: Record<string, number>;
   cutContinuity: ReturnType<typeof summarizeCutContinuity>;
+  cutPlan: ReturnType<typeof summarizeCutPlan>;
   sourceMapping: ReturnType<typeof summarizeSourceMapping>;
   canonicalTimeline: ReturnType<typeof summarizeCanonicalTimeline>;
   unifiedDecisionBundle: ReturnType<typeof summarizeUnifiedDecisionBundle>;
@@ -134,6 +135,7 @@ export function buildPhase0FixtureManifest(
     },
     overlayCounts: countByType(overlays),
     cutContinuity: summarizeCutContinuity(overlays, durationFrames),
+    cutPlan: summarizeCutPlan(project),
     sourceMapping: summarizeSourceMapping(overlays),
     canonicalTimeline: summarizeCanonicalTimeline(project, overlays, fps, durationFrames),
     unifiedDecisionBundle: summarizeUnifiedDecisionBundle(project),
@@ -254,6 +256,81 @@ function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: n
       sourceStartFrame: readNullableNumber(clip.sourceStartFrame ?? clip.videoStartTime),
       assetId: typeof clip.assetId === 'string' ? clip.assetId : null,
     })),
+  };
+}
+
+function summarizeCutPlan(project: Phase0FixtureProject) {
+  const rawFootage = project.rawFootageAnalysis;
+  if (!rawFootage) {
+    return {
+      status: 'missing-raw-footage' as const,
+      actionCount: 0,
+      countsByAction: {},
+      countsByReason: {},
+      removalActionCount: 0,
+      shortenActionCount: 0,
+      splitActionCount: 0,
+      pacingSplitCount: 0,
+      pacingSplitsMissingEvidenceCount: 0,
+      actions: [] as ReturnType<typeof summarizeCutPlanAction>[],
+      issue: 'rawFootageAnalysis is not present on the project',
+    };
+  }
+
+  const plan = Array.isArray(rawFootage.silenceRemovalPlan)
+    ? rawFootage.silenceRemovalPlan.filter(isRecord)
+    : [];
+  const countsByAction = countByField(plan, 'action');
+  const countsByReason = countByField(plan, 'reason');
+  const actions = plan.slice(0, 80).map(summarizeCutPlanAction);
+  const pacingSplitActions = actions.filter((action) => action.reason === 'pacing-split' || action.action === 'split');
+  const pacingSplitsMissingEvidenceCount = pacingSplitActions.filter((action) => (
+    action.pacingEvidence.boundaryReasons.length === 0 ||
+    action.pacingEvidence.speechGapMs == null
+  )).length;
+
+  return {
+    status: plan.length > 0 ? 'present' as const : 'empty' as const,
+    actionCount: plan.length,
+    countsByAction,
+    countsByReason,
+    removalActionCount: countsByAction.remove ?? 0,
+    shortenActionCount: countsByAction.shorten ?? 0,
+    splitActionCount: countsByAction.split ?? 0,
+    pacingSplitCount: pacingSplitActions.length,
+    pacingSplitsMissingEvidenceCount,
+    actions,
+    issue: plan.length > 0 ? null : 'silenceRemovalPlan is empty or missing',
+  };
+}
+
+function summarizeCutPlanAction(action: JsonRecord) {
+  const metadata = isRecord(action.metadata) ? action.metadata : {};
+  const boundaryReasons = Array.isArray(metadata.boundaryReasons)
+    ? metadata.boundaryReasons.map(readString).filter(Boolean)
+    : [];
+
+  return {
+    startMs: readPositiveNumber(action.startMs, 0),
+    endMs: readPositiveNumber(action.endMs, 0),
+    durationMs: Math.max(0, readPositiveNumber(action.endMs, 0) - readPositiveNumber(action.startMs, 0)),
+    action: readString(action.action) || 'unknown',
+    reason: readString(action.reason) || 'unknown',
+    shortenToMs: readNullableNumber(action.shortenToMs),
+    pacingEvidence: {
+      kind: readString(metadata.kind) || null,
+      source: readString(metadata.source) || null,
+      calibrationStatus: readString(metadata.calibrationStatus) || null,
+      previousSegmentIndex: readNullableNumber(metadata.previousSegmentIndex),
+      nextSegmentIndex: readNullableNumber(metadata.nextSegmentIndex),
+      boundaryReasons,
+      speechGapMs: readNullableNumber(metadata.speechGapMs),
+      previousEndedSentence: typeof metadata.previousEndedSentence === 'boolean' ? metadata.previousEndedSentence : null,
+      previousWord: readString(metadata.previousWord) || null,
+      nextWord: readString(metadata.nextWord) || null,
+      previousTextPreview: preview(metadata.previousTextPreview),
+      nextTextPreview: preview(metadata.nextTextPreview),
+    },
   };
 }
 
@@ -621,6 +698,14 @@ function countByType(overlays: Phase0OverlayLike[]) {
   return overlays.reduce<Record<string, number>>((counts, overlay) => {
     const type = String(overlay.type ?? 'unknown');
     counts[type] = (counts[type] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function countByField(items: JsonRecord[], key: string) {
+  return items.reduce<Record<string, number>>((counts, item) => {
+    const value = readString(item[key]) || 'unknown';
+    counts[value] = (counts[value] ?? 0) + 1;
     return counts;
   }, {});
 }

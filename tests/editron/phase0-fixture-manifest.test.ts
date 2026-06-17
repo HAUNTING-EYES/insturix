@@ -31,6 +31,31 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         silenceGapCount: 1,
         avgWordGapMs: 2350,
       }],
+      silenceRemovalPlan: [{
+        startMs: 3000,
+        endMs: 5000,
+        action: 'remove',
+        reason: 'transcript-edit',
+      }, {
+        startMs: 5000,
+        endMs: 5000,
+        action: 'split',
+        reason: 'pacing-split',
+        metadata: {
+          kind: 'pacing-split',
+          source: 'transcript-segment-boundary',
+          calibrationStatus: 'invented-threshold',
+          previousSegmentIndex: 0,
+          nextSegmentIndex: 1,
+          boundaryReasons: ['speech-pause'],
+          speechGapMs: 1700,
+          previousEndedSentence: false,
+          previousWord: 'first',
+          nextWord: 'second',
+          previousTextPreview: 'first',
+          nextTextPreview: 'second',
+        },
+      }],
     },
     qualityReview: {
       version: 'quality-review-persistence-v1',
@@ -221,6 +246,16 @@ describe('phase0 fixture manifest', () => {
         missingSourceMappingCount: 0,
         hasCompleteSourceMapping: true,
       },
+      cutPlan: {
+        status: 'present',
+        actionCount: 2,
+        countsByAction: { remove: 1, split: 1 },
+        countsByReason: { 'transcript-edit': 1, 'pacing-split': 1 },
+        removalActionCount: 1,
+        splitActionCount: 1,
+        pacingSplitCount: 1,
+        pacingSplitsMissingEvidenceCount: 0,
+      },
       canonicalTimeline: {
         status: 'ok',
         durationFrames: 90,
@@ -353,6 +388,44 @@ describe('phase0 fixture manifest', () => {
       },
     ]);
     expect(manifest.qualityReview.suggestions).toEqual(['Reduce overlay collision before calibration.']);
+    expect(manifest.cutPlan.actions[1]).toMatchObject({
+      startMs: 5000,
+      action: 'split',
+      reason: 'pacing-split',
+      pacingEvidence: {
+        boundaryReasons: ['speech-pause'],
+        speechGapMs: 1700,
+        previousWord: 'first',
+        nextWord: 'second',
+      },
+    });
+  });
+
+  it('records missing or weak cut-plan evidence without rewriting cuts', () => {
+    const missing = buildPhase0FixtureManifest(baseProject({ rawFootageAnalysis: undefined }));
+    expect(missing.cutPlan).toMatchObject({
+      status: 'missing-raw-footage',
+      actionCount: 0,
+      issue: 'rawFootageAnalysis is not present on the project',
+    });
+
+    const weak = buildPhase0FixtureManifest(baseProject({
+      rawFootageAnalysis: {
+        ...baseProject().rawFootageAnalysis,
+        silenceRemovalPlan: [{
+          startMs: 2000,
+          endMs: 2000,
+          action: 'split',
+          reason: 'pacing-split',
+        }],
+      },
+    }));
+
+    expect(weak.cutPlan).toMatchObject({
+      status: 'present',
+      pacingSplitCount: 1,
+      pacingSplitsMissingEvidenceCount: 1,
+    });
   });
 
   it('attaches render artifact pack evidence without pretending rendered pixels exist', () => {
