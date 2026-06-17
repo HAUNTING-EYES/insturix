@@ -274,6 +274,20 @@ describe('Brand Vault draft orchestrator', () => {
                 observedAt: '2020-01-01T00:00:00.000Z',
                 extractorId: 'unsafe-compiler',
               },
+              {
+                id: 'raw_compiler_website_audience',
+                sourceType: 'website',
+                sourceUrl: 'https://signal.example/',
+                sourceField: 'website.root',
+                signalPath: 'identity.audience',
+                rawValue: ['creative operators'],
+                normalizedValue: ['creative operators'],
+                excerpt: 'Creative operators from website evidence.',
+                confidence: 0.61,
+                authorityClass: 'owned',
+                observedAt: '2020-01-01T00:00:00.000Z',
+                extractorId: 'unsafe-compiler',
+              },
             ],
           };
         },
@@ -289,7 +303,7 @@ describe('Brand Vault draft orchestrator', () => {
     const compilerCandidates = result.candidates.filter(
       (candidate) => candidate.extractorId === 'brand-vault-text-evidence-compiler.v1',
     );
-    expect(compilerCandidates).toHaveLength(1);
+    expect(compilerCandidates).toHaveLength(2);
     expect(compilerCandidates[0]).toMatchObject({
       brandId: 'brand_signal',
       jobId: 'job_text_compiler',
@@ -298,9 +312,23 @@ describe('Brand Vault draft orchestrator', () => {
       authorityClass: 'inferred',
       observedAt: NOW,
     });
-    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['founder-led creative teams']));
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['founder-led creative teams', 'creative operators']));
     expect(result.profile.identity.audience.confidence).toBe(0.68);
-    expect(result.profile.evidence.some((evidence) => evidence.extractor === 'brand-vault-text-evidence-compiler.v1')).toBe(true);
+    expect(result.profile.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extractor: 'brand-vault-text-evidence-compiler.v1',
+          sourceType: 'public_social_page',
+          sourceField: 'compiler.rawAudience',
+        }),
+        expect.objectContaining({
+          extractor: 'brand-vault-text-evidence-compiler.v1',
+          sourceType: 'first_party_website',
+          sourceField: 'website.root',
+          authorityClass: 'inferred_hint',
+        }),
+      ]),
+    );
   });
 
   it('pulls first-party linked CSS into draft palette and typography evidence', async () => {

@@ -2297,6 +2297,7 @@ function promotedEvidenceFromCandidate(
 function trustLevelForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalTrustLevel | undefined {
   if (candidate.sourceType === 'uploaded_guideline') return 'uploaded_brand_guideline';
   if (candidate.extractorId === CRAWL_EXTRACTOR && candidate.sourceType === 'website') return 'first_party_website';
+  if (candidate.extractorId === TEXT_EVIDENCE_COMPILER_EXTRACTOR && candidate.sourceType === 'website') return 'first_party_website';
   if (candidate.sourceType === 'social_post' || candidate.sourceType === 'social_profile') {
     return candidateEvidenceOrigin(candidate) === 'connected_fetch' ? 'connected_social_account' : 'public_social_page';
   }
@@ -2316,7 +2317,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function authorityClassForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalEvidence['authorityClass'] {
   if (candidate.signalPath === 'voice.killList') return 'brand_constraint';
-  if (candidate.extractorId === CRAWL_EXTRACTOR) return 'inferred_hint';
+  if (candidate.extractorId === CRAWL_EXTRACTOR || candidate.extractorId === TEXT_EVIDENCE_COMPILER_EXTRACTOR) return 'inferred_hint';
   if (candidate.signalPath === 'identity.proofStyle' || candidate.signalPath === 'voice.ctaDirectness') return 'inferred_hint';
   if (candidate.sourceType === 'uploaded_guideline') return 'brand_preference';
   return 'voice_default';

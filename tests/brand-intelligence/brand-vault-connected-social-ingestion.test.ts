@@ -110,6 +110,94 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.warnings).toContain('Brand Vault staged 1 public social fallback source for review-only enrichment.');
   });
 
+  it('samples public YouTube channel videos when connected Google can only provide metadata', async () => {
+    const fetchedUrls: string[] = [];
+    const channelHtml = '<html><body><script>var ytInitialData = {"contents":[{"videoId":"chan001"},{"videoId":"chan002"},{"videoId":"chan001"}]};</script></body></html>';
+
+    const fetchFn = async (url: string): Promise<Response> => {
+      fetchedUrls.push(url);
+      if (url === 'https://www.youtube.com/@insturix') {
+        return new Response(channelHtml, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      if (url.includes('/oembed')) {
+        const videoId = new URL(url).searchParams.get('url')?.split('v=')[1] ?? 'unknown';
+        return jsonResponse({
+          title: `OEmbed title ${videoId}`,
+          author_name: 'Insturix',
+          thumbnail_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        });
+      }
+      const videoId = new URL(url).searchParams.get('v') ?? 'unknown';
+      const playerResponse = {
+        videoDetails: {
+          title: `Reviewed brand system ${videoId}`,
+          author: 'Insturix',
+          shortDescription: `Video ${videoId} shows how agencies keep production on brand.`,
+          thumbnail: { thumbnails: [{ url: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` }] },
+          viewCount: '450',
+        },
+        microformat: {
+          playerMicroformatRenderer: {
+            publishDate: '2026-06-15',
+            category: 'Software',
+          },
+        },
+      };
+      return new Response(
+        `<html><body><script>var ytInitialPlayerResponse = ${JSON.stringify(playerResponse)};</script></body></html>`,
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      );
+    };
+
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.youtube.com/@insturix'],
+      uploaderXUser: null,
+      youtubeConnection: {
+        provider: 'clerk_external_account',
+        status: 'connected',
+        accountName: 'Personal Google',
+        canReadProfile: true,
+        canReadPosts: false,
+        canReadPinned: false,
+        matchStatus: 'unverified',
+      },
+      fetchFn,
+      ocrProvider: null,
+    });
+
+    const youtubePosts = result.sourceEvidence.filter((source) => source.kind === 'social_post' && source.platform === 'youtube');
+    expect(youtubePosts).toHaveLength(2);
+    expect(youtubePosts[0]).toMatchObject({
+      url: 'https://www.youtube.com/watch?v=chan001',
+      evidenceOrigin: 'public_fallback',
+      text: expect.stringContaining('agencies keep production on brand'),
+      media: expect.objectContaining({
+        mediaType: 'video',
+        thumbnailUrl: 'https://img.youtube.com/vi/chan001/maxresdefault.jpg',
+      }),
+      metrics: { viewCount: 450 },
+    });
+    expect(result.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_profile',
+          platform: 'youtube',
+          evidenceOrigin: 'connected_metadata',
+        }),
+      ]),
+    );
+    expect(fetchedUrls).toEqual([
+      'https://www.youtube.com/@insturix',
+      expect.stringContaining('https://www.youtube.com/oembed'),
+      'https://www.youtube.com/watch?v=chan001',
+      expect.stringContaining('https://www.youtube.com/oembed'),
+      'https://www.youtube.com/watch?v=chan002',
+    ]);
+    expect(result.warnings).toContain('Brand Vault fetched 2 recent YouTube public videos from channel page as review-only social evidence.');
+    expect(result.warnings).toContain('Brand Vault added 1 connected social evidence source from existing platform integrations.');
+    expect(result.warnings).toContain('Brand Vault staged 2 public social fallback sources for review-only enrichment.');
+  });
+
   it('warns when an Apify-supported social profile has no configured actor', async () => {
     const result = await createBrandVaultConnectedSocialEvidence({
       socialLinks: ['https://www.instagram.com/vaultline'],
@@ -191,6 +279,27 @@ describe('Brand Vault connected social ingestion', () => {
 
     expect(result.sourceEvidence).toEqual([]);
     expect(result.warnings).toContain('Brand Vault skipped facebook Apify fallback: APIFY_API_KEY is not configured.');
+  });
+
+  it('reports when Apify returns zero dataset items for a public profile fallback', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/vaultline'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async () => jsonResponse([]),
+    });
+
+    expect(result.sourceEvidence).toEqual([
+      expect.objectContaining({
+        kind: 'social_profile',
+        platform: 'instagram',
+        evidenceOrigin: 'public_fallback',
+        url: 'https://www.instagram.com/vaultline',
+      }),
+    ]);
+    expect(result.warnings).toContain('Brand Vault ran instagram Apify fallback, but Apify returned 0 dataset items.');
   });
 
   it('keeps Apify public posts from a submitted representative account', async () => {
@@ -286,7 +395,8 @@ describe('Brand Vault connected social ingestion', () => {
         matchStatus: 'matched',
       }),
     });
-    expect(result.sourceEvidence.some((source) => source.url === 'https://www.linkedin.com/company/vaultline' && source.kind === 'social_post')).toBe(false);
+    expect(result.sourceEvidence.filter((source) => source.url === 'https://www.linkedin.com/company/vaultline')).toHaveLength(1);
+    expect(result.warnings).toContain('Brand Vault discarded 1 linkedin Apify item because they were unreadable, hollow, or did not match the submitted account.');
   });
 
   it('drops Apify public posts whose author does not match the submitted social account', async () => {

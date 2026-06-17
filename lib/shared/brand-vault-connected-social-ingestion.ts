@@ -926,6 +926,7 @@ function shouldFetchPublicFallback(
   parsed: BrandVaultParsedSocialUrl,
 ): boolean {
   if (parsed.isPostUrl && ['youtube', 'x', 'tiktok'].includes(parsed.platform)) return true;
+  if (parsed.platform === 'youtube' && !parsed.isPostUrl && connection?.canReadPosts !== true) return true;
   if (!connection) return true;
   if (connection.provider === 'alyzitron_apify') return true;
   if (connection.status === 'connected_different_account' || connection.matchStatus === 'mismatched') return true;
@@ -968,6 +969,10 @@ async function fetchPublicSocialSources(args: {
 
   if (args.parsed.isPostUrl && ['youtube', 'x', 'tiktok'].includes(args.parsed.platform)) {
     return fetchPublicOEmbedPostSource(args);
+  }
+
+  if (args.parsed.platform === 'youtube' && !args.parsed.isPostUrl) {
+    return fetchPublicYouTubeChannelSources(args);
   }
 
   if (!args.parsed.isPostUrl) return { sources: [], warnings: [] };
@@ -1038,19 +1043,37 @@ async function fetchApifySocialSources(args: {
     }
     const payloadRecord = asRecord(payload);
     const items: unknown[] = Array.isArray(payload) ? payload : Array.isArray(payloadRecord.items) ? payloadRecord.items : [];
+    if (!Array.isArray(payload) && !Array.isArray(payloadRecord.items)) {
+      return {
+        sources: [],
+        warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but Apify returned an unsupported dataset payload shape: ${apifyPayloadShape(payload)}.`],
+      };
+    }
     const sources = items
       .map((item, index) => apifySocialSource(item, args.parsed, index))
       .filter((source): source is BrandVaultSourceInput => Boolean(source))
       .slice(0, 5);
+    const rejectedCount = Math.max(0, items.length - sources.length);
     if (sources.length === 0) {
+      if (items.length === 0) {
+        return {
+          sources: [],
+          warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but Apify returned 0 dataset items.`],
+        };
+      }
       return {
         sources: [],
-        warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but no readable public post evidence was returned.`],
+        warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but ${items.length} dataset item${items.length === 1 ? '' : 's'} produced no readable matched post/profile evidence.`],
       };
     }
     return {
       sources,
-      warnings: [`Brand Vault fetched ${sources.length} ${args.parsed.platform} public Apify item${sources.length === 1 ? '' : 's'} for review-only social evidence.`],
+      warnings: [
+        `Brand Vault fetched ${sources.length} ${args.parsed.platform} public Apify item${sources.length === 1 ? '' : 's'} for review-only social evidence.`,
+        ...(rejectedCount > 0
+          ? [`Brand Vault discarded ${rejectedCount} ${args.parsed.platform} Apify item${rejectedCount === 1 ? '' : 's'} because they were unreadable, hollow, or did not match the submitted account.`]
+          : []),
+      ],
     };
   } catch (error) {
     return {
@@ -1086,6 +1109,14 @@ function apifyRunInput(parsed: BrandVaultParsedSocialUrl): Record<string, unknow
     includeSharedPosts: true,
     includeReposts: true,
   };
+}
+
+function apifyPayloadShape(payload: unknown): string {
+  if (Array.isArray(payload)) return 'array';
+  const record = asRecord(payload);
+  const keys = Object.keys(record).slice(0, 6);
+  if (keys.length > 0) return `object(${keys.join(',')})`;
+  return typeof payload;
 }
 
 function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): BrandVaultSourceInput | null {
@@ -1150,7 +1181,7 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     transcript: stringValue(record.transcript),
   });
   const metrics = socialMetrics({ ...record, ...engagement });
-  const profile = socialProfile({ ...record, ...author });
+  const profile = socialProfile({ ...record, ...author, url: undefined });
   if (!text && !media && !metrics && !profile) return null;
   return {
     kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
@@ -1336,6 +1367,59 @@ async function fetchPublicYouTubePostSource(args: {
   };
 }
 
+async function fetchPublicYouTubeChannelSources(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  fetchFn: BrandVaultSocialFetch;
+}): Promise<SocialFetchResult> {
+  try {
+    const response = await args.fetchFn(args.parsed.normalizedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 BrandVault/1.0' },
+    });
+    if (!response.ok) {
+      return {
+        sources: [],
+        warnings: [`Brand Vault skipped youtube channel public fallback: channel page returned ${response.status}.`],
+      };
+    }
+
+    const html = await response.text();
+    const videoIds = extractYouTubeChannelVideoIds(html, 2);
+    if (videoIds.length === 0) {
+      return {
+        sources: [],
+        warnings: ['Brand Vault fetched youtube channel page, but no public video ids were found.'],
+      };
+    }
+
+    const sources: BrandVaultSourceInput[] = [];
+    const warnings: string[] = [];
+    for (const videoId of videoIds) {
+      const videoParsed = parseBrandVaultSocialUrl(`https://www.youtube.com/watch?v=${videoId}`, 'youtube');
+      if (!videoParsed) continue;
+      const fetched = await fetchPublicYouTubePostSource({ parsed: videoParsed, fetchFn: args.fetchFn });
+      sources.push(...fetched.sources);
+      warnings.push(...fetched.warnings);
+    }
+
+    if (sources.length === 0) {
+      return {
+        sources: [],
+        warnings: warnings.length > 0 ? warnings : ['Brand Vault found youtube channel videos, but no readable public video evidence was returned.'],
+      };
+    }
+
+    warnings.push(
+      `Brand Vault fetched ${sources.length} recent YouTube public video${sources.length === 1 ? '' : 's'} from channel page as review-only social evidence.`,
+    );
+    return { sources, warnings };
+  } catch {
+    return {
+      sources: [],
+      warnings: ['Brand Vault skipped youtube channel public fallback: channel metadata fetch failed.'],
+    };
+  }
+}
+
 async function fetchPublicOEmbedPayload(
   platform: BrandVaultSourcePlatform,
   endpoint: URL,
@@ -1488,6 +1572,19 @@ function extractYouTubeInitialPlayerResponse(html: string): Record<string, unkno
   } catch {
     return null;
   }
+}
+
+function extractYouTubeChannelVideoIds(html: string, limit: number): string[] {
+  const ids = new Set<string>();
+  for (const match of html.matchAll(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{6,})"/g)) {
+    ids.add(match[1]);
+    if (ids.size >= limit) return [...ids];
+  }
+  for (const match of html.matchAll(/\/watch\?v=([a-zA-Z0-9_-]{6,})/g)) {
+    ids.add(match[1]);
+    if (ids.size >= limit) return [...ids];
+  }
+  return [...ids].slice(0, limit);
 }
 
 function balancedJsonObjectAt(text: string, start: number): string | null {
