@@ -300,6 +300,7 @@ const PROMOTABLE_REVIEW_SIGNAL_PATHS = new Set([
   'voice.recurringPhrases',
   'voice.hookArchetypes',
   'identity.audience',
+  'identity.productServices',
   'identity.proofStyle',
   'voice.ctaDirectness',
 ]);
@@ -309,6 +310,7 @@ const PROMOTED_STRING_ARRAY_LIMITS: Record<string, number> = {
   'voice.recurringPhrases': 12,
   'voice.hookArchetypes': 12,
   'identity.audience': 8,
+  'identity.productServices': 14,
 };
 const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
@@ -2195,6 +2197,10 @@ function promoteCandidateToProfile(
   if (candidate.signalPath === 'identity.audience') {
     return mergeStringArraySignal(profile.identity.audience, candidate, evidence, profile);
   }
+  if (candidate.signalPath === 'identity.productServices') {
+    profile.identity.productServices ??= emptyPromotableStringArraySignal('identity.productServices');
+    return mergeStringArraySignal(profile.identity.productServices, candidate, evidence, profile);
+  }
   if (candidate.signalPath === 'identity.proofStyle') {
     const proofStyle = normalizeProofStyleCandidate(candidate.normalizedValue);
     return proofStyle ? replaceSignalValue(profile.identity.proofStyle, proofStyle, candidate, evidence, profile) : false;
@@ -2337,6 +2343,14 @@ function normalizePromotedStringArrayCandidate(signalPath: string, value: unknow
         .filter((item): item is string => Boolean(item)),
     );
   }
+  if (signalPath === 'identity.productServices') {
+    return limitPromotedStringArray(
+      signalPath,
+      values
+        .map(cleanPromotedProductServicePhrase)
+        .filter((item): item is string => Boolean(item)),
+    );
+  }
   if (signalPath === 'voice.recurringPhrases') {
     return limitPromotedStringArray(signalPath, values.filter(isPromotableRecurringPhrase));
   }
@@ -2344,6 +2358,17 @@ function normalizePromotedStringArrayCandidate(signalPath: string, value: unknow
     return limitPromotedStringArray(signalPath, values.filter((item) => item.length >= 3 && item.length <= 72));
   }
   return limitPromotedStringArray(signalPath, rawValues);
+}
+
+function emptyPromotableStringArraySignal(path: string): BrandSignal<string[]> {
+  return {
+    value: [],
+    confidence: 0,
+    trustLevel: 'fallback_default',
+    authorityClass: 'inferred_hint',
+    evidenceIds: [],
+    fallbackReason: `No reviewed evidence for ${path}.`,
+  };
 }
 
 function cleanPromotedPhrase(value: string): string | undefined {
@@ -2355,6 +2380,15 @@ function cleanPromotedPhrase(value: string): string | undefined {
     .replace(/^[\s,.;:|-]+|[\s,.;:|-]+$/g, '')
     .trim();
   return phrase || undefined;
+}
+
+function cleanPromotedProductServicePhrase(value: string): string | undefined {
+  const phrase = cleanPromotedPhrase(value);
+  if (!phrase || phrase.length < 4 || phrase.length > 96) return undefined;
+  if (/^(?:products?|services?|solutions?|features?|collections?|home|about|contact|pricing)$/i.test(phrase)) return undefined;
+  if (/\b(?:shop now|add to cart|buy now|wishlist|no reviews?|mrp|price|sale|discount|select size|checkout|cart)\b/i.test(phrase)) return undefined;
+  if (/^https?:\/\//i.test(phrase) || /[{}<>]|(?:document\.|window\.|function\s*\(|=>)/.test(phrase)) return undefined;
+  return phrase;
 }
 
 function cleanPromotedAudiencePhrase(value: string): string | undefined {
