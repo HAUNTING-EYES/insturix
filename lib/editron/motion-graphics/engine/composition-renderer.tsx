@@ -143,16 +143,10 @@ export function resolveVisualIntentStageChrome(
         rootStyle: {
           ...rootStyle,
           background: [
-            `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.18)} 0%, transparent 42%)`,
-            `linear-gradient(135deg, ${withAlpha(surface, 0.88)} 0%, ${withAlpha(primary, 0.42)} 58%, ${withAlpha(accent, 0.28)} 100%)`,
+            `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.2)} 0%, transparent 44%)`,
+            `radial-gradient(circle at 12% 94%, ${withAlpha(primary, 0.28)} 0%, transparent 38%)`,
+            `linear-gradient(135deg, ${withAlpha(surface, 0.86)} 0%, ${withAlpha(primary, 0.38)} 58%, ${withAlpha(accent, 0.24)} 100%)`,
           ].join(', '),
-        },
-        frameStyle: {
-          position: 'absolute',
-          inset: '5%',
-          border: `${borderWeight}px solid ${withAlpha(accent, 0.16)}`,
-          borderRadius: radius,
-          boxShadow: `0 0 60px ${withAlpha(accent, 0.1)}`,
         },
       };
     case 'split-layout':
@@ -768,14 +762,15 @@ export function resolveSemanticContentSceneAtoms(
       role: 'semantic-identity-speaker-frame',
       style: {
         position: 'absolute',
-        left: '8%',
-        right: '8%',
-        bottom: '18%',
-        height: '28%',
+        inset: '14% 7% 13%',
         borderRadius: radius,
-        border: `1px solid ${withAlpha(accent, 0.26)}`,
-        background: `linear-gradient(90deg, ${withAlpha(surface, 0.42)} 0%, ${withAlpha(primary, 0.14)} 58%, ${withAlpha(accent, 0.1)} 100%)`,
-        boxShadow: `0 22px 70px ${withAlpha(surface, 0.28)}`,
+        border: 0,
+        background: [
+          `radial-gradient(circle at 30% 48%, ${withAlpha(accent, 0.22)} 0%, transparent 18%)`,
+          `radial-gradient(circle at 58% 56%, ${withAlpha(primary, 0.16)} 0%, transparent 24%)`,
+          `linear-gradient(116deg, transparent 0%, ${withAlpha(accent, 0.08)} 46%, transparent 74%)`,
+        ].join(', '),
+        boxShadow: 'none',
       },
       children: [
         {
@@ -783,15 +778,15 @@ export function resolveSemanticContentSceneAtoms(
           role: 'semantic-identity-portrait-field',
           style: {
             position: 'absolute',
-            left: '4%',
+            left: '30%',
             top: '50%',
-            width: '17%',
+            width: '22%',
             aspectRatio: '1 / 1',
-            transform: 'translateY(-50%)',
+            transform: 'translate(-50%, -50%)',
             borderRadius: '50%',
-            border: `2px solid ${withAlpha(accent, 0.5)}`,
-            background: `radial-gradient(circle, ${withAlpha(accent, 0.2)} 0%, ${withAlpha(surface, 0.46)} 68%, ${withAlpha(primary, 0.18)} 100%)`,
-            boxShadow: `0 0 44px ${withAlpha(accent, 0.18)}`,
+            border: `2px solid ${withAlpha(accent, 0.42)}`,
+            background: `radial-gradient(circle, ${withAlpha(accent, 0.18)} 0%, transparent 62%, ${withAlpha(primary, 0.12)} 100%)`,
+            boxShadow: `0 0 72px ${withAlpha(accent, 0.18)}`,
           },
         },
         {
@@ -799,12 +794,25 @@ export function resolveSemanticContentSceneAtoms(
           role: 'semantic-identity-name-plinth',
           style: {
             position: 'absolute',
-            left: '25%',
-            right: '9%',
-            bottom: '24%',
+            left: '22%',
+            right: '22%',
+            top: '57%',
             height: 4,
             borderRadius: 999,
             background: `linear-gradient(90deg, ${withAlpha(accent, 0.88)} 0%, ${withAlpha(accent, 0.12)} 100%)`,
+          },
+        },
+        {
+          kind: 'identity-plinth',
+          role: 'semantic-identity-title-rule',
+          style: {
+            position: 'absolute',
+            left: '38%',
+            right: '38%',
+            top: '65%',
+            height: 2,
+            borderRadius: 999,
+            background: withAlpha(primary, 0.46),
           },
         },
       ],

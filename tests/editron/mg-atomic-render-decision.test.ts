@@ -204,8 +204,9 @@ describe('atomic render decision adapter', () => {
     }), stageTokens);
 
     expect(chrome?.kind).toBe('full-frame');
-    expect(String(chrome?.rootStyle.background)).toContain('rgba(1, 2, 3, 0.88)');
-    expect(String(chrome?.frameStyle?.border)).toContain('rgba(0, 255, 0, 0.16)');
+    expect(String(chrome?.rootStyle.background)).toContain('rgba(1, 2, 3, 0.86)');
+    expect(String(chrome?.rootStyle.background)).toContain('radial-gradient');
+    expect(chrome?.frameStyle).toBeUndefined();
   });
 
   it('lets transition-led intent win over other visual stage directives', () => {

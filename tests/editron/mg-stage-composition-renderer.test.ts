@@ -332,9 +332,17 @@ describe('MG stage composition renderer', () => {
     );
 
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-identity-frame');
+    expect(atoms[0].style).toMatchObject({
+      inset: '14% 7% 13%',
+      border: 0,
+      boxShadow: 'none',
+    });
+    expect(atoms[0].style.bottom).toBeUndefined();
+    expect(atoms[0].style.height).toBeUndefined();
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
       'semantic-identity-portrait-field',
       'semantic-identity-name-plinth',
+      'semantic-identity-title-rule',
     ]));
   });
 
