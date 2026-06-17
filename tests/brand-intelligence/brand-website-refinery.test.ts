@@ -305,6 +305,52 @@ describe('Brand website refinery', () => {
     expect(result.profile.voice.recurringPhrases.value).not.toContain('Stay in the loop');
   });
 
+  it('does not treat homepage hook headings as product or service evidence', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://insturix.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Insturix - Automated content production</title>
+    <meta name="description" content="Insturix is an automated content production platform for agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers.">
+    <style>
+      body { font-family: "Plus Jakarta Sans", sans-serif; color: #d4a652; background: #0b0b0f; }
+    </style>
+  </head>
+  <body>
+    <h1>Already have footage?</h1>
+    <h2>The old way vs. Insturix</h2>
+    <h2>Two paths. Same engine.</h2>
+    <h2>For in-house teams</h2>
+    <h2>For agencies</h2>
+    <h2>Your vision. Not a version.</h2>
+  </body>
+</html>
+`,
+      brandId: 'brand_insturix',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_insturix_product_service_hooks',
+    });
+
+    expect(result.profile.identity.productServices?.value).toEqual(['automated content production platform']);
+    expect(result.profile.identity.productServices?.value).not.toEqual(expect.arrayContaining([
+      'Already have footage?',
+      'The old way vs',
+      'Two paths',
+      'Same engine',
+      'For in-house teams',
+      'For agencies',
+      'Your vision',
+      'Not a version',
+    ]));
+    expect(result.candidates.find((candidate) => candidate.signalPath === 'identity.productServices')).toMatchObject({
+      sourceField: 'website.productServices',
+      normalizedValue: ['automated content production platform'],
+    });
+  });
+
   it('keeps embedded product editor chrome out of root website copy evidence', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://insturix.example',

@@ -31,6 +31,9 @@ const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg'
 const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
 const PRODUCT_IMAGE_CONTEXT_PATTERN = /\b(?:product|products|collection|catalog|item|sku|merch|shopify|pdp|plp|packshot|hero-product)\b/i;
 const PRODUCT_SERVICE_NOISE_PATTERN = /\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|mrp|price|sale|discount|coupon|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|view all|quick view|sold out|login|sign in|privacy policy|terms of service)\b/i;
+const PRODUCT_SERVICE_NOUN_PATTERN = /\b(?:software|platform|app|application|suite|studio|system|tooling?|tools?|workflow|workflows|engine|automation|service|services|consulting|program|course|serum|cream|cleanser|skincare|skin care|moisturi[sz]er|sunscreen|shampoo|conditioner|shoes?|sneakers?|bags?|watch(?:es)?|jewellery|jewelry|collection|essentials|coffee|electronics|hardware|devices?)\b/i;
+const PRODUCT_SERVICE_FRAGMENT_PATTERN = /^(?:already\b|for\b|how\b|not\b|old\b|our\b|same\b|the old\b|two\b|what\b|why\b|your\b|one\s+platform\b)/i;
+const PRODUCT_SERVICE_PROPOSITION_PATTERN = /\b(?:is|are|offers?|provides?|builds?|creates?|delivers?)\s+(?:an?\s+|the\s+|one\s+)?([^.!?]{4,120}?\b(?:software|platform|app|application|suite|studio|system|tooling?|tools?|workflow|workflows|engine|automation|service|services|consulting|program|course)\b)(?:\s+(?:for|to|that|with|without|across|from|by|in)\b.*)?$/i;
 const FONT_FAMILY_DECLARATION_PATTERN = /(?:^|[;{]\s*)font-family\s*:\s*([^;}]+)/gi;
 const MAX_EXTRACTED_WEBSITE_COLORS = 32;
 const COLOR_CONTEXT_RADIUS = 96;
@@ -541,16 +544,21 @@ function cleanProductServicePhrase(value: string): string | undefined {
     .replace(/^[\s,.;:|-]+|[\s,.;:|-]+$/g, '')
     .trim();
   if (!phrase) return undefined;
+  const proposition = phrase.match(PRODUCT_SERVICE_PROPOSITION_PATTERN)?.[1];
+  if (proposition) {
+    phrase = proposition
+      .replace(/^[\s,.;:|-]+|[\s,.;:|-]+$/g, '')
+      .trim();
+  }
   if (phrase.length < 4 || phrase.length > 96) return undefined;
   if (/^https?:\/\//i.test(phrase) || /[{}<>]|(?:function|const|var|=>|\.__|document\.|window\.)/.test(phrase)) return undefined;
   if (PRODUCT_SERVICE_NOISE_PATTERN.test(phrase)) return undefined;
   if (/^(?:products?|services?|solutions?|features?|collections?|new arrivals?|best sellers?|home|about|contact)$/i.test(phrase)) return undefined;
+  if (/[?]/.test(phrase) || PRODUCT_SERVICE_FRAGMENT_PATTERN.test(phrase)) return undefined;
   if (/^\d+(?:[,.]\d+)*\+?$/.test(phrase)) return undefined;
   const words = phrase.split(/\s+/).filter(Boolean);
   if (words.length > 10) return undefined;
-  if (words.length === 1 && !/\b(?:serum|cream|cleanser|software|platform|app|suite|studio|agency|consulting|services?|shoes?|sneakers?|bags?|watch|course|program)\b/i.test(phrase)) {
-    return undefined;
-  }
+  if (!PRODUCT_SERVICE_NOUN_PATTERN.test(phrase)) return undefined;
   return phrase;
 }
 
