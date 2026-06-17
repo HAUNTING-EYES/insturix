@@ -96,6 +96,13 @@ Phase 9 - Semantic fact extractor and candidate ledger:
 - Add hard gates for low-value facts: weak/tiny/rhetorical stats do not become MGs unless licensed by salience, comparison, boundedness, or truth/rhetorical evidence.
 - Output a per-candidate ledger so candidate count, suppression, and selection are inspectable without reading screenshots.
 
+Phase 9A - Done on 2026-06-17:
+- Added `lib/editron/motion-graphics/engine/semantic-mg-candidates.ts` as a pure deterministic candidate ledger contract. It emits candidates and suppressed candidates with `sourceSpan`, `evidenceKeys`, fact licenses, hard-gate reasons, and score inputs.
+- Covered generic fact kinds only: weak stat, bounded stat, magnitude stat, comparison, quote, identity, concept, refutation, and list. It does not emit renderer/menu/preset/template names.
+- Added `tests/editron/mg-semantic-candidates.test.ts` for weak scalar suppression, bounded proportion licensing, magnitude separation, concept/identity/quote/comparison extraction, and explicit missing-source-span suppression.
+- Verification: `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-visual-explanation-contract.test.ts tests\editron\mg-expression-authority.test.ts` passed 24 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for `semantic-mg-candidates` passed. Full `npx tsc --noEmit --pretty false` is still baseline-red in unrelated app/ThinkForge/admin files.
+- Not done: this ledger is not yet wired into live MG selection. Phase 9B/9D must connect extractor output and authority selection before it changes production MG count or visual choice.
+
 Phase 10 - Real-project taste gate:
 - Regenerate current real projects, starting with `proj_sH-nZy0DtNOq` as one probe, not as a special case.
 - Dump project MG candidates, selected overlays, recipes, atomic plans, atomic decisions, captions, and rendered stills/clips.
