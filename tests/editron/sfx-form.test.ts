@@ -68,6 +68,70 @@ describe('resolveAtomicSfxForm', () => {
     expect(form.primitiveAtoms.role.emotionalRole).toBe('lift');
   });
 
+  it('uses beat-frame atoms as the physical sync point for beat-anchored SFX', () => {
+    const form = resolveAtomicSfxForm({
+      frame: 210,
+      params: {
+        sfxType: 'impact',
+        sfxAnchor: 'beat',
+        beatFrame: 228,
+      },
+      signals: {
+        beat_strength: 0.92,
+        speech_energy: 0.4,
+        visual_significance: 0.52,
+      },
+    });
+
+    expect(form.shouldPlace).toBe(true);
+    expect(form.compatibilityToken).toBe('impact');
+    expect(form.timing.anchor).toBe('beat');
+    expect(form.timing.syncFrame).toBe(228);
+    expect(form.timing.startFrame).toBeLessThanOrEqual(228);
+  });
+
+  it('uses transition-frame atoms for transition-anchored SFX instead of rough decision frame', () => {
+    const form = resolveAtomicSfxForm({
+      frame: 300,
+      params: {
+        sfxType: 'whoosh',
+        sfxAnchor: 'transition',
+        transitionFrame: 318,
+      },
+      signals: {
+        motion_intensity: 0.74,
+        beat_strength: 0.5,
+        restraint: 0.2,
+      },
+    });
+
+    expect(form.shouldPlace).toBe(true);
+    expect(form.compatibilityToken).toBe('whoosh');
+    expect(form.timing.anchor).toBe('transition');
+    expect(form.timing.syncFrame).toBe(318);
+    expect(form.timing.startFrame).toBeLessThan(318);
+  });
+
+  it('ignores invalid explicit anchors rather than inventing timing semantics', () => {
+    const form = resolveAtomicSfxForm({
+      frame: 100,
+      params: {
+        sfxType: 'impact',
+        sfxAnchor: 'make-it-hit',
+        beatFrame: 140,
+      },
+      signals: {
+        word_importance: 0.84,
+        beat_strength: 0.12,
+        speech_energy: 0.72,
+      },
+    });
+
+    expect(form.shouldPlace).toBe(true);
+    expect(form.timing.anchor).toBe('keyword');
+    expect(form.timing.syncFrame).toBe(100);
+  });
+
   it('suppresses unearned SFX on busy restrained speech frames', () => {
     const form = resolveAtomicSfxForm({
       frame: 60,

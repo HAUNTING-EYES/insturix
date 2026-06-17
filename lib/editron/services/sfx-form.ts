@@ -291,12 +291,6 @@ export function resolveAtomicSfxForm(input: {
     ? { ...momentBundleToSignalMap(input.momentBundle), ...(input.signals ?? {}) }
     : input.signals ?? {};
   const params = input.params ?? {};
-  const syncFrame = Math.max(0, Math.round(
-    input.frame
-      ?? paramNumber(params, 'frame')
-      ?? input.momentBundle?.rhythm.anchorFrame
-      ?? 0,
-  ));
   const sceneRemainingFrames = Math.max(1, Math.round(input.sceneRemainingFrames ?? 90));
   const cue = [
     paramString(params, 'sfxCue'),
@@ -363,13 +357,20 @@ export function resolveAtomicSfxForm(input: {
     visualSignificance,
     restraint,
   });
-  const anchor = resolveAnchor({
+  const explicitAnchor = paramAnchor(params);
+  const anchor = explicitAnchor ?? resolveAnchor({
     compatibilityToken,
     beatStrength,
     wordImportance,
     motionIntensity,
     topicShift,
     cue,
+  });
+  const syncFrame = resolveSyncFrame({
+    params,
+    anchor,
+    fallbackFrame: input.frame,
+    bundleFrame: input.momentBundle?.rhythm.anchorFrame,
   });
   const shouldPlace = resolveShouldPlace({
     compatibilityToken,
@@ -575,6 +576,60 @@ function resolveTiming(input: {
     sourceOffsetFrames: 0,
     anchor: input.anchor,
   };
+}
+
+function resolveSyncFrame(input: {
+  params: Record<string, unknown>;
+  anchor: AtomicSfxSyncAnchor;
+  fallbackFrame?: number;
+  bundleFrame?: number;
+}): number {
+  const anchorSpecificFrame = frameForAnchor(input.params, input.anchor);
+  return Math.max(0, Math.round(
+    anchorSpecificFrame
+      ?? paramNumber(input.params, 'syncFrame')
+      ?? paramNumber(input.params, 'anchorFrame')
+      ?? input.fallbackFrame
+      ?? paramNumber(input.params, 'frame')
+      ?? input.bundleFrame
+      ?? 0,
+  ));
+}
+
+function frameForAnchor(
+  params: Record<string, unknown>,
+  anchor: AtomicSfxSyncAnchor,
+): number | undefined {
+  switch (anchor) {
+    case 'transition':
+      return firstFrameParam(params, ['transitionFrame', 'boundaryFrame', 'cutFrame']);
+    case 'beat':
+      return firstFrameParam(params, ['beatFrame', 'musicBeatFrame']);
+    case 'motion-peak':
+      return firstFrameParam(params, ['motionPeakFrame', 'visualPeakFrame']);
+    case 'mg-landing':
+      return firstFrameParam(params, ['mgLandingFrame', 'graphicLandingFrame', 'linkedOverlayFrame']);
+    case 'keyword':
+      return firstFrameParam(params, ['keywordFrame', 'wordFrame', 'phraseFrame']);
+    case 'scene-bed':
+      return firstFrameParam(params, ['sceneStartFrame']);
+  }
+}
+
+function firstFrameParam(params: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = paramNumber(params, key);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function paramAnchor(params: Record<string, unknown>): AtomicSfxSyncAnchor | undefined {
+  const value = paramString(params, 'sfxAnchor') ?? paramString(params, 'syncAnchor') ?? paramString(params, 'anchor');
+  if (!value) return undefined;
+  return SFX_SYNC_ANCHORS.has(value as AtomicSfxSyncAnchor)
+    ? value as AtomicSfxSyncAnchor
+    : undefined;
 }
 
 function resolveMix(input: {
@@ -1050,6 +1105,15 @@ const SFX_STOP_WORDS = new Set([
   'subtle',
   'loud',
   'quick',
+]);
+
+const SFX_SYNC_ANCHORS = new Set<AtomicSfxSyncAnchor>([
+  'keyword',
+  'beat',
+  'motion-peak',
+  'transition',
+  'mg-landing',
+  'scene-bed',
 ]);
 
 const TOKEN_TITLE_ALIASES: Record<AtomicSfxCompatibilityToken, string[]> = {

@@ -142,6 +142,94 @@ describe('EDL atomic SFX form wiring', () => {
     expect(JSON.stringify(form)).not.toContain('templateId');
   });
 
+  it('places transition SFX on the transition sync frame when boundary atoms are present', async () => {
+    const overlays: Overlay[] = [
+      {
+        id: 601,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 120,
+        row: 2,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source-a.mp4',
+        src: 'https://example.com/source-a.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+      {
+        id: 602,
+        type: OverlayType.VIDEO,
+        from: 120,
+        durationInFrames: 90,
+        row: 2,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source-b.mp4',
+        src: 'https://example.com/source-b.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'edl-transition-sfx-sync-test',
+      generatedAt: new Date('2026-06-07T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'sfx-trigger',
+        frame: 90,
+        durationFrames: 18,
+        priority: 3,
+        source: 'signal-executor:test',
+        signal: 'transition_boundary',
+        reason: 'Transition SFX should land on the actual boundary, not rough decision frame',
+        confidence: 0.96,
+        params: {
+          sfxType: 'whoosh',
+          sfxAnchor: 'transition',
+          transitionFrame: 120,
+          signals: {
+            motion_intensity: 0.78,
+            beat_strength: 0.5,
+            speech_energy: 0.3,
+            visual_significance: 0.64,
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.96,
+      },
+    };
+
+    const result = await executeEDL(edl, 'edl-transition-sfx-sync-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const sound = overlays.find((overlay) => overlay.type === 'sound') as any;
+
+    expect(result.overlaysCreated).toBe(1);
+    expect(sound.metadata.atomicSfxForm.timing.anchor).toBe('transition');
+    expect(sound.metadata.sfxSyncFrame).toBe(120);
+    expect(sound.metadata.sfxStartFrame).toBeLessThan(120);
+    expect(searchAndDownloadSFX).toHaveBeenCalledWith(
+      expect.stringContaining('whoosh'),
+      'user-1',
+      expect.any(Number),
+      expect.objectContaining({
+        timing: expect.objectContaining({ anchor: 'transition', syncFrame: 120 }),
+      }),
+    );
+  });
+
   it('skips transition-anchored sfx triggers that are not synced to a real cut or transition', async () => {
     const overlays: Overlay[] = [{
       id: 501,
