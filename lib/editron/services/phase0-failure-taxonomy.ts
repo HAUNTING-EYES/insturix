@@ -849,6 +849,10 @@ function transitionNeedsSfx(style: string): boolean {
     'invisible-cut',
     'match-cut',
     'match_cut',
+    'soft-cut',
+    'dip-to-black',
+    'dip-to-white',
+    'film-burn',
     'none',
     'unknown',
   ].includes(style);

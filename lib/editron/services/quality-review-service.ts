@@ -645,7 +645,7 @@ function checkMissingTransitionSfx(overlays: AnalyzableOverlay[], fps: number): 
 
   for (const t of transitions) {
     const style = getTransitionStyle(t);
-    if (style === 'hard-cut' || style === 'match-cut') continue;
+    if (!transitionNeedsPairedSfx(style)) continue;
     const hasPairedSfx = sfx.some(s => Math.abs(getSfxSyncFrame(s) - t.from) <= SYNC_WINDOW);
     if (!hasPairedSfx) {
       issues.push({ type: 'missing_transition_sfx', severity: 'warning', description: `"${style}" transition at frame ${t.from} has no paired SFX within ±3 frames — Chion synchresis violation`, overlayId: t.id, frameRange: { start: t.from, end: t.from + t.durationInFrames }, autoFixable: false, suggestedFix: `Add whoosh/impact SFX within ±3 frames of transition start` });
@@ -1050,6 +1050,23 @@ function getTransitionStyle(overlay: AnalyzableOverlay): string {
     || (overlay.styles as any)?.transitionStyle
     || (overlay as any).transitionStyle
     || 'unknown';
+}
+
+function transitionNeedsPairedSfx(style: string): boolean {
+  return ![
+    'cut',
+    'hard-cut',
+    'hard_cut',
+    'invisible-cut',
+    'match-cut',
+    'match_cut',
+    'soft-cut',
+    'dip-to-black',
+    'dip-to-white',
+    'film-burn',
+    'none',
+    'unknown',
+  ].includes(style);
 }
 
 function isWarmColdConflict(a: string, b: string): boolean {

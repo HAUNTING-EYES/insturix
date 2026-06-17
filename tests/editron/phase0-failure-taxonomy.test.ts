@@ -502,6 +502,35 @@ describe('phase0 failure taxonomy', () => {
     expect(quality.issues.map((issue) => issue.type)).not.toContain('orphan_sfx');
     expect(quality.issues.map((issue) => issue.type)).not.toContain('missing_transition_sfx');
   });
+
+  it('does not require paired SFX for intentionally silent transition forms', () => {
+    const project = cleanProject();
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 60, row: 2, sourceStartFrame: 0 },
+      { id: 'clip-2', type: 'video', from: 60, durationInFrames: 60, row: 2, sourceStartFrame: 60 },
+      {
+        id: 'tr-soft',
+        type: 'transition',
+        from: 60,
+        durationInFrames: 5,
+        row: 3,
+        transitionStyle: 'soft-cut',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'soft-cut', sfxRole: 'none' } },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_silent_transition',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_silent_transition',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const quality = runQualityReview(project.overlays as any, project.fps, project.durationInFrames);
+
+    expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.transition_sfx_missing');
+    expect(quality.issues.map((issue) => issue.type)).not.toContain('missing_transition_sfx');
+  });
 });
 
 function cleanProject(): Phase0FixtureProject {
