@@ -216,6 +216,13 @@ describe('non-MG atomic overlay receipts', () => {
         atomicOverlayReceipt: transitionReceipt,
         atomicTransitionForm: {
           version: 'atomic-transition-form-v1',
+          job: 'emphasize-turn',
+          intent: 'impact-transfer',
+          evidence: {
+            source: 'explicit-boundary-job',
+            reasonKeys: ['job:emphasize-turn', 'beat', 'intensity'],
+            boundary: { hasAnchor: true, hasReason: true },
+          },
           sfxRole: 'impact',
         },
       },
@@ -240,9 +247,16 @@ describe('non-MG atomic overlay receipts', () => {
       sfxRole: 'impact',
       kbRule: 'AT-SFX-003',
       transitionStyle: 'soft-cut',
+      transitionJob: 'emphasize-turn',
+      transitionIntent: 'impact-transfer',
+      transitionEvidenceSource: 'explicit-boundary-job',
+      transitionEvidenceReasons: 'job:emphasize-turn|beat|intensity',
     }));
     expect(receipt.atoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'audio-hit', key: 'sfx.token', value: 'impact' }),
+      expect.objectContaining({ kind: 'transition-relation', key: 'transition.job', value: 'emphasize-turn' }),
+      expect.objectContaining({ kind: 'transition-relation', key: 'transition.intent', value: 'impact-transfer' }),
+      expect.objectContaining({ kind: 'transition-relation', key: 'transition.evidence_source', value: 'explicit-boundary-job' }),
     ]));
     expect(receipt.form.motion.entry).toBe('audio-hit');
     expect(receipt.form.compatibility.sfxRole).toBe('impact');

@@ -377,6 +377,15 @@ function attachTransitionSFXAtomicReceipt(
 ): void {
   const transitionVisualContext = transition.metadata?.atomicOverlayReceipt?.visualContext;
   const signals = transitionVisualContext ? visualSignalsFromContext(transitionVisualContext) : {};
+  const transitionForm = transition.metadata?.atomicTransitionForm && typeof transition.metadata.atomicTransitionForm === 'object'
+    ? transition.metadata.atomicTransitionForm as Record<string, any>
+    : {};
+  const transitionEvidence = transitionForm.evidence && typeof transitionForm.evidence === 'object'
+    ? transitionForm.evidence as Record<string, any>
+    : {};
+  const transitionEvidenceReasons = Array.isArray(transitionEvidence.reasonKeys)
+    ? transitionEvidence.reasonKeys.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const form = spec.form;
   const receipt = buildOverlayAtomicReceipt({
     family: 'sfx',
@@ -413,6 +422,10 @@ function attachTransitionSFXAtomicReceipt(
       kbRule: spec.rule,
       sfxRole: spec.role || spec.token,
       transitionStyle: transition.transitionStyle || 'unknown',
+      transitionJob: typeof transitionForm.job === 'string' ? transitionForm.job : '',
+      transitionIntent: typeof transitionForm.intent === 'string' ? transitionForm.intent : '',
+      transitionEvidenceSource: typeof transitionEvidence.source === 'string' ? transitionEvidence.source : '',
+      transitionEvidenceReasons: transitionEvidenceReasons.join('|'),
     },
     atoms: [
       overlayAtom('temporal-anchor', 'timeline.frame', form.timing.syncFrame, 1, 'edl'),
@@ -421,6 +434,9 @@ function attachTransitionSFXAtomicReceipt(
       overlayAtom('duration', 'sfx.duration_frames', form.timing.durationFrames, form.intensity, 'derived-signal'),
       overlayAtom('audio-hit', 'sfx.token', spec.token, 1, 'audio-library'),
       overlayAtom('transition-relation', 'transition.overlay_id', String(transition.id), 1, 'edl'),
+      overlayAtom('transition-relation', 'transition.job', typeof transitionForm.job === 'string' ? transitionForm.job : '', transitionForm.job ? 1 : 0, 'edl'),
+      overlayAtom('transition-relation', 'transition.intent', typeof transitionForm.intent === 'string' ? transitionForm.intent : '', transitionForm.intent ? 1 : 0, 'edl'),
+      overlayAtom('transition-relation', 'transition.evidence_source', typeof transitionEvidence.source === 'string' ? transitionEvidence.source : '', transitionEvidence.source ? 1 : 0, 'edl'),
       overlayAtom('content-channel', 'overlay.family', 'sound', 1, 'edl'),
       overlayAtom('overlay-row', 'overlay.row', overlay.row, 1, 'layout-analysis'),
       overlayAtom('volume', 'audio.volume', overlay.styles.volume, overlay.styles.volume, 'decision-param'),
