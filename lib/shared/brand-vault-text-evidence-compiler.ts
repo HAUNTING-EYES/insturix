@@ -116,6 +116,7 @@ Return JSON only:
 {"candidates":[{"signalPath":"identity.audience|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"one supplied sourceField","sourceUrl":"optional source URL","confidence":0.42-0.68}]}
 
 Rules:
+- Return the JSON object directly. Do not wrap it in Markdown fences or prose.
 - Use only the evidence supplied below. Do not invent facts.
 - Do not summarize the company. Emit reusable brand signals.
 - Audience values must be specific buyer/user groups, not generic words like "businesses" alone.
@@ -298,17 +299,77 @@ function extractGeminiText(payload: unknown): string | undefined {
 }
 
 function parseCompilerJson(text: string): unknown | null {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+  for (const candidate of compilerJsonCandidates(text)) {
+    const parsed = parseJsonCandidate(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function compilerJsonCandidates(text: string): string[] {
+  const stripped = stripJsonMarkdown(text);
+  return uniqueStrings([
+    stripped,
+    extractBalancedJsonObject(stripped),
+    stripped.match(/\{[\s\S]*\}/)?.[0],
+  ]);
+}
+
+function parseJsonCandidate(value: string): unknown | null {
+  for (const candidate of uniqueStrings([value, repairCommonJson(value)])) {
     try {
-      return JSON.parse(match[0]);
+      return JSON.parse(candidate);
     } catch {
-      return null;
+      // Try the next normalized representation before giving up.
     }
   }
+  return null;
+}
+
+function stripJsonMarkdown(value: string): string {
+  const trimmed = value.replace(/^\uFEFF/, '').trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced?.[1] ?? trimmed).trim();
+}
+
+function repairCommonJson(value: string): string {
+  return value
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/,\s*([}\]])/g, '$1');
+}
+
+function extractBalancedJsonObject(value: string): string | undefined {
+  const start = value.indexOf('{');
+  if (start < 0) return undefined;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') depth += 1;
+    if (char === '}') depth -= 1;
+    if (depth === 0) return value.slice(start, index + 1);
+  }
+  return undefined;
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -171,6 +171,53 @@ describe('Brand Vault text evidence compiler', () => {
     expect(result.candidates.some((candidate) => candidate.signalPath === 'motion.motionEnergy')).toBe(false);
   });
 
+  it('repairs fenced Gemini JSON with trailing commas before applying signal gates', async () => {
+    const compiler = createBrandVaultGeminiTextEvidenceCompiler({
+      apiKey: 'gemini_key',
+      fetchFn: async () => jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: `Here is the JSON:
+\`\`\`json
+{
+  "candidates": [
+    {
+      "signalPath": "voice.recurringPhrases",
+      "normalizedValue": ["Content production is broken", "One platform. Not ten."],
+      "excerpt": "Content production is broken. One platform. Not ten.",
+      "sourceField": "sourceEvidence.0.social_post",
+      "sourceUrl": "https://www.instagram.com/p/founder-led/",
+      "confidence": 0.66,
+    },
+  ],
+}
+\`\`\``,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    await expect(compiler(COMPILER_INPUT)).resolves.toMatchObject({
+      candidates: [
+        {
+          sourceType: 'social_post',
+          sourceField: 'sourceEvidence.0.social_post',
+          sourceUrl: 'https://www.instagram.com/p/founder-led/',
+          signalPath: 'voice.recurringPhrases',
+          normalizedValue: ['Content production is broken', 'One platform. Not ten.'],
+          confidence: 0.66,
+        },
+      ],
+      warnings: ['Brand Vault text evidence compiler produced inferred review candidates from website and source evidence.'],
+    });
+  });
+
   it('returns warnings instead of candidates when Gemini is unavailable or malformed', async () => {
     const unavailableCompiler = createBrandVaultGeminiTextEvidenceCompiler({
       apiKey: 'gemini_key',

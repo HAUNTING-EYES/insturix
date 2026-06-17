@@ -1091,24 +1091,47 @@ function apifyRunInput(parsed: BrandVaultParsedSocialUrl): Record<string, unknow
 function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): BrandVaultSourceInput | null {
   const record = asRecord(item);
   const author = asRecord(record.author);
+  const actor = asRecord(record.actor);
+  const content = asRecord(record.content);
+  const commentary = asRecord(record.commentary);
   const engagement = asRecord(record.engagement);
   const doc = asRecord(record.doc);
+  const post = asRecord(record.post);
   const text = uniqueStrings([
     stringValue(record.caption),
     stringValue(record.text),
     stringValue(record.content),
+    stringValue(record.postText),
+    stringValue(record.textContent),
+    stringValue(record.message),
+    stringValue(record.body),
     stringValue(record.description),
     stringValue(record.title),
+    stringValue(content.text),
+    stringValue(content.body),
+    stringValue(content.description),
+    stringValue(content.title),
+    stringValue(commentary.text),
+    stringValue(post.text),
+    stringValue(post.content),
+    stringValue(post.commentary),
+    stringValue(doc.text),
+    stringValue(doc.content),
+    stringValue(doc.description),
+    stringValue(doc.title),
     stringValue(record.alt),
     stringValue(record.ocrText),
     stringValue(record.transcript),
   ]).join('\n');
   const firstImage = firstStringFromArray(record.images);
+  const firstImageObjectUrl = firstStringFromRecordArray(record.images, ['url', 'src', 'imageUrl']);
+  const firstMediaUrl = firstStringFromRecordArray(record.media, ['url', 'mediaUrl', 'imageUrl', 'videoUrl', 'thumbnailUrl']);
+  const firstAttachmentUrl = firstStringFromRecordArray(record.attachments, ['url', 'mediaUrl', 'imageUrl', 'thumbnailUrl']);
   const firstSlideImage = firstStringFromArray(doc.slide_images);
-  const sourceUrl = firstString(record.url, record.postUrl, record.post_url, record.permalink, record.link, record.shortUrl, record.share_url) ?? parsed.normalizedUrl;
-  const accountHandle = firstString(record.ownerUsername, record.username, author.username, record.author);
-  const accountName = firstString(record.ownerFullName, record.fullName, record.author_name, author.name, record.pageName);
-  const displayName = firstString(record.ownerUsername, record.username, record.author_name, author.name, record.author, record.ownerFullName, record.pageName);
+  const sourceUrl = firstString(record.url, record.postUrl, record.post_url, record.postLink, record.linkToPost, record.activityUrl, record.permalink, record.link, record.shortUrl, record.share_url, post.url, post.postUrl) ?? parsed.normalizedUrl;
+  const accountHandle = firstString(record.ownerUsername, record.username, record.authorUsername, record.authorHandle, author.username, author.handle, actor.username, actor.handle, record.author);
+  const accountName = firstString(record.ownerFullName, record.fullName, record.author_name, record.authorName, author.name, actor.name, record.pageName, record.companyName);
+  const displayName = firstString(record.ownerUsername, record.username, record.author_name, record.authorName, author.name, actor.name, record.author, record.ownerFullName, record.pageName, record.companyName);
   const identityMatchStatus = apifyIdentityMatchStatus({
     parsed,
     sourceUrl,
@@ -1120,9 +1143,9 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     return null;
   }
   const media = socialMedia({
-    mediaType: firstString(record.video_url ? 'video' : undefined, firstImage ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
-    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, doc.pdf_url),
-    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, firstImage, firstSlideImage),
+    mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
+    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, doc.pdf_url),
+    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, firstSlideImage),
     ocrText: stringValue(record.ocrText),
     transcript: stringValue(record.transcript),
   });
@@ -1608,7 +1631,7 @@ function normalizeMediaType(value: string | undefined): BrandVaultSocialMediaEvi
   if (lower.includes('video') || lower.includes('reel')) return 'video';
   if (lower.includes('image') || lower.includes('photo')) return 'image';
   if (lower.includes('link') || lower.includes('article')) return 'link';
-  return 'unknown';
+  return undefined;
 }
 
 function hasDefinedValue(value: object): boolean {
@@ -1700,6 +1723,16 @@ function firstString(...values: unknown[]): string | undefined {
 
 function firstStringFromArray(value: unknown): string | undefined {
   return Array.isArray(value) ? firstString(...value) : undefined;
+}
+
+function firstStringFromRecordArray(value: unknown, keys: string[]): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  for (const item of value) {
+    const record = asRecord(item);
+    const match = firstString(...keys.map((key) => record[key]));
+    if (match) return match;
+  }
+  return undefined;
 }
 
 function firstNumber(...values: unknown[]): number | undefined {

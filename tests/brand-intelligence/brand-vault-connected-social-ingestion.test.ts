@@ -224,6 +224,71 @@ describe('Brand Vault connected social ingestion', () => {
     });
   });
 
+  it('normalizes nested Apify actor posts and drops hollow public rows', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.linkedin.com/company/vaultline'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { linkedin: 'atomus/linkedin-posts-scraper-pro' },
+      fetchFn: async () => jsonResponse([
+        {
+          type: 'post',
+          url: 'https://www.linkedin.com/company/vaultline',
+        },
+        {
+          post: {
+            content: 'Stop shipping off-brand content. Build one reviewed brand system before production starts.',
+            url: 'https://www.linkedin.com/feed/update/urn:li:activity:456/',
+          },
+          actor: {
+            handle: 'vaultline',
+            name: 'Vaultline',
+          },
+          author: {
+            headline: 'Brand operations platform for agencies',
+          },
+          images: [{ url: 'https://cdn.example.com/linkedin-post-frame.jpg' }],
+          engagement: {
+            total_reactions: '18',
+            comments: '4',
+            shares: '2',
+          },
+          postedAt: '2026-06-10T10:00:00.000Z',
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'linkedin',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.linkedin.com/feed/update/urn:li:activity:456/',
+      text: 'Stop shipping off-brand content. Build one reviewed brand system before production starts.',
+      publishedAt: '2026-06-10T10:00:00.000Z',
+      media: {
+        mediaType: 'image',
+        mediaUrl: 'https://cdn.example.com/linkedin-post-frame.jpg',
+        thumbnailUrl: 'https://cdn.example.com/linkedin-post-frame.jpg',
+      },
+      metrics: {
+        likeCount: 18,
+        commentCount: 4,
+        shareCount: 2,
+      },
+      profile: {
+        bio: 'Brand operations platform for agencies',
+      },
+      connection: expect.objectContaining({
+        accountHandle: 'vaultline',
+        accountName: 'Vaultline',
+        matchStatus: 'matched',
+      }),
+    });
+    expect(result.sourceEvidence.some((source) => source.url === 'https://www.linkedin.com/company/vaultline' && source.kind === 'social_post')).toBe(false);
+  });
+
   it('drops Apify public posts whose author does not match the submitted social account', async () => {
     const result = await createBrandVaultConnectedSocialEvidence({
       socialLinks: ['https://www.instagram.com/insturix'],
