@@ -65,6 +65,7 @@ export interface RenderedAestheticProjectInput {
   baseUrl?: string;
   overlays: Overlay[];
   sampleFrames?: number[];
+  samplePlan?: RenderedAestheticSample[];
 }
 
 export interface RenderedAestheticHarnessOptions {
@@ -183,11 +184,7 @@ export async function runRenderedAestheticHarness(
   const overlays = input.overlays.map((overlay) => ensureLiveAtomicOverlayReceipt(overlay));
   const renderOverlays = options.overlayOnly ? buildOverlayOnlyRenderOverlays(overlays, input.width, input.height) : overlays;
   const baselineOverlays = buildBaselineOverlays(overlays, input.width, input.height);
-  const samplePlan = options.sampleFrames?.length
-    ? manualSamples(options.sampleFrames, overlays, input.durationInFrames)
-    : input.sampleFrames?.length
-      ? manualSamples(input.sampleFrames, overlays, input.durationInFrames)
-      : planRenderedAestheticSamples(overlays, input.durationInFrames, options.maxSamples ?? 18);
+  const samplePlan = resolveRenderedAestheticSamplePlan(input, overlays, options);
 
   const serveUrl = await bundle(
     path.resolve(process.cwd(), 'components', 'editron', 'editor', 'version-7.0.0', 'remotion', 'index.ts'),
@@ -428,6 +425,67 @@ function manualSamples(
         sourceOverlayTypes: uniqueStrings(active.map((overlay) => String(overlay.type))),
       };
     });
+}
+
+export function resolveRenderedAestheticSamplePlan(
+  input: Pick<RenderedAestheticProjectInput, 'durationInFrames' | 'sampleFrames' | 'samplePlan'>,
+  overlays: Overlay[],
+  options: Pick<RenderedAestheticHarnessOptions, 'maxSamples' | 'sampleFrames'> = {},
+): RenderedAestheticSample[] {
+  if (options.sampleFrames?.length) {
+    return manualSamples(options.sampleFrames, overlays, input.durationInFrames);
+  }
+  if (input.samplePlan?.length) return input.samplePlan;
+  if (input.sampleFrames?.length) {
+    return manualSamples(input.sampleFrames, overlays, input.durationInFrames);
+  }
+  return planRenderedAestheticSamples(overlays, input.durationInFrames, options.maxSamples ?? 18);
+}
+
+function readPlannedSamples(value: unknown, durationInFrames: number): RenderedAestheticSample[] | undefined {
+  const rawSamples = isRecord(value) && Array.isArray(value.samples)
+    ? value.samples
+    : undefined;
+  if (!rawSamples?.length) return undefined;
+
+  const samples = rawSamples
+    .map((sample) => {
+      if (!isRecord(sample)) return undefined;
+      const frame = numericValue(sample.frame);
+      if (frame === undefined) return undefined;
+      const roles = Array.isArray(sample.roles)
+        ? sample.roles.map(readSampleRole).filter((role): role is RenderedAestheticSampleRole => Boolean(role))
+        : [];
+      const sourceOverlayIds = Array.isArray(sample.sourceOverlayIds)
+        ? sample.sourceOverlayIds.filter((id): id is number | string => typeof id === 'number' || typeof id === 'string')
+        : [];
+      const sourceOverlayTypes = Array.isArray(sample.sourceOverlayTypes)
+        ? sample.sourceOverlayTypes.map((type) => String(type)).filter(Boolean)
+        : [];
+
+      return {
+        frame: clampFrame(frame, durationInFrames),
+        roles: roles.length ? uniqueSampleRoles(roles) : ['manual'],
+        sourceOverlayIds: uniqueIds(sourceOverlayIds),
+        sourceOverlayTypes: uniqueStrings(sourceOverlayTypes),
+      };
+    })
+    .filter((sample): sample is RenderedAestheticSample => Boolean(sample));
+
+  return samples.length ? samples : undefined;
+}
+
+function readSampleRole(value: unknown): RenderedAestheticSampleRole | undefined {
+  if (
+    value === 'manual' ||
+    value === 'entry-settle' ||
+    value === 'hold' ||
+    value === 'exit-prep' ||
+    value === 'keyframe'
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 function addSample(
@@ -962,6 +1020,7 @@ function readProjectInput(inputFile: string): RenderedAestheticProjectInput {
     sampleFrames: Array.isArray(raw.sampleFrames)
       ? raw.sampleFrames.map((value) => Number(value)).filter(Number.isFinite)
       : undefined,
+    samplePlan: readPlannedSamples(raw.samplePlan, durationInFrames),
   };
 }
 

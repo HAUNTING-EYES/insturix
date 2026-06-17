@@ -19,6 +19,7 @@ import {
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
   renderedOverlayBoxAtFrame,
+  resolveRenderedAestheticSamplePlan,
   sourceDependentTransitionBlankJustification,
   type RawImage,
   type RenderedAestheticHarnessReport,
@@ -140,6 +141,38 @@ describe('rendered aesthetic harness helpers', () => {
       sourceOverlays: [...sourceOverlays, textOverlay({ id: 4 })],
       renderOverlays: [...renderOverlays, textOverlay({ id: 4 })],
     })).toBeUndefined();
+  });
+
+  it('uses persisted Phase 0 sample identity instead of regenerating active overlays', () => {
+    const sourceOverlays = [
+      videoOverlay({ id: 1 }),
+      videoOverlay({ id: 2 }),
+      transitionOverlay({ id: 3, clipAId: 1, clipBId: 2, from: 40, durationInFrames: 30 }),
+      textOverlay({ id: 4, from: 0, durationInFrames: 120 }),
+    ];
+    const samples = resolveRenderedAestheticSamplePlan({
+      durationInFrames: 120,
+      sampleFrames: [55],
+      samplePlan: [{
+        frame: 55,
+        roles: ['hold'],
+        sourceOverlayIds: [3],
+        sourceOverlayTypes: ['transition'],
+      }],
+    }, sourceOverlays, {});
+
+    expect(samples).toEqual([{
+      frame: 55,
+      roles: ['hold'],
+      sourceOverlayIds: [3],
+      sourceOverlayTypes: ['transition'],
+    }]);
+    expect(sourceDependentTransitionBlankJustification({
+      overlayOnly: true,
+      sample: samples[0],
+      sourceOverlays,
+      renderOverlays: buildOverlayOnlyRenderOverlays(sourceOverlays, 1080, 1920),
+    })).toContain('source-dependent');
   });
 
   it('resolves keyframed position, scale, opacity, and text pixel height for rendered evidence', () => {

@@ -39,6 +39,22 @@ export interface BuildPhase0RenderArtifactPackOptions {
   maxSamples?: number;
 }
 
+export interface Phase0RenderSample {
+  frame: number;
+  roles: string[];
+  sourceOverlayIds: string[];
+  sourceOverlayTypes: string[];
+  sourceFamilies: string[];
+  evidenceKinds: AuditedEvidenceKind[];
+}
+
+export interface Phase0RenderSamplePlan {
+  maxSamples: number;
+  sampledFrames: number[];
+  droppedSampleCount: number;
+  samples: Phase0RenderSample[];
+}
+
 export interface Phase0RenderInput {
   projectId: string;
   tag: string;
@@ -47,16 +63,8 @@ export interface Phase0RenderInput {
   fps: number;
   durationInFrames: number;
   sampleFrames?: number[];
+  samplePlan?: Phase0RenderSamplePlan;
   overlays: Phase0OverlayLike[];
-}
-
-export interface Phase0RenderSample {
-  frame: number;
-  roles: string[];
-  sourceOverlayIds: string[];
-  sourceOverlayTypes: string[];
-  sourceFamilies: string[];
-  evidenceKinds: AuditedEvidenceKind[];
 }
 
 export interface Phase0RenderArtifactPack {
@@ -73,12 +81,7 @@ export interface Phase0RenderArtifactPack {
   };
   renderCommand: string;
   renderInput: Phase0RenderInput;
-  samplePlan: {
-    maxSamples: number;
-    sampledFrames: number[];
-    droppedSampleCount: number;
-    samples: Phase0RenderSample[];
-  };
+  samplePlan: Phase0RenderSamplePlan;
   familyCoverage: {
     auditedOverlayTypes: string[];
     auditedVisualTypes: string[];
@@ -168,6 +171,7 @@ export function buildPhase0RenderArtifactPack(
       fps,
       durationInFrames,
       sampleFrames: samplePlan.sampledFrames,
+      samplePlan,
       overlays,
     },
     samplePlan,
