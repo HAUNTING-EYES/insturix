@@ -10,6 +10,7 @@ import {
 import type { BrandRefineryJob } from '@/lib/shared/brand-website-refinery-types';
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
 import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-connected-social-loader';
+import { createBrandVaultTextEvidenceCompilerFromEnvironment } from '@/lib/shared/brand-vault-text-evidence-compiler';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
         browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
       },
       sourceEvidenceProvider: ({ socialLinks }) => loadBrandVaultConnectedSocialEvidence(userId, socialLinks),
+      textEvidenceCompiler: createBrandVaultTextEvidenceCompilerFromEnvironment(),
     },
   );
   if (start.run) {
@@ -86,6 +88,7 @@ function queueProcessorDependencies(store: BrandVaultRefineryStore) {
     },
     sourceEvidenceProvider: ({ userId, socialLinks }: { userId: string; socialLinks: string[] }) =>
       loadBrandVaultConnectedSocialEvidence(userId, socialLinks),
+    textEvidenceCompiler: createBrandVaultTextEvidenceCompilerFromEnvironment(),
   };
 }
 

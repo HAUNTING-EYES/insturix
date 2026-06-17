@@ -12,15 +12,21 @@ import {
   createBrandVaultWebsiteDraftJob,
   type BrandVaultSignalProfileStore,
   type BrandVaultStoreResult,
+  type BrandVaultTextEvidenceCompiler,
   type BrandVaultWebsiteDraftJobResult,
   type BrandVaultWebsiteDraftReviewPayload,
 } from './brand-vault-draft-orchestrator';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
-  BrandVaultUploadedAssetRole,
   BrandRefineryJob,
+  BrandVaultSocialConnectionEvidence,
+  BrandVaultSocialMediaEvidence,
+  BrandVaultSocialMetricsEvidence,
+  BrandVaultSocialProfileEvidence,
+  BrandVaultSourceEvidenceOrigin,
   BrandVaultSourceInput,
+  BrandVaultUploadedAssetRole,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 import { createBrandVaultMongoRefineryStoreFromEnvironment } from './brand-vault-mongo-store';
@@ -160,6 +166,7 @@ type BrandVaultRefineryJobExecutionDependencies = {
   fetchOptions?: FetchWebsiteBrandSnapshotOptions;
   clock?: () => string;
   sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
+  textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
 };
 
 export type ProcessQueuedBrandVaultRefineryJobResult = {
@@ -323,6 +330,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       repository: dependencies.store,
       fetchOptions: dependencies.fetchOptions,
       clock: dependencies.clock,
+      textEvidenceCompiler: dependencies.textEvidenceCompiler,
     },
   );
 
@@ -821,6 +829,41 @@ const SOURCE_PLATFORMS = new Set<NonNullable<BrandVaultSourceInput['platform']>>
   'other',
 ]);
 
+const SOURCE_EVIDENCE_ORIGINS = new Set<BrandVaultSourceEvidenceOrigin>([
+  'user_supplied',
+  'connected_metadata',
+  'connected_fetch',
+  'public_fallback',
+]);
+
+const SOCIAL_MEDIA_TYPES = new Set<NonNullable<BrandVaultSocialMediaEvidence['mediaType']>>([
+  'image',
+  'video',
+  'carousel',
+  'link',
+  'unknown',
+]);
+
+const SOCIAL_CONNECTION_PROVIDERS = new Set<BrandVaultSocialConnectionEvidence['provider']>([
+  'uploaderx',
+  'clerk_external_account',
+  'alyzitron_apify',
+]);
+
+const SOCIAL_CONNECTION_STATUSES = new Set<BrandVaultSocialConnectionEvidence['status']>([
+  'connected',
+  'connected_different_account',
+  'scope_missing',
+  'not_connected',
+  'public_fallback_available',
+]);
+
+const SOCIAL_CONNECTION_MATCH_STATUSES = new Set<NonNullable<BrandVaultSocialConnectionEvidence['matchStatus']>>([
+  'matched',
+  'mismatched',
+  'unverified',
+]);
+
 const UPLOADED_ASSET_ROLES = new Set<BrandVaultUploadedAssetRole>([
   'brand_book',
   'logo',
@@ -855,11 +898,52 @@ function parseSourceEvidenceEntry(value: unknown): BrandVaultSourceInput | null 
   const dominantColors = parseColorList(value.dominantColors);
   const assetRole = parseAssetRole(value.assetRole);
   const pinned = parseOptionalBoolean(value.pinned);
+  const publishedAt = parseLimitedString(value.publishedAt, 120);
+  const media = parseSocialMediaEvidence(value.media);
+  const metrics = parseSocialMetricsEvidence(value.metrics);
+  const profile = parseSocialProfileEvidence(value.profile);
+  const evidenceOrigin = parseSourceEvidenceOrigin(value.evidenceOrigin);
+  const connection = parseSocialConnectionEvidence(value.connection);
   if (crawl === null) return null;
-  if (mimeType === null || text === null || sizeBytes === null || dominantColors === null || assetRole === null || pinned === null) return null;
-  if (!url && !name && !note && !text && !dominantColors?.length) return null;
+  if (
+    mimeType === null ||
+    text === null ||
+    sizeBytes === null ||
+    dominantColors === null ||
+    assetRole === null ||
+    pinned === null ||
+    publishedAt === null ||
+    media === null ||
+    metrics === null ||
+    profile === null ||
+    evidenceOrigin === null ||
+    connection === null
+  ) {
+    return null;
+  }
+  const hasRichEvidence = Boolean(publishedAt || media || metrics || profile || evidenceOrigin || connection);
+  if (!url && !name && !note && !text && !dominantColors?.length && !hasRichEvidence) return null;
 
-  return { kind, url, name, platform, note, crawl, mimeType, sizeBytes, text, dominantColors, assetRole, pinned };
+  return {
+    kind,
+    url,
+    name,
+    platform,
+    note,
+    crawl,
+    mimeType,
+    sizeBytes,
+    text,
+    dominantColors,
+    assetRole,
+    pinned,
+    publishedAt,
+    media,
+    metrics,
+    profile,
+    evidenceOrigin,
+    connection,
+  };
 }
 
 function cleanString(value: unknown): string {
@@ -892,10 +976,136 @@ function parseCrawlOptions(value: unknown): BrandVaultCrawlOptions | undefined |
   return crawl;
 }
 
+function parseSocialMediaEvidence(value: unknown): BrandVaultSocialMediaEvidence | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isObjectRecord(value)) return null;
+  const mediaTypeValue = cleanString(value.mediaType) as NonNullable<BrandVaultSocialMediaEvidence['mediaType']>;
+  const mediaType = SOCIAL_MEDIA_TYPES.has(mediaTypeValue) ? mediaTypeValue : undefined;
+  const mediaUrl = parseLimitedString(value.mediaUrl, 2048);
+  const thumbnailUrl = parseLimitedString(value.thumbnailUrl, 2048);
+  const sampledFrameUrls = parseLimitedStringList(value.sampledFrameUrls, 12, 2048);
+  const ocrText = parseLimitedString(value.ocrText, 20_000);
+  const transcript = parseLimitedString(value.transcript, 40_000);
+  const durationSeconds = parseBoundedNumber(value.durationSeconds, 0, 43_200);
+  if (
+    mediaUrl === null ||
+    thumbnailUrl === null ||
+    sampledFrameUrls === null ||
+    ocrText === null ||
+    transcript === null ||
+    durationSeconds === null ||
+    (value.mediaType !== undefined && !mediaType)
+  ) {
+    return null;
+  }
+  if (!mediaType && !mediaUrl && !thumbnailUrl && !sampledFrameUrls?.length && !ocrText && !transcript && durationSeconds === undefined) {
+    return null;
+  }
+  return { mediaType, mediaUrl, thumbnailUrl, sampledFrameUrls, ocrText, transcript, durationSeconds };
+}
+
+function parseSocialMetricsEvidence(value: unknown): BrandVaultSocialMetricsEvidence | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isObjectRecord(value)) return null;
+  const parsed = {
+    likeCount: parseBoundedInteger(value.likeCount, 0, 1_000_000_000),
+    commentCount: parseBoundedInteger(value.commentCount, 0, 1_000_000_000),
+    shareCount: parseBoundedInteger(value.shareCount, 0, 1_000_000_000),
+    viewCount: parseBoundedInteger(value.viewCount, 0, 1_000_000_000),
+    repostCount: parseBoundedInteger(value.repostCount, 0, 1_000_000_000),
+    quoteCount: parseBoundedInteger(value.quoteCount, 0, 1_000_000_000),
+    engagementCount: parseBoundedInteger(value.engagementCount, 0, 1_000_000_000),
+  };
+  if (Object.values(parsed).some((metric) => metric === null)) return null;
+  if (!Object.values(parsed).some((metric) => metric !== undefined)) return null;
+  return parsed as BrandVaultSocialMetricsEvidence;
+}
+
+function parseSocialProfileEvidence(value: unknown): BrandVaultSocialProfileEvidence | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isObjectRecord(value)) return null;
+  const bio = parseLimitedString(value.bio, 5_000);
+  const category = parseLimitedString(value.category, 200);
+  const website = parseLimitedString(value.website, 2048);
+  const followerCount = parseBoundedInteger(value.followerCount, 0, 1_000_000_000);
+  if (bio === null || category === null || website === null || followerCount === null) return null;
+  if (!bio && !category && !website && followerCount === undefined) return null;
+  return { bio, category, website, followerCount };
+}
+
+function parseSourceEvidenceOrigin(value: unknown): BrandVaultSourceEvidenceOrigin | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+  const origin = value.trim() as BrandVaultSourceEvidenceOrigin;
+  return SOURCE_EVIDENCE_ORIGINS.has(origin) ? origin : null;
+}
+
+function parseSocialConnectionEvidence(value: unknown): BrandVaultSocialConnectionEvidence | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isObjectRecord(value)) return null;
+  const provider = cleanString(value.provider) as BrandVaultSocialConnectionEvidence['provider'];
+  const status = cleanString(value.status) as BrandVaultSocialConnectionEvidence['status'];
+  const accountId = parseLimitedString(value.accountId, 240);
+  const accountName = parseLimitedString(value.accountName, 240);
+  const accountHandle = parseLimitedString(value.accountHandle, 240);
+  const scopes = parseLimitedStringList(value.scopes, 50, 200);
+  const missingScopes = parseLimitedStringList(value.missingScopes, 50, 200);
+  const canReadProfile = parseOptionalBoolean(value.canReadProfile);
+  const canReadPosts = parseOptionalBoolean(value.canReadPosts);
+  const canReadPinned = parseOptionalBoolean(value.canReadPinned);
+  const matchStatusValue = cleanString(value.matchStatus) as NonNullable<BrandVaultSocialConnectionEvidence['matchStatus']>;
+  const matchStatus = SOCIAL_CONNECTION_MATCH_STATUSES.has(matchStatusValue) ? matchStatusValue : undefined;
+  if (
+    !SOCIAL_CONNECTION_PROVIDERS.has(provider) ||
+    !SOCIAL_CONNECTION_STATUSES.has(status) ||
+    accountId === null ||
+    accountName === null ||
+    accountHandle === null ||
+    scopes === null ||
+    missingScopes === null ||
+    canReadProfile === null ||
+    canReadPosts === null ||
+    canReadPinned === null ||
+    canReadProfile === undefined ||
+    canReadPosts === undefined ||
+    canReadPinned === undefined ||
+    (value.matchStatus !== undefined && !matchStatus)
+  ) {
+    return null;
+  }
+  return {
+    provider,
+    status,
+    accountId,
+    accountName,
+    accountHandle,
+    scopes,
+    missingScopes,
+    canReadProfile,
+    canReadPosts,
+    canReadPinned,
+    matchStatus,
+  };
+}
+
 function parseBoundedInteger(value: unknown, min: number, max: number): number | undefined | null {
   if (value === undefined) return undefined;
   if (typeof value !== 'number' || !Number.isInteger(value)) return null;
   return value >= min && value <= max ? value : null;
+}
+
+function parseBoundedNumber(value: unknown, min: number, max: number): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value >= min && value <= max ? value : null;
+}
+
+function parseLimitedStringList(value: unknown, maxItems: number, maxLength: number): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > maxItems) return null;
+  const items = value.map((item) => parseLimitedString(item, maxLength));
+  if (items.some((item) => item === null || item === undefined)) return null;
+  return [...new Set(items as string[])];
 }
 
 function parsePathList(value: unknown): string[] | undefined | null {

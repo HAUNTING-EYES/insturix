@@ -5,6 +5,7 @@ import {
 } from '@/lib/shared/brand-vault-refinery-api';
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
 import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-connected-social-loader';
+import { createBrandVaultTextEvidenceCompilerFromEnvironment } from '@/lib/shared/brand-vault-text-evidence-compiler';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
       },
       sourceEvidenceProvider: ({ userId, socialLinks }) =>
         loadBrandVaultConnectedSocialEvidence(userId, socialLinks),
+      textEvidenceCompiler: createBrandVaultTextEvidenceCompilerFromEnvironment(),
     });
 
     return NextResponse.json({
