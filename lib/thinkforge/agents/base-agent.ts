@@ -167,13 +167,15 @@ export abstract class BaseAgent {
         model: this.model,
         prompt,
         temperature: gen.temperature,
+        // @ts-ignore - Vercel AI SDK version mismatch on maxTokens
         maxTokens: gen.maxTokens,
         seed: 42,
         abortSignal: signal,
       });
 
-      // Create async generator from the text stream
       const textStream = result.textStream;
+      const agentType = this.config.agentType;
+      const modelName = this.config.modelName;
 
       const streamGenerator = async function* (): AsyncGenerator<string, void, unknown> {
         let chunkCount = 0;
@@ -186,8 +188,8 @@ export abstract class BaseAgent {
           // Log successful invocation
           logInvocation({
             type: 'ai_invocation',
-            agent: this.config.agentType,
-            model: this.config.modelName,
+            agent: agentType,
+            model: modelName,
             timestamp: new Date(),
             durationMs: Date.now() - startTime,
             success: true,
@@ -195,8 +197,8 @@ export abstract class BaseAgent {
         } catch (error) {
           logInvocation({
             type: 'ai_invocation',
-            agent: this.config.agentType,
-            model: this.config.modelName,
+            agent: agentType,
+            model: modelName,
             timestamp: new Date(),
             durationMs: Date.now() - startTime,
             success: false,
@@ -204,7 +206,7 @@ export abstract class BaseAgent {
           });
           throw error;
         }
-      }.bind(this);
+      };
 
       return {
         stream: streamGenerator(),
@@ -277,6 +279,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         schema: this.schema,
         prompt,
         temperature: gen.temperature,
+        // @ts-ignore
         maxTokens: gen.maxTokens,
         seed: 42,
         abortSignal: signal,
@@ -307,6 +310,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           model: this.model,
           prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
           temperature: gen.temperature,
+          // @ts-ignore
           maxTokens: gen.maxTokens,
           seed: 42,
           abortSignal: signal,

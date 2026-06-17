@@ -132,6 +132,7 @@ ${content}
         model: this.model,
         prompt,
         temperature: 0.3,
+        // @ts-ignore
         maxTokens: 2600,
         seed: 42,
       });

@@ -164,6 +164,7 @@ export function selectProjectSummary(
   
   if (project.projectName) parts.push(`Project: ${project.projectName}`);
   if (project.idea) parts.push(`Idea: ${project.idea}`);
+  if ((project as any).originalPrompt) parts.push(`Original user brief: ${(project as any).originalPrompt}`);
   if (project.purpose) parts.push(`Purpose: ${project.purpose}`);
   if (project.style) parts.push(`Style: ${project.style}`);
   if (project.format) parts.push(`Format: ${project.format}`);

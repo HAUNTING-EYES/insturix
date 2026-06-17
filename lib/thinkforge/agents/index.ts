@@ -96,6 +96,24 @@ export {
   type ThinkingInput,
 } from './thinking-agent';
 
+// Post Writer Agent
+export {
+  PostWriterAgent,
+  createPostWriterAgent,
+  PostWriterResultSchema,
+  type PostWriterResult,
+  type PostWriterInput,
+} from './post-writer-agent';
+
+// Script Writer Agent
+export {
+  ScriptWriterAgent,
+  createScriptWriterAgent,
+  ScriptWriterResultSchema,
+  type ScriptWriterResult,
+  type ScriptWriterInput,
+} from './script-writer-agent';
+
 // Logging
 export {
   logAIInvocation,

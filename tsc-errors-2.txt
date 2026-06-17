@@ -1,0 +1,239 @@
+.next/types/app/api/internal/workers/director/route.ts(12,13): error TS2344: Type 'OmitWithTag<typeof import("/home/harsimran-singh/Documents/Insturix/Front-End/app/api/internal/workers/director/route"), "HEAD" | "GET" | "POST" | "dynamic" | "config" | "maxDuration" | ... 9 more ... | "preferredRegion", "">' does not satisfy the constraint '{ [x: string]: never; }'.
+  Property 'resolveDirectorCompletionHealth' is incompatible with index signature.
+    Type '(qualityReview: DirectorQualityReviewSnapshot | null | undefined) => DirectorCompletionHealth' is not assignable to type 'never'.
+.next/types/app/api/proxy/clickatron/[...key]/route.ts(49,7): error TS2344: Type '{ __tag__: "GET"; __param_position__: "second"; __param_type__: { params: { key: string[]; }; }; }' does not satisfy the constraint 'ParamCheck<RouteContext>'.
+  The types of '__param_type__.params' are incompatible between these types.
+    Type '{ key: string[]; }' is missing the following properties from type 'Promise<any>': then, catch, finally, [Symbol.toStringTag]
+.next/types/app/api/services/clickatron/generate-prompt/route.ts(2,24): error TS2307: Cannot find module '../../../../../../../app/api/services/clickatron/generate-prompt/route.js' or its corresponding type declarations.
+.next/types/app/api/services/clickatron/generate-prompt/route.ts(5,29): error TS2307: Cannot find module '../../../../../../../app/api/services/clickatron/generate-prompt/route.js' or its corresponding type declarations.
+.next/types/app/api/services/clickatron/session/import-from-script/route.ts(2,24): error TS2307: Cannot find module '../../../../../../../../app/api/services/clickatron/session/import-from-script/route.js' or its corresponding type declarations.
+.next/types/app/api/services/clickatron/session/import-from-script/route.ts(5,29): error TS2307: Cannot find module '../../../../../../../../app/api/services/clickatron/session/import-from-script/route.js' or its corresponding type declarations.
+.next/types/app/api/services/thinkforge/script/export-for-clickatron/route.ts(2,24): error TS2307: Cannot find module '../../../../../../../../app/api/services/thinkforge/script/export-for-clickatron/route.js' or its corresponding type declarations.
+.next/types/app/api/services/thinkforge/script/export-for-clickatron/route.ts(5,29): error TS2307: Cannot find module '../../../../../../../../app/api/services/thinkforge/script/export-for-clickatron/route.js' or its corresponding type declarations.
+app/admin/mailing/page.tsx(1146,69): error TS2339: Property 'cooldownDays' does not exist on type 'CooldownStatus'.
+app/admin/mailing/page.tsx(1146,109): error TS2339: Property 'cooldownDays' does not exist on type 'CooldownStatus'.
+app/admin/mailing/page.tsx(1466,47): error TS2339: Property 'cooldownDays' does not exist on type 'CooldownStatus'.
+app/admin/mailing/page.tsx(1466,82): error TS2339: Property 'cooldownDays' does not exist on type 'CooldownStatus'.
+app/api/admin/mailing/send-individual/route.ts(59,35): error TS2339: Property 'username' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'username' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+app/api/admin/mailing/send-individual/route.ts(59,52): error TS2339: Property 'email' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'email' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+app/api/admin/mailing/test/route.ts(53,9): error TS2741: Property 'subject' is missing in type '{ html: string; text: string; }' but required in type '{ html: string; text: string; subject: string; }'.
+app/api/cron/check-task-timeouts/route.ts(47,22): error TS2339: Property 'userId' does not exist on type 'FlattenMaps<IClickatronTask> & Required<{ _id: ObjectId; }> & { __v: number; }'.
+app/api/cron/check-task-timeouts/route.ts(52,24): error TS2339: Property 'type' does not exist on type 'FlattenMaps<IClickatronTask> & Required<{ _id: ObjectId; }> & { __v: number; }'.
+app/api/internal/migrate-audio/route.ts(62,11): error TS2322: Type '{ overlays: { $each: any; }; }' is not assignable to type 'PushOperator<Document>'.
+  Type '{ overlays: { $each: any; }; }' is not assignable to type 'NotAcceptedFields<Document, readonly any[]>'.
+    Property 'overlays' is incompatible with index signature.
+      Type '{ $each: any; }' is not assignable to type 'undefined'.
+app/api/newsletter/route.ts(7,29): error TS2554: Expected 0 arguments, but got 1.
+app/api/services/alyzitron/utils/gemini-files.ts(30,31): error TS2339: Property 'getFileManager' does not exist on type 'GoogleGenerativeAI'.
+app/api/services/alyzitron/utils/gemini-files.ts(56,31): error TS2339: Property 'getFileManager' does not exist on type 'GoogleGenerativeAI'.
+app/api/services/clickatron/enhance-prompt/route.ts(171,54): error TS2339: Property 'errors' does not exist on type 'ZodError<unknown>'.
+app/api/services/clickatron/session/[id]/chat/route.ts(83,54): error TS2339: Property 'errors' does not exist on type 'ZodError<unknown>'.
+app/api/services/clickatron/session/[id]/rename/route.ts(55,77): error TS2339: Property 'errors' does not exist on type 'ZodError<unknown>'.
+app/api/services/thinkforge/brand-dna/route.ts(41,52): error TS2345: Argument of type '{ voiceExemplars?: { id: string; text: string; signalProfile: Record<number, unknown>; contentType: string; pinned: boolean; weight: number; }[] | undefined; voiceFingerprint?: { topBigrams: [...][]; ... 10 more ...; extractedFromCount: number; } | undefined; ... 5 more ...; voiceLock?: string | undefined; }' is not assignable to parameter of type 'Partial<BrandDNA>'.
+  Types of property 'voiceFingerprint' are incompatible.
+    Type '{ topBigrams: [string, number][]; avgWordsPerSentence: number; sentenceLengthVariance: number; passiveVoiceRatio: number; questionFrequency: number; punctuationProfile: Record<number, unknown>; ... 5 more ...; extractedFromCount: number; } | undefined' is not assignable to type 'VoiceFingerprint | undefined'.
+      Type '{ topBigrams: [string, number][]; avgWordsPerSentence: number; sentenceLengthVariance: number; passiveVoiceRatio: number; questionFrequency: number; punctuationProfile: Record<number, unknown>; ... 5 more ...; extractedFromCount: number; }' is not assignable to type 'VoiceFingerprint'.
+        Types of property 'punctuationProfile' are incompatible.
+          Type 'Record<number, unknown>' is not assignable to type 'Record<string, number>'.
+            'number' and 'string' index signatures are incompatible.
+              Type 'unknown' is not assignable to type 'number'.
+app/api/services/thinkforge/script/edit/route.ts(65,11): error TS2741: Property 'documents' is missing in type '{ sessionId: string; userId: string; metadata: {}; chat: never[]; script: { title: any; blocks: any; content: any; draft: false; version: number; } | null; ideas: never[]; version: number; lastUpdated: Date; }' but required in type 'SessionState'.
+app/api/services/thinkforge/script/route.ts(37,7): error TS2322: Type '{ [x: string]: unknown; title?: string | undefined; content?: string | undefined; blocks?: { [x: string]: unknown; id?: string | undefined; kind?: "action" | "header" | "why" | "example" | "paragraph" | "scene" | "editorial" | undefined; ... 4 more ...; editorial?: { ...; } | undefined; }[] | undefined; richText?: R...' is not assignable to type '{ title?: string | undefined; content?: string | undefined; blocks?: BlockTree | CIRDocument | CIRSection[] | undefined; richText?: any; } | undefined'.
+  Type '{ [x: string]: unknown; title?: string | undefined; content?: string | undefined; blocks?: { [x: string]: unknown; id?: string | undefined; kind?: "action" | "header" | "why" | "example" | "paragraph" | "scene" | "editorial" | undefined; ... 4 more ...; editorial?: { ...; } | undefined; }[] | undefined; richText?: R...' is not assignable to type '{ title?: string | undefined; content?: string | undefined; blocks?: BlockTree | CIRDocument | CIRSection[] | undefined; richText?: any; }'.
+    Types of property 'blocks' are incompatible.
+      Type '{ [x: string]: unknown; id?: string | undefined; kind?: "action" | "header" | "why" | "example" | "paragraph" | "scene" | "editorial" | undefined; content?: any[] | undefined; blockHash?: string | undefined; meta?: { ...; } | undefined; scene?: { ...; } | undefined; editorial?: { ...; } | undefined; }[] | undefined' is not assignable to type 'BlockTree | CIRDocument | CIRSection[] | undefined'.
+        Type '{ [x: string]: unknown; id?: string | undefined; kind?: "action" | "header" | "why" | "example" | "paragraph" | "scene" | "editorial" | undefined; content?: any[] | undefined; blockHash?: string | undefined; meta?: { ...; } | undefined; scene?: { ...; } | undefined; editorial?: { ...; } | undefined; }[]' is not assignable to type 'BlockTree | CIRDocument | CIRSection[] | undefined'.
+          Type '{ [x: string]: unknown; id?: string | undefined; kind?: "action" | "header" | "why" | "example" | "paragraph" | "scene" | "editorial" | undefined; content?: any[] | undefined; blockHash?: string | undefined; meta?: { ...; } | undefined; scene?: { ...; } | undefined; editorial?: { ...; } | undefined; }[]' is not assignable to type 'BlockTree'.
+            Type '{ [x: string]: unknown; id?: string | undefined; kind?: "action" | "header" | "why" | "example" | "paragraph" | "scene" | "editorial" | undefined; content?: any[] | undefined; blockHash?: string | undefined; meta?: { ...; } | undefined; scene?: { ...; } | undefined; editorial?: { ...; } | undefined; }' is missing the following properties from type 'Block': type, children
+app/api/services/uploaderx/facebook/chunk/route.ts(6,22): error TS2307: Cannot find module 'form-data' or its corresponding type declarations.
+app/api/services/uploaderx/facebook/route.ts(6,22): error TS2307: Cannot find module 'form-data' or its corresponding type declarations.
+app/api/user/initialize/route.ts(45,7): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+app/dashboard/alyzitron/report/[id]/page.tsx(143,5): error TS2740: Type 'Record<string, MetricData>' is missing the following properties from type '{ name: string; score: number; description: string; }[]': length, pop, push, concat, and 35 more.
+app/dashboard/thinkforge/hooks/useThinkForgeClient.ts(17,32): error TS2305: Module '"@/lib/thinkforge/json"' has no exported member 'applyBlockPatches'.
+components/dashboard/Alyzitron/VideoUpload.tsx(33,5): error TS2353: Object literal may only specify known properties, and 'niche' does not exist in type 'ContextValues | (() => ContextValues)'.
+components/dashboard/Clickatron/canvas/AICommandConsole.tsx(613,47): error TS2339: Property 'referenceImages' does not exist on type '{ prompt: string; trigger: number; }'.
+components/dashboard/Clickatron/stages/CanvasStage.tsx(443,26): error TS2304: Cannot find name 'Variation'.
+components/dashboard/Clickatron/stages/CanvasStage.tsx(654,13): error TS18046: 'pollError' is of type 'unknown'.
+components/dashboard/Clickatron/stages/CanvasStage.tsx(838,53): error TS2304: Cannot find name 'Variation'.
+components/dashboard/ThinkForge/BranchEditor.tsx(128,7): error TS2345: Argument of type 'BranchBlocks' is not assignable to parameter of type 'BlockTree'.
+  Type 'CIRDocument' is missing the following properties from type 'Block[]': length, pop, push, concat, and 35 more.
+components/dashboard/ThinkForge/BranchEditor.tsx(168,23): error TS2339: Property 'length' does not exist on type 'BranchBlocks'.
+  Property 'length' does not exist on type 'CIRDocument'.
+components/dashboard/ThinkForge/BranchEditor.tsx(169,43): error TS2345: Argument of type 'BranchBlocks' is not assignable to parameter of type 'BlockTree'.
+  Type 'CIRDocument' is missing the following properties from type 'Block[]': length, pop, push, concat, and 35 more.
+components/dashboard/ThinkForge/BranchEditor.tsx(402,53): error TS2339: Property 'length' does not exist on type 'BranchBlocks'.
+  Property 'length' does not exist on type 'CIRDocument'.
+components/dashboard/ThinkForge/BranchEditor.tsx(404,40): error TS2339: Property 'slice' does not exist on type 'BranchBlocks'.
+  Property 'slice' does not exist on type 'CIRDocument'.
+components/dashboard/ThinkForge/BranchEditor.tsx(404,58): error TS7006: Parameter 'block' implicitly has an 'any' type.
+components/dashboard/ThinkForge/BranchEditor.tsx(404,65): error TS7006: Parameter 'i' implicitly has an 'any' type.
+components/dashboard/ThinkForge/BranchEditor.tsx(413,40): error TS2339: Property 'length' does not exist on type 'BranchBlocks'.
+  Property 'length' does not exist on type 'CIRDocument'.
+components/dashboard/ThinkForge/BranchEditor.tsx(415,45): error TS2339: Property 'length' does not exist on type 'BranchBlocks'.
+  Property 'length' does not exist on type 'CIRDocument'.
+components/dashboard/ThinkForge/ContentCardModal.tsx(203,21): error TS2322: Type '(updates: Partial<ContentCardType>) => void' is not assignable to type '(id: string, updates: Partial<ContentCard>) => void'.
+  Types of parameters 'updates' and 'id' are incompatible.
+    Type 'string' has no properties in common with type 'Partial<ContentCard>'.
+components/dashboard/ThinkForge/Dock.tsx(76,11): error TS2322: Type '{ initial: { y: number; }; animate: { y: number[]; transition: { duration: number; repeat: number; ease: string; }; }; }' is not assignable to type 'Variants'.
+  Property 'animate' is incompatible with index signature.
+    Type '{ y: number[]; transition: { duration: number; repeat: number; ease: string; }; }' is not assignable to type 'Variant'.
+      Type '{ y: number[]; transition: { duration: number; repeat: number; ease: string; }; }' is not assignable to type 'TargetAndTransition'.
+        Type '{ y: number[]; transition: { duration: number; repeat: number; ease: string; }; }' is not assignable to type '{ transition?: Transition<any> | undefined; transitionEnd?: ResolvedValues | undefined; }'.
+          Types of property 'transition' are incompatible.
+            Type '{ duration: number; repeat: number; ease: string; }' is not assignable to type 'Transition<any> | undefined'.
+              Type '{ duration: number; repeat: number; ease: string; }' is not assignable to type 'TransitionWithValueOverrides<any>'.
+                Type '{ duration: number; repeat: number; ease: string; }' is not assignable to type 'ValueAnimationTransition<any>'.
+                  Types of property 'ease' are incompatible.
+                    Type 'string' is not assignable to type 'Easing | Easing[] | undefined'.
+components/dashboard/ThinkForge/FormatToolbar.tsx(67,19): error TS2322: Type 'string' is not assignable to type 'never'.
+components/dashboard/ThinkForge/IdeaGrid.tsx(3,10): error TS2440: Import declaration conflicts with local declaration of 'IdeaCardData'.
+components/dashboard/ThinkForge/PromptPanel.tsx(113,15): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+components/dashboard/ThinkForge/PromptPanel.tsx(113,15): error TS2345: Argument of type '(prev: any) => string' is not assignable to parameter of type 'string'.
+components/dashboard/ThinkForge/ScriptHistoryPanel.tsx(42,102): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string | number | boolean'.
+  Type 'null' is not assignable to type 'string | number | boolean'.
+components/dashboard/ThinkForge/ScriptPanel.tsx(198,19): error TS2322: Type '((data: any) => Promise<{ ok: boolean; applied?: any; error?: string | undefined; } | { ok: boolean; applied?: any; error?: string | undefined; }> | { ok: boolean; applied?: any; error?: string | undefined; }) | undefined' is not assignable to type '((data: any) => Promise<{ ok: boolean; applied?: any; error?: string | undefined; }>) | undefined'.
+  Type '(data: any) => Promise<{ ok: boolean; applied?: any; error?: string | undefined; } | { ok: boolean; applied?: any; error?: string | undefined; }> | { ok: boolean; applied?: any; error?: string | undefined; }' is not assignable to type '(data: any) => Promise<{ ok: boolean; applied?: any; error?: string | undefined; }>'.
+    Type 'Promise<{ ok: boolean; applied?: any; error?: string | undefined; } | { ok: boolean; applied?: any; error?: string | undefined; }> | { ok: boolean; applied?: any; error?: string | undefined; }' is not assignable to type 'Promise<{ ok: boolean; applied?: any; error?: string | undefined; }>'.
+      Type '{ ok: boolean; applied?: any; error?: string | undefined; }' is missing the following properties from type 'Promise<{ ok: boolean; applied?: any; error?: string | undefined; }>': then, catch, finally, [Symbol.toStringTag]
+components/dashboard/ThinkForge/ScriptRenderer.tsx(48,14): error TS2322: Type 'unknown' is not assignable to type 'string | undefined'.
+components/dashboard/ThinkForge/SuggestionsCard.tsx(2,20): error TS2307: Cannot find module '@/components/dashboard/ThinkForge/auroraEffect' or its corresponding type declarations.
+components/dashboard/ThinkForge/chat/ChatHistoryPanel.tsx(53,103): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string | number | boolean'.
+  Type 'null' is not assignable to type 'string | number | boolean'.
+components/dashboard/ThinkForge/chat/SidecarCardRenderer.tsx(89,20): error TS18048: 'card.data' is possibly 'undefined'.
+components/ui/bento-grid.tsx(129,13): error TS2322: Type 'string' is not assignable to type 'never'.
+components/ui/bento-grid.tsx(130,13): error TS2322: Type '{ color: string; }' is not assignable to type 'never'.
+lib/editron/services/media/caption-service.ts(319,28): error TS2353: Object literal may only specify known properties, and 'words' does not exist in type 'CaptionOverlay'.
+lib/editron/services/media/caption-service.ts(319,54): error TS2304: Cannot find name 'config'.
+lib/editron/services/signal-executor.ts(365,15): error TS2322: Type 'number[]' is not assignable to type 'string | number'.
+lib/editron/services/signal-executor.ts(366,15): error TS2322: Type 'string[]' is not assignable to type 'string | number'.
+lib/oauth1a.ts(151,9): error TS2322: Type 'Buffer<ArrayBufferLike>' is not assignable to type 'BodyInit | null | undefined'.
+  Type 'Buffer<ArrayBufferLike>' is missing the following properties from type 'URLSearchParams': size, append, delete, get, and 2 more.
+lib/services/email/ticket-email-tracking.ts(8,44): error TS2307: Cannot find module '@/schemas/ics25/Attendee' or its corresponding type declarations.
+lib/shared/signals/validation.ts(37,36): error TS2344: Type 'string | undefined' does not satisfy the constraint 'string | number | symbol'.
+  Type 'undefined' is not assignable to type 'string | number | symbol'.
+lib/shared/signals/validation.ts(125,33): error TS2538: Type 'undefined' cannot be used as an index type.
+lib/shared/signals/validation.ts(179,31): error TS2538: Type 'undefined' cannot be used as an index type.
+lib/shared/universal-analysis.ts(118,52): error TS2551: Property 'contentRef' does not exist on type 'ContentInput'. Did you mean 'content'?
+lib/shared/universal-analysis.ts(177,25): error TS2551: Property 'contentRef' does not exist on type 'ContentInput'. Did you mean 'content'?
+lib/shared/universal-analysis.ts(201,25): error TS2551: Property 'contentRef' does not exist on type 'ContentInput'. Did you mean 'content'?
+lib/shared/universal-analysis.ts(227,25): error TS2551: Property 'contentRef' does not exist on type 'ContentInput'. Did you mean 'content'?
+lib/shared/universal-analysis.ts(253,25): error TS2551: Property 'contentRef' does not exist on type 'ContentInput'. Did you mean 'content'?
+lib/thinkforge/agents/base-agent.ts(312,11): error TS2353: Object literal may only specify known properties, and 'maxTokens' does not exist in type 'CallSettings & { system?: string | undefined; } & { prompt: string | ModelMessage[]; messages?: undefined; } & { model: LanguageModel; tools?: ToolSet | undefined; ... 13 more ...; _internal?: { ...; } | undefined; }'.
+lib/thinkforge/data/extract-signals.ts(177,43): error TS2538: Type 'undefined' cannot be used as an index type.
+lib/thinkforge/data/extract-signals.ts(177,64): error TS2538: Type 'undefined' cannot be used as an index type.
+lib/thinkforge/extensions/index.ts(74,7): error TS2353: Object literal may only specify known properties, and 'history' does not exist in type 'Partial<StarterKitOptions>'.
+lib/thinkforge/extensions/index.ts(308,15): error TS2484: Export declaration conflicts with exported declaration of 'ThinkForgeEditorOptions'.
+lib/thinkforge/mappers/thinkforge-to-tiptap.ts(316,13): error TS2322: Type 'TiptapHorizontalRule' is not assignable to type 'TiptapParagraph | TiptapHeading | TiptapBulletList | TiptapOrderedList | TiptapBlockquote | ... 10 more ... | { ...; }'.
+  Type 'TiptapHorizontalRule' is not assignable to type '{ [x: string]: unknown; type: "horizontalRule"; attrs?: Record<string, unknown> | undefined; } | { [x: string]: unknown; type: string; attrs?: Record<string, unknown> | undefined; content?: unknown[] | undefined; }'.
+    Type 'TiptapHorizontalRule' is not assignable to type '{ [x: string]: unknown; type: string; attrs?: Record<string, unknown> | undefined; content?: unknown[] | undefined; }'.
+      Index signature for type 'string' is missing in type 'TiptapHorizontalRule'.
+lib/thinkforge/mappers/thinkforge-to-tiptap.ts(327,18): error TS2322: Type 'number' is not assignable to type '1 | 2 | 3'.
+lib/thinkforge/mappers/tiptap-to-thinkforge.ts(70,58): error TS2339: Property 'href' does not exist on type '{}'.
+lib/thinkforge/mappers/tiptap-to-thinkforge.ts(71,27): error TS2339: Property 'href' does not exist on type '{}'.
+lib/thinkforge/mappers/tiptap-to-thinkforge.ts(262,26): error TS18046: 'item' is of type 'unknown'.
+lib/thinkforge/schemas/route-validation.ts(11,25): error TS2554: Expected 2-3 arguments, but got 1.
+lib/thinkforge/schemas/route-validation.ts(23,20): error TS2554: Expected 2-3 arguments, but got 1.
+lib/thinkforge/schemas/route-validation.ts(84,15): error TS2554: Expected 2-3 arguments, but got 1.
+lib/thinkforge/schemas/route-validation.ts(108,15): error TS2554: Expected 2-3 arguments, but got 1.
+lib/thinkforge/schemas/tiptap-validation.ts(340,50): error TS2638: Type '{}' may represent a primitive value, which is not permitted as the right operand of the 'in' operator.
+lib/thinkforge/services/embedding-service.ts(30,30): error TS2339: Property 'slice' does not exist on type 'never'.
+lib/thinkforge/state/session-state.ts(63,23): error TS2339: Property 'userId' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'userId' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(67,5): error TS2741: Property 'documents' is missing in type '{ sessionId: any; userId: any; chat: any; script: any; ideas: any; metadata: any; version: any; lastUpdated: any; }' but required in type 'SessionState'.
+lib/thinkforge/state/session-state.ts(68,22): error TS2339: Property '_id' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property '_id' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(69,19): error TS2339: Property 'userId' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'userId' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(70,17): error TS2339: Property 'chat' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'chat' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(71,19): error TS2339: Property 'script' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'script' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(72,18): error TS2339: Property 'ideas' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'ideas' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(73,21): error TS2339: Property 'metadata' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'metadata' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(74,20): error TS2339: Property 'version' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'version' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(75,24): error TS2339: Property 'lastUpdated' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'lastUpdated' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(125,5): error TS2741: Property 'documents' is missing in type '{ sessionId: any; userId: any; chat: any; script: any; ideas: any; metadata: any; version: any; lastUpdated: any; }' but required in type 'SessionState'.
+lib/thinkforge/state/session-state.ts(126,18): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(126,22): error TS2339: Property '_id' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property '_id' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(127,15): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(127,19): error TS2339: Property 'userId' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'userId' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(128,13): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(128,17): error TS2339: Property 'chat' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'chat' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(129,15): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(129,19): error TS2339: Property 'script' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'script' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(130,14): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(130,18): error TS2339: Property 'ideas' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'ideas' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(131,17): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(131,21): error TS2339: Property 'metadata' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'metadata' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(132,16): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(132,20): error TS2339: Property 'version' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'version' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/state/session-state.ts(133,20): error TS18047: 'doc' is possibly 'null'.
+lib/thinkforge/state/session-state.ts(133,24): error TS2339: Property 'lastUpdated' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[] | (FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })'.
+  Property 'lastUpdated' does not exist on type '(FlattenMaps<any> & Required<{ _id: unknown; }> & { __v: number; })[]'.
+lib/thinkforge/utils/thinkforge-block-patch.ts(21,16): error TS2339: Property 'children' does not exist on type 'RichTextNode'.
+lib/thinkforge/utils/thinkforge-block-patch.ts(21,33): error TS2339: Property 'children' does not exist on type 'RichTextNode'.
+lib/thinkforge/utils/thinkforge-block-patch.ts(21,60): error TS2339: Property 'children' does not exist on type 'RichTextNode'.
+lib/utils/chatReliabilityMonitor.ts(324,37): error TS2683: 'this' implicitly has type 'any' because it does not have a type annotation.
+lib/utils/raceConditionManager.ts(314,11): error TS2345: Argument of type '(value: unknown) => void' is not assignable to parameter of type '() => void'.
+  Target signature provides too few arguments. Expected 1 or more, but got 0.
+scripts/test-editron-pipeline.ts(25,7): error TS2451: Cannot redeclare block-scoped variable 'BASE_URL'.
+scripts/test-editron-pipeline.ts(81,5): error TS2451: Cannot redeclare block-scoped variable 'passed'.
+scripts/test-editron-pipeline.ts(82,5): error TS2451: Cannot redeclare block-scoped variable 'failed'.
+scripts/test-editron-pipeline.ts(364,16): error TS2393: Duplicate function implementation.
+scripts/test-full-pipeline.ts(237,41): error TS2345: Argument of type '{ formality: number; enthusiasm: number; warmth: number; emotional_arousal: number; pacing_velocity: number; humor: number; visceral_impact: number; visual_dependency: number; speech_energy: number; ... 6 more ...; visual_significance: number; } | { ...; } | { ...; } | { ...; }' is not assignable to parameter of type 'Record<string, number>'.
+  Type '{ formality: number; enthusiasm: number; visceral_impact: number; pacing_velocity: number; bpm: number; speech_energy: number; active_overlay_count: number; warmth: number; emotional_arousal: number; ... 6 more ...; visual_significance?: undefined; }' is not assignable to type 'Record<string, number>'.
+    Property 'motion_intensity' is incompatible with index signature.
+      Type 'undefined' is not assignable to type 'number'.
+scripts/test-full-pipeline.ts(242,29): error TS18048: 'rawSignals.montage_mode' is possibly 'undefined'.
+scripts/test-full-pipeline.ts(251,7): error TS18048: 'rawSignals.montage_mode' is possibly 'undefined'.
+scripts/test-full-pipeline.ts(265,37): error TS18048: 'rawSignals.montage_mode' is possibly 'undefined'.
+scripts/test-gemma4-files-api.ts(17,16): error TS2393: Duplicate function implementation.
+scripts/test-physics.ts(112,67): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-physics.ts(120,67): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-physics.ts(128,68): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-physics.ts(149,80): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-physics.ts(157,80): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-physics.ts(166,83): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-physics.ts(174,81): error TS2345: Argument of type 'ExistingOverlay[]' is not assignable to parameter of type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay[]'.
+  Type 'ExistingOverlay' is not assignable to type 'import("/home/harsimran-singh/Documents/Insturix/Front-End/lib/editron/core/physics").ExistingOverlay'.
+    Types of property 'type' are incompatible.
+      Type 'string' is not assignable to type 'OverlayType'.
+scripts/test-signal-bridge.ts(10,5): error TS2451: Cannot redeclare block-scoped variable 'passed'.
+scripts/test-signal-bridge.ts(11,5): error TS2451: Cannot redeclare block-scoped variable 'failed'.
+scripts/test-signal-bridge.ts(13,10): error TS2393: Duplicate function implementation.
+scripts/test-wav2vec-timeout.ts(5,5): error TS2451: Cannot redeclare block-scoped variable 'passed'.
+scripts/test-wav2vec-timeout.ts(6,5): error TS2451: Cannot redeclare block-scoped variable 'failed'.
+scripts/test-wav2vec-timeout.ts(8,10): error TS2393: Duplicate function implementation.
+tests/clickatron/endpoint-verification.ts(11,7): error TS2451: Cannot redeclare block-scoped variable 'BASE_URL'.

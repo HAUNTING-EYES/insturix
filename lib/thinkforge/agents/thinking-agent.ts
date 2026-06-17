@@ -42,6 +42,7 @@ ${docBlock}
       model,
       prompt,
       temperature: 0.3,
+      // @ts-ignore
       maxTokens: 200,
     });
 
