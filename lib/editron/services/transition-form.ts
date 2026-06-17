@@ -65,7 +65,9 @@ export function resolveAtomicTransitionForm(input: {
   const visualSignificance = signalNumber(signals, 'visual_significance', 'visual.significance');
   const motionIntensity = signalNumber(signals, 'motion_intensity', 'visual.motion_intensity');
   const textOnScreen = signalNumber(signals, 'text_on_screen', 'visual.text_on_screen');
-  const textCoverage = signalNumber(signals, 'text_coverage', 'visual.text_coverage');
+  const textCoverage = policyAllows(signals, 'vjepa.allow_text_avoidance', 'screen_context.allow_text_avoidance') === false
+    ? 0
+    : signalNumber(signals, 'text_coverage', 'visual.text_coverage');
   const visualComplexity = signalNumber(signals, 'visual_complexity', 'visual.complexity');
   const shotScale = signalNumber(signals, 'shot_scale', 'visual.shot_scale');
   const facePresent = signalNumber(signals, 'face_present', 'visual.face_present') >= 0.5;
@@ -135,10 +137,12 @@ export function resolveAtomicTransitionForm(input: {
 }
 
 function resolveDirection(signals: Record<string, unknown>): AtomicTransitionDirection {
-  const vectorX = signalNumberSigned(signals, 'motion_vector_x', 'subject_motion_x', 'camera_motion_x', 'visual.motion_vector.x', 'visual.motion.x');
-  const vectorY = signalNumberSigned(signals, 'motion_vector_y', 'subject_motion_y', 'camera_motion_y', 'visual.motion_vector.y', 'visual.motion.y');
-  const subjectX = signalNumber(signals, 'main_subject_x', 'subject_x', 'visual.main_subject.x', 'mainSubjectX', 'subjectX');
-  const subjectY = signalNumber(signals, 'main_subject_y', 'subject_y', 'visual.main_subject.y', 'mainSubjectY', 'subjectY');
+  const motionTrusted = policyAllows(signals, 'vjepa.allow_motion_direction', 'screen_context.allow_motion_direction') !== false;
+  const subjectTrusted = policyAllows(signals, 'vjepa.allow_subject_avoidance', 'screen_context.allow_subject_avoidance') !== false;
+  const vectorX = motionTrusted ? signalNumberSigned(signals, 'motion_vector_x', 'subject_motion_x', 'camera_motion_x', 'visual.motion_vector.x', 'visual.motion.x') : 0;
+  const vectorY = motionTrusted ? signalNumberSigned(signals, 'motion_vector_y', 'subject_motion_y', 'camera_motion_y', 'visual.motion_vector.y', 'visual.motion.y') : 0;
+  const subjectX = subjectTrusted ? signalNumber(signals, 'main_subject_x', 'subject_x', 'visual.main_subject.x', 'mainSubjectX', 'subjectX') : 0;
+  const subjectY = subjectTrusted ? signalNumber(signals, 'main_subject_y', 'subject_y', 'visual.main_subject.y', 'mainSubjectY', 'subjectY') : 0;
 
   const fallbackX = vectorX === 0 && subjectX > 0 ? (subjectX - 0.5) * 0.7 : 0;
   const fallbackY = vectorY === 0 && subjectY > 0 ? (subjectY - 0.5) * 0.45 : 0;
@@ -367,6 +371,21 @@ function paramNumber(source: Record<string, unknown>, key: string): number | und
 function paramString(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function policyAllows(source: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number' && isFinite(value)) return value >= 0.5;
+    if (typeof value === 'string' && value.trim()) {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric >= 0.5;
+    }
+  }
+  return undefined;
 }
 
 function clamp01(value: number): number {

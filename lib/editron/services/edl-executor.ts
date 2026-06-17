@@ -32,6 +32,10 @@ import {
 import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
 import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
+import {
+  resolveVjepaScreenContextPolicy,
+  type VjepaScreenContextPolicy,
+} from '@/lib/editron/services/vjepa-coverage-audit';
 import { resolveAtomicPlacement } from '@/lib/editron/services/atomic-placement';
 import { normalizeMotionGraphicContent } from '@/lib/editron/services/mg-content-atoms';
 import {
@@ -224,6 +228,7 @@ export interface ExecutionResult {
 interface EDLSignalContext {
   vjepaSegments?: Array<Record<string, unknown>>;
   wav2vecSegments?: Array<Record<string, unknown>>;
+  vjepaScreenContextPolicy?: VjepaScreenContextPolicy;
 }
 
 type ScoreAllOverlaysFn = typeof import('@/lib/editron/engine/utility-scorer').scoreAllOverlays;
@@ -309,6 +314,9 @@ export async function executeEDL(
     projectSignalContext = {
       vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
       wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
+      vjepaScreenContextPolicy: projectDoc?.intelligence?.vjepaCoverageAudit
+        ? resolveVjepaScreenContextPolicy(projectDoc.intelligence.vjepaCoverageAudit)
+        : undefined,
     };
     if (projectDoc?.brandId && userId) {
       const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
@@ -711,8 +719,22 @@ function deriveSignalsAtDecisionFrame(
   if (signals.motion_intensity != null && signals.visual_change_rate == null) {
     signals.visual_change_rate = signals.motion_intensity;
   }
+  appendVjepaScreenContextPolicySignals(signals, projectSignalContext.vjepaScreenContextPolicy);
 
   return signals;
+}
+
+function appendVjepaScreenContextPolicySignals(
+  signals: Record<string, number | string>,
+  policy?: VjepaScreenContextPolicy,
+): void {
+  if (!policy) return;
+  signals['vjepa.screen_context.mode'] = policy.mode;
+  signals['vjepa.screen_context.score'] = policy.score;
+  signals['vjepa.allow_subject_avoidance'] = policy.allowSubjectAvoidance ? 1 : 0;
+  signals['vjepa.allow_negative_space_placement'] = policy.allowNegativeSpacePlacement ? 1 : 0;
+  signals['vjepa.allow_motion_direction'] = policy.allowMotionDirection ? 1 : 0;
+  signals['vjepa.allow_text_avoidance'] = policy.allowTextAvoidance ? 1 : 0;
 }
 
 function resolveSourceFrame(frame: number, overlays: Overlay[]): { sourceFrame: number; assetId?: string } {

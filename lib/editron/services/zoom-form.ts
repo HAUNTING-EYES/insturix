@@ -148,11 +148,12 @@ export function resolveAtomicZoomForm(input: {
 export function deriveZoomFocalAnchor(signals: Record<string, unknown>): ZoomFocalAnchor {
   const explicitX = signalNumber(signals, 'zoom_focal_x', 'zoom.focal_x');
   const explicitY = signalNumber(signals, 'zoom_focal_y', 'zoom.focal_y');
-  const subjectX = signalNumber(signals, 'main_subject_x', 'subject_x', 'visual.main_subject.x', 'mainSubjectX', 'subjectX');
-  const subjectY = signalNumber(signals, 'main_subject_y', 'subject_y', 'visual.main_subject.y', 'mainSubjectY', 'subjectY');
-  const facePresent = signalNumber(signals, 'face_present', 'visual.face_present', 'facePresent') >= 0.5;
-  const subjectWidth = signalNumber(signals, 'main_subject_width', 'subject_width', 'visual.main_subject.width', 'mainSubjectWidth', 'subjectWidth');
-  const subjectHeight = signalNumber(signals, 'main_subject_height', 'subject_height', 'visual.main_subject.height', 'mainSubjectHeight', 'subjectHeight');
+  const subjectTrusted = policyAllows(signals, 'vjepa.allow_subject_avoidance', 'screen_context.allow_subject_avoidance') !== false;
+  const subjectX = subjectTrusted ? signalNumber(signals, 'main_subject_x', 'subject_x', 'visual.main_subject.x', 'mainSubjectX', 'subjectX') : 0;
+  const subjectY = subjectTrusted ? signalNumber(signals, 'main_subject_y', 'subject_y', 'visual.main_subject.y', 'mainSubjectY', 'subjectY') : 0;
+  const facePresent = subjectTrusted && signalNumber(signals, 'face_present', 'visual.face_present', 'facePresent') >= 0.5;
+  const subjectWidth = subjectTrusted ? signalNumber(signals, 'main_subject_width', 'subject_width', 'visual.main_subject.width', 'mainSubjectWidth', 'subjectWidth') : 0;
+  const subjectHeight = subjectTrusted ? signalNumber(signals, 'main_subject_height', 'subject_height', 'visual.main_subject.height', 'mainSubjectHeight', 'subjectHeight') : 0;
   const hasSubjectAnchor = subjectX > 0 || subjectY > 0 || subjectWidth > 0 || subjectHeight > 0 || facePresent;
   const hasExplicitFocal = explicitX > 0 || explicitY > 0;
   const rawX = explicitX > 0 ? explicitX : hasSubjectAnchor && subjectX > 0 ? subjectX : 0.5;
@@ -269,6 +270,21 @@ function paramNumber(source: Record<string, unknown>, key: string): number | und
 function paramString(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function policyAllows(source: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number' && isFinite(value)) return value >= 0.5;
+    if (typeof value === 'string' && value.trim()) {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric >= 0.5;
+    }
+  }
+  return undefined;
 }
 
 function formatPercent(value: number): string {

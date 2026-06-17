@@ -101,4 +101,24 @@ describe('resolveAtomicZoomForm', () => {
     expect(inferred.focal.transformOrigin).toBe('16% 82%');
     expect(explicit.focal.transformOrigin).toBe('3% 95%');
   });
+
+  it('does not anchor zoom to untrusted V-JEPA subject primitives', () => {
+    const form = resolveAtomicZoomForm({
+      localFrame: 60,
+      sceneEnd: 180,
+      signals: {
+        speech_energy: 0.88,
+        word_importance: 0.91,
+        main_subject_x: 0.82,
+        main_subject_y: 0.28,
+        main_subject_width: 0.3,
+        main_subject_height: 0.5,
+        face_present: 1,
+        'vjepa.allow_subject_avoidance': 0,
+      },
+    });
+
+    expect(form.focal.transformOrigin).toBe('50% 50%');
+    expect(form.focal.strength).toBe(0);
+  });
 });

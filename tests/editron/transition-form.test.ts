@@ -137,4 +137,44 @@ describe('resolveAtomicTransitionForm', () => {
     expect(form.durationFrames).toBeLessThanOrEqual(6);
     expect(form.sfxRole).toBe('none');
   });
+
+  it('does not use untrusted V-JEPA motion vectors to create directional transitions', () => {
+    const form = resolveAtomicTransitionForm({
+      signals: {
+        motion_vector_x: 0.86,
+        motion_vector_y: 0.08,
+        motion_intensity: 0.82,
+        beat_strength: 0.84,
+        speech_energy: 0.72,
+        text_on_screen: 0,
+        'vjepa.allow_motion_direction': 0,
+      },
+    });
+
+    expect(form.direction.label).toBe('center');
+    expect(form.direction.magnitude).toBe(0);
+    expect(form.compatibilityType).not.toBe('whip-pan');
+  });
+
+  it('does not let untrusted V-JEPA text coverage inflate visual pressure', () => {
+    const trusted = resolveAtomicTransitionForm({
+      signals: {
+        text_coverage: 0.94,
+        topic_shift: 0.2,
+        speech_energy: 0.2,
+        'vjepa.allow_text_avoidance': 1,
+      },
+    });
+    const untrusted = resolveAtomicTransitionForm({
+      signals: {
+        text_coverage: 0.94,
+        topic_shift: 0.2,
+        speech_energy: 0.2,
+        'vjepa.allow_text_avoidance': 0,
+      },
+    });
+
+    expect(trusted.visualPressure).toBeGreaterThan(0.9);
+    expect(untrusted.visualPressure).toBeLessThan(0.2);
+  });
 });
