@@ -15,6 +15,7 @@ import {
   buildOverlayOnlyRenderOverlays,
   changedPixelBounds,
   hydratePhase0RenderArtifactPackForTaxonomy,
+  normalizeRenderedAestheticSamplePlan,
   pickRenderedAestheticSampleFrames,
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
@@ -185,6 +186,24 @@ describe('rendered aesthetic harness helpers', () => {
         sourceOverlayTypes: ['video'],
       }],
     }, [videoOverlay({ id: 1 })], {});
+
+    expect(samples).toEqual([{
+      frame: 30,
+      roles: ['zoom-anchor', 'zoom-motion', 'transition-boundary', 'sfx-sync'],
+      sourceOverlayIds: ['clip-zoom'],
+      sourceOverlayTypes: ['video'],
+    }]);
+  });
+
+  it('preserves Phase 0 timing sample roles when parsing render-input JSON', () => {
+    const samples = normalizeRenderedAestheticSamplePlan({
+      samples: [{
+        frame: 30,
+        roles: ['zoom-anchor', 'zoom-motion', 'transition-boundary', 'sfx-sync', 'unknown-role'],
+        sourceOverlayIds: ['clip-zoom'],
+        sourceOverlayTypes: ['video'],
+      }],
+    }, 120);
 
     expect(samples).toEqual([{
       frame: 30,

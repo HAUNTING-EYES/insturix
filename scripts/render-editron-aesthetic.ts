@@ -451,7 +451,7 @@ export function resolveRenderedAestheticSamplePlan(
   return planRenderedAestheticSamples(overlays, input.durationInFrames, options.maxSamples ?? 18);
 }
 
-function readPlannedSamples(value: unknown, durationInFrames: number): RenderedAestheticSample[] | undefined {
+export function normalizeRenderedAestheticSamplePlan(value: unknown, durationInFrames: number): RenderedAestheticSample[] | undefined {
   const rawSamples = isRecord(value) && Array.isArray(value.samples)
     ? value.samples
     : undefined;
@@ -1033,7 +1033,7 @@ function readProjectInput(inputFile: string): RenderedAestheticProjectInput {
     sampleFrames: Array.isArray(raw.sampleFrames)
       ? raw.sampleFrames.map((value) => Number(value)).filter(Number.isFinite)
       : undefined,
-    samplePlan: readPlannedSamples(raw.samplePlan, durationInFrames),
+    samplePlan: normalizeRenderedAestheticSamplePlan(raw.samplePlan, durationInFrames),
   };
 }
 
@@ -1562,7 +1562,17 @@ function uniqueIds(values: Array<number | string>): Array<number | string> {
 }
 
 function uniqueSampleRoles(values: RenderedAestheticSampleRole[]): RenderedAestheticSampleRole[] {
-  const order: RenderedAestheticSampleRole[] = ['manual', 'entry-settle', 'hold', 'exit-prep', 'keyframe'];
+  const order: RenderedAestheticSampleRole[] = [
+    'manual',
+    'entry-settle',
+    'hold',
+    'exit-prep',
+    'keyframe',
+    'zoom-anchor',
+    'zoom-motion',
+    'transition-boundary',
+    'sfx-sync',
+  ];
   const set = new Set(values);
   return order.filter((role) => set.has(role));
 }
