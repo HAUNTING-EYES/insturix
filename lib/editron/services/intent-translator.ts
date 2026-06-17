@@ -160,6 +160,7 @@ export function translateCreativeIntentToEDL(
   let momentsResolved = 0;
   let momentsFallback = 0;
   let safetyNetEmitted = 0;
+  const globalSemanticGraphicEvidence = new Set<string>();
 
   for (const intent of plan.sceneIntents) {
     const sceneCtx = sceneContexts.find(s => s.sceneIndex === intent.sceneIndex);
@@ -279,6 +280,8 @@ export function translateCreativeIntentToEDL(
       if (semanticFactsEmitted >= semanticFactEmissionCap(graphicsDensity)) break;
       const keys = graphicEvidenceKeys(fact.params);
       if (keys.some((key) => emittedGraphicEvidence.has(key))) continue;
+      const globalKey = semanticFactGlobalEvidenceKey(fact);
+      if (globalSemanticGraphicEvidence.has(globalKey)) continue;
 
       decisions.push({
         type: 'graphic',
@@ -290,6 +293,7 @@ export function translateCreativeIntentToEDL(
         sources: ['semantic-fact-extractor', fact.sourceSpan.source ?? 'scene-context'],
       });
       semanticFactsEmitted++;
+      globalSemanticGraphicEvidence.add(globalKey);
       for (const key of keys) emittedGraphicEvidence.add(key);
       emittedGraphicTexts.add(fact.sourceSpan.text.trim().toLowerCase());
     }
@@ -604,6 +608,25 @@ function buildSemanticFactGraphicParams(
     },
     ...(signals ? { signals } : {}),
   };
+}
+
+function semanticFactGlobalEvidenceKey(fact: ExtractedMotionGraphicSemanticFact): string {
+  const params = fact.params;
+  return [
+    fact.factKind,
+    normalizedSemanticEvidence(params.title ?? params.keyword ?? params.value ?? params.quote ?? ''),
+    fact.factKind === 'concept' ? '' : normalizedSemanticEvidence(params.body ?? params.contextPhrase ?? fact.sourceSpan.text),
+    normalizedSemanticEvidence(`${params.from ?? ''}->${params.to ?? ''}`),
+  ].join('|');
+}
+
+function normalizedSemanticEvidence(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9%$:/.-]+/g, ' ')
+    .split(/\s+/)
+    .filter((word, index, words) => word && words.indexOf(word) === index)
+    .join(' ');
 }
 
 function resolveSemanticFactFrame(

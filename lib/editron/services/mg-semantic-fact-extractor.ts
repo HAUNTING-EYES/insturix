@@ -47,11 +47,15 @@ interface NumericFact {
 const NUMERIC_TOKEN_RE = /[$\u20ac\u00a3\u00a5\u20b9]?\s*(?:\d[\d,]*(?:\.\d+)?(?:\s*[KMBTkmbt])?(?:\s*[%xX\u00d7])?|\d+(?:\/|:)\d+)/gi;
 const STOPWORDS = new Set([
   'about', 'after', 'again', 'also', 'because', 'before', 'being', 'could',
+  'doesnt', 'dont', 'from', 'have', 'himself', 'herself', 'isnt', 'itself',
+  'probably', 'should', 'their', 'there', 'theres', 'these', 'they', 'them',
+  'theyre', 'thing', 'things', 'want', 'wanna', 'wants', 'were', 'what', 'will',
   'every', 'first', 'from', 'have', 'into', 'just', 'like', 'more', 'most',
   'only', 'other', 'people', 'really', 'same', 'that', 'their', 'then',
   'there', 'these', 'they', 'this', 'those', 'through', 'when', 'where',
   'which', 'while', 'with', 'would', 'your',
 ]);
+const VAGUE_CONCEPT_WORDS = new Set(['good', 'lots', 'many', 'mostly', 'place', 'places', 'stuff', 'thing', 'things']);
 
 export function extractMotionGraphicSemanticFacts(
   input: ExtractMotionGraphicSemanticFactsInput,
@@ -395,27 +399,71 @@ function salienceForText(text: string, base: number): number {
 }
 
 function extractKeyword(text: string): string | undefined {
-  const words = cleanText(text)
+  const focus = conceptFocusPhrase(text) ?? text;
+  const words = cleanText(focus)
     .split(/\s+/)
     .map((word) => word.replace(/[^a-z0-9-]/gi, '').toLowerCase())
     .filter((word) => word.length >= 4 && !STOPWORDS.has(word));
   if (words.length === 0) return undefined;
-  return words.slice(0, 3).map((word) => word[0].toUpperCase() + word.slice(1)).join(' ');
+  const keyword = words.slice(0, 3).map(titleWord).join(' ');
+  if (!hasUsefulConceptKeyword(keyword)) return undefined;
+  return keyword;
+}
+
+function conceptFocusPhrase(text: string): string | undefined {
+  const cleaned = cleanText(text);
+  const problemExplanation = cleaned.match(/\bproblem\s+(?:here\s+)?(?:is|was)\s+that\s+([^.!?;,:]{8,96})/i);
+  if (problemExplanation) return cleanConceptPhrase(problemExplanation[1]);
+
+  const problem = cleaned.match(/\b(?:that'?s|this is|it'?s)?\s*(?:an?\s+)?([a-z][^.!?;,:]{2,64}?\s+problem)\b/i);
+  if (problem) return cleanConceptPhrase(problem[1]);
+
+  const connector = cleaned.match(/\b(?:because|means|meaning|reason|important|truth|actually|instead|rather than|this is why|what happens)\b[:,]?\s+([^.!?;,:]{8,96})/i);
+  if (connector) return cleanConceptPhrase(connector[1]);
+
+  return undefined;
+}
+
+function cleanConceptPhrase(value: string): string {
+  return value
+    .replace(/\b(?:he|she|it|they|we|you|i)\s+(?:doesn'?t|don'?t|isn'?t|aren'?t|wasn'?t|weren'?t)\s+/gi, '')
+    .replace(/\b(?:he|she|it|they|we|you|i)\s+/gi, '')
+    .replace(/\b(?:are|is|was|were|be|being|been|a|an|the)\s+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasUsefulConceptKeyword(keyword: string): boolean {
+  const words = keyword.split(/\s+/).filter(Boolean);
+  if (words.length > 0 && words.every((word) => VAGUE_CONCEPT_WORDS.has(word.toLowerCase()))) return false;
+  if (words.length >= 2) return true;
+  const [only] = words;
+  return !!only && only.length >= 7 && !/^(Theyre|Doesnt|Dont|Isnt|Because|Actually)$/i.test(only);
+}
+
+function titleWord(word: string): string {
+  return word ? word[0].toUpperCase() + word.slice(1) : word;
+}
+
+function stableFactEvidenceKey(fact: ExtractedMotionGraphicSemanticFact): string {
+  const title = typeof fact.params.title === 'string' ? fact.params.title : '';
+  const body = typeof fact.params.body === 'string' ? fact.params.body : '';
+  const value = typeof fact.params.value === 'string' ? fact.params.value : '';
+  const from = typeof fact.params.from === 'string' ? fact.params.from : '';
+  const to = typeof fact.params.to === 'string' ? fact.params.to : '';
+  const quote = typeof fact.params.quote === 'string' ? fact.params.quote : '';
+  return [
+    fact.factKind,
+    normalizedEvidenceText(title || value || quote || `${from}->${to}`),
+    fact.factKind === 'concept' ? '' : normalizedEvidenceText(body || fact.sourceSpan.text),
+  ].join('|');
 }
 
 function dedupeFacts(facts: ExtractedMotionGraphicSemanticFact[]): ExtractedMotionGraphicSemanticFact[] {
   const seen = new Set<string>();
   const deduped: ExtractedMotionGraphicSemanticFact[] = [];
   for (const fact of facts) {
-    const key = JSON.stringify({
-      factKind: fact.factKind,
-      value: fact.params.value,
-      from: fact.params.from,
-      to: fact.params.to,
-      quote: fact.params.quote,
-      keyword: fact.params.keyword,
-      sourceText: fact.sourceSpan.text.toLowerCase(),
-    });
+    const key = stableFactEvidenceKey(fact);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(fact);
@@ -432,6 +480,15 @@ function cleanComparisonSide(value: string): string {
 
 function cleanText(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizedEvidenceText(value: string): string {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9%$:/.-]+/g, ' ')
+    .split(/\s+/)
+    .filter((word, index, words) => word && words.indexOf(word) === index)
+    .join(' ');
 }
 
 function cleanToken(value: unknown): string {

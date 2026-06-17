@@ -5,6 +5,7 @@ vi.mock('../../lib/editron/services/edl-executor', () => ({
 }));
 
 import { translateCreativeIntentToEDL } from '../../lib/editron/services/intent-translator';
+import { extractMotionGraphicSemanticFacts } from '../../lib/editron/services/mg-semantic-fact-extractor';
 import type { CreativeIntentPlan, SceneIntent } from '../../lib/editron/services/unified-edit-intelligence';
 
 type GraphicIntent = SceneIntent['graphicIntents'][number];
@@ -139,6 +140,23 @@ describe('intent translator MG contract', () => {
     expect(semanticGraphics).toHaveLength(2);
     expect(semanticGraphics.some((decision) => decision.params.value === '0.02')).toBe(false);
     expect(JSON.stringify(semanticGraphics)).not.toMatch(/graphicType|template|preset/i);
+  });
+
+  it('focuses concept facts on claim evidence instead of pronoun fragments', () => {
+    const facts = extractMotionGraphicSemanticFacts({
+      textSources: [
+        { text: "He doesn't want to express his beliefs in the real world because they are unacceptable.", source: 'test-transcript' },
+        { text: "That's an algorithm problem.", source: 'test-transcript' },
+        { text: "but because they're people, just like you and just like me.", source: 'test-transcript' },
+      ],
+      maxFacts: 8,
+    }).filter((fact) => fact.factKind === 'concept' && fact.licensed);
+
+    const titles = facts.map((fact) => String(fact.params.title));
+
+    expect(titles).toEqual(expect.arrayContaining(['Unacceptable', 'Algorithm Problem']));
+    expect(titles).not.toEqual(expect.arrayContaining(['Doesnt Want Express', 'Theyre']));
+    expect(JSON.stringify(facts)).not.toMatch(/graphicType|template|preset/i);
   });
 });
 
