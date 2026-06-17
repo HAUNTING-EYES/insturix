@@ -1840,7 +1840,7 @@ function computeFittedSize(el: ResolvedElement, text: string, boxWidthPx: number
   if (p.minSize == null || !text || boxWidthPx <= 0) return undefined;
   const safeFontScale = Math.max(0.1, Number.isFinite(fontScale) ? fontScale : 1);
   // desired = the signal-driven loudness (planner value), capped to a sane fraction of frame height.
-  const desiredRaw = Math.max(Number(p.minSize), 64 * (Number(p.sizeScale) || 1));
+  const desiredRaw = Number(p.minSize) * (Number(p.sizeScale) || 1);
   const capScale = compactTopLane ? (COMPACT_TOP_FOCAL_SCALE[el.role] ?? 0.86) : 1;
   const capPx = canvasHeight * (FOCAL_FRAC[el.role] ?? 0.07) * capScale;
   const desired = Math.min(desiredRaw, capPx);

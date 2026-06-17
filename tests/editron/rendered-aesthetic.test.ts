@@ -378,6 +378,37 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toHaveLength(0);
     expect(result.subscores['motion-graphic']).toBe(1);
   });
+
+  it('fails tiny concept MGs even when the renderer technically paints pixels', () => {
+    const receipt = motionGraphicReceipt('selection bias');
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'tiny-concept',
+        receipt,
+        box: {
+          x: 120,
+          y: 231,
+          width: 843,
+          height: 21,
+          opacity: 1,
+          visiblePixelRatio: 0.03,
+          contrastRatio: 6,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'motion-graphic',
+        severity: 'fail',
+        message: expect.stringContaining('tiny dead concept'),
+      }),
+    ]));
+  });
 });
 
 function captionReceipt(input: {

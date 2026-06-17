@@ -402,6 +402,18 @@ function scoreMotionGraphicTaste(overlay: NormalizedOverlay, input: RenderedFram
   }
 
   const visibleRatio = overlay.item.box?.visiblePixelRatio;
+  if (overlay.box && rawText.trim()) {
+    const minConceptHeight = input.height * 0.035;
+    const boxHeightRatio = overlay.box.height / Math.max(1, input.height);
+    if (overlay.box.height < minConceptHeight && !hasLicensedSparseTrace) {
+      addIssue('motion-graphic', 0.24, 'motion graphic renders as a tiny dead concept mark instead of a readable composition', {
+        overlay: overlay.item,
+        evidence: `boxHeight=${overlay.box.height.toFixed(1)}; frameHeight=${input.height}; heightRatio=${boxHeightRatio.toFixed(3)}`,
+        severity: 'fail',
+      });
+    }
+  }
+
   if (overlay.box && visibleRatio !== undefined) {
     const frameArea = Math.max(1, input.width * input.height);
     const boxAreaRatio = (overlay.box.width * overlay.box.height) / frameArea;

@@ -258,6 +258,19 @@ export function planComposition(
       }
     }
   }
+  if (
+    centerAvoidance > 0.6
+    && needsWideLayoutForFit(strategy, intent.content)
+    && (layout.position === 'top-right' || layout.position === 'top-left')
+  ) {
+    layout = {
+      ...layout,
+      position: 'full-width-top',
+      maxWidth: '90%',
+      captionZoneAware: bottomTextProtected || layout.captionZoneAware,
+    };
+    console.log(`[MG-Planner] Spatial: ${strategy.suggestedLayout.position}->${layout.position} (centerAvoidance=${centerAvoidance.toFixed(2)}, wide-fit=true)`);
+  }
   if (bottomTextProtected && isBottomLayout(layout.position) && needsWideLayoutForFit(strategy, intent.content)) {
     layout = {
       ...layout,
@@ -317,6 +330,10 @@ function needsWideLayoutForFit(
       16,
       2,
     ) || isLongReadableCopy(scalarContentText(content.body), 24, 4);
+  }
+  if (primaryKind === 'structured') {
+    return isLongReadableCopy(scalarContentText(content.body), 24, 4)
+      || isLongReadableCopy(scalarContentText(content.title ?? content.keyword), 18, 3);
   }
   return false;
 }
@@ -485,7 +502,11 @@ function composeFromStructure(
     const process = shape('process');
     if (process) return composeProcess(elements, process, language, signals, mgScores);
   }
-  if (hasPart(strategy.structure, 'title') && hasPart(strategy.structure, 'body')) {
+  if (
+    (hasPart(strategy.structure, 'title') && hasPart(strategy.structure, 'body'))
+    || (hasPart(strategy.structure, 'keyword') && hasPart(strategy.structure, 'body'))
+    || hasRelation(strategy.structure, 'context-for')
+  ) {
     const structured = shape('structured');
     if (structured) return composeStructured(elements, structured, language, mgScores);
   }
@@ -1111,7 +1132,7 @@ function composeStructured(
     role: 'primary',
     layer: 'foreground',
     bind: {
-      text: 'content:title',
+      text: shape.title,
       font: 'token:typography.headingFamily',
       weight: 'token:typography.headingWeight',
       color: 'token:color.textPrimary',
@@ -1122,7 +1143,7 @@ function composeStructured(
 
   if (shape.body) {
     const scoredBodySize = Math.max(CRG.CALLOUT_MIN_FONT, titleSize / emphasisRatio(mgScores)); // body one modular step below the title hero
-    const bodySize = longBody ? Math.min(scoredBodySize, 54) : scoredBodySize;
+    const bodySize = Math.min(scoredBodySize, 52);
     const scoredBodyLineHeight = mgVal(mgScores, 'mg.typography.line_height', 'lineHeight', 1.4);
     const bodyLineHeight = longBody ? Math.max(1.18, Math.min(1.34, scoredBodyLineHeight)) : scoredBodyLineHeight;
 
@@ -1131,7 +1152,7 @@ function composeStructured(
       role: 'secondary',
       layer: 'foreground',
       bind: {
-        text: 'content:body',
+        text: shape.body,
         font: 'token:typography.bodyFamily',
         weight: 'token:typography.bodyWeight',
         color: 'token:color.textSecondary',

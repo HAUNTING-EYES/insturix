@@ -113,9 +113,14 @@ export function deriveContentStructure(content: Record<string, unknown>): Conten
 
   const title = stringContent(content, 'title');
   const body = stringContent(content, 'body');
+  const keywordText = stringContent(content, 'keyword');
   const listItems = stringArrayContent(content, 'steps') ?? stringArrayContent(content, 'items');
   if (title) addPart('title', 'text', 'title', title);
   if (body) addPart('body', 'text', 'body', body, 0.85);
+  if (keywordText && !parts.some((part) => part.role === 'keyword')) {
+    addPart('keyword', 'text', 'keyword', keywordText, 0.78);
+    if (body) relations.push({ type: 'context-for', fromRole: 'body', toRole: 'keyword' });
+  }
   if (listItems?.length) {
     const sourceKey = Array.isArray(content.steps) ? 'steps' : 'items';
     addPart('list-items', 'text', sourceKey, listItems, 0.82);
@@ -341,6 +346,16 @@ function detectShapes(
       kind: 'structured',
       title: String(keyword || phrase).trim(),
       body: keyword ? phrase : undefined,
+    });
+  }
+
+  if (shapes.length === 0 && hasPart(structure, 'keyword') && hasPart(structure, 'body')) {
+    const keyword = stringContent(content, 'keyword') ?? stringPartValue(structure.parts, 'keyword') ?? '';
+    const body = stringContent(content, 'body') ?? stringPartValue(structure.parts, 'body');
+    shapes.push({
+      kind: 'structured',
+      title: keyword,
+      body,
     });
   }
 

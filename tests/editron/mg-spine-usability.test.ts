@@ -506,6 +506,42 @@ describe('MG spine usability', () => {
     }));
   });
 
+  it('promotes keyword-with-explanatory-body into structured concept composition', () => {
+    const tokens = resolveMotionTokens(energeticSignals, { accentColor: '#00ff00' });
+    const scores = mgScoresFor(energeticSignals);
+    const content = {
+      keyword: 'selection bias',
+      emphasisWord: 'selection bias',
+      text: 'selection bias',
+      body: 'the sample changed the story',
+      warranted: true,
+      salience: 0.82,
+    };
+    const strategy = analyzeContentShape(content);
+    const recipe = planComposition({ content, triggerMoment: 'concept explanation' }, tokens, energeticSignals, scores);
+
+    expect(strategy.structure.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'keyword', channel: 'text', sourceKey: 'keyword' }),
+      expect.objectContaining({ role: 'body', channel: 'text', sourceKey: 'body' }),
+    ]));
+    expect(strategy.structure.relations).toContainEqual({
+      type: 'context-for',
+      fromRole: 'body',
+      toRole: 'keyword',
+    });
+    expect(strategy.shapes[0]).toEqual(expect.objectContaining({
+      kind: 'structured',
+      title: 'selection bias',
+      body: 'the sample changed the story',
+    }));
+    expect(recipe.id).toBe('composed-structured');
+    expect(recipe.elements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ primitive: 'text', role: 'primary', bind: expect.objectContaining({ text: 'selection bias' }) }),
+      expect.objectContaining({ primitive: 'text', role: 'secondary', bind: expect.objectContaining({ text: 'the sample changed the story' }) }),
+    ]));
+    expect(recipe.elements.find((element) => element.role === 'primary')?.bind.minSize).toBeGreaterThanOrEqual(48);
+  });
+
   it('gives long semantic MG copy readable width instead of corner-card compression', () => {
     const tokens = resolveMotionTokens(energeticSignals);
     const scores = mgScoresFor(energeticSignals);
