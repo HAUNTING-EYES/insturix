@@ -1,6 +1,7 @@
 import {
   OverlayType,
   type CaptionDisplayConfig,
+  type Caption,
   type CaptionOverlay,
   type CaptionStyles,
   type CaptionWord,
@@ -83,12 +84,14 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
 
   const displayConfig = resolveDisplayConfig(input.presentation);
   const readability = captionReadabilityPolicy(input.presentation, displayConfig);
-  const captions = groupWordsIntoCaptions(words, {
+  const groupingConfig = {
     wordsPerGroup: readability.wordsPerGroup,
     groupByPunctuation: true,
     maxGroupDuration: readability.maxGroupDurationMs,
     maxCharsPerLine: readability.maxCharsPerCaption,
-  });
+  };
+  const captionBoundariesMs = captionBoundaryMs(input.editedTimelineContext);
+  const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundariesMs);
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
   const protectedRegions = collectCaptionProtectedRegions(input.overlays);
   const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
@@ -122,6 +125,7 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         editedWordCount: words.length,
         durationFrames: input.editedTimelineContext.durationFrames,
         sourceClipCount: input.editedTimelineContext.sourceClips.length,
+        captionBoundaryCount: captionBoundariesMs.length,
         captionAesthetic: input.presentation.aesthetic,
         readability,
         protectedRegionCount: protectedRegions.length,
@@ -133,6 +137,46 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
       },
     },
   };
+}
+
+function captionBoundaryMs(context: EditedTimelineContext): number[] {
+  return context.sourceClips
+    .map((clip) => Math.round((clip.from / context.fps) * 1000))
+    .filter((ms) => ms > 0 && ms < context.durationMs)
+    .sort((a, b) => a - b)
+    .filter((ms, index, all) => index === 0 || ms !== all[index - 1]);
+}
+
+function groupWordsIntoBoundaryAwareCaptions(
+  words: CaptionWord[],
+  config: Parameters<typeof groupWordsIntoCaptions>[1],
+  boundariesMs: number[],
+): Caption[] {
+  if (boundariesMs.length === 0) return groupWordsIntoCaptions(words, config);
+
+  const captions: Caption[] = [];
+  let currentWords: CaptionWord[] = [];
+  let boundaryIndex = 0;
+
+  const pushCurrentWords = () => {
+    if (currentWords.length === 0) return;
+    captions.push(...groupWordsIntoCaptions(currentWords, config));
+    currentWords = [];
+  };
+
+  for (const word of words) {
+    while (
+      boundaryIndex < boundariesMs.length &&
+      word.startMs >= boundariesMs[boundaryIndex]
+    ) {
+      pushCurrentWords();
+      boundaryIndex++;
+    }
+    currentWords.push(word);
+  }
+  pushCurrentWords();
+
+  return captions;
 }
 
 function removeSupersededGeneratedCaptionTracks(overlays: any[]): number {

@@ -100,6 +100,37 @@ describe('canonical caption track', () => {
     expect(captions[0].captions.map((caption: any) => caption.text).join(' ')).toContain('finally canonical');
   });
 
+  it('does not group caption text across edited clip boundaries', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 300 },
+      { id: 11, type: 'video', from: 90, durationInFrames: 90, sourceStartFrame: 900 },
+    ];
+    const editedContext = context(['before', 'cut', 'after', 'lands']);
+    editedContext.transcription = [
+      { word: 'before', startMs: 2500, endMs: 2680, originalStartMs: 10_000, originalEndMs: 10_180 },
+      { word: 'cut', startMs: 2720, endMs: 2900, originalStartMs: 10_220, originalEndMs: 10_400 },
+      { word: 'after', startMs: 3040, endMs: 3220, originalStartMs: 20_000, originalEndMs: 20_180 },
+      { word: 'lands', startMs: 3260, endMs: 3440, originalStartMs: 20_220, originalEndMs: 20_400 },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: {
+        ...presentation,
+        wordsPerGroup: 8,
+      },
+    });
+
+    expect(result).toMatchObject({ created: 1, captionCount: 2 });
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.captions.map((item: any) => item.text)).toEqual(['before cut', 'after lands']);
+    expect(caption.captions[0].endMs).toBeLessThan(3000);
+    expect(caption.captions[1].startMs).toBeGreaterThanOrEqual(3000);
+    expect(caption.metadata.evidence.captionBoundaryCount).toBe(1);
+  });
+
   it('uses signal-resolved caption aesthetics instead of a fixed full-width band', () => {
     const overlays: any[] = [
       { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
