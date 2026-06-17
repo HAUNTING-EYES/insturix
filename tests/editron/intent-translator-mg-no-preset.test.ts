@@ -34,14 +34,18 @@ function buildPlan(graphicIntents: GraphicIntent[]): CreativeIntentPlan {
   };
 }
 
-function translate(plan: CreativeIntentPlan, onScreenText: string[] = []) {
+function translate(
+  plan: CreativeIntentPlan,
+  onScreenText: string[] = [],
+  voiceoverWords: Array<{ word: string; startMs: number; endMs: number }> = [],
+) {
   return translateCreativeIntentToEDL(
     plan,
     [{
       sceneIndex: 0,
       fromFrame: 30,
-      durationFrames: 90,
-      voiceoverWords: [],
+      durationFrames: 180,
+      voiceoverWords,
       onScreenText,
     }],
     new Map(),
@@ -118,4 +122,30 @@ describe('intent translator MG contract', () => {
     expect(graphic?.params).toEqual({ text: 'Launch velocity' });
     expect(graphic?.params).not.toHaveProperty('graphicType');
   });
+
+  it('injects licensed transcript semantic facts without promoting weak tiny-rate stats', () => {
+    const result = translate(
+      buildPlan([]),
+      [],
+      timedWords('We moved from manual review to automated checks. 90% completion is visible. It was 0.02 humans spoken to per day.'),
+    );
+
+    const semanticGraphics = result.decisions.filter((decision) => (
+      decision.type === 'graphic' && decision.sources.includes('semantic-fact-extractor')
+    ));
+    const factKinds = semanticGraphics.map((decision) => decision.params.semanticFactSource?.factKind);
+
+    expect(factKinds).toEqual(expect.arrayContaining(['comparison', 'bounded-stat']));
+    expect(semanticGraphics).toHaveLength(2);
+    expect(semanticGraphics.some((decision) => decision.params.value === '0.02')).toBe(false);
+    expect(JSON.stringify(semanticGraphics)).not.toMatch(/graphicType|template|preset/i);
+  });
 });
+
+function timedWords(text: string): Array<{ word: string; startMs: number; endMs: number }> {
+  return text.split(/\s+/).map((word, index) => ({
+    word,
+    startMs: index * 180,
+    endMs: index * 180 + 120,
+  }));
+}

@@ -64,12 +64,12 @@ Known real-project blocker - one bad MG in `proj_sH-nZy0DtNOq`:
 - Symptom observed on 2026-06-17: the saved project has a 547.57s final timeline but only one `motion-graphic` overlay. The visible MG is `0.02` / `humans spoken to per day`, lasts 72 frames / 2.4s, and sits visually over the talking-head frame while the canonical karaoke caption is also active.
 - Evidence: `npx tsx scripts\inspect-project-mg.ts proj_sH-nZy0DtNOq` reports overlay counts `{ video: 38, sound: 3, transition: 3, motion-graphic: 1, caption: 1 }`, `directorProfileUsed: A-01`, `genreParameters.graphic_density: 0.8310666483250496`, one global caption track, and the MG metadata `placementRegion: "middle-right"` with persisted recipe layout `position: "center"`.
 - Root cause split:
-  - Count/source issue: the deterministic Encoding Law composer only realized the one graphic decision it received. Richer concept/topic/key-claim MG candidates are not being deterministically extracted yet. This is the semantic fact extractor gap from Phase 8/next build, not a renderer preset issue.
+  - Count/source issue: the deterministic Encoding Law composer only realized the one graphic decision it received. Phase 9E now adds an initial deterministic transcript/on-screen semantic fact extractor for new runs, but the saved project has not been regenerated through that path yet. This was a candidate-source gap, not a renderer preset issue.
   - Bad candidate issue: the upstream decision selected a satirical tiny decimal count as the only stat MG. Current semantic atoms say only `quantity.displayText = "0.02"`, `kind = "count"`, `unit = "people"`; no richer rhetorical/satire/factual-salience facts exist to downrank or replace it.
   - Placement issue: EDL/atomic placement chose `middle-right`, but `mg-expression-authority.ts::regionToLayoutPosition` did not understand `middle-right` / `middle-left`, so the recipe authority silently fell back to `center`.
 - Code fix status: `mg-expression-authority.ts` now maps `middle-right` / `center-right` to `top-right` and `middle-left` / `center-left` to `top-left` instead of recentering. This fixes the verified placement vocabulary loss for new runs; existing persisted project recipes must be regenerated.
 - Regression coverage: `tests/editron/mg-expression-authority.test.ts` now has `does not recenter middle-right atomic placement when applying recipe authority`, using the same `0.02` / `humans spoken to per day` content shape.
-- Still needed: this does not fix MG count or candidate quality. Next real work is semantic fact extraction plus real-project taste gates: generate multiple candidate facts from claims/concepts/quotes/relations, suppress low-value rhetorical tiny-number stats unless licensed by salience/truth evidence, then rerun `proj_sH-nZy0DtNOq` and inspect rendered stills/clips.
+- Still needed: regenerate `proj_sH-nZy0DtNOq` and other real projects through the new extractor path, then inspect candidate ledgers, selected overlays, rendered stills/clips, count, caption safety, and visual richness. This phase should still fail if the extractor produces too few licensed candidates or the rendered compositions remain sparse/box-like.
 
 Phase 8 - Calibration:
 - Status: not complete.
@@ -124,6 +124,14 @@ Phase 9D - Done on 2026-06-17:
 - Verification: `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-expression-authority.test.ts tests\editron\mg-content-atoms.test.ts tests\editron\mg-visual-explanation-contract.test.ts` passed 29 tests; `git diff --check` passed with line-ending warnings only; `npx eslint . --quiet` passed; touched-file TypeScript filter for `semantic-mg-candidates|mg-expression-authority|edl-executor|mg-expression-authority.test` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated admin/ThinkForge/shared/script files.
 - Not done: this still does not make the final rendered composition beautiful by itself. The next gate must run real projects and inspect whether selection count, layout variety, caption safety, and visual richness are actually acceptable.
 
+Phase 9E - Done on 2026-06-17:
+- Added `lib/editron/services/mg-semantic-fact-extractor.ts`, a pure deterministic transcript/on-screen text extractor that proposes semantic MG facts and immediately validates them through `semantic-mg-candidates.ts`.
+- Wired `intent-translator.ts` to inject only licensed extracted facts into live EDL graphic decisions, with density caps and evidence dedupe. Weak unlicensed facts remain visible in the extractor ledger as suppressed candidates but do not become injected MG decisions.
+- Initial extracted fact coverage is deliberately generic: bounded numeric facts, magnitude facts, numeric relations, explicit comparisons, exact quoted text, and connector-backed concept claims. It emits fact/source-span/ledger metadata, not renderer/template/preset names.
+- Added regression coverage in `tests/editron/intent-translator-mg-no-preset.test.ts`: empty LLM `graphicIntents` plus transcript evidence emits licensed `comparison` and `bounded-stat` MG decisions, while a weak `0.02 ... per day` tiny-rate fact is not promoted.
+- Verification: `npx vitest run tests\editron\intent-translator-mg-no-preset.test.ts` passed 4 tests; `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-content-atoms.test.ts tests\editron\real-project-mg-taste-gate.test.ts` passed 11 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for `mg-semantic-fact-extractor|intent-translator|intent-translator-mg-no-preset` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated app/admin/ThinkForge/shared/script files.
+- Not done: this is not final MG taste proof. Real projects still need regeneration and rendered review. The extractor is intentionally conservative and may still under-emit concepts/quotes without richer semantic parsing.
+
 Phase 10 - Real-project taste gate:
 - Regenerate current real projects, starting with `proj_sH-nZy0DtNOq` as one probe, not as a special case.
 - Dump project MG candidates, selected overlays, recipes, atomic plans, atomic decisions, captions, and rendered stills/clips.
@@ -136,7 +144,7 @@ Phase 10A - In progress on 2026-06-17:
 - Current real-project result: `npx tsx scripts\audit-real-project-mg.ts proj_sH-nZy0DtNOq` fails as expected with score `0.23`: one MG versus target `8` / minimum `3`, missing semantic candidate selection metadata on the saved overlay, weak unlicensed tiny scalar stat `0.02`, caption-active center-stage MG, and placement drift from requested `middle-right` to persisted `center`.
 - Current render-still result: `npx tsx scripts\render-mg-stills.ts proj_sH-nZy0DtNOq` renders one still at `.calibration-temp/mg-stills/proj_sH-nZy0DtNOq/mg00-atomic-graphic-0-02.png` with no render errors or fit warnings. Visual status: still a sparse typographic rate composition, not final rich full-frame MG quality.
 - Verification: `npx vitest run tests\editron\real-project-mg-taste-gate.test.ts tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-expression-authority.test.ts` passed 19 tests; `npx eslint . --quiet` passed; `git diff --check` passed with line-ending warnings only; touched-file TypeScript filter for `real-project-mg-taste-gate|audit-real-project-mg` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated admin/ThinkForge/shared/script files.
-- Current expectation: `proj_sH-nZy0DtNOq` should continue to fail this gate until the semantic fact extractor and real project rerun produce enough licensed MG candidates and avoid weak/caption-competing choices.
+- Current expectation: the saved `proj_sH-nZy0DtNOq` should continue to fail this gate until it is regenerated through Phase 9E and then passes real-project candidate/count/caption/rendered taste checks.
 
 Phase 11 - Remaining fallback authority cleanup:
 - Convert remaining non-series composer/template fallback authority into fact/wire/contract driven candidate generation.
@@ -204,7 +212,7 @@ Verification run:
 - `npx eslint . --quiet` - passed.
 
 Stop line after this slice:
-- Do not build semantic fact extractor yet without review.
+- Do not claim semantic fact extraction is complete until real project reruns prove enough licensed candidates and rendered taste quality.
 - Do not add Penrose/dagre.
 - Do not rebuild motion/emphasis.
 - Do not claim MG is complete without rendered artifacts.

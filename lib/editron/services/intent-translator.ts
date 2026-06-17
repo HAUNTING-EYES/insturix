@@ -21,6 +21,10 @@ import type {
   TransitionIntent,
 } from './unified-edit-intelligence';
 import { snapToClipBoundary } from './edl-executor';
+import {
+  extractMotionGraphicSemanticFacts,
+  type ExtractedMotionGraphicSemanticFact,
+} from './mg-semantic-fact-extractor';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -231,6 +235,7 @@ export function translateCreativeIntentToEDL(
     // ── Graphics ──
     // Track emitted texts so the safety-net below can detect missed onScreenText.
     const emittedGraphicTexts = new Set<string>();
+    const emittedGraphicEvidence = new Set<string>();
     for (const graphic of intent.graphicIntents) {
       if (graphic.type === 'none') continue;
 
@@ -241,15 +246,17 @@ export function translateCreativeIntentToEDL(
         fps,
       );
 
+      const graphicParams = buildGraphicParams(graphic, genreParamsToSignals(genreParams));
       decisions.push({
         type: 'graphic',
         frame: graphicFrame,
         durationFrames: Math.round(2.5 * fps), // 2.5s default
         reason: `visual-explanation: "${describeGraphicEvidence(graphic)}" — ${graphic.triggerMoment}`,
-        params: buildGraphicParams(graphic, genreParamsToSignals(genreParams)),
+        params: graphicParams,
         confidence: 0.75,
         sources: ['creative-intent', 'script'],
       });
+      for (const key of graphicEvidenceKeys(graphicParams)) emittedGraphicEvidence.add(key);
       if (graphic.text && graphic.text.trim().length > 0) {
         emittedGraphicTexts.add(graphic.text.trim().toLowerCase());
       }
@@ -261,6 +268,32 @@ export function translateCreativeIntentToEDL(
     // The LLM now gets density-aware prompting (max(8) schema, editorial merit
     // guidance), so the safety net should respect the same density signal
     // rather than overriding the LLM's editorial judgment.
+    const semanticFacts = extractMotionGraphicSemanticFacts({
+      tokens: sceneCtx.voiceoverWords,
+      textSources: (sceneCtx.onScreenText ?? []).map((text) => ({ text, source: 'on-screen-text' })),
+      maxFacts: semanticFactExtractionCap(graphicsDensity),
+    });
+    let semanticFactsEmitted = 0;
+    for (const fact of semanticFacts) {
+      if (!fact.licensed) continue;
+      if (semanticFactsEmitted >= semanticFactEmissionCap(graphicsDensity)) break;
+      const keys = graphicEvidenceKeys(fact.params);
+      if (keys.some((key) => emittedGraphicEvidence.has(key))) continue;
+
+      decisions.push({
+        type: 'graphic',
+        frame: resolveSemanticFactFrame(fact, sceneCtx, fps),
+        durationFrames: Math.round(2.7 * fps),
+        reason: `semantic-fact:${fact.factKind}: "${fact.sourceSpan.text.substring(0, 80)}"`,
+        params: buildSemanticFactGraphicParams(fact, genreParamsToSignals(genreParams)),
+        confidence: Math.max(0.68, Math.min(0.9, fact.score)),
+        sources: ['semantic-fact-extractor', fact.sourceSpan.source ?? 'scene-context'],
+      });
+      semanticFactsEmitted++;
+      for (const key of keys) emittedGraphicEvidence.add(key);
+      emittedGraphicTexts.add(fact.sourceSpan.text.trim().toLowerCase());
+    }
+
     const onScreenText = sceneCtx.onScreenText || [];
     const safetyNetCap = graphicsDensity === 'minimal' ? 1
       : graphicsDensity === 'moderate' ? 3
@@ -541,6 +574,68 @@ function getTransitionDuration(intent: TransitionIntent, fps: number): number {
     'match-cut': 0,
   };
   return Math.round((durationMap[intent] || 0.4) * fps);
+}
+
+function semanticFactExtractionCap(graphicsDensity?: 'heavy' | 'moderate' | 'minimal'): number {
+  if (graphicsDensity === 'minimal') return 2;
+  if (graphicsDensity === 'moderate') return 4;
+  return 6;
+}
+
+function semanticFactEmissionCap(graphicsDensity?: 'heavy' | 'moderate' | 'minimal'): number {
+  if (graphicsDensity === 'minimal') return 0;
+  if (graphicsDensity === 'moderate') return 1;
+  return 2;
+}
+
+function buildSemanticFactGraphicParams(
+  fact: ExtractedMotionGraphicSemanticFact,
+  signals?: Record<string, number>,
+): Record<string, any> {
+  return {
+    ...fact.params,
+    semanticFactSource: {
+      factKind: fact.factKind,
+      licensed: fact.licensed,
+      reasons: fact.reasons,
+      sourceSpan: fact.sourceSpan,
+      candidateIds: fact.ledger.candidates.map((candidate) => candidate.id),
+      suppressedCandidateIds: fact.ledger.suppressed.map((candidate) => candidate.id),
+    },
+    ...(signals ? { signals } : {}),
+  };
+}
+
+function resolveSemanticFactFrame(
+  fact: ExtractedMotionGraphicSemanticFact,
+  scene: SceneFrameContext,
+  fps: number,
+): number {
+  if (typeof fact.sourceSpan.startMs === 'number' && Number.isFinite(fact.sourceSpan.startMs)) {
+    return scene.fromFrame + Math.round((fact.sourceSpan.startMs / 1000) * fps);
+  }
+  return scene.fromFrame + Math.round(scene.durationFrames * 0.33);
+}
+
+function graphicEvidenceKeys(params: Record<string, unknown>): string[] {
+  const keys = [
+    stringKey(params.value),
+    stringKey(params.name),
+    stringKey(params.quote),
+    stringKey(params.text),
+    stringKey(params.keyword),
+    params.from != null || params.to != null ? `${stringKey(params.from)}->${stringKey(params.to)}` : '',
+  ].filter(Boolean);
+  const sourceSpan = params.sourceSpan && typeof params.sourceSpan === 'object'
+    ? (params.sourceSpan as Record<string, unknown>)
+    : null;
+  const sourceText = stringKey(sourceSpan?.text);
+  if (sourceText) keys.push(sourceText);
+  return keys;
+}
+
+function stringKey(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
 function resolveGraphicTrigger(
