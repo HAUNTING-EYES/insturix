@@ -1,6 +1,7 @@
 import { mkdir, readdir, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import { config as loadEnv } from 'dotenv';
+import { execFileSync } from 'child_process';
 
 import {
   DEFAULT_PHASE0_KEEP_RUNS,
@@ -43,6 +44,7 @@ async function main() {
       capturedAt: capturedAt.toISOString(),
       source: `mongo:${db.databaseName}.${COLLECTIONS.PROJECTS}`,
       artifactDir: paths.runDir,
+      codeProvenance: readCodeProvenance(),
     });
     const artifactPack = buildPhase0RenderArtifactPack(typedProject, baseManifest, { artifactDir: paths.runDir });
     const manifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
@@ -77,6 +79,7 @@ async function main() {
       failureTaxonomy: failureTaxonomy.status,
       renderCommand: artifactPack.renderCommand,
       calibrationWritesAllowed: manifest.calibrationSafety.learningWritesAllowed,
+      codeProvenance: manifest.codeProvenance,
     }, null, 2));
   } finally {
     await client.close();
@@ -110,6 +113,46 @@ async function pruneOldPhase0Runs(
   }
 
   return prunedRuns;
+}
+
+function readCodeProvenance() {
+  const statusLines = gitOutput(['status', '--porcelain=v1'])
+    ?.split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean) ?? [];
+  const dirtyPaths = statusLines.map(readPorcelainPath).filter(Boolean).slice(0, 80);
+  const untrackedPaths = statusLines
+    .filter((line) => line.startsWith('??'))
+    .map(readPorcelainPath)
+    .filter(Boolean)
+    .slice(0, 40);
+
+  return {
+    branch: gitOutput(['branch', '--show-current']),
+    head: gitOutput(['rev-parse', 'HEAD']),
+    upstreamHead: gitOutput(['rev-parse', '@{u}']),
+    dirty: statusLines.length > 0,
+    dirtyPaths,
+    untrackedPaths,
+    capturedBy: 'scripts/build-editron-phase0-fixture.ts',
+  };
+}
+
+function readPorcelainPath(line: string): string {
+  return line.replace(/^.. ?/, '').trim();
+}
+
+function gitOutput(args: string[]): string | null {
+  try {
+    const value = execFileSync('git', args, {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
 }
 
 main().catch((error) => {

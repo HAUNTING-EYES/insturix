@@ -376,6 +376,23 @@ function addRenderClasses(
   artifactPack?: Phase0RenderArtifactPack,
   renderedReport?: Phase0RenderedAestheticReportLike,
 ): void {
+  if (manifest.codeProvenance?.dirty) {
+    classes.push({
+      id: 'render.dirty_code_checkout',
+      severity: 'warn',
+      source: 'render',
+      message: 'Phase 0 artifact was captured from a dirty code checkout, so rendered evidence may not match the pushed branch.',
+      evidence: {
+        branch: manifest.codeProvenance.branch,
+        head: manifest.codeProvenance.head,
+        upstreamHead: manifest.codeProvenance.upstreamHead,
+        dirtyPathCount: manifest.codeProvenance.dirtyPaths.length,
+        dirtyPaths: manifest.codeProvenance.dirtyPaths.slice(0, TIMELINE_SAMPLE_LIMIT),
+        untrackedPaths: manifest.codeProvenance.untrackedPaths.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
+
   if (!artifactPack) {
     classes.push({
       id: 'render.artifact_pack_missing',

@@ -65,6 +65,17 @@ export interface BuildPhase0FixtureManifestOptions {
   capturedAt?: string;
   source?: string;
   artifactDir?: string;
+  codeProvenance?: Phase0CodeProvenance;
+}
+
+export interface Phase0CodeProvenance {
+  branch: string | null;
+  head: string | null;
+  upstreamHead: string | null;
+  dirty: boolean;
+  dirtyPaths: string[];
+  untrackedPaths: string[];
+  capturedBy: string;
 }
 
 export interface Phase0FixtureManifest {
@@ -72,6 +83,7 @@ export interface Phase0FixtureManifest {
   projectId: string;
   capturedAt: string;
   source: string;
+  codeProvenance: Phase0CodeProvenance | null;
   fps: number;
   durationFrames: number;
   durationSeconds: number;
@@ -125,6 +137,7 @@ export function buildPhase0FixtureManifest(
     projectId,
     capturedAt: options.capturedAt ?? new Date(0).toISOString(),
     source: options.source ?? 'in-memory-project',
+    codeProvenance: options.codeProvenance ?? null,
     fps,
     durationFrames,
     durationSeconds: round(durationFrames / fps),

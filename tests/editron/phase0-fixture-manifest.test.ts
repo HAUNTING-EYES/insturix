@@ -241,12 +241,30 @@ describe('phase0 fixture manifest', () => {
       capturedAt: '2026-06-14T00:00:00.000Z',
       source: 'test',
       artifactDir: 'fixtures/proj',
+      codeProvenance: {
+        branch: 'infrastructure-improvs-+Editron',
+        head: 'abc123',
+        upstreamHead: 'def456',
+        dirty: true,
+        dirtyPaths: ['lib/editron/motion-graphics/engine/composition-planner.ts'],
+        untrackedPaths: ['.codex-digest/'],
+        capturedBy: 'test',
+      },
     });
 
     expect(manifest).toMatchObject({
       version: 'editron-phase0-fixture-v1',
       projectId: 'proj_phase0_fixture',
       source: 'test',
+      codeProvenance: {
+        branch: 'infrastructure-improvs-+Editron',
+        head: 'abc123',
+        upstreamHead: 'def456',
+        dirty: true,
+        dirtyPaths: ['lib/editron/motion-graphics/engine/composition-planner.ts'],
+        untrackedPaths: ['.codex-digest/'],
+        capturedBy: 'test',
+      },
       durationFrames: 90,
       durationSeconds: 3,
       canvas: { width: 1920, height: 1080, aspectRatio: '16:9' },

@@ -161,9 +161,30 @@ describe('phase0 failure taxonomy', () => {
       artifactDir: '.calibration-temp/phase0-fixtures/proj_no_render',
     });
     const notRenderablePack = classifyPhase0Fixture(manifest, artifactPack);
+    const dirtyManifest = buildPhase0FixtureManifest(project, {
+      codeProvenance: {
+        branch: 'infrastructure-improvs-+Editron',
+        head: 'abc123',
+        upstreamHead: 'def456',
+        dirty: true,
+        dirtyPaths: ['lib/editron/motion-graphics/engine/composition-planner.ts'],
+        untrackedPaths: ['.codex-digest/'],
+        capturedBy: 'test',
+      },
+    });
+    const dirtyPack = classifyPhase0Fixture(dirtyManifest, artifactPack);
 
     expect(missingPack.classes.map((item) => item.id)).toContain('render.artifact_pack_missing');
     expect(notRenderablePack.classes.map((item) => item.id)).toContain('render.artifact_pack_not_ready');
+    expect(dirtyPack.classes.find((item) => item.id === 'render.dirty_code_checkout')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        branch: 'infrastructure-improvs-+Editron',
+        dirtyPathCount: 1,
+        dirtyPaths: ['lib/editron/motion-graphics/engine/composition-planner.ts'],
+        untrackedPaths: ['.codex-digest/'],
+      },
+    });
   });
 
   it('warns when a unified bundle has no old-producer gating evidence', () => {
