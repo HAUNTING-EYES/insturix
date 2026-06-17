@@ -207,6 +207,25 @@ export interface BrandVaultWebsiteDraftJobInput {
   now?: string;
 }
 
+export interface BrandVaultTextEvidenceCompilerInput {
+  jobId: string;
+  input: BrandVaultWebsiteDraftJobInput;
+  website: BrandWebsiteSnapshot;
+  crawlSnapshots: BrandWebsiteSnapshot[];
+  sourceEvidence: BrandVaultSourceInput[];
+  existingCandidates: BrandEvidenceCandidate[];
+  observedAt: string;
+}
+
+export interface BrandVaultTextEvidenceCompilerResult {
+  candidates: BrandEvidenceCandidate[];
+  warnings?: string[];
+}
+
+export type BrandVaultTextEvidenceCompiler = (
+  input: BrandVaultTextEvidenceCompilerInput,
+) => BrandVaultTextEvidenceCompilerResult | Promise<BrandVaultTextEvidenceCompilerResult>;
+
 export type BrandVaultStoreResult<T> = T | Promise<T>;
 
 export interface BrandVaultSignalProfileStore {
@@ -236,6 +255,7 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   repository: BrandVaultSignalProfileStore;
   fetchSnapshot?: (websiteUrl: string, options?: FetchWebsiteBrandSnapshotOptions) => Promise<BrandWebsiteSnapshot>;
   fetchOptions?: FetchWebsiteBrandSnapshotOptions;
+  textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   clock?: () => string;
 }
 
@@ -266,7 +286,14 @@ const SOURCE_STAGING_EXTRACTOR = 'brand-vault-source-staging.v1';
 const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
 const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
 const SOCIAL_EVIDENCE_EXTRACTOR = 'brand-vault-social-evidence.v1';
-const PROMOTABLE_REVIEW_EXTRACTORS = new Set([UPLOAD_EXTRACTOR, SOCIAL_EVIDENCE_EXTRACTOR, CRAWL_EXTRACTOR]);
+const TEXT_EVIDENCE_COMPILER_EXTRACTOR = 'brand-vault-text-evidence-compiler.v1';
+const TEXT_EVIDENCE_COMPILER_CONFIDENCE_MAX = 0.68;
+const PROMOTABLE_REVIEW_EXTRACTORS = new Set([
+  UPLOAD_EXTRACTOR,
+  SOCIAL_EVIDENCE_EXTRACTOR,
+  CRAWL_EXTRACTOR,
+  TEXT_EVIDENCE_COMPILER_EXTRACTOR,
+]);
 const PROMOTABLE_REVIEW_SIGNAL_PATHS = new Set([
   'palette.supporting',
   'voice.killList',
@@ -416,20 +443,32 @@ export async function createBrandVaultWebsiteDraftJob(
       snapshots: crawl.snapshots,
       observedAt: snapshot.fetchedAt,
     });
+    const baseCandidates = [...assetProbe.candidates, ...stagedCandidates, ...crawlCandidates];
+    const compiled = await runTextEvidenceCompiler({
+      compiler: dependencies.textEvidenceCompiler,
+      jobId,
+      input,
+      website: snapshot,
+      crawlSnapshots: crawl.snapshots,
+      sourceEvidence,
+      existingCandidates: baseCandidates,
+      observedAt: snapshot.fetchedAt,
+    });
     const enrichedRecord = applyReviewCandidatesToDraftRecord(
       draft.record,
-      [...stagedCandidates, ...crawlCandidates],
+      [...stagedCandidates, ...crawlCandidates, ...compiled.candidates],
       snapshot.fetchedAt,
     );
     const savedRecord = await dependencies.repository.saveRecord(enrichedRecord, {
       now: snapshot.fetchedAt,
       actorId: input.actorId,
     });
-    const candidates = [...assetProbe.candidates, ...stagedCandidates, ...crawlCandidates];
+    const candidates = [...baseCandidates, ...compiled.candidates];
     const warnings = mergeWarnings(
       draft.warnings,
       stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),
       assetProbe.warnings,
+      compiled.warnings ?? [],
       crawl.warnings,
       shouldWarnForStagedSocialLinks(socialLinks, sourceEvidence) ? [SOCIAL_LINKS_STAGED_WARNING] : [],
       stagedCandidates.length > 0 ? [stagedSourcesWarning(stagedCandidates.length)] : [],
@@ -2033,6 +2072,75 @@ function uploadCandidate(args: {
     observedAt: args.observedAt,
     extractorId: UPLOAD_EXTRACTOR,
   };
+}
+
+async function runTextEvidenceCompiler(args: {
+  compiler: BrandVaultTextEvidenceCompiler | undefined;
+  jobId: string;
+  input: BrandVaultWebsiteDraftJobInput;
+  website: BrandWebsiteSnapshot;
+  crawlSnapshots: BrandWebsiteSnapshot[];
+  sourceEvidence: BrandVaultSourceInput[];
+  existingCandidates: BrandEvidenceCandidate[];
+  observedAt: string;
+}): Promise<BrandVaultTextEvidenceCompilerResult> {
+  if (!args.compiler) return { candidates: [], warnings: [] };
+
+  try {
+    const result = await args.compiler({
+      jobId: args.jobId,
+      input: args.input,
+      website: args.website,
+      crawlSnapshots: args.crawlSnapshots,
+      sourceEvidence: args.sourceEvidence,
+      existingCandidates: args.existingCandidates,
+      observedAt: args.observedAt,
+    });
+    return {
+      candidates: normalizeTextEvidenceCompilerCandidates(
+        Array.isArray(result.candidates) ? result.candidates : [],
+        args,
+      ),
+      warnings: result.warnings ?? [],
+    };
+  } catch (error) {
+    return {
+      candidates: [],
+      warnings: [`Brand Vault text evidence compiler skipped: ${errorMessage(error)}`],
+    };
+  }
+}
+
+function normalizeTextEvidenceCompilerCandidates(
+  candidates: BrandEvidenceCandidate[],
+  args: {
+    jobId: string;
+    input: BrandVaultWebsiteDraftJobInput;
+    observedAt: string;
+  },
+): BrandEvidenceCandidate[] {
+  return candidates
+    .filter((candidate) => PROMOTABLE_REVIEW_SIGNAL_PATHS.has(candidate.signalPath))
+    .map((candidate, index) => {
+      const sourceField = candidate.sourceField || `textEvidenceCompiler.${index + 1}`;
+      const normalizedValue = candidate.normalizedValue ?? candidate.rawValue;
+      const id = `candidate_text_compiler_${index + 1}_${idPart(`${sourceField}_${candidate.signalPath}_${stringifyCandidateValue(normalizedValue)}`, 'text')}`;
+      const confidence = Number.isFinite(candidate.confidence) ? candidate.confidence : BRAND_CONFIDENCE.FALLBACK_SIGNAL;
+      return {
+        ...candidate,
+        id,
+        brandId: args.input.brandId,
+        jobId: args.jobId,
+        sourceField,
+        rawValue: candidate.rawValue ?? normalizedValue,
+        normalizedValue,
+        excerpt: candidate.excerpt ? sanitizeEvidenceExcerpt(candidate.excerpt) : undefined,
+        confidence: Math.min(Math.max(confidence, 0), TEXT_EVIDENCE_COMPILER_CONFIDENCE_MAX),
+        authorityClass: 'inferred',
+        observedAt: args.observedAt,
+        extractorId: TEXT_EVIDENCE_COMPILER_EXTRACTOR,
+      };
+    });
 }
 
 function applyReviewCandidatesToDraftRecord(

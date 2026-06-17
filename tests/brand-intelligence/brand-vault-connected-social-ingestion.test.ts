@@ -192,6 +192,75 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.sourceEvidence).toEqual([]);
     expect(result.warnings).toContain('Brand Vault skipped facebook Apify fallback: APIFY_API_KEY is not configured.');
   });
+
+  it('keeps Apify public posts from a submitted representative account', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/nimitgotnolimit'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async () => jsonResponse([
+        {
+          url: 'https://www.instagram.com/p/founder_post/',
+          caption: 'Insturix exists because content production is broken.',
+          ownerUsername: 'nimitgotnolimit',
+          ownerFullName: 'Nimit Jain',
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'instagram',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.instagram.com/p/founder_post/',
+      text: 'Insturix exists because content production is broken.',
+      connection: expect.objectContaining({
+        accountHandle: 'nimitgotnolimit',
+        matchStatus: 'matched',
+      }),
+    });
+  });
+
+  it('drops Apify public posts whose author does not match the submitted social account', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async () => jsonResponse([
+        {
+          url: 'https://www.instagram.com/p/personal_post/',
+          caption: 'Made with Insturix, personal behind-the-scenes copy.',
+          ownerUsername: 'nimitgotnolimit',
+          ownerFullName: 'Nimit Jain',
+        },
+        {
+          url: 'https://www.instagram.com/p/brand_post/',
+          caption: 'Content production is broken. One platform. Not ten.',
+          ownerUsername: 'insturix',
+          ownerFullName: 'Insturix',
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'instagram',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.instagram.com/p/brand_post/',
+      text: 'Content production is broken. One platform. Not ten.',
+      connection: expect.objectContaining({
+        accountHandle: 'insturix',
+        matchStatus: 'matched',
+      }),
+    });
+    expect(result.sourceEvidence.some((source) => source.url === 'https://www.instagram.com/p/personal_post/')).toBe(false);
+  });
 });
 
 function jsonResponse(value: unknown): Response {

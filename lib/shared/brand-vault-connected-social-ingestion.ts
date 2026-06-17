@@ -1106,6 +1106,19 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   const firstImage = firstStringFromArray(record.images);
   const firstSlideImage = firstStringFromArray(doc.slide_images);
   const sourceUrl = firstString(record.url, record.postUrl, record.post_url, record.permalink, record.link, record.shortUrl, record.share_url) ?? parsed.normalizedUrl;
+  const accountHandle = firstString(record.ownerUsername, record.username, author.username, record.author);
+  const accountName = firstString(record.ownerFullName, record.fullName, record.author_name, author.name, record.pageName);
+  const displayName = firstString(record.ownerUsername, record.username, record.author_name, author.name, record.author, record.ownerFullName, record.pageName);
+  const identityMatchStatus = apifyIdentityMatchStatus({
+    parsed,
+    sourceUrl,
+    accountHandle,
+    accountName,
+    displayName,
+  });
+  if (!identityMatchStatus) {
+    return null;
+  }
   const media = socialMedia({
     mediaType: firstString(record.video_url ? 'video' : undefined, firstImage ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
     mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, doc.pdf_url),
@@ -1120,7 +1133,7 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
     url: sourceUrl,
     platform: parsed.platform,
-    name: firstString(record.ownerUsername, record.username, record.author_name, author.name, record.author, record.ownerFullName, record.pageName) ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
+    name: displayName ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
     note: 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
     text: text || undefined,
     evidenceOrigin: 'public_fallback',
@@ -1132,14 +1145,60 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     connection: {
       provider: 'alyzitron_apify',
       status: 'public_fallback_available',
-      accountHandle: firstString(record.ownerUsername, record.username, author.username, record.author),
-      accountName: firstString(record.ownerFullName, record.fullName, record.author_name, author.name, record.pageName),
+      accountHandle,
+      accountName,
       canReadProfile: Boolean(profile),
       canReadPosts: true,
       canReadPinned: false,
-      matchStatus: 'unverified',
+      matchStatus: identityMatchStatus,
     },
   };
+}
+
+function apifyIdentityMatchStatus(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  sourceUrl: string;
+  accountHandle?: string;
+  accountName?: string;
+  displayName?: string;
+}): BrandVaultSocialConnectionEvidence['matchStatus'] | null {
+  const expected = normalizeHandle(args.parsed.handle);
+  if (!expected) return 'unverified';
+
+  const normalizedSourceUrl = args.sourceUrl.toLowerCase();
+  const sourcePathMatches = urlPathHasHandle(normalizedSourceUrl, expected);
+  const identityMatches = [
+    args.accountHandle,
+    args.accountName,
+    args.displayName,
+  ].some((candidate) => normalizeHandle(candidate) === expected);
+
+  if (identityMatches || sourcePathMatches) return 'matched';
+
+  const hasReturnedIdentity = Boolean(normalizeHandle(args.accountHandle) || normalizeHandle(args.accountName) || normalizeHandle(args.displayName));
+  const postLikeUrl = args.parsed.isPostUrl || isPlatformPostUrl(args.parsed.platform, args.sourceUrl);
+  return !hasReturnedIdentity && !postLikeUrl ? 'unverified' : null;
+}
+
+function urlPathHasHandle(value: string, expected: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.pathname
+      .split('/')
+      .map((segment) => normalizeHandle(segment))
+      .filter(Boolean)
+      .includes(expected);
+  } catch {
+    return false;
+  }
+}
+
+function isPlatformPostUrl(platform: BrandVaultSourcePlatform, value: string): boolean {
+  const normalized = value.toLowerCase();
+  if (platform === 'instagram') return /\/(?:p|reel|tv)\//.test(normalized);
+  if (platform === 'facebook') return /\/(?:posts|videos|reel|photos)\//.test(normalized) || /story_fbid=/.test(normalized);
+  if (platform === 'linkedin') return /\/feed\/update\/|\/posts\//.test(normalized);
+  return false;
 }
 
 async function fetchPublicOEmbedPostSource(args: {

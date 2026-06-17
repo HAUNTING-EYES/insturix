@@ -212,6 +212,97 @@ describe('Brand Vault draft orchestrator', () => {
     );
   });
 
+  it('runs typed text evidence compiler candidates before saving the draft profile', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    let compilerSawSourceCount = 0;
+    let compilerSawExistingCandidateCount = 0;
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_text_compiler',
+        profileRecordId: 'draft_text_compiler',
+        sourceEvidence: [
+          {
+            kind: 'social_post',
+            platform: 'instagram',
+            url: 'https://www.instagram.com/p/founder/',
+            text: 'Insturix exists because content production is broken for founder-led creative teams.',
+            evidenceOrigin: 'public_fallback',
+          },
+        ],
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async () => htmlResponse(),
+        },
+        textEvidenceCompiler: async (compilerInput) => {
+          compilerSawSourceCount = compilerInput.sourceEvidence.length;
+          compilerSawExistingCandidateCount = compilerInput.existingCandidates.length;
+          return {
+            warnings: ['Text evidence compiler produced review-only inferred candidates.'],
+            candidates: [
+              {
+                id: 'raw_compiler_audience',
+                brandId: 'wrong_brand',
+                jobId: 'wrong_job',
+                sourceType: 'social_post',
+                sourceUrl: 'https://www.instagram.com/p/founder/',
+                sourceField: 'compiler.rawAudience',
+                signalPath: 'identity.audience',
+                rawValue: ['founder-led creative teams'],
+                normalizedValue: ['founder-led creative teams'],
+                excerpt: 'Founder-led creative teams from representative social evidence.',
+                confidence: 0.95,
+                authorityClass: 'owned',
+                observedAt: '2020-01-01T00:00:00.000Z',
+                extractorId: 'unsafe-compiler',
+              },
+              {
+                id: 'raw_compiler_motion',
+                sourceType: 'social_post',
+                sourceField: 'compiler.unsupportedMotion',
+                signalPath: 'motion.motionEnergy',
+                rawValue: 0.9,
+                normalizedValue: 0.9,
+                confidence: 0.99,
+                authorityClass: 'owned',
+                observedAt: '2020-01-01T00:00:00.000Z',
+                extractorId: 'unsafe-compiler',
+              },
+            ],
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(compilerSawSourceCount).toBe(1);
+    expect(compilerSawExistingCandidateCount).toBeGreaterThan(0);
+    expect(result.warnings).toContain('Text evidence compiler produced review-only inferred candidates.');
+
+    const compilerCandidates = result.candidates.filter(
+      (candidate) => candidate.extractorId === 'brand-vault-text-evidence-compiler.v1',
+    );
+    expect(compilerCandidates).toHaveLength(1);
+    expect(compilerCandidates[0]).toMatchObject({
+      brandId: 'brand_signal',
+      jobId: 'job_text_compiler',
+      signalPath: 'identity.audience',
+      confidence: 0.68,
+      authorityClass: 'inferred',
+      observedAt: NOW,
+    });
+    expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['founder-led creative teams']));
+    expect(result.profile.identity.audience.confidence).toBe(0.68);
+    expect(result.profile.evidence.some((evidence) => evidence.extractor === 'brand-vault-text-evidence-compiler.v1')).toBe(true);
+  });
+
   it('pulls first-party linked CSS into draft palette and typography evidence', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const calls: string[] = [];
