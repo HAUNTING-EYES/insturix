@@ -544,6 +544,58 @@ describe('unified decision bundle merge', () => {
     expect(merged.expectedSkipped).toBe(0);
   });
 
+  it('requires transition-anchored SFX to carry real boundary evidence', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'sfx-trigger',
+        frame: 220,
+        source: 'signal-executor:loose-transition-sfx',
+        confidence: 0.91,
+        params: { sfxType: 'impact', sfxAnchor: 'transition', beatFrame: 220 },
+      }),
+      decision({
+        type: 'sfx-trigger',
+        frame: 420,
+        source: 'signal-executor:boundary-transition-sfx',
+        confidence: 0.91,
+        params: {
+          sfxType: 'impact',
+          sfxAnchor: 'transition',
+          boundaryFrame: 420,
+          transitionJob: 'emphasize-turn',
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(1);
+    expect(merged.edl.decisions.find((d) => d.type === 'sfx-trigger')?.frame).toBe(420);
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-transition-sfx-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'licensed-by-transition-sfx-boundary-atoms': expect.objectContaining({ count: 1 }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'audio',
+        role: 'audio-emphasis',
+        timingAnchor: expect.objectContaining({ kind: 'boundary', frame: 220 }),
+        riskFlags: expect.arrayContaining(['missing-transition-sfx-boundary-atoms']),
+      }),
+      expect.objectContaining({
+        family: 'audio',
+        role: 'audio-emphasis',
+        timingAnchor: expect.objectContaining({ kind: 'boundary', frame: 420 }),
+        riskFlags: [],
+      }),
+    ]));
+  });
+
   it('keeps hard-cut signal transitions as evidence while executing licensed special transitions', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',

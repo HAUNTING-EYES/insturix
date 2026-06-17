@@ -665,6 +665,7 @@ function roleForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalDec
 
 function timingAnchorKindForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalTimingAnchorKind {
   if (decision.type === 'transition') return 'boundary';
+  if (isTransitionAnchoredSfx(decision)) return 'boundary';
   if (decision.type === 'speed-change' || decision.type === 'slow-motion' || decision.type === 'fade') return 'span';
   return 'moment';
 }
@@ -727,6 +728,9 @@ function riskFlagsForSignalDecision(decision: ReactiveEditDecision, completeness
   if (decision.type === 'sfx' || decision.type === 'sfx-trigger') {
     const sfxType = normalizeParamString(decision.params.sfxType ?? decision.params.type);
     if (!sfxType || sfxType === 'none') flags.push('missing-sfx-intent');
+    if (isTransitionAnchoredSfx(decision) && !hasTransitionSfxBoundaryEvidence(decision)) {
+      flags.push('missing-transition-sfx-boundary-atoms');
+    }
   }
 
   if (decision.type === 'graphic' && !hasEvidenceBackedGraphicContent(decision)) {
@@ -917,6 +921,11 @@ function resolveFamilyExecutionLicense(
         ? { executable: true, reason: 'licensed-by-camera-motion-atoms' }
         : { executable: false, reason: 'missing-camera-motion-atoms' };
     case 'audio':
+      if (isTransitionAnchoredSfx(decision)) {
+        return hasTransitionSfxBoundaryEvidence(decision)
+          ? { executable: true, reason: 'licensed-by-transition-sfx-boundary-atoms' }
+          : { executable: false, reason: 'missing-transition-sfx-boundary-atoms' };
+      }
       return hasAudioBeatEvidence(decision)
         ? { executable: true, reason: 'licensed-by-audio-beat-atoms' }
         : { executable: false, reason: 'missing-audio-beat-atoms' };
@@ -982,8 +991,6 @@ function hasAudioBeatEvidence(decision: ReactiveEditDecision): boolean {
   return hasAnyParam(decision, [
     'beatFrame',
     'beatStrength',
-    'transitionId',
-    'transitionFrame',
     'linkedOverlayId',
     'anchorFrame',
     'phraseImpact',
@@ -991,6 +998,39 @@ function hasAudioBeatEvidence(decision: ReactiveEditDecision): boolean {
     'sfxRole',
     'role',
   ]);
+}
+
+function isTransitionAnchoredSfx(decision: ReactiveEditDecision): boolean {
+  if (decision.type !== 'sfx' && decision.type !== 'sfx-trigger') return false;
+  const anchor = normalizeParamString(
+    decision.params.sfxAnchor ?? decision.params.syncAnchor ?? decision.params.anchor,
+  );
+  if (anchor === 'transition') return true;
+  return hasAnyParam(decision, ['transitionFrame', 'boundaryFrame', 'cutFrame', 'transitionId']);
+}
+
+function hasTransitionSfxBoundaryEvidence(decision: ReactiveEditDecision): boolean {
+  const hasBoundaryAnchor = hasAnyParam(decision, [
+    'transitionFrame',
+    'boundaryFrame',
+    'cutFrame',
+    'transitionId',
+    'linkedOverlayId',
+  ]);
+  const hasBoundaryReason = hasAnyParam(decision, [
+    'transitionJob',
+    'transitionType',
+    'transType',
+    'topicDelta',
+    'speechGapMs',
+    'beatPhase',
+    'visualContinuity',
+    'motionVectorX',
+    'motionVectorY',
+    'sfxRole',
+    'role',
+  ]);
+  return hasBoundaryAnchor && hasBoundaryReason;
 }
 
 function hasCaptionMomentEvidence(decision: ReactiveEditDecision): boolean {
