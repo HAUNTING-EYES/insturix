@@ -443,6 +443,28 @@ describe('MG stage composition renderer', () => {
     ]));
   });
 
+  it('derives refutation atoms only from truth-negation facts', () => {
+    const atoms = resolveSemanticContentSceneAtoms(
+      { text: 'Not harder, but smarter.', refuted: true, polarity: 'false' },
+      [{ role: 'truth-negation', primitive: 'decoration', resolvedProps: { text: 'Not harder, but smarter.' } }],
+      language,
+    );
+
+    expect(atoms.map((atom) => atom.kind)).toContain('semantic-refutation-proof');
+    expect(atoms[0].role).toBe('semantic-refutation-truth-frame');
+    expect(atoms[0].style).toMatchObject({
+      inset: '10% 7% 13%',
+      border: 0,
+      boxShadow: 'none',
+    });
+    expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-refutation-rejected-claim-field',
+      'semantic-refutation-correction-field',
+      'semantic-refutation-primary-strike',
+      'semantic-refutation-polarity-notch',
+    ]));
+  });
+
   it('derives speaker identity framing from name and title content', () => {
     const atoms = resolveSemanticContentSceneAtoms(
       { name: 'Hank Green', title: 'YouTuber' },
