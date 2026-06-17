@@ -754,6 +754,15 @@ describe('phase0 failure taxonomy', () => {
         transitionStyle: 'soft-cut',
         metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'soft-cut', sfxRole: 'none' } },
       },
+      {
+        id: 'tr-dissolve-silent',
+        type: 'transition',
+        from: 90,
+        durationInFrames: 18,
+        row: 3,
+        transitionStyle: 'dissolve',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'dissolve', sfxRole: 'none' } },
+      },
     ];
     const manifest = buildPhase0FixtureManifest(project, {
       artifactDir: '.calibration-temp/phase0-fixtures/proj_silent_transition',

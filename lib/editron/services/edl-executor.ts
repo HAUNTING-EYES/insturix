@@ -363,7 +363,7 @@ export async function executeEDL(
     const uniqueForms = new Map<string, AtomicSfxForm>();
     for (const decision of sfxDecisions) {
       const form = resolveDecisionAtomicSfxForm(decision);
-      if (form?.shouldPlace && validateDecisionSfxTiming(form, overlays).ok) {
+      if (form?.shouldPlace && validateDecisionSfxTiming(form, overlays, decision).ok) {
         uniqueForms.set(atomicSfxSearchQuery(form), form);
       }
     }
@@ -1223,8 +1223,15 @@ function atomicSfxSearchQuery(form: AtomicSfxForm): string {
 function validateDecisionSfxTiming(
   form: AtomicSfxForm,
   overlays: Overlay[],
+  decision?: EditDecision,
 ): { ok: true } | { ok: false; reason: string } {
   if (form.timing.anchor !== 'transition') return { ok: true };
+  if (decision && !hasExplicitTransitionSfxRelation(decision)) {
+    return {
+      ok: false,
+      reason: 'transition-anchored SFX requires explicit transition anchor or boundary frame',
+    };
+  }
 
   const syncFrame = form.timing.syncFrame;
   const anchors = transitionSfxSyncAnchors(overlays);
@@ -1237,6 +1244,27 @@ function validateDecisionSfxTiming(
       ? `transition-anchored SFX has no transition/cut anchor near sync frame ${syncFrame}`
       : `transition-anchored SFX sync frame ${syncFrame} is ${nearest} frames from nearest transition/cut anchor`,
   };
+}
+
+function hasExplicitTransitionSfxRelation(decision: EditDecision): boolean {
+  const params = decision.params ?? {};
+  const anchor = stringParam(params, 'sfxAnchor')
+    ?? stringParam(params, 'syncAnchor')
+    ?? stringParam(params, 'anchor');
+  if (anchor === 'transition') return true;
+  return numberParam(params, 'transitionFrame') != null
+    || numberParam(params, 'boundaryFrame') != null
+    || numberParam(params, 'cutFrame') != null;
+}
+
+function stringParam(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberParam(source: Record<string, unknown>, key: string): number | undefined {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function transitionSfxSyncAnchors(overlays: Overlay[]): number[] {
@@ -1621,7 +1649,7 @@ async function applyDecision(
         console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: no sfxType or technique — SKIPPED (not guessing)`);
         return null;
       }
-      const timingValidation = validateDecisionSfxTiming(atomicSfxForm, overlays);
+      const timingValidation = validateDecisionSfxTiming(atomicSfxForm, overlays, decision);
       if (!timingValidation.ok) {
         console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: ${timingValidation.reason} - SKIPPED`);
         return null;

@@ -603,8 +603,9 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
       id: overlayId(overlay),
       frame: frameOf(overlay),
       style: transitionStyle(overlay),
+      sfxRole: transitionSfxRole(overlay),
     }))
-    .filter((transition) => transitionNeedsSfx(transition.style))
+    .filter((transition) => transitionNeedsSfx(transition.style, transition.sfxRole))
     .filter((transition) => !sfx.some((item) => item.transitionLinked && Math.abs(item.frame - transition.frame) <= SFX_SYNC_WINDOW_FRAMES))
     .slice(0, TIMELINE_SAMPLE_LIMIT);
 
@@ -940,7 +941,9 @@ function nearestAnchor(frame: number, anchors: Array<{ frame: number; type: stri
   return best;
 }
 
-function transitionNeedsSfx(style: string): boolean {
+function transitionNeedsSfx(style: string, sfxRole?: string | null): boolean {
+  if (sfxRole === 'none') return false;
+  if (sfxRole) return true;
   return ![
     'cut',
     'hard-cut',
@@ -955,6 +958,12 @@ function transitionNeedsSfx(style: string): boolean {
     'none',
     'unknown',
   ].includes(style);
+}
+
+function transitionSfxRole(overlay: Phase0OverlayLike): string | null {
+  const metadata = asRecord(overlay.metadata);
+  const form = asRecord(metadata.atomicTransitionForm);
+  return readString(form.sfxRole);
 }
 
 function transitionStyle(overlay: Phase0OverlayLike): string {

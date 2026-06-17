@@ -286,4 +286,79 @@ describe('EDL atomic SFX form wiring', () => {
     expect(overlays.some((overlay) => overlay.type === 'sound')).toBe(false);
     expect(searchAndDownloadSFX).not.toHaveBeenCalled();
   });
+
+  it('does not infer transition SFX ownership from a generic topic-shift sound at a cut boundary', async () => {
+    const overlays: Overlay[] = [
+      {
+        id: 701,
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 120,
+        row: 2,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source-a.mp4',
+        src: 'https://example.com/source-a.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+      {
+        id: 702,
+        type: OverlayType.VIDEO,
+        from: 120,
+        durationInFrames: 120,
+        row: 2,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        isDragging: false,
+        rotation: 0,
+        content: 'https://example.com/source-b.mp4',
+        src: 'https://example.com/source-b.mp4',
+        styles: { opacity: 1 },
+      } as Overlay,
+    ];
+
+    const edl: EditDecisionList = {
+      projectId: 'edl-generic-sfx-at-cut-test',
+      generatedAt: new Date('2026-06-07T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'sfx-trigger',
+        frame: 120,
+        durationFrames: 18,
+        priority: 3,
+        source: 'creative-brief:vocal_peak:word',
+        signal: 'topic_shift',
+        reason: 'Generic topic/vocal accent should not become transition-owned SFX by proximity',
+        confidence: 0.96,
+        params: {
+          sfxType: 'impact',
+          signals: {
+            topic_shift: 0.92,
+            speech_energy: 0.78,
+            visual_significance: 0.62,
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.96,
+      },
+    };
+
+    const result = await executeEDL(edl, 'edl-generic-sfx-at-cut-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.overlaysCreated).toBe(0);
+    expect(overlays.some((overlay) => overlay.type === 'sound')).toBe(false);
+    expect(searchAndDownloadSFX).not.toHaveBeenCalled();
+  });
 });

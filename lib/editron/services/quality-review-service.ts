@@ -645,7 +645,7 @@ function checkMissingTransitionSfx(overlays: AnalyzableOverlay[], fps: number): 
 
   for (const t of transitions) {
     const style = getTransitionStyle(t);
-    if (!transitionNeedsPairedSfx(style)) continue;
+    if (!transitionNeedsPairedSfx(style, t)) continue;
     const hasPairedSfx = sfx.some(s => Math.abs(getSfxSyncFrame(s) - t.from) <= SYNC_WINDOW);
     if (!hasPairedSfx) {
       issues.push({ type: 'missing_transition_sfx', severity: 'warning', description: `"${style}" transition at frame ${t.from} has no paired SFX within ±3 frames — Chion synchresis violation`, overlayId: t.id, frameRange: { start: t.from, end: t.from + t.durationInFrames }, autoFixable: false, suggestedFix: `Add whoosh/impact SFX within ±3 frames of transition start` });
@@ -1052,7 +1052,10 @@ function getTransitionStyle(overlay: AnalyzableOverlay): string {
     || 'unknown';
 }
 
-function transitionNeedsPairedSfx(style: string): boolean {
+function transitionNeedsPairedSfx(style: string, overlay?: AnalyzableOverlay): boolean {
+  const atomicSfxRole = getAtomicTransitionSfxRole(overlay);
+  if (atomicSfxRole === 'none') return false;
+  if (atomicSfxRole) return true;
   return ![
     'cut',
     'hard-cut',
@@ -1067,6 +1070,12 @@ function transitionNeedsPairedSfx(style: string): boolean {
     'none',
     'unknown',
   ].includes(style);
+}
+
+function getAtomicTransitionSfxRole(overlay?: AnalyzableOverlay): string | null {
+  const form = (overlay?.metadata as any)?.atomicTransitionForm;
+  const role = form && typeof form === 'object' ? form.sfxRole : undefined;
+  return typeof role === 'string' && role.trim() ? role.trim() : null;
 }
 
 function isWarmColdConflict(a: string, b: string): boolean {
