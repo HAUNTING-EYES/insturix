@@ -198,6 +198,43 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.warnings).toContain('Brand Vault staged 2 public social fallback sources for review-only enrichment.');
   });
 
+  it('filters generic YouTube boilerplate from public video text evidence', async () => {
+    const fetchFn = async (url: string): Promise<Response> => {
+      if (url.includes('/oembed')) {
+        return jsonResponse({
+          title: 'This is how businesses get robbed',
+          author_name: 'Nimit Jain',
+          thumbnail_url: 'https://img.youtube.com/vi/generic123/hqdefault.jpg',
+        });
+      }
+      const playerResponse = {
+        videoDetails: {
+          title: 'This is how businesses get robbed',
+          author: 'Nimit Jain',
+          shortDescription: 'Enjoy the videos and music you love, upload original content, and share it all with friends, family, and the world on YouTube.',
+          thumbnail: { thumbnails: [{ url: 'https://img.youtube.com/vi/generic123/maxresdefault.jpg' }] },
+        },
+      };
+      return new Response(
+        `<html><body><script>var ytInitialPlayerResponse = ${JSON.stringify(playerResponse)};</script></body></html>`,
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      );
+    };
+
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.youtube.com/watch?v=generic123'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      fetchFn,
+      ocrProvider: null,
+    });
+
+    const youtubePost = result.sourceEvidence.find((source) => source.kind === 'social_post' && source.platform === 'youtube');
+    expect(youtubePost?.text).toContain('This is how businesses get robbed');
+    expect(youtubePost?.text).toContain('Nimit Jain');
+    expect(youtubePost?.text).not.toContain('Enjoy the videos and music you love');
+  });
+
   it('warns when an Apify-supported social profile has no configured actor', async () => {
     const result = await createBrandVaultConnectedSocialEvidence({
       socialLinks: ['https://www.instagram.com/vaultline'],
@@ -397,6 +434,7 @@ describe('Brand Vault connected social ingestion', () => {
     });
     expect(result.sourceEvidence.filter((source) => source.url === 'https://www.linkedin.com/company/vaultline')).toHaveLength(1);
     expect(result.warnings).toContain('Brand Vault discarded 1 linkedin Apify item because they were unreadable, hollow, or did not match the submitted account.');
+    expect(result.warnings).toContain('Brand Vault linkedin Apify rejection reasons: hollow_item=1.');
   });
 
   it('drops Apify public posts whose author does not match the submitted social account', async () => {
@@ -435,6 +473,7 @@ describe('Brand Vault connected social ingestion', () => {
       }),
     });
     expect(result.sourceEvidence.some((source) => source.url === 'https://www.instagram.com/p/personal_post/')).toBe(false);
+    expect(result.warnings).toContain('Brand Vault instagram Apify rejection reasons: identity_mismatch=1.');
   });
 });
 

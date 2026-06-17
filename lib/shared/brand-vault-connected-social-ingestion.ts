@@ -49,6 +49,11 @@ type SocialFetchResult = {
   warnings: string[];
 };
 
+type ApifySocialSourceResult = {
+  source: BrandVaultSourceInput | null;
+  rejectionReason?: 'identity_mismatch' | 'hollow_item';
+};
+
 type ApifySupportedPlatform = 'instagram' | 'facebook' | 'linkedin';
 
 type XUserIdentity = {
@@ -1049,11 +1054,13 @@ async function fetchApifySocialSources(args: {
         warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but Apify returned an unsupported dataset payload shape: ${apifyPayloadShape(payload)}.`],
       };
     }
-    const sources = items
-      .map((item, index) => apifySocialSource(item, args.parsed, index))
-      .filter((source): source is BrandVaultSourceInput => Boolean(source))
-      .slice(0, 5);
-    const rejectedCount = Math.max(0, items.length - sources.length);
+    const normalizedItems = items.map((item, index) => apifySocialSource(item, args.parsed, index));
+    const readableSources = normalizedItems
+      .map((item) => item.source)
+      .filter((source): source is BrandVaultSourceInput => Boolean(source));
+    const sources = readableSources.slice(0, 5);
+    const rejectedCount = normalizedItems.filter((item) => item.rejectionReason).length;
+    const rejectionSummary = apifyRejectionSummary(normalizedItems);
     if (sources.length === 0) {
       if (items.length === 0) {
         return {
@@ -1063,7 +1070,10 @@ async function fetchApifySocialSources(args: {
       }
       return {
         sources: [],
-        warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but ${items.length} dataset item${items.length === 1 ? '' : 's'} produced no readable matched post/profile evidence.`],
+        warnings: [
+          `Brand Vault ran ${args.parsed.platform} Apify fallback, but ${items.length} dataset item${items.length === 1 ? '' : 's'} produced no readable matched post/profile evidence.`,
+          ...(rejectionSummary ? [`Brand Vault ${args.parsed.platform} Apify rejection reasons: ${rejectionSummary}.`] : []),
+        ],
       };
     }
     return {
@@ -1073,6 +1083,7 @@ async function fetchApifySocialSources(args: {
         ...(rejectedCount > 0
           ? [`Brand Vault discarded ${rejectedCount} ${args.parsed.platform} Apify item${rejectedCount === 1 ? '' : 's'} because they were unreadable, hollow, or did not match the submitted account.`]
           : []),
+        ...(rejectionSummary ? [`Brand Vault ${args.parsed.platform} Apify rejection reasons: ${rejectionSummary}.`] : []),
       ],
     };
   } catch (error) {
@@ -1119,7 +1130,20 @@ function apifyPayloadShape(payload: unknown): string {
   return typeof payload;
 }
 
-function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): BrandVaultSourceInput | null {
+function apifyRejectionSummary(results: ApifySocialSourceResult[]): string | null {
+  const counts = results.reduce<Record<string, number>>((acc, result) => {
+    if (!result.rejectionReason) return acc;
+    acc[result.rejectionReason] = (acc[result.rejectionReason] ?? 0) + 1;
+    return acc;
+  }, {});
+  const summary = Object.entries(counts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(', ');
+  return summary || null;
+}
+
+function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): ApifySocialSourceResult {
   const record = asRecord(item);
   const author = asRecord(record.author);
   const actor = asRecord(record.actor);
@@ -1171,7 +1195,7 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     displayName,
   });
   if (!identityMatchStatus) {
-    return null;
+    return { source: null, rejectionReason: 'identity_mismatch' };
   }
   const media = socialMedia({
     mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
@@ -1182,29 +1206,31 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   });
   const metrics = socialMetrics({ ...record, ...engagement });
   const profile = socialProfile({ ...record, ...author, url: undefined });
-  if (!text && !media && !metrics && !profile) return null;
+  if (!text && !media && !metrics && !profile) return { source: null, rejectionReason: 'hollow_item' };
   return {
-    kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
-    url: sourceUrl,
-    platform: parsed.platform,
-    name: displayName ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
-    note: 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
-    text: text || undefined,
-    evidenceOrigin: 'public_fallback',
-    pinned: booleanValue(record.isPinned) ?? booleanValue(record.pinned) ?? false,
-    publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.posted_at, record.postedAt, record.date),
-    media,
-    metrics,
-    profile,
-    connection: {
-      provider: 'alyzitron_apify',
-      status: 'public_fallback_available',
-      accountHandle,
-      accountName,
-      canReadProfile: Boolean(profile),
-      canReadPosts: true,
-      canReadPinned: false,
-      matchStatus: identityMatchStatus,
+    source: {
+      kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
+      url: sourceUrl,
+      platform: parsed.platform,
+      name: displayName ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
+      note: 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
+      text: text || undefined,
+      evidenceOrigin: 'public_fallback',
+      pinned: booleanValue(record.isPinned) ?? booleanValue(record.pinned) ?? false,
+      publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.posted_at, record.postedAt, record.date),
+      media,
+      metrics,
+      profile,
+      connection: {
+        provider: 'alyzitron_apify',
+        status: 'public_fallback_available',
+        accountHandle,
+        accountName,
+        canReadProfile: Boolean(profile),
+        canReadPosts: true,
+        canReadPinned: false,
+        matchStatus: identityMatchStatus,
+      },
     },
   };
 }
@@ -1320,7 +1346,7 @@ async function fetchPublicYouTubePostSource(args: {
 
   const title = firstString(watchPage.evidence.title, oEmbedPayload.title);
   const author = firstString(watchPage.evidence.author, oEmbedPayload.author_name);
-  const description = firstString(watchPage.evidence.description);
+  const description = meaningfulYouTubeDescription(firstString(watchPage.evidence.description));
   const html = stripHtml(stringValue(oEmbedPayload.html));
   const text = uniqueStrings([title, description, author, html]).join('\n');
   const media = socialMedia({
@@ -1506,6 +1532,16 @@ function youtubeEvidenceFromWatchHtml(html: string, player: Record<string, unkno
     durationSeconds: firstNumber(videoDetails.lengthSeconds, microformat.lengthSeconds),
     viewCount: firstNumber(videoDetails.viewCount, microformat.viewCount, microformat.interactionCount),
   };
+}
+
+function meaningfulYouTubeDescription(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return undefined;
+  const genericPhrases = [
+    'enjoy the videos and music you love, upload original content, and share it all with friends, family, and the world on youtube',
+  ];
+  return genericPhrases.some((phrase) => normalized.includes(phrase)) ? undefined : value;
 }
 
 async function fetchYouTubeCaptionTranscript(
