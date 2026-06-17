@@ -688,6 +688,145 @@ describe('Brand Vault refinery API boundary', () => {
     );
   });
 
+  it('preserves rich user-supplied social evidence for media, profile, metrics, and connection-aware draft signals', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          brandId: 'brand_vaultline',
+          sourceEvidence: [
+            {
+              kind: 'social_post',
+              url: 'https://www.instagram.com/p/rich_source/',
+              platform: 'instagram',
+              pinned: true,
+              publishedAt: '2026-06-16T10:00:00.000Z',
+              media: {
+                mediaType: 'video',
+                mediaUrl: 'https://cdn.example.com/rich_source.mp4',
+                thumbnailUrl: 'https://cdn.example.com/rich_source.jpg',
+                sampledFrameUrls: ['https://cdn.example.com/rich_source_frame_1.jpg'],
+                ocrText: 'Stop guessing brand voice from stale decks.',
+                transcript: 'Book a demo and build one reviewed brand system before the edit starts.',
+                durationSeconds: 42.5,
+              },
+              metrics: {
+                likeCount: 44,
+                commentCount: 6,
+                shareCount: 3,
+                viewCount: 1200,
+                engagementCount: 53,
+              },
+              profile: {
+                bio: 'Brand operations software for agency teams.',
+                category: 'Software',
+                website: 'https://vaultline.example',
+                followerCount: 8200,
+              },
+              evidenceOrigin: 'user_supplied',
+              connection: {
+                provider: 'alyzitron_apify',
+                status: 'public_fallback_available',
+                accountHandle: 'vaultline',
+                scopes: ['public'],
+                missingScopes: [],
+                canReadProfile: true,
+                canReadPosts: true,
+                canReadPinned: false,
+                matchStatus: 'matched',
+              },
+            },
+          ],
+        },
+      },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    expect(created.body.job.inputs.sourceEvidence?.[0]).toMatchObject({
+      kind: 'social_post',
+      platform: 'instagram',
+      pinned: true,
+      publishedAt: '2026-06-16T10:00:00.000Z',
+      media: {
+        mediaType: 'video',
+        mediaUrl: 'https://cdn.example.com/rich_source.mp4',
+        thumbnailUrl: 'https://cdn.example.com/rich_source.jpg',
+        sampledFrameUrls: ['https://cdn.example.com/rich_source_frame_1.jpg'],
+        ocrText: 'Stop guessing brand voice from stale decks.',
+        transcript: 'Book a demo and build one reviewed brand system before the edit starts.',
+        durationSeconds: 42.5,
+      },
+      metrics: {
+        likeCount: 44,
+        commentCount: 6,
+        shareCount: 3,
+        viewCount: 1200,
+        engagementCount: 53,
+      },
+      profile: {
+        bio: 'Brand operations software for agency teams.',
+        category: 'Software',
+        website: 'https://vaultline.example',
+        followerCount: 8200,
+      },
+      evidenceOrigin: 'user_supplied',
+      connection: {
+        provider: 'alyzitron_apify',
+        status: 'public_fallback_available',
+        accountHandle: 'vaultline',
+        scopes: ['public'],
+        missingScopes: [],
+        canReadProfile: true,
+        canReadPosts: true,
+        canReadPinned: false,
+        matchStatus: 'matched',
+      },
+    });
+
+    const socialCandidates = created.body.candidates.filter(
+      (candidate) => candidate.extractorId === 'brand-vault-social-evidence.v1',
+    );
+    expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.socialIdentity'))?.normalizedValue).toMatchObject({
+      platform: 'instagram',
+      media: expect.objectContaining({ mediaType: 'video' }),
+      metrics: expect.objectContaining({ engagementCount: 53 }),
+      profile: expect.objectContaining({ category: 'Software' }),
+      evidenceOrigin: 'user_supplied',
+      connection: expect.objectContaining({
+        provider: 'alyzitron_apify',
+        status: 'public_fallback_available',
+        matchStatus: 'matched',
+      }),
+      capability: {
+        evidenceAccess: 'post_url_only',
+        liveFetchStatus: 'public_fallback_available',
+        connectedAccountStatus: 'not_connected',
+        publicFallbackStatus: 'review_only',
+        pinnedContentStatus: 'manual_selected_pinned',
+      },
+    });
+    expect(socialCandidates.find((candidate) => candidate.sourceField.endsWith('.text.voicePhrases'))?.rawValue).toMatchObject({
+      value: expect.stringContaining('Stop guessing brand voice from stale decks'),
+      media: expect.objectContaining({ transcript: expect.stringContaining('Book a demo') }),
+      metrics: expect.objectContaining({ engagementCount: 53 }),
+      profile: expect.objectContaining({ bio: 'Brand operations software for agency teams.' }),
+      evidenceOrigin: 'user_supplied',
+    });
+    expect(created.body.record.profile.voice.recurringPhrases.value).toEqual(
+      expect.arrayContaining(['Stop guessing brand voice from stale decks']),
+    );
+  });
+
   it('lets Brand Vault-owned providers add connected social capability evidence without accepting it as profile truth', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
 
@@ -2001,6 +2140,49 @@ describe('Brand Vault refinery API boundary', () => {
     );
     expect(badSocialPinnedFlag.status).toBe(400);
     expect(badSocialPinnedFlag.body.ok).toBe(false);
+
+    const badRichSocialMetadata = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          sourceEvidence: [
+            {
+              kind: 'social_post',
+              platform: 'instagram',
+              media: { mediaType: 'gif', ocrText: 'Unsupported media type should fail.' },
+            },
+          ],
+        },
+      },
+      { store },
+    );
+    expect(badRichSocialMetadata.status).toBe(400);
+    expect(badRichSocialMetadata.body.ok).toBe(false);
+
+    const badConnectionMetadata = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'user_vault',
+        body: {
+          websiteUrl: 'vaultline.example',
+          sourceEvidence: [
+            {
+              kind: 'social_profile',
+              platform: 'linkedin',
+              connection: {
+                provider: 'uploaderx',
+                status: 'connected',
+                canReadProfile: true,
+                canReadPosts: true,
+              },
+            },
+          ],
+        },
+      },
+      { store },
+    );
+    expect(badConnectionMetadata.status).toBe(400);
+    expect(badConnectionMetadata.body.ok).toBe(false);
 
     const created = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },
