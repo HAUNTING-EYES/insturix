@@ -48,8 +48,10 @@ the creative source of truth.
 - The MG engine is not yet visually deep enough for AutoAE-level output. It
   mostly has text, shapes, containers, rules, particles, masks, patterns, and
   basic data-viz. It lacks enough authored scene atoms.
-- Captions are now a canonical full-track overlay. That is acceptable. The weak
-  part is style choice and rendered fit, not the existence of one global track.
+- Captions currently use a canonical full-track overlay. That is useful as a
+  synchronization substrate, but it is not the final northstar. Caption planning
+  must become moment-scoped: active groups, line breaks, emphasis, screen region,
+  and readability must be resolved per edited moment, not as one blanket style.
 - V-JEPA spatial primitives now exist in the current code path: subject bbox,
   text boxes/count/coverage, negative space, motion vector, object count, and
   face count. The remaining issue is reliability and coverage quality.
@@ -90,11 +92,66 @@ claiming upload-to-edit quality is production-grade.
    gate must not look like it contradicts a later full-project review with
    critical issues.
 
-5. Transitions and SFX are still shallow.
-   Transition decisions, transition overlays, SFX candidates, rejected SFX, and
-   placed SFX must be audited together. Transition/SFX output should be governed
-   by boundary atoms, rhythm, provider quality, repetition memory, and rendered
-   evidence, not by weak hints or default compatibility names.
+5. Overlay family planning is still uneven.
+   Transition decisions, caption decisions, zoom decisions, SFX candidates,
+   rejected SFX, placed SFX, media/cutaway decisions, sticker/shape decisions,
+   speed/fade/camera-shake decisions, and rendered overlays must be audited
+   through one contract: atoms -> overlay job -> physical form -> renderer
+   adapter -> rendered evidence. Repetition memory is a constraint after form
+   resolution, not the creative source of truth. Weak hints, fallback defaults,
+   compatibility names, or rotating through labels must not be treated as any
+   overlay family's brain.
+
+## Verified Implementation Status - 2026-06-17
+
+This section records what the current code actually proves, so future sessions do
+not re-open solved plumbing or over-claim unfinished behavior.
+
+### Confirmed In Code
+
+- Phase 0 fixture, taxonomy, and artifact-pack scaffolds exist.
+- Full-project quality issue details are persisted in bounded sanitized form,
+  not only as counts.
+- Director, brand-learning, and inline worker learning paths are gated away from
+  failed-quality runs.
+- V-JEPA spatial primitives are preserved into the Editron analysis path:
+  subject bbox, text boxes, text coverage, negative space, motion vector,
+  object count, and face count.
+- Signal decision audit/licensing exists so signal decisions can be inspected as
+  executable candidates, evidence-only facts, rejected candidates, or family
+  evidence.
+- Caption, zoom, transition, and SFX atomic form resolvers exist as plumbing.
+
+### Still Partial
+
+- Phase 0 artifact truth is not yet design-grade. The harness can build render
+  packs and classify failures, but real rendered stills/GIF/audio timing reports
+  are not yet a hard gate for upload-to-edit.
+- Decision authority is not fully unified until one planner ranks all candidates
+  on the canonical edited timeline and owns the final executable bundle.
+- Canonical timeline enforcement is not proven everywhere. Raw timeline data
+  must remain provenance, not the decision coordinate system.
+- Caption, zoom, transition, and SFX planners still need production behavior:
+  moment scope, repetition memory, boundary atoms, exact beat alignment, and
+  screen-aware placement.
+- V-JEPA has preserved fields, but coverage and degraded-mode behavior still need
+  health gates before screen-aware placement can be trusted.
+- Calibration must remain blocked until rendered evidence is trustworthy.
+
+### Current Next Order
+
+1. Harden Phase 0 artifact packs so they account for MG, captions, zoom,
+   transitions, and SFX without pretending audio or camera-motion evidence is the
+   same as visual overlay pixels.
+2. Run Phase 0 artifact packs against real upload-to-edit projects and persist
+   concrete rendered/audio timing issue evidence.
+3. Make the unified planner the only executable decision owner.
+4. Build production family planners: captions, transitions, zoom/visual motion,
+   and SFX. MG continues in the separate MG branch but must plug into the same
+   planner contract.
+5. Add V-JEPA degraded-mode governance and visual-cutting support.
+6. Run reference calibration for weights, curves, density, timing, sizes, and
+   thresholds only after the above gates are stable.
 
 ## Correct Architecture
 
@@ -116,6 +173,968 @@ flowchart TD
 The canonical edited timeline is law. Raw timeline data is provenance. Decisions
 for MG, captions, zooms, transitions, SFX, and pacing must be made on the final
 edited timeline using projected raw evidence.
+
+## Overlay Planner Contract
+
+This is the required architecture for every overlay family. It exists to prevent
+the system from hiding presets behind nicer words.
+
+```text
+projected evidence
+  -> primitive atoms
+  -> relations and moment windows
+  -> overlay job
+  -> physical form
+  -> renderer adapter
+  -> rendered quality evidence
+  -> calibration update
+```
+
+### What Each Layer Owns
+
+1. Primitive atoms
+   - The smallest facts the system can defend.
+   - Examples: word start/end, speech pause, beat frame, subject bbox, text box,
+     negative space, motion vector, shot scale, topic delta, emotion delta,
+     visual clutter, source clip boundary, brand color contrast, provider asset
+     quality.
+   - Atoms do not choose a style. They only say what is true.
+
+2. Relations and moment windows
+   - Relations connect atoms into meaning.
+   - Examples: sentence continues across cut, new thought begins, motion carries
+     left-to-right, subject jumps position, beat lands 4 frames after boundary,
+     on-screen text occupies lower third, phrase is a claim, number supports a
+     proof, silence creates room for SFX.
+   - Moment windows define where an overlay can live on the edited timeline.
+
+3. Overlay job
+   - The job is the purpose of the overlay, not its visual preset.
+   - A job can be multi-axis. For example, a transition can be
+     `{continuity: high, emphasis: medium, jumpHide: low, attentionReset: low}`.
+   - Jobs must be explainable from atoms and relations. If the job cannot cite
+     evidence, it is not executable.
+
+4. Physical form
+   - Physical form is the concrete render plan.
+   - It includes timing, position, size, curve, intensity, direction, focal
+     anchor, opacity, blur, scale, pan, stroke/fill, typography, volume, fade,
+     layer, safe-zone, and collision constraints.
+   - Physical form can be continuous, not a menu. Example: transition duration
+     can be 7 frames from beat distance and motion strength, not "pick quick".
+
+5. Renderer adapter
+   - The renderer converts physical form into Remotion/CSS/keyframes/SVG/Lottie
+     or editor overlay fields.
+   - Compatibility labels such as `whip-pan`, `soft-cut`, `impact`, or
+     `word-by-word` may exist only here as adapter shells. They are not the
+     source of creative choice.
+
+6. Rendered quality evidence
+   - The system must render and inspect snippets/stills/audio windows.
+   - Quality checks must report concrete failures: unreadable, mistimed, blank,
+     face-covered, repeated form, visually cheap, too loud, wrong moment, or bad
+     crop.
+
+7. Calibration
+   - Every invented threshold, curve, size, duration, density limit, and score
+     weight must be marked `invented-needs-calibration` until tuned against
+     diverse rendered references.
+
+### Universal Overlay Planner Rules
+
+- A label without atoms is evidence-only.
+- A job without evidence is evidence-only.
+- Physical form without a renderer contract is invalid.
+- Renderer labels cannot overrule atoms.
+- Repetition memory can restrain, vary, suppress, or soften a resolved physical
+  form. It cannot choose from a style menu.
+- Guardrails are not root fixes. If a quality gate repeatedly blocks an overlay,
+  the planner or atom extractor is wrong.
+- Brand taste modifies physical form and thresholds; it does not invent facts.
+- LLM/Gemini can propose semantic facts and narrative intent, but deterministic
+  planners must validate timing, placement, density, screen safety, and render
+  budgets.
+
+## Deep Overlay Planner Contract
+
+This section is the implementation contract. It is deliberately stricter than
+the shorthand family specs below. The shorthand specs name useful atoms and
+jobs; this contract defines how an overlay becomes executable without hiding a
+preset menu behind nicer words.
+
+Every overlay family must produce this shape before it reaches a renderer:
+
+```text
+OverlayPlannerDecision
+  family
+  momentWindow
+  inputAtoms
+  relations
+  jobVector
+  executionLicense
+  physicalForm
+  rendererAdapter
+  crossFamily
+  evidence
+  calibration
+```
+
+Required fields:
+
+- `family`: caption, text, MG, zoom, transition, SFX, pacing, speed, fade,
+  camera-shake, media, image, video, avatar, logo, shape, sticker, Lottie, or
+  HTML scene.
+- `momentWindow`: edited-timeline start/end, raw source map, confidence, and
+  whether the window touches a cut boundary.
+- `inputAtoms`: primitive facts with source, frame/time, value, confidence, and
+  freshness. If an atom came from fallback or inference, mark it.
+- `relations`: the meaning built from atoms, such as sentence-continuation,
+  topic-turn, object-supports-claim, beat-near-keyword, subject-jump, empty
+  region, or caption-collides-with-face.
+- `jobVector`: continuous purpose scores, not a single menu label. A transition
+  can be 0.8 continuity and 0.4 emphasis at the same time. A caption can be
+  0.9 readability and 0.3 punch.
+- `executionLicense`: executable, evidence-only, or rejected, with reason. A
+  label-only decision is evidence-only.
+- `physicalForm`: timing, geometry, motion, appearance, audio, layer, safety,
+  and density parameters. These are the real creative output.
+- `rendererAdapter`: a thin mapping from physical form to Remotion/editor fields.
+  Adapter labels are allowed only here.
+- `crossFamily`: suppresses, dependsOn, syncTargets, densityCost, collisionCost,
+  and shared anchors with other overlay families.
+- `evidence`: selected reasons, rejected alternatives, risk flags, degraded
+  signals, and quality expectations.
+- `calibration`: every invented threshold, curve, size, duration, score weight,
+  or default value touched by this decision.
+
+### Planner Runtime Algorithm
+
+Every family planner must run the same deterministic loop:
+
+1. Build an evidence packet on the canonical edited timeline.
+   - Use raw timeline data only through the raw-to-cut source map.
+   - Include transcript, V-JEPA, Wav2Vec, Essentia/music, brand, quality, and
+     recent overlay memory.
+2. Normalize primitive atoms.
+   - Convert speech, visual, audio, structural, brand, and asset facts into a
+     common atom format with confidence.
+   - Do not let a renderer label become an atom.
+3. Build relations.
+   - Relations answer "what is connected to what?" Examples: word belongs to
+     claim, number supports proof, cut continues sentence, motion carries
+     left-to-right, screen text blocks lower third.
+4. Build candidate windows.
+   - Candidate windows are not every cut or every word. They are spans where
+     atoms and relations show an overlay could help.
+5. Resolve a job vector.
+   - The job vector is a weighted purpose profile. It can have multiple active
+     dimensions. The family planner must cite the atoms that created each high
+     score.
+6. Check execution license.
+   - Minimum evidence must exist for that family. Otherwise the decision stays
+     evidence-only even if the brief, LLM, or legacy graph suggested it.
+7. Resolve physical form.
+   - Convert job vector plus screen context plus brand plus memory into concrete
+     timing, size, position, curves, motion, appearance, audio, and safety.
+8. Run cross-family orchestration.
+   - The moment bundle chooses a combo, not independent overlay spam. Captions,
+     MG, zoom, transition, SFX, pacing, and media can suppress or reshape each
+     other.
+9. Emit renderer adapter.
+   - The adapter receives physical form. It may choose the closest renderer
+     component or compatibility name, but it must persist the physical form
+     separately.
+10. Persist the audit.
+    - Store selected and rejected candidates, reasons, atoms, relations, job
+      vector, physical form, degraded signals, and calibration flags.
+11. Render evidence.
+    - Capture stills/snippets/audio windows for quality checks.
+12. Feed calibration only after rendered evidence passes.
+    - No bandit or brand learning from degraded or failed-quality runs unless
+      explicitly marked diagnostic.
+
+### Minimum Executable Evidence
+
+These are not quality goals. They are the minimum bar before an overlay can be
+created.
+
+| Family | Minimum executable evidence |
+| --- | --- |
+| Transition | Boundary frame, raw-to-cut confidence, and at least two of speech pause/continuation, topic delta, beat proximity, motion vector, subject jump, visual continuity, audio tail, or brightness/color delta. |
+| Zoom / camera motion | Moment window, focal anchor source, crop safety, and at least one attention atom: speech peak, word importance, visual salience, subject bbox, face/eye contact, object detail, beat, or emotion spike. |
+| Caption / text | Text payload, word/phrase timing, readable duration, safe region or collision policy, contrast plan, and grouping rule. |
+| MG | Semantic structure, relation, or visual explanation contract; moment relevance; screen region; brand/render capability; and density/collision budget. |
+| SFX | Sync anchor, role, mix safety, speech/music conflict check, density memory, and either asset quality evidence or an explicit silence decision. |
+| Pacing / speed | Span start/end, word-boundary or motion-boundary safety, source-map confidence, and a reason atom such as overheld shot, flatness, action peak, silence, or beat section. |
+| Fade / color / filter | Span, emotional or section relation, brightness/color continuity evidence, brand/world intent, and overuse guard. |
+| Camera-shake | Exact impact anchor, visual/speech/beat reason, face/text safety, restraint score, and recent shake memory. |
+| Media / image / video / cutaway | Asset identity, semantic role, source confidence, relevance relation, placement/crop safety, and duration/readability budget. |
+| Avatar / logo | Asset identity, role, brand or speaker relation, clear-space/contrast safety, and repeat budget. Avatar must not masquerade as logo internally. |
+| Shape / sticker / Lottie / HTML scene | Target atom or region, semantic role, asset capability, screen safety, density budget, and animation timing plan. |
+
+### Job Vector Dimensions By Family
+
+A job vector is a set of purpose scores. It is not a menu. A family planner may
+add more dimensions, but these are the minimum.
+
+Transition:
+
+- `continuity`: make the edit invisible.
+- `turn`: mark a new thought or section.
+- `impact`: make the boundary hit harder.
+- `motionTransfer`: carry direction or energy across the cut.
+- `jumpHide`: conceal subject, angle, or composition discontinuity.
+- `attentionReset`: clear fatigue after a dense moment.
+- `contrastReveal`: separate before/after or opposing ideas.
+- `audioBridge`: let speech, ambience, or music lead/trail picture.
+- `silence`: choose a clean hard cut when motion is already enough.
+
+Zoom / camera motion:
+
+- `attentionPull`: move the eye to the important subject or phrase.
+- `proofReveal`: reveal object, metric, screen detail, or evidence.
+- `pressureBuild`: raise tension before a claim.
+- `release`: pull back after intensity.
+- `subjectFollow`: keep the subject legible during motion.
+- `premiumLife`: add tiny non-distracting motion to static footage.
+- `framingCorrection`: improve off-center or dead-space framing.
+- `motionAvoidance`: choose stillness because footage already moves.
+
+Caption / text:
+
+- `readability`: make speech legible.
+- `speechSync`: match timing and active word.
+- `emphasis`: show the key word or phrase.
+- `explanation`: clarify what is happening or what is implied.
+- `comedyTiming`: land text around a joke, pause, or reaction.
+- `styleExpression`: express brand/content energy without hurting reading.
+- `accessibility`: override fancy styling when speech is hard to follow.
+- `screenRespect`: avoid face, mouth, MG, objects, and existing text.
+
+SFX:
+
+- `punctuate`: mark a keyword, cut, MG landing, or motion peak.
+- `glue`: make a transition feel joined.
+- `build`: increase tension into a beat.
+- `release`: signal resolution or relief.
+- `texture`: add environment or tactile detail.
+- `comedy`: support a joke without overpowering speech.
+- `silence`: intentionally do nothing when asset quality or mix safety fails.
+
+Pacing / speed / fade / shake:
+
+- `compression`: shorten weak or repetitive time.
+- `savor`: slow or hold a meaningful visual moment.
+- `reset`: clear section or attention state.
+- `impact`: exaggerate a beat with shake/speed/fade.
+- `continuity`: preserve speech and motion sense.
+- `de-noise`: remove filler, dead air, awkward pause, or flatness.
+
+Media / image / avatar / logo / shape / sticker / Lottie / HTML:
+
+- `evidenceDisplay`: show proof, object, source, or reference.
+- `identity`: introduce person, brand, product, place, or role.
+- `explanation`: visually explain a process or relation.
+- `engagement`: add humor, reaction, or cultural context.
+- `brandRecall`: reinforce brand without clutter.
+- `screenSubstitution`: temporarily replace/cover footage when footage is weak.
+- `supportOnly`: stay secondary because the main video already carries meaning.
+
+MG:
+
+- `explain`: make abstract content visible.
+- `emphasize`: make a claim/number/contrast/quote land.
+- `structure`: show list, sequence, hierarchy, relation, or system.
+- `compare`: show before/after, rank, delta, ratio, or alternative.
+- `prove`: connect evidence to claim.
+- `brandExpression`: express taste and craft without stealing focus.
+- `sceneTakeover`: temporarily become the main layer when the video itself is
+  not the best explanation.
+
+### Physical Form Dimensions
+
+All families must resolve physical form through explicit dimensions. If a family
+does not use one dimension, it must say `not-applicable`, not silently omit it.
+
+Timing:
+
+- start frame, end frame, sync frame, pre-roll, attack, hold, release, tail,
+  lead/lag from speech, beat distance, cut-boundary distance.
+
+Geometry:
+
+- anchor, x/y, width/height, safe-zone, crop box, focal point, transform origin,
+  clear space, protected regions, collision boxes.
+
+Motion:
+
+- direction vector, speed, acceleration, easing, scale, pan, rotation, blur,
+  smear, shake amplitude, anticipation, overshoot, settle.
+
+Appearance:
+
+- color, contrast, opacity, stroke, shadow, typography, size, line height,
+  casing, surface, border, texture, image treatment, brand deviation.
+
+Audio:
+
+- sync anchor, start offset, volume, loudness target, ducking, fade, tail,
+  stereo/pan when available, music/speech conflict, silence permission.
+
+Layering:
+
+- z-order, takeover/secondary role, caption-vs-MG priority, under/over video,
+  background dimming, mask behavior, transition overlap.
+
+Safety:
+
+- face/mouth avoidance, on-screen-text avoidance, crop limits, flashing risk,
+  blank-frame risk, title-safe/action-safe, screen-direction continuity.
+
+Density and memory:
+
+- recent family count, repeated form, repeated direction, repeated focal region,
+  cumulative edit density, per-moment overlay budget, global restraint.
+
+### Family Deep Contracts
+
+#### Transitions
+
+Input atoms:
+
+- boundary, source clip A/B ids, A ending energy, B starting energy, speech pause,
+  sentence continuity, topic delta, semantic relation, beat phase, motion vector
+  before/after, subject bbox before/after, shot scale before/after, text/clutter
+  delta, brightness/color delta, ambience/music continuity.
+
+Relations:
+
+- continuation, contrast, section break, match candidate, jump risk, eye-trace
+  jump, screen-direction carry, audio lead/trail, cut-on-action, pause-supported
+  transition, speech-protected boundary.
+
+Physical form:
+
+- boundary frame, duration, opacity curve, motion direction, translation, scale,
+  blur, smear, exposure, mask edge, edge softness, audio crossfade, SFX role,
+  zoom bridge, landing frame.
+
+Reject or degrade when:
+
+- transition happens mid-word without an audio reason, repeated form is too
+  recent, visual pressure is too high for motion blur, speech continuity needs a
+  plain cut, V-JEPA coverage is degraded and no safe proxy exists.
+
+Renderer adapter:
+
+- Only after the form is resolved can it map to a renderer shell such as
+  dissolve, whip, soft cut, wipe, match cut, jump cut, J-cut, or L-cut.
+
+#### Zoom And Camera Motion
+
+Input atoms:
+
+- subject bbox, face/eye confidence, object/text boxes, negative space,
+  shot scale, current camera motion, motion vector, speech energy, word
+  importance, emotion, beat, clip length, recent zoom memory, brand restraint.
+
+Relations:
+
+- subject supports current claim, word peak aligns with face, object is evidence,
+  frame is static, camera already moving, negative space is usable, cut is near,
+  focal region repeats too soon.
+
+Physical form:
+
+- focal x/y, transform origin, scale from/to, pan x/y, crop safety, attack,
+  hold, release, easing, micro-drift, stabilization restraint, subject lock,
+  face/text protection.
+
+Reject or degrade when:
+
+- crop would cut face/text, motion-on-motion would feel unstable, same focal
+  zone repeats, no defensible attention atom exists, or subject confidence is
+  too low and no safe center/negative-space fallback exists.
+
+Renderer adapter:
+
+- The renderer may emit keyframes and compatibility names like punch, push, or
+  pull, but those names must be derived from the continuous form.
+
+#### Captions And Text
+
+Input atoms:
+
+- word timings, confidence, breath groups, sentence/phrase boundaries, speaker
+  changes, speech rate, emphasis words, claims/numbers/names, pauses, cut
+  boundaries, face/mouth boxes, on-screen text, negative space, brand type rules.
+
+Relations:
+
+- phrase belongs together, emphasized word lands at frame, caption crosses cut,
+  face/mouth conflict, screen text conflict, joke pause, accessibility need,
+  brand style fit, active row overflow.
+
+Physical form:
+
+- segment window, active word windows, group size, row breaks, max words/chars,
+  font, size, weight, line height, casing, highlight geometry, color, surface,
+  padding, anchor, entrance/exit, active animation, min/max duration.
+
+Reject or degrade when:
+
+- reading speed is unsafe, contrast fails, row wrapping fails, caption fights MG
+  or face, active word would lag speech, or fancy style cannot fit the current
+  moment. Degrade to readable form, not to no caption unless captions are truly
+  optional for the project.
+
+Renderer adapter:
+
+- Word-by-word, phrase, karaoke, subtitle, Instagram, or Hormozi style names are
+  adapter outputs. The real decision is grouping, timing, typography, surface,
+  emphasis, and screen placement.
+
+#### SFX
+
+Input atoms:
+
+- transition landing, MG landing, zoom punch, beat, keyword, motion peak, silence
+  pocket, music/speech loudness, emotion spike, action cue, recent SFX memory,
+  provider asset candidates and rejected candidate evidence.
+
+Relations:
+
+- SFX syncs to visual beat, SFX glues transition, SFX punctuates keyword, SFX
+  would mask speech, asset tail overlaps next speech, provider result is wrong
+  texture, silence is better than bad sound.
+
+Physical form:
+
+- sync frame, start offset, trim, duration, attack, tail, fade, volume, ducking,
+  texture, brightness, low-end weight, provider query terms, avoid terms,
+  quality floor, fallback policy.
+
+Reject or degrade when:
+
+- no asset clears quality, timing drift exceeds tolerance, speech/music conflict
+  is too high, recent SFX density is high, or the only available match is a
+  generic/cheesy sound.
+
+Renderer adapter:
+
+- Impact, whoosh, tick, riser, shimmer, ambience, or foley are provider/search
+  tokens only. The planner decides role, texture, mix, and timing first.
+
+#### Pacing, Speed, Fade, And Camera Shake
+
+Input atoms:
+
+- clip length, silence, speech rate, filler, topic shift, action start/end, beat
+  section, visual motion, shot quality, flatness, overheld/underheld evidence,
+  word-boundary safety, source-map confidence, recent rhythm.
+
+Relations:
+
+- shot is overheld, thought has ended, action peak deserves hold, beat section
+  changes, speed change would damage speech, shake would cover face/text, fade
+  would imply a section reset.
+
+Physical form:
+
+- cut/split frame, speed curve, ramp handles, hold duration, fade color/opacity,
+  shake amplitude/frequency/decay, audio compensation, word/motion safety.
+
+Reject or degrade when:
+
+- source map is weak, speech would be damaged, visual action would become
+  unreadable, or a guardrail would repeatedly block the same behavior. Repeated
+  blocks mean the cut/pacing planner is wrong, not that late cleanup is good.
+
+Renderer adapter:
+
+- Speed, fade, and shake renderer fields are physical outputs. Technique labels
+  are explanatory metadata only.
+
+#### Media, Image, Video, Avatar, Logo
+
+Input atoms:
+
+- asset source, identity, role, relevance relation, transcript/entity link,
+  brand ownership, speaker/product/person/place link, crop box, alpha/mask
+  support, resolution, safe region, duration need.
+
+Relations:
+
+- asset proves claim, introduces identity, compares against footage, replaces
+  weak footage, supports humor, reinforces brand, or would distract from face.
+
+Physical form:
+
+- placement, size, crop, mask, reveal timing, hold, exit, treatment, shadow,
+  frame/device shell if needed, clear space, z-order, caption/MG collision.
+
+Reject or degrade when:
+
+- asset source is untrusted, identity is weak, crop/resolution fails, logo clear
+  space fails, avatar is being treated as a logo, or media is decoration without
+  a semantic role.
+
+Renderer adapter:
+
+- Image/video/avatar/logo renderer names are asset-role adapters, not creative
+  source of truth.
+
+#### Shape, Sticker, Lottie, HTML Scene
+
+Input atoms:
+
+- target region, semantic role, asset capability, animation capability, visual
+  density, brand fit, object/face/text collision, relevance relation, timing
+  anchor, interaction with captions/MG.
+
+Relations:
+
+- shape points to evidence, sticker adds reaction/humor, Lottie illustrates a
+  process, HTML scene temporarily replaces footage, decorative element would
+  clutter the moment.
+
+Physical form:
+
+- x/y/size, anchor, path, stroke/fill, icon/sticker asset, animation progress,
+  entrance/exit, loop count, opacity, blend mode, z-order, collision behavior.
+
+Reject or degrade when:
+
+- no target atom exists, asset capability is unknown, animation loops randomly,
+  sticker is irrelevant, or it competes with primary speech/face/MG.
+
+Renderer adapter:
+
+- Shape/sticker/Lottie/HTML component names are implementation shells. The
+  planner owns role, placement, timing, and animation parameters.
+
+#### Motion Graphics
+
+Input atoms:
+
+- semantic facts, numeric values, units, comparisons, ranks, trends, quotes,
+  claims, evidence, relations, brand profile, screen context, visual support
+  need, video-as-background suitability, recent MG forms.
+
+Relations:
+
+- number supports claim, quote belongs to speaker, comparison has sides, process
+  has steps, contradiction exists, hierarchy exists, topic needs visual
+  explanation, video footage is not enough, MG should become upper-layer scene.
+
+Physical form:
+
+- scene/takeover versus overlay, layout region, hierarchy, grouping, typography,
+  color/material, motion choreography, entrance/hold/exit, relation lines,
+  counters, charts, device/search/social proof surfaces, collision plan.
+
+Reject or degrade when:
+
+- no visual explanation contract exists, semantic structure is weak, timing does
+  not match the moment, screen context is unsafe, or rendered proof fails.
+
+Renderer adapter:
+
+- Renderer recipes/components are allowed only as executable shells for resolved
+  structure. MG must not be selected from `graphicType`.
+
+### Cross-Family Moment Bundle Orchestration
+
+Overlay families are not independent. The moment bundle owns the combo:
+
+```text
+moment = speech meaning + emotional intensity + visual state + viewer eye path
+       + rhythm + brand taste + recent overlay memory
+
+moment -> caption job + MG job + zoom job + transition job + SFX job
+       -> one density/collision/timing decision
+```
+
+Rules:
+
+- If caption density is high, MG must shrink, move, delay, or suppress.
+- If MG becomes the main explanatory layer, captions become minimal or relocate.
+- If a transition owns a whoosh/impact SFX, standalone SFX at the same frame
+  must merge with it or be rejected.
+- If zoom bridges into/out of a transition, transition motion must reduce or
+  align with that zoom.
+- If V-JEPA screen context is degraded, screen-aware placement must mark
+  degraded and use conservative safe regions.
+- If the same physical form repeats too often, the planner must first ask
+  whether the overlay is needed. Variation is second. Suppression is allowed.
+- If rendered evidence fails, calibration must not learn the failure as taste.
+
+## Family Planner Specs
+
+These specs are intentionally deeper than "caption planner" or "transition
+planner." Each family must expose atoms, jobs, physical form, renderer adapter,
+quality evidence, and calibration fields.
+
+### Transition Planner
+
+Transition answers: "what changed at this cut boundary, and how should the
+viewer feel crossing it?"
+
+Boundary atoms:
+
+- clip A ending energy, clip B starting energy
+- clip A ending motion vector, clip B starting motion vector
+- subject bbox before/after, subject position jump, subject size jump
+- shot scale before/after, camera motion before/after
+- speech pause length, sentence continues, speaker changes, new thought starts
+- topic shift strength, semantic contrast, claim/evidence relation
+- beat proximity, beat phase, music hit, silence pocket, audio tail
+- visual continuity, color/brightness delta, clutter/text-on-screen delta
+- emotional jump, tension release, hook/setup/payoff relation
+- boundary confidence, raw-to-cut mapping confidence, V-JEPA coverage quality
+
+Jobs:
+
+- invisible continuity: let the edit disappear
+- thought turn: mark a new idea without over-styling
+- impact landing: make a claim/beat hit harder
+- motion carry-through: preserve directional energy across the boundary
+- jump hide: cover a visual discontinuity or awkward subject jump
+- attention reset: clear visual fatigue after a dense moment
+- contrast reveal: make before/after or opposing ideas feel separate
+- section reset: signal chapter/scene change
+- audio bridge: let speech/music lead or trail the picture
+
+Physical form:
+
+- exact boundary frame, pre-roll frames, post-roll frames
+- duration frames, anticipation frames, landing frames, hold/settle frames
+- opacity curve, easing, exposure curve
+- motion direction vector, x/y translation, scale curve
+- blur amount, smear amount, mask/wipe edge, edge softness
+- color/tint/exposure guardrails from clip brightness and brand
+- SFX eligibility, SFX role, SFX sync frame, silence permission
+- zoom bridge in/out, camera motion compatibility
+- repetition memory: recent physical forms, recent direction, recent intensity
+
+Renderer adapter:
+
+- Maps physical form to transition overlay fields and Remotion renderer params.
+- `whip-pan`, `dissolve`, `soft-cut`, `dip-to-black`, etc. are adapter labels
+  only after direction, duration, blur, opacity, scale, and landing are resolved.
+
+Quality evidence:
+
+- boundary snippet before/after, blank-frame detection, speech-over-transition,
+  repeated form report, missing/late SFX report, visual harshness on busy frames.
+
+Calibration:
+
+- boundary strength thresholds, duration curves, blur/smear curves, SFX
+  eligibility, repetition sensitivity, speech-pause tolerance.
+
+### Zoom And Camera-Motion Planner
+
+Zoom answers: "where should the viewer's eye go, and how should attention move
+through this moment?"
+
+Atoms:
+
+- main subject bbox, face bbox, eye-contact confidence, object/text boxes
+- negative-space map, protected regions, screen clutter, text coverage
+- shot scale, subject size, subject side, subject movement
+- existing camera motion, motion vector, stabilization confidence
+- speech energy, word importance, phrase importance, emotion intensity
+- beat phase, music pulse, pause/release, hook/claim/proof relation
+- recent zoom history, recent focal anchors, recent scale deltas
+- clip duration, moment window, cut boundary proximity
+- brand motion energy, brand restraint, platform format
+
+Jobs:
+
+- attention pull: bring the viewer into a claim or emotional beat
+- proof reveal: guide eye to an object, metric, face, or screen detail
+- pressure build: slowly increase intensity before a key phrase
+- release/reset: pull back after intensity or dense graphics
+- follow subject: keep the subject/object legible during motion
+- premium drift: add subtle life to static footage without calling attention
+- correction: compensate for off-center framing or unused negative space
+- avoid motion: explicitly choose stillness when footage already moves enough
+
+Physical form:
+
+- start frame, attack frames, hold frames, release frames, end frame
+- scale from/to, scale delta, max crop, crop safety margin
+- focal x/y, transform origin, pan x/y, subject lock strength
+- curve/easing, micro-drift amount, stabilization restraint
+- face/eye/object protection, text-safe zone
+- intensity, visual pressure, density interaction with MG/captions
+- repetition memory: last focal zone, last direction, last scale, last timing
+
+Renderer adapter:
+
+- Emits keyframes for scale/pan/transform-origin. Labels such as `punch-in`,
+  `slow-push`, or `pull-back` are compatibility names only.
+
+Quality evidence:
+
+- crop/face safety, subject drift, repeated zoom report, visual nausea risk,
+  focus misses, motion-on-motion conflict.
+
+Calibration:
+
+- scale delta curves, focal strength thresholds, attack/hold/release curves,
+  busy-frame restraint, repetition-memory decay.
+
+### Caption And Text Planner
+
+Captions answer: "what speech/text must be readable now, and what should be
+emphasized without fighting the video?"
+
+Atoms:
+
+- word timings, word confidence, phrase boundaries, punctuation, sentence role
+- speech rate, pauses, breath groups, speaker changes
+- emphasis words, claims, names, numbers, contrast words, joke beats
+- cut boundaries, moment windows, clip changes, audio lead/trail
+- face bbox, mouth region, on-screen text boxes, negative space, screen clutter
+- brand typography, brand contrast, casing preference, caption density tolerance
+- platform aspect ratio, safe zones, subtitles-on/off assumption
+
+Jobs:
+
+- subtitle clarity: make speech readable with minimum styling
+- emphasis punch: highlight one word/phrase at the emotional beat
+- phrase build: reveal a phrase in chunks as it is spoken
+- explanatory subtitle: describe what is happening when speech is absent/unclear
+- comedic timing: hold or snap text around a joke/reaction
+- premium clean: stay elegant and low-distraction for luxury/serious footage
+- high-energy social: large rhythmic groups when the video needs that style
+- accessibility safety: prioritize legibility over aesthetics
+
+Physical form:
+
+- moment segment start/end, active word/phrase windows
+- group size, line breaks, max words per row, max chars per row
+- font family, font size, weight, letter spacing, line height
+- casing, emphasis scale, highlight shape, highlight color, shadow/stroke
+- background/surface, opacity, border radius, padding
+- x/y/width/height, anchor region, collision avoidance
+- entrance/exit motion, active word animation, hold policy
+- reading speed limits, min/max duration, cut-boundary split policy
+
+Renderer adapter:
+
+- Can render as caption overlay, text overlay, karaoke groups, word boxes, or
+  subtitles, but only after grouping/position/style/animation are resolved.
+
+Quality evidence:
+
+- readability WPM, contrast, overflow, face/mouth collision, cut-spanning
+  caption, active-word lag, repeated style mismatch, screenshot proof.
+
+Calibration:
+
+- font size curves, group duration, words per row, contrast thresholds, emphasis
+  scale, safe-zone preference, style-to-brand mapping.
+
+### SFX Planner
+
+SFX answers: "does this moment need sound support, and can we get a good asset
+that lands exactly?"
+
+Atoms:
+
+- beat frame, beat strength, music loudness, dialogue loudness, silence pocket
+- transition landing frame, MG landing frame, zoom attack/landing frame
+- phrase impact, joke beat, emotional spike, action/motion peak
+- SFX role request, asset candidate quality, provider confidence
+- scene density, recent SFX history, brand sound taste, platform loudness norms
+
+Jobs:
+
+- impact hit, soft accent, whoosh, riser, downer, UI tick, sparkle, glitch,
+  comedic tap, transition glue, ambience bed, silence
+
+Physical form:
+
+- exact sync frame, asset start offset, duration, trim, fade in/out
+- volume, ducking amount, dialogue protection, music conflict score
+- stereo/pan if available, tail length, release curve
+- provider query terms, rejected candidates, fallback policy, silence permission
+- density window and repetition memory
+
+Renderer adapter:
+
+- Emits sound overlays and timing/volume metadata. Provider names and sound
+  category labels are not the creative decision.
+
+Quality evidence:
+
+- timing drift from visual/beat anchor, orphan SFX, overmixing, missing asset,
+  repeated asset, bad provider match.
+
+Calibration:
+
+- timing tolerance, volume curves, ducking, query expansion, provider rejection,
+  max density by content type.
+
+### Pacing, Speed, Slow-Motion, Fade, And Camera-Shake Planner
+
+These answer: "how should time itself feel?"
+
+Atoms:
+
+- clip length, flatness, topic shift, pause length, speech rate, filler density
+- motion intensity, action start/end, visual salience, shot quality
+- beat section, music intensity, silence, emotional tension/release
+- cut-boundary availability, word-boundary safety, source-map confidence
+- recent pacing rhythm, average clip length, platform tempo
+
+Jobs:
+
+- compress low-value time, linger on important emotion, emphasize action,
+  smooth tempo, create tension, release tension, hide awkwardness, reset section,
+  add tactile impact, explicitly stay clean.
+
+Physical form:
+
+- cut/split frame, speed multiplier, ramp start/end, ramp curve
+- slow-motion window, hold frames, fade duration, fade curve, exposure/tint
+- shake amplitude, frequency, decay, axis, anchor, max discomfort
+- audio treatment, word-boundary lock, motion-boundary lock
+
+Renderer adapter:
+
+- Emits speed-change, fade, slow-motion, camera-shake, or clean-cut decisions
+  from continuous timing parameters.
+
+Quality evidence:
+
+- clip-too-long, mid-word cut, motion cut mismatch, over-shake, bad fade,
+  pacing monotony, tempo spikes.
+
+Calibration:
+
+- pacing tolerance, flatness thresholds, speed curves, fade curves, shake
+  amplitude, visual-cut thresholds for low/no-speech videos.
+
+### Media, Image, Video, Avatar, And Logo Planner
+
+Media answers: "should external or existing visual material appear, and what
+role should it play?"
+
+Atoms:
+
+- asset type, source confidence, relevance score, semantic role
+- image/video dimensions, aspect ratio, transparent/opaque, dominant colors
+- object/face/text boxes inside asset, crop-safe region, brand/logo identity
+- screen negative space, existing subject bbox, current caption/MG occupancy
+- proof need, product mention, person mention, website/app reference
+- copyright/source status, quality/resolution, visual match to footage
+
+Jobs:
+
+- proof insert, B-roll support, cutaway, product reveal, identity/avatar cue,
+  logo/brand stamp, screenshot reference, before/after evidence, visual
+  explanation, background layer, reject/no-media.
+
+Physical form:
+
+- start/end, layer, region, x/y/width/height, crop, fit mode, mask
+- entry/exit motion, parallax/drift, shadow/stroke, background treatment
+- safe-zone, face/text avoidance, caption/MG interaction
+- color harmonization, contrast, opacity, brand protection
+
+Renderer adapter:
+
+- Emits image/video/avatar/logo overlays from placement/crop/motion fields.
+  `avatar`, `logo`, or `screenshot` are roles, not renderer presets.
+
+Quality evidence:
+
+- bad crop, low resolution, face/logo cut off, irrelevant media, collision,
+  off-brand color, too long/too short.
+
+Calibration:
+
+- relevance threshold, crop safety, size curves, duration curves, brand
+  harmonization, proof-vs-distraction tradeoff.
+
+### Shape, Sticker, Lottie, And HTML Scene Planner
+
+Decorative/structured visual overlays answer: "what visual aid helps attention
+or explanation without becoming cheap clutter?"
+
+Atoms:
+
+- target word/object/region, semantic role, emphasis strength
+- relation type: arrow, bracket, container, underline, badge, pointer, frame
+- humor intent, reaction moment, platform style, brand geometry
+- screen density, protected regions, motion energy, current overlay stack
+- Lottie/HTML asset capabilities, loop length, alpha, color editability
+
+Jobs:
+
+- point attention, frame content, connect two ideas, show process, add humor,
+  add social-native reaction, create badge/status, decorative accent, reject.
+
+Physical form:
+
+- geometry, path, anchor, size, rotation, stroke, fill, opacity
+- color from brand/color theory, corner radius, shadow, blur
+- entrance/exit curve, loop count, motion path, timing with speech/beat
+- layer priority, collision avoidance, max density, asset trim
+
+Renderer adapter:
+
+- Emits shape/sticker/Lottie/HTML overlays from physical fields. Asset/template
+  ids are implementation details after the planner resolves role and form.
+
+Quality evidence:
+
+- clutter, cheap/stale sticker, bad loop, wrong target, off-brand shape, text
+  collision, motion distraction.
+
+Calibration:
+
+- density thresholds, emphasis-to-size curves, geometry preference, humor
+  tolerance, loop duration, brand color constraints.
+
+### MG Planner
+
+MG is handled in its dedicated branch, but it must obey the same contract.
+
+Atoms:
+
+- content structure, semantic relations, numbers, quotes, lists, comparisons,
+  trends, proof/evidence, brand taste, moment energy, screen context.
+
+Jobs:
+
+- explain structure, make proof visible, dramatize contrast, show process,
+  support identity, reveal data, create premium pause, reject/no-MG.
+
+Physical form:
+
+- composition layout, hierarchy, size, region, typography, color, shape system,
+  motion phases, depth, masks, particles, timing with captions/zoom/SFX.
+
+Renderer adapter:
+
+- Remotion scene atoms and primitive renderers. Recipe labels are compatibility
+  shells, not the decision source.
+
+Quality evidence:
+
+- rendered snippet, readability, relevance, aesthetic quality, timing, repeated
+  form, face/screen collision, premium-vs-cheap classification.
+
+Calibration:
+
+- relevance thresholds, size/layout curves, motion intensity, color/contrast,
+  scene atom selection, density and timing.
 
 ## Phase 0 - Project Fixtures And Rendered Truth
 
@@ -176,26 +1195,32 @@ Acceptance:
 - "Merged" can only be claimed after producer, owner, timeline, and consumer are
   verified in code.
 
-## Phase 3 - Caption Aesthetic Resolver
+## Phase 3 - Moment-Scoped Caption Planner
 
-Goal: one global caption track can look good for the video.
+Goal: captions read as authored moment decisions, not one blanket full-video
+style.
 
 Deliverables:
 
-- Keep the canonical caption track.
-- Replace broad style buckets with a caption aesthetic resolver using:
+- Keep canonical transcript timing as the synchronization substrate, but resolve
+  visible caption groups by moment windows on the edited timeline.
+- Replace broad style buckets with a caption planner using:
   speech rate, energy, topic style, creator format, face position, text-on-screen,
   visual busyness, brand, contrast, and screen safe zones.
-- Add moment-level emphasis behavior inside the one track: word/phrase emphasis,
-  highlight intensity, line breaks, row grouping, casing, and motion.
+- Resolve per-moment caption jobs: subtitle clarity, emphasis punch, phrase
+  build, explanatory subtitle, comedic timing, premium clean, high-energy social,
+  or accessibility safety.
+- Resolve physical caption form per moment: active word windows, group size, line
+  breaks, font, casing, highlight behavior, surface/background, region, duration,
+  entrance/exit motion, cut-boundary split policy, and protected-region avoidance.
 - Add rendered caption tests for readability, collision, font fit, and style match.
 
 Acceptance:
 
 - Caption style is not judged by enum name. It is judged by rendered fit on the
-  actual video.
-- The system does not create one caption overlay per cut unless there is a real
-  edit/render reason.
+  actual moment.
+- Captions are not forced to one overlay per cut or one full-video blanket. The
+  planner chooses moment segments from speech/readability/screen atoms.
 
 ## Phase 4 - MG Scene Atom Library
 
@@ -258,12 +1283,34 @@ Deliverables:
 - Transition resolver should use cut-boundary atoms:
   topic delta, speech pause, visual continuity, motion direction, beat strength,
   scene relation, and semantic relationship.
+- Transition form must be resolved from atoms and signals, not selected from a
+  preset/menu. Compatibility names such as `whip`, `push`, `fade`, or
+  `soft-cut` are allowed only as renderer adapter labels after physical form
+  exists.
+- For every candidate boundary, build and persist transition reasoning:
+  boundary atoms, motion atoms, speech atoms, rhythm atoms, screen atoms, brand
+  constraints, transition job, resolved physical form, evidence, rejected
+  alternatives, timing source, and calibration status.
+- Transition jobs describe purpose, not style labels: invisible continuity,
+  impact/turn emphasis, motion carry-through, attention reset, jump-hide,
+  semantic contrast, or beat landing.
+- Physical form resolves concrete render parameters: duration, opacity curve,
+  motion direction, scale curve, blur, smear, mask/wipe edge, anticipation
+  frames, landing frames, settle/hold frames, SFX eligibility, and whether zoom
+  should bridge into or out of the boundary.
+- Repetition memory can modify or suppress a resolved form when recent output is
+  too similar, but it must not choose the transition from a menu. It may adjust
+  intensity, duration, curve, direction, or expressive-vs-invisible restraint.
 - Render and inspect transition snippets, not just unit-test params.
 
 Acceptance:
 
 - Repeated same-feeling zooms are treated as a failure.
-- Non-hard-cut transitions are content-boundary decisions, not budget decorations.
+- Non-hard-cut transitions are content-boundary decisions, not budget
+  decorations, fallback defaults, or label rotation.
+- A transition overlay is explainable from boundary/motion/speech/rhythm/screen
+  atoms plus brand taste. If that evidence is weak, the planner should prefer a
+  clean editorial cut.
 
 ## Phase 7 - SFX System
 
@@ -422,7 +1469,8 @@ treated as permanent truth:
 - MG font size, layout width, duration, screen pressure, and relevance curves.
 - Caption style thresholds, geometry, word grouping, highlight intensity.
 - Zoom intensity, focal point, attack/hold/release, and repetition policies.
-- Transition duration, boundary thresholds, and non-hard-cut rarity rules.
+- Transition duration, boundary thresholds, physical-form curves, expressive
+  restraint, repetition memory, and SFX eligibility.
 - SFX volume, timing, role matching, and provider rejection thresholds.
 - Moment-weight blend and V-JEPA/Wav2Vec/Gemini contribution weights.
 - V-JEPA fallback defaults and degraded-mode thresholds.

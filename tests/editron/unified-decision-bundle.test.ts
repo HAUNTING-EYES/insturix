@@ -63,7 +63,17 @@ describe('unified decision bundle merge', () => {
     });
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
-      decision({ type: 'transition', frame: 140, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
+      decision({
+        type: 'transition',
+        frame: 140,
+        source: 'signal-executor:test',
+        confidence: 0.82,
+        params: {
+          transitionType: 'whip-pan',
+          boundaryFrame: 140,
+          motionVectorX: 0.8,
+        },
+      }),
     ]));
 
     expect(merged.source).toBe('creative-brief+signal-driven');
@@ -87,9 +97,38 @@ describe('unified decision bundle merge', () => {
     }));
     expect(merged.edl.decisions[1].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
       role: 'signal-supplement',
-      executionLicense: 'licensed-by-signal-policy',
+      executionLicense: 'licensed-by-transition-boundary-atoms',
     }));
     expect(merged.expectedSkipped).toBe(0);
+  });
+
+  it('keeps label-only family signals as evidence until their atoms are present', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({ type: 'transition', frame: 140, source: 'signal-executor:transition-label', confidence: 0.9, params: { transitionType: 'whip-pan' } }),
+      decision({ type: 'zoom', frame: 260, source: 'signal-executor:zoom-label', confidence: 0.9, params: { scale: 1.08 } }),
+      decision({ type: 'sfx-trigger', frame: 380, source: 'signal-executor:sfx-label', confidence: 0.9, params: { sfxType: 'impact' } }),
+      decision({ type: 'caption-emphasis', frame: 500, source: 'signal-executor:caption-label', confidence: 0.9 }),
+    ]));
+
+    expect(merged.edl.decisions.map((d) => d.source)).toEqual(['creative-brief:test']);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 4,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 4,
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-transition-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
+      'missing-audio-beat-atoms': expect.objectContaining({ count: 1 }),
+      'missing-caption-moment-atoms': expect.objectContaining({ count: 1 }),
+    }));
   });
 
   it('lets high-confidence signal graphics execute only when backed by content facts', () => {
@@ -132,7 +171,7 @@ describe('unified decision bundle merge', () => {
       label: 'retention lift',
       unifiedDecisionMerge: expect.objectContaining({
         role: 'signal-supplement',
-        executionLicense: 'licensed-by-signal-policy',
+        executionLicense: 'licensed-by-graphic-content-atoms',
       }),
     }));
     expect(merged.evidence).toEqual(expect.objectContaining({
@@ -145,7 +184,7 @@ describe('unified decision bundle merge', () => {
       sources: { 'signal-executor:number': 1 },
     }));
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
-      'licensed-by-signal-policy': expect.objectContaining({ count: 1 }),
+      'licensed-by-graphic-content-atoms': expect.objectContaining({ count: 1 }),
     }));
   });
 
@@ -219,9 +258,9 @@ describe('unified decision bundle merge', () => {
     });
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
-      decision({ type: 'transition', frame: 140, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
-      decision({ type: 'sfx-trigger', frame: 340, source: 'signal-executor:test', confidence: 0.82, params: { sfxType: 'impact' } }),
-      decision({ type: 'zoom', frame: 420, source: 'signal-executor:test', confidence: 0.78, params: { scale: 1.08 } }),
+      decision({ type: 'transition', frame: 140, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 140, topicDelta: 0.7 } }),
+      decision({ type: 'sfx-trigger', frame: 340, source: 'signal-executor:test', confidence: 0.82, params: { sfxType: 'impact', beatFrame: 340 } }),
+      decision({ type: 'zoom', frame: 420, source: 'signal-executor:test', confidence: 0.78, params: { scale: 1.08, speechPeak: 0.82 } }),
     ]));
 
     expect(merged.source).toBe('creative-brief+signal-driven');
@@ -319,7 +358,7 @@ describe('unified decision bundle merge', () => {
       source: 'signal-driven',
       edl: edl([
         decision({ type: 'graphic', frame: 96, source: 'signal-executor:test', confidence: 0.84 }),
-        decision({ type: 'transition', frame: 180, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
+        decision({ type: 'transition', frame: 180, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 180 } }),
       ]),
     });
 
@@ -355,14 +394,14 @@ describe('unified decision bundle merge', () => {
     bundle = planUnifiedDecisionBundle(bundle, {
       source: 'signal-driven',
       edl: edl([
-        decision({ type: 'transition', frame: 180, source: 'signal-executor:first', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
+        decision({ type: 'transition', frame: 180, source: 'signal-executor:first', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 180 } }),
       ]),
     });
 
     bundle = planUnifiedDecisionBundle(bundle, {
       source: 'signal-driven',
       edl: edl([
-        decision({ type: 'sfx-trigger', frame: 260, source: 'signal-executor:later', confidence: 0.86, params: { sfxType: 'impact' } }),
+        decision({ type: 'sfx-trigger', frame: 260, source: 'signal-executor:later', confidence: 0.86, params: { sfxType: 'impact', beatFrame: 260 } }),
       ]),
     });
 
@@ -438,7 +477,7 @@ describe('unified decision bundle merge', () => {
       {
         source: 'signal-driven',
         edl: edl([
-          decision({ type: 'transition', frame: 120, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
+          decision({ type: 'transition', frame: 120, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 120 } }),
         ]),
       },
       {
@@ -476,12 +515,12 @@ describe('unified decision bundle merge', () => {
     });
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
-      decision({ type: 'sfx-trigger', frame: 100, source: 'signal-executor:sfx-1', confidence: 0.9, params: { sfxType: 'impact' } }),
-      decision({ type: 'sfx-trigger', frame: 220, source: 'signal-executor:sfx-2', confidence: 0.9, params: { sfxType: 'impact' } }),
-      decision({ type: 'sfx-trigger', frame: 340, source: 'signal-executor:sfx-3', confidence: 0.9, params: { sfxType: 'impact' } }),
-      decision({ type: 'sfx-trigger', frame: 460, source: 'signal-executor:sfx-4', confidence: 0.9, params: { sfxType: 'impact' } }),
-      decision({ type: 'sfx-trigger', frame: 580, source: 'signal-executor:sfx-5', confidence: 0.9, params: { sfxType: 'impact' } }),
-      decision({ type: 'sfx-trigger', frame: 700, source: 'signal-executor:sfx-6', confidence: 0.9, params: { sfxType: 'impact' } }),
+      decision({ type: 'sfx-trigger', frame: 100, source: 'signal-executor:sfx-1', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 100 } }),
+      decision({ type: 'sfx-trigger', frame: 220, source: 'signal-executor:sfx-2', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 220 } }),
+      decision({ type: 'sfx-trigger', frame: 340, source: 'signal-executor:sfx-3', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 340 } }),
+      decision({ type: 'sfx-trigger', frame: 460, source: 'signal-executor:sfx-4', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 460 } }),
+      decision({ type: 'sfx-trigger', frame: 580, source: 'signal-executor:sfx-5', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 580 } }),
+      decision({ type: 'sfx-trigger', frame: 700, source: 'signal-executor:sfx-6', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 700 } }),
     ]));
 
     expect(merged.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(1);
@@ -499,7 +538,7 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
       type: 'sfx-trigger',
       frame: 220,
-      params: { sfxType: 'impact' },
+      params: { beatFrame: 220, sfxType: 'impact' },
       reason: 'signal-rhythm-budget-exhausted',
     }));
     expect(merged.expectedSkipped).toBe(0);
@@ -515,7 +554,7 @@ describe('unified decision bundle merge', () => {
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
       decision({ type: 'transition', frame: 180, source: 'signal-executor:hard-cut', confidence: 0.95, params: { transitionType: 'hard-cut' } }),
-      decision({ type: 'transition', frame: 420, source: 'signal-executor:whip-pan', confidence: 0.82, params: { transitionType: 'whip-pan' } }),
+      decision({ type: 'transition', frame: 420, source: 'signal-executor:whip-pan', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 420 } }),
     ]));
 
     expect(merged.edl.decisions.filter((d) => d.type === 'transition')).toHaveLength(1);
@@ -539,10 +578,10 @@ describe('unified decision bundle merge', () => {
     });
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
-      decision({ type: 'caption-emphasis', frame: 50, source: 'signal-executor:caption', confidence: 0.91 }),
+      decision({ type: 'caption-emphasis', frame: 50, source: 'signal-executor:caption', confidence: 0.91, params: { keyword: 'finally' } }),
       decision({ type: 'zoom', frame: 90, source: 'signal-executor:zoom', confidence: 0.4 }),
       decision({ type: 'transition', frame: 180, source: 'signal-executor:transition', confidence: 0.95, params: { transitionType: 'hard-cut' } }),
-      decision({ type: 'sfx-trigger', frame: 360, source: 'signal-executor:sfx', confidence: 0.89, params: { sfxType: 'impact' } }),
+      decision({ type: 'sfx-trigger', frame: 360, source: 'signal-executor:sfx', confidence: 0.89, params: { sfxType: 'impact', beatFrame: 360 } }),
     ]));
 
     expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'caption-emphasis', 'sfx-trigger']);
@@ -568,7 +607,8 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'below-signal-confidence-floor': expect.objectContaining({ count: 1 }),
       'hard-cut-is-boundary-evidence': expect.objectContaining({ count: 1 }),
-      'licensed-by-signal-policy': expect.objectContaining({ count: 2 }),
+      'licensed-by-caption-moment-atoms': expect.objectContaining({ count: 1 }),
+      'licensed-by-audio-beat-atoms': expect.objectContaining({ count: 1 }),
     }));
     expect(merged.evidence.signalDecisionAudit.candidates.map((candidate) => ({
       family: candidate.family,
@@ -586,8 +626,8 @@ describe('unified decision bundle merge', () => {
         timing: 'moment',
         frame: 50,
         evidenceStrength: 0.91,
-        completeness: 0.75,
-        riskFlags: ['incomplete-intent'],
+        completeness: 1,
+        riskFlags: [],
         calibrationStatus: 'invented-needs-calibration',
       },
       {
@@ -631,7 +671,7 @@ describe('unified decision bundle merge', () => {
       {
         family: 'caption',
         outcome: 'added-executable',
-        reason: 'licensed-by-signal-policy',
+        reason: 'licensed-by-caption-moment-atoms',
         frame: 50,
         source: 'signal-executor:caption',
       },
@@ -652,7 +692,7 @@ describe('unified decision bundle merge', () => {
       {
         family: 'audio',
         outcome: 'added-executable',
-        reason: 'licensed-by-signal-policy',
+        reason: 'licensed-by-audio-beat-atoms',
         frame: 360,
         source: 'signal-executor:sfx',
       },

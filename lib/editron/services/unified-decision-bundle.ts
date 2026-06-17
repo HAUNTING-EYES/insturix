@@ -449,6 +449,7 @@ const SIGNAL_EXECUTION_MAX_PER_MINUTE: Partial<Record<ReactiveEditDecision['type
 const NON_EXECUTABLE_TRANSITION_TYPES = new Set(['hard-cut', 'cut', 'none']);
 const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'anchorFrame',
+  'beatFrame',
   'graphicType',
   'intensity',
   'keyword',
@@ -878,6 +879,11 @@ function resolveSignalExecutionLicense(
     return { executable: false, reason: 'missing-graphic-content-evidence' };
   }
 
+  const familyLicense = resolveFamilyExecutionLicense(signalDecision);
+  if (!familyLicense.executable) {
+    return familyLicense;
+  }
+
   const budget = budgets[signalDecision.type] ?? 0;
   const executableCountForType = mergedDecisions
     .filter((decision) => isSignalSourceDecision(decision))
@@ -895,7 +901,135 @@ function resolveSignalExecutionLicense(
     return { executable: false, reason: 'nearby-executable-same-type' };
   }
 
-  return { executable: true, reason: 'licensed-by-signal-policy' };
+  return familyLicense;
+}
+
+function resolveFamilyExecutionLicense(
+  decision: ReactiveEditDecision,
+): { executable: boolean; reason: string } {
+  switch (familyForSignalDecision(decision)) {
+    case 'transition':
+      return hasTransitionBoundaryEvidence(decision)
+        ? { executable: true, reason: 'licensed-by-transition-boundary-atoms' }
+        : { executable: false, reason: 'missing-transition-boundary-atoms' };
+    case 'camera':
+      return hasCameraMotionEvidence(decision)
+        ? { executable: true, reason: 'licensed-by-camera-motion-atoms' }
+        : { executable: false, reason: 'missing-camera-motion-atoms' };
+    case 'audio':
+      return hasAudioBeatEvidence(decision)
+        ? { executable: true, reason: 'licensed-by-audio-beat-atoms' }
+        : { executable: false, reason: 'missing-audio-beat-atoms' };
+    case 'caption':
+      return hasCaptionMomentEvidence(decision)
+        ? { executable: true, reason: 'licensed-by-caption-moment-atoms' }
+        : { executable: false, reason: 'missing-caption-moment-atoms' };
+    case 'pacing':
+      return hasPacingMomentEvidence(decision)
+        ? { executable: true, reason: 'licensed-by-pacing-moment-atoms' }
+        : { executable: false, reason: 'missing-pacing-moment-atoms' };
+    case 'timing':
+      return hasTimingSpanEvidence(decision)
+        ? { executable: true, reason: 'licensed-by-timing-span-atoms' }
+        : { executable: false, reason: 'missing-timing-span-atoms' };
+    case 'graphic':
+      return { executable: true, reason: 'licensed-by-graphic-content-atoms' };
+    default:
+      return { executable: false, reason: 'unsupported-signal-family' };
+  }
+}
+
+function hasTransitionBoundaryEvidence(decision: ReactiveEditDecision): boolean {
+  return hasAnyParam(decision, [
+    'boundaryAtom',
+    'boundaryFrame',
+    'clipAId',
+    'clipBId',
+    'motionVectorX',
+    'motionVectorY',
+    'topicDelta',
+    'speechGapMs',
+    'beatPhase',
+    'visualContinuity',
+    'transitionJob',
+    'relation',
+  ]);
+}
+
+function hasCameraMotionEvidence(decision: ReactiveEditDecision): boolean {
+  return hasAnyParam(decision, [
+    'subjectX',
+    'subjectY',
+    'subjectWidth',
+    'subjectHeight',
+    'mainSubjectX',
+    'mainSubjectY',
+    'motionVectorX',
+    'motionVectorY',
+    'shotScale',
+    'speechPeak',
+    'beatStrength',
+    'wordImportance',
+    'emotion',
+    'visualMotion',
+  ]);
+}
+
+function hasAudioBeatEvidence(decision: ReactiveEditDecision): boolean {
+  return hasAnyParam(decision, [
+    'beatFrame',
+    'beatStrength',
+    'transitionId',
+    'transitionFrame',
+    'linkedOverlayId',
+    'anchorFrame',
+    'phraseImpact',
+    'rhythmRole',
+    'sfxRole',
+    'role',
+  ]);
+}
+
+function hasCaptionMomentEvidence(decision: ReactiveEditDecision): boolean {
+  return hasAnyParam(decision, [
+    'text',
+    'keyword',
+    'phrase',
+    'wordRange',
+    'startWordIndex',
+    'endWordIndex',
+    'semanticRole',
+    'role',
+    'speechRate',
+    'momentId',
+  ]);
+}
+
+function hasPacingMomentEvidence(decision: ReactiveEditDecision): boolean {
+  return hasAnyParam(decision, [
+    'momentId',
+    'segmentId',
+    'topicDelta',
+    'pauseMs',
+    'speechGapMs',
+    'energyDelta',
+    'visualChange',
+    'motionBoundary',
+    'cutReason',
+  ]);
+}
+
+function hasTimingSpanEvidence(decision: ReactiveEditDecision): boolean {
+  return hasAnyParam(decision, [
+    'spanStartFrame',
+    'spanEndFrame',
+    'durationFrames',
+    'beatStrength',
+    'motionIntensity',
+    'speechRate',
+    'timingRole',
+    'role',
+  ]);
 }
 
 function isSignalSourceDecision(decision: ReactiveEditDecision): boolean {

@@ -34,6 +34,16 @@ LLMs may propose intent, but the atom system and deterministic rules must valida
 4. Build moment-bundle grammar.
    Coordinate MG, captions, zoom/frame movement, SFX, transitions, holds, cuts, and pacing as one timed emotional beat.
 
+   Transition rule: transitions are not picked from a preset/menu and variety is
+   not style rotation. For each cut boundary, build atoms for visual motion,
+   speech pause/continuation, topic delta, beat phase, subject/screen geometry,
+   scene relation, screen pressure, and brand taste. Those atoms resolve the
+   transition job and physical form: duration, direction, opacity, blur/smear,
+   scale, wipe/mask edge, anticipation, landing, settle, SFX eligibility, and
+   zoom bridge. Compatibility labels are adapter output only after form exists.
+   Repetition memory is only a constraint that restrains or tweaks a resolved
+   form when recent output is too similar.
+
 5. Add SFX intent layer.
    Decide whether sound should happen, role, timing, intensity, texture, loudness budget, asset constraints, fallbacks, and anti-spam. External SFX quality is a source problem, but SFX intent is ours.
 

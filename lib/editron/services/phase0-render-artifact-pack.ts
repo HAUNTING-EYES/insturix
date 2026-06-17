@@ -8,17 +8,30 @@ export const PHASE0_RENDER_ARTIFACT_PACK_VERSION = 'editron-phase0-render-artifa
 
 type JsonRecord = Record<string, unknown>;
 
-const AUDITED_VISUAL_TYPES = new Set([
-  'motion-graphic',
-  'text',
-  'caption',
-  'shape',
-  'sticker',
-  'image',
-  'html-scene',
-  'html-sticker',
-  'transition',
-]);
+type AuditedEvidenceKind = 'visual' | 'motion' | 'audio';
+
+interface AuditedOverlayType {
+  type: string;
+  family: 'motion-graphic' | 'caption' | 'transition' | 'zoom' | 'sfx' | 'media' | 'shape' | 'text';
+  evidenceKind: AuditedEvidenceKind;
+}
+
+const AUDITED_OVERLAY_TYPES: AuditedOverlayType[] = [
+  { type: 'motion-graphic', family: 'motion-graphic', evidenceKind: 'visual' },
+  { type: 'text', family: 'text', evidenceKind: 'visual' },
+  { type: 'caption', family: 'caption', evidenceKind: 'visual' },
+  { type: 'shape', family: 'shape', evidenceKind: 'visual' },
+  { type: 'sticker', family: 'shape', evidenceKind: 'visual' },
+  { type: 'image', family: 'media', evidenceKind: 'visual' },
+  { type: 'html-scene', family: 'media', evidenceKind: 'visual' },
+  { type: 'html-sticker', family: 'media', evidenceKind: 'visual' },
+  { type: 'transition', family: 'transition', evidenceKind: 'visual' },
+  { type: 'zoom', family: 'zoom', evidenceKind: 'motion' },
+  { type: 'sound', family: 'sfx', evidenceKind: 'audio' },
+  { type: 'audio', family: 'sfx', evidenceKind: 'audio' },
+];
+
+const REQUIRED_PHASE0_FAMILIES = ['motion-graphic', 'caption', 'transition', 'zoom', 'sfx'] as const;
 
 export interface BuildPhase0RenderArtifactPackOptions {
   artifactDir: string;
@@ -49,11 +62,21 @@ export interface Phase0RenderArtifactPack {
   renderCommand: string;
   renderInput: Phase0RenderInput;
   familyCoverage: {
+    auditedOverlayTypes: string[];
     auditedVisualTypes: string[];
+    auditedMotionTypes: string[];
+    auditedAudioTypes: string[];
+    requiredFamilies: string[];
     auditedVisualCount: number;
+    auditedMotionCount: number;
+    auditedAudioCount: number;
+    auditedOverlayCount: number;
     counts: Record<string, number>;
+    countsByFamily: Record<string, number>;
     presentAuditedFamilies: string[];
     missingAuditedFamilies: string[];
+    presentRequiredFamilies: string[];
+    missingRequiredFamilies: string[];
   };
 }
 
@@ -120,22 +143,51 @@ export function buildPhase0RenderArtifactPack(
 }
 
 function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
+  const specsByType = new Map(AUDITED_OVERLAY_TYPES.map((spec) => [spec.type, spec]));
   const counts = overlays.reduce<Record<string, number>>((result, overlay) => {
     const type = String(overlay.type ?? 'unknown');
-    if (!AUDITED_VISUAL_TYPES.has(type)) return result;
+    if (!specsByType.has(type)) return result;
     result[type] = (result[type] ?? 0) + 1;
     return result;
   }, {});
-  const presentAuditedFamilies = Object.keys(counts).sort((a, b) => a.localeCompare(b));
-  const auditedVisualTypes = [...AUDITED_VISUAL_TYPES].sort((a, b) => a.localeCompare(b));
+  const countsByFamily = Object.entries(counts).reduce<Record<string, number>>((result, [type, count]) => {
+    const family = specsByType.get(type)?.family;
+    if (!family) return result;
+    result[family] = (result[family] ?? 0) + count;
+    return result;
+  }, {});
+  const auditedOverlayTypes = sortedTypes(AUDITED_OVERLAY_TYPES);
+  const auditedVisualTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'visual'));
+  const auditedMotionTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'motion'));
+  const auditedAudioTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'audio'));
+  const requiredFamilies = [...REQUIRED_PHASE0_FAMILIES].sort((a, b) => a.localeCompare(b));
+  const presentAuditedFamilies = Object.keys(countsByFamily).sort((a, b) => a.localeCompare(b));
 
   return {
+    auditedOverlayTypes,
     auditedVisualTypes,
-    auditedVisualCount: Object.values(counts).reduce((sum, count) => sum + count, 0),
+    auditedMotionTypes,
+    auditedAudioTypes,
+    requiredFamilies,
+    auditedVisualCount: countTypes(counts, auditedVisualTypes),
+    auditedMotionCount: countTypes(counts, auditedMotionTypes),
+    auditedAudioCount: countTypes(counts, auditedAudioTypes),
+    auditedOverlayCount: Object.values(counts).reduce((sum, count) => sum + count, 0),
     counts,
+    countsByFamily,
     presentAuditedFamilies,
-    missingAuditedFamilies: auditedVisualTypes.filter((type) => !counts[type]),
+    missingAuditedFamilies: requiredFamilies.filter((family) => !countsByFamily[family]),
+    presentRequiredFamilies: requiredFamilies.filter((family) => countsByFamily[family]),
+    missingRequiredFamilies: requiredFamilies.filter((family) => !countsByFamily[family]),
   };
+}
+
+function sortedTypes(specs: AuditedOverlayType[]): string[] {
+  return specs.map((spec) => spec.type).sort((a, b) => a.localeCompare(b));
+}
+
+function countTypes(counts: Record<string, number>, types: string[]): number {
+  return types.reduce((sum, type) => sum + (counts[type] ?? 0), 0);
 }
 
 function firstPositiveNumber(...values: unknown[]): number {

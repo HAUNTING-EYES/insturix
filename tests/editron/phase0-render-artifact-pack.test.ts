@@ -37,15 +37,33 @@ describe('phase0 render artifact pack', () => {
       },
       familyCoverage: {
         auditedVisualCount: 4,
+        auditedMotionCount: 1,
+        auditedAudioCount: 1,
+        auditedOverlayCount: 6,
         counts: {
           'motion-graphic': 1,
           caption: 1,
           transition: 1,
           image: 1,
+          zoom: 1,
+          sound: 1,
         },
+        countsByFamily: {
+          caption: 1,
+          media: 1,
+          'motion-graphic': 1,
+          sfx: 1,
+          transition: 1,
+          zoom: 1,
+        },
+        presentRequiredFamilies: ['caption', 'motion-graphic', 'sfx', 'transition', 'zoom'],
+        missingRequiredFamilies: [],
       },
     });
-    expect(pack.renderInput.overlays).toHaveLength(5);
+    expect(pack.familyCoverage.auditedVisualTypes).toContain('transition');
+    expect(pack.familyCoverage.auditedMotionTypes).toEqual(['zoom']);
+    expect(pack.familyCoverage.auditedAudioTypes).toEqual(['audio', 'sound']);
+    expect(pack.renderInput.overlays).toHaveLength(7);
     expect(pack.renderCommand).toContain('scripts/render-editron-aesthetic.ts');
     expect(pack.renderCommand).toContain('render-input.json');
     expect(pack.renderCommand).toContain('--overlay-only');
@@ -68,6 +86,15 @@ describe('phase0 render artifact pack', () => {
     expect(pack.status).toBe('not-renderable');
     expect(pack.issues).toEqual(['no-audited-visual-overlays']);
     expect(pack.familyCoverage.auditedVisualCount).toBe(0);
+    expect(pack.familyCoverage.auditedAudioCount).toBe(1);
+    expect(pack.familyCoverage.countsByFamily).toEqual({ sfx: 1 });
+    expect(pack.familyCoverage.presentRequiredFamilies).toEqual(['sfx']);
+    expect(pack.familyCoverage.missingRequiredFamilies).toEqual([
+      'caption',
+      'motion-graphic',
+      'transition',
+      'zoom',
+    ]);
   });
 
   it('fails the artifact pack contract when canvas or duration truth is missing', () => {
@@ -98,6 +125,8 @@ function projectFixture(): Phase0FixtureProject {
       { id: 'caption-1', type: 'caption', from: 20, durationInFrames: 80, content: 'caption' },
       { id: 'transition-1', type: 'transition', from: 88, durationInFrames: 12 },
       { id: 'image-1', type: 'image', from: 100, durationInFrames: 50, width: 700, height: 900 },
+      { id: 'zoom-1', type: 'zoom', from: 40, durationInFrames: 45 },
+      { id: 'sound-1', type: 'sound', from: 88, durationInFrames: 10 },
     ],
   };
 }
