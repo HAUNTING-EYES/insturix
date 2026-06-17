@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0FixtureManifest, withPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
 
 const fps = 30;
 
@@ -275,6 +276,10 @@ describe('phase0 fixture manifest', () => {
       renderArtifacts: {
         status: 'not-rendered',
         artifactDir: 'fixtures/proj',
+        artifactPackStatus: null,
+        auditedVisualCount: 0,
+        auditedMotionCount: 0,
+        auditedAudioCount: 0,
       },
       calibrationSafety: {
         renderQualityRequiredBeforeWrites: true,
@@ -330,6 +335,32 @@ describe('phase0 fixture manifest', () => {
       },
     ]);
     expect(manifest.qualityReview.suggestions).toEqual(['Reduce overlay collision before calibration.']);
+  });
+
+  it('attaches render artifact pack evidence without pretending rendered pixels exist', () => {
+    const baseManifest = buildPhase0FixtureManifest(baseProject(), {
+      artifactDir: 'fixtures/proj',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(baseProject(), baseManifest, {
+      artifactDir: 'fixtures/proj',
+    });
+
+    const manifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
+
+    expect(manifest.renderArtifacts).toMatchObject({
+      status: 'not-rendered',
+      artifactDir: 'fixtures/proj',
+      artifactPackStatus: 'ready',
+      artifactPackIssues: [],
+      auditedVisualCount: 3,
+      auditedMotionCount: 0,
+      auditedAudioCount: 1,
+      presentRequiredFamilies: ['caption', 'motion-graphic', 'sfx', 'transition'],
+      missingRequiredFamilies: ['zoom'],
+      pendingFamilies: ['zoom'],
+    });
+    expect(manifest.renderArtifacts.renderCommand).toContain('scripts/render-editron-aesthetic.ts');
+    expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
   });
 
   it('records gaps, overlaps, tail gaps, and missing source maps without rewriting them', () => {

@@ -11,7 +11,7 @@ import {
   selectPhase0RunDirsToPrune,
 } from '../lib/editron/services/phase0-artifact-paths';
 import { classifyPhase0Fixture } from '../lib/editron/services/phase0-failure-taxonomy';
-import { buildPhase0FixtureManifest } from '../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0FixtureManifest, withPhase0RenderArtifactPack } from '../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject } from '../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
 
@@ -39,12 +39,13 @@ async function main() {
     }
 
     const typedProject = project as unknown as Phase0FixtureProject;
-    const manifest = buildPhase0FixtureManifest(project as unknown as Phase0FixtureProject, {
+    const baseManifest = buildPhase0FixtureManifest(project as unknown as Phase0FixtureProject, {
       capturedAt: capturedAt.toISOString(),
       source: `mongo:${db.databaseName}.${COLLECTIONS.PROJECTS}`,
       artifactDir: paths.runDir,
     });
-    const artifactPack = buildPhase0RenderArtifactPack(typedProject, manifest, { artifactDir: paths.runDir });
+    const artifactPack = buildPhase0RenderArtifactPack(typedProject, baseManifest, { artifactDir: paths.runDir });
+    const manifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
     const failureTaxonomy = classifyPhase0Fixture(manifest, artifactPack);
 
     await mkdir(paths.runDir, { recursive: true });

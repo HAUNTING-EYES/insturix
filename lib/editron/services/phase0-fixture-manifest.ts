@@ -7,6 +7,7 @@ import {
   type VjepaCoverageSegment,
 } from './vjepa-coverage-audit';
 import type { PersistedQualityReviewIssue } from './quality-review-persistence';
+import type { Phase0RenderArtifactPack } from './phase0-render-artifact-pack';
 
 export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
@@ -91,6 +92,14 @@ export interface Phase0FixtureManifest {
     status: 'not-rendered';
     artifactDir: string | null;
     pendingFamilies: string[];
+    artifactPackStatus: 'ready' | 'not-renderable' | null;
+    artifactPackIssues: string[];
+    renderCommand: string | null;
+    auditedVisualCount: number;
+    auditedMotionCount: number;
+    auditedAudioCount: number;
+    presentRequiredFamilies: string[];
+    missingRequiredFamilies: string[];
   };
   failureClasses: string[];
   calibrationSafety: {
@@ -135,12 +144,43 @@ export function buildPhase0FixtureManifest(
       status: 'not-rendered',
       artifactDir: options.artifactDir ?? null,
       pendingFamilies: ['motion-graphic', 'caption', 'transition', 'sound', 'zoom'],
+      artifactPackStatus: null,
+      artifactPackIssues: [],
+      renderCommand: null,
+      auditedVisualCount: 0,
+      auditedMotionCount: 0,
+      auditedAudioCount: 0,
+      presentRequiredFamilies: [],
+      missingRequiredFamilies: ['motion-graphic', 'caption', 'transition', 'sfx', 'zoom'],
     },
     failureClasses: [],
     calibrationSafety: {
       renderQualityRequiredBeforeWrites: true,
       learningWritesAllowed: false,
       reason: 'phase0 fixture is evidence-only; calibration writes require rendered aesthetic artifacts',
+    },
+  };
+}
+
+export function withPhase0RenderArtifactPack(
+  manifest: Phase0FixtureManifest,
+  artifactPack: Phase0RenderArtifactPack,
+): Phase0FixtureManifest {
+  const missingRequiredFamilies = artifactPack.familyCoverage.missingRequiredFamilies.slice();
+  return {
+    ...manifest,
+    renderArtifacts: {
+      status: 'not-rendered',
+      artifactDir: artifactPack.artifactDir || manifest.renderArtifacts.artifactDir,
+      pendingFamilies: missingRequiredFamilies,
+      artifactPackStatus: artifactPack.status,
+      artifactPackIssues: artifactPack.issues.slice(0, 20),
+      renderCommand: artifactPack.renderCommand,
+      auditedVisualCount: artifactPack.familyCoverage.auditedVisualCount,
+      auditedMotionCount: artifactPack.familyCoverage.auditedMotionCount,
+      auditedAudioCount: artifactPack.familyCoverage.auditedAudioCount,
+      presentRequiredFamilies: artifactPack.familyCoverage.presentRequiredFamilies.slice(),
+      missingRequiredFamilies,
     },
   };
 }
