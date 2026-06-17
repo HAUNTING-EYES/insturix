@@ -126,8 +126,10 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         type: 'transition',
         from: 44,
         durationInFrames: 12,
+        clipAId: 'clip-1',
+        clipBId: 'clip-2',
         transitionStyle: 'whip-pan',
-        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1' } },
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', intent: 'motion-transfer' } },
       },
       {
         id: 'sfx-1',
@@ -343,7 +345,14 @@ describe('phase0 fixture manifest', () => {
       relationCount: 1,
     });
     expect(manifest.overlayFamilies.captions.styleSignatures).toEqual(['Inter|#ffffff|clean']);
-    expect(manifest.overlayFamilies.transitions).toMatchObject({ count: 1, types: ['whip-pan'], withAtomicForm: 1 });
+    expect(manifest.overlayFamilies.transitions).toMatchObject({
+      count: 1,
+      types: ['whip-pan'],
+      withAtomicForm: 1,
+      withBoundaryPair: 1,
+      withBoundaryReason: 1,
+      boundaryEvidenceMissing: [],
+    });
     expect(manifest.overlayFamilies.sfx).toMatchObject({ count: 1, roles: ['impact'], withAtomicForm: 1 });
     expect(manifest.vjepaCoverage.reliability?.reasons).toEqual(expect.arrayContaining([
       'overlay-hit-rate-below-90:50%',

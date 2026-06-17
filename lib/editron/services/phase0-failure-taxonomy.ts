@@ -306,6 +306,20 @@ function addOverlayClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtur
       evidence: { count: transitions.count, withAtomicForm: transitions.withAtomicForm },
     });
   }
+  if (transitions.boundaryEvidenceMissing.length > 0) {
+    classes.push({
+      id: 'overlay.transition_boundary_evidence_missing',
+      severity: 'warn',
+      source: 'overlay',
+      message: 'One or more transition overlays are missing boundary pair or boundary-reason evidence.',
+      evidence: {
+        count: transitions.boundaryEvidenceMissing.length,
+        withBoundaryPair: transitions.withBoundaryPair,
+        withBoundaryReason: transitions.withBoundaryReason,
+        samples: transitions.boundaryEvidenceMissing.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
 
   const sfx = manifest.overlayFamilies.sfx;
   if (sfx.count > sfx.withAtomicForm) {

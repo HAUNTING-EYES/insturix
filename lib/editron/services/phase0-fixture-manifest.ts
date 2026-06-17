@@ -682,6 +682,12 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         .map((overlay) => readString(overlay.transitionStyle ?? overlay.metadata?.transitionType ?? overlay.metadata?.atomicTransitionForm))
         .filter(Boolean)),
       withAtomicForm: overlays.filter((overlay) => overlay.type === 'transition' && overlay.metadata?.atomicTransitionForm).length,
+      withBoundaryPair: overlays.filter((overlay) => overlay.type === 'transition' && hasTransitionBoundaryPair(overlay)).length,
+      withBoundaryReason: overlays.filter((overlay) => overlay.type === 'transition' && hasTransitionBoundaryReason(overlay)).length,
+      boundaryEvidenceMissing: overlays
+        .filter((overlay) => overlay.type === 'transition')
+        .map(transitionBoundaryEvidenceMissing)
+        .filter(Boolean),
     },
     sfx: {
       count: overlays.filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio').length,
@@ -696,6 +702,54 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
       overlaysWithKeyframes: overlays.filter((overlay) => overlay.type === 'video' && Array.isArray(overlay.metadata?.zoomKeyframes)).length,
     },
   };
+}
+
+function transitionBoundaryEvidenceMissing(overlay: Phase0OverlayLike) {
+  const missing: string[] = [];
+  if (!overlay.metadata?.atomicTransitionForm) missing.push('atomic-form');
+  if (!hasTransitionBoundaryPair(overlay)) missing.push('boundary-pair');
+  if (!hasTransitionBoundaryReason(overlay)) missing.push('boundary-reason');
+  if (missing.length === 0) return null;
+  return {
+    id: overlayId(overlay),
+    from: readFrame(overlay.from),
+    style: readString(overlay.transitionStyle ?? overlay.metadata?.transitionType) || 'unknown',
+    missing,
+  };
+}
+
+function hasTransitionBoundaryPair(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  const receipt = isRecord(metadata.atomicOverlayReceipt) ? metadata.atomicOverlayReceipt : {};
+  const receiptTarget = isRecord(receipt.target) ? receipt.target : {};
+  const clipA = overlay.clipAId ?? metadata.clipAId ?? receiptTarget.clipAId;
+  const clipB = overlay.clipBId ?? metadata.clipBId ?? receiptTarget.clipBId;
+  return hasValue(clipA) && hasValue(clipB);
+}
+
+function hasTransitionBoundaryReason(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  const form = isRecord(metadata.atomicTransitionForm) ? metadata.atomicTransitionForm : {};
+  if (hasValue(form.intent) || hasValue(form.job) || hasValue(metadata.transitionJob)) return true;
+
+  const receipt = isRecord(metadata.atomicOverlayReceipt) ? metadata.atomicOverlayReceipt : {};
+  const atoms = Array.isArray(receipt.atoms) ? receipt.atoms.filter(isRecord) : [];
+  return atoms.some((atom) => {
+    const kind = readString(atom.kind);
+    return Boolean(kind && (
+      kind.includes('topic')
+      || kind.includes('speech')
+      || kind.includes('beat')
+      || kind.includes('motion')
+      || kind.includes('visual')
+      || kind.includes('boundary')
+    ));
+  });
+}
+
+function hasValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== undefined && value !== null;
 }
 
 function countByType(overlays: Phase0OverlayLike[]) {

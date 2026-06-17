@@ -119,6 +119,7 @@ describe('phase0 failure taxonomy', () => {
       'vjepa.coverage_warn',
       'overlay.mg_atomic_spine_incomplete',
       'overlay.transition_form_missing',
+      'overlay.transition_boundary_evidence_missing',
       'overlay.sfx_form_missing',
       'render.not_executed',
       'calibration.learning_writes_blocked',
@@ -424,6 +425,45 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('warns when transition atomic form is not backed by boundary evidence', () => {
+    const project = cleanProject();
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 60, sourceStartFrame: 0 },
+      { id: 'clip-2', type: 'video', from: 60, durationInFrames: 60, sourceStartFrame: 60 },
+      {
+        id: 'transition-form-only',
+        type: 'transition',
+        from: 60,
+        durationInFrames: 12,
+        transitionStyle: 'whip-pan',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1' } },
+      },
+    ];
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_transition_boundary_missing',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_transition_boundary_missing',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.classes.find((item) => item.id === 'overlay.transition_boundary_evidence_missing')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        count: 1,
+        withBoundaryPair: 0,
+        withBoundaryReason: 0,
+        samples: [{
+          id: 'transition-form-only',
+          from: 60,
+          style: 'whip-pan',
+          missing: ['boundary-pair', 'boundary-reason'],
+        }],
+      },
+    });
+  });
+
   it('classifies timeline-level zoom, transition, and SFX timing defects from artifact evidence', () => {
     const project = cleanProject();
     project.durationInFrames = 260;
@@ -647,7 +687,8 @@ function cleanProject(): Phase0FixtureProject {
       }],
     },
     overlays: [
-      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 0 },
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 45, sourceStartFrame: 0 },
+      { id: 'clip-2', type: 'video', from: 45, durationInFrames: 45, sourceStartFrame: 45 },
       {
         id: 'mg-1',
         type: 'motion-graphic',
@@ -665,7 +706,9 @@ function cleanProject(): Phase0FixtureProject {
         type: 'transition',
         from: 44,
         durationInFrames: 12,
-        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1' } },
+        clipAId: 'clip-1',
+        clipBId: 'clip-2',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', intent: 'continuity-blend' } },
       },
       {
         id: 'sfx-1',
