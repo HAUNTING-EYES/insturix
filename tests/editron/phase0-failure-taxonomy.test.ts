@@ -7,6 +7,25 @@ import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0
 import { runQualityReview } from '../../lib/editron/services/quality-review-service';
 import type { PersistedQualityReview } from '../../lib/editron/services/quality-review-persistence';
 
+function transitionSfxReceipt(transitionId = 'tr-1') {
+  return {
+    family: 'sfx',
+    target: { transitionOverlayId: transitionId },
+    payload: {
+      syncAnchor: 'transition',
+      transitionJob: 'emphasize-turn',
+      transitionIntent: 'impact-transfer',
+      transitionEvidenceSource: 'explicit-boundary-job',
+    },
+    atoms: [
+      { kind: 'transition-relation', key: 'transition.overlay_id', value: transitionId },
+      { kind: 'transition-relation', key: 'transition.job', value: 'emphasize-turn' },
+      { kind: 'transition-relation', key: 'transition.intent', value: 'impact-transfer' },
+      { kind: 'transition-relation', key: 'transition.evidence_source', value: 'explicit-boundary-job' },
+    ],
+  };
+}
+
 describe('phase0 failure taxonomy', () => {
   it('keeps a clean fixture passable while recording read-only render/calibration state', () => {
     const project = cleanProject();
@@ -613,6 +632,7 @@ describe('phase0 failure taxonomy', () => {
               anchor: 'transition',
             },
           },
+          atomicOverlayReceipt: transitionSfxReceipt(),
         },
       },
     ];
@@ -630,6 +650,73 @@ describe('phase0 failure taxonomy', () => {
     expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.transition_sfx_missing');
     expect(quality.issues.map((issue) => issue.type)).not.toContain('orphan_sfx');
     expect(quality.issues.map((issue) => issue.type)).not.toContain('missing_transition_sfx');
+  });
+
+  it('warns when nearby transition SFX lacks transition provenance', () => {
+    const project = cleanProject();
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 60, row: 2, sourceStartFrame: 0 },
+      { id: 'clip-2', type: 'video', from: 60, durationInFrames: 60, row: 2, sourceStartFrame: 60 },
+      {
+        id: 'tr-1',
+        type: 'transition',
+        from: 60,
+        durationInFrames: 12,
+        row: 3,
+        transitionStyle: 'cross-dissolve',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'cross-dissolve', job: 'emphasize-turn' } },
+      },
+      {
+        id: 'sfx-nearby',
+        type: 'sound',
+        from: 53,
+        durationInFrames: 18,
+        row: 0,
+        assetId: 'sfx-nearby',
+        metadata: {
+          atomicSfxForm: {
+            role: 'whoosh',
+            timing: {
+              syncFrame: 60,
+              startFrame: 53,
+              anchor: 'transition',
+            },
+          },
+          atomicOverlayReceipt: {
+            family: 'sfx',
+            payload: { syncAnchor: 'transition' },
+          },
+        },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_sfx_provenance_missing',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_sfx_provenance_missing',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(classIds).toEqual(expect.arrayContaining([
+      'overlay.sfx_transition_evidence_missing',
+      'timeline.transition_sfx_missing',
+    ]));
+    expect(taxonomy.classes.find((item) => item.id === 'overlay.sfx_transition_evidence_missing')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        count: 1,
+        withTransitionAnchor: 1,
+        withTransitionEvidence: 0,
+        samples: [{
+          id: 'sfx-nearby',
+          from: 53,
+          role: 'whoosh',
+          missing: ['transition-overlay-id', 'transition-job-or-intent', 'transition-evidence-source'],
+        }],
+      },
+    });
   });
 
   it('does not require paired SFX for intentionally silent transition forms', () => {
@@ -716,7 +803,16 @@ function cleanProject(): Phase0FixtureProject {
         from: 44,
         durationInFrames: 12,
         assetId: 'sfx_asset_1',
-        metadata: { atomicSfxForm: { role: 'impact' } },
+        metadata: {
+          atomicSfxForm: {
+            role: 'impact',
+            timing: {
+              syncFrame: 44,
+              anchor: 'transition',
+            },
+          },
+          atomicOverlayReceipt: transitionSfxReceipt(),
+        },
       },
     ],
     vjepaAnalysis: {

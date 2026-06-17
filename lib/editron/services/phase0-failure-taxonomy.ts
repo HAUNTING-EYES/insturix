@@ -331,6 +331,20 @@ function addOverlayClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtur
       evidence: { count: sfx.count, withAtomicForm: sfx.withAtomicForm },
     });
   }
+  if (sfx.transitionEvidenceMissing.length > 0) {
+    classes.push({
+      id: 'overlay.sfx_transition_evidence_missing',
+      severity: 'warn',
+      source: 'overlay',
+      message: 'One or more transition-anchored SFX overlays are missing transition job or evidence metadata.',
+      evidence: {
+        count: sfx.transitionEvidenceMissing.length,
+        withTransitionAnchor: sfx.withTransitionAnchor,
+        withTransitionEvidence: sfx.withTransitionEvidence,
+        samples: sfx.transitionEvidenceMissing.slice(0, TIMELINE_SAMPLE_LIMIT),
+      },
+    });
+  }
 
   addCaptionLayoutMismatchClass(classes, manifest);
 }
@@ -509,6 +523,7 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
       id: overlayId(overlay),
       frame: sfxSyncFrameOf(overlay),
       role: sfxRole(overlay),
+      transitionLinked: hasSfxTransitionEvidence(overlay),
     }))
     .sort((a, b) => a.frame - b.frame);
   const anchors = collectVisualSyncAnchors(overlays).sort((a, b) => a.frame - b.frame);
@@ -573,7 +588,7 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
       style: transitionStyle(overlay),
     }))
     .filter((transition) => transitionNeedsSfx(transition.style))
-    .filter((transition) => !sfx.some((item) => Math.abs(item.frame - transition.frame) <= SFX_SYNC_WINDOW_FRAMES))
+    .filter((transition) => !sfx.some((item) => item.transitionLinked && Math.abs(item.frame - transition.frame) <= SFX_SYNC_WINDOW_FRAMES))
     .slice(0, TIMELINE_SAMPLE_LIMIT);
 
   if (denseSamples.length > 0) {
@@ -956,6 +971,66 @@ function sfxSyncFrameOf(overlay: Phase0OverlayLike): number {
   ));
 }
 
+function hasSfxTransitionEvidence(overlay: Phase0OverlayLike): boolean {
+  return hasSfxTransitionOverlayId(overlay)
+    && hasSfxTransitionReason(overlay)
+    && hasSfxTransitionEvidenceSource(overlay);
+}
+
+function hasSfxTransitionOverlayId(overlay: Phase0OverlayLike): boolean {
+  const metadata = asRecord(overlay.metadata);
+  const receipt = sfxReceipt(overlay);
+  const payload = asRecord(receipt.payload);
+  const target = asRecord(receipt.target);
+  return Boolean(
+    hasScalarEvidence(metadata.transitionOverlayId)
+      || hasScalarEvidence(payload.transitionOverlayId)
+      || hasScalarEvidence(target.transitionOverlayId)
+      || sfxReceiptAtoms(overlay).some((atom) => readString(atom.key) === 'transition.overlay_id' && hasScalarEvidence(atom.value))
+  );
+}
+
+function hasSfxTransitionReason(overlay: Phase0OverlayLike): boolean {
+  const metadata = asRecord(overlay.metadata);
+  const receipt = sfxReceipt(overlay);
+  const payload = asRecord(receipt.payload);
+  return Boolean(
+    hasScalarEvidence(payload.transitionJob)
+      || hasScalarEvidence(payload.transitionIntent)
+      || hasScalarEvidence(metadata.transitionJob)
+      || hasScalarEvidence(metadata.transitionIntent)
+      || sfxReceiptAtoms(overlay).some((atom) => {
+        const key = readString(atom.key);
+        return (key === 'transition.job' || key === 'transition.intent') && hasScalarEvidence(atom.value);
+      })
+  );
+}
+
+function hasSfxTransitionEvidenceSource(overlay: Phase0OverlayLike): boolean {
+  const receipt = sfxReceipt(overlay);
+  const payload = asRecord(receipt.payload);
+  return Boolean(
+    hasScalarEvidence(payload.transitionEvidenceSource)
+      || sfxReceiptAtoms(overlay).some((atom) => readString(atom.key) === 'transition.evidence_source' && hasScalarEvidence(atom.value))
+  );
+}
+
+function sfxReceipt(overlay: Phase0OverlayLike): JsonRecord {
+  const metadata = asRecord(overlay.metadata);
+  const receipt = asRecord(metadata.atomicOverlayReceipt);
+  if (Object.keys(receipt).length > 0) return receipt;
+  if (Array.isArray(metadata.atomicOverlayReceipts)) {
+    const firstReceipt = metadata.atomicOverlayReceipts.find((item) => Object.keys(asRecord(item)).length > 0);
+    if (firstReceipt) return asRecord(firstReceipt);
+  }
+  return {};
+}
+
+function sfxReceiptAtoms(overlay: Phase0OverlayLike): JsonRecord[] {
+  const receipt = sfxReceipt(overlay);
+  return Array.isArray(receipt.atoms) ? receipt.atoms.map(asRecord).filter((item) => Object.keys(item).length > 0) : [];
+}
+
 function overlayId(overlay: Phase0OverlayLike): string {
   return String(overlay.id ?? `${overlay.type ?? 'overlay'}:${frameOf(overlay)}`);
 }
@@ -975,6 +1050,13 @@ function readNumber(value: unknown): number | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function hasScalarEvidence(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  return false;
 }
 
 function asRecord(value: unknown): JsonRecord {

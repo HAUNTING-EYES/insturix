@@ -696,6 +696,12 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         .map((overlay) => readString(overlay.metadata?.role ?? (overlay.metadata?.atomicSfxForm as JsonRecord | undefined)?.role))
         .filter(Boolean)),
       withAtomicForm: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && overlay.metadata?.atomicSfxForm).length,
+      withTransitionAnchor: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && isTransitionAnchoredSfx(overlay)).length,
+      withTransitionEvidence: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && isTransitionAnchoredSfx(overlay) && hasSfxTransitionEvidence(overlay)).length,
+      transitionEvidenceMissing: overlays
+        .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+        .map(sfxTransitionEvidenceMissing)
+        .filter(Boolean),
     },
     zoom: {
       videoOverlayCount: videoClips(overlays).length,
@@ -745,6 +751,89 @@ function hasTransitionBoundaryReason(overlay: Phase0OverlayLike): boolean {
       || kind.includes('boundary')
     ));
   });
+}
+
+function sfxTransitionEvidenceMissing(overlay: Phase0OverlayLike) {
+  if (!isTransitionAnchoredSfx(overlay)) return null;
+  const missing: string[] = [];
+  if (!hasSfxTransitionOverlayId(overlay)) missing.push('transition-overlay-id');
+  if (!hasSfxTransitionReason(overlay)) missing.push('transition-job-or-intent');
+  if (!hasSfxTransitionEvidenceSource(overlay)) missing.push('transition-evidence-source');
+  if (missing.length === 0) return null;
+  return {
+    id: overlayId(overlay),
+    from: readFrame(overlay.from),
+    role: readString(overlay.metadata?.role ?? (overlay.metadata?.atomicSfxForm as JsonRecord | undefined)?.role) || null,
+    missing,
+  };
+}
+
+function isTransitionAnchoredSfx(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  const form = isRecord(metadata.atomicSfxForm) ? metadata.atomicSfxForm : {};
+  const timing = isRecord(form.timing) ? form.timing : {};
+  const receipt = sfxReceipt(overlay);
+  const payload = isRecord(receipt.payload) ? receipt.payload : {};
+  return metadata.source === 'transition-sfx-placer'
+    || hasValue(metadata.transitionOverlayId)
+    || readString(timing.anchor) === 'transition'
+    || readString(payload.syncAnchor) === 'transition'
+    || hasSfxTransitionOverlayId(overlay)
+    || hasSfxTransitionReason(overlay)
+    || hasSfxTransitionEvidenceSource(overlay);
+}
+
+function hasSfxTransitionEvidence(overlay: Phase0OverlayLike): boolean {
+  return hasSfxTransitionOverlayId(overlay)
+    && hasSfxTransitionReason(overlay)
+    && hasSfxTransitionEvidenceSource(overlay);
+}
+
+function hasSfxTransitionOverlayId(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  const receipt = sfxReceipt(overlay);
+  const payload = isRecord(receipt.payload) ? receipt.payload : {};
+  const target = isRecord(receipt.target) ? receipt.target : {};
+  return hasValue(metadata.transitionOverlayId)
+    || hasValue(payload.transitionOverlayId)
+    || hasValue(target.transitionOverlayId)
+    || sfxReceiptAtoms(overlay).some((atom) => readString(atom.key) === 'transition.overlay_id' && hasValue(atom.value));
+}
+
+function hasSfxTransitionReason(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  const receipt = sfxReceipt(overlay);
+  const payload = isRecord(receipt.payload) ? receipt.payload : {};
+  return hasValue(payload.transitionJob)
+    || hasValue(payload.transitionIntent)
+    || hasValue(metadata.transitionJob)
+    || hasValue(metadata.transitionIntent)
+    || sfxReceiptAtoms(overlay).some((atom) => (
+      (readString(atom.key) === 'transition.job' || readString(atom.key) === 'transition.intent') &&
+      hasValue(atom.value)
+    ));
+}
+
+function hasSfxTransitionEvidenceSource(overlay: Phase0OverlayLike): boolean {
+  const receipt = sfxReceipt(overlay);
+  const payload = isRecord(receipt.payload) ? receipt.payload : {};
+  return hasValue(payload.transitionEvidenceSource)
+    || sfxReceiptAtoms(overlay).some((atom) => readString(atom.key) === 'transition.evidence_source' && hasValue(atom.value));
+}
+
+function sfxReceipt(overlay: Phase0OverlayLike): JsonRecord {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  if (isRecord(metadata.atomicOverlayReceipt)) return metadata.atomicOverlayReceipt;
+  if (Array.isArray(metadata.atomicOverlayReceipts)) {
+    const firstReceipt = metadata.atomicOverlayReceipts.find(isRecord);
+    if (firstReceipt) return firstReceipt;
+  }
+  return {};
+}
+
+function sfxReceiptAtoms(overlay: Phase0OverlayLike): JsonRecord[] {
+  const receipt = sfxReceipt(overlay);
+  return Array.isArray(receipt.atoms) ? receipt.atoms.filter(isRecord) : [];
 }
 
 function hasValue(value: unknown): boolean {

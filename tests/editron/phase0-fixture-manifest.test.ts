@@ -6,6 +6,25 @@ import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0
 
 const fps = 30;
 
+function transitionSfxReceipt(transitionId = 'tr-1') {
+  return {
+    family: 'sfx',
+    target: { transitionOverlayId: transitionId },
+    payload: {
+      syncAnchor: 'transition',
+      transitionJob: 'emphasize-turn',
+      transitionIntent: 'impact-transfer',
+      transitionEvidenceSource: 'explicit-boundary-job',
+    },
+    atoms: [
+      { kind: 'transition-relation', key: 'transition.overlay_id', value: transitionId },
+      { kind: 'transition-relation', key: 'transition.job', value: 'emphasize-turn' },
+      { kind: 'transition-relation', key: 'transition.intent', value: 'impact-transfer' },
+      { kind: 'transition-relation', key: 'transition.evidence_source', value: 'explicit-boundary-job' },
+    ],
+  };
+}
+
 function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0FixtureProject {
   return {
     projectId: 'proj_phase0_fixture',
@@ -137,7 +156,11 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         from: 44,
         durationInFrames: 12,
         assetId: 'sfx_asset_1',
-        metadata: { role: 'impact', atomicSfxForm: { role: 'impact' } },
+        metadata: {
+          role: 'impact',
+          atomicSfxForm: { role: 'impact', timing: { anchor: 'transition', syncFrame: 44 } },
+          atomicOverlayReceipt: transitionSfxReceipt(),
+        },
       },
     ],
     intelligence: {
@@ -353,7 +376,14 @@ describe('phase0 fixture manifest', () => {
       withBoundaryReason: 1,
       boundaryEvidenceMissing: [],
     });
-    expect(manifest.overlayFamilies.sfx).toMatchObject({ count: 1, roles: ['impact'], withAtomicForm: 1 });
+    expect(manifest.overlayFamilies.sfx).toMatchObject({
+      count: 1,
+      roles: ['impact'],
+      withAtomicForm: 1,
+      withTransitionAnchor: 1,
+      withTransitionEvidence: 1,
+      transitionEvidenceMissing: [],
+    });
     expect(manifest.vjepaCoverage.reliability?.reasons).toEqual(expect.arrayContaining([
       'overlay-hit-rate-below-90:50%',
       'textCoverage-coverage-below-90:0%',
