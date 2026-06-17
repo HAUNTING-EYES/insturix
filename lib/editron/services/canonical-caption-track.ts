@@ -338,6 +338,7 @@ function collectCaptionProtectedRegions(overlays: any[]): CaptionProtectedRegion
   const regions: CaptionProtectedRegion[] = [];
   for (const overlay of overlays) {
     if (overlay?.type === OverlayType.CAPTION || overlay?.type === 'caption') continue;
+    if (overlay?.type === OverlayType.VIDEO || overlay?.type === 'video') continue;
     for (const receipt of overlayReceipts(overlay)) {
       const avoid = receipt?.placementHints?.avoid;
       if (!Array.isArray(avoid)) continue;

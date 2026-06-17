@@ -266,7 +266,7 @@ describe('canonical caption track', () => {
     });
   });
 
-  it('moves global captions out of protected bottom text-occupancy regions', () => {
+  it('keeps global captions in the lower lane when only video context reports bottom text occupancy', () => {
     const overlays: any[] = [
       {
         id: 10,
@@ -274,6 +274,55 @@ describe('canonical caption track', () => {
         from: 0,
         durationInFrames: 180,
         sourceStartFrame: 300,
+        metadata: {
+          atomicOverlayReceipt: {
+            placementHints: {
+              avoid: [{
+                reason: 'text-occupancy',
+                x: 0.12,
+                y: 0.62,
+                width: 0.76,
+                height: 0.28,
+                strength: 0.9,
+              }],
+            },
+          },
+        },
+      },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(['Hank', 'is', 'explaining', 'the', 'whole', 'thing']),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.metadata.evidence).toMatchObject({
+      protectedRegionCount: 0,
+      selectedRegion: 'bottom-center',
+    });
+  });
+
+  it('moves global captions out of protected bottom regions from concrete overlays', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+      {
+        id: 11,
+        type: 'motion-graphic',
+        from: 0,
+        durationInFrames: 180,
         metadata: {
           atomicOverlayReceipt: {
             placementHints: {
