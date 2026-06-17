@@ -302,10 +302,11 @@ describe('MG stage composition renderer', () => {
     );
 
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
+    expect(atoms[0].role).toBe('semantic-concept-contrast-map');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-node-main',
-      'semantic-concept-node-context',
-      'semantic-concept-node-proof',
+      'semantic-concept-contrast-left',
+      'semantic-concept-contrast-divider',
+      'semantic-concept-contrast-right',
     ]));
   });
 
@@ -321,6 +322,43 @@ describe('MG stage composition renderer', () => {
       'semantic-concept-node-main',
       'semantic-concept-node-context',
       'semantic-concept-node-proof',
+    ]));
+  });
+
+  it('varies concept scene atoms from semantic relation facts instead of one repeated map', () => {
+    const problem = resolveSemanticContentSceneAtoms(
+      { title: 'Algorithm Problem', body: 'Inflammatory discussion creates a hostile loop.' },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Algorithm Problem' } }],
+      language,
+    );
+    const causal = resolveSemanticContentSceneAtoms(
+      { title: 'Promotion Loop', body: 'Promoting outrage drives the whole discussion.' },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Promotion Loop' } }],
+      language,
+    );
+    const affirming = resolveSemanticContentSceneAtoms(
+      { title: 'Good Discussion', body: 'Helpful context makes the conversation better.' },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Good Discussion' } }],
+      language,
+    );
+
+    expect(problem[0].role).toBe('semantic-concept-problem-map');
+    expect(problem[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-concept-pressure-core',
+      'semantic-concept-pressure-band-a',
+      'semantic-concept-pressure-threshold',
+    ]));
+    expect(causal[0].role).toBe('semantic-concept-causal-map');
+    expect(causal[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-concept-cause-node',
+      'semantic-concept-causal-flow-b',
+      'semantic-concept-effect-node',
+    ]));
+    expect(affirming[0].role).toBe('semantic-concept-affirming-map');
+    expect(affirming[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-concept-affirming-core',
+      'semantic-concept-rising-rail-right',
+      'semantic-concept-affirming-signal-dot',
     ]));
   });
 
