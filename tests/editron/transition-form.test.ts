@@ -15,8 +15,14 @@ describe('resolveAtomicTransitionForm', () => {
     });
 
     expect(form.version).toBe('atomic-transition-form-v1');
+    expect(form.job).toBe('match-motion');
     expect(form.intent).toBe('motion-transfer');
     expect(form.compatibilityType).toBe('whip-pan');
+    expect(form.evidence).toMatchObject({
+      source: 'signal-atoms',
+      reasonKeys: expect.arrayContaining(['motion-direction', 'visual-motion', 'beat', 'intensity']),
+      boundary: { hasAnchor: false, hasReason: false },
+    });
     expect(form.direction.label).toBe('right');
     expect(form.direction.x).toBeGreaterThan(0.8);
     expect(form.durationFrames).toBeLessThanOrEqual(12);
@@ -112,8 +118,10 @@ describe('resolveAtomicTransitionForm', () => {
       },
     });
 
+    expect(ordinaryCut.job).toBe('soft-release');
     expect(ordinaryCut.compatibilityType).toBe('hard-cut');
     expect(ordinaryCut.sfxRole).toBe('none');
+    expect(motionCut.job).toBe('match-motion');
     expect(motionCut.compatibilityType).toBe('whip-pan');
     expect(motionCut.intent).toBe('motion-transfer');
     expect(motionCut.sfxRole).toBe('fast-whoosh');
@@ -135,8 +143,14 @@ describe('resolveAtomicTransitionForm', () => {
       },
     });
 
+    expect(form.job).toBe('match-motion');
     expect(form.intent).toBe('motion-transfer');
     expect(form.compatibilityType).toBe('slide-up');
+    expect(form.evidence).toMatchObject({
+      source: 'explicit-boundary-job',
+      reasonKeys: expect.arrayContaining(['job:match-motion', 'motion-direction']),
+      boundary: { hasAnchor: false, hasReason: true },
+    });
     expect(form.direction.label).toBe('up');
     expect(form.sfxRole).toBe('none');
   });
@@ -156,6 +170,7 @@ describe('resolveAtomicTransitionForm', () => {
       },
     });
 
+    expect(form.job).toBe('hide-jump');
     expect(form.intent).toBe('continuity-blend');
     expect(form.compatibilityType).toBe('dissolve');
     expect(form.sfxRole).toBe('none');
@@ -176,8 +191,11 @@ describe('resolveAtomicTransitionForm', () => {
       },
     });
 
+    expect(form.job).toBe('hide-jump');
     expect(form.intent).toBe('reveal-wipe');
     expect(form.compatibilityType).toBe('wipe-right');
+    expect(form.evidence.source).toBe('explicit-boundary-job');
+    expect(form.evidence.reasonKeys).toEqual(expect.arrayContaining(['job:hide-jump', 'intent:reveal-wipe']));
   });
 
   it('ignores unknown transition jobs instead of inventing a transition form', () => {
@@ -193,7 +211,9 @@ describe('resolveAtomicTransitionForm', () => {
       },
     });
 
+    expect(form.job).toBe('soft-release');
     expect(form.compatibilityType).toBe('hard-cut');
+    expect(form.evidence.source).toBe('signal-atoms');
     expect(form.sfxRole).toBe('none');
   });
 

@@ -9,8 +9,17 @@ import type { AtomicTransitionForm } from '@/lib/editron/services/transition-for
 
 const baseForm: AtomicTransitionForm = {
   version: 'atomic-transition-form-v1',
+  job: 'match-motion',
   intent: 'motion-transfer',
   compatibilityType: 'whip-pan',
+  evidence: {
+    source: 'signal-atoms',
+    reasonKeys: ['motion-direction', 'visual-motion', 'beat'],
+    boundary: {
+      hasAnchor: true,
+      hasReason: true,
+    },
+  },
   direction: {
     x: -0.84,
     y: 0.12,

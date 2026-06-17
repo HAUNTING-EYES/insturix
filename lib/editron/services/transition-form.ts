@@ -8,6 +8,16 @@ export type AtomicTransitionIntent =
   | 'reveal-wipe'
   | 'soft-release';
 
+export type AtomicTransitionJob =
+  | 'direct-continuity'
+  | 'smooth-continuity'
+  | 'hide-jump'
+  | 'emphasize-turn'
+  | 'reset-attention'
+  | 'match-motion'
+  | 'reveal-next'
+  | 'soft-release';
+
 export interface AtomicTransitionDirection {
   x: number;
   y: number;
@@ -18,8 +28,17 @@ export interface AtomicTransitionDirection {
 
 export interface AtomicTransitionForm {
   version: 'atomic-transition-form-v1';
+  job: AtomicTransitionJob;
   intent: AtomicTransitionIntent;
   compatibilityType: TransitionStyle;
+  evidence: {
+    source: 'explicit-boundary-job' | 'semantic-intent' | 'signal-atoms';
+    reasonKeys: string[];
+    boundary: {
+      hasAnchor: boolean;
+      hasReason: boolean;
+    };
+  };
   direction: AtomicTransitionDirection;
   durationFrames: number;
   softness: number;
@@ -54,7 +73,6 @@ export function resolveAtomicTransitionForm(input: {
   const params = input.params ?? {};
   const explicitType = normalizeTransitionStyle(paramString(params, 'transitionType'));
   const compatibilityHint = normalizeTransitionStyle(paramString(params, 'transitionCompatibilityHint'));
-  const intentHint = resolveIntentHint(params);
   const direction = resolveDirection(signals);
 
   const speechEnergy = signalNumber(signals, 'speech_energy', 'speech.energy');
@@ -92,6 +110,18 @@ export function resolveAtomicTransitionForm(input: {
     facePresent ? 0.54 : 0,
     eyeContact ? 0.68 : 0,
   ));
+  const job = resolveTransitionJob({
+    params,
+    direction,
+    intensity,
+    topicShift,
+    beatStrength,
+    emotion,
+    visualPressure,
+    motionIntensity,
+    textOnScreen,
+  });
+  const intentHint = resolveIntentHint(params);
   const compatibilityType = resolveCompatibilityType({
     explicitType,
     compatibilityHint,
@@ -120,8 +150,19 @@ export function resolveAtomicTransitionForm(input: {
 
   return {
     version: 'atomic-transition-form-v1',
+    job,
     intent,
     compatibilityType,
+    evidence: resolveTransitionEvidence(params, job, {
+      direction,
+      intensity,
+      topicShift,
+      beatStrength,
+      emotion,
+      visualPressure,
+      motionIntensity,
+      textOnScreen,
+    }),
     direction,
     durationFrames,
     softness,
@@ -133,6 +174,107 @@ export function resolveAtomicTransitionForm(input: {
     visualPressure,
     keyframeBased: compatibilityType === 'dissolve',
     sfxRole: resolveSfxRole(compatibilityType, intensity, softness),
+  };
+}
+
+function resolveTransitionJob(input: {
+  params: Record<string, unknown>;
+  direction: AtomicTransitionDirection;
+  intensity: number;
+  topicShift: number;
+  beatStrength: number;
+  emotion: number;
+  visualPressure: number;
+  motionIntensity: number;
+  textOnScreen: number;
+}): AtomicTransitionJob {
+  const explicitJob = normalizeTransitionJob(
+    paramString(input.params, 'transitionJob') ?? paramString(input.params, 'transition_job'),
+  );
+  if (explicitJob) return explicitJob;
+
+  const explicitIntent = paramString(input.params, 'transitionIntent');
+  if (explicitIntent === 'motion-transfer') return 'match-motion';
+  if (explicitIntent === 'impact-transfer') return 'emphasize-turn';
+  if (explicitIntent === 'reveal-wipe') return 'reveal-next';
+  if (explicitIntent === 'soft-release') return 'soft-release';
+  if (explicitIntent === 'continuity-blend') return 'smooth-continuity';
+
+  if (input.visualPressure >= 0.78 || input.textOnScreen >= 0.62) return 'direct-continuity';
+  if (input.direction.magnitude >= 0.48 && input.motionIntensity >= 0.48) return 'match-motion';
+  if (input.intensity >= 0.84 || input.beatStrength >= 0.72) return 'emphasize-turn';
+  if (input.topicShift >= 0.72 && input.intensity < 0.72) return 'smooth-continuity';
+  if (input.topicShift >= 0.56 || input.emotion >= 0.62) return 'reset-attention';
+  if (input.intensity < 0.42 && input.direction.magnitude < 0.18) return 'soft-release';
+  return 'direct-continuity';
+}
+
+function normalizeTransitionJob(value?: string): AtomicTransitionJob | undefined {
+  switch (value) {
+    case 'invisible':
+    case 'direct-continuity':
+      return 'direct-continuity';
+    case 'smooth-continuity':
+    case 'smooth-continuity-gap':
+      return 'smooth-continuity';
+    case 'hide-jump':
+      return 'hide-jump';
+    case 'emphasize-turn':
+    case 'impact':
+      return 'emphasize-turn';
+    case 'reset-attention':
+      return 'reset-attention';
+    case 'match-motion':
+    case 'match-motion-direction':
+      return 'match-motion';
+    case 'reveal':
+    case 'reveal-next':
+      return 'reveal-next';
+    case 'soft-release':
+      return 'soft-release';
+    default:
+      return undefined;
+  }
+}
+
+function resolveTransitionEvidence(
+  params: Record<string, unknown>,
+  job: AtomicTransitionJob,
+  atoms: {
+    direction: AtomicTransitionDirection;
+    intensity: number;
+    topicShift: number;
+    beatStrength: number;
+    emotion: number;
+    visualPressure: number;
+    motionIntensity: number;
+    textOnScreen: number;
+  },
+): AtomicTransitionForm['evidence'] {
+  const explicitJob = normalizeTransitionJob(paramString(params, 'transitionJob') ?? paramString(params, 'transition_job'));
+  const explicitIntent = paramString(params, 'transitionIntent');
+  const reasonKeys: string[] = [];
+  if (explicitJob) reasonKeys.push(`job:${job}`);
+  if (explicitIntent) reasonKeys.push(`intent:${explicitIntent}`);
+  if (atoms.direction.magnitude >= 0.32) reasonKeys.push('motion-direction');
+  if (atoms.motionIntensity >= 0.48) reasonKeys.push('visual-motion');
+  if (atoms.topicShift >= 0.56) reasonKeys.push('topic-shift');
+  if (atoms.beatStrength >= 0.62) reasonKeys.push('beat');
+  if (atoms.intensity >= 0.72) reasonKeys.push('intensity');
+  if (atoms.emotion >= 0.62) reasonKeys.push('emotion');
+  if (atoms.visualPressure >= 0.72 || atoms.textOnScreen >= 0.62) reasonKeys.push('visual-pressure');
+
+  return {
+    source: explicitJob
+      ? 'explicit-boundary-job'
+      : explicitIntent
+        ? 'semantic-intent'
+        : 'signal-atoms',
+    reasonKeys: unique(reasonKeys),
+    boundary: {
+      hasAnchor: hasAnyParam(params, ['boundaryFrame', 'transitionFrame', 'clipAId', 'clipBId', 'cutFrame']),
+      hasReason: hasAnyParam(params, ['transitionJob', 'transition_job', 'transitionIntent', 'topicDelta', 'speechGapMs', 'beatPhase', 'visualContinuity', 'motionVectorX', 'motionVectorY']),
+    },
   };
 }
 
@@ -251,23 +393,22 @@ function resolveIntentHint(params: Record<string, unknown>): string | undefined 
   const explicitIntent = paramString(params, 'transitionIntent');
   if (explicitIntent) return explicitIntent;
 
-  const job = paramString(params, 'transitionJob') ?? paramString(params, 'transition_job');
-  switch (job) {
-    case 'invisible':
+  const explicitJob = normalizeTransitionJob(
+    paramString(params, 'transitionJob') ?? paramString(params, 'transition_job'),
+  );
+  if (!explicitJob) return undefined;
+
+  switch (explicitJob) {
     case 'direct-continuity':
       return 'editorial-cut';
     case 'smooth-continuity':
-    case 'smooth-continuity-gap':
     case 'hide-jump':
       return 'continuity-blend';
     case 'emphasize-turn':
     case 'reset-attention':
-    case 'impact':
       return 'impact-transfer';
     case 'match-motion':
-    case 'match-motion-direction':
       return 'motion-transfer';
-    case 'reveal':
     case 'reveal-next':
       return 'reveal-wipe';
     case 'soft-release':
@@ -402,6 +543,18 @@ function paramNumber(source: Record<string, unknown>, key: string): number | und
 function paramString(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function hasAnyParam(source: Record<string, unknown>, keys: string[]): boolean {
+  return keys.some((key) => {
+    const value = source[key];
+    if (typeof value === 'string') return value.trim().length > 0;
+    return value !== undefined && value !== null;
+  });
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function policyAllows(source: Record<string, unknown>, ...keys: string[]): boolean | undefined {
