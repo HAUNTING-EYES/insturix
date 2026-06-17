@@ -455,13 +455,13 @@ async function fetchConnectedInstagramPostSources(args: {
   if (sources.length === 0) {
     return {
       sources: [],
-      warnings: ['Brand Vault found Instagram read access, but no recent caption text was returned.'],
+      warnings: ['Brand Vault found Instagram read access, but no recent caption text or media evidence was returned.'],
     };
   }
 
   return {
     sources,
-    warnings: [`Brand Vault fetched ${sources.length} recent Instagram media caption${sources.length === 1 ? '' : 's'} for draft social evidence review.`],
+    warnings: [`Brand Vault fetched ${sources.length} recent Instagram media item${sources.length === 1 ? '' : 's'} for draft social evidence review.`],
   };
 }
 
@@ -473,7 +473,12 @@ function instagramMediaSource(
   const record = asRecord(item);
   const id = stringValue(record.id);
   const text = stringValue(record.caption);
-  if (!id || !text) return null;
+  const media = socialMedia({
+    mediaType: stringValue(record.media_type),
+    mediaUrl: stringValue(record.media_url),
+    thumbnailUrl: stringValue(record.thumbnail_url),
+  });
+  if (!id || (!text && !hasReadableMediaEvidence(media))) return null;
 
   return {
     kind: 'social_post',
@@ -484,18 +489,18 @@ function instagramMediaSource(
       'Fetched from connected UploaderX Instagram account for Brand Vault draft review.',
       stringValue(record.media_type) ? `Media type: ${stringValue(record.media_type)}.` : '',
     ].filter(Boolean).join(' '),
-    text,
+    text: text || undefined,
     evidenceOrigin: 'connected_fetch',
     pinned: false,
     publishedAt: stringValue(record.timestamp),
-    media: socialMedia({
-      mediaType: stringValue(record.media_type),
-      mediaUrl: stringValue(record.media_url),
-      thumbnailUrl: stringValue(record.thumbnail_url),
-    }),
+    media,
     metrics: socialMetrics(record),
     connection,
   };
+}
+
+function hasReadableMediaEvidence(media: BrandVaultSocialMediaEvidence | undefined): boolean {
+  return Boolean(media?.mediaUrl || media?.thumbnailUrl || media?.ocrText || media?.transcript);
 }
 
 async function fetchConnectedLinkedInPostSources(args: {

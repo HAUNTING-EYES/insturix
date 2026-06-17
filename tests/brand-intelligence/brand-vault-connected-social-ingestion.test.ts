@@ -126,6 +126,58 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.warnings).toContain('Brand Vault skipped instagram Apify fallback: no Apify actor is configured for this platform.');
   });
 
+  it('keeps connected Instagram media without captions so OCR can provide brand text', async () => {
+    const ocrImageUrls: string[] = [];
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/vaultline'],
+      uploaderXUser: {
+        instagramTokens: {
+          userAccessToken: 'ig_token',
+          userName: 'vaultline',
+          accounts: [{ instagramAccountId: 'ig_account_1', instagramUsername: 'vaultline' }],
+        },
+      },
+      youtubeConnection: null,
+      fetchFn: async () => jsonResponse({
+        data: [
+          {
+            id: 'ig_media_without_caption',
+            media_type: 'IMAGE',
+            media_url: 'https://cdn.example.com/ig_media_without_caption.jpg',
+            permalink: 'https://www.instagram.com/p/ig_media_without_caption/',
+            timestamp: '2026-06-16T10:00:00.000Z',
+          },
+        ],
+      }),
+      ocrProvider: {
+        async readTextFromImage(input) {
+          ocrImageUrls.push(input.imageUrl);
+          return { text: 'Stop losing brand consistency between strategy and delivery.' };
+        },
+      },
+    });
+
+    expect(ocrImageUrls).toEqual(['https://cdn.example.com/ig_media_without_caption.jpg']);
+    expect(result.warnings).toContain('Brand Vault fetched 1 recent Instagram media item for draft social evidence review.');
+    expect(result.warnings).toContain('Brand Vault OCR extracted readable text from 1 social media image for draft evidence review.');
+    expect(result.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'instagram',
+          url: 'https://www.instagram.com/p/ig_media_without_caption/',
+          text: undefined,
+          evidenceOrigin: 'connected_fetch',
+          media: expect.objectContaining({
+            mediaType: 'image',
+            mediaUrl: 'https://cdn.example.com/ig_media_without_caption.jpg',
+            ocrText: 'Stop losing brand consistency between strategy and delivery.',
+          }),
+        }),
+      ]),
+    );
+  });
+
   it('warns when an Apify-supported social profile has no API key', async () => {
     const result = await createBrandVaultConnectedSocialEvidence({
       socialLinks: ['https://www.facebook.com/vaultline'],

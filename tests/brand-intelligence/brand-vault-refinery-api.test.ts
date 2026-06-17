@@ -1048,7 +1048,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(result.warnings).toContain('Brand Vault fetched youtube public oEmbed and watch metadata as review-only social evidence.');
   });
 
-  it('fetches connected Instagram media captions as draft-only social evidence', async () => {
+  it('fetches connected Instagram media items as draft-only social evidence', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const fetchedUrls: string[] = [];
     const fetchFn = async (url: string): Promise<Response> => {
@@ -1113,7 +1113,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(created.body.ok).toBe(true);
     if (!created.body.ok) throw new Error(created.body.error.message);
     expect(fetchedUrls).toHaveLength(1);
-    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent Instagram media caption for draft social evidence review.');
+    expect(created.body.job.warnings).toContain('Brand Vault fetched 1 recent Instagram media item for draft social evidence review.');
     expect(created.body.job.warnings).not.toContain(
       'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
     );
