@@ -75,6 +75,7 @@ describe('phase0 render artifact pack', () => {
     expect(pack.familyCoverage.auditedMotionTypes).toEqual(['zoom']);
     expect(pack.familyCoverage.auditedAudioTypes).toEqual(['audio', 'sound']);
     expect(pack.renderInput.overlays).toHaveLength(7);
+    expect(pack.renderInput.sampleFrames).toEqual(pack.samplePlan.sampledFrames);
     expect(pack.samplePlan.sampledFrames).toEqual([
       28, 38, 48, 63, 64, 77, 82, 90, 92, 93, 94, 96, 98, 108, 127, 142,
     ]);

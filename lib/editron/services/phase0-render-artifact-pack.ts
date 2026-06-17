@@ -46,6 +46,7 @@ export interface Phase0RenderInput {
   height: number;
   fps: number;
   durationInFrames: number;
+  sampleFrames?: number[];
   overlays: Phase0OverlayLike[];
 }
 
@@ -166,6 +167,7 @@ export function buildPhase0RenderArtifactPack(
       height,
       fps,
       durationInFrames,
+      sampleFrames: samplePlan.sampledFrames,
       overlays,
     },
     samplePlan,
