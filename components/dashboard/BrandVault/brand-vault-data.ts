@@ -210,6 +210,7 @@ export function groupConflicts(candidates: BrandEvidenceCandidate[]): SignalConf
   const byPath = new Map<string, BrandEvidenceCandidate[]>();
   for (const candidate of candidates) {
     if (isAssetAlternativePath(candidate.signalPath)) continue;
+    if (!isDecisionCandidate(candidate)) continue;
     const list = byPath.get(candidate.signalPath) ?? [];
     list.push(candidate);
     byPath.set(candidate.signalPath, list);
@@ -233,6 +234,17 @@ export function groupConflicts(candidates: BrandEvidenceCandidate[]): SignalConf
 
 function isAssetAlternativePath(path: string): boolean {
   return path === 'assets.logoCandidates' || path === 'assets.socialPreviewImages';
+}
+
+function isDecisionCandidate(candidate: BrandEvidenceCandidate): boolean {
+  const value = candidate.normalizedValue ?? candidate.rawValue;
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0 && value.every(isDecisionValue);
+  return isDecisionValue(value);
+}
+
+function isDecisionValue(value: unknown): boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
 /* ------------------------------------------------------------------ */

@@ -58,6 +58,57 @@ describe('Brand Vault review data helpers', () => {
     expect(conflicts[0]?.candidates.map((item) => item.signalPath)).toEqual(['palette.primary', 'palette.primary']);
   });
 
+  it('does not render crawl page metadata as proof-style conflict choices', () => {
+    const conflicts = groupConflicts([
+      candidate('identity.proofStyle', 'metrics', 0.58, {
+        sourceType: 'website',
+        sourceField: 'crawl.page.1.proof',
+        extractorId: 'brand-vault-crawler.v1',
+      }),
+      candidate('identity.proofStyle', 'community', 0.58, {
+        sourceType: 'website',
+        sourceField: 'crawl.page.2.proof',
+        extractorId: 'brand-vault-crawler.v1',
+      }),
+      candidate('identity.proofStyle', {
+        url: 'https://signal.example/resources/blogs',
+        title: 'Blog | Signal',
+        contentType: 'text/html; charset=utf-8',
+      }, 0.45, {
+        sourceType: 'website',
+        sourceField: 'crawl.page',
+        extractorId: 'brand-vault-crawler.v1',
+      }),
+    ]);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.path).toBe('identity.proofStyle');
+    expect(conflicts[0]?.candidates.map((item) => item.normalizedValue)).toEqual(['metrics', 'community']);
+  });
+
+  it('only renders primitive signal values as conflict choices', () => {
+    const conflicts = groupConflicts([
+      candidate('voice.recurringPhrases', ['Build the production floor'], 0.62),
+      candidate('voice.recurringPhrases', ['Edit with the system'], 0.61),
+      candidate('voice.recurringPhrases', [
+        'Real phrase',
+        { url: 'https://signal.example/source', title: 'Source metadata' },
+      ], 0.65, {
+        sourceType: 'social_profile',
+        sourceField: 'sourceEvidence.0.social_profile.socialIdentity',
+        extractorId: 'brand-vault-social-evidence.v1',
+      }),
+      candidate('voice.recurringPhrases', [], 0.7),
+      candidate('voice.recurringPhrases', null, 0.7),
+    ]);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.candidates.map((item) => item.normalizedValue)).toEqual([
+      ['Build the production floor'],
+      ['Edit with the system'],
+    ]);
+  });
+
   it('marks implemented evidence lanes from candidates instead of showing them as mocked', () => {
     const snapshot = {
       job: {
