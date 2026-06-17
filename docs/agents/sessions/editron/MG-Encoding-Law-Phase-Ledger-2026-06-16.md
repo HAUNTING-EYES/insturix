@@ -129,6 +129,15 @@ Phase 10 - Real-project taste gate:
 - Dump project MG candidates, selected overlays, recipes, atomic plans, atomic decisions, captions, and rendered stills/clips.
 - Fail the gate when a real project produces too few MGs for strong evidence, mostly keyword boxes, repeated shell/card visuals, caption collisions, weak stat selection, or unexplainable stage-mode choices.
 
+Phase 10A - In progress on 2026-06-17:
+- Added a deterministic real-project MG taste gate (`real-project-mg-taste-gate-v1`) that evaluates persisted project overlays for MG count versus signal-derived graphic density, missing semantic selection metadata, weak tiny-stat selection, caption-active center/full-frame MGs, placement drift, and repeated recipe form.
+- Added `scripts/audit-real-project-mg.ts <projectId>`, which reads the saved project, writes `.calibration-temp/real-project-mg-taste/<projectId>/mg-taste-gate.json`, and writes `.calibration-temp/<projectId>-mgs.json` for `scripts/render-mg-stills.ts`. This lets us render/check MG stills without rendering the entire video.
+- Added fixture coverage that fails a generic Hank-like one-MG weak tiny-stat project without keying on the project id/person/video, and passes a varied audited project with licensed semantic selections.
+- Current real-project result: `npx tsx scripts\audit-real-project-mg.ts proj_sH-nZy0DtNOq` fails as expected with score `0.23`: one MG versus target `8` / minimum `3`, missing semantic candidate selection metadata on the saved overlay, weak unlicensed tiny scalar stat `0.02`, caption-active center-stage MG, and placement drift from requested `middle-right` to persisted `center`.
+- Current render-still result: `npx tsx scripts\render-mg-stills.ts proj_sH-nZy0DtNOq` renders one still at `.calibration-temp/mg-stills/proj_sH-nZy0DtNOq/mg00-atomic-graphic-0-02.png` with no render errors or fit warnings. Visual status: still a sparse typographic rate composition, not final rich full-frame MG quality.
+- Verification: `npx vitest run tests\editron\real-project-mg-taste-gate.test.ts tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-expression-authority.test.ts` passed 19 tests; `npx eslint . --quiet` passed; `git diff --check` passed with line-ending warnings only; touched-file TypeScript filter for `real-project-mg-taste-gate|audit-real-project-mg` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated admin/ThinkForge/shared/script files.
+- Current expectation: `proj_sH-nZy0DtNOq` should continue to fail this gate until the semantic fact extractor and real project rerun produce enough licensed MG candidates and avoid weak/caption-competing choices.
+
 Phase 11 - Remaining fallback authority cleanup:
 - Convert remaining non-series composer/template fallback authority into fact/wire/contract driven candidate generation.
 - Keep compatibility renderer keys only where they are downstream realization names.
