@@ -126,8 +126,9 @@ describe('non-MG atomic overlay receipts', () => {
       token: 'whoosh',
       primarySearchToken: 'whoosh',
       sfxIntent: 'motion-accent',
-      syncAnchor: 'motion-peak',
+      syncAnchor: 'transition',
     }));
+    expect(sound.metadata.atomicSfxForm.timing.syncFrame).toBe(60);
     expect(receipt.atoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'audio-hit', key: 'sfx.token', value: 'whoosh' }),
       expect.objectContaining({ kind: 'transition-relation', key: 'transition.overlay_id', value: '77' }),
@@ -144,6 +145,52 @@ describe('non-MG atomic overlay receipts', () => {
     expect(receipt.form.timing.anchor).toEqual(expect.objectContaining({ kind: 'clip-boundary' }));
     expect(receipt.form.motion).toEqual(expect.objectContaining({ entry: 'audio-hit', curve: 'cut' }));
     expect(sound.metadata.atomicPlanObserveMode).toBe(true);
+  });
+
+  it('skips transition SFX when another SFX already owns the same beat', async () => {
+    const transitionReceipt = buildOverlayAtomicReceipt({
+      family: 'transition',
+      intent: 'topic-shift',
+      frame: 90,
+      durationFrames: 12,
+      signals: {
+        visual_significance: 0.78,
+        motion_intensity: 0.68,
+      },
+    });
+    const overlays: any[] = [
+      {
+        id: 701,
+        type: 'sound',
+        from: 82,
+        durationInFrames: 18,
+        row: 6,
+        metadata: {
+          source: 'edl-sfx-trigger',
+          atomicSfxForm: {
+            timing: { syncFrame: 90 },
+          },
+        },
+      },
+      {
+        id: 702,
+        type: 'transition',
+        transitionStyle: 'dissolve',
+        from: 90,
+        durationInFrames: 12,
+        clipAId: 31,
+        clipBId: 32,
+        metadata: { atomicOverlayReceipt: transitionReceipt },
+      },
+    ];
+
+    const result = await placeTransitionSFX(overlays, 'user-1', null);
+
+    expect(result.placed).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.skipReasons).toEqual(expect.objectContaining({ 'sfx-too-dense-0f': 1 }));
+    expect(overlays.filter((overlay) => overlay.type === 'sound')).toHaveLength(1);
+    expect(searchAndDownloadSFX).not.toHaveBeenCalled();
   });
 
   it('uses atomic transition SFX role before legacy transition style fallback', async () => {

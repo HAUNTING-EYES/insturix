@@ -77,6 +77,9 @@ interface AcceptedTransitionSFX {
   assetQuality: AtomicSfxCandidateEvaluation;
 }
 
+const TRANSITION_SFX_SYNC_WINDOW_FRAMES = 3;
+const MIN_TRANSITION_SFX_GAP_FRAMES = 15;
+
 /**
  * Map TransitionStyle to KB Part 9 SFX spec. Returns null if the style
  * intentionally gets silence (hard-cut / dip-to-black / dip-to-white).
@@ -159,6 +162,10 @@ function resolveTransitionSFXSpec(transition: TransitionOverlayShape, overlays: 
     signals: transitionSfxSignals(transition, overlays),
     params: {
       sfxCue: hint.cue,
+      sfxAnchor: 'transition',
+      transitionFrame: transition.from,
+      boundaryFrame: transition.from,
+      syncFrame: transition.from,
       durationFrames: transition.durationInFrames,
     },
     momentBundle: transitionMomentBundle(transition),
@@ -189,6 +196,72 @@ function sfxTokenFromForm(form: AtomicSfxForm, hint: TransitionSFXHint): SFXToke
 function searchQueryForAtomicSFX(form: AtomicSfxForm, token: SFXToken): string {
   if (form.asset.queryTerms.length > 0) return form.asset.queryTerms.join(' ');
   return token === 'digital-tick' ? 'digital glitch tick' : token;
+}
+
+function validateTransitionSFXPlacement(
+  transition: TransitionOverlayShape,
+  spec: SFXPlacementSpec,
+  overlays: unknown[],
+): { ok: true } | { ok: false; reason: string } {
+  const syncFrame = spec.form.timing.syncFrame;
+  const boundaryDistance = Math.abs(syncFrame - transition.from);
+  if (boundaryDistance > TRANSITION_SFX_SYNC_WINDOW_FRAMES) {
+    return { ok: false, reason: `transition-sync-drift-${boundaryDistance}f` };
+  }
+
+  const nearestExistingSfx = nearestExistingSfxDistance(syncFrame, overlays);
+  if (nearestExistingSfx != null && nearestExistingSfx < MIN_TRANSITION_SFX_GAP_FRAMES) {
+    return { ok: false, reason: `sfx-too-dense-${nearestExistingSfx}f` };
+  }
+
+  return { ok: true };
+}
+
+function nearestExistingSfxDistance(frame: number, overlays: unknown[]): number | null {
+  let nearest: number | null = null;
+  for (const overlay of overlays) {
+    if (!isSfxOverlay(overlay)) continue;
+    const syncFrame = sfxOverlaySyncFrame(overlay);
+    if (syncFrame == null) continue;
+    const distance = Math.abs(syncFrame - frame);
+    if (nearest == null || distance < nearest) nearest = distance;
+  }
+  return nearest;
+}
+
+function isSfxOverlay(overlay: unknown): boolean {
+  if (!overlay || typeof overlay !== 'object') return false;
+  const item = overlay as Record<string, any>;
+  if (item.type !== 'sound' && item.type !== 'audio') return false;
+  const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata as Record<string, any> : {};
+  return item.row === ROW.SFX
+    || Boolean(metadata.atomicSfxForm)
+    || Boolean(metadata.sfxType)
+    || Boolean(metadata.token)
+    || metadata.source === 'transition-sfx-placer'
+    || metadata.source === 'edl-sfx-trigger';
+}
+
+function sfxOverlaySyncFrame(overlay: unknown): number | null {
+  if (!overlay || typeof overlay !== 'object') return null;
+  const item = overlay as Record<string, any>;
+  const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata as Record<string, any> : {};
+  const form = metadata.atomicSfxForm && typeof metadata.atomicSfxForm === 'object'
+    ? metadata.atomicSfxForm as Record<string, any>
+    : {};
+  const timing = form.timing && typeof form.timing === 'object' ? form.timing as Record<string, any> : {};
+  return finiteFrame(timing.syncFrame)
+    ?? finiteFrame(metadata.sfxSyncFrame)
+    ?? finiteFrame(item.audioStartFrame)
+    ?? finiteFrame(item.from);
+}
+
+function finiteFrame(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
+}
+
+function bumpSkipReason(result: TransitionSFXResult, reason: string): void {
+  result.skipReasons[reason] = (result.skipReasons[reason] || 0) + 1;
 }
 
 // ─── Profile-aware policy resolution ─────────────────────────────
@@ -542,7 +615,7 @@ export async function placeTransitionSFX(
         : style === 'dip-to-black' || style === 'dip-to-white'
         ? `silence-wins (${style})`
         : `unknown-style (${style})`;
-      result.skipReasons[reason] = (result.skipReasons[reason] || 0) + 1;
+      bumpSkipReason(result, reason);
       continue;
     }
 
@@ -550,7 +623,18 @@ export async function placeTransitionSFX(
     const sfxId = deterministicSFXId(transition, spec.token);
     if (existingIds.has(sfxId)) {
       result.skipped++;
-      result.skipReasons['already-placed'] = (result.skipReasons['already-placed'] || 0) + 1;
+      bumpSkipReason(result, 'already-placed');
+      continue;
+    }
+
+    const placement = validateTransitionSFXPlacement(transition, spec, overlays);
+    if (!placement.ok) {
+      result.skipped++;
+      bumpSkipReason(result, placement.reason);
+      if (warnings) {
+        warnings.degraded('sfx', `transition ${style} @ frame ${transition.from}`,
+          `Transition SFX skipped: ${placement.reason}`);
+      }
       continue;
     }
 
@@ -558,7 +642,7 @@ export async function placeTransitionSFX(
     const sfx = await getOrFetchSFX(spec);
     if (!sfx || !sfx.result.audioUrl) {
       result.skipped++;
-      result.skipReasons[`library-miss-or-quality-reject-${spec.token}`] = (result.skipReasons[`library-miss-or-quality-reject-${spec.token}`] || 0) + 1;
+      bumpSkipReason(result, `library-miss-or-quality-reject-${spec.token}`);
       if (warnings) {
         warnings.degraded('sfx', `transition ${style} @ frame ${transition.from}`,
           `SFX library returned no acceptable "${spec.token}" audio — transition has no SFX`);
