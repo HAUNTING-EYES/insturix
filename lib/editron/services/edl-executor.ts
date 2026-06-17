@@ -2052,6 +2052,87 @@ function roundPixel(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+interface AppliedZoomRecord {
+  overlayId?: number | string;
+  frame: number;
+  zoomType?: string;
+  direction?: string;
+  scaleTo?: number;
+}
+
+const ZOOM_REPETITION_LIMIT = 3;
+
+function zoomRecordsFromOverlay(overlay: Overlay): AppliedZoomRecord[] {
+  const metadata = (overlay as any).metadata ?? {};
+  const seen = new Set<string>();
+  const receipts = [
+    ...(Array.isArray(metadata.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts : []),
+    metadata.atomicOverlayReceipt,
+  ].filter(Boolean);
+
+  return receipts
+    .filter((receipt: any) => receipt?.family === 'zoom')
+    .map((receipt: any) => {
+      const frame = typeof receipt.frame === 'number' ? receipt.frame : overlay.from;
+      const overlayId = receipt.target?.overlayId ?? overlay.id;
+      const zoomType = typeof receipt.payload?.zoomType === 'string' ? receipt.payload.zoomType : undefined;
+      const direction = typeof receipt.payload?.direction === 'string' ? receipt.payload.direction : undefined;
+      const scaleTo = typeof receipt.payload?.scaleTo === 'number' ? receipt.payload.scaleTo : undefined;
+      return { overlayId, frame, zoomType, direction, scaleTo };
+    })
+    .filter((record) => {
+      const key = `${record.overlayId ?? ''}|${record.frame}|${record.zoomType ?? ''}|${record.direction ?? ''}|${record.scaleTo ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function appliedZoomRecords(overlays: Overlay[]): AppliedZoomRecord[] {
+  return overlays
+    .flatMap(zoomRecordsFromOverlay)
+    .sort((a, b) => a.frame - b.frame);
+}
+
+function zoomRecordMatchesForm(
+  record: AppliedZoomRecord,
+  zoomForm: ReturnType<typeof resolveAtomicZoomForm>,
+): boolean {
+  return record.zoomType === zoomForm.compatibilityType
+    && record.direction === zoomForm.direction
+    && typeof record.scaleTo === 'number'
+    && Math.abs(record.scaleTo - zoomForm.scaleTo) < 0.01;
+}
+
+function resolveZoomMemoryPolicy(
+  zoomForm: ReturnType<typeof resolveAtomicZoomForm>,
+  overlays: Overlay[],
+  videoOverlay: Overlay,
+): { allowed: true } | { allowed: false; reason: string } {
+  if (zoomRecordsFromOverlay(videoOverlay).length > 0) {
+    return {
+      allowed: false,
+      reason: `clip ${videoOverlay.id} already has an applied zoom; refusing to overwrite its camera move`,
+    };
+  }
+
+  const history = appliedZoomRecords(overlays);
+  let runLength = 1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (!zoomRecordMatchesForm(history[index], zoomForm)) break;
+    runLength += 1;
+  }
+
+  if (runLength >= ZOOM_REPETITION_LIMIT) {
+    return {
+      allowed: false,
+      reason: `would create ${runLength} consecutive identical ${zoomForm.compatibilityType} zoom targets`,
+    };
+  }
+
+  return { allowed: true };
+}
+
 function applyZoom(
   decision: EditDecision,
   overlays: Overlay[],
@@ -2143,6 +2224,12 @@ function applyZoom(
     sceneEnd,
     durationFrames: decision.durationFrames,
   });
+
+  const zoomMemory = resolveZoomMemoryPolicy(zoomForm, overlays, videoOverlay);
+  if (!zoomMemory.allowed) {
+    console.log(`[EDL-Exec] Zoom at frame ${decision.frame}: SKIPPED — ${zoomMemory.reason}`);
+    return null;
+  }
 
   // Add zoom keyframe tracks
   if (!videoOverlay.keyframeTracks) videoOverlay.keyframeTracks = [];

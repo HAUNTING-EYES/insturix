@@ -184,6 +184,148 @@ describe('EDL executor atomic overlay observe mode', () => {
     expect(transitions.map((overlay) => overlay.transitionStyle)).toEqual(['slide-up', 'slide-up', 'slide-up']);
   });
 
+  it('refuses to overwrite an existing zoom move on the same clip', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = [{
+      id: 310,
+      type: OverlayType.VIDEO,
+      from: 0,
+      durationInFrames: 180,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: 'https://example.com/zoom-single.mp4',
+      src: 'https://example.com/zoom-single.mp4',
+      styles: { opacity: 1 },
+    } as Overlay];
+
+    const zoomSignals = {
+      speech_energy: 0.88,
+      word_importance: 0.92,
+      beat_strength: 0.78,
+      visual_significance: 0.72,
+      text_on_screen: 0,
+    };
+    const edl: EditDecisionList = {
+      projectId: 'zoom-same-clip-memory',
+      generatedAt: new Date('2026-06-17T00:00:00.000Z'),
+      totalDecisions: 2,
+      decisions: [60, 120].map((frame) => ({
+        type: 'zoom',
+        frame,
+        durationFrames: 18,
+        priority: 3,
+        source: 'signal-planner:test',
+        signal: 'speech_peak',
+        reason: 'repeated emphasis inside one clip',
+        confidence: 0.94,
+        params: { signals: zoomSignals },
+      })),
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 0,
+        zoomCount: 2,
+        speedChangeCount: 0,
+        averageConfidence: 0.94,
+      },
+    };
+
+    const result = await executeEDL(
+      edl,
+      'zoom-same-clip-memory',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+    );
+
+    const receipts = ((overlays[0] as any).metadata?.atomicOverlayReceipts ?? []) as any[];
+    const zoomReceipts = receipts.filter((receipt) => receipt.family === 'zoom');
+    const scaleTracks = ((overlays[0] as any).keyframeTracks ?? []).filter((track: any) => track.property === 'scale');
+
+    expect(result.overlaysModified).toBe(1);
+    expect(zoomReceipts).toHaveLength(1);
+    expect(scaleTracks).toHaveLength(1);
+    expect(zoomReceipts[0].frame).toBe(60);
+  });
+
+  it('blocks a third consecutive identical zoom target across clips', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = Array.from({ length: 3 }, (_, index) => ({
+      id: 330 + index,
+      type: OverlayType.VIDEO,
+      from: index * 80,
+      durationInFrames: 80,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: `https://example.com/zoom-${index}.mp4`,
+      src: `https://example.com/zoom-${index}.mp4`,
+      styles: { opacity: 1 },
+    })) as Overlay[];
+
+    const zoomSignals = {
+      speech_energy: 0.88,
+      word_importance: 0.92,
+      beat_strength: 0.78,
+      visual_significance: 0.72,
+      text_on_screen: 0,
+    };
+    const edl: EditDecisionList = {
+      projectId: 'zoom-repetition-memory',
+      generatedAt: new Date('2026-06-17T00:00:00.000Z'),
+      totalDecisions: 3,
+      decisions: [35, 115, 195].map((frame) => ({
+        type: 'zoom',
+        frame,
+        durationFrames: 18,
+        priority: 3,
+        source: 'signal-planner:test',
+        signal: 'speech_peak',
+        reason: 'same repeated zoom target',
+        confidence: 0.94,
+        params: { signals: zoomSignals },
+      })),
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 0,
+        zoomCount: 3,
+        speedChangeCount: 0,
+        averageConfidence: 0.94,
+      },
+    };
+
+    const result = await executeEDL(
+      edl,
+      'zoom-repetition-memory',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+    );
+
+    const zoomReceipts = overlays.flatMap((overlay) => (
+      ((overlay as any).metadata?.atomicOverlayReceipts ?? []) as any[]
+    ).filter((receipt) => receipt.family === 'zoom'));
+
+    expect(result.overlaysModified).toBe(2);
+    expect(zoomReceipts).toHaveLength(2);
+    expect(zoomReceipts.map((receipt) => receipt.target.overlayId)).toEqual([330, 331]);
+    expect((overlays[2] as any).metadata?.atomicOverlayReceipts).toBeUndefined();
+  });
+
   it('attaches shared atomic receipts to non-MG overlay families', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
