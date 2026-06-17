@@ -1089,6 +1089,92 @@ function decisionSignals(decision: EditDecision): Record<string, unknown> {
     : {};
 }
 
+const VISIBLE_SPECIAL_TRANSITIONS = new Set<string>([
+  'blur-transition',
+  'dip-to-black',
+  'dip-to-white',
+  'dissolve',
+  'film-burn',
+  'flash',
+  'glitch',
+  'iris-wipe',
+  'slide-down',
+  'slide-up',
+  'whip-pan',
+  'wipe-down',
+  'wipe-left',
+  'wipe-right',
+  'wipe-up',
+  'zoom-punch',
+]);
+
+const TRANSITION_REPETITION_LIMIT = 3;
+
+function transitionStyleFromOverlay(overlay: Overlay): string | undefined {
+  const metadata = (overlay as any).metadata ?? {};
+  const atomicForm = metadata.atomicTransitionForm ?? {};
+  const style = atomicForm.compatibilityType
+    ?? atomicForm.style
+    ?? metadata.transitionType
+    ?? (overlay as any).transitionStyle
+    ?? (overlay as any).content;
+  return typeof style === 'string' && style.trim() ? style : undefined;
+}
+
+function recentTransitionRunLength(overlays: Overlay[], style: string): number {
+  const transitions = overlays
+    .filter((overlay) => overlay.type === 'transition' || Boolean((overlay as any).metadata?.isTransition))
+    .sort((a, b) => a.from - b.from);
+
+  let runLength = 0;
+  for (let index = transitions.length - 1; index >= 0; index -= 1) {
+    if (transitionStyleFromOverlay(transitions[index]) !== style) break;
+    runLength += 1;
+  }
+  return runLength;
+}
+
+function transitionSignalEnabled(source: Record<string, unknown>, ...keys: string[]): boolean {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value >= 0.5;
+    if (typeof value === 'string' && value.trim()) {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric >= 0.5;
+    }
+  }
+  return false;
+}
+
+function transitionAllowsUniformRun(decision: EditDecision): boolean {
+  return transitionSignalEnabled(decisionSignals(decision), 'montage_mode', 'composite.montage_mode')
+    || transitionSignalEnabled(decision.params ?? {}, 'montage_mode', 'montageMode', 'composite.montage_mode');
+}
+
+function resolveTransitionRepetitionPolicy(
+  transType: string,
+  overlays: Overlay[],
+  decision: EditDecision,
+): { allowed: true; runLength: number } | { allowed: false; runLength: number; reason: string } {
+  if (!VISIBLE_SPECIAL_TRANSITIONS.has(transType) || transitionAllowsUniformRun(decision)) {
+    return { allowed: true, runLength: 1 + recentTransitionRunLength(overlays, transType) };
+  }
+
+  const runLength = 1 + recentTransitionRunLength(overlays, transType);
+  if (runLength >= TRANSITION_REPETITION_LIMIT) {
+    return {
+      allowed: false,
+      runLength,
+      reason: `would create ${runLength} consecutive "${transType}" transitions`,
+    };
+  }
+
+  return { allowed: true, runLength };
+}
+
 function resolveDecisionAtomicSfxForm(decision: EditDecision): AtomicSfxForm | null {
   const cue = decisionSfxCue(decision);
   const params: Record<string, unknown> = {
@@ -1772,6 +1858,15 @@ function applyTransition(
       ? `clipA=${clipA.id}/clipB=${clipB.id} pair match (source: ${(existingTransition as any).metadata?.source || 'unknown'})`
       : `legacy overlay within 15 frames`;
     console.log(`[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — ${reason}`);
+    return null;
+  }
+
+  const repetitionPolicy = resolveTransitionRepetitionPolicy(transType, overlays, decision);
+  if (!repetitionPolicy.allowed) {
+    console.log(
+      `[EDL-Exec] Transition at frame ${decision.frame}: SKIPPED — ${repetitionPolicy.reason}; ` +
+      'leaving boundary clean unless montage_mode licenses uniformity',
+    );
     return null;
   }
 

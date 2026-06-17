@@ -44,6 +44,146 @@ afterEach(() => {
 });
 
 describe('EDL executor atomic overlay observe mode', () => {
+  it('blocks a third repeated visible transition unless the boundary is montage-mode', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = Array.from({ length: 4 }, (_, index) => ({
+      id: 100 + index,
+      type: OverlayType.VIDEO,
+      from: index * 60,
+      durationInFrames: 60,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: `https://example.com/clip-${index}.mp4`,
+      src: `https://example.com/clip-${index}.mp4`,
+      styles: { opacity: 1 },
+    })) as Overlay[];
+
+    const repeatedMotionSignals = {
+      motion_vector_y: -0.72,
+      motion_intensity: 0.74,
+      visual_significance: 0.7,
+      text_on_screen: 0,
+    };
+    const edl: EditDecisionList = {
+      projectId: 'transition-repetition-memory',
+      generatedAt: new Date('2026-06-17T00:00:00.000Z'),
+      totalDecisions: 3,
+      decisions: [60, 120, 180].map((frame) => ({
+        type: 'transition',
+        frame,
+        durationFrames: 15,
+        priority: 2,
+        source: 'signal-planner:test',
+        signal: 'boundary_motion_transfer',
+        reason: 'same repeated motion boundary job',
+        confidence: 0.94,
+        params: {
+          transitionType: 'hard-cut',
+          transitionJob: 'match-motion',
+          signals: repeatedMotionSignals,
+        },
+      })),
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 3,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.94,
+      },
+    };
+
+    const result = await executeEDL(
+      edl,
+      'transition-repetition-memory',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+    );
+
+    const transitions = overlays.filter((overlay) => overlay.type === 'transition') as any[];
+    expect(result.overlaysCreated).toBe(2);
+    expect(transitions).toHaveLength(2);
+    expect(transitions.map((overlay) => overlay.transitionStyle)).toEqual(['slide-up', 'slide-up']);
+  });
+
+  it('allows repeated visible transitions for intentional montage-mode runs', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const overlays: Overlay[] = Array.from({ length: 4 }, (_, index) => ({
+      id: 200 + index,
+      type: OverlayType.VIDEO,
+      from: index * 60,
+      durationInFrames: 60,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: `https://example.com/montage-${index}.mp4`,
+      src: `https://example.com/montage-${index}.mp4`,
+      styles: { opacity: 1 },
+    })) as Overlay[];
+
+    const edl: EditDecisionList = {
+      projectId: 'transition-montage-uniformity',
+      generatedAt: new Date('2026-06-17T00:00:00.000Z'),
+      totalDecisions: 3,
+      decisions: [60, 120, 180].map((frame) => ({
+        type: 'transition',
+        frame,
+        durationFrames: 15,
+        priority: 2,
+        source: 'signal-planner:test',
+        signal: 'boundary_motion_transfer',
+        reason: 'intentional montage transition rhythm',
+        confidence: 0.94,
+        params: {
+          transitionType: 'hard-cut',
+          transitionJob: 'match-motion',
+          signals: {
+            motion_vector_y: -0.72,
+            motion_intensity: 0.74,
+            visual_significance: 0.7,
+            text_on_screen: 0,
+            'composite.montage_mode': 1,
+          },
+        },
+      })),
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 3,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.94,
+      },
+    };
+
+    const result = await executeEDL(
+      edl,
+      'transition-montage-uniformity',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+    );
+
+    const transitions = overlays.filter((overlay) => overlay.type === 'transition') as any[];
+    expect(result.overlaysCreated).toBe(3);
+    expect(transitions).toHaveLength(3);
+    expect(transitions.map((overlay) => overlay.transitionStyle)).toEqual(['slide-up', 'slide-up', 'slide-up']);
+  });
+
   it('attaches shared atomic receipts to non-MG overlay families', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
