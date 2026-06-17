@@ -940,20 +940,23 @@ function resolveFamilyExecutionLicense(
 }
 
 function hasTransitionBoundaryEvidence(decision: ReactiveEditDecision): boolean {
-  return hasAnyParam(decision, [
+  const hasBoundaryAnchor = hasAnyParam(decision, [
     'boundaryAtom',
     'boundaryFrame',
     'clipAId',
     'clipBId',
-    'motionVectorX',
-    'motionVectorY',
+  ]);
+  const hasBoundaryReason = hasAnyParam(decision, [
     'topicDelta',
     'speechGapMs',
     'beatPhase',
     'visualContinuity',
     'transitionJob',
     'relation',
+    'motionVectorX',
+    'motionVectorY',
   ]);
+  return hasBoundaryAnchor && hasBoundaryReason;
 }
 
 function hasCameraMotionEvidence(decision: ReactiveEditDecision): boolean {

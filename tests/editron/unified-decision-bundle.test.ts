@@ -358,7 +358,7 @@ describe('unified decision bundle merge', () => {
       source: 'signal-driven',
       edl: edl([
         decision({ type: 'graphic', frame: 96, source: 'signal-executor:test', confidence: 0.84 }),
-        decision({ type: 'transition', frame: 180, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 180 } }),
+        decision({ type: 'transition', frame: 180, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 180, topicDelta: 0.72 } }),
       ]),
     });
 
@@ -394,7 +394,7 @@ describe('unified decision bundle merge', () => {
     bundle = planUnifiedDecisionBundle(bundle, {
       source: 'signal-driven',
       edl: edl([
-        decision({ type: 'transition', frame: 180, source: 'signal-executor:first', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 180 } }),
+        decision({ type: 'transition', frame: 180, source: 'signal-executor:first', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 180, topicDelta: 0.72 } }),
       ]),
     });
 
@@ -477,7 +477,7 @@ describe('unified decision bundle merge', () => {
       {
         source: 'signal-driven',
         edl: edl([
-          decision({ type: 'transition', frame: 120, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 120 } }),
+          decision({ type: 'transition', frame: 120, source: 'signal-executor:test', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 120, topicDelta: 0.72 } }),
         ]),
       },
       {
@@ -554,7 +554,7 @@ describe('unified decision bundle merge', () => {
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
       decision({ type: 'transition', frame: 180, source: 'signal-executor:hard-cut', confidence: 0.95, params: { transitionType: 'hard-cut' } }),
-      decision({ type: 'transition', frame: 420, source: 'signal-executor:whip-pan', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 420 } }),
+      decision({ type: 'transition', frame: 420, source: 'signal-executor:whip-pan', confidence: 0.82, params: { transitionType: 'whip-pan', boundaryFrame: 420, topicDelta: 0.72 } }),
     ]));
 
     expect(merged.edl.decisions.filter((d) => d.type === 'transition')).toHaveLength(1);
@@ -567,6 +567,32 @@ describe('unified decision bundle merge', () => {
     ]);
     expect(merged.evidence.evidenceOnlySignalDecisions[0].reason).toBe('hard-cut-is-boundary-evidence');
     expect(merged.expectedSkipped).toBe(0);
+  });
+
+  it('requires transition signals to have both a boundary anchor and a boundary reason', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({ type: 'transition', frame: 120, source: 'signal-executor:anchor-only', confidence: 0.9, params: { transitionType: 'whip-pan', boundaryFrame: 120 } }),
+      decision({ type: 'transition', frame: 240, source: 'signal-executor:reason-only', confidence: 0.9, params: { transitionType: 'whip-pan', topicDelta: 0.72 } }),
+      decision({ type: 'transition', frame: 360, source: 'signal-executor:complete', confidence: 0.9, params: { transitionType: 'whip-pan', boundaryFrame: 360, topicDelta: 0.72 } }),
+    ]));
+
+    expect(merged.edl.decisions.filter((d) => d.type === 'transition')).toHaveLength(1);
+    expect(merged.edl.decisions.find((d) => d.type === 'transition')?.frame).toBe(360);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 2,
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-transition-boundary-atoms': expect.objectContaining({ count: 2 }),
+      'licensed-by-transition-boundary-atoms': expect.objectContaining({ count: 1 }),
+    }));
   });
 
   it('builds a full signal-decision audit without changing executable decisions', () => {
