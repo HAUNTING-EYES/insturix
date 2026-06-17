@@ -175,6 +175,25 @@ describe('rendered aesthetic harness helpers', () => {
     })).toContain('source-dependent');
   });
 
+  it('preserves Phase 0 timing sample roles instead of downgrading them to manual', () => {
+    const samples = resolveRenderedAestheticSamplePlan({
+      durationInFrames: 120,
+      samplePlan: [{
+        frame: 30,
+        roles: ['zoom-anchor', 'zoom-motion', 'transition-boundary', 'sfx-sync'],
+        sourceOverlayIds: ['clip-zoom'],
+        sourceOverlayTypes: ['video'],
+      }],
+    }, [videoOverlay({ id: 1 })], {});
+
+    expect(samples).toEqual([{
+      frame: 30,
+      roles: ['zoom-anchor', 'zoom-motion', 'transition-boundary', 'sfx-sync'],
+      sourceOverlayIds: ['clip-zoom'],
+      sourceOverlayTypes: ['video'],
+    }]);
+  });
+
   it('resolves keyframed position, scale, opacity, and text pixel height for rendered evidence', () => {
     const overlay = textOverlay({
       id: 7,

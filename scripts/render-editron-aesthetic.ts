@@ -78,7 +78,16 @@ export interface RenderedAestheticHarnessOptions {
   overlayOnly?: boolean;
 }
 
-export type RenderedAestheticSampleRole = 'manual' | 'entry-settle' | 'hold' | 'exit-prep' | 'keyframe';
+export type RenderedAestheticSampleRole =
+  | 'manual'
+  | 'entry-settle'
+  | 'hold'
+  | 'exit-prep'
+  | 'keyframe'
+  | 'zoom-anchor'
+  | 'zoom-motion'
+  | 'sfx-sync'
+  | 'transition-boundary';
 
 export interface RenderedAestheticSample {
   frame: number;
@@ -481,7 +490,11 @@ function readSampleRole(value: unknown): RenderedAestheticSampleRole | undefined
     value === 'entry-settle' ||
     value === 'hold' ||
     value === 'exit-prep' ||
-    value === 'keyframe'
+    value === 'keyframe' ||
+    value === 'zoom-anchor' ||
+    value === 'zoom-motion' ||
+    value === 'sfx-sync' ||
+    value === 'transition-boundary'
   ) {
     return value;
   }
