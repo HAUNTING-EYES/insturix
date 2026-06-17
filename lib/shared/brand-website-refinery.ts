@@ -60,6 +60,7 @@ import {
   inferHarmony,
   inferHookArchetypes,
   inferIndustry,
+  inferProductServices,
   inferProofStyle,
   inferRecurringPhrases,
   inferTypographyCategory,
@@ -76,7 +77,7 @@ import {
 } from './brand-website-refinery-utils';
 export { normalizeBrandWebsiteUrl } from './brand-website-refinery-utils';
 
-const ASSET_SIGNAL_PATHS = new Set(['assets.logoCandidates', 'assets.socialPreviewImages']);
+const ASSET_SIGNAL_PATHS = new Set(['assets.logoCandidates', 'assets.productImages', 'assets.socialPreviewImages']);
 const DEFAULT_ASSET_PROBE_MAX_CANDIDATES = 16;
 const UNAVAILABLE_ASSET_CONFIDENCE_CEILING = 0.18;
 const UNKNOWN_ASSET_CONFIDENCE_CEILING = 0.38;
@@ -721,8 +722,16 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
         : undefined,
       category: makeSignal('identity.category', inferCategory(textForInference), source('website_metadata', 'website.copy', textForInference, textForInference, description ? 0.58 : 0.35, 'inferred_hint')),
       audience: makeSignal('identity.audience', inferAudience(textForInference), source('website', 'website.copy', textForInference, textForInference, textForInference ? 0.5 : 0.2, 'inferred_hint')),
+      productServices: parsed.productServices.length
+        ? makeSignal('identity.productServices', parsed.productServices, source('website', 'website.productServices', parsed.productServices, parsed.productServices, 0.58, 'inferred_hint'))
+        : undefined,
       proofStyle: makeSignal('identity.proofStyle', inferProofStyle(textForInference), source('website', 'website.proofSnippets', parsed.proofSnippets, textForInference, parsed.proofSnippets.length ? 0.62 : 0.42, 'inferred_hint')),
     },
+    assets: parsed.productImages.length
+      ? {
+          productImages: makeSignal('assets.productImages', parsed.productImages, source('website', 'website.productImages', parsed.productImages, parsed.productImages, 0.56, 'inferred_hint')),
+        }
+      : undefined,
     palette: {
       primary: primary ? makeSignal('palette.primary', primary, source('css', 'css.colors', parsed.colors, primary, 0.76, 'brand_fact')) : undefined,
       accent: accent ? makeSignal('palette.accent', accent, source('css', 'css.colors', parsed.colors, accent, 0.66, 'brand_preference')) : undefined,
@@ -767,6 +776,9 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   }
   for (const image of parsed.socialPreviewImages) {
     candidates.push(candidateOnly('assets.socialPreviewImages', image, 'website_metadata', 'metadata.socialPreviewImage', normalizedUrl, observedAt, extractor, input));
+  }
+  for (const image of parsed.productImages) {
+    candidates.push(candidateOnly('assets.productImages', image, 'website_metadata', 'website.productImage', normalizedUrl, observedAt, extractor, input));
   }
   appendNextDataSignalCandidates({
     input,
@@ -869,6 +881,9 @@ function appendSupplementalTextSignalCandidates(args: {
 
     const audience = inferAudience(text);
     if (audience.length > 0) add('identity.audience', audience);
+
+    const productServices = inferProductServices(textValues);
+    if (productServices.length > 0) add('identity.productServices', productServices);
 
     const phrases = inferRecurringPhrases(textValues, []);
     if (phrases.length > 0) add('voice.recurringPhrases', phrases);

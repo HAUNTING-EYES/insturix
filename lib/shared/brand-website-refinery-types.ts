@@ -304,7 +304,9 @@ export interface ParsedWebsiteEvidence {
   headings: string[];
   ctas: string[];
   proofSnippets: string[];
+  productServices: string[];
   logoCandidates: BrandWebsiteLogoCandidate[];
+  productImages: string[];
   socialPreviewImages: string[];
   bodyText: string;
   nextDataText: string[];

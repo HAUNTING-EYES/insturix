@@ -29,6 +29,8 @@ const BODY_APP_CHROME_TEXT_PATTERN = /^(?:export|layers?|script|media|captions?|
 const BODY_COUNTER_OR_CONTROL_TEXT_PATTERN = /^(?:[\d:. /-]+|[x\u00d7]|[+_-]|[a-z]\d{1,3})$/i;
 const IMAGE_ASSET_EXTENSIONS = new Set(['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
 const SOCIAL_PREVIEW_ASSET_PATTERN = /(?:^|[-_/])(og|open-graph|opengraph|twitter|social|share|card)(?:[-_.]|$)/i;
+const PRODUCT_IMAGE_CONTEXT_PATTERN = /\b(?:product|products|collection|catalog|item|sku|merch|shopify|pdp|plp|packshot|hero-product)\b/i;
+const PRODUCT_SERVICE_NOISE_PATTERN = /\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|mrp|price|sale|discount|coupon|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|view all|quick view|sold out|login|sign in|privacy policy|terms of service)\b/i;
 const FONT_FAMILY_DECLARATION_PATTERN = /(?:^|[;{]\s*)font-family\s*:\s*([^;}]+)/gi;
 const MAX_EXTRACTED_WEBSITE_COLORS = 32;
 const COLOR_CONTEXT_RADIUS = 96;
@@ -243,6 +245,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const colors = extractColors($, stylesheetCss);
   const fonts = extractFonts($, stylesheetCss);
   const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
+  const productImages = extractProductImages($, normalizedUrl);
   const socialPreviewImages = extractSocialPreviewImages($, normalizedUrl);
   const nextDataText = extractNextDataTextEvidence($);
   const supplementalText = input.supplementalText ?? [];
@@ -266,6 +269,14 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   ])
     .filter((text) => text.length >= 12)
     .slice(0, 8);
+  const productServices = inferProductServices([
+    schemaName,
+    schemaDescription,
+    metaDescription,
+    ...headings,
+    ...nextDataText,
+    ...supplementalTextValues,
+  ]);
   const bodyText = sanitizeEvidenceExcerpt(uniqueText([readBodyText($), ...nextDataText, ...supplementalTextValues]).join('. '), 1200);
   return {
     normalizedUrl,
@@ -281,7 +292,9 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     headings,
     ctas,
     proofSnippets,
+    productServices,
     logoCandidates,
+    productImages,
     socialPreviewImages,
     bodyText,
     nextDataText,
@@ -467,6 +480,78 @@ function extractSocialPreviewImages($: ReturnType<typeof load>, normalizedUrl: s
   return uniqueText([meta($, ['og:image']), meta($, ['twitter:image'])]
     .map((value) => (value ? resolveWebsiteAssetUrl(value, baseUrl) : undefined)))
     .slice(0, 4);
+}
+
+function extractProductImages($: ReturnType<typeof load>, normalizedUrl: string): string[] {
+  const baseUrl = new URL(normalizedUrl);
+  const images: string[] = [];
+
+  $('img,source').each((_, el) => {
+    const node = $(el);
+    const context = [
+      node.attr('alt'),
+      node.attr('class'),
+      node.attr('id'),
+      node.attr('aria-label'),
+      node.attr('data-testid'),
+      node.attr('data-test'),
+      node.attr('src'),
+      node.attr('srcset'),
+    ].filter(Boolean).join(' ');
+    if (!PRODUCT_IMAGE_CONTEXT_PATTERN.test(context)) return;
+    for (const sourceValue of imageSourceCandidates(node)) {
+      const url = resolveWebsiteAssetUrl(sourceValue, baseUrl);
+      if (url && isProductImageCandidate(url, context)) images.push(url);
+    }
+  });
+
+  return uniqueText(images).slice(0, 16);
+}
+
+function isProductImageCandidate(url: string, context: string): boolean {
+  const parsed = new URL(url);
+  const path = parsed.pathname.toLowerCase();
+  if (!IMAGE_ASSET_EXTENSIONS.has(pathExtension(path))) return false;
+  if (SOCIAL_PREVIEW_ASSET_PATTERN.test(path) || STRONG_LOGO_CONTEXT_PATTERN.test(context) || isLogoAssetCandidate(url, context)) return false;
+  return PRODUCT_IMAGE_CONTEXT_PATTERN.test(`${path} ${context}`);
+}
+
+function pathExtension(pathname: string): string {
+  const dotIndex = pathname.lastIndexOf('.');
+  return dotIndex >= 0 ? pathname.slice(dotIndex) : '';
+}
+
+export function inferProductServices(values: Array<string | undefined>): string[] {
+  const candidates: string[] = [];
+  for (const value of values) {
+    const cleaned = cleanText(value);
+    if (!cleaned) continue;
+    for (const segment of cleaned.split(/(?:[.!?]\s+|\n+|[|•·]\s*)/)) {
+      const candidate = cleanProductServicePhrase(segment);
+      if (candidate) candidates.push(candidate);
+    }
+  }
+  return uniqueText(candidates).slice(0, 14);
+}
+
+function cleanProductServicePhrase(value: string): string | undefined {
+  let phrase = cleanText(value)
+    ?.replace(/\s+-\s+.*$/, '')
+    .replace(/\s+(?:\|\s*)?(?:shop now|buy now|learn more|add to cart)\b.*$/i, '')
+    .replace(/^[\s,.;:|-]+|[\s,.;:|-]+$/g, '')
+    .trim();
+  if (!phrase) return undefined;
+  if (phrase.length < 4 || phrase.length > 96) return undefined;
+  if (/^https?:\/\//i.test(phrase) || /[{}<>]|(?:function|const|var|=>|\.__|document\.|window\.)/.test(phrase)) return undefined;
+  if (PRODUCT_SERVICE_NOISE_PATTERN.test(phrase)) return undefined;
+  if (/^(?:products?|services?|solutions?|features?|collections?|new arrivals?|best sellers?|home|about|contact)$/i.test(phrase)) return undefined;
+  if (/^\d+(?:[,.]\d+)*\+?$/.test(phrase)) return undefined;
+  const words = phrase.split(/\s+/).filter(Boolean);
+  if (words.length > 10) return undefined;
+  if (words.length === 1 && !/\b(?:serum|cream|cleanser|software|platform|app|suite|studio|agency|consulting|services?|shoes?|sneakers?|bags?|watch|course|program)\b/i.test(phrase)) {
+    return undefined;
+  }
+  return phrase;
 }
 
 export function extractLinkedStylesheetUrls(html: string, normalizedUrl: string, limit = 8): string[] {

@@ -71,7 +71,11 @@ export interface BrandSignalProfile {
     industry?: BrandSignal<string>;
     category: BrandSignal<string>;
     audience: BrandSignal<string[]>;
+    productServices?: BrandSignal<string[]>;
     proofStyle: BrandSignal<BrandProofStyle>;
+  };
+  assets?: {
+    productImages: BrandSignal<string[]>;
   };
   palette: {
     primary?: BrandSignal<string>;

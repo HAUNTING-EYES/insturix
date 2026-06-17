@@ -1265,6 +1265,8 @@ describe('Brand website refinery', () => {
   </head>
   <body>
     <h1>Glowbar skincare</h1>
+    <img class="product-card" alt="Daily Barrier Serum product" src="/cdn/shop/products/daily-serum.png">
+    <img alt="Glowbar logo" src="/assets/logo.svg">
     <script src="https://cdn.shopify.com/s/files/theme.js"></script>
   </body>
 </html>`;
@@ -1314,9 +1316,23 @@ describe('Brand website refinery', () => {
     ]));
     expect(snapshot.supplementalText?.map((item) => item.sourceField)).toEqual(expect.arrayContaining(['shopify.products', 'shopify.collections']));
     expect(result.profile.identity.category.value).toBe('beauty/personal care');
+    expect(result.profile.identity.productServices?.value).toEqual(expect.arrayContaining(['Daily Barrier Serum', 'Daily skincare essentials']));
+    expect(result.profile.assets?.productImages.value).toEqual(['https://glowbar.example/cdn/shop/products/daily-serum.png']);
     expect(result.profile.voice.recurringPhrases.value).toContain('Daily Barrier Serum');
     expect(result.profile.identity.proofStyle.value).toBe('testimonial');
     expect(result.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceField: 'website.productImage',
+        signalPath: 'assets.productImages',
+        normalizedValue: 'https://glowbar.example/cdn/shop/products/daily-serum.png',
+        sourceType: 'website_metadata',
+      }),
+      expect.objectContaining({
+        sourceField: 'shopify.products',
+        signalPath: 'identity.productServices',
+        sourceType: 'website',
+        confidence: 0.58,
+      }),
       expect.objectContaining({
         sourceField: 'shopify.products',
         signalPath: 'identity.proofStyle',
