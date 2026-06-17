@@ -3,6 +3,7 @@ import type { RawFootageAnalysis } from './signal-registry';
 import {
   assessVjepaReliability,
   auditVjepaCoverage,
+  resolveVjepaScreenContextPolicy,
   type VjepaCoverageAudit,
   type VjepaCoverageSegment,
 } from './vjepa-coverage-audit';
@@ -523,6 +524,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
   const persisted = project.intelligence?.vjepaCoverageAudit;
   if (persisted) {
     const reliability = persisted.reliability ?? assessVjepaReliability(persisted.segmentCoverage, persisted.overlayHitRate);
+    const screenContextPolicy = resolveVjepaScreenContextPolicy({ ...persisted, reliability });
     return {
       source: 'persisted' as const,
       status: persisted.status,
@@ -531,20 +533,23 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
       segmentCoverage: persisted.segmentCoverage,
       rawFootageCoverage: persisted.rawFootageCoverage ?? null,
       reliability,
+      screenContextPolicy,
     };
   }
 
   const segments = project.vjepaAnalysis?.segments;
   if (!Array.isArray(segments)) {
+    const screenContextPolicy = resolveVjepaScreenContextPolicy(null);
     return {
       source: 'missing' as const,
       status: null,
       issues: ['vjepaAnalysis.segments is not present on the project'],
-    overlayHitRate: null,
-    segmentCoverage: null,
-    rawFootageCoverage: null,
-    reliability: null,
-  };
+      overlayHitRate: null,
+      segmentCoverage: null,
+      rawFootageCoverage: null,
+      reliability: null,
+      screenContextPolicy,
+    };
   }
 
   const audit = auditVjepaCoverage({
@@ -563,6 +568,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
     segmentCoverage: audit.segmentCoverage,
     rawFootageCoverage: audit.rawFootageCoverage ?? null,
     reliability: audit.reliability ?? null,
+    screenContextPolicy: resolveVjepaScreenContextPolicy(audit),
   };
 }
 

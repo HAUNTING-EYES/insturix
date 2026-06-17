@@ -272,6 +272,13 @@ describe('phase0 fixture manifest', () => {
         reliability: {
           screenAwarePlacement: 'degraded',
         },
+        screenContextPolicy: {
+          mode: 'degraded',
+          allowSubjectAvoidance: false,
+          allowNegativeSpacePlacement: false,
+          allowMotionDirection: false,
+          allowTextAvoidance: false,
+        },
       },
       renderArtifacts: {
         status: 'not-rendered',
@@ -302,6 +309,12 @@ describe('phase0 fixture manifest', () => {
       'overlay-hit-rate-below-90:50%',
       'textCoverage-coverage-below-90:0%',
     ]));
+    expect(manifest.vjepaCoverage.screenContextPolicy?.primitiveTrust).toEqual({
+      motionVector: 'degraded',
+      mainSubject: 'degraded',
+      textCoverage: 'unavailable',
+      negativeSpace: 'degraded',
+    });
     expect(manifest.oldProducerGating.skippedLegacyActions).toEqual([
       {
         tool: 'add_motion_graphics',
@@ -456,6 +469,13 @@ describe('phase0 fixture manifest', () => {
     expect(manifest.vjepaCoverage.source).toBe('computed');
     expect(manifest.vjepaCoverage.status).toBe('pass');
     expect(manifest.vjepaCoverage.reliability?.screenAwarePlacement).toBe('trusted');
+    expect(manifest.vjepaCoverage.screenContextPolicy).toMatchObject({
+      mode: 'trusted',
+      allowSubjectAvoidance: true,
+      allowNegativeSpacePlacement: true,
+      allowMotionDirection: true,
+      allowTextAvoidance: true,
+    });
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.motionVector).toBe(1);
     expect(manifest.vjepaCoverage.segmentCoverage?.fieldCoverage.mainSubject).toBe(1);
     expect(manifest.unifiedDecisionBundle.status).toBe('missing');
@@ -466,5 +486,30 @@ describe('phase0 fixture manifest', () => {
       issue: 'unified decision bundle is missing',
     });
     expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
+  });
+
+  it('marks screen context unavailable when V-JEPA evidence is missing', () => {
+    const manifest = buildPhase0FixtureManifest(baseProject({
+      vjepaAnalysis: undefined,
+      intelligence: undefined,
+    }));
+
+    expect(manifest.vjepaCoverage.source).toBe('missing');
+    expect(manifest.vjepaCoverage.screenContextPolicy).toEqual({
+      mode: 'unavailable',
+      score: 0,
+      overlayHitRate: null,
+      reasons: ['no-usable-vjepa-audit'],
+      allowSubjectAvoidance: false,
+      allowNegativeSpacePlacement: false,
+      allowMotionDirection: false,
+      allowTextAvoidance: false,
+      primitiveTrust: {
+        motionVector: 'unavailable',
+        mainSubject: 'unavailable',
+        textCoverage: 'unavailable',
+        negativeSpace: 'unavailable',
+      },
+    });
   });
 });
