@@ -151,6 +151,60 @@ export async function executeSilenceRemoval(
     const actionStartFrame = msToFrames(action.startMs, fps);
     const actionEndFrame = msToFrames(action.endMs, fps);
 
+    if (action.action === 'split') {
+      let splitApplied = false;
+      for (const ov of overlays) {
+        if (ov.type !== 'video') continue;
+
+        const ovStart = ov.from;
+        const ovEnd = ov.from + ov.durationInFrames;
+        if (splitApplied || actionStartFrame <= ovStart || actionStartFrame >= ovEnd) continue;
+
+        const beforeDuration = actionStartFrame - ovStart;
+        const afterDuration = ovEnd - actionStartFrame;
+        if (beforeDuration < minSegmentFrames || afterDuration < minSegmentFrames) {
+          warnings.push(`Pacing split at frame ${actionStartFrame} skipped because it would create short segments (${beforeDuration}/${afterDuration} < ${minSegmentFrames})`);
+          splitApplied = true;
+          continue;
+        }
+
+        const afterOverlay = JSON.parse(JSON.stringify(ov));
+        afterOverlay.id = nextId++;
+        afterOverlay.from = actionStartFrame;
+        afterOverlay.durationInFrames = afterDuration;
+        const currentSourceOffset = typeof ov.sourceStartFrame === 'number'
+          ? ov.sourceStartFrame : (ov.videoStartTime || 0);
+        afterOverlay.sourceStartFrame = currentSourceOffset + (actionStartFrame - ovStart);
+        afterOverlay.videoStartTime = afterOverlay.sourceStartFrame;
+        afterOverlay.metadata = {
+          ...(afterOverlay.metadata || {}),
+          pacingSplit: {
+            splitFrame: actionStartFrame,
+            splitMs: action.startMs,
+            ...action.metadata,
+          },
+        };
+
+        ov.durationInFrames = beforeDuration;
+        ov.metadata = {
+          ...(ov.metadata || {}),
+          pacingSplit: {
+            splitFrame: actionStartFrame,
+            splitMs: action.startMs,
+            ...action.metadata,
+          },
+        };
+        overlays.push(afterOverlay);
+        overlaysCreated++;
+        splitApplied = true;
+      }
+
+      if (!splitApplied) {
+        warnings.push(`Pacing split at frame ${actionStartFrame} skipped because no video overlay spanned it`);
+      }
+      continue;
+    }
+
     let framesToRemove: number;
     if (action.action === 'remove') {
       framesToRemove = actionEndFrame - actionStartFrame;

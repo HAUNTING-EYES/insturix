@@ -25,10 +25,22 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 export interface SilenceRemovalAction {
   startMs: number;
   endMs: number;
-  action: 'remove' | 'shorten';
+  action: 'remove' | 'shorten' | 'split';
   /** Target duration in ms (only for 'shorten') */
   shortenToMs?: number;
-  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard' | 'transcript-edit';
+  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard' | 'transcript-edit' | 'pacing-split';
+  /** Evidence for non-destructive pacing boundaries. */
+  metadata?: {
+    kind?: 'pacing-split';
+    source?: 'transcript-segment-boundary';
+    calibrationStatus?: 'invented-threshold';
+    previousSegmentIndex?: number;
+    nextSegmentIndex?: number;
+    keptRangeStartMs?: number;
+    keptRangeEndMs?: number;
+    keptRangeDurationMs?: number;
+    minSplitIntervalMs?: number;
+  };
 }
 
 export interface TranscriptSegment {
@@ -513,6 +525,111 @@ function buildSilenceRemovalPlan(
 
 // ─── Main Entry ──────────────────────────────────────────────────
 
+function removalRangesFromPlan(
+  plan: SilenceRemovalAction[],
+  videoDurationMs: number,
+): Array<{ startMs: number; endMs: number }> {
+  const ranges = plan
+    .map((action) => {
+      if (action.action === 'remove') {
+        return { startMs: action.startMs, endMs: action.endMs };
+      }
+      if (action.action === 'shorten') {
+        const keepMs = Math.max(0, action.shortenToMs ?? 300);
+        return { startMs: Math.min(action.endMs, action.startMs + keepMs), endMs: action.endMs };
+      }
+      return null;
+    })
+    .filter((range): range is { startMs: number; endMs: number } =>
+      !!range && range.endMs > range.startMs,
+    )
+    .sort((a, b) => a.startMs - b.startMs);
+
+  const merged: Array<{ startMs: number; endMs: number }> = [];
+  for (const range of ranges) {
+    const clipped = {
+      startMs: Math.max(0, Math.min(videoDurationMs, range.startMs)),
+      endMs: Math.max(0, Math.min(videoDurationMs, range.endMs)),
+    };
+    if (clipped.endMs <= clipped.startMs) continue;
+    const last = merged[merged.length - 1];
+    if (last && clipped.startMs <= last.endMs) {
+      last.endMs = Math.max(last.endMs, clipped.endMs);
+    } else {
+      merged.push(clipped);
+    }
+  }
+  return merged;
+}
+
+function invertRemovalRanges(
+  ranges: Array<{ startMs: number; endMs: number }>,
+  videoDurationMs: number,
+): Array<{ startMs: number; endMs: number }> {
+  const kept: Array<{ startMs: number; endMs: number }> = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.startMs > cursor) kept.push({ startMs: cursor, endMs: range.startMs });
+    cursor = Math.max(cursor, range.endMs);
+  }
+  if (cursor < videoDurationMs) kept.push({ startMs: cursor, endMs: videoDurationMs });
+  return kept;
+}
+
+export function buildPacingSplitActions(
+  segments: TranscriptSegment[],
+  existingPlan: SilenceRemovalAction[],
+  videoDurationMs: number,
+): SilenceRemovalAction[] {
+  if (!segments.length || videoDurationMs <= 0) return [];
+
+  const minSplitIntervalMs = DEFAULT_CONFIG.rawFootage.minSegmentAfterCutSeconds * 1000;
+  const minKeptSpanForSplitsMs = minSplitIntervalMs * 4;
+  const keptRanges = invertRemovalRanges(removalRangesFromPlan(existingPlan, videoDurationMs), videoDurationMs);
+  const actions: SilenceRemovalAction[] = [];
+
+  for (const kept of keptRanges) {
+    const keptDurationMs = kept.endMs - kept.startMs;
+    if (keptDurationMs < minKeptSpanForSplitsMs) continue;
+
+    const candidateSegments = segments.filter((segment) =>
+      segment.startMs >= kept.startMs &&
+      segment.endMs <= kept.endMs,
+    );
+    if (candidateSegments.length < 2) continue;
+
+    let lastSplitMs = kept.startMs;
+    for (let i = 1; i < candidateSegments.length; i++) {
+      const previous = candidateSegments[i - 1];
+      const next = candidateSegments[i];
+      const splitMs = next.startMs;
+      if (splitMs - lastSplitMs < minSplitIntervalMs) continue;
+      if (kept.endMs - splitMs < minSplitIntervalMs) continue;
+
+      actions.push({
+        startMs: splitMs,
+        endMs: splitMs,
+        action: 'split',
+        reason: 'pacing-split',
+        metadata: {
+          kind: 'pacing-split',
+          source: 'transcript-segment-boundary',
+          calibrationStatus: 'invented-threshold',
+          previousSegmentIndex: previous.index,
+          nextSegmentIndex: next.index,
+          keptRangeStartMs: kept.startMs,
+          keptRangeEndMs: kept.endMs,
+          keptRangeDurationMs: keptDurationMs,
+          minSplitIntervalMs,
+        },
+      });
+      lastSplitMs = splitMs;
+    }
+  }
+
+  return actions;
+}
+
 /**
  * Process raw footage: transcribe → analyze → build atomic removal plan.
  * The plan is FULLY COMPUTED before any timeline modifications.
@@ -646,6 +763,13 @@ export async function processRawFootage(
       silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs);
       console.log(`[RawFootage] Added ${editorialIntents.additionalRemovals.length} editorial-intent removals to plan`);
     }
+  }
+
+  const pacingSplitActions = buildPacingSplitActions(segments, silenceRemovalPlan, videoDurationMs);
+  if (pacingSplitActions.length > 0) {
+    silenceRemovalPlan.push(...pacingSplitActions);
+    silenceRemovalPlan.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    console.log(`[RawFootage] Added ${pacingSplitActions.length} non-destructive pacing split boundaries`);
   }
 
   // Estimate clean duration
