@@ -89,8 +89,12 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         type: 'caption',
         from: 0,
         durationInFrames: 60,
+        captions: [{ text: 'first second' }],
         styles: { fontFamily: 'Inter', color: '#ffffff' },
-        metadata: { captionStyle: 'clean' },
+        metadata: {
+          captionStyle: 'clean',
+          atomicOverlayReceipt: { family: 'caption' },
+        },
       },
       {
         id: 'tr-1',
@@ -105,6 +109,7 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         type: 'sound',
         from: 44,
         durationInFrames: 12,
+        assetId: 'sfx_asset_1',
         metadata: { role: 'impact', atomicSfxForm: { role: 'impact' } },
       },
     ],

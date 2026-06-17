@@ -58,6 +58,13 @@ describe('phase0 render artifact pack', () => {
         },
         presentRequiredFamilies: ['caption', 'motion-graphic', 'sfx', 'transition', 'zoom'],
         missingRequiredFamilies: [],
+        incompleteFamilies: [],
+        evidenceCompleteness: {
+          caption: { count: 1, auditableCount: 1, issues: [], sampleOverlayIds: [] },
+          sfx: { count: 1, auditableCount: 1, issues: [], sampleOverlayIds: [] },
+          transition: { count: 1, auditableCount: 1, issues: [], sampleOverlayIds: [] },
+          zoom: { count: 1, auditableCount: 1, issues: [], sampleOverlayIds: [] },
+        },
       },
     });
     expect(pack.familyCoverage.auditedVisualTypes).toContain('transition');
@@ -75,7 +82,14 @@ describe('phase0 render artifact pack', () => {
       fps: 30,
       durationInFrames: 90,
       playerDimensions: { width: 1080, height: 1920 },
-      overlays: [{ id: 'sound-1', type: 'sound', from: 0, durationInFrames: 60 }],
+      overlays: [{
+        id: 'sound-1',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 60,
+        assetId: 'sfx_asset_1',
+        metadata: { atomicSfxForm: { role: 'impact' } },
+      }],
     };
     const manifest = buildPhase0FixtureManifest(project);
 
@@ -95,6 +109,53 @@ describe('phase0 render artifact pack', () => {
       'transition',
       'zoom',
     ]);
+  });
+
+  it('does not count non-MG families as auditable when required evidence is missing', () => {
+    const project: Phase0FixtureProject = {
+      projectId: 'proj_weak_families',
+      fps: 30,
+      durationInFrames: 120,
+      playerDimensions: { width: 1080, height: 1920 },
+      overlays: [
+        { id: 'caption-empty', type: 'caption', from: 10, durationInFrames: 60, captions: [] },
+        { id: 'transition-weak', type: 'transition', from: 55, durationInFrames: 12 },
+        { id: 'zoom-weak', type: 'zoom', from: 30, durationInFrames: 20 },
+        { id: 'sound-weak', type: 'sound', from: 55, durationInFrames: 10 },
+      ],
+    };
+    const manifest = buildPhase0FixtureManifest(project);
+
+    const pack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_weak_families',
+    });
+
+    expect(pack.status).toBe('not-renderable');
+    expect(pack.issues).toEqual([
+      'incomplete-caption-evidence',
+      'incomplete-sfx-evidence',
+      'incomplete-transition-evidence',
+      'incomplete-zoom-evidence',
+    ]);
+    expect(pack.familyCoverage.incompleteFamilies).toEqual(['caption', 'sfx', 'transition', 'zoom']);
+    expect(pack.familyCoverage.evidenceCompleteness.caption).toMatchObject({
+      count: 1,
+      auditableCount: 0,
+      issues: ['missing-caption-text', 'missing-caption-receipt-or-evidence'],
+      sampleOverlayIds: ['caption-empty'],
+    });
+    expect(pack.familyCoverage.evidenceCompleteness.transition).toMatchObject({
+      issues: ['missing-atomic-transition-form'],
+      sampleOverlayIds: ['transition-weak'],
+    });
+    expect(pack.familyCoverage.evidenceCompleteness.zoom).toMatchObject({
+      issues: ['missing-atomic-zoom-form'],
+      sampleOverlayIds: ['zoom-weak'],
+    });
+    expect(pack.familyCoverage.evidenceCompleteness.sfx).toMatchObject({
+      issues: ['missing-atomic-sfx-form', 'missing-sfx-asset-evidence'],
+      sampleOverlayIds: ['sound-weak'],
+    });
   });
 
   it('fails the artifact pack contract when canvas or duration truth is missing', () => {
@@ -122,11 +183,37 @@ function projectFixture(): Phase0FixtureProject {
     overlays: [
       { id: 'clip-1', type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 0 },
       { id: 'mg-1', type: 'motion-graphic', from: 30, durationInFrames: 60, content: '40%' },
-      { id: 'caption-1', type: 'caption', from: 20, durationInFrames: 80, content: 'caption' },
-      { id: 'transition-1', type: 'transition', from: 88, durationInFrames: 12 },
+      {
+        id: 'caption-1',
+        type: 'caption',
+        from: 20,
+        durationInFrames: 80,
+        content: 'caption',
+        metadata: { atomicOverlayReceipt: { family: 'caption' } },
+      },
+      {
+        id: 'transition-1',
+        type: 'transition',
+        from: 88,
+        durationInFrames: 12,
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1' } },
+      },
       { id: 'image-1', type: 'image', from: 100, durationInFrames: 50, width: 700, height: 900 },
-      { id: 'zoom-1', type: 'zoom', from: 40, durationInFrames: 45 },
-      { id: 'sound-1', type: 'sound', from: 88, durationInFrames: 10 },
+      {
+        id: 'zoom-1',
+        type: 'zoom',
+        from: 40,
+        durationInFrames: 45,
+        metadata: { atomicZoomForm: { version: 'atomic-zoom-form-v1' } },
+      },
+      {
+        id: 'sound-1',
+        type: 'sound',
+        from: 88,
+        durationInFrames: 10,
+        assetId: 'sfx_asset_1',
+        metadata: { atomicSfxForm: { role: 'impact' } },
+      },
     ],
   };
 }

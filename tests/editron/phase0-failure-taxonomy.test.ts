@@ -373,6 +373,7 @@ function cleanProject(): Phase0FixtureProject {
         type: 'sound',
         from: 44,
         durationInFrames: 12,
+        assetId: 'sfx_asset_1',
         metadata: { atomicSfxForm: { role: 'impact' } },
       },
     ],

@@ -32,6 +32,7 @@ const AUDITED_OVERLAY_TYPES: AuditedOverlayType[] = [
 ];
 
 const REQUIRED_PHASE0_FAMILIES = ['motion-graphic', 'caption', 'transition', 'zoom', 'sfx'] as const;
+const NON_MG_COMPLETENESS_FAMILIES = ['caption', 'transition', 'zoom', 'sfx'] as const;
 
 export interface BuildPhase0RenderArtifactPackOptions {
   artifactDir: string;
@@ -77,6 +78,13 @@ export interface Phase0RenderArtifactPack {
     missingAuditedFamilies: string[];
     presentRequiredFamilies: string[];
     missingRequiredFamilies: string[];
+    evidenceCompleteness: Record<string, {
+      count: number;
+      auditableCount: number;
+      issues: string[];
+      sampleOverlayIds: string[];
+    }>;
+    incompleteFamilies: string[];
   };
 }
 
@@ -114,6 +122,7 @@ export function buildPhase0RenderArtifactPack(
     ...(width > 0 && height > 0 ? [] : ['missing-canvas-dimensions']),
     ...(durationInFrames > 0 ? [] : ['missing-duration']),
     ...(familyCoverage.auditedVisualCount > 0 ? [] : ['no-audited-visual-overlays']),
+    ...familyCoverage.incompleteFamilies.map((family) => `incomplete-${family}-evidence`),
   ];
 
   return {
@@ -144,6 +153,7 @@ export function buildPhase0RenderArtifactPack(
 
 function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
   const specsByType = new Map(AUDITED_OVERLAY_TYPES.map((spec) => [spec.type, spec]));
+  const auditedOverlays = overlays.filter((overlay) => specsByType.has(String(overlay.type ?? 'unknown')));
   const counts = overlays.reduce<Record<string, number>>((result, overlay) => {
     const type = String(overlay.type ?? 'unknown');
     if (!specsByType.has(type)) return result;
@@ -162,6 +172,11 @@ function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
   const auditedAudioTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'audio'));
   const requiredFamilies = [...REQUIRED_PHASE0_FAMILIES].sort((a, b) => a.localeCompare(b));
   const presentAuditedFamilies = Object.keys(countsByFamily).sort((a, b) => a.localeCompare(b));
+  const evidenceCompleteness = summarizeEvidenceCompleteness(auditedOverlays, specsByType);
+  const incompleteFamilies = Object.entries(evidenceCompleteness)
+    .filter(([, summary]) => summary.count > 0 && summary.auditableCount < summary.count)
+    .map(([family]) => family)
+    .sort((a, b) => a.localeCompare(b));
 
   return {
     auditedOverlayTypes,
@@ -179,7 +194,85 @@ function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
     missingAuditedFamilies: requiredFamilies.filter((family) => !countsByFamily[family]),
     presentRequiredFamilies: requiredFamilies.filter((family) => countsByFamily[family]),
     missingRequiredFamilies: requiredFamilies.filter((family) => !countsByFamily[family]),
+    evidenceCompleteness,
+    incompleteFamilies,
   };
+}
+
+function summarizeEvidenceCompleteness(
+  overlays: Phase0OverlayLike[],
+  specsByType: Map<string, AuditedOverlayType>,
+) {
+  const result: Record<string, { count: number; auditableCount: number; issues: string[]; sampleOverlayIds: string[] }> = {};
+  for (const family of NON_MG_COMPLETENESS_FAMILIES) {
+    result[family] = { count: 0, auditableCount: 0, issues: [], sampleOverlayIds: [] };
+  }
+
+  for (const overlay of overlays) {
+    const type = String(overlay.type ?? 'unknown');
+    const family = specsByType.get(type)?.family;
+    if (!family || !(family in result)) continue;
+
+    const summary = result[family];
+    summary.count += 1;
+    const issues = overlayEvidenceIssues(overlay, family);
+    if (issues.length === 0) {
+      summary.auditableCount += 1;
+      continue;
+    }
+    for (const issue of issues) {
+      if (!summary.issues.includes(issue)) summary.issues.push(issue);
+    }
+    if (summary.sampleOverlayIds.length < 8) summary.sampleOverlayIds.push(overlayId(overlay));
+  }
+
+  return result;
+}
+
+function overlayEvidenceIssues(overlay: Phase0OverlayLike, family: string): string[] {
+  const issues: string[] = [];
+  if (firstPositiveNumber(overlay.durationInFrames) <= 0) issues.push('missing-duration');
+  if (readFrame(overlay.from) < 0) issues.push('missing-frame');
+
+  const metadata = asRecord(overlay.metadata);
+  if (family === 'caption') {
+    const captions = Array.isArray(overlay.captions) ? overlay.captions : [];
+    const hasCaptionText = captions.some((item) => hasText(asRecord(item)?.text) || Array.isArray(asRecord(item)?.words))
+      || hasText(overlay.content)
+      || hasText(overlay.text)
+      || hasText(overlay.captionText);
+    if (!hasCaptionText) issues.push('missing-caption-text');
+    if (!metadata.atomicOverlayReceipt && !metadata.atomicOverlayForm && !metadata.evidence) {
+      issues.push('missing-caption-receipt-or-evidence');
+    }
+  } else if (family === 'transition') {
+    if (!metadata.atomicTransitionForm) issues.push('missing-atomic-transition-form');
+  } else if (family === 'zoom') {
+    if (!metadata.atomicZoomForm && !metadata.atomicOverlayReceipt) issues.push('missing-atomic-zoom-form');
+  } else if (family === 'sfx') {
+    if (!metadata.atomicSfxForm) issues.push('missing-atomic-sfx-form');
+    if (!hasText(overlay.assetId) && !hasText(metadata.providerAssetId) && !hasText(metadata.sourceUrl)) {
+      issues.push('missing-sfx-asset-evidence');
+    }
+  }
+
+  return issues;
+}
+
+function readFrame(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : -1;
+}
+
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function hasText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function overlayId(overlay: Phase0OverlayLike): string {
+  return String(overlay.id ?? `${overlay.type ?? 'unknown'}:${readFrame(overlay.from)}`);
 }
 
 function sortedTypes(specs: AuditedOverlayType[]): string[] {
