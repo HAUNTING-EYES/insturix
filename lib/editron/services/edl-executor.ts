@@ -2716,6 +2716,7 @@ async function applyGraphic(
         atomicPlanObserveMode: true,
         mgExpressionAuthority,
         visualExplanationContract: mgExpressionAuthority.visualExplanationContract,
+        semanticMgCandidateLedger: normalizedGraphicContent.semanticMgCandidateLedger,
         contentStructure: normalizedGraphicContent.structure,
         semanticAtoms: normalizedGraphicContent.semanticAtoms,
         ...atomicMomentBundleMetadata(decision),

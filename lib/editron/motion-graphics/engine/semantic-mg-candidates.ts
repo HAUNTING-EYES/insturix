@@ -5,6 +5,7 @@ export type SemanticMgFactKind =
   | 'weak-stat'
   | 'bounded-stat'
   | 'magnitude-stat'
+  | 'series'
   | 'comparison'
   | 'quote'
   | 'identity'
@@ -15,6 +16,7 @@ export type SemanticMgFactKind =
 export type SemanticMgLicense =
   | 'bounded-proportion'
   | 'magnitude'
+  | 'series-values'
   | 'comparison-relation'
   | 'named-entity'
   | 'quote-proof'
@@ -152,6 +154,18 @@ function buildDrafts(
         'salience-score',
       ]),
       licenses: statLicenses(factKind, salience),
+      salience,
+      rhetoricalRole: 'claim',
+    });
+  }
+
+  if (hasRole(structure, 'series-values')) {
+    drafts.push({
+      factKind: 'series',
+      content: pickContent(content, ['values', 'labels', 'title', 'label']),
+      roles: ['series-values', 'series-labels', 'title', 'supporting-label'],
+      evidenceKeys: evidenceKeysForRoles(structure, ['series-values', 'series-labels', 'title', 'supporting-label']),
+      licenses: withSourceLicense(['series-values'], salience),
       salience,
       rhetoricalRole: 'claim',
     });

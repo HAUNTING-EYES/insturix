@@ -36,6 +36,9 @@ describe('MG content atom normalization', () => {
 
   it('normalizes richer semantic atoms into the structural content used by the MG planner', () => {
     const normalized = normalizeMotionGraphicContent({
+      contextPhrase: 'Hank Green explained the A B C cohort trend',
+      contextStartMs: 1000,
+      contextEndMs: 2400,
       semanticAtoms: {
         series: {
           values: [92, 78, 64],
@@ -61,6 +64,16 @@ describe('MG content atom normalization', () => {
     expect(normalized.content.logo).toBeUndefined();
     expect(normalized.structure.primaryChannel).toBe('series');
     expect(normalized.structure.evidence.seriesCardinality).toBe(3);
+    expect(normalized.semanticMgCandidateLedger.version).toBe('semantic-mg-candidate-ledger-v1');
+    expect(normalized.semanticMgCandidateLedger.candidates.map((candidate) => candidate.factKind)).toEqual(expect.arrayContaining([
+      'series',
+      'identity',
+    ]));
+    expect(normalized.semanticMgCandidateLedger.candidates[0]?.sourceSpan).toEqual(expect.objectContaining({
+      text: 'Hank Green explained the A B C cohort trend',
+      startMs: 1000,
+      endMs: 2400,
+    }));
     expect(normalized.structure.parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'series-values', channel: 'series' }),
       expect.objectContaining({ role: 'name', channel: 'identity' }),
@@ -111,7 +124,9 @@ describe('MG content atom normalization', () => {
               labels: ['A', 'B', 'C', 'D', 'E'],
             },
             claim: 'Growth keeps compounding',
+            evidencePhrase: 'growth keeps compounding across five cohorts',
           },
+          contextPhrase: 'growth keeps compounding across five cohorts',
           signals: {
             visual_significance: 0.72,
             speech_energy: 0.8,
@@ -142,5 +157,12 @@ describe('MG content atom normalization', () => {
     expect(motionGraphic.metadata.contentStructure.primaryChannel).toBe('series');
     expect(motionGraphic.metadata.contentStructure.evidence.seriesTrend).toBe('rising');
     expect(motionGraphic.metadata.semanticAtoms.series.values).toEqual([12, 19, 31, 47, 51]);
+    expect(motionGraphic.metadata.semanticMgCandidateLedger.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        factKind: 'series',
+        licenses: expect.arrayContaining(['series-values', 'source-span']),
+      }),
+    ]));
+    expect(JSON.stringify(motionGraphic.metadata.semanticMgCandidateLedger)).not.toMatch(/template|preset|graphicType/i);
   });
 });

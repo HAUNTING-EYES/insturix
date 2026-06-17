@@ -1,10 +1,16 @@
 import { deriveContentStructure } from '@/lib/editron/motion-graphics/engine/content-shape-analyzer';
+import {
+  buildSemanticMgCandidateLedger,
+  type SemanticMgCandidateLedger,
+  type SemanticMgSourceSpan,
+} from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import type { ContentStructureSignature } from '@/lib/editron/motion-graphics/engine/recipe-types';
 
 export interface NormalizedMotionGraphicContent {
   content: Record<string, unknown>;
   structure: ContentStructureSignature;
   semanticAtoms?: Record<string, unknown>;
+  semanticMgCandidateLedger: SemanticMgCandidateLedger;
 }
 
 export function normalizeMotionGraphicContent(
@@ -19,6 +25,13 @@ export function normalizeMotionGraphicContent(
   }
 
   const structure = deriveContentStructure(content);
+  const sourceSpan = resolveSemanticSourceSpan(content);
+  const semanticMgCandidateLedger = buildSemanticMgCandidateLedger({
+    content,
+    structure,
+    ...(atoms ? { semanticAtoms: atoms } : {}),
+    ...(sourceSpan ? { sourceSpan } : {}),
+  });
   content.contentStructure = {
     parts: structure.parts,
     relations: structure.relations,
@@ -30,7 +43,31 @@ export function normalizeMotionGraphicContent(
   return {
     content,
     structure,
+    semanticMgCandidateLedger,
     ...(atoms ? { semanticAtoms: atoms } : {}),
+  };
+}
+
+function resolveSemanticSourceSpan(content: Record<string, unknown>): SemanticMgSourceSpan | undefined {
+  const existing = objectParam(content.sourceSpan);
+  const text = stringValue(existing?.text)
+    ?? stringValue(content.contextPhrase)
+    ?? stringValue(content.text)
+    ?? stringValue(content.quote)
+    ?? stringValue(content.evidencePhrase);
+  if (!text) return undefined;
+  const startMs = numberValue(existing?.startMs) ?? numberValue(content.contextStartMs) ?? numberValue(content.targetWordStartMs);
+  const endMs = numberValue(existing?.endMs) ?? numberValue(content.contextEndMs) ?? numberValue(content.targetWordEndMs);
+  const wordStart = numberValue(existing?.wordStart);
+  const wordEnd = numberValue(existing?.wordEnd);
+
+  return {
+    text,
+    ...(startMs != null ? { startMs } : {}),
+    ...(endMs != null ? { endMs } : {}),
+    ...(wordStart != null ? { wordStart } : {}),
+    ...(wordEnd != null ? { wordEnd } : {}),
+    source: stringValue(existing?.source) ?? stringValue(content.text_source) ?? 'mg-content-normalization',
   };
 }
 
@@ -205,6 +242,10 @@ function setIfEmpty(target: Record<string, unknown>, key: string, value: unknown
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function numberArray(value: unknown): number[] {

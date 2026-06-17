@@ -98,10 +98,18 @@ Phase 9 - Semantic fact extractor and candidate ledger:
 
 Phase 9A - Done on 2026-06-17:
 - Added `lib/editron/motion-graphics/engine/semantic-mg-candidates.ts` as a pure deterministic candidate ledger contract. It emits candidates and suppressed candidates with `sourceSpan`, `evidenceKeys`, fact licenses, hard-gate reasons, and score inputs.
-- Covered generic fact kinds only: weak stat, bounded stat, magnitude stat, comparison, quote, identity, concept, refutation, and list. It does not emit renderer/menu/preset/template names.
+- Covered generic fact kinds only: weak stat, bounded stat, magnitude stat, series, comparison, quote, identity, concept, refutation, and list. It does not emit renderer/menu/preset/template names.
 - Added `tests/editron/mg-semantic-candidates.test.ts` for weak scalar suppression, bounded proportion licensing, magnitude separation, concept/identity/quote/comparison extraction, and explicit missing-source-span suppression.
 - Verification: `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-visual-explanation-contract.test.ts tests\editron\mg-expression-authority.test.ts` passed 24 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for `semantic-mg-candidates` passed. Full `npx tsc --noEmit --pretty false` is still baseline-red in unrelated app/ThinkForge/admin files.
 - Not done: this ledger is not yet wired into live MG selection. Phase 9B/9D must connect extractor output and authority selection before it changes production MG count or visual choice.
+
+Phase 9B - Done on 2026-06-17:
+- `normalizeMotionGraphicContent` now builds a `semanticMgCandidateLedger` from normalized content, source phrase/timing evidence, content structure, and semantic atoms.
+- `edl-executor.ts` persists that ledger on live motion-graphic overlay metadata before MG expression authority/recipe selection. This makes real generated MGs auditable without changing visible output yet.
+- The ledger was extended with `series` / `series-values` facts so data-series MG moments are represented by facts, not renderer names.
+- Added live-path coverage in `tests/editron/mg-content-atoms.test.ts`: normalized semantic atoms expose series/identity candidates, and executed MG overlays persist `metadata.semanticMgCandidateLedger`.
+- Verification: `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-content-atoms.test.ts tests\editron\mg-visual-explanation-contract.test.ts tests\editron\mg-expression-authority.test.ts` passed 26 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for `semantic-mg-candidates|mg-content-atoms|edl-executor` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated app/ThinkForge/admin files.
+- Not done: Phase 9B is metadata/observability only. Phase 9C/9D still need to use the ledger as a hard gate and then feed selected facts into authority selection.
 
 Phase 10 - Real-project taste gate:
 - Regenerate current real projects, starting with `proj_sH-nZy0DtNOq` as one probe, not as a special case.
