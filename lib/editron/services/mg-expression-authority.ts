@@ -10,6 +10,7 @@ import type {
   RecipeLayout,
   RecipeVisualIntent,
 } from '@/lib/editron/motion-graphics/engine/recipe-types';
+import type { SemanticMgCandidate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import type { AtomicMomentBundle } from '@/lib/editron/services/moment-bundle';
 
 export type MgExpressionTier = 'suppressed' | 'subtle' | 'standard' | 'hero';
@@ -23,6 +24,7 @@ export interface MgExpressionAuthorityInput {
   placementRegion?: string;
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
   visualExplanationContract?: VisualExplanationContract;
+  semanticCandidate?: SemanticMgCandidate;
 }
 
 export interface MgExpressionAuthority {
@@ -35,6 +37,7 @@ export interface MgExpressionAuthority {
   screenPressure: number;
   captionRedundancy: number;
   visualExplanationContract: VisualExplanationContract;
+  semanticCandidate?: Pick<SemanticMgCandidate, 'id' | 'factKind' | 'licenses' | 'scoreInputs'>;
   qualityTier: MgExpressionTier;
   reasons: string[];
   layout: {
@@ -117,9 +120,11 @@ export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput):
   });
   const contractObligationStrength = averageObligationConfidence(visualExplanationContract);
   const hasEvidenceBackedVisualObligation = contractHasEvidenceBackedObligation(visualExplanationContract);
+  const semanticCandidateStrength = resolveSemanticCandidateStrength(input.semanticCandidate);
   const structuralStrength = Math.max(
     resolveStructuralStrength(input.content, input.structure, atoms),
     contractObligationStrength * 0.9,
+    semanticCandidateStrength,
   );
   const keywordOnly = isKeywordOnly(input.content, input.structure);
   const longCopy = readableWordCount(input.content) >= 9 || readableCharCount(input.content) >= 72;
@@ -155,6 +160,7 @@ export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput):
     screenPressure: round4(screenPressure),
     captionRedundancy: round4(captionRedundancy),
     visualExplanationContract,
+    ...(input.semanticCandidate ? { semanticCandidate: semanticCandidateSnapshot(input.semanticCandidate) } : {}),
     qualityTier,
     reasons: [
       ...buildReasons({
@@ -169,6 +175,7 @@ export function resolveMgExpressionAuthority(input: MgExpressionAuthorityInput):
         threshold,
         relevanceScore,
         layoutPosition,
+        ...(input.semanticCandidate ? { semanticCandidate: input.semanticCandidate } : {}),
       }),
       ...buildVisualContractReasons(visualExplanationContract, hasEvidenceBackedVisualObligation),
     ],
@@ -416,6 +423,27 @@ function thresholdForDensity(density: MgExpressionAuthorityInput['graphicsDensit
   return THRESHOLDS.moderateDensity;
 }
 
+function resolveSemanticCandidateStrength(candidate: SemanticMgCandidate | undefined): number {
+  if (!candidate) return 0;
+  return clamp01(
+    candidate.scoreInputs.structuralStrength * 0.72
+      + candidate.scoreInputs.evidenceStrength * 0.2
+      + candidate.scoreInputs.salience * 0.08
+      - candidate.scoreInputs.renderRisk * 0.18,
+  );
+}
+
+function semanticCandidateSnapshot(
+  candidate: SemanticMgCandidate,
+): Pick<SemanticMgCandidate, 'id' | 'factKind' | 'licenses' | 'scoreInputs'> {
+  return {
+    id: candidate.id,
+    factKind: candidate.factKind,
+    licenses: [...candidate.licenses],
+    scoreInputs: { ...candidate.scoreInputs },
+  };
+}
+
 function buildReasons(input: {
   allowMotionGraphic: boolean;
   keywordOnly: boolean;
@@ -428,9 +456,14 @@ function buildReasons(input: {
   threshold: number;
   relevanceScore: number;
   layoutPosition: RecipeLayout['position'];
+  semanticCandidate?: SemanticMgCandidate;
 }): string[] {
   const reasons: string[] = [];
   reasons.push(input.allowMotionGraphic ? 'allowed:relevance-earned' : 'suppressed:relevance-below-threshold');
+  if (input.semanticCandidate) {
+    reasons.push(`semantic-candidate:${input.semanticCandidate.factKind}`);
+    reasons.push(...input.semanticCandidate.licenses.map((license) => `semantic-license:${license}`));
+  }
   if (input.keywordOnly) reasons.push('keyword-only:requires-high-moment-strength');
   if (input.longCopy) reasons.push('long-copy:wider-readable-layout');
   if (input.structuralStrength >= 0.72) reasons.push('structure:strong-atomic-evidence');

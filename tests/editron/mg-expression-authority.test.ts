@@ -5,6 +5,10 @@ import {
   applyMgExpressionAuthorityToScores,
   resolveMgExpressionAuthority,
 } from '../../lib/editron/services/mg-expression-authority';
+import {
+  buildSemanticMgCandidateLedger,
+  selectSemanticMgCandidate,
+} from '../../lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import type { ContentStructureSignature, Recipe } from '../../lib/editron/motion-graphics/engine/recipe-types';
 
 function structure(parts: ContentStructureSignature['parts']): ContentStructureSignature {
@@ -334,6 +338,45 @@ describe('MG expression authority', () => {
     expect(scores?.['mg.emphasis.scale_contrast'].values.scaleContrast).toBeGreaterThan(1.08);
     expect(resolvedRecipe.layout.position).toBe('bottom-right');
     expect(resolvedRecipe.layout.maxWidth).toMatch(/%$/);
+  });
+
+  it('uses the selected semantic candidate as fact authority without naming a renderer preset', () => {
+    const content = {
+      value: '90%',
+      label: 'completion',
+      quantityKind: 'percentage',
+      denominator: 100,
+      bounded: true,
+      salience: 0.82,
+      sourceSpan: { text: 'ninety percent completion' },
+    };
+    const ledger = buildSemanticMgCandidateLedger({ content });
+    const selection = selectSemanticMgCandidate(ledger);
+    const authority = resolveMgExpressionAuthority({
+      content,
+      structure: structure([
+        { role: 'primary-value', channel: 'scalar', sourceKey: 'value', value: '90%', confidence: 0.96 },
+        { role: 'supporting-label', channel: 'text', sourceKey: 'label', value: 'completion', confidence: 0.88 },
+      ]),
+      ...(selection.selectedCandidate ? { semanticCandidate: selection.selectedCandidate } : {}),
+      signals: {
+        speech_energy: 0.72,
+        word_importance: 0.76,
+        visual_dependency: 0.7,
+      },
+    });
+
+    expect(selection.selectedCandidate?.factKind).toBe('bounded-stat');
+    expect(selection.rankedCandidateIds).toEqual([selection.selectedCandidate?.id]);
+    expect(authority.semanticCandidate).toEqual(expect.objectContaining({
+      factKind: 'bounded-stat',
+      licenses: expect.arrayContaining(['bounded-proportion', 'source-span', 'salience']),
+    }));
+    expect(authority.reasons).toEqual(expect.arrayContaining([
+      'semantic-candidate:bounded-stat',
+      'semantic-license:bounded-proportion',
+    ]));
+    expect(JSON.stringify({ selection, authority })).not.toMatch(/bar|ring|sparkline|template|preset|graphicType/i);
   });
 
   it('does not recenter middle-right atomic placement when applying recipe authority', () => {

@@ -79,6 +79,12 @@ export interface SemanticMgLedgerGate {
   suppressedCandidateIds: string[];
 }
 
+export interface SemanticMgCandidateSelection {
+  selectedCandidate?: SemanticMgCandidate;
+  reasons: string[];
+  rankedCandidateIds: string[];
+}
+
 export interface BuildSemanticMgCandidateLedgerInput {
   content: Record<string, unknown>;
   structure?: ContentStructureSignature;
@@ -152,6 +158,21 @@ export function resolveSemanticMgLedgerGate(ledger: SemanticMgCandidateLedger): 
     ]),
     readyCandidateIds,
     suppressedCandidateIds,
+  };
+}
+
+export function selectSemanticMgCandidate(ledger: SemanticMgCandidateLedger): SemanticMgCandidateSelection {
+  const rankedCandidates = [...ledger.candidates].sort(compareSemanticCandidates);
+  const selectedCandidate = rankedCandidates[0];
+  return {
+    ...(selectedCandidate ? { selectedCandidate } : {}),
+    reasons: selectedCandidate
+      ? [
+        `semantic-candidate:selected:${selectedCandidate.factKind}`,
+        ...selectedCandidate.licenses.map((license) => `semantic-license:${license}`),
+      ]
+      : ['semantic-candidate:none'],
+    rankedCandidateIds: rankedCandidates.map((candidate) => candidate.id),
   };
 }
 
@@ -464,6 +485,50 @@ function structuralStrengthForDraft(
   const licenseStrength = Math.min(1, draft.licenses.length / 3);
   const base = draft.factKind === 'weak-stat' ? 0.38 : 0.64;
   return clamp01(base + roleCoverage * 0.2 + licenseStrength * 0.16);
+}
+
+function compareSemanticCandidates(a: SemanticMgCandidate, b: SemanticMgCandidate): number {
+  const scoreDelta = semanticCandidateScore(b) - semanticCandidateScore(a);
+  if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
+  const priorityDelta = factKindPriority(a.factKind) - factKindPriority(b.factKind);
+  if (priorityDelta !== 0) return priorityDelta;
+  return a.id.localeCompare(b.id);
+}
+
+function semanticCandidateScore(candidate: SemanticMgCandidate): number {
+  return round4(clamp01(
+    candidate.scoreInputs.structuralStrength * 0.45
+      + candidate.scoreInputs.salience * 0.25
+      + candidate.scoreInputs.evidenceStrength * 0.25
+      - candidate.scoreInputs.renderRisk * 0.15,
+  ));
+}
+
+function factKindPriority(factKind: SemanticMgFactKind): number {
+  switch (factKind) {
+    case 'bounded-stat':
+      return 0;
+    case 'series':
+      return 1;
+    case 'comparison':
+      return 2;
+    case 'magnitude-stat':
+      return 3;
+    case 'quote':
+      return 4;
+    case 'identity':
+      return 5;
+    case 'concept':
+      return 6;
+    case 'refutation':
+      return 7;
+    case 'list':
+      return 8;
+    case 'weak-stat':
+      return 9;
+    default:
+      return 10;
+  }
 }
 
 function evidenceKeysForRoles(structure: ContentStructureSignature, roles: ContentPartRole[]): string[] {

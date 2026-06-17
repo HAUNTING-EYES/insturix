@@ -115,7 +115,14 @@ Phase 9C - Done on 2026-06-17:
 - Added `resolveSemanticMgLedgerGate`, a deterministic hard gate over the candidate ledger. It allows no-candidate content to continue through existing authority, allows ledgers with licensed candidates, and blocks ledgers where every semantic candidate was suppressed.
 - `edl-executor.ts` now applies this gate before MG expression authority, utility scoring, composition planning, and rendering. Weak/tiny unlicensed stats now stop before becoming visible MGs.
 - Added tests proving weak scalar stats produce `semantic-ledger:no-licensed-candidate` / `semantic-ledger:weak-stat-needs-salience-or-relation`, plain non-candidate content still continues to existing authority, and live `executeEDL` does not render a weak unlicensed stat MG.
-- Not done: Phase 9D still needs to use the winning ledger candidate to drive authority selection/ranking, not just allow/block.
+
+Phase 9D - Done on 2026-06-17:
+- Added `selectSemanticMgCandidate`, a pure deterministic ranking pass over licensed ledger candidates. It ranks by structural strength, salience, evidence strength, render risk, fact-kind priority, then stable id. It returns a fact/license selection report, not a surface renderer or preset name.
+- `edl-executor.ts` now selects the ranked semantic candidate after the hard ledger gate, passes it into `resolveMgExpressionAuthority`, and persists `metadata.semanticMgCandidateSelection` next to the full ledger.
+- `mg-expression-authority.ts` now accepts the selected semantic candidate as a soft authority input, snapshots the selected fact/license/score metadata, and emits semantic fact/license reasons. It still requires the visual explanation contract and evidence-backed obligations to allow rendering.
+- Added authority coverage proving a bounded proportion selects `bounded-stat`, records `bounded-proportion` / `source-span` / `salience` licenses, and does not emit renderer/preset/template terminology.
+- Verification: `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-expression-authority.test.ts tests\editron\mg-content-atoms.test.ts tests\editron\mg-visual-explanation-contract.test.ts` passed 29 tests; `git diff --check` passed with line-ending warnings only; `npx eslint . --quiet` passed; touched-file TypeScript filter for `semantic-mg-candidates|mg-expression-authority|edl-executor|mg-expression-authority.test` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated admin/ThinkForge/shared/script files.
+- Not done: this still does not make the final rendered composition beautiful by itself. The next gate must run real projects and inspect whether selection count, layout variety, caption safety, and visual richness are actually acceptable.
 
 Phase 10 - Real-project taste gate:
 - Regenerate current real projects, starting with `proj_sH-nZy0DtNOq` as one probe, not as a special case.

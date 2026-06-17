@@ -25,7 +25,10 @@ import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-grap
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import { buildAtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
 import { decideAtomicOverlay } from '@/lib/editron/motion-graphics/engine/atomic-overlay-decision';
-import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
+import {
+  resolveSemanticMgLedgerGate,
+  selectSemanticMgCandidate,
+} from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
 import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
@@ -2583,6 +2586,7 @@ async function applyGraphic(
     );
     return null;
   }
+  const semanticMgCandidateSelection = selectSemanticMgCandidate(normalizedGraphicContent.semanticMgCandidateLedger);
 
   // Type-specific durations (CRG-verified at 30fps)
   const GRAPHIC_DURATIONS: Record<string, number> = {
@@ -2647,6 +2651,9 @@ async function applyGraphic(
       momentBundle: decisionMomentBundle(decision),
       placementRegion,
       graphicsDensity,
+      ...(semanticMgCandidateSelection.selectedCandidate
+        ? { semanticCandidate: semanticMgCandidateSelection.selectedCandidate }
+        : {}),
     });
     if (!mgExpressionAuthority.allowMotionGraphic) {
       console.log(
@@ -2727,6 +2734,7 @@ async function applyGraphic(
         mgExpressionAuthority,
         visualExplanationContract: mgExpressionAuthority.visualExplanationContract,
         semanticMgCandidateLedger: normalizedGraphicContent.semanticMgCandidateLedger,
+        semanticMgCandidateSelection,
         contentStructure: normalizedGraphicContent.structure,
         semanticAtoms: normalizedGraphicContent.semanticAtoms,
         ...atomicMomentBundleMetadata(decision),
