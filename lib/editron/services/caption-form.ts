@@ -198,16 +198,16 @@ function captionAesthetic(
     return {
       layout: 'subtitle-lower',
       surface: 'subtitle-panel',
-      widthFraction: 0.74,
-      maxWidthPx: 1280,
-      heightFraction: 0.12,
+      widthFraction: displayMode === 'karaoke' ? 0.64 : 0.70,
+      maxWidthPx: displayMode === 'karaoke' ? 1120 : 1240,
+      heightFraction: 0.13,
       minHeightPx: 96,
       maxHeightPx: 150,
       bottomMarginFraction: 0.10,
-      fontSizePx: 34,
+      fontSizePx: displayMode === 'karaoke' ? 38 : 36,
       lineHeight: 1.26,
       emphasisScale: 1.04,
-      shadowStrength: 0.72,
+      shadowStrength: 0.9,
     };
   }
 

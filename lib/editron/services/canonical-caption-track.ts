@@ -178,19 +178,25 @@ function captionReadabilityPolicy(
   const mode = presentation.displayMode;
   const fastSpeech = presentation.signals.speakingRate > 165;
   const highEnergy = presentation.signals.energy > 0.68 || mode === 'hormozi' || mode === 'instagram' || mode === 'word-by-word';
-  const subtitleLike = mode === 'subtitle' || mode === 'karaoke';
-  const maxWordsPerLine = subtitleLike
-    ? Math.min(8, displayConfig.maxWordsPerLine)
+  const subtitleMode = mode === 'subtitle';
+  const karaokeMode = mode === 'karaoke';
+  const panelMode = subtitleMode || karaokeMode;
+  const maxWordsPerLine = subtitleMode
+    ? Math.min(6, displayConfig.maxWordsPerLine)
+    : karaokeMode
+      ? Math.min(4, displayConfig.maxWordsPerLine)
     : highEnergy
       ? Math.min(2, displayConfig.maxWordsPerLine)
       : Math.min(3, displayConfig.maxWordsPerLine);
-  const wordsPerGroup = subtitleLike
-    ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 7 : 8)
+  const wordsPerGroup = subtitleMode
+    ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 6 : 8)
+    : karaokeMode
+      ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 4 : 5)
     : highEnergy
       ? Math.min(displayConfig.wordsPerGroup, mode === 'word-by-word' ? 1 : 3)
       : Math.min(displayConfig.wordsPerGroup, 4);
-  const maxCharsPerCaption = subtitleLike ? 38 : highEnergy ? 22 : 30;
-  const maxGroupDurationMs = subtitleLike ? 2600 : highEnergy ? 1450 : 1900;
+  const maxCharsPerCaption = subtitleMode ? 38 : karaokeMode ? 30 : highEnergy ? 22 : 30;
+  const maxGroupDurationMs = panelMode ? 2300 : highEnergy ? 1450 : 1900;
 
   return {
     version: 'caption-readability-policy-v1',
@@ -226,7 +232,7 @@ function captionGeometry(
     {
       region: 'top-center' as const,
       left: Math.round((dimensions.width - width) / 2),
-      top: Math.round(dimensions.height * 0.08),
+      top: Math.round(dimensions.height * 0.12),
     },
   ];
   const selected = candidates
@@ -335,7 +341,7 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
   const fontSize = `${aesthetic.fontSizePx}px`;
   const accentColor = isHighEnergy ? '#FFD84D' : isFormal ? '#A7D3FF' : '#FF8A8A';
   const shadowAlpha = Math.max(0.65, Math.min(0.95, aesthetic.shadowStrength));
-  const surfaceAlpha = panelSurface ? 0.74 : activeWordPill ? 0.42 : 0.34;
+  const surfaceAlpha = panelSurface ? 0.88 : activeWordPill ? 0.56 : 0.44;
 
   return {
     fontFamily: isFormal ? 'font-sans' : 'font-league-spartan',
@@ -345,13 +351,13 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
     textAlign: 'center',
     lineHeight: aesthetic.lineHeight,
     textShadow: `0 4px 16px rgba(0,0,0,${shadowAlpha}), 0 0 5px rgba(0,0,0,0.98), 0 1px 1px rgba(0,0,0,1)`,
-    backgroundColor: readabilitySurface || !isFormal ? `rgba(0,0,0,${surfaceAlpha})` : 'rgba(0,0,0,0.28)',
-    backdropFilter: 'blur(2px)',
-    padding: panelSurface ? '10px 20px' : '8px 14px',
+    backgroundColor: readabilitySurface || !isFormal ? `rgba(0,0,0,${surfaceAlpha})` : 'rgba(0,0,0,0.36)',
+    backdropFilter: 'blur(3px)',
+    padding: panelSurface ? '9px 18px' : '8px 14px',
     borderRadius: panelSurface ? '8px' : undefined,
     highlight: {
       color: accentColor,
-      backgroundColor: activeWordPill ? 'rgba(0,0,0,0.84)' : 'rgba(0,0,0,0.44)',
+      backgroundColor: activeWordPill ? 'rgba(0,0,0,0.88)' : 'rgba(0,0,0,0.82)',
       scale: aesthetic.emphasisScale,
       fontWeight: 900,
       effect: isHighEnergy ? 'pop' : 'glow',

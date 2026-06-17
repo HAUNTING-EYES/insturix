@@ -343,6 +343,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       }
 
       const hasEmphasis = !!word.emphasis || (glyphRole !== "word" && glyphRole !== "punctuation" && glyphRole !== "unknown" && glyphRole !== "filler");
+      const readablePanelMode = displayConfig.mode === "karaoke" || displayConfig.mode === "subtitle";
       const emphasisWeight = hasEmphasis ? 700 : (styles.fontWeight || 400);
       const emphasisScale = hasEmphasis && !isActive ? `scale(${glyphScale})` : baseTransform;
       const emphasisBorder = hasEmphasis && !isActive && atomicGlyph?.visual?.highlightMode === "underline"
@@ -365,7 +366,9 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
               backgroundColor: isActive
                 ? highlight.backgroundColor
                 : emphasisBackground,
-              opacity: isFaded ? 0.5 : (isActive ? 1 : hasEmphasis ? 1 : 0.85),
+              opacity: isFaded
+                ? (readablePanelMode ? 0.72 : 0.5)
+                : 1,
               transform: isActive ? baseTransform : emphasisScale,
               fontWeight: isActive
                 ? highlight.fontWeight || 600

@@ -122,14 +122,18 @@ describe('canonical caption track', () => {
 
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
-    expect(caption.displayConfig).toMatchObject({ mode: 'karaoke', wordsPerGroup: 6 });
-    expect(caption.width).toBe(1280);
+    expect(caption.displayConfig).toMatchObject({ mode: 'karaoke', wordsPerGroup: 5, maxWordsPerLine: 4 });
+    expect(caption.width).toBe(1120);
     expect(caption.height).toBeLessThanOrEqual(150);
     expect(caption.top).toBeGreaterThan(800);
     expect(caption.styles).toMatchObject({
-      backgroundColor: 'rgba(0,0,0,0.74)',
-      fontSize: '34px',
+      backgroundColor: 'rgba(0,0,0,0.88)',
+      fontSize: '38px',
       lineHeight: 1.26,
+      backdropFilter: 'blur(3px)',
+      highlight: expect.objectContaining({
+        backgroundColor: 'rgba(0,0,0,0.82)',
+      }),
     });
     expect(caption.metadata.evidence.captionAesthetic).toMatchObject({
       layout: 'subtitle-lower',
@@ -137,8 +141,8 @@ describe('canonical caption track', () => {
     });
     expect(caption.metadata.evidence.readability).toMatchObject({
       version: 'caption-readability-policy-v1',
-      maxWordsPerLine: 6,
-      maxCharsPerCaption: 38,
+      maxWordsPerLine: 4,
+      maxCharsPerCaption: 30,
       contrastFloor: 4.5,
       status: 'invented-needs-calibration',
     });
@@ -174,11 +178,11 @@ describe('canonical caption track', () => {
       useSpringScale: true,
     });
     expect(caption.styles).toMatchObject({
-      backgroundColor: 'rgba(0,0,0,0.42)',
-      backdropFilter: 'blur(2px)',
+      backgroundColor: 'rgba(0,0,0,0.56)',
+      backdropFilter: 'blur(3px)',
       padding: '8px 14px',
       highlight: expect.objectContaining({
-        backgroundColor: 'rgba(0,0,0,0.84)',
+        backgroundColor: 'rgba(0,0,0,0.88)',
         animation: 'bounce',
         effect: 'pop',
       }),
@@ -235,6 +239,7 @@ describe('canonical caption track', () => {
 
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.top).toBeGreaterThanOrEqual(129);
     expect(caption.top).toBeLessThan(240);
     expect(caption.metadata.evidence).toMatchObject({
       protectedRegionCount: 1,

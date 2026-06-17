@@ -67,9 +67,10 @@ describe('resolveAtomicCaptionPresentation', () => {
     expect(form.aesthetic).toEqual(expect.objectContaining({
       layout: 'subtitle-lower',
       surface: 'subtitle-panel',
-      maxWidthPx: 1280,
+      maxWidthPx: 1120,
       maxHeightPx: 150,
-      fontSizePx: 34,
+      fontSizePx: 38,
+      shadowStrength: 0.9,
     }));
   });
 
