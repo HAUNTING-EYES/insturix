@@ -305,6 +305,21 @@ function addRenderClasses(
       evidence: { issues: artifactPack.issues, paths: artifactPack.paths },
     });
   }
+  if (artifactPack.familyCoverage.missingRequiredFamilies.length > 0) {
+    classes.push({
+      id: 'render.required_family_coverage_missing',
+      severity: 'info',
+      source: 'render',
+      message: 'Phase 0 artifact pack is missing one or more northstar overlay-family evidence buckets.',
+      evidence: {
+        missingRequiredFamilies: artifactPack.familyCoverage.missingRequiredFamilies,
+        presentRequiredFamilies: artifactPack.familyCoverage.presentRequiredFamilies,
+        auditedVisualCount: artifactPack.familyCoverage.auditedVisualCount,
+        auditedMotionCount: artifactPack.familyCoverage.auditedMotionCount,
+        auditedAudioCount: artifactPack.familyCoverage.auditedAudioCount,
+      },
+    });
+  }
   if (renderedReport) {
     addRenderedAestheticClasses(classes, renderedReport);
     return;

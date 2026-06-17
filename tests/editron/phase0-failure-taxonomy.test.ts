@@ -20,12 +20,20 @@ describe('phase0 failure taxonomy', () => {
     const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
 
     expect(taxonomy.status).toBe('pass');
-    expect(taxonomy.summary).toEqual({ total: 3, fail: 0, warn: 0, info: 3 });
+    expect(taxonomy.summary).toEqual({ total: 4, fail: 0, warn: 0, info: 4 });
     expect(taxonomy.classes.map((item) => item.id)).toEqual([
+      'render.required_family_coverage_missing',
       'render.not_executed',
       'quality.review_metadata_missing',
       'calibration.learning_writes_blocked',
     ]);
+    expect(taxonomy.classes.find((item) => item.id === 'render.required_family_coverage_missing')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        missingRequiredFamilies: ['caption', 'zoom'],
+        presentRequiredFamilies: ['motion-graphic', 'sfx', 'transition'],
+      },
+    });
   });
 
   it('classifies broken fixture evidence with stable failure ids', () => {
