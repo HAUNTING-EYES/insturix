@@ -177,6 +177,16 @@ Phase 10D - Done on 2026-06-17:
 - Commit/push: `3dfd3aae feat(editron): vary concept MG scene atoms by semantic facts`.
 - Honest status: the system is visibly better than the screenshot path, and it is not preset-based. Remaining visual debt is still real: layout calibration, richer motion choreography, footage compositing, holdout calibration, and avoiding overfitting beyond the current project probe.
 
+Phase 10E - Done on 2026-06-17:
+- User visual review showed Phase 10D still read as a template in practice: repeated dark slab, empty rounded nodes, crossing rails, top-right title/body treatment, and title-safe clipping on concept MG stills.
+- Corrected the terminology: even if the selector is fact-driven and not a menu/preset branch, repeated renderer chrome can still be visually template-like. Future status reports must distinguish "not menu-selected" from "not visually templated."
+- Removed the empty placeholder concept-node shell from `composition-renderer.tsx`. Concept scene atoms now use relation fields, rails, brackets, strikes, and pressure/flow atmospheres instead of the same three empty pill nodes.
+- Added semantic concept text layout override so concept-stage atoms no longer leave text in the top-right corner. Text fit now uses a wider safe centered layout when semantic concept stage atoms are active without richer stage chrome.
+- Render proof: `npx tsx scripts\render-mg-stills.ts proj_sH-nZy0DtNOq-semantic-rerun` rendered 11 stills with no browser errors and no fit warnings. The repeated empty-node diagram and clipped top-right title were gone on the reviewed frames.
+- Verification: `npx vitest run tests\editron\mg-stage-composition-renderer.test.ts tests\editron\mg-atomic-render-decision.test.ts tests\editron\mg-spine-usability.test.ts tests\editron\real-project-mg-taste-gate.test.ts` passed 72 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for renderer/MG tests passed; `git diff --check` passed.
+- Commit/push: `1093f645 fix(editron): remove repeated concept MG map shell`.
+- Honest status: this fixes the specific template-looking shell and clipping bug. It still does not complete final MG quality; the next phase must add genuinely different composition families for concept claims, not just relation atmospheres.
+
 Phase 11 - Remaining fallback authority cleanup:
 - Convert remaining non-series composer/template fallback authority into fact/wire/contract driven candidate generation.
 - Keep compatibility renderer keys only where they are downstream realization names.
