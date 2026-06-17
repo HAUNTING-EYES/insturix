@@ -76,6 +76,51 @@ Phase 8 - Calibration:
 - Evidence: numeric scores are deterministic local priors for this slice, and the first six-case rendered calibration cohort now passes after renderer-safe-lane fixes.
 - Still needed: offline weight tuning against reference renders, plus real-video calibration cases beyond the six deterministic probes.
 
+## Anti-Overfit Rule For The Next MG Build
+
+The next MG work must not tune production behavior to `proj_sH-nZy0DtNOq`, Hank Green, `0.02`, or any named calibration case. Those are regression probes only. Production branches may only key on general evidence facts and contracts, such as `bounded-proportion`, `comparison`, `named-entity`, `quote`, `negation`, `polarity`, `claim-strength`, `rhetorical-or-satire`, `salience`, `caption-redundancy`, `screen-pressure`, and `available-negative-space`.
+
+Required safeguards:
+- Build and judge against a corpus, not one project: include weak stat, strong stat, bounded percent, magnitude, fraction, quote, speaker identity, concept explanation, comparison, list/process, contradiction/refutation, CTA, busy caption footage, and clean negative-space footage.
+- Split fixtures into calibration and holdout sets. Tune weights only on calibration; judge robustness on holdout projects and real uploads.
+- Keep hard gates semantic and deterministic. Example: a tiny scalar/rate stat needs salience, comparison, or rhetorical-truth evidence before it can become a rich MG. Exact size, duration, density, and motion constants belong to calibration, not hand-tuned case branches.
+- Every MG candidate must emit an explanation ledger: source fact, licensed wires, hard gates passed/failed, score reasons, selected atoms, selected stage mode, and rendered gate result.
+- Regression tests must assert invariants, not target one screenshot: weak scalar stat suppressed, strong bounded stat licensed, identity requires `name/title`, quote requires source text, concept needs body/context, and compatibility renderer names never become authority.
+- Renderer keys and `graphicType` may remain only as compatibility plumbing. Selection authority must come from facts, wires, contracts, gates, and deterministic scores.
+
+## Final Remaining Plan
+
+Phase 9 - Semantic fact extractor and candidate ledger:
+- Extract multiple MG candidate facts from transcript/project content: claims, concepts, named entities, comparisons, quotes, stats, negations, polarity, salience, rhetorical/satire markers, and evidence source spans.
+- Feed those facts into the existing visual explanation contract, expression authority, encoding wires, and rendered aesthetic gate.
+- Add hard gates for low-value facts: weak/tiny/rhetorical stats do not become MGs unless licensed by salience, comparison, boundedness, or truth/rhetorical evidence.
+- Output a per-candidate ledger so candidate count, suppression, and selection are inspectable without reading screenshots.
+
+Phase 10 - Real-project taste gate:
+- Regenerate current real projects, starting with `proj_sH-nZy0DtNOq` as one probe, not as a special case.
+- Dump project MG candidates, selected overlays, recipes, atomic plans, atomic decisions, captions, and rendered stills/clips.
+- Fail the gate when a real project produces too few MGs for strong evidence, mostly keyword boxes, repeated shell/card visuals, caption collisions, weak stat selection, or unexplainable stage-mode choices.
+
+Phase 11 - Remaining fallback authority cleanup:
+- Convert remaining non-series composer/template fallback authority into fact/wire/contract driven candidate generation.
+- Keep compatibility renderer keys only where they are downstream realization names.
+- Add tests that production selection does not branch on preset/menu/template/case ids.
+
+Phase 12 - Atom expansion after facts exist:
+- Add richer parametric atom families only after the extractor emits evidence for them.
+- Prioritize atoms for concept relations, quote/proof, contradiction/refutation, comparison, speaker identity with evidence, and tiny-rate contextualization.
+- Each atom family must have rendered before/after proof and invariant tests.
+
+Phase 13 - Multi-overlay choreography proof:
+- Verify MG timing with captions, zooms, transitions, SFX, and cuts on real rendered clips.
+- Add timeline-memory checks for repeated MG form, recent zoom intensity, caption-zone pressure, and overlay count.
+- Fail rendered gates when MG competes with captions or repeats the same form too often.
+
+Phase 14 - Calibration and holdout evaluation:
+- Tune invented weights and constants against reference renders and the calibration fixture set.
+- Keep a separate holdout set to detect overfit.
+- Only promote learned/tuned values when calibration improves the class of examples and does not regress holdout renders.
+
 ## Claude Encoding-Law Claim Check
 
 Confirmed problems that still mattered:
