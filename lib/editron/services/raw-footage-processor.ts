@@ -36,11 +36,28 @@ export interface SilenceRemovalAction {
     calibrationStatus?: 'invented-threshold';
     previousSegmentIndex?: number;
     nextSegmentIndex?: number;
+    boundaryReasons?: PacingSplitBoundaryReason[];
+    speechGapMs?: number;
+    previousEndedSentence?: boolean;
+    previousWord?: string;
+    nextWord?: string;
+    previousTextPreview?: string;
+    nextTextPreview?: string;
     keptRangeStartMs?: number;
     keptRangeEndMs?: number;
     keptRangeDurationMs?: number;
     minSplitIntervalMs?: number;
   };
+}
+
+export type PacingSplitBoundaryReason = 'speech-pause' | 'sentence-boundary' | 'transcript-segment-boundary';
+
+export interface TranscriptBoundaryEvidence {
+  gapMs: number;
+  previousEndedSentence: boolean;
+  previousWord?: string;
+  nextWord?: string;
+  reasons: PacingSplitBoundaryReason[];
 }
 
 export interface TranscriptSegment {
@@ -54,6 +71,8 @@ export interface TranscriptSegment {
   avgWordGapMs: number;
   /** Index in the segment array */
   index: number;
+  /** Evidence for why this segment begins after the previous segment. */
+  boundaryBefore?: TranscriptBoundaryEvidence;
 }
 
 export interface BestTakeSelection {
@@ -187,6 +206,7 @@ function segmentTranscript(words: TranscriptionWord[], pauseThresholdMs: number)
 
   const segments: TranscriptSegment[] = [];
   let currentWords: TranscriptionWord[] = [words[0]];
+  let currentBoundaryBefore: TranscriptBoundaryEvidence | undefined;
   let segIndex = 0;
 
   for (let i = 1; i < words.length; i++) {
@@ -197,21 +217,47 @@ function segmentTranscript(words: TranscriptionWord[], pauseThresholdMs: number)
     const isPauseBoundary = gap >= pauseThresholdMs;
 
     if (isPauseBoundary || prevEndsSentence) {
-      segments.push(buildSegment(currentWords, segIndex++));
+      segments.push(buildSegment(currentWords, segIndex++, currentBoundaryBefore));
       currentWords = [curr];
+      currentBoundaryBefore = buildTranscriptBoundaryEvidence(prev, curr, gap, isPauseBoundary, prevEndsSentence);
     } else {
       currentWords.push(curr);
     }
   }
 
   if (currentWords.length > 0) {
-    segments.push(buildSegment(currentWords, segIndex));
+    segments.push(buildSegment(currentWords, segIndex, currentBoundaryBefore));
   }
 
   return segments;
 }
 
-function buildSegment(words: TranscriptionWord[], index: number): TranscriptSegment {
+function buildTranscriptBoundaryEvidence(
+  previousWord: TranscriptionWord,
+  nextWord: TranscriptionWord,
+  gapMs: number,
+  isPauseBoundary: boolean,
+  previousEndedSentence: boolean,
+): TranscriptBoundaryEvidence {
+  const reasons: PacingSplitBoundaryReason[] = [];
+  if (isPauseBoundary) reasons.push('speech-pause');
+  if (previousEndedSentence) reasons.push('sentence-boundary');
+  if (!reasons.length) reasons.push('transcript-segment-boundary');
+
+  return {
+    gapMs: Math.max(0, Math.round(gapMs)),
+    previousEndedSentence,
+    previousWord: previousWord.word,
+    nextWord: nextWord.word,
+    reasons,
+  };
+}
+
+function buildSegment(
+  words: TranscriptionWord[],
+  index: number,
+  boundaryBefore?: TranscriptBoundaryEvidence,
+): TranscriptSegment {
   const fillerSet = new Set(FILLER_WORDS.map(f => f.toLowerCase()));
   const text = words.map(w => w.word).join(' ');
   let fillerCount = 0;
@@ -237,6 +283,7 @@ function buildSegment(words: TranscriptionWord[], index: number): TranscriptSegm
     silenceGapCount,
     avgWordGapMs: words.length > 1 ? totalGap / (words.length - 1) : 0,
     index,
+    ...(boundaryBefore && { boundaryBefore }),
   };
 }
 
@@ -576,6 +623,32 @@ function invertRemovalRanges(
   return kept;
 }
 
+function previewText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+function inferSegmentBoundaryEvidence(
+  previous: TranscriptSegment,
+  next: TranscriptSegment,
+): TranscriptBoundaryEvidence {
+  const previousLastWord = previous.words[previous.words.length - 1];
+  const nextFirstWord = next.words[0];
+  const gapMs = Math.max(0, Math.round(next.startMs - previous.endMs));
+  const previousEndedSentence = SENTENCE_END_REGEX.test(previous.text.trim());
+  const reasons: PacingSplitBoundaryReason[] = [];
+  if (gapMs >= DEFAULT_CONFIG.rawFootage.segmentPauseThresholdMs) reasons.push('speech-pause');
+  if (previousEndedSentence) reasons.push('sentence-boundary');
+  if (!reasons.length) reasons.push('transcript-segment-boundary');
+
+  return {
+    gapMs,
+    previousEndedSentence,
+    ...(previousLastWord?.word && { previousWord: previousLastWord.word }),
+    ...(nextFirstWord?.word && { nextWord: nextFirstWord.word }),
+    reasons,
+  };
+}
+
 export function buildPacingSplitActions(
   segments: TranscriptSegment[],
   existingPlan: SilenceRemovalAction[],
@@ -605,6 +678,7 @@ export function buildPacingSplitActions(
       const splitMs = next.startMs;
       if (splitMs - lastSplitMs < minSplitIntervalMs) continue;
       if (kept.endMs - splitMs < minSplitIntervalMs) continue;
+      const boundary = next.boundaryBefore ?? inferSegmentBoundaryEvidence(previous, next);
 
       actions.push({
         startMs: splitMs,
@@ -617,6 +691,13 @@ export function buildPacingSplitActions(
           calibrationStatus: 'invented-threshold',
           previousSegmentIndex: previous.index,
           nextSegmentIndex: next.index,
+          boundaryReasons: boundary.reasons,
+          speechGapMs: boundary.gapMs,
+          previousEndedSentence: boundary.previousEndedSentence,
+          previousWord: boundary.previousWord,
+          nextWord: boundary.nextWord,
+          previousTextPreview: previewText(previous.text),
+          nextTextPreview: previewText(next.text),
           keptRangeStartMs: kept.startMs,
           keptRangeEndMs: kept.endMs,
           keptRangeDurationMs: keptDurationMs,

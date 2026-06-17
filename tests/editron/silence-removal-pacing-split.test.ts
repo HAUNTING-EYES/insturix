@@ -15,13 +15,19 @@ vi.mock('@/lib/editron/services/media', () => ({
 
 import {
   buildPacingSplitActions,
+  type TranscriptBoundaryEvidence,
   type SilenceRemovalAction,
   type TranscriptSegment,
 } from '@/lib/editron/services/raw-footage-processor';
 import { executeSilenceRemoval } from '@/lib/editron/services/silence-removal-executor';
 import type { TranscriptionWord } from '@/lib/editron/services/media/types';
 
-function segment(index: number, startMs: number, endMs: number): TranscriptSegment {
+function segment(
+  index: number,
+  startMs: number,
+  endMs: number,
+  boundaryBefore?: TranscriptBoundaryEvidence,
+): TranscriptSegment {
   const words: TranscriptionWord[] = [{
     word: `segment-${index}`,
     startMs,
@@ -38,6 +44,7 @@ function segment(index: number, startMs: number, endMs: number): TranscriptSegme
     silenceGapCount: 0,
     avgWordGapMs: 0,
     index,
+    ...(boundaryBefore && { boundaryBefore }),
   };
 }
 
@@ -51,8 +58,20 @@ describe('raw footage pacing splits', () => {
     const actions = buildPacingSplitActions(
       [
         segment(0, 0, 2500),
-        segment(1, 3000, 5500),
-        segment(2, 6500, 9000),
+        segment(1, 3000, 5500, {
+          gapMs: 500,
+          previousEndedSentence: true,
+          previousWord: 'everything.',
+          nextWord: 'then',
+          reasons: ['sentence-boundary'],
+        }),
+        segment(2, 6500, 9000, {
+          gapMs: 1000,
+          previousEndedSentence: false,
+          previousWord: 'then',
+          nextWord: 'finally',
+          reasons: ['speech-pause'],
+        }),
       ],
       [],
       10_000,
@@ -69,6 +88,13 @@ describe('raw footage pacing splits', () => {
           calibrationStatus: 'invented-threshold',
           previousSegmentIndex: 0,
           nextSegmentIndex: 1,
+          boundaryReasons: ['sentence-boundary'],
+          speechGapMs: 500,
+          previousEndedSentence: true,
+          previousWord: 'everything.',
+          nextWord: 'then',
+          previousTextPreview: 'segment 0',
+          nextTextPreview: 'segment 1',
         }),
       }),
       expect.objectContaining({
@@ -77,9 +103,34 @@ describe('raw footage pacing splits', () => {
         metadata: expect.objectContaining({
           previousSegmentIndex: 1,
           nextSegmentIndex: 2,
+          boundaryReasons: ['speech-pause'],
+          speechGapMs: 1000,
+          previousEndedSentence: false,
         }),
       }),
     ]);
+  });
+
+  it('keeps conservative boundary evidence for older handcrafted transcript segments', () => {
+    const actions = buildPacingSplitActions(
+      [
+        segment(0, 0, 2500),
+        segment(1, 3100, 5600),
+      ],
+      [],
+      10_000,
+    );
+
+    expect(actions[0]).toEqual(expect.objectContaining({
+      action: 'split',
+      metadata: expect.objectContaining({
+        boundaryReasons: ['transcript-segment-boundary'],
+        speechGapMs: 600,
+        previousEndedSentence: false,
+        previousWord: 'segment-0',
+        nextWord: 'segment-1',
+      }),
+    }));
   });
 
   it('does not create pacing split actions inside removed ranges', () => {
