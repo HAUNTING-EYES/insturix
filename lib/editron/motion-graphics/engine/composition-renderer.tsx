@@ -368,18 +368,18 @@ function resolveSemanticConceptContentLayoutStyle(
     case 'contrast':
       return {
         ...baseStyle,
-        top: '10%',
-        left: '38%',
-        right: '16%',
+        top: '12%',
+        left: '45%',
+        right: '9%',
         textAlign: 'right',
         alignItems: 'flex-end',
       };
     case 'causal':
       return {
         ...baseStyle,
-        top: '13%',
-        left: '10%',
-        right: '30%',
+        top: '12%',
+        left: '8%',
+        right: '38%',
         textAlign: 'left',
       };
     case 'affirming':
@@ -395,7 +395,7 @@ function resolveSemanticConceptContentLayoutStyle(
         ...baseStyle,
         top: '9%',
         left: '8%',
-        right: '22%',
+        right: '43%',
         textAlign: 'left',
       };
     case 'negation':
@@ -410,9 +410,9 @@ function resolveSemanticConceptContentLayoutStyle(
     default:
       return {
         ...baseStyle,
-        top: '15%',
-        left: '12%',
-        right: '34%',
+        top: '14%',
+        left: '11%',
+        right: '42%',
         textAlign: 'left',
       };
   }
@@ -904,27 +904,30 @@ function semanticConceptSceneChildren(
       ];
     case 'causal':
       return [
-        semanticField('semantic-concept-causal-source-field', '9%', '49%', '18%', '18%', primary, 'polygon(0 0, 86% 0, 100% 50%, 86% 100%, 0 100%)', 0.18),
-        semanticField('semantic-concept-causal-flow-step-one', '31%', '49%', '16%', '18%', accent, 'polygon(0 0, 84% 0, 100% 50%, 84% 100%, 0 100%, 12% 50%)', 0.2),
-        semanticField('semantic-concept-causal-flow-step-two', '51%', '49%', '16%', '18%', accent, 'polygon(0 0, 84% 0, 100% 50%, 84% 100%, 0 100%, 12% 50%)', 0.26),
-        semanticField('semantic-concept-causal-impact-field', '72%', '44%', '16%', '28%', accent, 'polygon(0 0, 100% 18%, 86% 100%, 12% 88%)', 0.24),
-        semanticBar('semantic-concept-causal-flow-baseline', '14%', '73%', '62%', 4, accent, 'none', 0.5),
+        semanticField('semantic-concept-causal-origin-plate', '9%', '48%', '18%', '20%', primary, 'polygon(0 0, 84% 0, 100% 50%, 84% 100%, 0 100%)', 0.2),
+        semanticField('semantic-concept-causal-middle-plate', '34%', '42%', '17%', '20%', accent, 'polygon(0 0, 82% 0, 100% 50%, 82% 100%, 0 100%, 14% 50%)', 0.24),
+        semanticField('semantic-concept-causal-outcome-plate', '59%', '36%', '21%', '27%', accent, 'polygon(0 0, 100% 18%, 86% 100%, 12% 88%)', 0.3),
+        semanticBar('semantic-concept-causal-step-spine', '15%', '73%', '52%', 5, accent, 'rotate(-8deg)', 0.58),
+        semanticBar('semantic-concept-causal-impact-vector', '67%', '50%', '18%', 5, accent, 'rotate(-24deg)', 0.62),
+        semanticField('semantic-concept-causal-terminal-burst', '78%', '31%', '9%', '17%', accent, 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)', 0.36),
       ];
     case 'contrast':
       return [
-        semanticField('semantic-concept-contrast-left-plane', '8%', '22%', '31%', '56%', primary, 'polygon(0 0, 100% 8%, 82% 100%, 0 92%)', 0.14),
-        semanticField('semantic-concept-contrast-right-plane', '56%', '18%', '31%', '60%', accent, 'polygon(18% 0, 100% 0, 100% 90%, 0 100%)', 0.18),
-        semanticBar('semantic-concept-contrast-divider', '49%', '18%', '4px', 340, accent, 'none', 0.62),
-        semanticBar('semantic-concept-contrast-left-ground', '8%', '80%', '28%', 4, primary, 'none', 0.38),
-        semanticBar('semantic-concept-contrast-right-ground', '58%', '80%', '29%', 4, accent, 'none', 0.5),
+        semanticField('semantic-concept-contrast-before-plane', '8%', '23%', '30%', '54%', primary, 'polygon(0 0, 100% 8%, 82% 100%, 0 92%)', 0.16),
+        semanticField('semantic-concept-contrast-after-plane', '58%', '16%', '30%', '64%', accent, 'polygon(18% 0, 100% 0, 100% 90%, 0 100%)', 0.22),
+        semanticBar('semantic-concept-contrast-thesis-divider', '50%', '15%', '5px', 370, accent, 'rotate(2deg)', 0.7),
+        semanticBar('semantic-concept-contrast-before-ground', '8%', '80%', '27%', 4, primary, 'none', 0.42),
+        semanticBar('semantic-concept-contrast-after-ground', '59%', '82%', '30%', 5, accent, 'none', 0.58),
+        semanticBar('semantic-concept-contrast-cross-current', '27%', '55%', '43%', 3, primary, 'rotate(18deg)', 0.34),
       ];
     case 'problem':
       return [
-        semanticField('semantic-concept-pressure-frame', '7%', '44%', '68%', '30%', accent, 'polygon(0 0, 100% 0, 94% 100%, 6% 100%)', 0.14),
-        semanticBar('semantic-concept-pressure-left-bracket', '7%', '38%', '4px', 188, primary, 'none', 0.62),
-        semanticBar('semantic-concept-pressure-band-top', '12%', '50%', '54%', 5, accent, 'none', 0.68),
-        semanticBar('semantic-concept-pressure-band-mid', '15%', '59%', '46%', 4, primary, 'none', 0.44),
-        semanticBar('semantic-concept-pressure-band-low', '18%', '68%', '36%', 4, accent, 'none', 0.56),
+        semanticField('semantic-concept-pressure-mass', '49%', '19%', '31%', '58%', accent, 'polygon(14% 0, 100% 10%, 88% 100%, 0 92%)', 0.2),
+        semanticField('semantic-concept-pressure-shadow', '17%', '52%', '42%', '24%', surface, 'polygon(0 0, 100% 0, 90% 100%, 8% 92%)', 0.2),
+        semanticBar('semantic-concept-pressure-load-axis', '45%', '18%', '5px', 360, accent, 'rotate(13deg)', 0.68),
+        semanticBar('semantic-concept-pressure-fracture-a', '22%', '51%', '44%', 4, primary, 'rotate(-19deg)', 0.44),
+        semanticBar('semantic-concept-pressure-fracture-b', '29%', '67%', '34%', 4, accent, 'rotate(6deg)', 0.58),
+        semanticBar('semantic-concept-pressure-left-bracket', '7%', '39%', '4px', 190, primary, 'none', 0.62),
         ...semanticConceptProblemFactOverlays(content, accent, primary),
       ];
     case 'affirming':
@@ -938,10 +941,10 @@ function semanticConceptSceneChildren(
     case 'claim':
     default:
       return [
-        semanticField('semantic-concept-claim-statement-field', '11%', '26%', '54%', '42%', surface, 'polygon(0 0, 96% 0, 100% 100%, 4% 100%)', 0.2),
-        semanticBar('semantic-concept-claim-left-edge', '10%', '27%', '4px', 220, accent, 'none', 0.64),
-        semanticBar('semantic-concept-claim-title-rule', '12%', '45%', '44%', 5, accent, 'none', 0.56),
-        semanticBar('semantic-concept-claim-support-rule', '16%', '69%', '38%', 4, primary, 'none', 0.46),
+        semanticField('semantic-concept-claim-stage-plane', '42%', '26%', '33%', '44%', surface, 'polygon(0 0, 96% 0, 100% 100%, 4% 100%)', 0.2),
+        semanticBar('semantic-concept-claim-left-edge', '40%', '27%', '4px', 220, accent, 'none', 0.64),
+        semanticBar('semantic-concept-claim-title-rule', '43%', '45%', '28%', 5, accent, 'none', 0.56),
+        semanticBar('semantic-concept-claim-support-rule', '46%', '69%', '23%', 4, primary, 'none', 0.46),
       ];
   }
 }
@@ -957,15 +960,15 @@ function semanticConceptProblemFactOverlays(
   const overlays: VisualIntentSceneAtom[] = [];
 
   if (negationCount > 0) {
-    overlays.push(semanticBar('semantic-concept-pressure-negation-cut', '12%', '43%', '48%', 4, primary, 'none', 0.46));
+    overlays.push(semanticBar('semantic-concept-pressure-negation-cut', '18%', '43%', '44%', 4, primary, 'rotate(-13deg)', 0.46));
   }
 
   if (negationCount > 1) {
-    overlays.push(semanticBar('semantic-concept-pressure-repeat-cut', '18%', '76%', '34%', 4, primary, 'none', 0.38));
+    overlays.push(semanticBar('semantic-concept-pressure-repeat-cut', '26%', '77%', '32%', 4, primary, 'rotate(9deg)', 0.38));
   }
 
   if (causalCount > 0) {
-    overlays.push(semanticField('semantic-concept-pressure-causal-cue', '67%', '51%', '11%', '17%', accent, 'polygon(0 0, 100% 50%, 0 100%)', 0.28));
+    overlays.push(semanticField('semantic-concept-pressure-causal-cue', '76%', '50%', '10%', '18%', accent, 'polygon(0 0, 100% 50%, 0 100%)', 0.3));
   }
 
   return overlays;

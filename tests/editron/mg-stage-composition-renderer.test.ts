@@ -305,9 +305,9 @@ describe('MG stage composition renderer', () => {
     expect(atoms[0].role).toBe('semantic-concept-contrast-map');
     expect(atoms[0].style.background).toBe('transparent');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-contrast-left-plane',
-      'semantic-concept-contrast-divider',
-      'semantic-concept-contrast-right-plane',
+      'semantic-concept-contrast-before-plane',
+      'semantic-concept-contrast-thesis-divider',
+      'semantic-concept-contrast-after-plane',
     ]));
   });
 
@@ -320,7 +320,7 @@ describe('MG stage composition renderer', () => {
 
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-claim-statement-field',
+      'semantic-concept-claim-stage-plane',
       'semantic-concept-claim-left-edge',
       'semantic-concept-claim-title-rule',
       'semantic-concept-claim-support-rule',
@@ -353,15 +353,15 @@ describe('MG stage composition renderer', () => {
 
     expect(problem[0].role).toBe('semantic-concept-problem-map');
     expect(problem[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-pressure-frame',
-      'semantic-concept-pressure-band-top',
-      'semantic-concept-pressure-band-low',
+      'semantic-concept-pressure-mass',
+      'semantic-concept-pressure-fracture-a',
+      'semantic-concept-pressure-fracture-b',
     ]));
     expect(causal[0].role).toBe('semantic-concept-causal-map');
     expect(causal[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-causal-source-field',
-      'semantic-concept-causal-flow-step-two',
-      'semantic-concept-causal-impact-field',
+      'semantic-concept-causal-origin-plate',
+      'semantic-concept-causal-outcome-plate',
+      'semantic-concept-causal-terminal-burst',
     ]));
     expect(affirming[0].role).toBe('semantic-concept-affirming-map');
     expect(affirming[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
@@ -376,6 +376,22 @@ describe('MG stage composition renderer', () => {
     ]);
     expect(new Set([problem, causal, affirming].map((atomsForRegister) =>
       atomsForRegister[0].children?.map((atom) => atom.role).join('|'))).size).toBe(3);
+    expect(problem[0].children?.map((atom) => atom.style.transform).filter(Boolean)).toEqual(expect.arrayContaining([
+      'rotate(13deg)',
+      'rotate(-19deg)',
+    ]));
+    expect(causal[0].children?.map((atom) => atom.style.transform).filter(Boolean)).toEqual(expect.arrayContaining([
+      'rotate(-8deg)',
+      'rotate(-24deg)',
+    ]));
+    expect(resolveSemanticContentSceneAtoms(
+      { title: 'Selection Bias', body: 'Only hostile people comment, so the sample looks worse than reality.' },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Selection Bias' } }],
+      language,
+    )[0].children?.map((atom) => atom.style.transform).filter(Boolean)).toEqual(expect.arrayContaining([
+      'rotate(2deg)',
+      'rotate(18deg)',
+    ]));
   });
 
   it('does not let negation swallow stronger semantic concept facts', () => {
