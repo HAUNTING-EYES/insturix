@@ -440,7 +440,7 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
     .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
     .map((overlay) => ({
       id: overlayId(overlay),
-      frame: frameOf(overlay),
+      frame: sfxSyncFrameOf(overlay),
       role: sfxRole(overlay),
     }))
     .sort((a, b) => a.frame - b.frame);
@@ -872,6 +872,17 @@ function sfxRole(overlay: Phase0OverlayLike): string | null {
   const metadata = asRecord(overlay.metadata);
   const form = asRecord(metadata.atomicSfxForm);
   return readString(form.role ?? metadata.role ?? metadata.sfxRole ?? metadata.sfxType) ?? null;
+}
+
+function sfxSyncFrameOf(overlay: Phase0OverlayLike): number {
+  const metadata = asRecord(overlay.metadata);
+  const form = asRecord(metadata.atomicSfxForm);
+  const timing = asRecord(form.timing);
+  return Math.max(0, Math.round(
+    readNumber(timing.syncFrame)
+      ?? readNumber(metadata.sfxSyncFrame)
+      ?? frameOf(overlay),
+  ));
 }
 
 function overlayId(overlay: Phase0OverlayLike): string {

@@ -363,7 +363,9 @@ export async function executeEDL(
     const uniqueForms = new Map<string, AtomicSfxForm>();
     for (const decision of sfxDecisions) {
       const form = resolveDecisionAtomicSfxForm(decision);
-      if (form?.shouldPlace) uniqueForms.set(atomicSfxSearchQuery(form), form);
+      if (form?.shouldPlace && validateDecisionSfxTiming(form, overlays).ok) {
+        uniqueForms.set(atomicSfxSearchQuery(form), form);
+      }
     }
     for (const [searchQuery, form] of uniqueForms) {
       try {
@@ -1132,6 +1134,53 @@ function atomicSfxSearchQuery(form: AtomicSfxForm): string {
     : form.compatibilityToken;
 }
 
+function validateDecisionSfxTiming(
+  form: AtomicSfxForm,
+  overlays: Overlay[],
+): { ok: true } | { ok: false; reason: string } {
+  if (form.timing.anchor !== 'transition') return { ok: true };
+
+  const syncFrame = form.timing.syncFrame;
+  const anchors = transitionSfxSyncAnchors(overlays);
+  const nearest = nearestFrameDistance(syncFrame, anchors);
+  if (nearest != null && nearest <= 3) return { ok: true };
+
+  return {
+    ok: false,
+    reason: nearest == null
+      ? `transition-anchored SFX has no transition/cut anchor near sync frame ${syncFrame}`
+      : `transition-anchored SFX sync frame ${syncFrame} is ${nearest} frames from nearest transition/cut anchor`,
+  };
+}
+
+function transitionSfxSyncAnchors(overlays: Overlay[]): number[] {
+  const anchors: number[] = [];
+  const visualOverlays = overlays
+    .filter((overlay) => overlay.type === 'video' || overlay.type === 'image')
+    .sort((a, b) => a.from - b.from);
+
+  for (let index = 1; index < visualOverlays.length; index += 1) {
+    const previous = visualOverlays[index - 1];
+    const current = visualOverlays[index];
+    anchors.push(previous.from + previous.durationInFrames, current.from);
+  }
+
+  for (const overlay of overlays) {
+    if (overlay.type === 'transition') anchors.push(overlay.from);
+  }
+
+  return anchors.filter((frame) => Number.isFinite(frame));
+}
+
+function nearestFrameDistance(frame: number, anchors: number[]): number | null {
+  let best: number | null = null;
+  for (const anchor of anchors) {
+    const distance = Math.abs(anchor - frame);
+    if (best == null || distance < best) best = distance;
+  }
+  return best;
+}
+
 function acceptedSfxCacheEntry(form: AtomicSfxForm, result: SFXLibraryResult | null): SfxCacheEntry | null {
   const assetQuality = evaluateAtomicSfxAssetCandidate(form, result);
   if (!result || !assetQuality.accepted) return null;
@@ -1486,6 +1535,11 @@ async function applyDecision(
         console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: no sfxType or technique — SKIPPED (not guessing)`);
         return null;
       }
+      const timingValidation = validateDecisionSfxTiming(atomicSfxForm, overlays);
+      if (!timingValidation.ok) {
+        console.warn(`[EDL-Exec] SFX at frame ${decision.frame}: ${timingValidation.reason} - SKIPPED`);
+        return null;
+      }
       if (!sfxCache) return null;
       const searchQuery = atomicSfxSearchQuery(atomicSfxForm);
       let cached = sfxCache.get(searchQuery);
@@ -1512,6 +1566,9 @@ async function applyDecision(
           formVersion: atomicSfxForm.version,
           sfxType,
           sfxIntent: atomicSfxForm.intent,
+          sfxSyncFrame: atomicSfxForm.timing.syncFrame,
+          sfxStartFrame: atomicSfxForm.timing.startFrame,
+          sfxAnchor: atomicSfxForm.timing.anchor,
           primarySearchToken: atomicSfxForm.asset.primarySearchToken,
           searchQuery,
           fallbackPolicy: atomicSfxForm.asset.fallbackPolicy,
@@ -1559,6 +1616,9 @@ async function applyDecision(
           sfxType,
           sfxQuery: searchQuery,
           sfxIntent: atomicSfxForm.intent,
+          sfxSyncFrame: atomicSfxForm.timing.syncFrame,
+          sfxStartFrame: atomicSfxForm.timing.startFrame,
+          sfxAnchor: atomicSfxForm.timing.anchor,
           sfxAssetQuality: cached.assetQuality,
           ...atomicMomentBundleMetadata(decision),
           atomicSfxForm,

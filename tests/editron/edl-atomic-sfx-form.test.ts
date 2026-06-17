@@ -141,4 +141,61 @@ describe('EDL atomic SFX form wiring', () => {
     expect(JSON.stringify(form)).not.toContain('presetId');
     expect(JSON.stringify(form)).not.toContain('templateId');
   });
+
+  it('skips transition-anchored sfx triggers that are not synced to a real cut or transition', async () => {
+    const overlays: Overlay[] = [{
+      id: 501,
+      type: OverlayType.VIDEO,
+      from: 0,
+      durationInFrames: 180,
+      row: 2,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+      styles: { opacity: 1 },
+    } as Overlay];
+
+    const edl: EditDecisionList = {
+      projectId: 'edl-detached-transition-sfx-test',
+      generatedAt: new Date('2026-06-07T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'sfx-trigger',
+        frame: 90,
+        durationFrames: 18,
+        priority: 3,
+        source: 'signal-executor:test',
+        signal: 'topic_shift',
+        reason: 'Detached topic shift should not create random transition SFX',
+        confidence: 0.96,
+        params: {
+          sfxType: 'impact',
+          signals: {
+            topic_shift: 0.9,
+            speech_energy: 0.72,
+            visual_significance: 0.62,
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 0,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.96,
+      },
+    };
+
+    const result = await executeEDL(edl, 'edl-detached-transition-sfx-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.overlaysCreated).toBe(0);
+    expect(overlays.some((overlay) => overlay.type === 'sound')).toBe(false);
+    expect(searchAndDownloadSFX).not.toHaveBeenCalled();
+  });
 });

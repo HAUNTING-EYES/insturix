@@ -111,6 +111,16 @@ interface AnalyzableOverlay {
   metadata?: any;
 }
 
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function getSfxSyncFrame(overlay: AnalyzableOverlay): number {
+  return finiteNumber(overlay.metadata?.atomicSfxForm?.timing?.syncFrame)
+    ?? finiteNumber(overlay.metadata?.sfxSyncFrame)
+    ?? overlay.from;
+}
+
 // ─── Check Functions ─────────────────────────────────────────────
 
 function checkTimelineGaps(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
@@ -579,21 +589,22 @@ function checkOrphanSfx(overlays: AnalyzableOverlay[], fps: number): QualityIssu
   const ORPHAN_WINDOW = fps; // 1s window for orphan detection (no visual event at all)
 
   for (const s of sfx) {
-    const nearTransition = transitions.some(t => Math.abs(t.from - s.from) <= DRIFT_THRESHOLD);
-    const nearCut = cuts.some(c => Math.abs(c - s.from) <= DRIFT_THRESHOLD);
-    const nearGraphic = graphicStarts.some(g => Math.abs(g - s.from) <= DRIFT_THRESHOLD);
+    const syncFrame = getSfxSyncFrame(s);
+    const nearTransition = transitions.some(t => Math.abs(t.from - syncFrame) <= DRIFT_THRESHOLD);
+    const nearCut = cuts.some(c => Math.abs(c - syncFrame) <= DRIFT_THRESHOLD);
+    const nearGraphic = graphicStarts.some(g => Math.abs(g - syncFrame) <= DRIFT_THRESHOLD);
 
     if (nearTransition || nearCut || nearGraphic) continue; // properly synced
 
     // Check if it's drifted (near-ish but > 3 frames) vs orphaned (nothing nearby)
-    const looseNearTransition = transitions.some(t => Math.abs(t.from - s.from) <= ORPHAN_WINDOW);
-    const looseNearCut = cuts.some(c => Math.abs(c - s.from) <= ORPHAN_WINDOW);
-    const looseNearGraphic = graphicStarts.some(g => Math.abs(g - s.from) <= ORPHAN_WINDOW);
+    const looseNearTransition = transitions.some(t => Math.abs(t.from - syncFrame) <= ORPHAN_WINDOW);
+    const looseNearCut = cuts.some(c => Math.abs(c - syncFrame) <= ORPHAN_WINDOW);
+    const looseNearGraphic = graphicStarts.some(g => Math.abs(g - syncFrame) <= ORPHAN_WINDOW);
 
     if (looseNearTransition || looseNearCut || looseNearGraphic) {
-      issues.push({ type: 'orphan_sfx', severity: 'warning', description: `SFX ${s.id} at frame ${s.from} is > 3 frames from nearest visual event — synchresis drift`, overlayId: s.id, autoFixable: true, suggestedFix: 'Shift SFX to align within ±1 frame of visual event' });
+      issues.push({ type: 'orphan_sfx', severity: 'warning', description: `SFX ${s.id} sync frame ${syncFrame} is > 3 frames from nearest visual event — synchresis drift`, overlayId: s.id, autoFixable: true, suggestedFix: 'Shift SFX to align within ±1 frame of visual event' });
     } else {
-      issues.push({ type: 'orphan_sfx', severity: 'info', description: `SFX ${s.id} at frame ${s.from} has no nearby visual event — feels random`, overlayId: s.id, autoFixable: false, suggestedFix: 'Remove orphan SFX or align to a visual event' });
+      issues.push({ type: 'orphan_sfx', severity: 'info', description: `SFX ${s.id} sync frame ${syncFrame} has no nearby visual event — feels random`, overlayId: s.id, autoFixable: false, suggestedFix: 'Remove orphan SFX or align to a visual event' });
     }
   }
   return issues;
@@ -635,7 +646,7 @@ function checkMissingTransitionSfx(overlays: AnalyzableOverlay[], fps: number): 
   for (const t of transitions) {
     const style = getTransitionStyle(t);
     if (style === 'hard-cut' || style === 'match-cut') continue;
-    const hasPairedSfx = sfx.some(s => Math.abs(s.from - t.from) <= SYNC_WINDOW);
+    const hasPairedSfx = sfx.some(s => Math.abs(getSfxSyncFrame(s) - t.from) <= SYNC_WINDOW);
     if (!hasPairedSfx) {
       issues.push({ type: 'missing_transition_sfx', severity: 'warning', description: `"${style}" transition at frame ${t.from} has no paired SFX within ±3 frames — Chion synchresis violation`, overlayId: t.id, frameRange: { start: t.from, end: t.from + t.durationInFrames }, autoFixable: false, suggestedFix: `Add whoosh/impact SFX within ±3 frames of transition start` });
     }

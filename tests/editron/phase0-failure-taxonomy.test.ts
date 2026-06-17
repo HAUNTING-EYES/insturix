@@ -4,6 +4,7 @@ import { classifyPhase0Fixture } from '../../lib/editron/services/phase0-failure
 import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
+import { runQualityReview } from '../../lib/editron/services/quality-review-service';
 import type { PersistedQualityReview } from '../../lib/editron/services/quality-review-persistence';
 
 describe('phase0 failure taxonomy', () => {
@@ -450,6 +451,56 @@ describe('phase0 failure taxonomy', () => {
         syncWindowFrames: 3,
       },
     });
+  });
+
+  it('judges atomic SFX by sync frame instead of pre-roll start frame', () => {
+    const project = cleanProject();
+    project.durationInFrames = 120;
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 60, row: 2, sourceStartFrame: 0 },
+      { id: 'clip-2', type: 'video', from: 60, durationInFrames: 60, row: 2, sourceStartFrame: 60 },
+      {
+        id: 'tr-1',
+        type: 'transition',
+        from: 60,
+        durationInFrames: 12,
+        row: 3,
+        transitionStyle: 'cross-dissolve',
+        metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'cross-dissolve' } },
+      },
+      {
+        id: 'sfx-1',
+        type: 'sound',
+        from: 53,
+        durationInFrames: 18,
+        row: 0,
+        assetId: 'sfx-1',
+        metadata: {
+          atomicSfxForm: {
+            role: 'whoosh',
+            timing: {
+              syncFrame: 60,
+              startFrame: 53,
+              anchor: 'transition',
+            },
+          },
+        },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_sfx_sync_frame',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_sfx_sync_frame',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const quality = runQualityReview(project.overlays as any, project.fps, project.durationInFrames);
+
+    expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.sfx_timing_drift');
+    expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.transition_sfx_missing');
+    expect(quality.issues.map((issue) => issue.type)).not.toContain('orphan_sfx');
+    expect(quality.issues.map((issue) => issue.type)).not.toContain('missing_transition_sfx');
   });
 });
 
