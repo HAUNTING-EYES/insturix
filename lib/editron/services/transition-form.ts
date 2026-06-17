@@ -54,7 +54,7 @@ export function resolveAtomicTransitionForm(input: {
   const params = input.params ?? {};
   const explicitType = normalizeTransitionStyle(paramString(params, 'transitionType'));
   const compatibilityHint = normalizeTransitionStyle(paramString(params, 'transitionCompatibilityHint'));
-  const intentHint = paramString(params, 'transitionIntent');
+  const intentHint = resolveIntentHint(params);
   const direction = resolveDirection(signals);
 
   const speechEnergy = signalNumber(signals, 'speech_energy', 'speech.energy');
@@ -186,6 +186,7 @@ function resolveCompatibilityType(input: {
   const hasEmotionalBridge = input.emotion >= 0.62 || input.topicShift >= 0.56;
 
   if (explicitHardCut
+    && (!input.intentHint || input.intentHint === 'editorial-cut')
     && !hasStrongMotionTransfer
     && !hasStrongImpactTransfer
     && !hasBeatFlash
@@ -244,6 +245,36 @@ function resolveCompatibilityType(input: {
   if (input.topicShift >= 0.74 && input.intensity < 0.72) return 'dissolve';
   if (input.emotion >= 0.62 || input.topicShift >= 0.56) return 'dissolve';
   return 'soft-cut';
+}
+
+function resolveIntentHint(params: Record<string, unknown>): string | undefined {
+  const explicitIntent = paramString(params, 'transitionIntent');
+  if (explicitIntent) return explicitIntent;
+
+  const job = paramString(params, 'transitionJob') ?? paramString(params, 'transition_job');
+  switch (job) {
+    case 'invisible':
+    case 'direct-continuity':
+      return 'editorial-cut';
+    case 'smooth-continuity':
+    case 'smooth-continuity-gap':
+    case 'hide-jump':
+      return 'continuity-blend';
+    case 'emphasize-turn':
+    case 'reset-attention':
+    case 'impact':
+      return 'impact-transfer';
+    case 'match-motion':
+    case 'match-motion-direction':
+      return 'motion-transfer';
+    case 'reveal':
+    case 'reveal-next':
+      return 'reveal-wipe';
+    case 'soft-release':
+      return 'soft-release';
+    default:
+      return undefined;
+  }
 }
 
 function resolveDurationFrames(input: {

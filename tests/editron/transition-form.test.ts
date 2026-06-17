@@ -119,6 +119,84 @@ describe('resolveAtomicTransitionForm', () => {
     expect(motionCut.sfxRole).toBe('fast-whoosh');
   });
 
+  it('uses boundary transition jobs to license form even when upstream compatibility says hard-cut', () => {
+    const form = resolveAtomicTransitionForm({
+      params: {
+        transitionType: 'hard-cut',
+        transitionJob: 'match-motion',
+      },
+      signals: {
+        motion_vector_y: -0.36,
+        motion_intensity: 0.3,
+        beat_strength: 0.24,
+        speech_energy: 0.26,
+        text_on_screen: 0,
+        visual_complexity: 0.12,
+      },
+    });
+
+    expect(form.intent).toBe('motion-transfer');
+    expect(form.compatibilityType).toBe('slide-up');
+    expect(form.direction.label).toBe('up');
+    expect(form.sfxRole).toBe('none');
+  });
+
+  it('turns hide-jump boundary jobs into restrained continuity bridges', () => {
+    const form = resolveAtomicTransitionForm({
+      params: {
+        transitionType: 'hard-cut',
+        transitionJob: 'hide-jump',
+      },
+      signals: {
+        topic_shift: 0.48,
+        emotion_intensity: 0.24,
+        motion_intensity: 0.1,
+        text_on_screen: 0.08,
+        visual_complexity: 0.18,
+      },
+    });
+
+    expect(form.intent).toBe('continuity-blend');
+    expect(form.compatibilityType).toBe('dissolve');
+    expect(form.sfxRole).toBe('none');
+    expect(form.durationFrames).toBeGreaterThanOrEqual(30);
+  });
+
+  it('lets explicit semantic transition intent win over boundary job hints', () => {
+    const form = resolveAtomicTransitionForm({
+      params: {
+        transitionIntent: 'reveal-wipe',
+        transitionJob: 'hide-jump',
+      },
+      signals: {
+        motion_vector_x: 0.42,
+        motion_intensity: 0.28,
+        topic_shift: 0.35,
+        visual_complexity: 0.12,
+      },
+    });
+
+    expect(form.intent).toBe('reveal-wipe');
+    expect(form.compatibilityType).toBe('wipe-right');
+  });
+
+  it('ignores unknown transition jobs instead of inventing a transition form', () => {
+    const form = resolveAtomicTransitionForm({
+      params: {
+        transitionType: 'hard-cut',
+        transitionJob: 'make-it-cool',
+      },
+      signals: {
+        speech_energy: 0.2,
+        motion_intensity: 0.1,
+        topic_shift: 0.1,
+      },
+    });
+
+    expect(form.compatibilityType).toBe('hard-cut');
+    expect(form.sfxRole).toBe('none');
+  });
+
   it('keeps upstream soft-cut requests as invisible polish instead of long mini-dissolves', () => {
     const form = resolveAtomicTransitionForm({
       params: { transitionType: 'soft-cut' },
