@@ -23,6 +23,14 @@ export function evaluateCalibrationWriteGate(
     };
   }
 
+  if (!input.artifactStatus) {
+    return {
+      allowed: false,
+      mode: 'blocked',
+      reason: 'rendered artifact status is missing; calibration writes require pass',
+    };
+  }
+
   if (input.artifactStatus && input.artifactStatus !== 'pass') {
     return {
       allowed: false,

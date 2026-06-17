@@ -20,17 +20,28 @@ describe('calibration write gate', () => {
   });
 
   it('blocks accidental non-dry-run writes without explicit operator approval', () => {
-    const decision = evaluateCalibrationWriteGate({ dryRun: false });
+    const decision = evaluateCalibrationWriteGate({ dryRun: false, artifactStatus: 'pass' });
 
     expect(decision.allowed).toBe(false);
     expect(decision.mode).toBe('blocked');
     expect(decision.reason).toContain('--allow-bandit-write');
   });
 
-  it('allows writes only when explicitly requested', () => {
+  it('still blocks explicit writes until rendered artifact evidence passes', () => {
     const decision = evaluateCalibrationWriteGate({
       dryRun: false,
       allowBanditWrite: true,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain('artifact status is missing');
+  });
+
+  it('allows writes only when explicitly requested after rendered artifact evidence passes', () => {
+    const decision = evaluateCalibrationWriteGate({
+      dryRun: false,
+      allowBanditWrite: true,
+      artifactStatus: 'pass',
     });
 
     expect(decision).toEqual({
