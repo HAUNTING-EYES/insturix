@@ -225,6 +225,39 @@ describe('rendered frame aesthetic scoring', () => {
     ]));
   });
 
+  it('trusts declared text-on-panel contrast for readable caption surfaces', () => {
+    const receipt = captionReceipt({
+      words: ['but', 'I', 'wanna', 'make', 'a', 'hypothesis'],
+      maxWordsPerLine: 6,
+      durationFrames: 90,
+      backgroundColor: 'rgba(0,0,0,0.74)',
+      textColor: '#ffffff',
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 13, alphaMean: 1 },
+      overlays: [{
+        id: 'panel-caption',
+        receipt,
+        box: {
+          x: 320,
+          y: 86,
+          width: 1280,
+          height: 130,
+          opacity: 1,
+          visiblePixelRatio: 0.1,
+          contrastRatio: 1.7,
+          textPixelHeight: 34,
+        },
+      }],
+    });
+
+    expect(result.issues).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: 'contrast' }),
+    ]));
+  });
+
   it('downgrades low contrast during a planned exit-prep fade', () => {
     const receipt = textReceipt('Hank Speaker', 'center', {
       x: 420,
@@ -457,6 +490,8 @@ function captionReceipt(input: {
   words: string[];
   maxWordsPerLine: number;
   durationFrames?: number;
+  textColor?: string;
+  backgroundColor?: string;
 }): AtomicOverlayReceipt {
   const atoms: AtomicOverlayAtom[] = [
     overlayAtom('caption-mode', 'caption.mode', 'phrase', 1, 'decision-param'),
@@ -467,9 +502,12 @@ function captionReceipt(input: {
     overlayAtom('text-wrap-unit', 'text.wrap_unit', 'word', 1, 'decision-param'),
     overlayAtom('font-family', 'text.font_family', 'Inter', 1, 'decision-param'),
     overlayAtom('font-size', 'text.font_size', '68', 1, 'decision-param'),
-    overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+    overlayAtom('text-color', 'text.color', input.textColor ?? '#ffffff', 1, 'decision-param'),
     overlayAtom('text-contrast-mode', 'text.contrast_mode', 'light-on-dark', 1, 'decision-param'),
   ];
+  if (input.backgroundColor) {
+    atoms.push(overlayAtom('background-color', 'style.background_color', input.backgroundColor, 1, 'decision-param'));
+  }
 
   input.words.forEach((word, index) => {
     atoms.push(overlayAtom('caption-word', `caption.word.${index}`, word, 1, 'transcript'));

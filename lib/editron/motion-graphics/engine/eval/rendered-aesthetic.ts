@@ -346,14 +346,19 @@ function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
   const text = overlay.item.receipt?.form.text;
   if (!text) return;
 
-  const contrastRatio = overlay.item.box?.contrastRatio ?? contrastFromLuma(
+  const measuredContrastRatio = overlay.item.box?.contrastRatio ?? contrastFromLuma(
     overlay.item.box?.foregroundLuma,
     overlay.item.box?.localBackgroundLuma,
   );
+  const declaredContrastRatio = declaredTextSurfaceContrast(text);
+  const required = requiredContrastForText(text, overlay);
+  if (text.channel === 'caption' && hasOpaqueTextSurface(text) && declaredContrastRatio !== undefined && declaredContrastRatio >= required) {
+    return;
+  }
+
+  const contrastRatio = measuredContrastRatio ?? declaredContrastRatio;
   if (contrastRatio === undefined) return;
 
-  const fontSize = overlay.item.box?.textPixelHeight ?? fontSizePx(text.typography.fontSize) ?? 16;
-  const required = fontSize >= 42 ? 3 : 4.5;
   if (contrastRatio < required) {
     if (isIntentionalFullFrameMotionGraphic(overlay) && contrastRatio >= 3) return;
     const exitPrep = overlay.item.sampleRoles?.includes('exit-prep') ?? false;
@@ -429,6 +434,23 @@ function scoreMotionGraphicTaste(overlay: NormalizedOverlay, input: RenderedFram
       });
     }
   }
+}
+
+function requiredContrastForText(text: AtomicTextForm, overlay: NormalizedOverlay): number {
+  const fontSize = overlay.item.box?.textPixelHeight ?? fontSizePx(text.typography.fontSize) ?? 16;
+  return fontSize >= 42 ? 3 : 4.5;
+}
+
+function declaredTextSurfaceContrast(text: AtomicTextForm): number | undefined {
+  const textColor = cssColorLuma(text.typography.color ?? text.colorPlan.roles.primary);
+  const surfaceColor = cssColorLuma(text.typography.backgroundColor ?? text.colorPlan.roles.surface);
+  if (!textColor || !surfaceColor || surfaceColor.alpha < 0.28) return undefined;
+  return contrastFromLuma(textColor.luma, surfaceColor.luma);
+}
+
+function hasOpaqueTextSurface(text: AtomicTextForm): boolean {
+  const surfaceColor = cssColorLuma(text.typography.backgroundColor ?? text.colorPlan.roles.surface);
+  return Boolean(surfaceColor && surfaceColor.alpha >= 0.28);
 }
 
 function scoreClutter(normalized: NormalizedOverlay[], addIssue: AddIssue): void {
@@ -594,6 +616,50 @@ function contrastFromLuma(foreground: number | undefined, background: number | u
   const lighter = Math.max(foreground, background) + 0.05;
   const darker = Math.min(foreground, background) + 0.05;
   return darker > 0 ? lighter / darker : undefined;
+}
+
+function cssColorLuma(value: string | undefined): { luma: number; alpha: number } | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === 'transparent') return { luma: 0, alpha: 0 };
+  if (normalized === 'white') return { luma: 1, alpha: 1 };
+  if (normalized === 'black') return { luma: 0, alpha: 1 };
+
+  const hex = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+  if (hex) {
+    const body = hex[1].length === 3
+      ? hex[1].split('').map((char) => char + char).join('')
+      : hex[1];
+    return {
+      luma: relativeLuma255(
+        Number.parseInt(body.slice(0, 2), 16),
+        Number.parseInt(body.slice(2, 4), 16),
+        Number.parseInt(body.slice(4, 6), 16),
+      ),
+      alpha: 1,
+    };
+  }
+
+  const rgb = normalized.match(/^rgba?\(([^)]+)\)$/);
+  if (!rgb) return undefined;
+  const parts = rgb[1].split(',').map((part) => part.trim());
+  const r = parseCssChannel(parts[0]);
+  const g = parseCssChannel(parts[1]);
+  const b = parseCssChannel(parts[2]);
+  if (r === undefined || g === undefined || b === undefined) return undefined;
+  const alpha = parts[3] === undefined ? 1 : clamp01(Number.parseFloat(parts[3]));
+  return { luma: relativeLuma255(r, g, b), alpha };
+}
+
+function parseCssChannel(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.max(0, Math.min(255, parsed));
+}
+
+function relativeLuma255(r: number, g: number, b: number): number {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
 
 function isVisualFamily(family: AtomicOverlayFamily | undefined): boolean {
