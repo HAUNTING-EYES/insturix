@@ -303,10 +303,11 @@ describe('MG stage composition renderer', () => {
 
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
     expect(atoms[0].role).toBe('semantic-concept-contrast-map');
+    expect(atoms[0].style.background).toBe('transparent');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-contrast-left-field',
+      'semantic-concept-contrast-left-plane',
       'semantic-concept-contrast-divider',
-      'semantic-concept-contrast-right-field',
+      'semantic-concept-contrast-right-plane',
     ]));
   });
 
@@ -319,14 +320,17 @@ describe('MG stage composition renderer', () => {
 
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-claim-field',
+      'semantic-concept-claim-statement-field',
       'semantic-concept-claim-left-edge',
-      'semantic-concept-claim-support-rail',
+      'semantic-concept-claim-title-rule',
+      'semantic-concept-claim-support-rule',
     ]));
     expect(atoms[0].children?.map((atom) => atom.role)).not.toEqual(expect.arrayContaining([
       'semantic-concept-node-main',
       'semantic-concept-node-context',
       'semantic-concept-node-proof',
+      'semantic-concept-claim-field',
+      'semantic-concept-claim-support-rail',
     ]));
   });
 
@@ -349,22 +353,56 @@ describe('MG stage composition renderer', () => {
 
     expect(problem[0].role).toBe('semantic-concept-problem-map');
     expect(problem[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-pressure-field',
-      'semantic-concept-pressure-band-a',
-      'semantic-concept-pressure-threshold',
+      'semantic-concept-pressure-frame',
+      'semantic-concept-pressure-band-top',
+      'semantic-concept-pressure-band-low',
     ]));
     expect(causal[0].role).toBe('semantic-concept-causal-map');
     expect(causal[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-causal-origin-field',
-      'semantic-concept-causal-flow-b',
+      'semantic-concept-causal-source-field',
+      'semantic-concept-causal-flow-step-two',
       'semantic-concept-causal-impact-field',
     ]));
     expect(affirming[0].role).toBe('semantic-concept-affirming-map');
     expect(affirming[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-affirming-field',
-      'semantic-concept-rising-rail-right',
+      'semantic-concept-affirming-horizon',
+      'semantic-concept-affirming-step-three',
       'semantic-concept-affirming-signal-field',
     ]));
+    expect([problem[0], causal[0], affirming[0]].map((atom) => atom.style.background)).toEqual([
+      'transparent',
+      'transparent',
+      'transparent',
+    ]);
+    expect(new Set([problem, causal, affirming].map((atomsForRegister) =>
+      atomsForRegister[0].children?.map((atom) => atom.role).join('|'))).size).toBe(3);
+  });
+
+  it('does not let negation swallow stronger semantic concept facts', () => {
+    const problemWithNegation = resolveSemanticContentSceneAtoms(
+      { title: 'Normal Deep Evil', body: "in real life isn't because they're normal people with deep evil inside of them" },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Normal Deep Evil' } }],
+      language,
+    );
+    const contrastWithNegation = resolveSemanticContentSceneAtoms(
+      { title: 'Culture Tells Good', body: "Not because culture, not because culture tells them to be good" },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Culture Tells Good' } }],
+      language,
+    );
+    const pureNegation = resolveSemanticContentSceneAtoms(
+      { title: 'Nobody Likes', body: 'talk to people in real life, because nobody likes them.' },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Nobody Likes' } }],
+      language,
+    );
+
+    expect(problemWithNegation[0].role).toBe('semantic-concept-problem-map');
+    expect(problemWithNegation[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-concept-pressure-negation-cut',
+      'semantic-concept-pressure-causal-cue',
+    ]));
+    expect(problemWithNegation[0].children?.map((atom) => atom.role)).not.toContain('semantic-concept-pressure-repeat-cut');
+    expect(contrastWithNegation[0].role).toBe('semantic-concept-contrast-map');
+    expect(pureNegation[0].role).toBe('semantic-concept-causal-map');
   });
 
   it('derives speaker identity framing from name and title content', () => {

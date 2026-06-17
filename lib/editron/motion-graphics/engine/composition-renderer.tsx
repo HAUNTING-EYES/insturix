@@ -349,23 +349,73 @@ export function resolveVisualIntentContentLayoutStyle(
 function resolveSemanticConceptContentLayoutStyle(
   layoutStyle: React.CSSProperties,
   elementCount: number,
+  register: SemanticConceptSceneRegister,
 ): React.CSSProperties {
-  return {
+  const baseStyle: React.CSSProperties = {
     ...layoutStyle,
-    top: '12%',
-    left: '12%',
-    right: '12%',
     bottom: undefined,
     transform: undefined,
     width: 'auto',
     maxWidth: 'none',
-    minHeight: elementCount >= 2 ? '28%' : '18%',
+    minHeight: elementCount >= 2 ? '30%' : '18%',
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
-    textAlign: 'left',
     gap: elementCount >= 2 ? '12px' : '8px',
     zIndex: 1,
   };
+
+  switch (register) {
+    case 'contrast':
+      return {
+        ...baseStyle,
+        top: '10%',
+        left: '38%',
+        right: '16%',
+        textAlign: 'right',
+        alignItems: 'flex-end',
+      };
+    case 'causal':
+      return {
+        ...baseStyle,
+        top: '13%',
+        left: '10%',
+        right: '30%',
+        textAlign: 'left',
+      };
+    case 'affirming':
+      return {
+        ...baseStyle,
+        top: '12%',
+        left: '9%',
+        right: '29%',
+        textAlign: 'left',
+      };
+    case 'problem':
+      return {
+        ...baseStyle,
+        top: '9%',
+        left: '8%',
+        right: '22%',
+        textAlign: 'left',
+      };
+    case 'negation':
+      return {
+        ...baseStyle,
+        top: '9%',
+        left: '8%',
+        right: '28%',
+        textAlign: 'left',
+      };
+    case 'claim':
+    default:
+      return {
+        ...baseStyle,
+        top: '15%',
+        left: '12%',
+        right: '34%',
+        textAlign: 'left',
+      };
+  }
 }
 
 export function resolveVisualIntentSceneAtoms(
@@ -646,10 +696,31 @@ export function resolveVisualIntentSceneAtoms(
 
 type SemanticContentKind = 'numeric' | 'concept' | 'identity' | 'none';
 type SemanticConceptSceneRegister = 'problem' | 'negation' | 'causal' | 'contrast' | 'affirming' | 'claim';
+const SEMANTIC_CONCEPT_SCENE_REGISTERS: readonly SemanticConceptSceneRegister[] = ['problem', 'negation', 'causal', 'contrast', 'affirming', 'claim'];
 
 interface SemanticStatSceneLicense {
   sweep: boolean;
   length: boolean;
+}
+
+function resolveSemanticConceptRegisterFromSceneAtoms(atoms: VisualIntentSceneAtom[]): SemanticConceptSceneRegister | undefined {
+  return SEMANTIC_CONCEPT_SCENE_REGISTERS.find((register) =>
+    atoms.some((atom) => atom.role === `semantic-concept-${register}-map`));
+}
+
+function semanticConceptTextMaxWidthFraction(register: SemanticConceptSceneRegister): number {
+  switch (register) {
+    case 'contrast':
+      return 0.46;
+    case 'claim':
+      return 0.54;
+    case 'causal':
+    case 'affirming':
+    case 'negation':
+    case 'problem':
+    default:
+      return 0.62;
+  }
 }
 
 export function resolveSemanticContentSceneAtoms(
@@ -725,7 +796,7 @@ export function resolveSemanticContentSceneAtoms(
   }
 
   if (kind === 'concept') {
-    return [buildSemanticConceptSceneMap(content, accent, primary, surface, radius)];
+    return [buildSemanticConceptSceneMap(content, accent, primary, surface)];
   }
 
   return [
@@ -797,7 +868,6 @@ function buildSemanticConceptSceneMap(
   accent: string,
   primary: string,
   surface: string,
-  radius: number,
 ): VisualIntentSceneAtom {
   const register = resolveSemanticConceptSceneRegister(content);
   const baseStyle: React.CSSProperties = {
@@ -812,16 +882,14 @@ function buildSemanticConceptSceneMap(
   return {
     kind: 'semantic-concept-map',
     role: `semantic-concept-${register}-map`,
-    style: {
-      ...baseStyle,
-      background: semanticConceptMapBackground(register, accent, primary, surface),
-    },
-    children: semanticConceptSceneChildren(register, accent, primary, surface),
+    style: baseStyle,
+    children: semanticConceptSceneChildren(register, content, accent, primary, surface),
   };
 }
 
 function semanticConceptSceneChildren(
   register: SemanticConceptSceneRegister,
+  content: Record<string, unknown>,
   accent: string,
   primary: string,
   surface: string,
@@ -829,99 +897,82 @@ function semanticConceptSceneChildren(
   switch (register) {
     case 'negation':
       return [
-        semanticField('semantic-concept-negation-shadow-field', '10%', '22%', '58%', '54%', primary, 'polygon(0 0, 78% 0, 100% 100%, 0 100%)', 0.1),
-        semanticBar('semantic-concept-negation-strike', '18%', '55%', '62%', 5, accent, 'rotate(-14deg)', 0.72),
-        semanticBar('semantic-concept-negation-counter-strike', '22%', '62%', '52%', 2, primary, 'rotate(14deg)', 0.44),
-        semanticBar('semantic-concept-negation-rejected-baseline', '62%', '70%', '20%', 3, accent, 'none', 0.52),
+        semanticField('semantic-concept-negation-text-shield', '7%', '8%', '63%', '33%', surface, 'polygon(0 0, 100% 0, 92% 100%, 0 84%)', 0.22),
+        semanticBar('semantic-concept-negation-refusal-wall', '6%', '11%', '5px', 196, accent, 'none', 0.82),
+        semanticBar('semantic-concept-negation-title-strike', '8%', '20%', '46%', 5, accent, 'none', 0.72),
+        semanticBar('semantic-concept-negation-body-strike', '8%', '34%', '58%', 4, primary, 'none', 0.44),
       ];
     case 'causal':
       return [
-        semanticField('semantic-concept-causal-origin-field', '12%', '43%', '24%', '26%', primary, 'polygon(0 18%, 100% 0, 82% 100%, 0 82%)', 0.14),
-        semanticBar('semantic-concept-causal-flow-a', '30%', '53%', '24%', 4, accent, 'rotate(-9deg)', 0.5),
-        semanticBar('semantic-concept-causal-flow-b', '50%', '49%', '27%', 5, accent, 'rotate(8deg)', 0.74),
-        semanticField('semantic-concept-causal-impact-field', '72%', '37%', '15%', '36%', accent, 'polygon(0 0, 100% 24%, 82% 100%, 12% 72%)', 0.22),
-        semanticBar('semantic-concept-causal-impact-edge', '76%', '61%', '14%', 3, accent, 'none', 0.78),
+        semanticField('semantic-concept-causal-source-field', '9%', '49%', '18%', '18%', primary, 'polygon(0 0, 86% 0, 100% 50%, 86% 100%, 0 100%)', 0.18),
+        semanticField('semantic-concept-causal-flow-step-one', '31%', '49%', '16%', '18%', accent, 'polygon(0 0, 84% 0, 100% 50%, 84% 100%, 0 100%, 12% 50%)', 0.2),
+        semanticField('semantic-concept-causal-flow-step-two', '51%', '49%', '16%', '18%', accent, 'polygon(0 0, 84% 0, 100% 50%, 84% 100%, 0 100%, 12% 50%)', 0.26),
+        semanticField('semantic-concept-causal-impact-field', '72%', '44%', '16%', '28%', accent, 'polygon(0 0, 100% 18%, 86% 100%, 12% 88%)', 0.24),
+        semanticBar('semantic-concept-causal-flow-baseline', '14%', '73%', '62%', 4, accent, 'none', 0.5),
       ];
     case 'contrast':
       return [
-        semanticField('semantic-concept-contrast-left-field', '8%', '28%', '36%', '48%', primary, 'polygon(0 0, 92% 8%, 72% 100%, 0 90%)', 0.14),
-        semanticField('semantic-concept-contrast-right-field', '57%', '25%', '34%', '50%', accent, 'polygon(18% 0, 100% 10%, 100% 100%, 0 88%)', 0.16),
-        semanticBar('semantic-concept-contrast-divider', '49%', '24%', '3px', 168, accent, 'none', 0.58),
-        semanticBar('semantic-concept-contrast-rail', '18%', '72%', '64%', 3, accent, 'none', 0.42),
+        semanticField('semantic-concept-contrast-left-plane', '8%', '22%', '31%', '56%', primary, 'polygon(0 0, 100% 8%, 82% 100%, 0 92%)', 0.14),
+        semanticField('semantic-concept-contrast-right-plane', '56%', '18%', '31%', '60%', accent, 'polygon(18% 0, 100% 0, 100% 90%, 0 100%)', 0.18),
+        semanticBar('semantic-concept-contrast-divider', '49%', '18%', '4px', 340, accent, 'none', 0.62),
+        semanticBar('semantic-concept-contrast-left-ground', '8%', '80%', '28%', 4, primary, 'none', 0.38),
+        semanticBar('semantic-concept-contrast-right-ground', '58%', '80%', '29%', 4, accent, 'none', 0.5),
       ];
     case 'problem':
       return [
-        semanticField('semantic-concept-pressure-field', '13%', '30%', '66%', '48%', accent, 'polygon(0 20%, 76% 0, 100% 82%, 20% 100%)', 0.15),
-        semanticBar('semantic-concept-pressure-band-a', '20%', '51%', '58%', 5, accent, 'rotate(18deg)', 0.62),
-        semanticBar('semantic-concept-pressure-band-b', '20%', '60%', '58%', 4, primary, 'rotate(-18deg)', 0.42),
-        semanticBar('semantic-concept-pressure-threshold', '36%', '76%', '26%', 3, accent, 'none', 0.76),
-        semanticBar('semantic-concept-pressure-left-bracket', '17%', '38%', '3px', 136, primary, 'none', 0.54),
+        semanticField('semantic-concept-pressure-frame', '7%', '44%', '68%', '30%', accent, 'polygon(0 0, 100% 0, 94% 100%, 6% 100%)', 0.14),
+        semanticBar('semantic-concept-pressure-left-bracket', '7%', '38%', '4px', 188, primary, 'none', 0.62),
+        semanticBar('semantic-concept-pressure-band-top', '12%', '50%', '54%', 5, accent, 'none', 0.68),
+        semanticBar('semantic-concept-pressure-band-mid', '15%', '59%', '46%', 4, primary, 'none', 0.44),
+        semanticBar('semantic-concept-pressure-band-low', '18%', '68%', '36%', 4, accent, 'none', 0.56),
+        ...semanticConceptProblemFactOverlays(content, accent, primary),
       ];
     case 'affirming':
       return [
-        semanticField('semantic-concept-affirming-field', '18%', '38%', '60%', '40%', accent, 'polygon(0 78%, 38% 30%, 100% 0, 86% 100%, 0 100%)', 0.14),
-        semanticBar('semantic-concept-rising-rail-left', '23%', '66%', '28%', 4, accent, 'rotate(-18deg)', 0.56),
-        semanticBar('semantic-concept-rising-rail-right', '48%', '58%', '32%', 5, accent, 'rotate(-10deg)', 0.78),
-        semanticBar('semantic-concept-affirming-support-base', '23%', '77%', '48%', 3, primary, 'none', 0.42),
-        semanticField('semantic-concept-affirming-signal-field', '76%', '35%', '8%', '16%', accent, 'polygon(50% 0, 100% 100%, 0 100%)', 0.34),
+        semanticField('semantic-concept-affirming-horizon', '9%', '58%', '62%', '18%', accent, 'polygon(0 52%, 100% 0, 100% 100%, 0 100%)', 0.14),
+        semanticBar('semantic-concept-affirming-step-one', '16%', '70%', '22%', 5, primary, 'none', 0.42),
+        semanticBar('semantic-concept-affirming-step-two', '35%', '62%', '22%', 5, accent, 'none', 0.58),
+        semanticBar('semantic-concept-affirming-step-three', '54%', '54%', '22%', 5, accent, 'none', 0.76),
+        semanticField('semantic-concept-affirming-signal-field', '75%', '32%', '9%', '18%', accent, 'polygon(50% 0, 100% 100%, 0 100%)', 0.34),
       ];
     case 'claim':
     default:
       return [
-        semanticField('semantic-concept-claim-field', '15%', '34%', '64%', '42%', accent, 'polygon(0 0, 100% 14%, 88% 100%, 12% 82%)', 0.12),
-        semanticBar('semantic-concept-claim-left-edge', '18%', '45%', '3px', 130, accent, 'none', 0.52),
-        semanticBar('semantic-concept-claim-support-rail', '24%', '72%', '48%', 3, primary, 'none', 0.46),
-        semanticBar('semantic-concept-claim-emphasis-rail', '36%', '58%', '36%', 4, accent, 'rotate(-7deg)', 0.58),
+        semanticField('semantic-concept-claim-statement-field', '11%', '26%', '54%', '42%', surface, 'polygon(0 0, 96% 0, 100% 100%, 4% 100%)', 0.2),
+        semanticBar('semantic-concept-claim-left-edge', '10%', '27%', '4px', 220, accent, 'none', 0.64),
+        semanticBar('semantic-concept-claim-title-rule', '12%', '45%', '44%', 5, accent, 'none', 0.56),
+        semanticBar('semantic-concept-claim-support-rule', '16%', '69%', '38%', 4, primary, 'none', 0.46),
       ];
   }
 }
 
-function semanticConceptMapBackground(
-  register: SemanticConceptSceneRegister,
+function semanticConceptProblemFactOverlays(
+  content: Record<string, unknown>,
   accent: string,
   primary: string,
-  surface: string,
-): string {
-  switch (register) {
-    case 'negation':
-      return [
-        `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.2)} 0%, transparent 24%)`,
-        `linear-gradient(135deg, transparent 0%, ${withAlpha(primary, 0.12)} 45%, ${withAlpha(accent, 0.18)} 52%, transparent 72%)`,
-      ].join(', ');
-    case 'causal':
-      return [
-        `linear-gradient(90deg, ${withAlpha(primary, 0.1)} 0%, transparent 35%, ${withAlpha(accent, 0.18)} 58%, transparent 100%)`,
-        `radial-gradient(circle at 78% 56%, ${withAlpha(accent, 0.22)} 0%, transparent 20%)`,
-      ].join(', ');
-    case 'contrast':
-      return [
-        `linear-gradient(90deg, ${withAlpha(primary, 0.16)} 0%, transparent 45%, ${withAlpha(accent, 0.18)} 55%, transparent 100%)`,
-        `radial-gradient(circle at 30% 50%, ${withAlpha(primary, 0.18)} 0%, transparent 20%)`,
-        `radial-gradient(circle at 70% 50%, ${withAlpha(accent, 0.18)} 0%, transparent 20%)`,
-      ].join(', ');
-    case 'problem':
-      return [
-        `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.28)} 0%, transparent 24%)`,
-        `radial-gradient(circle at 22% 66%, ${withAlpha(primary, 0.18)} 0%, transparent 18%)`,
-        `linear-gradient(145deg, transparent 0%, ${withAlpha(accent, 0.12)} 48%, ${withAlpha(surface, 0.08)} 100%)`,
-      ].join(', ');
-    case 'affirming':
-      return [
-        `radial-gradient(circle at 50% 44%, ${withAlpha(accent, 0.26)} 0%, transparent 25%)`,
-        `linear-gradient(24deg, transparent 0%, ${withAlpha(primary, 0.12)} 42%, ${withAlpha(accent, 0.18)} 100%)`,
-      ].join(', ');
-    case 'claim':
-    default:
-      return [
-        `radial-gradient(circle at 50% 46%, ${withAlpha(accent, 0.24)} 0%, transparent 25%)`,
-        `radial-gradient(circle at 24% 64%, ${withAlpha(primary, 0.18)} 0%, transparent 17%)`,
-        `radial-gradient(circle at 76% 65%, ${withAlpha(accent, 0.16)} 0%, transparent 18%)`,
-      ].join(', ');
+): VisualIntentSceneAtom[] {
+  const text = semanticConceptText(content);
+  const negationCount = countSemanticConceptMatches(text, /\b(no|not|never|nobody|nothing|without|cannot|can't|dont|don't|doesnt|doesn't|isnt|isn't|aren't|wont|won't)\b/g);
+  const causalCount = countSemanticConceptMatches(text, /\b(because|therefore|so|leads? to|drives?|makes?|causes?|turns?|promot(?:e|es|ing)|results? in)\b/g);
+  const overlays: VisualIntentSceneAtom[] = [];
+
+  if (negationCount > 0) {
+    overlays.push(semanticBar('semantic-concept-pressure-negation-cut', '12%', '43%', '48%', 4, primary, 'none', 0.46));
   }
+
+  if (negationCount > 1) {
+    overlays.push(semanticBar('semantic-concept-pressure-repeat-cut', '18%', '76%', '34%', 4, primary, 'none', 0.38));
+  }
+
+  if (causalCount > 0) {
+    overlays.push(semanticField('semantic-concept-pressure-causal-cue', '67%', '51%', '11%', '17%', accent, 'polygon(0 0, 100% 50%, 0 100%)', 0.28));
+  }
+
+  return overlays;
 }
 
-function resolveSemanticConceptSceneRegister(content: Record<string, unknown>): SemanticConceptSceneRegister {
-  const text = [
+function semanticConceptText(content: Record<string, unknown>): string {
+  return [
     contentText(content.title),
     contentText(content.keyword),
     contentText(content.concept),
@@ -929,12 +980,28 @@ function resolveSemanticConceptSceneRegister(content: Record<string, unknown>): 
     contentText(content.description),
     contentText(content.explanation),
   ].filter(Boolean).join(' ').toLowerCase();
+}
 
-  if (/\b(but|instead|versus|vs\.?|rather than|compared with|than)\b/.test(text)) return 'contrast';
-  if (/\b(no|not|never|nobody|nothing|without|cannot|can't|dont|don't|doesnt|doesn't|isnt|isn't|aren't|wont|won't)\b/.test(text)) return 'negation';
-  if (/\b(good|love|helpful|better|positive|enthusiasm|support|healthy|constructive|works?)\b/.test(text)) return 'affirming';
-  if (/\b(because|therefore|so|leads? to|drives?|makes?|causes?|turns?|promot(?:e|es|ing)|results? in)\b/.test(text)) return 'causal';
-  if (/\b(problem|hostile|hateful|hate|evil|unacceptable|inflammatory|worse|worst|toxic|risk|failure|broken)\b/.test(text)) return 'problem';
+function countSemanticConceptMatches(text: string, pattern: RegExp): number {
+  return text.match(pattern)?.length ?? 0;
+}
+
+function resolveSemanticConceptSceneRegister(content: Record<string, unknown>): SemanticConceptSceneRegister {
+  const text = semanticConceptText(content);
+
+  const hasExplicitContrast = /\b(but|instead|versus|vs\.?|rather than|compared with|than)\b/.test(text);
+  const hasBecauseContrast = /\b(?:not|isn't|isnt|aren't|arent|wasn't|wasnt|weren't|werent)\s+because\b/.test(text);
+  const hasProblem = /\b(problem|hostile|hateful|hate|evil|unacceptable|inflammatory|worse|worst|toxic|risk|failure|broken)\b/.test(text);
+  const hasCausal = /\b(because|therefore|so|leads? to|drives?|makes?|causes?|turns?|promot(?:e|es|ing)|results? in)\b/.test(text);
+  const hasAffirming = /\b(good|love|helpful|better|positive|enthusiasm|support|healthy|constructive|works?)\b/.test(text);
+  const hasNegation = /\b(no|not|never|nobody|nothing|without|cannot|can't|dont|don't|doesnt|doesn't|isnt|isn't|aren't|wont|won't)\b/.test(text);
+
+  if (hasExplicitContrast) return 'contrast';
+  if (hasProblem) return 'problem';
+  if (hasBecauseContrast) return 'contrast';
+  if (hasAffirming) return 'affirming';
+  if (hasCausal) return 'causal';
+  if (hasNegation) return 'negation';
   return 'claim';
 }
 
@@ -1400,10 +1467,10 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   const semanticSceneAtoms = protectsExistingText(atomicPlan, visualIntent)
     ? []
     : resolveSemanticContentSceneAtoms(content, elementsToRender, language);
-  const semanticConceptStage = semanticSceneAtoms.some((atom) => atom.role.startsWith('semantic-concept-'));
-  if (semanticConceptStage && !stageChrome) {
-    boxWidthPx = width * layoutMaxWidthFraction({ ...renderLayout, position: 'center', maxWidth: '76%' });
-    contentLayoutStyle = resolveSemanticConceptContentLayoutStyle(contentLayoutStyle, elementsToRender.length);
+  const semanticConceptRegister = resolveSemanticConceptRegisterFromSceneAtoms(semanticSceneAtoms);
+  if (semanticConceptRegister && !stageChrome) {
+    boxWidthPx = width * semanticConceptTextMaxWidthFraction(semanticConceptRegister);
+    contentLayoutStyle = resolveSemanticConceptContentLayoutStyle(contentLayoutStyle, elementsToRender.length, semanticConceptRegister);
   }
   const sceneAtoms = [...visualSceneAtoms, ...semanticSceneAtoms];
 
