@@ -46,6 +46,12 @@ const AUDITED_VISUAL_TYPES = new Set<string>([
   'transition',
 ]);
 
+const AUDITED_TIMING_TYPES = new Set<string>([
+  'zoom',
+  'sound',
+  'audio',
+]);
+
 export interface RenderedAestheticProjectInput {
   projectId?: string;
   tag?: string;
@@ -82,9 +88,23 @@ export interface RenderedAestheticFrameReport {
   sample: RenderedAestheticSample;
   activeOverlayIds: Array<number | string>;
   activeOverlayTypes: string[];
+  timelineEvidence: RenderedTimelineOverlayEvidence[];
   fullStill: string;
   baselineStill: string;
   report: RenderedFrameAestheticReport;
+}
+
+export interface RenderedTimelineOverlayEvidence {
+  id?: string | number;
+  type: string;
+  family: 'zoom' | 'sfx';
+  frame: number;
+  localFrame: number;
+  durationFrames: number;
+  role: string | null;
+  assetId: string | null;
+  volume: number | null;
+  hasAtomicForm: boolean;
 }
 
 export interface RenderedAestheticHarnessReport {
@@ -262,11 +282,22 @@ export async function runRenderedAestheticHarness(
       overlays: evidence,
     });
 
+    const timelineEvidence = activeTimelineOverlayEvidence(overlays, frame);
+    const activeIds = uniqueIds([
+      ...evidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
+      ...timelineEvidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
+    ]);
+    const activeTypes = uniqueStrings([
+      ...evidence.map((overlay) => overlay.type).filter((type): type is string => !!type),
+      ...timelineEvidence.map((overlay) => overlay.type),
+    ]);
+
     frames.push({
       frame,
       sample,
-      activeOverlayIds: evidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
-      activeOverlayTypes: uniqueStrings(evidence.map((overlay) => overlay.type).filter((type): type is string => !!type)),
+      activeOverlayIds: activeIds,
+      activeOverlayTypes: activeTypes,
+      timelineEvidence,
       fullStill,
       baselineStill,
       report,
@@ -316,7 +347,7 @@ export function planRenderedAestheticSamples(
 ): RenderedAestheticSample[] {
   const samples = new Map<number, RenderedAestheticSample>();
   for (const overlay of overlays) {
-    if (!isAuditedOverlay(overlay)) continue;
+    if (!isSampledOverlay(overlay)) continue;
     const duration = Math.max(1, overlay.durationInFrames);
     const entryFrame = overlay.from + Math.min(duration - 1, Math.max(1, Math.min(8, Math.floor(duration * 0.22))));
     const holdFrame = overlay.from + Math.floor(duration * 0.55);
@@ -351,7 +382,7 @@ function manualSamples(
 ): RenderedAestheticSample[] {
   return uniqueNumbers(frames.map((frame) => clampFrame(frame, durationInFrames)))
     .map((frame) => {
-      const active = overlays.filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame));
+      const active = overlays.filter((overlay) => isSampledOverlay(overlay) && isActiveAtFrame(overlay, frame));
       return {
         frame,
         roles: ['manual'],
@@ -392,7 +423,7 @@ export function pickRenderedAestheticSampleFrames(
 ): number[] {
   const candidates = new Set<number>();
   for (const overlay of overlays) {
-    if (!isAuditedOverlay(overlay)) continue;
+    if (!isSampledOverlay(overlay)) continue;
     const start = clampFrame(overlay.from, durationInFrames);
     const mid = clampFrame(overlay.from + Math.floor(Math.max(1, overlay.durationInFrames) * 0.55), durationInFrames);
     candidates.add(start);
@@ -564,6 +595,39 @@ function activeRenderedOverlayEvidence(
           ...pixels,
         },
       }];
+    });
+}
+
+function activeTimelineOverlayEvidence(overlays: Overlay[], frame: number): RenderedTimelineOverlayEvidence[] {
+  return overlays
+    .filter((overlay) => isTimelineEvidenceOverlay(overlay) && isActiveAtFrame(overlay, frame))
+    .map((overlay) => {
+      const metadata = isRecord((overlay as Overlay & { metadata?: unknown }).metadata)
+        ? (overlay as Overlay & { metadata: Record<string, unknown> }).metadata
+        : {};
+      const type = String(overlay.type);
+      const sfxForm = isRecord(metadata.atomicSfxForm) ? metadata.atomicSfxForm : undefined;
+      const zoomForm = isRecord(metadata.atomicZoomForm) ? metadata.atomicZoomForm : undefined;
+      const role = stringValue(sfxForm?.role)
+        ?? stringValue(zoomForm?.intent)
+        ?? stringValue(metadata.role)
+        ?? null;
+      const styles = overlayStyles(overlay);
+
+      return {
+        id: overlay.id,
+        type,
+        family: type === 'zoom' ? 'zoom' : 'sfx',
+        frame,
+        localFrame: Math.max(0, frame - overlay.from),
+        durationFrames: Math.max(1, overlay.durationInFrames),
+        role,
+        assetId: stringValue((overlay as Overlay & { assetId?: unknown }).assetId)
+          ?? stringValue(metadata.providerAssetId)
+          ?? null,
+        volume: numericValue(styles.volume) ?? numericValue(metadata.volume) ?? null,
+        hasAtomicForm: type === 'zoom' ? Boolean(zoomForm) : Boolean(sfxForm),
+      };
     });
 }
 
@@ -1027,7 +1091,7 @@ function buildHarnessReport(input: {
       ...(input.input.projectId ? { projectId: input.input.projectId } : {}),
       ...(input.inputFile ? { inputFile: input.inputFile } : {}),
       overlayCounts: countOverlayTypes(input.input.overlays),
-      auditedOverlayCount: input.input.overlays.filter(isAuditedOverlay).length,
+      auditedOverlayCount: input.input.overlays.filter(isSampledOverlay).length,
     },
     summary: {
       status: failFrames > 0 ? 'fail' : warnFrames > 0 ? 'warn' : 'pass',
@@ -1052,6 +1116,11 @@ export function renderRenderedAestheticHtmlReport(report: RenderedAestheticHarne
     const overlaySummary = frame.report.overlayReports.map((overlay) => (
       `<span class="pill">${escapeHtml(String(overlay.type ?? overlay.family ?? 'overlay'))} ${overlay.id !== undefined ? `#${escapeHtml(String(overlay.id))}` : ''}</span>`
     )).join('');
+    const timelineEvidence = frame.timelineEvidence.length > 0
+      ? frame.timelineEvidence.map((item) => (
+        `<li><strong>${escapeHtml(item.family)}</strong> ${escapeHtml(item.type)}${item.id !== undefined ? ` <span>overlay ${escapeHtml(String(item.id))}</span>` : ''}<small>localFrame=${item.localFrame}/${item.durationFrames}; role=${escapeHtml(item.role ?? 'none')}; asset=${escapeHtml(item.assetId ?? 'none')}; volume=${item.volume ?? 'n/a'}; atomicForm=${item.hasAtomicForm ? 'yes' : 'no'}</small></li>`
+      )).join('')
+      : '<li class="ok">No active timing/audio evidence on this sampled frame.</li>';
 
     return `
       <section class="frame-card ${escapeHtml(frame.report.status)}">
@@ -1073,6 +1142,7 @@ export function renderRenderedAestheticHtmlReport(report: RenderedAestheticHarne
           </figure>
         </div>
         <div class="overlay-row">${overlaySummary || '<span class="pill">No active audited overlays</span>'}</div>
+        <ul class="issues">${timelineEvidence}</ul>
         <ul class="issues">${issues}</ul>
       </section>
     `;
@@ -1197,6 +1267,14 @@ function isInsideAllowedRoot(candidate: string, root: string): boolean {
 
 function isAuditedOverlay(overlay: Overlay): boolean {
   return AUDITED_VISUAL_TYPES.has(String(overlay.type));
+}
+
+function isSampledOverlay(overlay: Overlay): boolean {
+  return isAuditedOverlay(overlay) || isTimelineEvidenceOverlay(overlay);
+}
+
+function isTimelineEvidenceOverlay(overlay: Overlay): boolean {
+  return AUDITED_TIMING_TYPES.has(String(overlay.type));
 }
 
 function isActiveAtFrame(overlay: Overlay, frame: number): boolean {

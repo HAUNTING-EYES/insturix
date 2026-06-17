@@ -21,14 +21,14 @@ import {
 } from '../../scripts/render-editron-aesthetic';
 
 describe('rendered aesthetic harness helpers', () => {
-  it('samples starts and settled midpoints from audited visual overlays', () => {
+  it('samples starts and settled midpoints from audited visual and timing overlays', () => {
     const frames = pickRenderedAestheticSampleFrames([
       textOverlay({ id: 1, from: 10, durationInFrames: 40 }),
       shapeOverlay({ id: 2, from: 80, durationInFrames: 20 }),
       soundOverlay({ id: 3, from: 120, durationInFrames: 40 }),
     ], 180, 10);
 
-    expect(frames).toEqual([10, 32, 80, 91]);
+    expect(frames).toEqual([10, 32, 80, 91, 120, 142]);
   });
 
   it('downsamples crowded candidates deterministically', () => {
@@ -85,6 +85,23 @@ describe('rendered aesthetic harness helpers', () => {
     ], 1080, 1920);
 
     expect(overlays.map((overlay) => overlay.id)).toEqual([3, 4, 5]);
+  });
+
+  it('keeps zoom and SFX in the sample plan without adding them to overlay-only still renders', () => {
+    const samples = planRenderedAestheticSamples([
+      zoomOverlay({ id: 11, from: 20, durationInFrames: 30 }),
+      soundOverlay({ id: 12, from: 60, durationInFrames: 18 }),
+      textOverlay({ id: 13, from: 100, durationInFrames: 20 }),
+    ], 150, 20);
+    const renderOverlays = buildOverlayOnlyRenderOverlays([
+      zoomOverlay({ id: 11, from: 20, durationInFrames: 30 }),
+      soundOverlay({ id: 12, from: 60, durationInFrames: 18 }),
+      textOverlay({ id: 13, from: 100, durationInFrames: 20 }),
+    ], 1080, 1920);
+
+    expect(samples.some((sample) => sample.sourceOverlayTypes.includes('zoom'))).toBe(true);
+    expect(samples.some((sample) => sample.sourceOverlayTypes.includes('sound'))).toBe(true);
+    expect(renderOverlays.map((overlay) => overlay.id)).toEqual([13]);
   });
 
   it('marks linked transition samples as source-dependent when overlay-only render removes source clips', () => {
@@ -227,6 +244,8 @@ describe('rendered aesthetic harness helpers', () => {
     expect(html).toContain('entry-settle');
     expect(html).toContain('f00018/full.png');
     expect(html).toContain('rendered text contrast is below accessibility floor');
+    expect(html).toContain('localFrame=4/18');
+    expect(html).toContain('atomicForm=yes');
     expect(html).toContain('text:1');
   });
 });
@@ -310,8 +329,17 @@ function soundOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
   return {
     ...baseOverlay({ ...input, type: OverlayType.SOUND }),
     content: 'https://example.com/audio.mp3',
+    assetId: 'sfx_asset_1',
+    metadata: { atomicSfxForm: { role: 'impact' } },
     styles: { volume: 1 },
-  } as Overlay;
+  } as unknown as Overlay;
+}
+
+function zoomOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
+  return {
+    ...baseOverlay({ ...input, type: 'zoom' as OverlayType }),
+    metadata: { atomicZoomForm: { intent: 'emphasis-push' } },
+  } as unknown as Overlay;
 }
 
 function transitionOverlay(input: OverlayFixtureInput & { id: number; clipAId?: number | string; clipBId?: number | string }): Overlay {
@@ -468,6 +496,18 @@ function fakeHarnessReport(): RenderedAestheticHarnessReport {
       },
       activeOverlayIds: [1],
       activeOverlayTypes: ['text'],
+      timelineEvidence: [{
+        id: 2,
+        type: 'sound',
+        family: 'sfx',
+        frame: 18,
+        localFrame: 4,
+        durationFrames: 18,
+        role: 'impact',
+        assetId: 'sfx_asset_1',
+        volume: 0.8,
+        hasAtomicForm: true,
+      }],
       fullStill: 'C:\\tmp\\rendered-aesthetic\\proj-demo\\f00018\\full.png',
       baselineStill: 'C:\\tmp\\rendered-aesthetic\\proj-demo\\f00018\\baseline.png',
       report: {
