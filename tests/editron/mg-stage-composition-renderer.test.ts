@@ -304,9 +304,9 @@ describe('MG stage composition renderer', () => {
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
     expect(atoms[0].role).toBe('semantic-concept-contrast-map');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-contrast-left',
+      'semantic-concept-contrast-left-field',
       'semantic-concept-contrast-divider',
-      'semantic-concept-contrast-right',
+      'semantic-concept-contrast-right-field',
     ]));
   });
 
@@ -319,6 +319,11 @@ describe('MG stage composition renderer', () => {
 
     expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
     expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-concept-claim-field',
+      'semantic-concept-claim-left-edge',
+      'semantic-concept-claim-support-rail',
+    ]));
+    expect(atoms[0].children?.map((atom) => atom.role)).not.toEqual(expect.arrayContaining([
       'semantic-concept-node-main',
       'semantic-concept-node-context',
       'semantic-concept-node-proof',
@@ -344,21 +349,21 @@ describe('MG stage composition renderer', () => {
 
     expect(problem[0].role).toBe('semantic-concept-problem-map');
     expect(problem[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-pressure-core',
+      'semantic-concept-pressure-field',
       'semantic-concept-pressure-band-a',
       'semantic-concept-pressure-threshold',
     ]));
     expect(causal[0].role).toBe('semantic-concept-causal-map');
     expect(causal[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-cause-node',
+      'semantic-concept-causal-origin-field',
       'semantic-concept-causal-flow-b',
-      'semantic-concept-effect-node',
+      'semantic-concept-causal-impact-field',
     ]));
     expect(affirming[0].role).toBe('semantic-concept-affirming-map');
     expect(affirming[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
-      'semantic-concept-affirming-core',
+      'semantic-concept-affirming-field',
       'semantic-concept-rising-rail-right',
-      'semantic-concept-affirming-signal-dot',
+      'semantic-concept-affirming-signal-field',
     ]));
   });
 
