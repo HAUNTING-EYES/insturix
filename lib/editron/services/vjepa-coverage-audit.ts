@@ -125,6 +125,20 @@ export interface VjepaReliabilitySummary {
   reasons: string[];
 }
 
+type PrimitiveTrust = 'trusted' | 'degraded' | 'unavailable';
+
+export interface VjepaScreenContextPolicy {
+  mode: 'trusted' | 'degraded' | 'unavailable';
+  score: number;
+  overlayHitRate: number | null;
+  reasons: string[];
+  allowSubjectAvoidance: boolean;
+  allowNegativeSpacePlacement: boolean;
+  allowMotionDirection: boolean;
+  allowTextAvoidance: boolean;
+  primitiveTrust: Record<'motionVector' | 'mainSubject' | 'textCoverage' | 'negativeSpace', PrimitiveTrust>;
+}
+
 interface AuditOptions {
   fps: number;
   originalDurationMs?: number;
@@ -135,7 +149,15 @@ interface AuditOptions {
   targetOverlayTypes?: string[];
 }
 
-const DEFAULT_TARGET_TYPES = new Set(['motion-graphic', 'html-scene', 'sticker', 'text']);
+const DEFAULT_TARGET_TYPES = new Set([
+  'motion-graphic',
+  'html-scene',
+  'sticker',
+  'text',
+  'caption',
+  'transition',
+  'zoom',
+]);
 const SOURCE_TYPES = new Set(['video']);
 
 export function auditVjepaCoverage(options: AuditOptions): VjepaCoverageAudit {
@@ -388,6 +410,72 @@ export function assessVjepaReliability(
     screenAwarePlacement: reasons.length === 0 && score >= 0.9 ? 'trusted' : 'degraded',
     score,
     reasons,
+  };
+}
+
+export function resolveVjepaScreenContextPolicy(audit?: VjepaCoverageAudit | null): VjepaScreenContextPolicy {
+  if (!audit || audit.segmentCoverage.segmentCount === 0) {
+    return {
+      mode: 'unavailable',
+      score: 0,
+      overlayHitRate: audit?.overlayHitRate ?? null,
+      reasons: ['no-usable-vjepa-audit'],
+      allowSubjectAvoidance: false,
+      allowNegativeSpacePlacement: false,
+      allowMotionDirection: false,
+      allowTextAvoidance: false,
+      primitiveTrust: unavailablePrimitiveTrust(),
+    };
+  }
+
+  const reliability = audit.reliability ?? assessVjepaReliability(audit.segmentCoverage, audit.overlayHitRate);
+  if (reliability.screenAwarePlacement === 'unavailable') {
+    return {
+      mode: 'unavailable',
+      score: reliability.score,
+      overlayHitRate: audit.overlayHitRate,
+      reasons: reliability.reasons,
+      allowSubjectAvoidance: false,
+      allowNegativeSpacePlacement: false,
+      allowMotionDirection: false,
+      allowTextAvoidance: false,
+      primitiveTrust: unavailablePrimitiveTrust(),
+    };
+  }
+
+  const overlayTrusted = audit.overlayHitRate == null || audit.overlayHitRate >= 0.9;
+  const fieldCoverage = audit.segmentCoverage.fieldCoverage;
+  const primitiveTrust = {
+    motionVector: primitiveTrustFor(fieldCoverage.motionVector, overlayTrusted),
+    mainSubject: primitiveTrustFor(fieldCoverage.mainSubject, overlayTrusted),
+    textCoverage: primitiveTrustFor(fieldCoverage.textCoverage, overlayTrusted),
+    negativeSpace: primitiveTrustFor(fieldCoverage.negativeSpace, overlayTrusted),
+  };
+
+  return {
+    mode: reliability.screenAwarePlacement,
+    score: reliability.score,
+    overlayHitRate: audit.overlayHitRate,
+    reasons: reliability.reasons,
+    allowSubjectAvoidance: primitiveTrust.mainSubject === 'trusted',
+    allowNegativeSpacePlacement: primitiveTrust.negativeSpace === 'trusted',
+    allowMotionDirection: primitiveTrust.motionVector === 'trusted',
+    allowTextAvoidance: primitiveTrust.textCoverage === 'trusted',
+    primitiveTrust,
+  };
+}
+
+function primitiveTrustFor(coverage: number, overlayTrusted: boolean): PrimitiveTrust {
+  if (!Number.isFinite(coverage) || coverage <= 0) return 'unavailable';
+  return coverage >= 0.9 && overlayTrusted ? 'trusted' : 'degraded';
+}
+
+function unavailablePrimitiveTrust(): VjepaScreenContextPolicy['primitiveTrust'] {
+  return {
+    motionVector: 'unavailable',
+    mainSubject: 'unavailable',
+    textCoverage: 'unavailable',
+    negativeSpace: 'unavailable',
   };
 }
 

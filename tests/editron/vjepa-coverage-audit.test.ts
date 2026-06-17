@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { auditVjepaCoverage, summarizeSegments } from '../../lib/editron/services/vjepa-coverage-audit';
+import {
+  auditVjepaCoverage,
+  resolveVjepaScreenContextPolicy,
+  summarizeSegments,
+} from '../../lib/editron/services/vjepa-coverage-audit';
 
 describe('V-JEPA coverage audit', () => {
   it('maps overlay frames from cut timeline back to original V-JEPA segment time', () => {
@@ -143,6 +147,99 @@ describe('V-JEPA coverage audit', () => {
       screenAwarePlacement: 'unavailable',
       score: 0,
       reasons: ['no-vjepa-segments'],
+    });
+  });
+
+  it('includes caption, transition, and zoom overlays in default screen-aware hit coverage', () => {
+    const audit = auditVjepaCoverage({
+      fps: 30,
+      originalDurationMs: 4_000,
+      vjepaSegments: [
+        {
+          startMs: 0,
+          endMs: 4_000,
+          visualSignificance: 0.8,
+          motionIntensity: 0.4,
+          actionType: 'talking',
+          motionType: 'stable',
+          motionVectorX: 0.01,
+          motionVectorY: 0.02,
+          mainSubject: { x: 0.25, y: 0.1, width: 0.45, height: 0.7 },
+          textCoverage: 0.05,
+          negativeSpaceTop: 0.15,
+          negativeSpaceRight: 0.3,
+          negativeSpaceBottom: 0.12,
+          negativeSpaceLeft: 0.2,
+        },
+      ],
+      overlays: [
+        { id: 'clip', type: 'video', from: 0, durationInFrames: 120, sourceStartFrame: 0 },
+        { id: 'cap', type: 'caption', from: 15, durationInFrames: 30 },
+        { id: 'tr', type: 'transition', from: 45, durationInFrames: 12 },
+        { id: 'zoom', type: 'zoom', from: 75, durationInFrames: 30 },
+      ],
+    });
+
+    expect(audit.overlayHits.map((hit) => hit.overlayType)).toEqual(['caption', 'transition', 'zoom']);
+    expect(audit.overlayHitRate).toBe(1);
+  });
+
+  it('resolves unavailable screen-context policy when no usable audit exists', () => {
+    expect(resolveVjepaScreenContextPolicy(null)).toEqual({
+      mode: 'unavailable',
+      score: 0,
+      overlayHitRate: null,
+      reasons: ['no-usable-vjepa-audit'],
+      allowSubjectAvoidance: false,
+      allowNegativeSpacePlacement: false,
+      allowMotionDirection: false,
+      allowTextAvoidance: false,
+      primitiveTrust: {
+        motionVector: 'unavailable',
+        mainSubject: 'unavailable',
+        textCoverage: 'unavailable',
+        negativeSpace: 'unavailable',
+      },
+    });
+  });
+
+  it('allows only trusted primitive dimensions when V-JEPA is degraded', () => {
+    const audit = auditVjepaCoverage({
+      fps: 30,
+      originalDurationMs: 4_000,
+      vjepaSegments: [
+        {
+          startMs: 0,
+          endMs: 4_000,
+          visualSignificance: 0.8,
+          motionIntensity: 0.4,
+          actionType: 'talking',
+          motionType: 'stable',
+          mainSubject: { x: 0.25, y: 0.1, width: 0.45, height: 0.7 },
+          negativeSpaceTop: 0.15,
+          negativeSpaceRight: 0.3,
+          negativeSpaceBottom: 0.12,
+          negativeSpaceLeft: 0.2,
+        },
+      ],
+      overlays: [
+        { id: 'clip', type: 'video', from: 0, durationInFrames: 120, sourceStartFrame: 0 },
+        { id: 'cap', type: 'caption', from: 15, durationInFrames: 30 },
+      ],
+    });
+
+    const policy = resolveVjepaScreenContextPolicy(audit);
+
+    expect(policy.mode).toBe('degraded');
+    expect(policy.allowSubjectAvoidance).toBe(true);
+    expect(policy.allowNegativeSpacePlacement).toBe(true);
+    expect(policy.allowMotionDirection).toBe(false);
+    expect(policy.allowTextAvoidance).toBe(false);
+    expect(policy.primitiveTrust).toEqual({
+      motionVector: 'unavailable',
+      mainSubject: 'trusted',
+      textCoverage: 'unavailable',
+      negativeSpace: 'trusted',
     });
   });
 
