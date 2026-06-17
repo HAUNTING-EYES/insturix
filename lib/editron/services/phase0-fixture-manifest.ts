@@ -142,7 +142,7 @@ export function buildPhase0FixtureManifest(
     oldProducerGating: summarizeOldProducerGating(project),
     qualityReview: summarizeQualityReview(project),
     vjepaCoverage: summarizeVjepaCoverage(project, overlays, fps),
-    overlayFamilies: summarizeOverlayFamilies(overlays),
+    overlayFamilies: summarizeOverlayFamilies(overlays, project.playerDimensions),
     renderArtifacts: {
       status: 'not-rendered',
       artifactDir: options.artifactDir ?? null,
@@ -649,7 +649,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
   };
 }
 
-function summarizeOverlayFamilies(overlays: Phase0OverlayLike[]) {
+function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimensions?: { width?: number; height?: number }) {
   return {
     motionGraphics: overlays
       .filter((overlay) => overlay.type === 'motion-graphic')
@@ -670,6 +670,10 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[]) {
         .filter((overlay) => overlay.type === 'caption' || overlay.type === 'text')
         .map(captionStyleSignature)
         .filter(Boolean)),
+      geometryMismatches: overlays
+        .filter((overlay) => overlay.type === 'caption' || overlay.type === 'text')
+        .map((overlay) => captionGeometryMismatch(overlay, playerDimensions))
+        .filter(Boolean),
     },
     transitions: {
       count: overlays.filter((overlay) => overlay.type === 'transition').length,
@@ -766,6 +770,43 @@ function captionStyleSignature(overlay: Phase0OverlayLike) {
     readString(metadata.captionStyle),
     readString(metadata.captionPresentation),
   ].filter(Boolean).join('|');
+}
+
+function captionGeometryMismatch(overlay: Phase0OverlayLike, playerDimensions?: { width?: number; height?: number }) {
+  const metadata = overlay.metadata ?? {};
+  const presentation = isRecord(metadata.captionPresentation) ? metadata.captionPresentation : {};
+  const aesthetic = isRecord(presentation.aesthetic) ? presentation.aesthetic : {};
+  const layout = readString(aesthetic.layout);
+  if (!layout) return null;
+
+  const evidence = isRecord(metadata.evidence) ? metadata.evidence : {};
+  const selectedRegion = readString(evidence.selectedRegion);
+
+  const top = readNullableNumber(overlay.top);
+  const height = readNullableNumber(overlay.height);
+  const resolvedHeight = readNullableNumber(playerDimensions?.height);
+  if (top == null || height == null || resolvedHeight == null || resolvedHeight <= 0) return null;
+
+  const normalizedTop = top / resolvedHeight;
+  const normalizedCenter = (top + height / 2) / resolvedHeight;
+  const normalizedBottom = (top + height) / resolvedHeight;
+  const wantsLower = /\b(subtitle|balanced|lower|bottom)\b/i.test(layout);
+  const wantsUpper = /\b(upper|top)\b/i.test(layout);
+  const lowerMismatch = wantsLower && normalizedCenter < 0.5;
+  const upperMismatch = wantsUpper && normalizedCenter > 0.5;
+  if (!lowerMismatch && !upperMismatch) return null;
+
+  return {
+    id: overlayId(overlay),
+    layout,
+    selectedRegion: selectedRegion || null,
+    top,
+    height,
+    normalizedTop: round(normalizedTop),
+    normalizedCenter: round(normalizedCenter),
+    normalizedBottom: round(normalizedBottom),
+    expectedRegion: wantsLower ? 'lower-half' : 'upper-half',
+  };
 }
 
 function readFrame(value: unknown) {

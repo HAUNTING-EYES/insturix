@@ -261,6 +261,67 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('warns when persisted caption geometry contradicts its declared layout', () => {
+    const project = cleanProject();
+    project.playerDimensions = { width: 1920, height: 1080 };
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 0 },
+      {
+        id: 'caption-stale',
+        type: 'caption',
+        from: 0,
+        durationInFrames: 180,
+        top: 86,
+        left: 320,
+        width: 1280,
+        height: 130,
+        captions: [{ text: 'this is readable caption text' }],
+        metadata: {
+          source: 'canonical-caption-track',
+          captionPresentation: {
+            version: 'atomic-caption-form-v1',
+            aesthetic: {
+              layout: 'subtitle-lower',
+              surface: 'subtitle-panel',
+            },
+          },
+          evidence: {
+            selectedRegion: 'bottom-center',
+          },
+        },
+      },
+    ];
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_caption_mismatch',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_caption_mismatch',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.status).toBe('warn');
+    expect(taxonomy.classes.find((item) => item.id === 'overlay.caption_layout_mismatch')).toMatchObject({
+      severity: 'warn',
+      evidence: {
+        count: 1,
+        canvas: { width: 1920, height: 1080 },
+        samples: [{
+          id: 'caption-stale',
+          layout: 'subtitle-lower',
+          selectedRegion: 'bottom-center',
+          top: 86,
+          height: 130,
+          normalizedTop: 0.08,
+          normalizedCenter: 0.14,
+          normalizedBottom: 0.2,
+          expectedRegion: 'lower-half',
+        }],
+      },
+    });
+  });
+
   it('warns when cut plan evidence is missing from a Phase 0 fixture', () => {
     const project = cleanProject();
     project.rawFootageAnalysis = undefined;

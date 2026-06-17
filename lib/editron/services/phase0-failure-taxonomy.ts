@@ -317,6 +317,29 @@ function addOverlayClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtur
       evidence: { count: sfx.count, withAtomicForm: sfx.withAtomicForm },
     });
   }
+
+  addCaptionLayoutMismatchClass(classes, manifest);
+}
+
+function addCaptionLayoutMismatchClass(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+  const canvasWidth = positiveNumber(manifest.canvas.width, 0);
+  const canvasHeight = positiveNumber(manifest.canvas.height, 0);
+  if (canvasWidth <= 0 || canvasHeight <= 0) return;
+
+  const samples = manifest.overlayFamilies.captions.geometryMismatches.slice(0, TIMELINE_SAMPLE_LIMIT);
+  if (samples.length === 0) return;
+
+  classes.push({
+    id: 'overlay.caption_layout_mismatch',
+    severity: 'warn',
+    source: 'overlay',
+    message: 'Caption overlay geometry contradicts its declared presentation layout.',
+    evidence: {
+      count: manifest.overlayFamilies.captions.geometryMismatches.length,
+      canvas: { width: canvasWidth, height: canvasHeight },
+      samples,
+    },
+  });
 }
 
 function addRenderClasses(
