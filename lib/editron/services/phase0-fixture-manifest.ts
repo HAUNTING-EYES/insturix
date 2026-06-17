@@ -650,6 +650,8 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
 }
 
 function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimensions?: { width?: number; height?: number }) {
+  const captionOverlays = overlays.filter((overlay) => overlay.type === 'caption' || overlay.type === 'text');
+  const captionStats = summarizeCaptionStats(captionOverlays);
   return {
     motionGraphics: overlays
       .filter((overlay) => overlay.type === 'motion-graphic')
@@ -665,13 +667,18 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         relationCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'relations'),
       })),
     captions: {
-      count: overlays.filter((overlay) => overlay.type === 'caption' || overlay.type === 'text').length,
-      styleSignatures: unique(overlays
-        .filter((overlay) => overlay.type === 'caption' || overlay.type === 'text')
+      count: captionOverlays.length,
+      trackCount: captionOverlays.filter((overlay) => overlay.type === 'caption').length,
+      textOverlayCount: captionOverlays.filter((overlay) => overlay.type === 'text').length,
+      groupCount: captionStats.groupCount,
+      wordCount: captionStats.wordCount,
+      timedGroupCount: captionStats.timedGroupCount,
+      averageGroupDurationMs: captionStats.averageGroupDurationMs,
+      maxGroupDurationMs: captionStats.maxGroupDurationMs,
+      styleSignatures: unique(captionOverlays
         .map(captionStyleSignature)
         .filter(Boolean)),
-      geometryMismatches: overlays
-        .filter((overlay) => overlay.type === 'caption' || overlay.type === 'text')
+      geometryMismatches: captionOverlays
         .map((overlay) => captionGeometryMismatch(overlay, playerDimensions))
         .filter(Boolean),
     },
@@ -708,6 +715,54 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
       overlaysWithKeyframes: overlays.filter((overlay) => overlay.type === 'video' && Array.isArray(overlay.metadata?.zoomKeyframes)).length,
     },
   };
+}
+
+function summarizeCaptionStats(overlays: Phase0OverlayLike[]) {
+  let groupCount = 0;
+  let wordCount = 0;
+  const groupDurations: number[] = [];
+
+  for (const overlay of overlays) {
+    const groups = captionGroups(overlay);
+    groupCount += groups.length;
+    wordCount += captionWordCount(overlay, groups);
+    for (const group of groups) {
+      const startMs = readNullableNumber(group.startMs);
+      const endMs = readNullableNumber(group.endMs);
+      if (startMs != null && endMs != null && endMs > startMs) {
+        groupDurations.push(endMs - startMs);
+      }
+    }
+  }
+
+  return {
+    groupCount,
+    wordCount,
+    timedGroupCount: groupDurations.length,
+    averageGroupDurationMs: groupDurations.length > 0
+      ? Math.round(groupDurations.reduce((sum, duration) => sum + duration, 0) / groupDurations.length)
+      : null,
+    maxGroupDurationMs: groupDurations.length > 0 ? Math.max(...groupDurations) : null,
+  };
+}
+
+function captionGroups(overlay: Phase0OverlayLike): JsonRecord[] {
+  if (Array.isArray(overlay.captions)) {
+    return overlay.captions.filter(isRecord);
+  }
+  const text = readString(overlay.captionText ?? overlay.text ?? overlay.content);
+  return text ? [{ text }] : [];
+}
+
+function captionWordCount(overlay: Phase0OverlayLike, groups: JsonRecord[]): number {
+  if (Array.isArray(overlay.words)) {
+    return overlay.words.filter((word) => isRecord(word) || typeof word === 'string').length;
+  }
+  return groups.reduce((count, group) => count + splitWords(group.text).length, 0);
+}
+
+function splitWords(value: unknown): string[] {
+  return typeof value === 'string' ? value.trim().split(/\s+/).filter(Boolean) : [];
 }
 
 function transitionBoundaryEvidenceMissing(overlay: Phase0OverlayLike) {

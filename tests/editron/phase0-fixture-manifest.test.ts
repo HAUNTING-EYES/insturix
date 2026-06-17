@@ -367,7 +367,17 @@ describe('phase0 fixture manifest', () => {
       semanticAtomCount: 1,
       relationCount: 1,
     });
-    expect(manifest.overlayFamilies.captions.styleSignatures).toEqual(['Inter|#ffffff|clean']);
+    expect(manifest.overlayFamilies.captions).toMatchObject({
+      count: 1,
+      trackCount: 1,
+      textOverlayCount: 0,
+      groupCount: 1,
+      wordCount: 2,
+      timedGroupCount: 0,
+      averageGroupDurationMs: null,
+      maxGroupDurationMs: null,
+      styleSignatures: ['Inter|#ffffff|clean'],
+    });
     expect(manifest.overlayFamilies.transitions).toMatchObject({
       count: 1,
       types: ['whip-pan'],
