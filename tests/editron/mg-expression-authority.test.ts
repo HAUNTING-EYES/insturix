@@ -233,8 +233,8 @@ describe('MG expression authority', () => {
       suppressDecorativeAccents: true,
       preferDataViz: true,
     }));
-    expect(resolvedRecipe.layout.position).toBe('center');
-    expect(resolvedRecipe.layout.maxWidth).toBe('88%');
+    expect(resolvedRecipe.layout.position).toBe('top-right');
+    expect(resolvedRecipe.layout.maxWidth).toBe('40%');
     expect(resolvedRecipe.layout.captionZoneAware).toBe(true);
     expect(resolvedRecipe.layout.arrangement).toBe('vertical-stack');
   });
@@ -293,16 +293,16 @@ describe('MG expression authority', () => {
 
     expect(split.visualIntent?.stageMode).toBe('split-footage-graphic');
     expect(split.layout).toEqual(expect.objectContaining({
-      position: 'center',
-      maxWidth: '92%',
-      arrangement: 'horizontal-distributed',
+      position: 'top-right',
+      maxWidth: '64%',
+      arrangement: 'vertical-stack',
       captionZoneAware: true,
     }));
 
     expect(device.visualIntent?.stageMode).toBe('device-or-screen-scene');
     expect(device.layout).toEqual(expect.objectContaining({
-      position: 'center',
-      maxWidth: '78%',
+      position: 'top-right',
+      maxWidth: '64%',
       captionZoneAware: true,
     }));
 

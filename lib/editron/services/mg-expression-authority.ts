@@ -239,9 +239,10 @@ export function applyMgExpressionAuthorityToRecipe(
     maxWidth: authority.layout.maxWidth,
     captionZoneAware: authority.layout.captionZoneAware,
   };
+  const layout = applyVisualIntentToLayout(authorityLayout, visualIntent);
   return {
     ...recipe,
-    layout: applyVisualIntentToLayout(authorityLayout, visualIntent),
+    layout: enforceCaptionSafeCenterLayout(layout),
     visualIntent,
   };
 }
@@ -552,7 +553,25 @@ function applyVisualIntentToLayout(
   layout: RecipeLayout,
   visualIntent: RecipeVisualIntent,
 ): RecipeLayout {
+  const captionCoordinated = visualIntent.choreography.coordinateWithCaptions
+    || visualIntent.renderDirectives.captionZoneAware;
+  const captionSafePosition: RecipeLayout['position'] = layout.position === 'top-left'
+    || layout.position === 'top-right'
+    || layout.position === 'bottom-left'
+    || layout.position === 'bottom-right'
+      ? layout.position
+      : 'top-right';
+
   if (visualIntent.renderDirectives.preferSplitLayout) {
+    if (captionCoordinated) {
+      return {
+        ...layout,
+        position: captionSafePosition,
+        maxWidth: layout.maxWidth ?? '68%',
+        arrangement: 'vertical-stack',
+        captionZoneAware: true,
+      };
+    }
     return {
       ...layout,
       position: 'center',
@@ -562,6 +581,15 @@ function applyVisualIntentToLayout(
     };
   }
   if (visualIntent.renderDirectives.preferFullFrame) {
+    if (captionCoordinated) {
+      return {
+        ...layout,
+        position: captionSafePosition,
+        maxWidth: layout.maxWidth ?? '68%',
+        arrangement: 'vertical-stack',
+        captionZoneAware: true,
+      };
+    }
     return {
       ...layout,
       position: 'center',
@@ -571,6 +599,14 @@ function applyVisualIntentToLayout(
     };
   }
   if (visualIntent.renderDirectives.preferDeviceFrame) {
+    if (captionCoordinated) {
+      return {
+        ...layout,
+        position: captionSafePosition,
+        maxWidth: layout.maxWidth ?? '68%',
+        captionZoneAware: true,
+      };
+    }
     return {
       ...layout,
       position: 'center',
@@ -587,9 +623,28 @@ function applyVisualIntentToLayout(
     };
   }
   if (visualIntent.renderDirectives.captionZoneAware) {
+    if (layout.position === 'center') {
+      return {
+        ...layout,
+        position: captionSafePosition,
+        maxWidth: layout.maxWidth ?? '68%',
+        captionZoneAware: true,
+      };
+    }
     return {
       ...layout,
       captionZoneAware: true,
+    };
+  }
+  return layout;
+}
+
+function enforceCaptionSafeCenterLayout(layout: RecipeLayout): RecipeLayout {
+  if (layout.captionZoneAware === true && layout.position === 'center') {
+    return {
+      ...layout,
+      position: 'top-right',
+      maxWidth: layout.maxWidth ?? '68%',
     };
   }
   return layout;

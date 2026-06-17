@@ -3,7 +3,24 @@ import { MongoClient } from 'mongodb';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { EditDecision, EditDecisionList } from '../lib/editron/services/reactive-edit-engine';
+import { ROW } from '../lib/pipeline/scene-to-editron';
+import { resolveMotionTokens } from '../lib/editron/data/motion-theme-resolver';
+import { normalizeMotionGraphicContent } from '../lib/editron/services/mg-content-atoms';
+import { resolveAtomicPlacement } from '../lib/editron/services/atomic-placement';
+import {
+  applyMgExpressionAuthorityToRecipe,
+  applyMgExpressionAuthorityToScores,
+  resolveMgExpressionAuthority,
+} from '../lib/editron/services/mg-expression-authority';
+import { planComposition, type MgOverlayScores } from '../lib/editron/motion-graphics/engine/composition-planner';
+import { checkCompositionStructure } from '../lib/editron/motion-graphics/engine/structural-gate';
+import { buildAtomicOverlayPlan } from '../lib/editron/motion-graphics/engine/atomic-overlay-plan';
+import { decideAtomicOverlay } from '../lib/editron/motion-graphics/engine/atomic-overlay-decision';
+import {
+  resolveSemanticMgLedgerGate,
+  selectSemanticMgCandidate,
+} from '../lib/editron/motion-graphics/engine/semantic-mg-candidates';
+import type { EditDecision } from '../lib/editron/services/reactive-edit-engine';
 import type { CreativeIntentPlan } from '../lib/editron/services/unified-edit-intelligence';
 import {
   evaluateRealProjectMgTasteGate,
@@ -61,7 +78,7 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.projectId) usage();
 
-  console.log('Importing live MG translator/executor...');
+  console.log('Importing live MG translator...');
   const { translateCreativeIntentToEDL } = await import('../lib/editron/services/intent-translator');
 
   const uri = process.env.MONGODB_URI ?? '';
@@ -138,20 +155,15 @@ async function main(): Promise<void> {
       return;
     }
 
-    const edl = buildGraphicOnlyEDL(String(project.projectId ?? args.projectId), replayGraphicDecisions, fps, project.durationInFrames);
-
-    const { executeEDL } = await import('../lib/editron/services/edl-executor');
     const replayOverlays = deepClone(overlays)
       .filter((overlay) => overlay.type !== 'motion-graphic' && overlay.type !== 'html-scene');
     const canvas = inferCanvas(overlays, numeric(project.width), numeric(project.height));
-    console.log('Executing graphic-only EDL on cloned overlays...');
-    const execution = await executeEDL(
-      edl,
+    console.log('Replaying semantic MG decisions through MG-only composition path...');
+    const execution = replaySemanticMotionGraphics(
       String(project.projectId ?? args.projectId),
-      String(project.userId ?? ''),
-      replayOverlays as any,
+      replayGraphicDecisions,
+      replayOverlays,
       canvas,
-      new Map(),
       graphicsDensity,
     );
 
@@ -185,7 +197,7 @@ async function main(): Promise<void> {
     fs.writeFileSync(reportPath, JSON.stringify({
       projectId: String(project.projectId ?? args.projectId),
       artifactProjectId,
-      replayMode: 'transcript-semantic-facts-only',
+      replayMode: 'transcript-semantic-facts-mg-only-composition',
       writesToMongo: false,
       input: {
         fps,
@@ -204,8 +216,6 @@ async function main(): Promise<void> {
       },
       execution: {
         ...execution,
-        budgetRejectedZoomAssetIds: [...execution.budgetRejectedZoomAssetIds],
-        zoomedAssetIds: [...execution.zoomedAssetIds],
       },
       renderedMotionGraphics: motionGraphics.length,
       gate,
@@ -218,7 +228,7 @@ async function main(): Promise<void> {
     console.log(`Semantic MG rerun probe: ${String(project.projectId ?? args.projectId)}`);
     console.log(`Scenes=${scenes.length} words=${transcriptWords.length} density=${graphicsDensity}`);
     console.log(`Translated graphic decisions=${graphicDecisions.length} replayed=${replayGraphicDecisions.length}`);
-    console.log(`Executed=${execution.decisionsExecuted} skipped=${execution.decisionsSkipped} newMGs=${motionGraphics.length}`);
+    console.log(`Replayed=${execution.decisionsExecuted} skipped=${execution.decisionsSkipped} newMGs=${motionGraphics.length}`);
     console.log(`Taste gate=${gate.status} score=${gate.score}`);
     console.log(JSON.stringify(gate.summary, null, 2));
     for (const finding of gate.findings) {
@@ -258,52 +268,364 @@ function buildEmptyGraphicIntentPlan(projectId: string, scenes: SceneFrameContex
   };
 }
 
-function buildGraphicOnlyEDL(
+interface MgReplayResult {
+  decisionsExecuted: number;
+  decisionsSkipped: number;
+  overlaysCreated: number;
+  overlaysModified: number;
+  errors: string[];
+  rejectedDecisions: Array<{
+    type: string;
+    frame: number;
+    reason: string;
+    params?: Record<string, unknown>;
+  }>;
+}
+
+function replaySemanticMotionGraphics(
   projectId: string,
   decisions: ReturnType<TranslateCreativeIntentToEDL>['decisions'],
-  fps: number,
-  durationInFrames: unknown,
-): EditDecisionList {
-  const editDecisions: EditDecision[] = decisions.map((decision, index) => ({
-    type: 'graphic',
-    frame: decision.frame,
-    durationFrames: decision.durationFrames,
-    priority: 2,
-    source: decision.sources.join('+') || 'semantic-mg-rerun',
-    sources: decision.sources,
-    signal: 'semantic-mg-rerun',
-    reason: decision.reason,
-    params: decision.params,
-    confidence: decision.confidence,
-    trigger: {
-      track: 'transcript',
-      signal: 'licensed-semantic-mg-fact',
-      confidence: decision.confidence,
-    },
-    action: {
-      tool: 'motion-graphic',
+  overlays: Array<Record<string, unknown>>,
+  canvas: { width: number; height: number },
+  graphicsDensity: 'heavy' | 'moderate' | 'minimal',
+): MgReplayResult {
+  const result: MgReplayResult = {
+    decisionsExecuted: 0,
+    decisionsSkipped: 0,
+    overlaysCreated: 0,
+    overlaysModified: 0,
+    errors: [],
+    rejectedDecisions: [],
+  };
+  const idEpoch = deterministicEpoch(projectId);
+
+  decisions.forEach((decision, index) => {
+    const replayDecision: EditDecision = {
+      type: 'graphic',
+      frame: decision.frame,
+      durationFrames: decision.durationFrames,
+      priority: 2,
+      source: decision.sources.join('+') || 'semantic-mg-rerun',
+      sources: decision.sources,
+      signal: 'semantic-mg-rerun',
+      reason: decision.reason,
       params: decision.params,
-    },
-  }));
-  const averageConfidence = editDecisions.length > 0
-    ? editDecisions.reduce((sum, decision) => sum + decision.confidence, 0) / editDecisions.length
-    : 0;
-  const durationFramesNumber = numeric(durationInFrames) ?? Math.max(...editDecisions.map((decision) => decision.frame + (decision.durationFrames ?? fps * 3)), fps * 30);
-  const minutes = Math.max(durationFramesNumber / fps / 60, 1 / 60);
+      confidence: decision.confidence,
+      trigger: {
+        track: 'transcript',
+        signal: 'licensed-semantic-mg-fact',
+        confidence: decision.confidence,
+      },
+      action: {
+        tool: 'motion-graphic',
+        params: decision.params,
+      },
+    };
+    try {
+      const overlay = composeSemanticMotionGraphicOverlay(
+        replayDecision,
+        overlays,
+        canvas,
+        idEpoch,
+        index,
+        graphicsDensity,
+      );
+      if (!overlay) {
+        result.decisionsSkipped++;
+        result.rejectedDecisions.push({
+          type: 'graphic',
+          frame: replayDecision.frame,
+          reason: 'MG-only replay skipped decision before composition',
+          params: {
+            text: String(replayDecision.params.text ?? replayDecision.params.title ?? '').slice(0, 80),
+            factKind: replayDecision.params.factKind,
+          },
+        });
+        return;
+      }
+      overlays.push(overlay);
+      result.decisionsExecuted++;
+      result.overlaysCreated++;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result.decisionsSkipped++;
+      result.errors.push(`graphic@${replayDecision.frame}: ${message}`);
+      result.rejectedDecisions.push({
+        type: 'graphic',
+        frame: replayDecision.frame,
+        reason: message,
+        params: {
+          text: String(replayDecision.params.text ?? replayDecision.params.title ?? '').slice(0, 80),
+          factKind: replayDecision.params.factKind,
+        },
+      });
+    }
+  });
+
+  return result;
+}
+
+function composeSemanticMotionGraphicOverlay(
+  decision: EditDecision,
+  overlays: Array<Record<string, unknown>>,
+  canvas: { width: number; height: number },
+  idEpoch: number,
+  decisionIndex: number,
+  graphicsDensity: 'heavy' | 'moderate' | 'minimal',
+): Record<string, unknown> | null {
+  const {
+    brand,
+    signals: _signalsForContent,
+    mgOverlayScores,
+    graphicType: _graphicTypeForContent,
+    creativeDecisionType: _creativeDecisionTypeForContent,
+    placementAdjustment: _placementAdjustmentForContent,
+    position,
+    ...contentParamsForNormalization
+  } = decision.params;
+  const normalizedGraphicContent = normalizeMotionGraphicContent(contentParamsForNormalization);
+  const contentMap = normalizedGraphicContent.content;
+
+  if (!hasRenderableGraphicContent(contentMap)) return null;
+
+  const semanticMgLedgerGate = resolveSemanticMgLedgerGate(normalizedGraphicContent.semanticMgCandidateLedger);
+  if (!semanticMgLedgerGate.allow) return null;
+
+  const semanticMgCandidateSelection = selectSemanticMgCandidate(normalizedGraphicContent.semanticMgCandidateLedger);
+  const rawSignals = buildProbeMotionGraphicSignalSnapshot(decision);
+  const tokens = resolveMotionTokens(rawSignals, objectRecord(brand) ?? {});
+  const requestedPlacementRegion = normalizePlacementRegion(position);
+  const atomicPlacement = resolveAtomicPlacement({
+    family: 'graphic',
+    signals: rawSignals,
+    requestedRegion: requestedPlacementRegion as any,
+  });
+  const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
+  let scores = objectRecord(mgOverlayScores) as MgOverlayScores | undefined;
+
+  const mgExpressionAuthority = resolveMgExpressionAuthority({
+    content: contentMap,
+    structure: normalizedGraphicContent.structure,
+    semanticAtoms: normalizedGraphicContent.semanticAtoms,
+    signals: rawSignals,
+    placementRegion,
+    graphicsDensity,
+    ...(semanticMgCandidateSelection.selectedCandidate
+      ? { semanticCandidate: semanticMgCandidateSelection.selectedCandidate }
+      : {}),
+  });
+  if (!mgExpressionAuthority.allowMotionGraphic) return null;
+
+  scores = applyMgExpressionAuthorityToScores(scores, mgExpressionAuthority);
+  const recipe = applyMgExpressionAuthorityToRecipe(
+    planComposition(
+      { content: contentMap, triggerMoment: decision.reason },
+      tokens,
+      rawSignals,
+      scores,
+    ),
+    mgExpressionAuthority,
+  );
+  const gateResult = checkCompositionStructure(recipe, tokens);
+  const atomicOverlayPlan = buildAtomicOverlayPlan(recipe, tokens, contentMap, rawSignals, scores, objectRecord(brand) ?? {});
+  const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
+  const snappedFrame = findClipAtFrame(decision.frame, overlays, 20) ?? decision.frame;
+  const baseDuration = resolveGraphicDwellFrames(decision.durationFrames ?? 90, decision.params, contentMap);
+  const compositionDuration = Math.max(
+    mgExpressionAuthority.duration.minFrames,
+    Math.min(
+      mgExpressionAuthority.duration.maxFrames,
+      Math.round(baseDuration * mgExpressionAuthority.duration.multiplier),
+    ),
+  );
+
   return {
-    projectId,
-    generatedAt: new Date(0),
-    totalDecisions: editDecisions.length,
-    decisions: editDecisions,
-    stats: {
-      cutsPerMinute: 0 / minutes,
-      transitionCount: 0,
-      graphicCount: editDecisions.length,
-      zoomCount: 0,
-      speedChangeCount: 0,
-      averageConfidence,
+    id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
+    type: 'motion-graphic',
+    from: snappedFrame,
+    durationInFrames: compositionDuration,
+    row: ROW.BGM,
+    left: 0,
+    top: 0,
+    width: canvas.width,
+    height: canvas.height,
+    isDragging: false,
+    rotation: 0,
+    recipe,
+    resolvedTokens: tokens,
+    contentSignals: rawSignals,
+    content: contentMap,
+    styles: { opacity: 1, backgroundColor: 'transparent' },
+    metadata: {
+      sourceType: 'semantic-mg-rerun-probe',
+      graphicType: 'atomic-graphic',
+      compositionEngine: true,
+      placementRegion,
+      atomicPlacement,
+      atomicOverlayPlan,
+      atomicOverlayDecision,
+      atomicPlanObserveMode: true,
+      structuralGate: gateResult,
+      mgExpressionAuthority,
+      visualExplanationContract: mgExpressionAuthority.visualExplanationContract,
+      semanticMgCandidateLedger: normalizedGraphicContent.semanticMgCandidateLedger,
+      semanticMgCandidateSelection,
+      contentStructure: normalizedGraphicContent.structure,
+      semanticAtoms: normalizedGraphicContent.semanticAtoms,
+      edlSource: decision.source,
+      edlReason: decision.reason,
     },
   };
+}
+
+function deterministicEpoch(projectId: string): number {
+  let idEpoch = 2166136261 >>> 0;
+  for (let index = 0; index < projectId.length; index += 1) {
+    idEpoch ^= projectId.charCodeAt(index);
+    idEpoch = Math.imul(idEpoch, 16777619) >>> 0;
+  }
+  return idEpoch;
+}
+
+function deterministicOverlayId(epoch: number, decisionType: string, frame: number, index: number): number {
+  let hash = 2166136261 >>> 0;
+  const source = `${epoch}|${decisionType}|${frame}|${index}`;
+  for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+    hash ^= source.charCodeAt(sourceIndex);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return epoch * 1_000_000 + (hash % 1_000_000);
+}
+
+function hasRenderableGraphicContent(content: Record<string, unknown>): boolean {
+  const renderableKeys = [
+    'text',
+    'keyword',
+    'title',
+    'body',
+    'value',
+    'label',
+    'name',
+    'quote',
+    'from',
+    'to',
+    'items',
+    'values',
+    'labels',
+  ];
+  return renderableKeys.some((key) => hasNonEmptyValue(content[key]));
+}
+
+function hasNonEmptyValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== undefined && value !== null;
+}
+
+function buildProbeMotionGraphicSignalSnapshot(decision: EditDecision): Record<string, number | string> {
+  const raw = objectRecord(decision.params.signals) ?? {};
+  const snapshot: Record<string, number | string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'number' && Number.isFinite(value)) snapshot[key] = value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      snapshot[key] = Number.isFinite(parsed) ? parsed : value.trim();
+    }
+  }
+  const salience = numeric(decision.params.salience);
+  if (salience != null && snapshot.salience == null) snapshot.salience = salience;
+  if (snapshot.emotional_arousal == null) snapshot.emotional_arousal = 0.45;
+  if (snapshot.pacing_velocity == null) snapshot.pacing_velocity = 0.45;
+  if (snapshot.visual_dependency == null) snapshot.visual_dependency = 0.5;
+  return snapshot;
+}
+
+function normalizePlacementRegion(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  const record = objectRecord(value);
+  if (!record) return undefined;
+  const x = numeric(record.x);
+  const y = numeric(record.y);
+  if (x == null || y == null) return undefined;
+  if (y < 0.34) return x < 0.4 ? 'top-left' : x > 0.6 ? 'top-right' : 'top-center';
+  if (y > 0.66) return x < 0.4 ? 'bottom-left' : x > 0.6 ? 'bottom-right' : 'bottom-center';
+  return x < 0.4 ? 'middle-left' : x > 0.6 ? 'middle-right' : 'center';
+}
+
+function findClipAtFrame(
+  frame: number,
+  overlays: Array<Record<string, unknown>>,
+  tolerance: number,
+): number | undefined {
+  const exact = overlays.find((overlay) => {
+    const from = numeric(overlay.from);
+    const duration = numeric(overlay.durationInFrames);
+    return overlay.type === 'video'
+      && from != null
+      && duration != null
+      && from <= frame
+      && from + duration > frame;
+  });
+  if (exact) return frame;
+
+  let bestFrame: number | undefined;
+  let bestDrift = Infinity;
+  for (const overlay of overlays) {
+    if (overlay.type !== 'video') continue;
+    const from = numeric(overlay.from);
+    const duration = numeric(overlay.durationInFrames);
+    if (from == null || duration == null) continue;
+    const end = from + duration;
+    const beforeDrift = from - frame;
+    const afterDrift = frame - end + 1;
+    if (beforeDrift >= 0 && beforeDrift <= tolerance && beforeDrift < bestDrift) {
+      bestDrift = beforeDrift;
+      bestFrame = from + 1;
+    }
+    if (afterDrift >= 0 && afterDrift <= tolerance && afterDrift < bestDrift) {
+      bestDrift = afterDrift;
+      bestFrame = end - 1;
+    }
+  }
+  return bestFrame;
+}
+
+function resolveGraphicDwellFrames(
+  baseDurationFrames: number,
+  params: Record<string, unknown>,
+  content: Record<string, unknown>,
+): number {
+  const base = Math.max(30, Math.round(baseDurationFrames || 90));
+  const isScalarStat = content.value != null && !Array.isArray(content.values);
+  const maxDwell = isScalarStat ? Math.min(base, 72) : base;
+  const words = readableGraphicWords(content);
+  const readFrames = words > 0
+    ? Math.max(36, Math.min(maxDwell, Math.round(12 + words * 10)))
+    : maxDwell;
+  const startMs = numeric(params.targetWordStartMs);
+  const endMs = numeric(params.targetWordEndMs);
+  if (startMs != null && endMs != null && endMs > startMs) {
+    const wordFrames = Math.round(((endMs - startMs) / 1000) * 30);
+    return Math.max(36, Math.min(maxDwell, Math.max(readFrames, wordFrames + 24)));
+  }
+  return readFrames;
+}
+
+function readableGraphicWords(content: Record<string, unknown>): number {
+  const text = [
+    content.value,
+    content.label,
+    content.title,
+    content.body,
+    content.quote,
+    content.name,
+    content.text,
+  ]
+    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
+    .map(String)
+    .join(' ')
+    .trim();
+  return text ? text.split(/\s+/).filter(Boolean).length : 0;
 }
 
 function extractTranscriptWords(words: unknown): TimedWord[] {

@@ -534,7 +534,7 @@ describe('MG spine usability', () => {
       title: 'selection bias',
       body: 'the sample changed the story',
     }));
-    expect(recipe.id).toBe('composed-structured');
+    expect(recipe.id).toBe('composed-structured-claim');
     expect(recipe.elements).toEqual(expect.arrayContaining([
       expect.objectContaining({ primitive: 'text', role: 'primary', bind: expect.objectContaining({ text: 'selection bias' }) }),
       expect.objectContaining({ primitive: 'text', role: 'secondary', bind: expect.objectContaining({ text: 'the sample changed the story' }) }),
@@ -569,7 +569,7 @@ describe('MG spine usability', () => {
     expect(quote.layout.maxWidth).toBe('85%');
     expect(quote.elements.find((element) => element.role === 'primary')?.bind.minSize).toBeLessThanOrEqual(64);
 
-    expect(structured.id).toBe('composed-structured');
+    expect(structured.id).toBe('composed-structured-problem');
     expect(structured.layout).toEqual(expect.objectContaining({ position: 'top-right', maxWidth: '68%' }));
     expect(structured.elements.find((element) => element.role === 'secondary')?.bind.minSize).toBeLessThanOrEqual(54);
   });

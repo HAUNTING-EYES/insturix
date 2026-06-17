@@ -296,11 +296,53 @@ export function planComposition(
   layout = { ...layout, arrangement };
 
   return {
-    id: `composed-${strategy.shapes[0]?.kind || 'unknown'}`,
+    id: compositionRecipeId(strategy, intent.content),
     elements,
     layout,
     exitStyle: strategy.suggestedExitStyle,
   };
+}
+
+function compositionRecipeId(
+  strategy: CompositionStrategy,
+  content: Record<string, unknown>,
+): string {
+  const primaryKind = strategy.shapes[0]?.kind ?? 'unknown';
+  if (primaryKind !== 'structured') return `composed-${primaryKind}`;
+  const register = structuredSemanticRegister(content);
+  return register ? `composed-structured-${register}` : 'composed-structured';
+}
+
+function structuredSemanticRegister(content: Record<string, unknown>): string | undefined {
+  const text = [
+    content.title,
+    content.body,
+    content.contextPhrase,
+    stringFromPath(content.semanticAtoms, 'concept'),
+    stringFromPath(content.semanticAtoms, 'claim'),
+    stringFromPath(content.semanticFactSource, 'factKind'),
+  ]
+    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
+    .map(String)
+    .join(' ')
+    .toLowerCase();
+  if (!text.trim()) return undefined;
+
+  if (/\b(problem|issue|failure|bottleneck|breakdown|risk)\b/.test(text)) return 'problem';
+  if (/\b(no|not|never|without|unacceptable|hateful|hostile|evil|wrong|nobody|doesn'?t|don'?t|can'?t|won'?t)\b/.test(text)) {
+    return 'negative-claim';
+  }
+  if (/\b(good|better|love|benefit|positive|discussion|promoting|works|helpful|useful)\b/.test(text)) {
+    return 'affirming-claim';
+  }
+  if (/\b(because|means|therefore|so that|rather than|instead)\b/.test(text)) return 'causal-claim';
+  return 'claim';
+}
+
+function stringFromPath(source: unknown, key: string): string | undefined {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined;
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function hasBottomTextOccupancy(signals: PlannerSignals): boolean {
