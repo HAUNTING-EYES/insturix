@@ -1,9 +1,7 @@
-import 'dotenv/config';
-
 import { mkdir, readdir, rm, writeFile } from 'fs/promises';
 import path from 'path';
+import { config as loadEnv } from 'dotenv';
 
-import { COLLECTIONS, connectToDatabase } from '../lib/editron/db/mongodb';
 import {
   DEFAULT_PHASE0_KEEP_RUNS,
   buildPhase0ArtifactPaths,
@@ -16,6 +14,7 @@ import type { Phase0FixtureProject } from '../lib/editron/services/phase0-fixtur
 import { buildPhase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
 
 async function main() {
+  loadPhase0Env();
   const projectId = process.argv[2];
   if (!projectId) {
     console.error('Usage: tsx scripts/build-editron-phase0-fixture.ts <projectId> [outputDir]');
@@ -30,6 +29,7 @@ async function main() {
   const keepRuns = parseKeepRuns(process.env.EDITRON_PHASE0_KEEP_RUNS);
   const paths = buildPhase0ArtifactPaths(projectId, { rootDir: outputRoot, runId });
 
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
   const { client, db } = await connectToDatabase();
   try {
     const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId });
@@ -81,6 +81,11 @@ async function main() {
   } finally {
     await client.close();
   }
+}
+
+function loadPhase0Env(): void {
+  loadEnv({ path: '.env.local', override: false });
+  loadEnv({ path: '.env', override: false });
 }
 
 function parseKeepRuns(value: string | undefined): number {
