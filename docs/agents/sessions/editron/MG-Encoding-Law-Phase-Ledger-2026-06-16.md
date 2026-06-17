@@ -157,6 +157,26 @@ Phase 10B - In progress on 2026-06-17:
 - Current blocker: graphic-only executor replay still times out even with `--max-scenes=20 --max-decisions=1`. Do not claim real render proof for Phase 10B until `executeEDL` / `applyGraphic` latency is isolated or a lighter live-render harness proves the selected candidates visually.
 - Honest status: this is not a preset/menu/template path, and it does not solve the rich full-frame visual standard by itself. It closes the real candidate-source/debuggability gap and improves fact quality; the next phase must prove rendering/taste on real footage.
 
+Phase 10C - Done on 2026-06-17:
+- Replaced the slow full-`executeEDL` replay attempt in `scripts/probe-semantic-mg-rerun.ts` with an MG-only composition replay that still uses the live MG modules: semantic ledger gate/selection, motion tokens, atomic placement, MG expression authority, composition planner, structural gate, atomic overlay plan, and atomic decision.
+- Real project proof for `proj_sH-nZy0DtNOq`: 207 transcript scenes / 2868 timed words translated into 11 semantic MG decisions, replayed 11/11, skipped 0, wrote 11 local MG overlays, and passed the real-project taste gate with score 1.
+- Render proof: `npx tsx scripts\render-mg-stills.ts proj_sH-nZy0DtNOq-semantic-rerun` rendered 11 stills with no browser errors, no `MG-Fit` warnings, and no cannot-fit warnings.
+- Fixed the immediate real-project gap from the user's screenshot: one saved weak center MG no longer represents the current semantic replay path. The current replay emits enough licensed concept MGs and keeps them side-safe instead of center-colliding with captions.
+- Added fact-derived structured recipe ids such as `composed-structured-problem`, `composed-structured-negative-claim`, `composed-structured-causal-claim`, and `composed-structured-claim`. These are semantic registers for reporting/variety, not production renderer menus or visual presets.
+- Updated MG expression authority so caption-aware full/split/device stage modes preserve or choose side-safe layouts instead of recentering. Added final caption-safe center enforcement at recipe application.
+- Verification: `npx vitest run tests\editron\mg-spine-usability.test.ts tests\editron\mg-expression-authority.test.ts tests\editron\real-project-mg-taste-gate.test.ts tests\editron\intent-translator-mg-no-preset.test.ts` passed 40 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for the replay/planner/authority/tests passed; `git diff --check` passed with line-ending warnings only.
+- Commit/push: `90c6d045 fix(editron): replay semantic MG stills without executor hang`.
+- Honest status: this fixed generation count, replay observability, taste-gate pass, and caption-safe placement. It did not finish the visual language; concept MGs still looked too sparse/repeated after this phase.
+
+Phase 10D - Done on 2026-06-17:
+- Added relation-aware semantic concept scene atoms in `composition-renderer.tsx`. Once content has already licensed a concept MG, the renderer now derives visual atom roles from generic semantic text facts: contrast, negation, affirming support, causality, problem/friction, or default claim.
+- This is not a preset/menu/template selector: it does not change what MG is picked, does not branch on project IDs, and does not output surface renderer names. It only maps existing concept facts to richer parametric scene atoms inside the current renderer.
+- Real rendered result for `proj_sH-nZy0DtNOq-semantic-rerun`: concept frames now show larger stage fields and relation-specific pressure/strike/flow/contrast geometry instead of the same small three-node map. Render stills remained clean: 11 stills, no browser errors, no fit warnings.
+- Added renderer tests proving concept scene atoms vary by semantic relation facts and unknown content still emits no invented semantic scene atoms.
+- Verification: `npx vitest run tests\editron\mg-stage-composition-renderer.test.ts tests\editron\mg-atomic-render-decision.test.ts` passed 48 tests; broader MG suite `npx vitest run tests\editron\mg-stage-composition-renderer.test.ts tests\editron\mg-atomic-render-decision.test.ts tests\editron\mg-spine-usability.test.ts tests\editron\mg-expression-authority.test.ts tests\editron\real-project-mg-taste-gate.test.ts tests\editron\intent-translator-mg-no-preset.test.ts` passed 88 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for `composition-renderer|mg-stage-composition-renderer|mg-atomic-render-decision` passed; `git diff --check` passed with line-ending warnings only.
+- Commit/push: `3dfd3aae feat(editron): vary concept MG scene atoms by semantic facts`.
+- Honest status: the system is visibly better than the screenshot path, and it is not preset-based. Remaining visual debt is still real: layout calibration, richer motion choreography, footage compositing, holdout calibration, and avoiding overfitting beyond the current project probe.
+
 Phase 11 - Remaining fallback authority cleanup:
 - Convert remaining non-series composer/template fallback authority into fact/wire/contract driven candidate generation.
 - Keep compatibility renderer keys only where they are downstream realization names.
