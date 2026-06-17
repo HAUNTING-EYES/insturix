@@ -3,14 +3,19 @@ import { after, NextResponse } from 'next/server';
 import {
   getBrandVaultRefineryJob,
   getDefaultBrandVaultRefineryStore,
+  processNextQueuedBrandVaultRefineryJob,
   startQueuedBrandVaultRefineryJobFromWebsite,
+  type BrandVaultRefineryStore,
 } from '@/lib/shared/brand-vault-refinery-api';
+import type { BrandRefineryJob } from '@/lib/shared/brand-website-refinery-types';
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
 import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-connected-social-loader';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
+
+let queueRunInFlight = false;
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -38,11 +43,7 @@ export async function POST(req: Request) {
     },
   );
   if (start.run) {
-    after(() => {
-      start.run?.().catch((error) => {
-        console.error('[BrandVault] queued refinery job failed:', error);
-      });
-    });
+    scheduleQueueRun(() => start.run?.() ?? Promise.resolve(), 'queued refinery job failed');
   }
   return NextResponse.json(start.response.body, { status: start.response.status });
 }
@@ -52,9 +53,42 @@ export async function GET(req: Request) {
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   const jobId = new URL(req.url).searchParams.get('jobId') ?? '';
+  const store = getDefaultBrandVaultRefineryStore();
   const result = await getBrandVaultRefineryJob(
     { userId, jobId },
-    { store: getDefaultBrandVaultRefineryStore() },
+    { store },
   );
+  if (result.body.ok && isActiveRefineryJobStatus(result.body.job.status)) {
+    scheduleQueueRun(() => processNextQueuedBrandVaultRefineryJob(queueProcessorDependencies(store)), 'poll-time queue nudge failed');
+  }
   return NextResponse.json(result.body, { status: result.status });
+}
+
+function scheduleQueueRun(run: () => Promise<unknown>, label: string): void {
+  if (queueRunInFlight) return;
+  queueRunInFlight = true;
+  after(async () => {
+    try {
+      await run();
+    } catch (error) {
+      console.error(`[BrandVault] ${label}:`, error);
+    } finally {
+      queueRunInFlight = false;
+    }
+  });
+}
+
+function queueProcessorDependencies(store: BrandVaultRefineryStore) {
+  return {
+    store,
+    fetchOptions: {
+      browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
+    },
+    sourceEvidenceProvider: ({ userId, socialLinks }: { userId: string; socialLinks: string[] }) =>
+      loadBrandVaultConnectedSocialEvidence(userId, socialLinks),
+  };
+}
+
+function isActiveRefineryJobStatus(status: BrandRefineryJob['status']): boolean {
+  return status === 'queued' || status === 'running';
 }

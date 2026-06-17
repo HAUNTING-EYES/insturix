@@ -150,6 +150,47 @@ describe('Brand Vault browser render endpoint handler', () => {
     expect(result.body.ok && result.body.stylesheets?.[0]?.css).toContain('--brand-primary: #123456');
     expect(lifecycle).toEqual(['context.close', 'browser.close']);
   });
+
+  it('defaults endpoint Playwright readiness to domcontentloaded when env is not set', async () => {
+    const gotoCalls: Array<{ waitUntil: string; timeout: number }> = [];
+    const loadPlaywright = async (): Promise<BrandVaultPlaywrightModule> => ({
+      chromium: {
+        launch: async () => ({
+          close: async () => undefined,
+          newContext: async () => ({
+            close: async () => undefined,
+            newPage: async () => ({
+              content: async () => '<html><body><h1>Rendered quickly</h1></body></html>',
+              evaluate: async <T>() => [] as T,
+              goto: async (_url, options) => {
+                gotoCalls.push({ waitUntil: options.waitUntil, timeout: options.timeout });
+                return {
+                  headers: () => ({ 'content-type': 'text/html' }),
+                  status: () => 200,
+                  url: () => 'https://vaultline.example/',
+                };
+              },
+            }),
+          }),
+        }),
+      },
+    });
+
+    const result = await handleBrandVaultBrowserRenderRequest(
+      request({ url: 'vaultline.example' }),
+      {
+        BRAND_VAULT_BROWSER_RENDER_TOKEN: 'render_secret',
+        BRAND_VAULT_PLAYWRIGHT_TIMEOUT_MS: '1500',
+      },
+      {
+        loadPlaywright,
+        resolveHostname: async () => ['93.184.216.34'],
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(gotoCalls).toEqual([{ waitUntil: 'domcontentloaded', timeout: 1500 }]);
+  });
 });
 
 function request(body: Record<string, unknown>, token = 'render_secret'): Request {

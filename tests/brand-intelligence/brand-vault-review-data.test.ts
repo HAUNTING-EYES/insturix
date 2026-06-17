@@ -171,6 +171,37 @@ describe('Brand Vault review data helpers', () => {
               reason: 'Official uploads improve color, logo, voice, and constraint evidence.',
             },
           ],
+          social: {
+            platforms: [
+              {
+                platform: 'linkedin',
+                status: 'needs_review',
+                sourceCount: 6,
+                postSourceCount: 5,
+                connectedAccountCount: 0,
+                fetchedPostCount: 0,
+                notes: ['5 LinkedIn public fallback posts need review.'],
+              },
+              {
+                platform: 'instagram',
+                status: 'needs_auth',
+                sourceCount: 0,
+                postSourceCount: 0,
+                connectedAccountCount: 0,
+                fetchedPostCount: 0,
+                notes: ['Instagram link provided, but no readable source evidence was found.'],
+              },
+              {
+                platform: 'youtube',
+                status: 'needs_review',
+                sourceCount: 1,
+                postSourceCount: 0,
+                connectedAccountCount: 1,
+                fetchedPostCount: 0,
+                notes: ['YouTube connection is metadata-only for this draft.'],
+              },
+            ],
+          },
         },
       } as unknown as NonNullable<BrandVaultSnapshot['reviewPayload']>,
     } satisfies BrandVaultSnapshot;
@@ -187,6 +218,33 @@ describe('Brand Vault review data helpers', () => {
       notes: ['1 social link provided.', '1 social source needs auth, scopes, or account matching.'],
       topSignalPaths: ['voice.recurringPhrases', 'voice.proofStyle'],
     });
+    expect(guidance.socialPlatforms).toEqual([
+      expect.objectContaining({
+        platform: 'instagram',
+        label: 'Instagram',
+        status: 'pending',
+        rawStatus: 'needs_auth',
+        sourceCount: 0,
+        postSourceCount: 0,
+        connectedAccountCount: 0,
+      }),
+      expect.objectContaining({
+        platform: 'linkedin',
+        label: 'LinkedIn',
+        status: 'pending',
+        rawStatus: 'needs_review',
+        sourceCount: 6,
+        postSourceCount: 5,
+      }),
+      expect.objectContaining({
+        platform: 'youtube',
+        label: 'YouTube',
+        status: 'pending',
+        rawStatus: 'needs_review',
+        sourceCount: 1,
+        connectedAccountCount: 1,
+      }),
+    ]);
   });
 
   it('keeps social lanes pending when intake still needs connected read access', () => {

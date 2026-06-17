@@ -89,6 +89,7 @@ export function BrandVaultReview() {
   const [uploadedSources, setUploadedSources] = useState<BrandVaultUploadSourceEvidence[]>([]);
   const [uploadWarnings, setUploadWarnings] = useState<string[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [scanLatchActive, setScanLatchActive] = useState(false);
   const [activeGuidanceWorkflow, setActiveGuidanceWorkflow] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -143,7 +144,7 @@ export function BrandVaultReview() {
   const facets = useMemo(() => buildFacets(snapshot, signals), [signals, snapshot]);
   const canReview = Boolean(snapshot.record?.id && snapshot.record.status === 'draft');
   const activeScanStatus = snapshot.job?.status === 'queued' || snapshot.job?.status === 'running';
-  const scanBusy = createDraft.isPending || activeScanStatus;
+  const scanBusy = createDraft.isPending || scanLatchActive || activeScanStatus;
   const busy =
     scanBusy ||
     acceptDraft.isPending ||
@@ -168,6 +169,17 @@ export function BrandVaultReview() {
     return () => clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!scanLatchActive) return;
+    if (createDraft.error) {
+      setScanLatchActive(false);
+      return;
+    }
+    if (snapshot.job && snapshot.job.status !== 'queued' && snapshot.job.status !== 'running') {
+      setScanLatchActive(false);
+    }
+  }, [createDraft.error, scanLatchActive, snapshot.job]);
+
   async function handleCreateDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await createDraftFromCurrentInputs();
@@ -181,6 +193,7 @@ export function BrandVaultReview() {
     }
 
     setLocalError(null);
+    setScanLatchActive(true);
     const input = {
       websiteUrl: cleanUrl,
       companyName: companyName.trim() || undefined,
@@ -196,7 +209,9 @@ export function BrandVaultReview() {
     setLookupId(nextJobId ?? nextProfileId ?? '');
     setResolvedConflicts(new Set());
     setResolvingConflictPath(null);
-    showToast(result.job?.status === 'queued' || result.job?.status === 'running' ? 'Scan queued. Results will appear here.' : 'Draft ready for review.', 'good');
+    const resultStillScanning = result.job?.status === 'queued' || result.job?.status === 'running';
+    setScanLatchActive(resultStillScanning);
+    showToast(resultStillScanning ? 'Scan queued. Results will appear here.' : 'Draft ready for review.', 'good');
   }
 
   function handleGuidanceAction(actionId: string) {
@@ -640,6 +655,34 @@ function IntakeGuidancePanel({
               )}
             </div>
           ))}
+          {guidance.socialPlatforms.length > 0 && (
+            <div className="bv-c1-social-health">
+              <div className="bv-c1-social-health-head">
+                <strong>Social platform health</strong>
+                <span>{guidance.socialPlatforms.length} checked</span>
+              </div>
+              <div className="bv-c1-social-health-grid">
+                {guidance.socialPlatforms.map((platform) => (
+                  <div key={platform.platform} className={`bv-c1-social-health-card ${platform.status}`}>
+                    <div>
+                      <strong>{platform.label}</strong>
+                      <span>{platform.rawStatus.replace('_', ' ')}</span>
+                    </div>
+                    <em>
+                      {platform.sourceCount} sources / {platform.postSourceCount} posts / {platform.connectedAccountCount} connected
+                    </em>
+                    {platform.notes.length > 0 && (
+                      <ul>
+                        {platform.notes.map((note) => (
+                          <li key={note}>{note}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -1612,6 +1655,85 @@ const baseStyles = `
 .bv-c1-intake-empty {
   color: #7A776E;
   font-size: 12px;
+}
+.bv-c1-social-health {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #1C1B19;
+  border-radius: 8px;
+  background: #0B0B0A;
+  padding: 11px 12px;
+}
+.bv-c1-social-health-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bv-c1-social-health-head strong {
+  color: #ECE9E1;
+  font-size: 12px;
+  font-weight: 750;
+}
+.bv-c1-social-health-head span {
+  color: #7A776E;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.bv-c1-social-health-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.bv-c1-social-health-card {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #1C1B19;
+  border-left: 3px solid #7A776E;
+  border-radius: 8px;
+  background: #131312;
+  padding: 9px 10px;
+}
+.bv-c1-social-health-card.live {
+  border-left-color: #5EC97E;
+}
+.bv-c1-social-health-card.pending {
+  border-left-color: #D4A652;
+}
+.bv-c1-social-health-card.failed {
+  border-left-color: #D46A5C;
+}
+.bv-c1-social-health-card > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bv-c1-social-health-card strong {
+  min-width: 0;
+  color: #ECE9E1;
+  font-size: 12px;
+  font-weight: 750;
+}
+.bv-c1-social-health-card span,
+.bv-c1-social-health-card em {
+  color: #7A776E;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+.bv-c1-social-health-card em {
+  overflow-wrap: anywhere;
+}
+.bv-c1-social-health-card ul {
+  margin: 0;
+  padding-left: 15px;
+  color: #7A776E;
+  font-size: 11px;
+  line-height: 1.4;
 }
 .bv-c1-mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;

@@ -237,4 +237,40 @@ describe('Brand Vault browser fallback providers', () => {
     expect(snapshot?.stylesheets?.[0]?.css).toContain('Plus Jakarta Sans');
     expect(lifecycle).toEqual(['launch', 'context', 'context.close', 'browser.close']);
   });
+
+  it('defaults local Playwright readiness to domcontentloaded instead of networkidle', async () => {
+    const gotoCalls: Array<{ waitUntil: string; timeout: number }> = [];
+    const loadPlaywright = async (): Promise<BrandVaultPlaywrightModule> => ({
+      chromium: {
+        launch: async () => ({
+          close: async () => undefined,
+          newContext: async () => ({
+            close: async () => undefined,
+            newPage: async () => ({
+              content: async () => '<html><body><h1>Rendered without waiting for idle analytics</h1></body></html>',
+              evaluate: async <T>() => [] as T,
+              goto: async (_url, options) => {
+                gotoCalls.push({ waitUntil: options.waitUntil, timeout: options.timeout });
+                return {
+                  headers: () => ({ 'content-type': 'text/html' }),
+                  status: () => 200,
+                  url: () => 'https://vaultline.example/',
+                };
+              },
+            }),
+          }),
+        }),
+      },
+    });
+
+    const fallback = createBrandVaultLocalPlaywrightFallbackFetch({
+      loadPlaywright,
+      timeoutMs: 1_500,
+    });
+
+    const snapshot = await fallback(INPUT);
+
+    expect(snapshot?.html).toContain('Rendered without waiting for idle analytics');
+    expect(gotoCalls).toEqual([{ waitUntil: 'domcontentloaded', timeout: 1_500 }]);
+  });
 });

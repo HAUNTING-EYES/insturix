@@ -42,7 +42,7 @@ export interface BrandVaultBrowserRenderEndpointResult {
 const DEFAULT_RENDER_TIMEOUT_MS = 12_000;
 const MIN_RENDER_TIMEOUT_MS = 1_000;
 const MAX_RENDER_TIMEOUT_MS = 25_000;
-const DEFAULT_WAIT_UNTIL: BrandVaultPlaywrightWaitUntil = 'networkidle';
+const DEFAULT_WAIT_UNTIL: BrandVaultPlaywrightWaitUntil = 'domcontentloaded';
 const FALLBACK_REASON_VALUES = new Set<BrandWebsiteFetchFallbackReason>([
   'http_blocked',
   'rate_limited',

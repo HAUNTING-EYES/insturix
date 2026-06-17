@@ -67,7 +67,7 @@ const MAX_BROWSER_RENDER_TIMEOUT_MS = 25_000;
 const DEFAULT_FIRECRAWL_API_URL = 'https://api.firecrawl.dev/v2/scrape';
 const DEFAULT_FIRECRAWL_WAIT_MS = 1_000;
 const MAX_FIRECRAWL_WAIT_MS = 5_000;
-const DEFAULT_PLAYWRIGHT_WAIT_UNTIL: BrandVaultPlaywrightWaitUntil = 'networkidle';
+const DEFAULT_PLAYWRIGHT_WAIT_UNTIL: BrandVaultPlaywrightWaitUntil = 'domcontentloaded';
 const PLAYWRIGHT_LAUNCH_ARGS = ['--disable-dev-shm-usage', '--no-sandbox'] as const;
 
 export function createBrandVaultBrowserFallbackFetchFromEnvironment(

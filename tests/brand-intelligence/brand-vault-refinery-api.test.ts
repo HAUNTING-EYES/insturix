@@ -986,7 +986,29 @@ describe('Brand Vault refinery API boundary', () => {
       apifyApiKey: '',
       fetchFn: async (url) => {
         fetchedUrls.push(url);
-        expect(url).toContain('https://www.youtube.com/oembed');
+        if (!url.includes('/oembed')) {
+          return new Response(
+            `<html><body><script>var ytInitialPlayerResponse = ${JSON.stringify({
+              videoDetails: {
+                title: 'Brand systems launch walkthrough',
+                author: 'Vaultline',
+                shortDescription: 'A practical walkthrough for building one reviewed brand system.',
+                lengthSeconds: '120',
+                viewCount: '900',
+                thumbnail: {
+                  thumbnails: [{ url: 'https://i.ytimg.com/vi/video_1/hqdefault.jpg' }],
+                },
+              },
+              microformat: {
+                playerMicroformatRenderer: {
+                  publishDate: '2026-06-16',
+                  category: 'Software',
+                },
+              },
+            })};</script></body></html>`,
+            { status: 200, headers: { 'content-type': 'text/html' } },
+          );
+        }
         return new Response(
           JSON.stringify({
             title: 'Brand systems launch walkthrough',
@@ -999,20 +1021,31 @@ describe('Brand Vault refinery API boundary', () => {
       now: NOW,
     });
 
-    expect(fetchedUrls).toHaveLength(1);
+    expect(fetchedUrls).toHaveLength(2);
+    expect(fetchedUrls[0]).toContain('https://www.youtube.com/oembed');
+    expect(fetchedUrls[1]).toBe('https://www.youtube.com/watch?v=video_1');
     expect(result.sourceEvidence).toEqual([
       expect.objectContaining({
         kind: 'social_post',
         platform: 'youtube',
         evidenceOrigin: 'public_fallback',
-        text: 'Brand systems launch walkthrough\nVaultline',
+        publishedAt: '2026-06-16',
+        text: 'Brand systems launch walkthrough\nA practical walkthrough for building one reviewed brand system.\nVaultline',
         media: expect.objectContaining({
-          mediaType: 'link',
+          mediaType: 'video',
           thumbnailUrl: 'https://i.ytimg.com/vi/video_1/hqdefault.jpg',
+          durationSeconds: 120,
+        }),
+        metrics: expect.objectContaining({
+          viewCount: 900,
+        }),
+        profile: expect.objectContaining({
+          bio: 'Vaultline',
+          category: 'Software',
         }),
       }),
     ]);
-    expect(result.warnings).toContain('Brand Vault fetched youtube public oEmbed metadata as review-only social evidence.');
+    expect(result.warnings).toContain('Brand Vault fetched youtube public oEmbed and watch metadata as review-only social evidence.');
   });
 
   it('fetches connected Instagram media captions as draft-only social evidence', async () => {

@@ -2,6 +2,10 @@ import {
   parseBrandVaultSocialUrl,
   type BrandVaultParsedSocialUrl,
 } from './brand-vault-social-evidence';
+import {
+  createBrandVaultGeminiSocialOcrProvider,
+  type BrandVaultSocialOcrProvider,
+} from './brand-vault-social-ocr';
 import type {
   BrandVaultSocialConnectionEvidence,
   BrandVaultSocialMediaEvidence,
@@ -32,6 +36,7 @@ export interface BrandVaultConnectedSocialEvidenceArgs {
   apifyActors?: Partial<Record<'instagram' | 'facebook' | 'linkedin', string>>;
   fetchFn?: BrandVaultSocialFetch;
   now?: string;
+  ocrProvider?: BrandVaultSocialOcrProvider | null;
 }
 
 export interface BrandVaultConnectedSocialEvidenceResult {
@@ -44,10 +49,24 @@ type SocialFetchResult = {
   warnings: string[];
 };
 
+type ApifySupportedPlatform = 'instagram' | 'facebook' | 'linkedin';
+
 type XUserIdentity = {
   userId?: string;
   pinnedTweetId?: string;
 };
+
+interface YouTubePublicEvidence {
+  title?: string;
+  author?: string;
+  description?: string;
+  publishedAt?: string;
+  category?: string;
+  thumbnailUrl?: string;
+  durationSeconds?: number;
+  viewCount?: number;
+  transcript?: string;
+}
 
 export async function createBrandVaultConnectedSocialEvidence(
   args: BrandVaultConnectedSocialEvidenceArgs,
@@ -56,6 +75,10 @@ export async function createBrandVaultConnectedSocialEvidence(
 
   const warnings: string[] = [];
   const sources: BrandVaultSourceInput[] = [];
+  const fetchFn = args.fetchFn ?? fetch;
+  const ocrProvider = args.ocrProvider === undefined
+    ? createBrandVaultGeminiSocialOcrProvider({ fetchFn })
+    : args.ocrProvider;
 
   for (const link of args.socialLinks) {
     const parsed = parseBrandVaultSocialUrl(link);
@@ -74,23 +97,25 @@ export async function createBrandVaultConnectedSocialEvidence(
       parsed,
       connection,
       uploaderXUser: args.uploaderXUser,
-      fetchFn: args.fetchFn ?? fetch,
+      fetchFn,
       now: args.now,
     });
     sources.push(...fetched.sources);
     warnings.push(...fetched.warnings);
 
-    if (fetched.sources.length === 0 && shouldFetchPublicFallback(connection)) {
+    if (fetched.sources.length === 0 && shouldFetchPublicFallback(connection, parsed)) {
       const fallback = await fetchPublicSocialSources({
         parsed,
         apifyApiKey: args.apifyApiKey,
         apifyActors: args.apifyActors,
-        fetchFn: args.fetchFn ?? fetch,
+        fetchFn,
       });
       sources.push(...fallback.sources);
       warnings.push(...fallback.warnings);
     }
   }
+
+  await enrichSocialSourcesWithOcr(sources, ocrProvider, warnings);
 
   const connectedSourceCount = sources.filter((source) =>
     source.evidenceOrigin === 'connected_metadata' || source.evidenceOrigin === 'connected_fetch',
@@ -108,6 +133,49 @@ export async function createBrandVaultConnectedSocialEvidence(
   }
 
   return { sourceEvidence: sources.slice(0, 20), warnings };
+}
+
+async function enrichSocialSourcesWithOcr(
+  sources: BrandVaultSourceInput[],
+  ocrProvider: BrandVaultSocialOcrProvider | null,
+  warnings: string[],
+): Promise<void> {
+  if (!ocrProvider) return;
+
+  let attempted = 0;
+  let extracted = 0;
+  for (const source of sources) {
+    if (attempted >= 3) break;
+    const media = source.media;
+    if (!media || media.ocrText) continue;
+    const imageUrl = socialOcrImageUrl(media);
+    if (!imageUrl) continue;
+
+    attempted += 1;
+    const result = await ocrProvider.readTextFromImage({
+      imageUrl,
+      sourceUrl: source.url,
+      platform: source.platform,
+      mediaType: media.mediaType,
+    });
+    if (result.text) {
+      source.media = { ...media, ocrText: result.text };
+      extracted += 1;
+    }
+    if (result.warning) warnings.push(result.warning);
+  }
+
+  if (extracted > 0) {
+    warnings.push(`Brand Vault OCR extracted readable text from ${extracted} social media image${extracted === 1 ? '' : 's'} for draft evidence review.`);
+  }
+}
+
+function socialOcrImageUrl(media: BrandVaultSocialMediaEvidence): string | undefined {
+  return firstHttpUrl(media.thumbnailUrl, media.mediaUrl);
+}
+
+function firstHttpUrl(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value && /^https?:\/\//i.test(value));
 }
 
 function profileSourceForSocialLink(
@@ -848,7 +916,11 @@ function publicFallbackEvidenceForPlatform(
   };
 }
 
-function shouldFetchPublicFallback(connection: BrandVaultSocialConnectionEvidence | null): boolean {
+function shouldFetchPublicFallback(
+  connection: BrandVaultSocialConnectionEvidence | null,
+  parsed: BrandVaultParsedSocialUrl,
+): boolean {
+  if (parsed.isPostUrl && ['youtube', 'x', 'tiktok'].includes(parsed.platform)) return true;
   if (!connection) return true;
   if (connection.provider === 'alyzitron_apify') return true;
   if (connection.status === 'connected_different_account' || connection.matchStatus === 'mismatched') return true;
@@ -861,18 +933,32 @@ async function fetchPublicSocialSources(args: {
   apifyActors: BrandVaultConnectedSocialEvidenceArgs['apifyActors'] | undefined;
   fetchFn: BrandVaultSocialFetch;
 }): Promise<SocialFetchResult> {
-  const apifyActorId =
-    args.parsed.platform === 'instagram' || args.parsed.platform === 'facebook' || args.parsed.platform === 'linkedin'
-      ? args.apifyActors?.[args.parsed.platform]
-      : undefined;
-  if (args.apifyApiKey?.trim() && apifyActorId && shouldFetchApifyForParsedSocialUrl(args.parsed)) {
-    const apify = await fetchApifySocialSources({
-      parsed: args.parsed,
-      apiKey: args.apifyApiKey,
-      actorId: apifyActorId,
-      fetchFn: args.fetchFn,
-    });
-    if (apify.sources.length > 0 || apify.warnings.length > 0) return apify;
+  if (isApifySupportedPlatform(args.parsed.platform) && shouldFetchApifyForParsedSocialUrl(args.parsed)) {
+    const apiKey = args.apifyApiKey?.trim();
+    const apifyActorId = args.apifyActors?.[args.parsed.platform];
+    if (!apiKey) {
+      if (!args.parsed.isPostUrl) {
+        return {
+          sources: [],
+          warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: APIFY_API_KEY is not configured.`],
+        };
+      }
+    } else if (!apifyActorId) {
+      if (!args.parsed.isPostUrl) {
+        return {
+          sources: [],
+          warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: no Apify actor is configured for this platform.`],
+        };
+      }
+    } else {
+      const apify = await fetchApifySocialSources({
+        parsed: args.parsed,
+        apiKey,
+        actorId: apifyActorId,
+        fetchFn: args.fetchFn,
+      });
+      if (apify.sources.length > 0 || apify.warnings.length > 0) return apify;
+    }
   }
 
   if (args.parsed.isPostUrl && ['youtube', 'x', 'tiktok'].includes(args.parsed.platform)) {
@@ -974,6 +1060,10 @@ function shouldFetchApifyForParsedSocialUrl(parsed: BrandVaultParsedSocialUrl): 
   return !parsed.isPostUrl && (parsed.accountType === 'company_page' || parsed.accountType === 'creator_profile');
 }
 
+function isApifySupportedPlatform(platform: BrandVaultSourcePlatform): platform is ApifySupportedPlatform {
+  return platform === 'instagram' || platform === 'facebook' || platform === 'linkedin';
+}
+
 function apifyRunInput(parsed: BrandVaultParsedSocialUrl): Record<string, unknown> {
   const base = {
     directUrls: [parsed.normalizedUrl],
@@ -1051,6 +1141,8 @@ async function fetchPublicOEmbedPostSource(args: {
   parsed: BrandVaultParsedSocialUrl;
   fetchFn: BrandVaultSocialFetch;
 }): Promise<SocialFetchResult> {
+  if (args.parsed.platform === 'youtube') return fetchPublicYouTubePostSource(args);
+
   const endpoint = publicOEmbedEndpoint(args.parsed);
   if (!endpoint) return { sources: [], warnings: [] };
   try {
@@ -1098,6 +1190,116 @@ async function fetchPublicOEmbedPostSource(args: {
   }
 }
 
+async function fetchPublicYouTubePostSource(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  fetchFn: BrandVaultSocialFetch;
+}): Promise<SocialFetchResult> {
+  const warnings: string[] = [];
+  const endpoint = publicOEmbedEndpoint(args.parsed);
+  const oEmbedPayload = endpoint ? await fetchPublicOEmbedPayload(args.parsed.platform, endpoint, args.fetchFn, warnings) : {};
+  const watchPage = await fetchYouTubeWatchPageEvidence(args.parsed, args.fetchFn);
+  warnings.push(...watchPage.warnings);
+
+  const title = firstString(watchPage.evidence.title, oEmbedPayload.title);
+  const author = firstString(watchPage.evidence.author, oEmbedPayload.author_name);
+  const description = firstString(watchPage.evidence.description);
+  const html = stripHtml(stringValue(oEmbedPayload.html));
+  const text = uniqueStrings([title, description, author, html]).join('\n');
+  const media = socialMedia({
+    mediaType: 'video',
+    thumbnailUrl: firstString(watchPage.evidence.thumbnailUrl, oEmbedPayload.thumbnail_url),
+    transcript: watchPage.evidence.transcript,
+    durationSeconds: watchPage.evidence.durationSeconds,
+  });
+  const metrics = socialMetrics({ viewCount: watchPage.evidence.viewCount });
+  const profile = socialProfile({
+    bio: author,
+    category: watchPage.evidence.category,
+  });
+
+  if (!text && !media && !metrics && !profile) {
+    return {
+      sources: [],
+      warnings: warnings.length > 0 ? warnings : ['Brand Vault skipped youtube public fallback: no readable metadata was returned.'],
+    };
+  }
+
+  warnings.push(
+    watchPage.evidence.transcript
+      ? 'Brand Vault fetched youtube public oEmbed, watch metadata, and captions as review-only social evidence.'
+      : 'Brand Vault fetched youtube public oEmbed and watch metadata as review-only social evidence.',
+  );
+
+  return {
+    sources: [{
+      kind: 'social_post',
+      url: args.parsed.normalizedUrl,
+      platform: 'youtube',
+      name: title ?? 'YouTube public post',
+      note: 'Fetched public YouTube oEmbed and watch-page metadata for Brand Vault draft review; this is review-only evidence.',
+      text: text || undefined,
+      evidenceOrigin: 'public_fallback',
+      pinned: false,
+      publishedAt: watchPage.evidence.publishedAt,
+      media,
+      metrics,
+      profile,
+    }],
+    warnings,
+  };
+}
+
+async function fetchPublicOEmbedPayload(
+  platform: BrandVaultSourcePlatform,
+  endpoint: URL,
+  fetchFn: BrandVaultSocialFetch,
+  warnings: string[],
+): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetchFn(endpoint.href);
+    const payload = await readJsonObject(response);
+    if (!response.ok) {
+      warnings.push(`Brand Vault skipped ${platform} oEmbed fallback: public endpoint returned ${response.status}.`);
+      return {};
+    }
+    return payload;
+  } catch {
+    warnings.push(`Brand Vault skipped ${platform} oEmbed fallback: public metadata fetch failed.`);
+    return {};
+  }
+}
+
+async function fetchYouTubeWatchPageEvidence(
+  parsed: BrandVaultParsedSocialUrl,
+  fetchFn: BrandVaultSocialFetch,
+): Promise<{ evidence: YouTubePublicEvidence; warnings: string[] }> {
+  const warnings: string[] = [];
+  try {
+    const response = await fetchFn(parsed.normalizedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 BrandVault/1.0' },
+    });
+    if (!response.ok) {
+      return {
+        evidence: {},
+        warnings: [`Brand Vault skipped youtube watch-page metadata: public page returned ${response.status}.`],
+      };
+    }
+
+    const html = await response.text();
+    const player = extractYouTubeInitialPlayerResponse(html);
+    const evidence = youtubeEvidenceFromWatchHtml(html, player);
+    const captionTranscript = player ? await fetchYouTubeCaptionTranscript(player, fetchFn) : null;
+    if (captionTranscript?.transcript) evidence.transcript = captionTranscript.transcript;
+    if (captionTranscript?.warning) warnings.push(captionTranscript.warning);
+    return { evidence, warnings };
+  } catch {
+    return {
+      evidence: {},
+      warnings: ['Brand Vault skipped youtube watch-page metadata: public metadata fetch failed.'],
+    };
+  }
+}
+
 function publicOEmbedEndpoint(parsed: BrandVaultParsedSocialUrl): URL | null {
   if (parsed.platform === 'youtube') {
     const url = new URL('https://www.youtube.com/oembed');
@@ -1117,6 +1319,136 @@ function publicOEmbedEndpoint(parsed: BrandVaultParsedSocialUrl): URL | null {
     return url;
   }
   return null;
+}
+
+function youtubeEvidenceFromWatchHtml(html: string, player: Record<string, unknown> | null): YouTubePublicEvidence {
+  const videoDetails = asRecord(player?.videoDetails);
+  const microformat = asRecord(asRecord(player?.microformat).playerMicroformatRenderer);
+  const metadataText = socialPostMetadataText(html);
+  return {
+    title: youtubeTextValue(videoDetails.title, microformat.title, metaContent(html, 'og:title')),
+    author: firstString(videoDetails.author, microformat.ownerChannelName),
+    description: youtubeTextValue(videoDetails.shortDescription, microformat.description, metadataText),
+    publishedAt: firstString(microformat.publishDate, microformat.uploadDate, metaContent(html, 'datePublished')),
+    category: firstString(microformat.category),
+    thumbnailUrl: lastThumbnailUrl(videoDetails.thumbnail) ?? lastThumbnailUrl(microformat.thumbnail) ?? metaContent(html, 'og:image'),
+    durationSeconds: firstNumber(videoDetails.lengthSeconds, microformat.lengthSeconds),
+    viewCount: firstNumber(videoDetails.viewCount, microformat.viewCount, microformat.interactionCount),
+  };
+}
+
+async function fetchYouTubeCaptionTranscript(
+  player: Record<string, unknown>,
+  fetchFn: BrandVaultSocialFetch,
+): Promise<{ transcript?: string; warning?: string } | null> {
+  const captions = asRecord(player.captions);
+  const renderer = asRecord(captions.playerCaptionsTracklistRenderer);
+  const tracks = Array.isArray(renderer.captionTracks) ? renderer.captionTracks.map(asRecord) : [];
+  const track = preferredYouTubeCaptionTrack(tracks);
+  const baseUrl = stringValue(track?.baseUrl);
+  if (!baseUrl) return null;
+
+  try {
+    const url = new URL(baseUrl);
+    if (!url.searchParams.has('fmt')) url.searchParams.set('fmt', 'srv3');
+    const response = await fetchFn(url.href);
+    if (!response.ok) return { warning: `Brand Vault skipped youtube captions: caption endpoint returned ${response.status}.` };
+    const transcript = transcriptTextFromCaptionPayload(await response.text());
+    return transcript ? { transcript } : { warning: 'Brand Vault skipped youtube captions: caption payload had no readable text.' };
+  } catch {
+    return { warning: 'Brand Vault skipped youtube captions: caption fetch failed.' };
+  }
+}
+
+function preferredYouTubeCaptionTrack(tracks: Record<string, unknown>[]): Record<string, unknown> | undefined {
+  return (
+    tracks.find((track) => stringValue(track.languageCode)?.toLowerCase().startsWith('en') && !stringValue(track.kind)) ??
+    tracks.find((track) => stringValue(track.languageCode)?.toLowerCase().startsWith('en')) ??
+    tracks.find((track) => !stringValue(track.kind)) ??
+    tracks[0]
+  );
+}
+
+function transcriptTextFromCaptionPayload(payload: string): string | undefined {
+  const xmlText = [...payload.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/gi)]
+    .map((match) => decodeHtmlEntities(stripHtml(match[1])))
+    .filter((part): part is string => Boolean(part));
+  if (xmlText.length > 0) return boundedText(uniqueStrings(xmlText).join(' '), 2200);
+
+  const vttText = payload
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && line !== 'WEBVTT' && !line.includes('-->') && !/^\d+$/.test(line))
+    .map((line) => decodeHtmlEntities(line))
+    .filter((line): line is string => Boolean(line));
+  return vttText.length > 0 ? boundedText(uniqueStrings(vttText).join(' '), 2200) : undefined;
+}
+
+function extractYouTubeInitialPlayerResponse(html: string): Record<string, unknown> | null {
+  const markers = ['ytInitialPlayerResponse =', 'ytInitialPlayerResponse='];
+  const markerIndex = markers
+    .map((marker) => ({ marker, index: html.indexOf(marker) }))
+    .filter((item) => item.index >= 0)
+    .sort((a, b) => a.index - b.index)[0];
+  if (!markerIndex) return null;
+
+  const jsonStart = html.indexOf('{', markerIndex.index + markerIndex.marker.length);
+  if (jsonStart < 0) return null;
+  const jsonText = balancedJsonObjectAt(html, jsonStart);
+  if (!jsonText) return null;
+  try {
+    return asRecord(JSON.parse(jsonText));
+  } catch {
+    return null;
+  }
+}
+
+function balancedJsonObjectAt(text: string, start: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
+function lastThumbnailUrl(value: unknown): string | undefined {
+  const thumbnailValue = asRecord(value).thumbnails;
+  const thumbnails = Array.isArray(thumbnailValue) ? thumbnailValue.map(asRecord) : [];
+  return firstString(...thumbnails.slice().reverse().map((thumbnail) => thumbnail.url));
+}
+
+function youtubeTextValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const direct = stringValue(value);
+    if (direct) return direct;
+    const record = asRecord(value);
+    const simpleText = stringValue(record.simpleText);
+    if (simpleText) return simpleText;
+    const runs = Array.isArray(record.runs) ? record.runs.map(asRecord) : [];
+    const runText = uniqueStrings(runs.map((run) => stringValue(run.text))).join(' ');
+    if (runText) return runText;
+  }
+  return undefined;
 }
 
 function socialPostMetadataText(html: string): string | undefined {
@@ -1236,6 +1568,8 @@ function metaContent(html: string, key: string): string | undefined {
 function decodeHtmlEntities(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const decoded = value
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
@@ -1244,6 +1578,10 @@ function decodeHtmlEntities(value: string | undefined): string | undefined {
     .replace(/\s+/g, ' ')
     .trim();
   return decoded || undefined;
+}
+
+function boundedText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength).trim()}...` : value;
 }
 
 function platformLabel(platform: BrandVaultSourcePlatform): string {

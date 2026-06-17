@@ -76,9 +76,22 @@ export interface BrandVaultGuidanceAction {
   reason: string;
 }
 
+export interface BrandVaultSocialPlatformHealth {
+  platform: string;
+  label: string;
+  status: SourceLane['status'];
+  rawStatus: IntakeStageStatus;
+  sourceCount: number;
+  postSourceCount: number;
+  connectedAccountCount: number;
+  fetchedPostCount: number;
+  notes: string[];
+}
+
 export interface BrandVaultIntakeGuidance {
   lanes: BrandVaultGuidanceLane[];
   actions: BrandVaultGuidanceAction[];
+  socialPlatforms: BrandVaultSocialPlatformHealth[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -367,7 +380,7 @@ export function buildIntakeGuidance(
   sourceLanes: SourceLane[],
 ): BrandVaultIntakeGuidance {
   const intake = snapshot.reviewPayload?.intake;
-  if (!intake) return { lanes: [], actions: [] };
+  if (!intake) return { lanes: [], actions: [], socialPlatforms: [] };
 
   const lanes = intake.evidenceLanes
     .map((lane): BrandVaultGuidanceLane => {
@@ -397,13 +410,47 @@ export function buildIntakeGuidance(
     reason: action.reason,
   }));
 
-  return { lanes, actions };
+  return { lanes, actions, socialPlatforms: buildSocialPlatformHealth(snapshot) };
 }
 
 function sourceLaneIdForIntakeLane(id: IntakeLaneId): SourceLane['id'] {
   if (id === 'social') return 'socials';
   if (id === 'crawl') return 'crawler';
   return id;
+}
+
+function buildSocialPlatformHealth(snapshot: BrandVaultSnapshot): BrandVaultSocialPlatformHealth[] {
+  const platforms = snapshot.reviewPayload?.intake.social?.platforms ?? [];
+  return [...platforms].sort((a, b) => socialPlatformLabel(a.platform).localeCompare(socialPlatformLabel(b.platform))).map((platform) => {
+    const liveCount = platform.fetchedPostCount || platform.postSourceCount;
+    const stagedCount = platform.sourceCount;
+    return {
+      platform: platform.platform,
+      label: socialPlatformLabel(platform.platform),
+      status: sourceLaneStatus({
+        intakeStatus: platform.status,
+        liveCount,
+        stagedCount,
+        failed: false,
+      }),
+      rawStatus: platform.status,
+      sourceCount: platform.sourceCount,
+      postSourceCount: platform.postSourceCount,
+      connectedAccountCount: platform.connectedAccountCount,
+      fetchedPostCount: platform.fetchedPostCount,
+      notes: platform.notes.slice(0, 3),
+    };
+  });
+}
+
+function socialPlatformLabel(platform: string): string {
+  if (platform === 'x') return 'X';
+  if (platform === 'youtube') return 'YouTube';
+  if (platform === 'linkedin') return 'LinkedIn';
+  if (platform === 'instagram') return 'Instagram';
+  if (platform === 'facebook') return 'Facebook';
+  if (platform === 'tiktok') return 'TikTok';
+  return platform.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 /* ------------------------------------------------------------------ */

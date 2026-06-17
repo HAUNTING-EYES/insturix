@@ -100,7 +100,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
     }),
   );
 
-  const text = normalizeSocialText(args.source.text);
+  const text = socialInferenceText(args.source);
   if (!text) return candidates;
 
   const voicePhrases = extractSocialVoicePhrases(text);
@@ -355,7 +355,7 @@ function socialCapability(
   }
 
   if (connection) {
-    const connectedPostSample = source.evidenceOrigin === 'connected_fetch' && Boolean(source.text) && connection.canReadPosts;
+    const connectedPostSample = source.evidenceOrigin === 'connected_fetch' && hasReadableSocialText(source) && connection.canReadPosts;
     const connectedAccountStatus =
       connection.status === 'connected' && connection.canReadPosts
         ? 'connected'
@@ -369,7 +369,7 @@ function socialCapability(
     return {
       evidenceAccess: connectedPostSample
         ? 'connected_post_sample'
-        : source.text
+        : hasReadableSocialText(source)
         ? 'manual_post_text'
         : connection.canReadPosts
           ? 'connected_post_read_possible'
@@ -388,7 +388,7 @@ function socialCapability(
   }
 
   return {
-    evidenceAccess: source.text ? 'manual_post_text' : parsed?.isPostUrl || source.kind === 'social_post' ? 'post_url_only' : 'profile_url_only',
+    evidenceAccess: hasReadableSocialText(source) ? 'manual_post_text' : parsed?.isPostUrl || source.kind === 'social_post' ? 'post_url_only' : 'profile_url_only',
     liveFetchStatus: 'adapter_required',
     connectedAccountStatus: 'scope_audit_required',
     publicFallbackStatus: 'review_only',
@@ -430,6 +430,24 @@ function normalizeHttpUrl(rawUrl: string): string | undefined {
 
 function normalizeSocialText(text: string | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function socialInferenceText(source: BrandVaultSourceInput): string {
+  return uniqueStrings([
+    boundedSocialText(source.text),
+    boundedSocialText(source.media?.ocrText),
+    boundedSocialText(source.media?.transcript),
+    boundedSocialText(source.profile?.bio),
+  ]).join('\n');
+}
+
+function hasReadableSocialText(source: BrandVaultSourceInput): boolean {
+  return Boolean(socialInferenceText(source));
+}
+
+function boundedSocialText(text: string | undefined): string {
+  const normalized = normalizeSocialText(text);
+  return normalized.length > 1800 ? `${normalized.slice(0, 1800).trim()}...` : normalized;
 }
 
 function extractSocialVoicePhrases(text: string): string[] {
