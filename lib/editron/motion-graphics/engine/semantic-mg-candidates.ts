@@ -72,6 +72,13 @@ export interface SemanticMgCandidateLedger {
   };
 }
 
+export interface SemanticMgLedgerGate {
+  allow: boolean;
+  reasons: string[];
+  readyCandidateIds: string[];
+  suppressedCandidateIds: string[];
+}
+
 export interface BuildSemanticMgCandidateLedgerInput {
   content: Record<string, unknown>;
   structure?: ContentStructureSignature;
@@ -113,6 +120,38 @@ export function buildSemanticMgCandidateLedger(
       factKinds: countFactKinds(allCandidates),
       suppressReasons: countSuppressReasons(suppressed),
     },
+  };
+}
+
+export function resolveSemanticMgLedgerGate(ledger: SemanticMgCandidateLedger): SemanticMgLedgerGate {
+  const readyCandidateIds = ledger.candidates.map((candidate) => candidate.id);
+  const suppressedCandidateIds = ledger.suppressed.map((candidate) => candidate.id);
+  if (ledger.summary.totalCandidates === 0) {
+    return {
+      allow: true,
+      reasons: ['semantic-ledger:no-candidate-facts'],
+      readyCandidateIds,
+      suppressedCandidateIds,
+    };
+  }
+  if (ledger.candidates.length > 0) {
+    return {
+      allow: true,
+      reasons: ['semantic-ledger:licensed-candidate'],
+      readyCandidateIds,
+      suppressedCandidateIds,
+    };
+  }
+  return {
+    allow: false,
+    reasons: unique([
+      'semantic-ledger:no-licensed-candidate',
+      ...ledger.suppressed.flatMap((candidate) => (
+        candidate.hardGate.blockedBy.map((reason) => `semantic-ledger:${reason}`)
+      )),
+    ]),
+    readyCandidateIds,
+    suppressedCandidateIds,
   };
 }
 

@@ -111,6 +111,12 @@ Phase 9B - Done on 2026-06-17:
 - Verification: `npx vitest run tests\editron\mg-semantic-candidates.test.ts tests\editron\mg-content-atoms.test.ts tests\editron\mg-visual-explanation-contract.test.ts tests\editron\mg-expression-authority.test.ts` passed 26 tests; `npx eslint . --quiet` passed; touched-file TypeScript filter for `semantic-mg-candidates|mg-content-atoms|edl-executor` passed. Full `npx tsc --noEmit --pretty false` remains baseline-red in unrelated app/ThinkForge/admin files.
 - Not done: Phase 9B is metadata/observability only. Phase 9C/9D still need to use the ledger as a hard gate and then feed selected facts into authority selection.
 
+Phase 9C - Done on 2026-06-17:
+- Added `resolveSemanticMgLedgerGate`, a deterministic hard gate over the candidate ledger. It allows no-candidate content to continue through existing authority, allows ledgers with licensed candidates, and blocks ledgers where every semantic candidate was suppressed.
+- `edl-executor.ts` now applies this gate before MG expression authority, utility scoring, composition planning, and rendering. Weak/tiny unlicensed stats now stop before becoming visible MGs.
+- Added tests proving weak scalar stats produce `semantic-ledger:no-licensed-candidate` / `semantic-ledger:weak-stat-needs-salience-or-relation`, plain non-candidate content still continues to existing authority, and live `executeEDL` does not render a weak unlicensed stat MG.
+- Not done: Phase 9D still needs to use the winning ledger candidate to drive authority selection/ranking, not just allow/block.
+
 Phase 10 - Real-project taste gate:
 - Regenerate current real projects, starting with `proj_sH-nZy0DtNOq` as one probe, not as a special case.
 - Dump project MG candidates, selected overlays, recipes, atomic plans, atomic decisions, captions, and rendered stills/clips.

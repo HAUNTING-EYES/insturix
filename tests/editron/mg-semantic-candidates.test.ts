@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSemanticMgCandidateLedger } from '../../lib/editron/motion-graphics/engine/semantic-mg-candidates';
+import {
+  buildSemanticMgCandidateLedger,
+  resolveSemanticMgLedgerGate,
+} from '../../lib/editron/motion-graphics/engine/semantic-mg-candidates';
 
 describe('semantic MG candidate ledger', () => {
   it('suppresses unlicensed weak scalar stats instead of promoting a graphic shape', () => {
@@ -13,6 +16,13 @@ describe('semantic MG candidate ledger', () => {
     });
 
     expect(ledger.candidates).toHaveLength(0);
+    expect(resolveSemanticMgLedgerGate(ledger)).toEqual(expect.objectContaining({
+      allow: false,
+      reasons: expect.arrayContaining([
+        'semantic-ledger:no-licensed-candidate',
+        'semantic-ledger:weak-stat-needs-salience-or-relation',
+      ]),
+    }));
     expect(ledger.suppressed).toEqual([
       expect.objectContaining({
         factKind: 'weak-stat',
@@ -141,5 +151,21 @@ describe('semantic MG candidate ledger', () => {
       }),
     }));
     expect(ledger.summary.suppressReasons).toEqual({ 'missing-source-span': 1 });
+    expect(resolveSemanticMgLedgerGate(ledger).allow).toBe(false);
+  });
+
+  it('lets non-candidate content continue to the existing authority path', () => {
+    const ledger = buildSemanticMgCandidateLedger({
+      content: { text: 'plain caption emphasis' },
+      sourceSpan: { text: 'plain caption emphasis' },
+    });
+
+    expect(ledger.summary.totalCandidates).toBe(0);
+    expect(resolveSemanticMgLedgerGate(ledger)).toEqual({
+      allow: true,
+      reasons: ['semantic-ledger:no-candidate-facts'],
+      readyCandidateIds: [],
+      suppressedCandidateIds: [],
+    });
   });
 });

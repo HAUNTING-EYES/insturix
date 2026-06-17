@@ -165,4 +165,69 @@ describe('MG content atom normalization', () => {
     ]));
     expect(JSON.stringify(motionGraphic.metadata.semanticMgCandidateLedger)).not.toMatch(/template|preset|graphicType/i);
   });
+
+  it('blocks weak unlicensed stat MGs through the semantic ledger before rendering', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    if (DEFAULT_CONFIG.features) DEFAULT_CONFIG.features.useCompositionEngine = true;
+
+    const overlays: Overlay[] = [{
+      id: 1,
+      type: OverlayType.VIDEO,
+      from: 0,
+      durationInFrames: 240,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+      styles: { opacity: 1 },
+    } as Overlay];
+
+    const edl: EditDecisionList = {
+      projectId: 'mg-content-atoms-weak-stat',
+      generatedAt: new Date('2026-06-12T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'graphic',
+        frame: 60,
+        durationFrames: 90,
+        priority: 3,
+        source: 'creative-brief:test',
+        signal: 'entity.number',
+        reason: 'number_mentioned',
+        confidence: 0.92,
+        params: {
+          creativeDecisionType: 'graphic_stat_counter',
+          value: '0.03',
+          label: 'events per day',
+          contextPhrase: 'it was about 0.03 events per day',
+          signals: {
+            speech_energy: 0.8,
+            word_importance: 0.78,
+            visual_significance: 0.36,
+            text_on_screen: 0.1,
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.92,
+      },
+    };
+
+    await executeEDL(edl, 'mg-content-atoms-weak-stat', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(overlays.some((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC)).toBe(false);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('SKIPPED by semantic MG ledger gate'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('semantic-ledger:weak-stat-needs-salience-or-relation'));
+  });
 });

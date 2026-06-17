@@ -25,6 +25,7 @@ import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-grap
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import { buildAtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
 import { decideAtomicOverlay } from '@/lib/editron/motion-graphics/engine/atomic-overlay-decision';
+import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
 import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
@@ -2571,6 +2572,15 @@ async function applyGraphic(
   );
   if (existingGraphic) {
     console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — existing graphic at frame ${existingGraphic.from} (dedup)`);
+    return null;
+  }
+
+  const semanticMgLedgerGate = resolveSemanticMgLedgerGate(normalizedGraphicContent.semanticMgCandidateLedger);
+  if (!semanticMgLedgerGate.allow) {
+    console.log(
+      `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: SKIPPED by semantic MG ledger gate - ` +
+      semanticMgLedgerGate.reasons.join(', '),
+    );
     return null;
   }
 
