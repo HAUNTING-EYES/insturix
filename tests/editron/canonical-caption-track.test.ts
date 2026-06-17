@@ -131,6 +131,44 @@ describe('canonical caption track', () => {
     expect(caption.metadata.evidence.captionBoundaryCount).toBe(1);
   });
 
+  it('splits caption groups at speech-pause moment boundaries inside a long clip', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    const editedContext = context(['setup', 'point', 'new', 'thought']);
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    editedContext.transcription = [
+      { word: 'setup', startMs: 300, endMs: 520, originalStartMs: 10_000, originalEndMs: 10_220 },
+      { word: 'point', startMs: 560, endMs: 780, originalStartMs: 10_260, originalEndMs: 10_480 },
+      { word: 'new', startMs: 1550, endMs: 1740, originalStartMs: 11_250, originalEndMs: 11_440 },
+      { word: 'thought', startMs: 1780, endMs: 2020, originalStartMs: 11_480, originalEndMs: 11_720 },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: {
+        ...presentation,
+        wordsPerGroup: 8,
+      },
+    });
+
+    expect(result).toMatchObject({ created: 1, captionCount: 2 });
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.captions.map((item: any) => item.text)).toEqual(['setup point', 'new thought']);
+    expect(caption.metadata.evidence).toMatchObject({
+      captionBoundaryCount: 1,
+      clipBoundaryCount: 0,
+      speechPauseBoundaryCount: 1,
+      speechPauseBoundaryMs: 380,
+    });
+    expect(caption.metadata.evidence.calibration).toBeUndefined();
+    expect(caption.metadata.calibration.fields).toContain('maxGroupDurationMs');
+  });
+
   it('uses signal-resolved caption aesthetics instead of a fixed full-width band', () => {
     const overlays: any[] = [
       { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },

@@ -90,8 +90,8 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
     maxGroupDuration: readability.maxGroupDurationMs,
     maxCharsPerLine: readability.maxCharsPerCaption,
   };
-  const captionBoundariesMs = captionBoundaryMs(input.editedTimelineContext);
-  const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundariesMs);
+  const captionBoundaries = captionBoundaryPlanMs(input.editedTimelineContext, words, readability);
+  const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundaries.allMs);
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
   const protectedRegions = collectCaptionProtectedRegions(input.overlays);
   const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
@@ -125,7 +125,10 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         editedWordCount: words.length,
         durationFrames: input.editedTimelineContext.durationFrames,
         sourceClipCount: input.editedTimelineContext.sourceClips.length,
-        captionBoundaryCount: captionBoundariesMs.length,
+        captionBoundaryCount: captionBoundaries.allMs.length,
+        clipBoundaryCount: captionBoundaries.clipBoundaryCount,
+        speechPauseBoundaryCount: captionBoundaries.speechPauseBoundaryCount,
+        speechPauseBoundaryMs: captionBoundaries.speechPauseBoundaryMs,
         captionAesthetic: input.presentation.aesthetic,
         readability,
         protectedRegionCount: protectedRegions.length,
@@ -139,10 +142,48 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
   };
 }
 
-function captionBoundaryMs(context: EditedTimelineContext): number[] {
-  return context.sourceClips
+interface CaptionBoundaryPlan {
+  allMs: number[];
+  clipBoundaryCount: number;
+  speechPauseBoundaryCount: number;
+  speechPauseBoundaryMs: number;
+}
+
+function captionBoundaryPlanMs(
+  context: EditedTimelineContext,
+  words: CaptionWord[],
+  readability: ReturnType<typeof captionReadabilityPolicy>,
+): CaptionBoundaryPlan {
+  const clipBoundaries = context.sourceClips
     .map((clip) => Math.round((clip.from / context.fps) * 1000))
     .filter((ms) => ms > 0 && ms < context.durationMs)
+    .sort((a, b) => a - b);
+  const speechPauseBoundaries = speechPauseBoundaryMs(words, readability.speechPauseBoundaryMs);
+  const allMs = uniqueSortedMs([...clipBoundaries, ...speechPauseBoundaries]);
+
+  return {
+    allMs,
+    clipBoundaryCount: uniqueSortedMs(clipBoundaries).length,
+    speechPauseBoundaryCount: speechPauseBoundaries.length,
+    speechPauseBoundaryMs: readability.speechPauseBoundaryMs,
+  };
+}
+
+function speechPauseBoundaryMs(words: CaptionWord[], pauseBoundaryMs: number): number[] {
+  const boundaries: number[] = [];
+  for (let index = 1; index < words.length; index += 1) {
+    const previous = words[index - 1];
+    const current = words[index];
+    if (!previous || !current) continue;
+    const gap = current.startMs - previous.endMs;
+    if (gap >= pauseBoundaryMs) boundaries.push(current.startMs);
+  }
+  return uniqueSortedMs(boundaries);
+}
+
+function uniqueSortedMs(values: number[]): number[] {
+  return values
+    .filter((ms) => Number.isFinite(ms) && ms > 0)
     .sort((a, b) => a - b)
     .filter((ms, index, all) => index === 0 || ms !== all[index - 1]);
 }
@@ -241,6 +282,7 @@ function captionReadabilityPolicy(
       : Math.min(displayConfig.wordsPerGroup, 4);
   const maxCharsPerCaption = subtitleMode ? 38 : karaokeMode ? 30 : highEnergy ? 22 : 30;
   const maxGroupDurationMs = panelMode ? 2300 : highEnergy ? 1450 : 1900;
+  const speechPauseBoundaryMs = highEnergy ? 380 : panelMode ? 620 : 500;
 
   return {
     version: 'caption-readability-policy-v1',
@@ -248,6 +290,7 @@ function captionReadabilityPolicy(
     maxWordsPerLine: Math.max(1, maxWordsPerLine),
     maxCharsPerCaption,
     maxGroupDurationMs,
+    speechPauseBoundaryMs,
     contrastFloor: 4.5,
     surface: presentation.aesthetic.surface,
     status: 'invented-needs-calibration',
