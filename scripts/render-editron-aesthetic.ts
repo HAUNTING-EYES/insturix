@@ -558,6 +558,7 @@ function activeRenderedOverlayEvidence(
         family: receipt?.family,
         receipt,
         sampleRoles: sampleRolesForOverlay(renderEvidence.sample, overlay),
+        visualIntentStageMode: overlayVisualIntentStageMode(overlay),
         box: {
           ...box,
           ...pixels,
@@ -571,6 +572,17 @@ function sampleRolesForOverlay(sample: RenderedAestheticSample | undefined, over
   const overlayId = String(overlay.id);
   const matchesSample = sample.sourceOverlayIds.some((id) => String(id) === overlayId);
   return matchesSample ? sample.roles : undefined;
+}
+
+function overlayVisualIntentStageMode(overlay: Overlay): string | undefined {
+  const metadata = (overlay as Overlay & { metadata?: Record<string, unknown> }).metadata;
+  const plan = isRecord(metadata?.atomicOverlayPlan) ? metadata.atomicOverlayPlan : undefined;
+  const planIntent = isRecord(plan?.visualIntent) ? plan.visualIntent : undefined;
+  const recipe = isRecord((overlay as Overlay & { recipe?: unknown }).recipe)
+    ? (overlay as Overlay & { recipe: Record<string, unknown> }).recipe
+    : undefined;
+  const recipeIntent = isRecord(recipe?.visualIntent) ? recipe.visualIntent : undefined;
+  return stringValue(planIntent?.stageMode) ?? stringValue(recipeIntent?.stageMode);
 }
 
 export function changedPixelBounds(fullImage: RawImage, baselineImage: RawImage): RenderedOverlayBox | undefined {

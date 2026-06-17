@@ -217,6 +217,17 @@ function collectObligations(
     addObligation(obligations, 'summarize-section', partKeys(structure, ['title', 'body']), 0.72);
   }
 
+  if (hasConceptContextRelation(structure)) {
+    addObligation(obligations, 'summarize-section', [
+      ...partKeys(structure, ['keyword', 'body', 'context-phrase']),
+      ...relationKeys(structure, ['context-for']),
+    ], 0.94);
+  }
+
+  if (hasIdentityAnchor(structure)) {
+    addObligation(obligations, 'locate-object', partKeys(structure, ['name', 'title']), 0.9);
+  }
+
   if (hasSearchEvidence(content)) {
     addObligation(obligations, 'show-search-query', contentEvidenceKeys(content, ['query', 'searchQuery', 'url']), 0.78);
   }
@@ -243,6 +254,22 @@ function resolveStageMode(
   if (hasSearchEvidence(content) || hasDeviceEvidence(content)) return 'device-or-screen-scene';
   if (transitionBoundaryStrength >= 0.72) return 'mg-led-transition';
   if (hasObligation(obligations, 'compare-peers') && screenPressure >= 0.42) return 'split-footage-graphic';
+  if (
+    hasConceptContextRelation(structure)
+    && hasObligation(obligations, 'summarize-section')
+    && communicationGain >= 0.32
+    && hasTextCollision(signals)
+  ) {
+    return 'full-frame-graphic-scene';
+  }
+  if (
+    hasIdentityAnchor(structure)
+    && hasObligation(obligations, 'locate-object')
+    && communicationGain >= 0.32
+    && hasTextCollision(signals)
+  ) {
+    return 'full-frame-graphic-scene';
+  }
   if (
     communicationGain >= 0.58
     && (
@@ -366,8 +393,24 @@ function hasRelation(structure: ContentStructureSignature, type: ContentStructur
   return structure.relations.some((relation) => relation.type === type);
 }
 
+function hasConceptContextRelation(structure: ContentStructureSignature): boolean {
+  return hasRole(structure, 'keyword')
+    && (hasRole(structure, 'body') || hasRole(structure, 'context-phrase'))
+    && hasRelation(structure, 'context-for');
+}
+
+function hasIdentityAnchor(structure: ContentStructureSignature): boolean {
+  return hasRole(structure, 'name') && hasRole(structure, 'title');
+}
+
 function hasObligation(obligations: VisualObligation[], kind: VisualObligationKind): boolean {
   return obligations.some((obligation) => obligation.kind === kind);
+}
+
+function hasTextCollision(signals: Record<string, unknown>): boolean {
+  return (readNumber(signals, 'text_on_screen', 'visual.text_on_screen') ?? 0) >= 0.45
+    || (readNumber(signals, 'text_coverage', 'visual.text_coverage') ?? 0) >= 0.04
+    || (readNumber(signals, 'text_box_count', 'visual.text_box_count') ?? 0) > 0;
 }
 
 function resolveMomentStrength(signals: Record<string, unknown>): number {

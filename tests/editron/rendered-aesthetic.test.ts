@@ -150,6 +150,48 @@ describe('rendered frame aesthetic scoring', () => {
     ]));
   });
 
+  it('does not score licensed full-frame MGs as accidental text-occupancy occlusion', () => {
+    const receipt = buildOverlayAtomicReceipt({
+      family: 'motion-graphic',
+      intent: 'full-frame-concept',
+      frame: 42,
+      durationFrames: 90,
+      target: { x: 0, y: 0, width: FRAME.width, height: FRAME.height },
+      signals: {
+        text_on_screen: 0.62,
+        text_coverage: 0.18,
+      },
+      atoms: [
+        overlayAtom('text-content', 'content.text', 'selection bias', 1, 'transcript'),
+        overlayAtom('font-size', 'text.font_size', '78', 1, 'decision-param'),
+        overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+      ],
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'full-frame-mg',
+        receipt,
+        visualIntentStageMode: 'full-frame-graphic-scene',
+        box: {
+          x: 0,
+          y: 0,
+          width: FRAME.width,
+          height: FRAME.height,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 3.4,
+          textPixelHeight: 78,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.issues).toHaveLength(0);
+  });
+
   it('fails dense one-row captions with low local contrast', () => {
     const receipt = captionReceipt({
       words: ['this', 'is', 'the', 'one', 'thing', 'that', 'changed', 'everything', 'forever'],

@@ -37,18 +37,53 @@ describe('MG rendered calibration input', () => {
     }
   });
 
-  it('keeps text-heavy calibration MGs in wide lanes when bottom text occupancy is protected', () => {
+  it('keeps text-heavy calibration MGs out of cramped corner lanes when bottom text occupancy is protected', () => {
     const input = buildMgRenderedCalibrationInput();
-    const wideCases = new Set(['sparse-rate', 'bounded-percent', 'big-magnitude', 'fraction', 'keyword-concept', 'speaker-intro']);
+    const wideCases = new Set(['sparse-rate', 'bounded-percent', 'big-magnitude', 'fraction']);
 
     for (const overlay of input.overlays) {
       const calibrationCase = (overlay.metadata as { calibrationCase?: string }).calibrationCase;
       if (!calibrationCase || !wideCases.has(calibrationCase)) continue;
-      expect((overlay.recipe as { layout?: { position?: string; maxWidth?: string } }).layout).toMatchObject({
+      expect((overlay.recipe as { layout?: { position?: string } }).layout).toMatchObject({
         position: 'full-width-top',
-        maxWidth: '90%',
       });
     }
+
+    const speaker = input.overlays.find((overlay) => (
+      (overlay.metadata as { calibrationCase?: string }).calibrationCase === 'speaker-intro'
+    ));
+    expect((speaker?.recipe as { visualIntent?: { stageMode?: string }; layout?: { position?: string; maxWidth?: string } }).visualIntent?.stageMode)
+      .toBe('full-frame-graphic-scene');
+    expect((speaker?.recipe as { layout?: { position?: string; maxWidth?: string } }).layout).toMatchObject({
+      position: 'center',
+      maxWidth: '88%',
+    });
+  });
+
+  it('runs keyword concepts through expression authority into a full-frame visual contract', () => {
+    const input = buildMgRenderedCalibrationInput();
+    const concept = input.overlays.find((overlay) => (
+      (overlay.metadata as { calibrationCase?: string }).calibrationCase === 'keyword-concept'
+    ));
+    const authority = concept?.metadata as {
+      mgExpressionAuthority?: {
+        allowMotionGraphic?: boolean;
+        visualExplanationContract?: { stageMode?: string; obligations?: Array<{ kind?: string }> };
+      };
+    };
+
+    expect(authority.mgExpressionAuthority?.allowMotionGraphic).toBe(true);
+    expect(authority.mgExpressionAuthority?.visualExplanationContract?.stageMode).toBe('full-frame-graphic-scene');
+    expect(authority.mgExpressionAuthority?.visualExplanationContract?.obligations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'summarize-section' }),
+    ]));
+    expect((concept?.recipe as { visualIntent?: { stageMode?: string }; layout?: { position?: string; maxWidth?: string } }).visualIntent?.stageMode)
+      .toBe('full-frame-graphic-scene');
+    expect((concept?.recipe as { layout?: { position?: string; maxWidth?: string } }).layout).toMatchObject({
+      position: 'center',
+      maxWidth: '88%',
+    });
+    expect(JSON.stringify(concept)).not.toMatch(/keyword-highlight|template|preset/i);
   });
 
   it('keeps sparse-rate calibration out of generic stat shell atoms', () => {

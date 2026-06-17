@@ -10,11 +10,17 @@ import { scoreAllOverlays } from '../lib/editron/engine/utility-scorer';
 import { resolveMotionTokens } from '../lib/editron/data/motion-theme-resolver';
 import { decideAtomicOverlay } from '../lib/editron/motion-graphics/engine/atomic-overlay-decision';
 import { buildAtomicOverlayPlan } from '../lib/editron/motion-graphics/engine/atomic-overlay-plan';
+import { deriveContentStructure } from '../lib/editron/motion-graphics/engine/content-shape-analyzer';
 import {
   planComposition,
   type MgOverlayScores,
   type PlannerSignals,
 } from '../lib/editron/motion-graphics/engine/composition-planner';
+import {
+  applyMgExpressionAuthorityToRecipe,
+  applyMgExpressionAuthorityToScores,
+  resolveMgExpressionAuthority,
+} from '../lib/editron/services/mg-expression-authority';
 
 export interface MgRenderedCalibrationCase {
   id: string;
@@ -146,13 +152,22 @@ export function buildMgRenderedCalibrationInput(): MgRenderedCalibrationInput {
   const overlays = MG_RENDERED_CALIBRATION_CASES.map((testCase, index) => {
     const signals: PlannerSignals = { ...BASE_SIGNALS, ...testCase.signals };
     const tokens = resolveMotionTokens(signals, BRAND);
-    const mgScores = mgScoresFor(signals);
-    const recipe = planComposition(
+    let mgScores = mgScoresFor(signals);
+    const structure = deriveContentStructure(testCase.content);
+    const mgExpressionAuthority = resolveMgExpressionAuthority({
+      content: testCase.content,
+      structure,
+      signals,
+      placementRegion: 'top-center',
+      graphicsDensity: 'moderate',
+    });
+    mgScores = applyMgExpressionAuthorityToScores(mgScores, mgExpressionAuthority) ?? mgScores;
+    const recipe = applyMgExpressionAuthorityToRecipe(planComposition(
       { content: testCase.content, triggerMoment: testCase.id },
       tokens,
       signals,
       mgScores,
-    );
+    ), mgExpressionAuthority);
     const atomicOverlayPlan = buildAtomicOverlayPlan(recipe, tokens, testCase.content, signals, mgScores, {});
     const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
     const from = index * STRIDE;
@@ -178,6 +193,7 @@ export function buildMgRenderedCalibrationInput(): MgRenderedCalibrationInput {
         sourceType: 'mg-rendered-calibration',
         calibrationCase: testCase.id,
         compositionEngine: true,
+        mgExpressionAuthority,
         atomicOverlayPlan,
         atomicOverlayDecision,
         atomicPlanObserveMode: true,

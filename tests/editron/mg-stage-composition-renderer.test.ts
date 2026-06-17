@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyVisualIntentTextTreatment,
   resolveSemanticContentSceneAtoms,
   resolveVisualIntentContentElementMotion,
   resolveVisualIntentSceneAtomAnimatedStyle,
   resolveVisualIntentContentLayoutStyle,
   resolveVisualIntentSceneAtoms,
   resolveVisualIntentStageChrome,
+  shouldSuppressVisualIntentLegacyElement,
 } from '../../lib/editron/motion-graphics/engine/composition-renderer';
 import type { RecipeLayout, RecipeVisualIntent } from '../../lib/editron/motion-graphics/engine/recipe-types';
 import { resolveMotionTokens } from '../../lib/editron/data/motion-theme-resolver';
@@ -232,6 +234,39 @@ describe('MG stage composition renderer', () => {
     expect(transitionText?.transform).toContain('translateY(-18px)');
   });
 
+  it('suppresses legacy card decoration only after a rich visual contract owns the stage', () => {
+    const fullFrame = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      renderDirectives: { preferFullFrame: true, suppressDecorativeAccents: true },
+    });
+    const overlay = visualIntent({
+      stageMode: 'overlay-on-footage',
+      renderDirectives: { suppressDecorativeAccents: true },
+    });
+
+    expect(shouldSuppressVisualIntentLegacyElement({ role: 'sm-accent-line', primitive: 'shape' }, fullFrame)).toBe(true);
+    expect(shouldSuppressVisualIntentLegacyElement({ role: 'sm-side-bar', primitive: 'shape' }, fullFrame)).toBe(true);
+    expect(shouldSuppressVisualIntentLegacyElement({ role: 'brand-pattern', primitive: 'pattern' }, fullFrame)).toBe(true);
+    expect(shouldSuppressVisualIntentLegacyElement({ role: 'primary', primitive: 'text' }, fullFrame)).toBe(false);
+    expect(shouldSuppressVisualIntentLegacyElement({ role: 'sm-accent-line', primitive: 'shape' }, overlay)).toBe(false);
+  });
+
+  it('lifts text contrast for non-overlay stages without changing overlay text', () => {
+    const fullFrame = visualIntent({
+      stageMode: 'full-frame-graphic-scene',
+      renderDirectives: { preferFullFrame: true },
+    });
+    const base = { color: '#94a3b8', opacity: 0.72, textShadow: '0 1px 2px rgba(0,0,0,0.1)' };
+
+    const treated = applyVisualIntentTextTreatment(base, { role: 'primary' }, fullFrame);
+    const overlay = applyVisualIntentTextTreatment(base, { role: 'primary' }, visualIntent());
+
+    expect(treated.color).toBe('#ffffff');
+    expect(treated.opacity).toBe(1);
+    expect(String(treated.textShadow)).toContain('0 2px 18px rgba(0,0,0,0.46)');
+    expect(overlay).toEqual(base);
+  });
+
   it('derives stat graphics only when numeric content licenses the visual wires', () => {
     const atoms = resolveSemanticContentSceneAtoms(
       { value: '90%', label: 'good people', quantityKind: 'percent', boundedRange: true },
@@ -263,6 +298,21 @@ describe('MG stage composition renderer', () => {
     const atoms = resolveSemanticContentSceneAtoms(
       { title: 'Selection Bias', body: 'Only hostile people comment, so the sample looks worse than reality.' },
       [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'Selection Bias' } }],
+      language,
+    );
+
+    expect(atoms.map((atom) => atom.kind)).toContain('semantic-concept-map');
+    expect(atoms[0].children?.map((atom) => atom.role)).toEqual(expect.arrayContaining([
+      'semantic-concept-node-main',
+      'semantic-concept-node-context',
+      'semantic-concept-node-proof',
+    ]));
+  });
+
+  it('derives concept maps from keyword and body fact content', () => {
+    const atoms = resolveSemanticContentSceneAtoms(
+      { keyword: 'selection bias', body: 'the sample changed the story' },
+      [{ role: 'primary', primitive: 'text', resolvedProps: { text: 'selection bias' } }],
       language,
     );
 

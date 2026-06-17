@@ -149,6 +149,74 @@ describe('visual explanation contract', () => {
     expectEveryObligationHasEvidence(fullFrame);
   });
 
+  it('licenses keyword context as visual explanation from the context-for fact, not a keyword preset', () => {
+    const content = {
+      keyword: 'selection bias',
+      body: 'the sample changed the story',
+      warranted: true,
+      salience: 0.82,
+    };
+    const structure = deriveContentStructure(content);
+    const contract = resolveVisualExplanationContract({
+      content,
+      structure,
+      signals: {
+        text_on_screen: 0.55,
+        text_coverage: 0.12,
+        visual_complexity: 0.22,
+        visual_dependency: 0.18,
+        caption_redundancy: 0.18,
+      },
+    });
+
+    expect(structure.relations).toContainEqual({
+      type: 'context-for',
+      fromRole: 'body',
+      toRole: 'keyword',
+    });
+    expect(contract.allow).toBe(true);
+    expect(contract.stageMode).toBe('full-frame-graphic-scene');
+    expect(contract.obligations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'summarize-section' }),
+    ]));
+    expect(contract.evidenceAtomKeys).toEqual(expect.arrayContaining([
+      'part:keyword:keyword',
+      'part:body:body',
+      'relation:context-for:body->keyword',
+    ]));
+    expect(JSON.stringify(contract)).not.toMatch(/keyword-highlight|template|preset/i);
+  });
+
+  it('licenses identity scenes from name and title facts without a speaker preset', () => {
+    const content = {
+      name: 'Hank Green',
+      title: 'Science communicator',
+      salience: 0.76,
+    };
+    const structure = deriveContentStructure(content);
+    const contract = resolveVisualExplanationContract({
+      content,
+      structure,
+      signals: {
+        text_on_screen: 0.58,
+        text_coverage: 0.1,
+        visual_complexity: 0.35,
+        word_importance: 0.72,
+      },
+    });
+
+    expect(contract.allow).toBe(true);
+    expect(contract.stageMode).toBe('full-frame-graphic-scene');
+    expect(contract.obligations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'locate-object' }),
+    ]));
+    expect(contract.evidenceAtomKeys).toEqual(expect.arrayContaining([
+      'part:name:name',
+      'part:title:title',
+    ]));
+    expect(JSON.stringify(contract)).not.toMatch(/speaker-intro|template|preset/i);
+  });
+
   it('uses real Path E dotted screen signals and directional negative-space evidence for stage mode', () => {
     const baseContent = {
       title: 'Launch checklist',

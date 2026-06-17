@@ -99,6 +99,21 @@ export function resolveCompositionVisualIntent(
   return recipeIntent ?? atomicPlan?.visualIntent;
 }
 
+export function shouldSuppressVisualIntentLegacyElement(
+  element: Pick<ResolvedElement, 'primitive' | 'role'>,
+  visualIntent: VisualIntent,
+): boolean {
+  if (!visualIntent?.renderDirectives.suppressDecorativeAccents) return false;
+  if (visualIntent.stageMode === 'overlay-on-footage') return false;
+
+  if (element.primitive === 'pattern') return true;
+  if (!['shape', 'container', 'decoration', 'gradient'].includes(element.primitive)) return false;
+
+  return element.role === 'container'
+    || element.role === 'brand-pattern'
+    || element.role.startsWith('sm-');
+}
+
 export function resolveVisualIntentStageChrome(
   visualIntent: VisualIntent,
   language: CompositionRendererProps['language'],
@@ -135,9 +150,9 @@ export function resolveVisualIntentStageChrome(
         frameStyle: {
           position: 'absolute',
           inset: '5%',
-          border: `${borderWeight}px solid ${withAlpha(accent, 0.34)}`,
+          border: `${borderWeight}px solid ${withAlpha(accent, 0.16)}`,
           borderRadius: radius,
-          boxShadow: `inset 0 0 120px ${withAlpha(surface, 0.46)}, 0 0 60px ${withAlpha(accent, 0.16)}`,
+          boxShadow: `0 0 60px ${withAlpha(accent, 0.1)}`,
         },
       };
     case 'split-layout':
@@ -349,7 +364,9 @@ export function resolveVisualIntentSceneAtoms(
   const obligations = new Set(visualIntent.obligationKinds);
   const atoms: VisualIntentSceneAtom[] = [];
 
-  if (stageChrome.kind === 'full-frame') {
+  const semanticStage = obligations.has('summarize-section') || obligations.has('locate-object');
+
+  if (stageChrome.kind === 'full-frame' && !semanticStage) {
     atoms.push({
       kind: 'safe-frame',
       role: 'full-frame-explanation-safe-frame',
@@ -696,14 +713,15 @@ export function resolveSemanticContentSceneAtoms(
         role: 'semantic-concept-claim-map',
         style: {
           position: 'absolute',
-          inset: '11% 8% 14%',
+          inset: '16% 8% 18%',
           borderRadius: radius,
-          border: `1px solid ${withAlpha(accent, 0.22)}`,
+          border: 0,
           background: [
-            `radial-gradient(circle at 50% 50%, ${withAlpha(accent, 0.18)} 0%, transparent 32%)`,
-            `linear-gradient(135deg, ${withAlpha(surface, 0.26)} 0%, ${withAlpha(primary, 0.16)} 100%)`,
+            `radial-gradient(circle at 50% 46%, ${withAlpha(accent, 0.24)} 0%, transparent 25%)`,
+            `radial-gradient(circle at 24% 64%, ${withAlpha(primary, 0.18)} 0%, transparent 17%)`,
+            `radial-gradient(circle at 76% 65%, ${withAlpha(accent, 0.16)} 0%, transparent 18%)`,
           ].join(', '),
-          boxShadow: `inset 0 0 80px ${withAlpha(primary, 0.12)}`,
+          boxShadow: 'none',
         },
         children: [
           semanticNode('semantic-concept-node-main', '50%', '42%', '26%', '20%', accent, surface),
@@ -1206,11 +1224,12 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   const stageChrome = resolveVisualIntentStageChrome(visualIntent, language);
   // G-1: px box width for text fit = canvas width × the layout's max-width fraction.
   const boxWidthPx = width * layoutMaxWidthFraction(renderLayout);
+  const visualElements = sorted.filter((element) => !shouldSuppressVisualIntentLegacyElement(element, visualIntent));
   // When a horizontal comparison is flipped to a vertical stack (above), its baked horizontal
   // connector glyph ("→") would point the wrong way in a column — remap it to the vertical "↓".
   const elementsToRender = flipped
-    ? sorted.map((el) => (el.resolvedProps?.text === '→' ? { ...el, resolvedProps: { ...el.resolvedProps, text: '↓' } } : el))
-    : sorted;
+    ? visualElements.map((el) => (el.resolvedProps?.text === '→' ? { ...el, resolvedProps: { ...el.resolvedProps, text: '↓' } } : el))
+    : visualElements;
   const contentLayoutStyle = resolveVisualIntentContentLayoutStyle(
     layoutStyle,
     stageChrome,
@@ -1218,7 +1237,7 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
     elementsToRender.length,
   );
   const visualSceneAtoms = resolveVisualIntentSceneAtoms(visualIntent, stageChrome, language);
-  const semanticSceneAtoms = protectsExistingText(atomicPlan)
+  const semanticSceneAtoms = protectsExistingText(atomicPlan, visualIntent)
     ? []
     : resolveSemanticContentSceneAtoms(content, elementsToRender, language);
   const sceneAtoms = [...visualSceneAtoms, ...semanticSceneAtoms];
@@ -1257,7 +1276,8 @@ export const CompositionRenderer: React.FC<CompositionRendererInternalProps> = (
   );
 };
 
-function protectsExistingText(atomicPlan: AtomicOverlayPlan | undefined): boolean {
+function protectsExistingText(atomicPlan: AtomicOverlayPlan | undefined, visualIntent: VisualIntent): boolean {
+  if (visualIntent?.stageMode !== 'overlay-on-footage') return false;
   const visualContext = atomicPlan?.visualContext;
   if (!visualContext) return false;
   return visualContext.textOnScreen > 0.45
@@ -1879,7 +1899,11 @@ const TextElement: React.FC<{
   const contentMotion = resolveVisualIntentContentElementMotion(element, visualIntent, frame, fps, contentOrder);
   const keepInline = shouldKeepShortPhraseInline(text);
   const style = resolveCompactTopLaneTextStyle(applyVisualIntentContentElementMotion(
-    applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision),
+    applyVisualIntentTextTreatment(
+      applyAtomicStyleAtoms(buildTextStyle(element, anim, fittedSizePx), atomicElement, atomicDecision),
+      element,
+      visualIntent,
+    ),
     contentMotion,
   ), compactTopLane, keepInline);
 
@@ -1902,12 +1926,33 @@ const TextElement: React.FC<{
         atomicDecision={atomicDecision}
         containerStyle={style}
         fittedSizePx={fittedSizePx}
+        visualIntent={visualIntent}
       />
     );
   }
 
   return <div style={keepInline ? { ...style, display: 'inline-block', maxWidth: '100%', textAlign: 'center', whiteSpace: 'nowrap' } : style}>{text}</div>;
 };
+
+export function applyVisualIntentTextTreatment(
+  style: React.CSSProperties,
+  element: Pick<ResolvedElement, 'role'>,
+  visualIntent: VisualIntent,
+): React.CSSProperties {
+  if (!visualIntent || visualIntent.stageMode === 'overlay-on-footage') return style;
+  if (!['primary', 'secondary', 'label', 'counter'].includes(element.role)) return style;
+
+  return {
+    ...style,
+    color: element.role === 'secondary' || element.role === 'label' ? '#f8fafc' : '#ffffff',
+    opacity: 1,
+    textShadow: [
+      style.textShadow,
+      '0 2px 18px rgba(0,0,0,0.46)',
+      '0 0 34px rgba(0,0,0,0.32)',
+    ].filter(Boolean).join(', '),
+  };
+}
 
 export function resolveCompactTopLaneTextStyle(
   style: React.CSSProperties,
@@ -1947,7 +1992,8 @@ const SplitTextElement: React.FC<{
   atomicDecision?: AtomicOverlayDecision;
   containerStyle: React.CSSProperties;
   fittedSizePx?: number; // G-1: render-time fit-to-box size (threaded by TextElement)
-}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, atomicElement, atomicDecision, containerStyle, fittedSizePx }) => {
+  visualIntent: VisualIntent;
+}> = ({ element, text, splitMode, frame, timing, spatial, signalCurves, atomicElement, atomicDecision, containerStyle, fittedSizePx, visualIntent }) => {
   // ROOT FIX for the "SUPERHER/O" mid-word break: split into WORDS first; each word is a
   // white-space:nowrap inline-block, so a word can NEVER break across lines mid-glyph. The flex
   // container wraps only BETWEEN words (multi-line is fine). Chars animate individually inside a word.
@@ -1975,10 +2021,14 @@ const SplitTextElement: React.FC<{
     const modulatedAnim = signalCurves
       ? applyAudioReactiveModulation(unitAnim, frame, offsetTiming, signalCurves)
       : unitAnim;
-    const unitStyle = applyAtomicStyleAtoms(
-      buildTextStyle(element, applyAtomicRenderDecision(modulatedAnim, atomicDecision), fittedSizePx),
-      atomicElement,
-      atomicDecision,
+    const unitStyle = applyVisualIntentTextTreatment(
+      applyAtomicStyleAtoms(
+        buildTextStyle(element, applyAtomicRenderDecision(modulatedAnim, atomicDecision), fittedSizePx),
+        atomicElement,
+        atomicDecision,
+      ),
+      element,
+      visualIntent,
     );
     return <span key={key} style={{ ...unitStyle, display: 'inline-block' }}>{str}</span>;
   };

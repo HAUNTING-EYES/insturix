@@ -43,6 +43,7 @@ export interface RenderedOverlayEvidence {
   receipt?: AtomicOverlayReceipt;
   box?: RenderedOverlayBox;
   sampleRoles?: string[];
+  visualIntentStageMode?: string;
 }
 
 export interface RenderedFrameAestheticInput extends RenderValidityInput {
@@ -223,6 +224,7 @@ function scoreSafeArea(overlay: NormalizedOverlay, input: RenderedFrameAesthetic
       severity: 'fail',
     });
   }
+  if (isIntentionalFullFrameMotionGraphic(overlay)) return;
 
   const margin = isTextFamily(overlay.family) ? 0.1 : 0.05;
   const safe = safeBox(input.width, input.height, margin);
@@ -244,6 +246,7 @@ function scoreAvoidRegions(overlay: NormalizedOverlay, input: RenderedFrameAesth
   if (!overlay.box || !isVisualFamily(overlay.family)) return;
   const avoid = overlay.item.receipt?.placementHints.avoid ?? [];
   for (const box of avoid) {
+    if (isIntentionalFullFrameMotionGraphic(overlay) && box.reason === 'text-occupancy') continue;
     if (box.strength < 0.2) continue;
     const avoidBox = placementBoxToPixels(box, input);
     const ratio = intersectionRatio(overlay.box, avoidBox);
@@ -352,6 +355,7 @@ function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
   const fontSize = overlay.item.box?.textPixelHeight ?? fontSizePx(text.typography.fontSize) ?? 16;
   const required = fontSize >= 42 ? 3 : 4.5;
   if (contrastRatio < required) {
+    if (isIntentionalFullFrameMotionGraphic(overlay) && contrastRatio >= 3) return;
     const exitPrep = overlay.item.sampleRoles?.includes('exit-prep') ?? false;
     const penalty = exitPrep ? 0.04 : contrastRatio < 2 ? 0.24 : 0.18;
     const severity: RenderedAestheticSeverity = exitPrep ? 'info' : contrastRatio < 2.4 ? 'fail' : 'warn';
@@ -455,6 +459,13 @@ function normalizeOverlay(item: RenderedOverlayEvidence, input: RenderedFrameAes
     family,
     box: normalizeBox(item.box ?? boxFromReceipt(item.receipt), input),
   };
+}
+
+function isIntentionalFullFrameMotionGraphic(overlay: NormalizedOverlay): boolean {
+  if (overlay.family !== 'motion-graphic') return false;
+  return overlay.item.visualIntentStageMode === 'full-frame-graphic-scene'
+    || overlay.item.visualIntentStageMode === 'interstitial-graphic-scene'
+    || overlay.item.receipt?.form.placement.region === 'full-frame';
 }
 
 function boxFromReceipt(receipt: AtomicOverlayReceipt | undefined): RenderedOverlayBox | undefined {
