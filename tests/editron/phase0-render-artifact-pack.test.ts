@@ -35,6 +35,10 @@ describe('phase0 render artifact pack', () => {
         fps: 30,
         durationInFrames: 180,
       },
+      samplePlan: {
+        maxSamples: 24,
+        droppedSampleCount: 0,
+      },
       familyCoverage: {
         auditedVisualCount: 4,
         auditedMotionCount: 1,
@@ -71,9 +75,50 @@ describe('phase0 render artifact pack', () => {
     expect(pack.familyCoverage.auditedMotionTypes).toEqual(['zoom']);
     expect(pack.familyCoverage.auditedAudioTypes).toEqual(['audio', 'sound']);
     expect(pack.renderInput.overlays).toHaveLength(7);
+    expect(pack.samplePlan.sampledFrames).toEqual([
+      28, 38, 48, 63, 64, 77, 82, 90, 92, 93, 94, 96, 98, 108, 127, 142,
+    ]);
+    expect(pack.samplePlan.samples).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        frame: 64,
+        roles: ['hold'],
+        sourceOverlayIds: ['caption-1', 'zoom-1'],
+        sourceOverlayTypes: ['caption', 'zoom'],
+        sourceFamilies: ['caption', 'zoom'],
+        evidenceKinds: ['visual', 'motion'],
+      }),
+      expect.objectContaining({
+        frame: 90,
+        sourceOverlayIds: ['sound-1', 'transition-1'],
+        sourceOverlayTypes: ['sound', 'transition'],
+        sourceFamilies: ['sfx', 'transition'],
+        evidenceKinds: ['visual', 'audio'],
+      }),
+      expect.objectContaining({
+        frame: 48,
+        sourceOverlayIds: ['zoom-1'],
+        sourceFamilies: ['zoom'],
+        evidenceKinds: ['motion'],
+      }),
+    ]));
     expect(pack.renderCommand).toContain('scripts/render-editron-aesthetic.ts');
     expect(pack.renderCommand).toContain('render-input.json');
     expect(pack.renderCommand).toContain('--overlay-only');
+  });
+
+  it('bounds sample windows deterministically instead of rendering every overlay state', () => {
+    const project = projectFixture();
+    const manifest = buildPhase0FixtureManifest(project);
+
+    const pack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_pack',
+      maxSamples: 5,
+    });
+
+    expect(pack.samplePlan.maxSamples).toBe(5);
+    expect(pack.samplePlan.sampledFrames).toEqual([28, 64, 92, 96, 142]);
+    expect(pack.samplePlan.droppedSampleCount).toBe(11);
+    expect(pack.samplePlan.samples.every((sample) => sample.frame >= 0 && sample.frame < 180)).toBe(true);
   });
 
   it('marks packs not-renderable instead of pretending missing visual evidence exists', () => {

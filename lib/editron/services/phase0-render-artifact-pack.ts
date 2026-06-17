@@ -36,6 +36,7 @@ const NON_MG_COMPLETENESS_FAMILIES = ['caption', 'transition', 'zoom', 'sfx'] as
 
 export interface BuildPhase0RenderArtifactPackOptions {
   artifactDir: string;
+  maxSamples?: number;
 }
 
 export interface Phase0RenderInput {
@@ -46,6 +47,15 @@ export interface Phase0RenderInput {
   fps: number;
   durationInFrames: number;
   overlays: Phase0OverlayLike[];
+}
+
+export interface Phase0RenderSample {
+  frame: number;
+  roles: string[];
+  sourceOverlayIds: string[];
+  sourceOverlayTypes: string[];
+  sourceFamilies: string[];
+  evidenceKinds: AuditedEvidenceKind[];
 }
 
 export interface Phase0RenderArtifactPack {
@@ -62,6 +72,12 @@ export interface Phase0RenderArtifactPack {
   };
   renderCommand: string;
   renderInput: Phase0RenderInput;
+  samplePlan: {
+    maxSamples: number;
+    sampledFrames: number[];
+    droppedSampleCount: number;
+    samples: Phase0RenderSample[];
+  };
   familyCoverage: {
     auditedOverlayTypes: string[];
     auditedVisualTypes: string[];
@@ -118,6 +134,11 @@ export function buildPhase0RenderArtifactPack(
   const renderedAestheticDir = joinPath(options.artifactDir, 'rendered-aesthetic');
   const renderInputPath = joinPath(options.artifactDir, 'render-input.json');
   const familyCoverage = summarizeFamilyCoverage(overlays);
+  const samplePlan = planPhase0RenderSamples(
+    overlays,
+    durationInFrames,
+    options.maxSamples ?? 24,
+  );
   const issues = [
     ...(width > 0 && height > 0 ? [] : ['missing-canvas-dimensions']),
     ...(durationInFrames > 0 ? [] : ['missing-duration']),
@@ -147,8 +168,80 @@ export function buildPhase0RenderArtifactPack(
       durationInFrames,
       overlays,
     },
+    samplePlan,
     familyCoverage,
   };
+}
+
+function planPhase0RenderSamples(
+  overlays: Phase0OverlayLike[],
+  durationInFrames: number,
+  maxSamples: number,
+): Phase0RenderArtifactPack['samplePlan'] {
+  const specsByType = new Map(AUDITED_OVERLAY_TYPES.map((spec) => [spec.type, spec]));
+  const samples = new Map<number, Phase0RenderSample>();
+  const boundedMaxSamples = Math.max(1, Math.floor(maxSamples));
+
+  for (const overlay of overlays) {
+    const spec = specsByType.get(String(overlay.type ?? 'unknown'));
+    if (!spec) continue;
+    const from = readFrame(overlay.from);
+    const duration = Math.max(1, firstPositiveNumber(overlay.durationInFrames));
+    if (from < 0 || durationInFrames <= 0) continue;
+
+    addSample(samples, from + Math.min(duration - 1, Math.max(1, Math.min(8, Math.floor(duration * 0.22)))), durationInFrames, 'entry-settle', overlay, spec);
+    addSample(samples, from + Math.floor(duration * 0.55), durationInFrames, 'hold', overlay, spec);
+    addSample(samples, from + Math.max(0, duration - Math.max(2, Math.min(8, Math.floor(duration * 0.18)))), durationInFrames, 'exit-prep', overlay, spec);
+  }
+
+  const sorted = [...samples.values()].sort((a, b) => a.frame - b.frame);
+  const selected = sorted.length <= boundedMaxSamples ? sorted : selectEvenlySpacedSamples(sorted, boundedMaxSamples);
+  return {
+    maxSamples: boundedMaxSamples,
+    sampledFrames: selected.map((sample) => sample.frame),
+    droppedSampleCount: Math.max(0, sorted.length - selected.length),
+    samples: selected,
+  };
+}
+
+function addSample(
+  samples: Map<number, Phase0RenderSample>,
+  frame: number,
+  durationInFrames: number,
+  role: string,
+  overlay: Phase0OverlayLike,
+  spec: AuditedOverlayType,
+): void {
+  const clampedFrame = clampFrame(frame, durationInFrames);
+  const existing = samples.get(clampedFrame);
+  const id = overlayId(overlay);
+  const type = String(overlay.type ?? 'unknown');
+  if (existing) {
+    existing.roles = uniqueStrings([...existing.roles, role]);
+    existing.sourceOverlayIds = uniqueStrings([...existing.sourceOverlayIds, id]);
+    existing.sourceOverlayTypes = uniqueStrings([...existing.sourceOverlayTypes, type]);
+    existing.sourceFamilies = uniqueStrings([...existing.sourceFamilies, spec.family]);
+    existing.evidenceKinds = uniqueEvidenceKinds([...existing.evidenceKinds, spec.evidenceKind]);
+    return;
+  }
+
+  samples.set(clampedFrame, {
+    frame: clampedFrame,
+    roles: [role],
+    sourceOverlayIds: [id],
+    sourceOverlayTypes: [type],
+    sourceFamilies: [spec.family],
+    evidenceKinds: [spec.evidenceKind],
+  });
+}
+
+function selectEvenlySpacedSamples(samples: Phase0RenderSample[], maxSamples: number): Phase0RenderSample[] {
+  const selectedFrames = new Set<number>();
+  for (let i = 0; i < maxSamples; i += 1) {
+    const index = Math.round((i * (samples.length - 1)) / Math.max(1, maxSamples - 1));
+    selectedFrames.add(samples[index].frame);
+  }
+  return samples.filter((sample) => selectedFrames.has(sample.frame));
 }
 
 function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
@@ -296,6 +389,20 @@ function maxOverlayEnd(overlays: Phase0OverlayLike[]): number {
     const duration = firstPositiveNumber(overlay.durationInFrames);
     return Math.max(maxEnd, from + duration);
   }, 0);
+}
+
+function clampFrame(frame: number, durationInFrames: number): number {
+  return Math.max(0, Math.min(Math.max(0, durationInFrames - 1), Math.round(frame)));
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function uniqueEvidenceKinds(values: AuditedEvidenceKind[]): AuditedEvidenceKind[] {
+  const order: AuditedEvidenceKind[] = ['visual', 'motion', 'audio'];
+  const set = new Set(values);
+  return order.filter((kind) => set.has(kind));
 }
 
 function safeTag(value: string): string {
