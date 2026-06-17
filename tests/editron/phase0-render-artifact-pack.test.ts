@@ -78,7 +78,7 @@ describe('phase0 render artifact pack', () => {
     expect(pack.renderInput.sampleFrames).toEqual(pack.samplePlan.sampledFrames);
     expect(pack.renderInput.samplePlan).toEqual(pack.samplePlan);
     expect(pack.samplePlan.sampledFrames).toEqual([
-      28, 38, 48, 63, 64, 77, 82, 90, 92, 93, 94, 96, 98, 108, 127, 142,
+      28, 38, 48, 63, 64, 77, 82, 88, 90, 92, 93, 94, 96, 98, 108, 127, 142,
     ]);
     expect(pack.samplePlan.samples).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -91,6 +91,14 @@ describe('phase0 render artifact pack', () => {
       }),
       expect.objectContaining({
         frame: 90,
+        sourceOverlayIds: ['sound-1', 'transition-1'],
+        sourceOverlayTypes: ['sound', 'transition'],
+        sourceFamilies: ['sfx', 'transition'],
+        evidenceKinds: ['visual', 'audio'],
+      }),
+      expect.objectContaining({
+        frame: 88,
+        roles: ['sfx-sync', 'transition-boundary'],
         sourceOverlayIds: ['sound-1', 'transition-1'],
         sourceOverlayTypes: ['sound', 'transition'],
         sourceFamilies: ['sfx', 'transition'],
@@ -118,8 +126,8 @@ describe('phase0 render artifact pack', () => {
     });
 
     expect(pack.samplePlan.maxSamples).toBe(5);
-    expect(pack.samplePlan.sampledFrames).toEqual([28, 64, 92, 96, 142]);
-    expect(pack.samplePlan.droppedSampleCount).toBe(11);
+    expect(pack.samplePlan.sampledFrames).toEqual([28, 64, 90, 96, 142]);
+    expect(pack.samplePlan.droppedSampleCount).toBe(12);
     expect(pack.samplePlan.samples.every((sample) => sample.frame >= 0 && sample.frame < 180)).toBe(true);
   });
 

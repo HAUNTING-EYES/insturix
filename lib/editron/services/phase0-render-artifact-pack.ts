@@ -204,6 +204,13 @@ function planPhase0RenderSamples(
     const duration = Math.max(1, firstPositiveNumber(overlay.durationInFrames));
     if (from < 0 || durationInFrames <= 0) continue;
 
+    if (spec.family === 'transition') {
+      addSample(samples, from, durationInFrames, 'transition-boundary', overlay, spec);
+    }
+    if (spec.family === 'sfx') {
+      addSample(samples, sfxSyncFrameOf(overlay), durationInFrames, 'sfx-sync', overlay, spec);
+    }
+
     addSample(samples, from + Math.min(duration - 1, Math.max(1, Math.min(8, Math.floor(duration * 0.22)))), durationInFrames, 'entry-settle', overlay, spec);
     addSample(samples, from + Math.floor(duration * 0.55), durationInFrames, 'hold', overlay, spec);
     addSample(samples, from + Math.max(0, duration - Math.max(2, Math.min(8, Math.floor(duration * 0.18)))), durationInFrames, 'exit-prep', overlay, spec);
@@ -466,6 +473,21 @@ function hasText(value: unknown): boolean {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function sfxSyncFrameOf(overlay: Phase0OverlayLike): number {
+  const metadata = asRecord(overlay.metadata);
+  const form = asRecord(metadata.atomicSfxForm);
+  const timing = asRecord(form.timing);
+  return Math.max(0, Math.round(
+    readNumber(timing.syncFrame)
+      ?? readNumber(metadata.sfxSyncFrame)
+      ?? readFrame(overlay.from),
+  ));
 }
 
 function overlayId(overlay: Phase0OverlayLike): string {
