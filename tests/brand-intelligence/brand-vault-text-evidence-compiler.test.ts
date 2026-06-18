@@ -330,6 +330,65 @@ describe('Brand Vault text evidence compiler', () => {
     });
   });
 
+  it('uses one bounded Gemini repair pass when malformed JSON cannot be recovered locally', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const compiler = createBrandVaultGeminiTextEvidenceCompiler({
+      apiKey: 'gemini_key',
+      fetchFn: async (_url, init) => {
+        calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return jsonResponse({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: calls.length === 1
+                      ? 'Candidates: signalPath identity.audience value founder-led creative teams sourceField website.root'
+                      : JSON.stringify({
+                        candidates: [
+                          {
+                            signalPath: 'identity.audience',
+                            normalizedValue: ['founder-led creative teams'],
+                            excerpt: 'Video systems for founder-led creative teams.',
+                            sourceField: 'website.root',
+                            confidence: 0.64,
+                          },
+                          {
+                            signalPath: 'identity.audience',
+                            normalizedValue: ['invented segment'],
+                            excerpt: 'No supplied source field.',
+                            sourceField: 'invented.source',
+                            confidence: 0.64,
+                          },
+                        ],
+                      }),
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      },
+    });
+
+    const result = await compiler(COMPILER_INPUT);
+
+    expect(calls).toHaveLength(2);
+    expect(JSON.stringify(calls[1])).toContain('Repair the following Brand Vault model output into strict JSON');
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      sourceField: 'website.root',
+      signalPath: 'identity.audience',
+      normalizedValue: ['founder-led creative teams'],
+      confidence: 0.64,
+    });
+    expect(result.warnings).toEqual([
+      'Brand Vault text evidence compiler repaired malformed Gemini JSON before applying signal gates.',
+      'Brand Vault text evidence compiler produced inferred review candidates from website and source evidence.',
+      'Brand Vault text evidence compiler discarded 1 unsupported, duplicate, or ungrounded candidate.',
+    ]);
+  });
+
   it('returns warnings instead of candidates when Gemini is unavailable or malformed', async () => {
     const unavailableCompiler = createBrandVaultGeminiTextEvidenceCompiler({
       apiKey: 'gemini_key',

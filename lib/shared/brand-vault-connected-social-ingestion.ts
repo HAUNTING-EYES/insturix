@@ -55,6 +55,7 @@ type ApifySocialSourceResult = {
   source: BrandVaultSourceInput | null;
   rejectionReason?: ApifyRejectionReason;
   diagnostic?: ApifyRejectedItemDiagnostic;
+  acceptedRelatedReference?: boolean;
 };
 
 type ApifySupportedPlatform = 'instagram' | 'facebook' | 'linkedin';
@@ -66,6 +67,8 @@ type ApifyRejectedItemDiagnostic = {
   reason: ApifyRejectionReason;
   shape: string;
   keys: string[];
+  actorErrorKind?: string;
+  actorReason?: string;
   identityFields: string[];
   identityCandidates: string[];
   urlFields: string[];
@@ -1079,6 +1082,7 @@ async function fetchApifySocialSources(args: {
       .filter((source): source is BrandVaultSourceInput => Boolean(source));
     const sources = readableSources.slice(0, 5);
     const rejectedCount = normalizedItems.filter((item) => item.rejectionReason).length;
+    const relatedReferenceCount = normalizedItems.filter((item) => item.acceptedRelatedReference).length;
     const rejectionSummary = apifyRejectionSummary(normalizedItems);
     const diagnosticSummary = apifyDiagnosticsSummary(normalizedItems, args.actorId);
     if (sources.length === 0) {
@@ -1101,6 +1105,9 @@ async function fetchApifySocialSources(args: {
       sources,
       warnings: [
         `Brand Vault fetched ${sources.length} ${args.parsed.platform} public Apify item${sources.length === 1 ? '' : 's'} for review-only social evidence.`,
+        ...(relatedReferenceCount > 0
+          ? [`Brand Vault staged ${relatedReferenceCount} ${args.parsed.platform} public Apify item${relatedReferenceCount === 1 ? '' : 's'} from a related identity that mentioned the submitted account; review before accepting.`]
+          : []),
         ...(rejectedCount > 0
           ? [`Brand Vault discarded ${rejectedCount} ${args.parsed.platform} Apify item${rejectedCount === 1 ? '' : 's'} because they were unreadable, hollow, or did not match the submitted account.`]
           : []),
@@ -1233,6 +1240,8 @@ function apifyDiagnosticsSummary(results: ApifySocialSourceResult[], actorId: st
       diagnostic.reason,
       `shape=${diagnostic.shape}`,
       diagnosticList('keys', diagnostic.keys),
+      diagnostic.actorErrorKind ? `actorErrorKind=${diagnostic.actorErrorKind}` : null,
+      diagnostic.actorReason ? `actorReason=${diagnostic.actorReason}` : null,
       diagnosticList('identityFields', diagnostic.identityFields),
       diagnosticList('identityCandidates', diagnostic.identityCandidates),
       diagnosticList('urlFields', diagnostic.urlFields),
@@ -1384,6 +1393,8 @@ function apifyRejectedItemDiagnostic(args: {
     reason: args.reason,
     shape: apifyPayloadShape(args.item),
     keys: Object.keys(args.record).sort().slice(0, 12),
+    actorErrorKind: sanitizeDiagnosticValue(firstString(args.record.error_kind, args.record.errorKind)),
+    actorReason: args.reason === 'hollow_item' ? sanitizeDiagnosticValue(stringValue(args.record.reason)) : undefined,
     identityFields: presentFieldPaths(args.record, APIFY_IDENTITY_FIELD_PATHS),
     identityCandidates,
     urlFields: presentFieldPaths(args.record, APIFY_URL_FIELD_PATHS),
@@ -1601,7 +1612,8 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     identityUrls,
     explicitIdentityReturned: Boolean(normalizeHandle(explicitAccountHandle) || normalizeHandle(accountName) || normalizeHandle(displayName)),
   });
-  if (!identityMatchStatus) {
+  const acceptedRelatedReference = !identityMatchStatus && apifyTextReferencesSubmittedHandle({ parsed, text });
+  if (!identityMatchStatus && !acceptedRelatedReference) {
     return rejected('identity_mismatch');
   }
   const media = socialMedia({
@@ -1629,7 +1641,9 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
       url: sourceUrl,
       platform: parsed.platform,
       name: displayName ?? `${platformLabel(parsed.platform)} public item ${index + 1}`,
-      note: 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
+      note: acceptedRelatedReference
+        ? 'Fetched through Alyzitron Apify public fallback from a related identity that mentions the submitted social account; treat as review-only reference evidence.'
+        : 'Fetched through Alyzitron Apify public fallback for Brand Vault draft review; treat as review-only evidence.',
       text: text || undefined,
       evidenceOrigin: 'public_fallback',
       pinned: booleanValue(record.isPinned) ?? booleanValue(record.pinned) ?? false,
@@ -1645,10 +1659,27 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
         canReadProfile: Boolean(profile),
         canReadPosts: true,
         canReadPinned: false,
-        matchStatus: identityMatchStatus,
+        matchStatus: identityMatchStatus ?? 'unverified',
       },
     },
+    acceptedRelatedReference,
   };
+}
+
+function apifyTextReferencesSubmittedHandle(args: {
+  parsed: BrandVaultParsedSocialUrl;
+  text: string;
+}): boolean {
+  const expected = normalizeHandle(args.parsed.handle);
+  if (!expected || !args.text.trim()) return false;
+  const lowerText = args.text.toLowerCase();
+  if (lowerText.includes(`@${expected}`)) return true;
+
+  const normalizedWords = lowerText
+    .split(/[^a-z0-9._-]+/g)
+    .map(normalizeHandle)
+    .filter(Boolean);
+  return normalizedWords.includes(expected);
 }
 
 function apifyIdentityMatchStatus(args: {
@@ -2002,10 +2033,8 @@ function youtubePublicPostText(input: {
   author?: string;
   transcript?: string;
 }): string {
-  if (!input.description) return '';
-  const parts = input.transcript
-    ? [input.description]
-    : [input.title, input.description, input.author];
+  if (!input.description && !input.transcript) return input.title ?? '';
+  const parts = [input.title, input.description, input.transcript];
   return uniqueStrings(parts).join('\n');
 }
 

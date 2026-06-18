@@ -1245,7 +1245,7 @@ describe('Brand Vault refinery API boundary', () => {
         platform: 'youtube',
         evidenceOrigin: 'public_fallback',
         publishedAt: '2026-06-16',
-        text: 'Brand systems launch walkthrough\nA practical walkthrough for building one reviewed brand system.\nVaultline',
+        text: 'Brand systems launch walkthrough\nA practical walkthrough for building one reviewed brand system.',
         media: expect.objectContaining({
           mediaType: 'video',
           thumbnailUrl: 'https://i.ytimg.com/vi/video_1/hqdefault.jpg',

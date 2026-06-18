@@ -50,6 +50,7 @@ interface CompilerCandidateNormalizationResult {
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const COMPILER_EXTRACTOR_SOURCE = 'brand-vault-text-evidence-compiler.gemini';
 const MAX_PROMPT_CHARS = 18_000;
+const MAX_REPAIR_PROMPT_CHARS = 6_000;
 const MAX_TEXT_BLOCK_CHARS = 1_600;
 const MAX_CANDIDATES = 12;
 const SIGNAL_PATHS = new Set<CompilerSignalPath>([
@@ -106,18 +107,38 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
       };
     }
 
-    const payload = await response.json();
+    const payload = await readGeminiPayload(response);
+    if (!payload) {
+      return {
+        candidates: [],
+        warnings: ['Brand Vault text evidence compiler skipped: Gemini returned a malformed API response.'],
+      };
+    }
+
     const text = extractGeminiText(payload);
     if (!text) return { candidates: [], warnings: ['Brand Vault text evidence compiler skipped: Gemini returned no JSON text.'] };
 
-    const parsed = parseCompilerJson(text);
-    if (!parsed) return { candidates: [], warnings: ['Brand Vault text evidence compiler skipped: Gemini returned invalid JSON.'] };
+    const parsedResult = await parseCompilerJsonWithRepair({
+      text,
+      endpointHref: endpoint.href,
+      fetchFn,
+    });
+    if (!parsedResult.parsed) {
+      return {
+        candidates: [],
+        warnings: [
+          'Brand Vault text evidence compiler skipped: Gemini returned invalid JSON.',
+          ...parsedResult.warnings,
+        ],
+      };
+    }
 
-    const normalized = compilerOutputToCandidates(parsed, input);
+    const normalized = compilerOutputToCandidates(parsedResult.parsed, input);
     if (normalized.candidates.length === 0) {
       return {
         candidates: [],
         warnings: [
+          ...parsedResult.warnings,
           'Brand Vault text evidence compiler produced no accepted evidence-grounded candidates.',
           ...(normalized.rejectedCount > 0
             ? [`Brand Vault text evidence compiler discarded ${normalized.rejectedCount} unsupported, duplicate, or ungrounded candidate${normalized.rejectedCount === 1 ? '' : 's'}.`]
@@ -129,6 +150,7 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
     return {
       candidates: normalized.candidates,
       warnings: [
+        ...parsedResult.warnings,
         'Brand Vault text evidence compiler produced inferred review candidates from website and source evidence.',
         ...(normalized.rejectedCount > 0
           ? [`Brand Vault text evidence compiler discarded ${normalized.rejectedCount} unsupported, duplicate, or ungrounded candidate${normalized.rejectedCount === 1 ? '' : 's'}.`]
@@ -358,10 +380,104 @@ function extractGeminiText(payload: unknown): string | undefined {
   return undefined;
 }
 
+async function readGeminiPayload(response: Response): Promise<unknown | null> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function parseCompilerJsonWithRepair(args: {
+  text: string;
+  endpointHref: string;
+  fetchFn: BrandVaultTextCompilerFetch;
+}): Promise<{ parsed: unknown | null; warnings: string[] }> {
+  const parsed = parseCompilerJson(args.text);
+  if (parsed) return { parsed, warnings: [] };
+
+  const repaired = await repairCompilerJsonWithGemini(args);
+  if (!repaired.parsed) return repaired;
+
+  return {
+    parsed: repaired.parsed,
+    warnings: ['Brand Vault text evidence compiler repaired malformed Gemini JSON before applying signal gates.'],
+  };
+}
+
+async function repairCompilerJsonWithGemini(args: {
+  text: string;
+  endpointHref: string;
+  fetchFn: BrandVaultTextCompilerFetch;
+}): Promise<{ parsed: unknown | null; warnings: string[] }> {
+  let response: Response;
+  try {
+    response = await args.fetchFn(args.endpointHref, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: buildCompilerJsonRepairPrompt(args.text) }] }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 1200,
+          responseMimeType: 'application/json',
+        },
+      }),
+    });
+  } catch {
+    return {
+      parsed: null,
+      warnings: ['Brand Vault text evidence compiler JSON repair skipped: Gemini repair request failed.'],
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      parsed: null,
+      warnings: [`Brand Vault text evidence compiler JSON repair skipped: Gemini returned HTTP ${response.status}.`],
+    };
+  }
+
+  const payload = await readGeminiPayload(response);
+  if (!payload) {
+    return {
+      parsed: null,
+      warnings: ['Brand Vault text evidence compiler JSON repair skipped: Gemini returned a malformed API response.'],
+    };
+  }
+
+  const text = extractGeminiText(payload);
+  if (!text) {
+    return {
+      parsed: null,
+      warnings: ['Brand Vault text evidence compiler JSON repair skipped: Gemini returned no JSON text.'],
+    };
+  }
+
+  return { parsed: parseCompilerJson(text), warnings: [] };
+}
+
+function buildCompilerJsonRepairPrompt(rawText: string): string {
+  return truncateText(`Repair the following Brand Vault model output into strict JSON.
+
+Return only this JSON shape:
+{"candidates":[{"signalPath":"identity.audience|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
+
+Rules:
+- Preserve only candidate fields already present in the malformed output.
+- Do not invent new candidates, evidence, sourceField values, or sourceUrl values.
+- Drop any candidate that cannot be represented in the required shape.
+- Return the JSON object directly, with no Markdown fences or prose.
+
+Malformed output:
+${rawText}`, MAX_REPAIR_PROMPT_CHARS);
+}
+
 function parseCompilerJson(text: string): unknown | null {
   for (const candidate of compilerJsonCandidates(text)) {
     const parsed = parseJsonCandidate(candidate);
-    if (parsed !== null) return parsed;
+    const normalized = normalizeParsedCompilerJson(parsed);
+    if (normalized) return normalized;
   }
   return null;
 }
@@ -370,7 +486,9 @@ function compilerJsonCandidates(text: string): string[] {
   const stripped = stripJsonMarkdown(text);
   return uniqueStrings([
     stripped,
+    ...extractFencedJsonBlocks(stripped),
     extractBalancedJsonObject(stripped),
+    extractCandidatesArrayJson(stripped),
     stripped.match(/\{[\s\S]*\}/)?.[0],
   ]);
 }
@@ -386,16 +504,42 @@ function parseJsonCandidate(value: string): unknown | null {
   return null;
 }
 
+function normalizeParsedCompilerJson(value: unknown): unknown | null {
+  if (isCompilerOutputObject(value)) return value;
+  if (Array.isArray(value)) return { candidates: value };
+  if (typeof value === 'string' && value.trim() && value.trim() !== value) return parseCompilerJson(value.trim());
+  if (typeof value === 'string' && /^[{[]/.test(value.trim())) return parseCompilerJson(value.trim());
+  return null;
+}
+
+function isCompilerOutputObject(value: unknown): boolean {
+  const record = asRecord(value);
+  return Array.isArray(record.candidates);
+}
+
 function stripJsonMarkdown(value: string): string {
   const trimmed = value.replace(/^\uFEFF/, '').trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   return (fenced?.[1] ?? trimmed).trim();
 }
 
+function extractFencedJsonBlocks(value: string): string[] {
+  return Array.from(value.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi))
+    .map((match) => match[1]);
+}
+
+function extractCandidatesArrayJson(value: string): string | undefined {
+  const match = value.match(/\[[\s\S]*\]/);
+  return match?.[0];
+}
+
 function repairCommonJson(value: string): string {
   return value
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)\s*:/g, '$1"$2":')
     .replace(/,\s*([}\]])/g, '$1');
 }
 
