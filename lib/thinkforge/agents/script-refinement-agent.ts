@@ -41,7 +41,7 @@ const richTextNodeSchema: z.ZodType<any> = z.lazy(() =>
   z.object({
     type: z.string().min(1),
     text: z.string().optional(),
-    styles: z.record(z.boolean()).optional(),
+    styles: z.record(z.string(), z.boolean()).optional(),
     children: z.array(richTextNodeSchema).optional(),
   })
 );

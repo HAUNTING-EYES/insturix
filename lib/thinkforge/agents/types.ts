@@ -108,7 +108,9 @@ export type AgentType =
   | 'stylist'
   | 'null_agent'
   | 'supervisor'
-  | 'thinking';
+  | 'thinking'
+  | 'post_writer'
+  | 'script_writer';
 
 /**
  * Log event for AI invocation tracking
@@ -154,6 +156,7 @@ export interface ProjectContextData {
   tone?: string;
   projectName?: string;
   sessionName?: string;
+  originalPrompt?: string;
   brandId?: string;
   brandBrief?: string;
 }

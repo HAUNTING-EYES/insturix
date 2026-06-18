@@ -144,7 +144,9 @@ export default function StoryboardingMode({
               style: selectedIdea.style,
               format: selectedIdea.format,
               platform: selectedIdea.platform,
-              tone: selectedIdea.tone as any
+              tone: selectedIdea.tone as any,
+              originalPrompt: selectedIdea.originalPrompt,
+              brandBrief: selectedIdea.brandBrief
             }}
             script={script}
             sessionId={sessionId}
@@ -184,7 +186,9 @@ export default function StoryboardingMode({
               format: selectedIdea.format,
               platform: selectedIdea.platform,
               tone: selectedIdea.tone as any,
-              sessionName: selectedIdea.sessionName
+              sessionName: selectedIdea.sessionName,
+              originalPrompt: selectedIdea.originalPrompt,
+              brandBrief: selectedIdea.brandBrief
             }}
             script={script}
             scriptId={scriptId}
@@ -267,7 +271,9 @@ export default function StoryboardingMode({
                     format: selectedIdea.format,
                     platform: selectedIdea.platform,
                     tone: selectedIdea.tone as any,
-                    sessionName: selectedIdea.sessionName
+                    sessionName: selectedIdea.sessionName,
+                    originalPrompt: selectedIdea.originalPrompt,
+                    brandBrief: selectedIdea.brandBrief
                   }}
                   onProceedToChat={handleCloseSettings}
                   onGoBack={onGoToIdeation}

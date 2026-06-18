@@ -676,7 +676,7 @@ function parsePlaywrightWaitUntil(value: string | undefined): BrandVaultPlaywrig
 
 async function loadPlaywrightModule(): Promise<BrandVaultPlaywrightModule> {
   const packageName = 'playwright';
-  const loadedPackage = await import(packageName);
+  const loadedPackage = await import(/* webpackIgnore: true */ packageName);
   return loadedPackage as BrandVaultPlaywrightModule;
 }
 

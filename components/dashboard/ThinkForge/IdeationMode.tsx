@@ -95,7 +95,9 @@ export default function IdeationMode({
               format: selectedIdea.format,
               platform: selectedIdea.platform,
               tone: selectedIdea.tone as any,
-              sessionName: selectedIdea.sessionName
+              sessionName: selectedIdea.sessionName,
+              originalPrompt: selectedIdea.originalPrompt,
+              brandBrief: selectedIdea.brandBrief
             }}
             onProceedToChat={(upd) => onProceedToChat(upd ? { ...upd, id: String(upd.id) } : undefined)}
             onGoBack={onGoBackToIdeas}

@@ -63,6 +63,8 @@ const buildProjectMetaPayload = (idea: IdeaCardData | null | undefined): Record<
 	platform: (idea as any)?.platform || '',
 	tone: idea?.tone || 'blue',
 	sessionName: (idea as any)?.sessionName || '',
+	originalPrompt: (idea as any)?.originalPrompt || '',
+	brandBrief: (idea as any)?.brandBrief || '',
 	...pickProjectMetaPassthrough(idea),
 });
 
@@ -173,11 +175,12 @@ export default function ThinkForgeLanding() {
 			if (!res.ok) throw new Error('bad');
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
-			setIdeas(list.length === 4 ? list : skeletonIdeas(ideaPrompt));
+			const nextIdeas = list.length === 4 ? list : skeletonIdeas(ideaPrompt);
+			setIdeas(nextIdeas.map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
 			setIdeationPhase('IDEAS');
 		} catch {
 			// generic failure: show skeletons and allow progression
-			setIdeas(skeletonIdeas(ideaPrompt));
+			setIdeas(skeletonIdeas(ideaPrompt).map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
 			setIdeationPhase('IDEAS');
 		} finally {
 			setLoading(false);
@@ -305,7 +308,7 @@ export default function ThinkForgeLanding() {
 		const sessionName = idea.sessionName || (idea.idea || 'New Session').split('–')[0].trim().slice(0, 40);
 		// Persist URL brief data into the idea so it survives the ideation→scripting transition
 		const brandBrief = briefResults?.map(b => `${b.title}: ${b.summary}${b.keyTopics?.length ? ` | Topics: ${b.keyTopics.join(', ')}` : ''}${b.targetAudience ? ` | Audience: ${b.targetAudience}` : ''}`).join('\n') || undefined;
-		const ideaWithName = { ...idea, sessionName, brandBrief };
+		const ideaWithName = { ...idea, sessionName, originalPrompt: idea.originalPrompt || prompt, brandBrief };
 		setSelectedIdea(ideaWithName);
 		// SKIP the session settings screen — go directly to the script editor
 		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }

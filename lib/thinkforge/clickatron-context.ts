@@ -46,6 +46,7 @@ export interface ThinkToClickContextInput {
   blocks?: ThinkForgeBlock[] | null;
   userVisualChoices?: ThinkToClickVisibleContentChoices | null;
   signalTrace?: unknown;
+  writerOutput?: unknown;
   title?: string;
   aspectRatio?: string;
   scenesCount?: number;
@@ -267,6 +268,117 @@ function visibleTextLayers(
   return layers.length > 0 ? layers : undefined;
 }
 
+function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput, visualPrompts: Record<string, unknown>): ClickatronCreativeSpec | undefined {
+  const summary = summarizeVisibleBlocks(input.blocks);
+  if (summary.sourceBlockIds.length === 0) return undefined;
+
+  const choices = input.userVisualChoices || {};
+  
+  const carouselPrompts = Array.isArray(visualPrompts.carouselPrompts) ? visualPrompts.carouselPrompts : [];
+  const scenePrompts = Array.isArray(visualPrompts.scenePrompts) ? visualPrompts.scenePrompts : [];
+  const singleImagePrompt = typeof visualPrompts.singleImagePrompt === "string" ? visualPrompts.singleImagePrompt : undefined;
+
+  const hasCarousel = carouselPrompts.length > 0;
+  const hasScene = scenePrompts.length > 0;
+
+  let kind: ClickatronCreativeKind = "single_post_visual";
+  if (choices.kind) {
+    kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
+  } else if (hasCarousel || hasScene) {
+    kind = "carousel";
+  }
+
+  const wantsCarousel = kind === "carousel";
+  const platform = enumValue(choices.platform, CLICKATRON_PLATFORMS, "generic");
+  const aspectRatio = toNonEmptyString(choices.aspectRatio) || toNonEmptyString(input.aspectRatio) || "1:1";
+  const visualMode = enumValue(choices.visualMode, CLICKATRON_VISUAL_MODES, "text_forward_graphic");
+  const textDensity = enumValue(choices.textDensity, CLICKATRON_TEXT_DENSITIES, "medium");
+  const textPolicy: ClickatronTextPolicy = textDensity === "none" ? "no_generated_text" : "editable_text_layers";
+  
+  const title = toNonEmptyString(input.title);
+  const objective = title ? `Create a Clickatron visual for ${title}.` : "Create a Clickatron visual from ThinkForge writer output.";
+  const coreMessage = summary.visibleText ? summary.visibleText.slice(0, 240) : "Writer generated visual.";
+
+  let imagePrompt = "";
+  if (wantsCarousel) {
+    imagePrompt = hasCarousel 
+      ? `Carousel overview: Maintain a consistent visual system across slides. ${carouselPrompts[0]}`
+      : hasScene
+        ? `Video storyboard overview: Maintain a consistent visual style across scenes. ${scenePrompts[0]}`
+        : singleImagePrompt 
+          ? singleImagePrompt 
+          : "Carousel generated from writer output.";
+  } else {
+    imagePrompt = singleImagePrompt 
+      ? singleImagePrompt 
+      : hasCarousel && carouselPrompts[0]
+        ? carouselPrompts[0] as string
+        : hasScene && scenePrompts[0]
+          ? scenePrompts[0] as string
+          : "Single visual generated from writer output.";
+  }
+
+  let slides: any[] | undefined;
+  if (wantsCarousel) {
+    const promptsArray: string[] = hasCarousel ? carouselPrompts as string[] : hasScene ? scenePrompts as string[] : [];
+    if (promptsArray.length > 0) {
+      slides = promptsArray.map((promptText, index) => {
+        const block = summary.sourceBlocks[index] || summary.sourceBlocks[0];
+        const slideTextLayers = block ? visibleTextLayers([block], textPolicy) : undefined;
+        return {
+          id: `slide_${index + 1}`,
+          index,
+          title: textSnippet(block?.text || block?.sceneText, 64) || `Slide ${index + 1}`,
+          sourceBlockIds: block ? [block.id] : summary.sourceBlockIds,
+          imagePrompt: promptText,
+          layoutIntent: "Editable slide content layout.",
+          ...(slideTextLayers ? { textLayers: slideTextLayers } : {}),
+        };
+      });
+    }
+  }
+
+  const rootTextLayers = wantsCarousel ? undefined : visibleTextLayers(summary.sourceBlocks.slice(0, 4), textPolicy);
+
+  return normalizeClickatronCreativeSpec({
+    schemaVersion: CLICKATRON_CREATIVE_SPEC_VERSION,
+    kind,
+    assetIntent: kind === "carousel" ? "carousel" : "post_graphic",
+    platform,
+    aspectRatio,
+    source: {
+      sourceService: "thinkforge",
+      sourceSessionId: toNonEmptyString(input.sessionId),
+      sourceScriptId: toNonEmptyString(input.scriptId),
+      sourceBlockIds: summary.sourceBlockIds,
+      contentHash: simpleContentHash(summary.visibleText || imagePrompt),
+    },
+    userIntent: {
+      visualMode,
+      textDensity,
+      wantsCarousel,
+      ...(toNonEmptyString(choices.notes) ? { notes: choices.notes } : {}),
+    },
+    creativeBrief: {
+      objective,
+      coreMessage,
+      ...(toNonEmptyString(choices.vibe) ? { hook: choices.vibe } : {}),
+    },
+    renderPlan: {
+      textPolicy,
+      imagePrompt,
+      layoutIntent: wantsCarousel
+        ? "Carousel-ready visual language with repeatable slide rhythm."
+        : "Single-frame social graphic background.",
+      ...(rootTextLayers ? { textLayers: rootTextLayers } : {}),
+      ...(slides && slides.length > 0 ? { slides } : {}),
+    },
+    validation: {
+      status: "ready",
+    },
+  });
+}
+
 export function buildVisibleContentClickatronCreativeSpec(input: ThinkToClickContextInput): ClickatronCreativeSpec | undefined {
   const summary = summarizeVisibleBlocks(input.blocks);
   if (summary.sourceBlockIds.length === 0 || !summary.visibleText) return undefined;
@@ -408,9 +520,25 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
   const universalId = toNonEmptyString(input.projectLink?.universalId);
   const projectId = toNonEmptyString(input.projectId);
   const projectMeta = pickThinkForgeProjectMeta(input.projectMeta);
-  const creativeSpec = input.creativeSpec
-    ? normalizeClickatronCreativeSpec(input.creativeSpec)
-    : buildVisibleContentClickatronCreativeSpec(input);
+  const writerOutput = toPlainRecord(input.writerOutput);
+  const visualPrompts = writerOutput && typeof writerOutput.visualPrompts === 'object' && writerOutput.visualPrompts !== null
+    ? writerOutput.visualPrompts as Record<string, unknown>
+    : undefined;
+
+  let creativeSpec: ClickatronCreativeSpec | undefined = undefined;
+
+  if (visualPrompts && (visualPrompts.singleImagePrompt || visualPrompts.carouselPrompts || visualPrompts.scenePrompts)) {
+    creativeSpec = buildWriterOutputClickatronCreativeSpec(input, visualPrompts);
+  }
+
+  if (!creativeSpec && input.creativeSpec) {
+    creativeSpec = normalizeClickatronCreativeSpec(input.creativeSpec);
+  }
+
+  if (!creativeSpec) {
+    creativeSpec = buildVisibleContentClickatronCreativeSpec(input);
+  }
+
   const signalTrace = toPlainRecord(input.signalTrace);
 
   const sourceContext = compactRecord({
@@ -437,6 +565,7 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
       scriptId: sourceScriptId,
       projectMeta,
       signalTrace,
+      writerOutput,
     }),
     projectLink: universalId ? { universalId } : undefined,
     clickatron: Object.keys(clickatron).length > 0 ? clickatron : undefined,
