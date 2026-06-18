@@ -76,6 +76,13 @@ describe('Brand Vault text evidence compiler', () => {
       }),
       fetchFn: async () => jsonResponse({ candidates: [] }),
     })).toEqual(expect.any(Function));
+    expect(createBrandVaultTextEvidenceCompilerFromEnvironment({
+      env: testEnv({
+        BRAND_VAULT_TEXT_COMPILER_ENABLED: 'true',
+        GOOGLE_API_KEY: 'google_key',
+      }),
+      fetchFn: async () => jsonResponse({ candidates: [] }),
+    })).toEqual(expect.any(Function));
   });
 
   it('normalizes Gemini JSON into capped inferred review candidates', async () => {
@@ -149,6 +156,9 @@ describe('Brand Vault text evidence compiler', () => {
     expect(result.warnings).toContain(
       'Brand Vault text evidence compiler produced inferred review candidates from website and source evidence.',
     );
+    expect(result.warnings).toContain(
+      'Brand Vault text evidence compiler discarded 1 unsupported, duplicate, or ungrounded candidate.',
+    );
     expect(result.candidates).toHaveLength(3);
     expect(result.candidates[0]).toMatchObject({
       brandId: 'brand_signal',
@@ -174,6 +184,103 @@ describe('Brand Vault text evidence compiler', () => {
       confidence: 0.6,
     });
     expect(result.candidates.some((candidate) => candidate.signalPath === 'motion.motionEnergy')).toBe(false);
+  });
+
+  it('requires candidates to cite supplied evidence and ignores model-provided source URLs', async () => {
+    const compiler = createBrandVaultGeminiTextEvidenceCompiler({
+      apiKey: 'gemini_key',
+      fetchFn: async () => jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    candidates: [
+                      {
+                        signalPath: 'identity.audience',
+                        normalizedValue: ['creative operators'],
+                        excerpt: 'Creative operators from website evidence.',
+                        sourceField: 'unknown.source',
+                        sourceUrl: 'https://attacker.example/evidence',
+                        confidence: 0.68,
+                      },
+                      {
+                        signalPath: 'identity.audience',
+                        normalizedValue: ['founder-led creative teams'],
+                        excerpt: 'Video systems for founder-led creative teams.',
+                        sourceField: 'website.root',
+                        sourceUrl: 'https://attacker.example/evidence',
+                        confidence: 0.68,
+                      },
+                      {
+                        signalPath: 'identity.audience',
+                        normalizedValue: ['founder-led creative teams'],
+                        excerpt: 'duplicate',
+                        sourceField: 'website.root',
+                        sourceUrl: 'https://signal.example/',
+                        confidence: 0.68,
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    const result = await compiler(COMPILER_INPUT);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      sourceField: 'website.root',
+      sourceUrl: 'https://signal.example/',
+      sourceType: 'website',
+      signalPath: 'identity.audience',
+      normalizedValue: ['founder-led creative teams'],
+    });
+    expect(result.warnings).toContain(
+      'Brand Vault text evidence compiler discarded 2 unsupported, duplicate, or ungrounded candidates.',
+    );
+  });
+
+  it('returns a deterministic warning when model output has no accepted grounded candidates', async () => {
+    const compiler = createBrandVaultGeminiTextEvidenceCompiler({
+      apiKey: 'gemini_key',
+      fetchFn: async () => jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    candidates: [
+                      {
+                        signalPath: 'identity.audience',
+                        normalizedValue: ['unknown market'],
+                        excerpt: 'No supplied evidence citation.',
+                        sourceField: 'model.invented',
+                        confidence: 0.68,
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    await expect(compiler(COMPILER_INPUT)).resolves.toEqual({
+      candidates: [],
+      warnings: [
+        'Brand Vault text evidence compiler produced no accepted evidence-grounded candidates.',
+        'Brand Vault text evidence compiler discarded 1 unsupported, duplicate, or ungrounded candidate.',
+      ],
+    });
   });
 
   it('repairs fenced Gemini JSON with trailing commas before applying signal gates', async () => {

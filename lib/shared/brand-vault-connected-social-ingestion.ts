@@ -25,6 +25,8 @@ export interface BrandVaultUploaderXTokenSnapshot {
 export type BrandVaultSocialFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 export const BRAND_VAULT_DEFAULT_APIFY_ACTORS = {
+  instagram: 'apify/instagram-scraper',
+  facebook: 'apify/facebook-posts-scraper',
   linkedin: 'atomus/linkedin-posts-scraper-pro',
 } as const satisfies Partial<Record<'instagram' | 'facebook' | 'linkedin', string>>;
 
@@ -51,10 +53,26 @@ type SocialFetchResult = {
 
 type ApifySocialSourceResult = {
   source: BrandVaultSourceInput | null;
-  rejectionReason?: 'identity_mismatch' | 'hollow_item';
+  rejectionReason?: ApifyRejectionReason;
+  diagnostic?: ApifyRejectedItemDiagnostic;
 };
 
 type ApifySupportedPlatform = 'instagram' | 'facebook' | 'linkedin';
+
+type ApifyRejectionReason = 'identity_mismatch' | 'hollow_item';
+
+type ApifyRejectedItemDiagnostic = {
+  index: number;
+  reason: ApifyRejectionReason;
+  shape: string;
+  keys: string[];
+  identityFields: string[];
+  identityCandidates: string[];
+  urlFields: string[];
+  textFields: string[];
+  mediaFields: string[];
+  metricFields: string[];
+};
 
 type XUserIdentity = {
   userId?: string;
@@ -1054,13 +1072,15 @@ async function fetchApifySocialSources(args: {
         warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but Apify returned an unsupported dataset payload shape: ${apifyPayloadShape(payload)}.`],
       };
     }
-    const normalizedItems = items.map((item, index) => apifySocialSource(item, args.parsed, index));
+    const expandedItems = expandApifyDatasetItems(items);
+    const normalizedItems = expandedItems.map((item, index) => apifySocialSource(item, args.parsed, index));
     const readableSources = normalizedItems
       .map((item) => item.source)
       .filter((source): source is BrandVaultSourceInput => Boolean(source));
     const sources = readableSources.slice(0, 5);
     const rejectedCount = normalizedItems.filter((item) => item.rejectionReason).length;
     const rejectionSummary = apifyRejectionSummary(normalizedItems);
+    const diagnosticSummary = apifyDiagnosticsSummary(normalizedItems, args.actorId);
     if (sources.length === 0) {
       if (items.length === 0) {
         return {
@@ -1071,8 +1091,9 @@ async function fetchApifySocialSources(args: {
       return {
         sources: [],
         warnings: [
-          `Brand Vault ran ${args.parsed.platform} Apify fallback, but ${items.length} dataset item${items.length === 1 ? '' : 's'} produced no readable matched post/profile evidence.`,
+          `Brand Vault ran ${args.parsed.platform} Apify fallback, but ${expandedItems.length} normalized dataset item${expandedItems.length === 1 ? '' : 's'} from ${items.length} raw item${items.length === 1 ? '' : 's'} produced no readable matched post/profile evidence.`,
           ...(rejectionSummary ? [`Brand Vault ${args.parsed.platform} Apify rejection reasons: ${rejectionSummary}.`] : []),
+          ...(diagnosticSummary ? [`Brand Vault ${args.parsed.platform} Apify rejected item diagnostics: ${diagnosticSummary}.`] : []),
         ],
       };
     }
@@ -1084,6 +1105,7 @@ async function fetchApifySocialSources(args: {
           ? [`Brand Vault discarded ${rejectedCount} ${args.parsed.platform} Apify item${rejectedCount === 1 ? '' : 's'} because they were unreadable, hollow, or did not match the submitted account.`]
           : []),
         ...(rejectionSummary ? [`Brand Vault ${args.parsed.platform} Apify rejection reasons: ${rejectionSummary}.`] : []),
+        ...(diagnosticSummary ? [`Brand Vault ${args.parsed.platform} Apify rejected item diagnostics: ${diagnosticSummary}.`] : []),
       ],
     };
   } catch (error) {
@@ -1130,6 +1152,65 @@ function apifyPayloadShape(payload: unknown): string {
   return typeof payload;
 }
 
+function expandApifyDatasetItems(items: unknown[]): unknown[] {
+  const expanded = items.flatMap((item) => {
+    const record = asRecord(item);
+    const children = apifyNestedDatasetChildren(record);
+    if (children.length === 0) return [item];
+    return children.map((child) => mergeApifyParentChild(record, asRecord(child)));
+  });
+  return expanded.slice(0, 25);
+}
+
+function apifyNestedDatasetChildren(record: Record<string, unknown>): unknown[] {
+  const childPaths = ['posts', 'items', 'results', 'data', 'publications', 'activities', 'updates', 'recentPosts', 'recent_posts'];
+  return childPaths.flatMap((path) => {
+    const value = record[path];
+    if (!Array.isArray(value)) return [];
+    return value;
+  });
+}
+
+function mergeApifyParentChild(
+  parent: Record<string, unknown>,
+  child: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...parent, ...child };
+  const inheritedObjects = ['author', 'actor', 'authorProfile', 'profile', 'company', 'organization', 'page', 'source'];
+  for (const key of inheritedObjects) {
+    if (!hasDefinedValue(asRecord(child[key])) && hasDefinedValue(asRecord(parent[key]))) merged[key] = parent[key];
+  }
+  const inheritedFields = [
+    'inputUrl',
+    'profileUrl',
+    'profile_url',
+    'ownerProfileUrl',
+    'ownerUsername',
+    'ownerFullName',
+    'username',
+    'authorUsername',
+    'authorHandle',
+    'authorName',
+    'pageName',
+    'pageUrl',
+    'companyName',
+    'companyUrl',
+    'linkedinUrl',
+    'facebookUrl',
+    'instagramUrl',
+  ];
+  for (const key of inheritedFields) {
+    if (merged[key] === undefined && parent[key] !== undefined) merged[key] = parent[key];
+  }
+  if (!stringValue(merged.inputUrl)) {
+    merged.inputUrl = firstString(parent.inputUrl, parent.url, parent.profileUrl, parent.linkedinUrl, parent.facebookUrl, parent.instagramUrl);
+  }
+  if (!stringValue(merged.profileUrl)) {
+    merged.profileUrl = firstString(parent.profileUrl, parent.url, parent.linkedinUrl, parent.facebookUrl, parent.instagramUrl);
+  }
+  return merged;
+}
+
 function apifyRejectionSummary(results: ApifySocialSourceResult[]): string | null {
   const counts = results.reduce<Record<string, number>>((acc, result) => {
     if (!result.rejectionReason) return acc;
@@ -1141,6 +1222,200 @@ function apifyRejectionSummary(results: ApifySocialSourceResult[]): string | nul
     .map(([reason, count]) => `${reason}=${count}`)
     .join(', ');
   return summary || null;
+}
+
+function apifyDiagnosticsSummary(results: ApifySocialSourceResult[], actorId: string): string | null {
+  const diagnostics = results.map((result) => result.diagnostic).filter((item): item is ApifyRejectedItemDiagnostic => Boolean(item));
+  if (diagnostics.length === 0) return null;
+  const samples = diagnostics.slice(0, 2).map((diagnostic) => {
+    const parts = [
+      `#${diagnostic.index + 1}`,
+      diagnostic.reason,
+      `shape=${diagnostic.shape}`,
+      diagnosticList('keys', diagnostic.keys),
+      diagnosticList('identityFields', diagnostic.identityFields),
+      diagnosticList('identityCandidates', diagnostic.identityCandidates),
+      diagnosticList('urlFields', diagnostic.urlFields),
+      diagnosticList('textFields', diagnostic.textFields),
+      diagnosticList('mediaFields', diagnostic.mediaFields),
+      diagnosticList('metricFields', diagnostic.metricFields),
+    ].filter((part): part is string => Boolean(part));
+    return parts.join(' ');
+  });
+  return boundedText(`actor=${actorId}; ${samples.join(' | ')}`, 950);
+}
+
+function diagnosticList(label: string, values: string[]): string | null {
+  if (values.length === 0) return null;
+  return `${label}=[${values.slice(0, 8).join(',')}]`;
+}
+
+const APIFY_IDENTITY_FIELD_PATHS = [
+  'ownerUsername',
+  'ownerFullName',
+  'username',
+  'fullName',
+  'author',
+  'authorUsername',
+  'authorHandle',
+  'authorName',
+  'author.name',
+  'author.username',
+  'author.handle',
+  'actor.name',
+  'actor.username',
+  'actor.handle',
+  'company.name',
+  'company.vanityName',
+  'organization.name',
+  'organization.vanityName',
+  'page.name',
+  'pageName',
+  'page.username',
+  'source.name',
+];
+
+const APIFY_URL_FIELD_PATHS = [
+  'url',
+  'postUrl',
+  'post_url',
+  'postLink',
+  'linkToPost',
+  'activityUrl',
+  'permalink',
+  'permalink_url',
+  'permalinkUrl',
+  'link',
+  'shortUrl',
+  'share_url',
+  'inputUrl',
+  'profileUrl',
+  'ownerProfileUrl',
+  'company.url',
+  'organization.url',
+  'page.url',
+  'source.url',
+];
+
+const APIFY_TEXT_FIELD_PATHS = [
+  'caption',
+  'text',
+  'content',
+  'postText',
+  'textContent',
+  'message',
+  'body',
+  'description',
+  'title',
+  'content.text',
+  'content.body',
+  'content.description',
+  'commentary.text',
+  'post.text',
+  'post.content',
+  'post.commentary',
+  'doc.text',
+  'doc.content',
+  'doc.description',
+  'document.title',
+];
+
+const APIFY_MEDIA_FIELD_PATHS = [
+  'displayUrl',
+  'imageUrl',
+  'thumbnailUrl',
+  'thumbnail',
+  'videoUrl',
+  'video_url',
+  'mediaUrl',
+  'full_picture',
+  'fullPicture',
+  'picture',
+  'images',
+  'media',
+  'attachments',
+  'document.coverImageUrl',
+  'doc.slide_images',
+  'doc.pdf_url',
+];
+
+const APIFY_METRIC_FIELD_PATHS = [
+  'likes',
+  'likesCount',
+  'likeCount',
+  'like_count',
+  'comments',
+  'commentsCount',
+  'commentCount',
+  'comments_count',
+  'shares',
+  'sharesCount',
+  'shareCount',
+  'total_reactions',
+  'totalReactions',
+  'reactionsCount',
+  'stats.totalReactions',
+  'engagement.total_reactions',
+];
+
+function apifyRejectedItemDiagnostic(args: {
+  item: unknown;
+  record: Record<string, unknown>;
+  parsed: BrandVaultParsedSocialUrl;
+  index: number;
+  reason: ApifyRejectionReason;
+  accountHandle?: string;
+  accountName?: string;
+  displayName?: string;
+  identityUrls: string[];
+}): ApifyRejectedItemDiagnostic {
+  const identityCandidates = uniqueStrings([
+    args.accountHandle,
+    args.accountName,
+    args.displayName,
+    ...args.identityUrls.map((url) => socialHandleFromUrl(args.parsed.platform, url)),
+  ])
+    .map(sanitizeDiagnosticValue)
+    .filter((value): value is string => Boolean(value))
+    .slice(0, 6);
+
+  return {
+    index: args.index,
+    reason: args.reason,
+    shape: apifyPayloadShape(args.item),
+    keys: Object.keys(args.record).sort().slice(0, 12),
+    identityFields: presentFieldPaths(args.record, APIFY_IDENTITY_FIELD_PATHS),
+    identityCandidates,
+    urlFields: presentFieldPaths(args.record, APIFY_URL_FIELD_PATHS),
+    textFields: presentFieldPaths(args.record, APIFY_TEXT_FIELD_PATHS),
+    mediaFields: presentFieldPaths(args.record, APIFY_MEDIA_FIELD_PATHS),
+    metricFields: presentFieldPaths(args.record, APIFY_METRIC_FIELD_PATHS),
+  };
+}
+
+function presentFieldPaths(record: Record<string, unknown>, paths: string[]): string[] {
+  return paths.filter((path) => pathHasInspectableValue(record, path.split('.'))).slice(0, 10);
+}
+
+function pathHasInspectableValue(value: unknown, parts: string[]): boolean {
+  if (parts.length === 0) return hasInspectableValue(value);
+  if (Array.isArray(value)) return value.some((item) => pathHasInspectableValue(item, parts));
+  const record = asRecord(value);
+  if (!hasDefinedValue(record)) return false;
+  const [head, ...tail] = parts;
+  return pathHasInspectableValue(record[head], tail);
+}
+
+function hasInspectableValue(value: unknown): boolean {
+  if (typeof value === 'string') return Boolean(value.trim());
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.length > 0;
+  return hasDefinedValue(asRecord(value));
+}
+
+function sanitizeDiagnosticValue(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').replace(/[^\x20-\x7E]/g, '').trim();
+  return normalized ? boundedText(normalized, 64) : undefined;
 }
 
 function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, index: number): ApifySocialSourceResult {
@@ -1166,8 +1441,16 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     stringValue(record.content),
     stringValue(record.postText),
     stringValue(record.textContent),
+    stringValue(record.messageText),
+    stringValue(record.postContent),
+    stringValue(record.captionText),
+    stringValue(record.descriptionText),
+    stringValue(record.updateContent),
+    stringValue(record.commentaryText),
     stringValue(record.message),
     stringValue(record.body),
+    stripHtml(stringValue(record.body_html)),
+    stripHtml(stringValue(record.bodyHtml)),
     stringValue(record.description),
     stringValue(record.title),
     stringValue(content.text),
@@ -1175,13 +1458,20 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     stringValue(content.description),
     stringValue(content.title),
     stringValue(commentary.text),
+    stringValue(commentary.body),
     stringValue(post.text),
+    stringValue(post.message),
     stringValue(post.content),
     stringValue(post.commentary),
+    stringValue(post.description),
+    stringValue(post.title),
     stringValue(doc.text),
     stringValue(doc.content),
     stringValue(doc.description),
     stringValue(doc.title),
+    stringValue(document.text),
+    stringValue(document.description),
+    stringValue(document.title),
     stringValue(record.alt),
     stringValue(record.ocrText),
     stringValue(record.transcript),
@@ -1190,16 +1480,44 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   const firstImageObjectUrl = firstStringFromRecordArray(record.images, ['url', 'src', 'imageUrl']);
   const firstMediaUrl = firstStringFromRecordArray(record.media, ['url', 'mediaUrl', 'imageUrl', 'videoUrl', 'thumbnailUrl']);
   const firstAttachmentUrl = firstStringFromRecordArray(record.attachments, ['url', 'mediaUrl', 'imageUrl', 'thumbnailUrl']);
+  const nestedAttachmentUrl = firstAttachmentMediaUrl(record.attachments);
   const firstSlideImage = firstStringFromArray(doc.slide_images);
   const documentImageUrl = firstString(document.coverImageUrl, document.imageUrl, document.thumbnailUrl, document.url);
-  const sourceUrl = firstString(record.url, record.postUrl, record.post_url, record.postLink, record.linkToPost, record.activityUrl, record.permalink, record.link, record.shortUrl, record.share_url, post.url, post.postUrl) ?? parsed.normalizedUrl;
+  const sourceUrl = firstString(
+    record.url,
+    record.postUrl,
+    record.post_url,
+    record.postLink,
+    record.linkToPost,
+    record.activityUrl,
+    record.permalink,
+    record.permalink_url,
+    record.permalinkUrl,
+    record.facebookUrl,
+    record.topLevelUrl,
+    record.link,
+    record.shortUrl,
+    record.share_url,
+    post.url,
+    post.postUrl,
+    post.permalink,
+  ) ?? parsed.normalizedUrl;
   const identityUrls = uniqueStrings([
     stringValue(record.inputUrl),
     stringValue(record.ownerProfileUrl),
+    stringValue(record.ownerUrl),
     stringValue(record.profileUrl),
     stringValue(record.profile_url),
+    stringValue(record.accountUrl),
+    stringValue(record.profileLink),
     stringValue(record.authorUrl),
     stringValue(record.author_url),
+    stringValue(record.pageUrl),
+    stringValue(record.page_url),
+    stringValue(record.companyUrl),
+    stringValue(record.linkedinUrl),
+    stringValue(record.facebookUrl),
+    stringValue(record.instagramUrl),
     stringValue(author.url),
     stringValue(author.profileUrl),
     stringValue(actor.url),
@@ -1215,6 +1533,9 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   const explicitAccountHandle = firstString(
     record.ownerUsername,
     record.username,
+    record.profileUsername,
+    record.pageUsername,
+    record.pageHandle,
     record.authorUsername,
     record.authorHandle,
     author.username,
@@ -1237,8 +1558,40 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     explicitAccountHandle,
     ...identityUrls.map((url) => socialHandleFromUrl(parsed.platform, url)),
   );
-  const accountName = firstString(record.ownerFullName, record.fullName, record.author_name, record.authorName, author.name, actor.name, record.pageName, record.companyName, company.name, organization.name, page.name, source.name);
-  const displayName = firstString(record.ownerUsername, record.username, record.author_name, record.authorName, author.name, actor.name, record.author, record.ownerFullName, record.pageName, record.companyName, company.name, organization.name, page.name, source.name);
+  const accountName = firstString(
+    record.ownerFullName,
+    record.ownerName,
+    record.fullName,
+    record.profileName,
+    record.accountName,
+    record.author_name,
+    record.authorName,
+    author.name,
+    actor.name,
+    record.pageName,
+    record.pageTitle,
+    record.companyName,
+    company.name,
+    organization.name,
+    page.name,
+    source.name,
+  );
+  const displayName = firstString(record.ownerUsername, record.username, record.profileUsername, record.author_name, record.authorName, author.name, actor.name, record.author, record.ownerFullName, record.ownerName, record.pageName, record.companyName, company.name, organization.name, page.name, source.name);
+  const rejected = (reason: ApifyRejectionReason): ApifySocialSourceResult => ({
+    source: null,
+    rejectionReason: reason,
+    diagnostic: apifyRejectedItemDiagnostic({
+      item,
+      record,
+      parsed,
+      index,
+      reason,
+      accountHandle,
+      accountName,
+      displayName,
+      identityUrls,
+    }),
+  });
   const identityMatchStatus = apifyIdentityMatchStatus({
     parsed,
     sourceUrl,
@@ -1249,12 +1602,12 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     explicitIdentityReturned: Boolean(normalizeHandle(explicitAccountHandle) || normalizeHandle(accountName) || normalizeHandle(displayName)),
   });
   if (!identityMatchStatus) {
-    return { source: null, rejectionReason: 'identity_mismatch' };
+    return rejected('identity_mismatch');
   }
   const media = socialMedia({
-    mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl || documentImageUrl || record.displayUrl || record.imageUrl ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
-    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, documentImageUrl, doc.pdf_url),
-    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, documentImageUrl, firstSlideImage),
+    mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl || documentImageUrl || nestedAttachmentUrl || record.displayUrl || record.imageUrl || record.full_picture || record.fullPicture || record.picture ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
+    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, record.full_picture, record.fullPicture, record.picture, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, nestedAttachmentUrl, documentImageUrl, doc.pdf_url),
+    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, record.full_picture, record.fullPicture, record.picture, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, nestedAttachmentUrl, documentImageUrl, firstSlideImage),
     ocrText: stringValue(record.ocrText),
     transcript: stringValue(record.transcript),
   });
@@ -1267,9 +1620,9 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     ...company,
     ...organization,
     ...page,
-    url: firstString(company.url, organization.url, page.url, author.url, authorProfile.url, profileRecord.url),
+    url: firstString(company.url, organization.url, page.url, author.url, authorProfile.url, profileRecord.url, record.companyUrl, record.pageUrl, record.profileUrl),
   });
-  if (!text && !media && !metrics && !profile) return { source: null, rejectionReason: 'hollow_item' };
+  if (!text && !media && !metrics && !profile) return rejected('hollow_item');
   return {
     source: {
       kind: parsed.isPostUrl || text ? 'social_post' : 'social_profile',
@@ -1280,7 +1633,7 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
       text: text || undefined,
       evidenceOrigin: 'public_fallback',
       pinned: booleanValue(record.isPinned) ?? booleanValue(record.pinned) ?? false,
-      publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.posted_at, record.postedAt, record.date),
+      publishedAt: firstString(record.timestamp, record.takenAt, record.createdAt, record.created_time, record.posted_at, record.postedAt, record.date),
       media,
       metrics,
       profile,
@@ -1845,7 +2198,7 @@ function socialMetrics(value: unknown): BrandVaultSocialMetricsEvidence | undefi
   const likesSummary = asRecord(likes.summary);
   const commentsSummary = asRecord(comments.summary);
   const metrics: BrandVaultSocialMetricsEvidence = {
-    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, record.total_reactions, record.totalReactions, record.reactionsCount, likesSummary.total_count),
+    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, record.likes, record.total_reactions, record.totalReactions, record.reactionsCount, likesSummary.total_count),
     commentCount: firstNumber(record.comments_count, record.commentsCount, record.commentCount, record.comments, commentsSummary.total_count),
     shareCount: firstNumber(record.shareCount, record.sharesCount, record.shares, shares.count),
     viewCount: firstNumber(record.viewCount, record.videoViewCount, record.playCount),
@@ -1975,6 +2328,21 @@ function firstStringFromRecordArray(value: unknown, keys: string[]): string | un
   for (const item of value) {
     const record = asRecord(item);
     const match = firstString(...keys.map((key) => record[key]));
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function firstAttachmentMediaUrl(value: unknown): string | undefined {
+  const direct = firstStringFromRecordArray(value, ['url', 'mediaUrl', 'imageUrl', 'thumbnailUrl', 'src']);
+  if (direct) return direct;
+  const record = asRecord(value);
+  const attachments = Array.isArray(record.data) ? record.data : [];
+  for (const attachmentValue of attachments) {
+    const attachment = asRecord(attachmentValue);
+    const media = asRecord(attachment.media);
+    const image = asRecord(media.image);
+    const match = firstString(image.src, media.url, media.source, attachment.src, attachment.thumbnail_url, attachment.url);
     if (match) return match;
   }
   return undefined;
