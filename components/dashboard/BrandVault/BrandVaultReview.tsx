@@ -26,6 +26,7 @@ import { SourceStrip } from './SourceStrip';
 import { BrandVaultStats } from './BrandVaultStats';
 import { ConflictCard } from './ConflictCard';
 import { SignalTable } from './SignalTable';
+import { BrandVisualBoard } from './BrandVisualBoard';
 import {
   buildIntakeGuidance,
   buildSourceLanes,
@@ -405,6 +406,12 @@ export function BrandVaultReview() {
             onRescan={() => void createDraftFromCurrentInputs()}
             onClearWorkflow={() => setActiveGuidanceWorkflow(null)}
           />
+          {snapshot.reviewPayload && (
+            <BrandVisualBoard
+              visualIdentity={snapshot.reviewPayload.visualIdentity ?? null}
+              brandName={brandName}
+            />
+          )}
           <BrandVaultStats summary={summary} />
 
           {!snapshot.record && (
