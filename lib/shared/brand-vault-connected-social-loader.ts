@@ -23,8 +23,8 @@ export async function loadBrandVaultConnectedSocialEvidence(
     youtubeConnection,
     apifyApiKey: process.env.APIFY_API_KEY,
     apifyActors: {
-      instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID,
-      facebook: process.env.APIFY_FACEBOOK_ACTOR_ID,
+      instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || BRAND_VAULT_DEFAULT_APIFY_ACTORS.instagram,
+      facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || BRAND_VAULT_DEFAULT_APIFY_ACTORS.facebook,
       linkedin: process.env.APIFY_LINKEDIN_ACTOR_ID || BRAND_VAULT_DEFAULT_APIFY_ACTORS.linkedin,
     },
   });

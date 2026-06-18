@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createBrandVaultConnectedSocialEvidence } from '../../lib/shared/brand-vault-connected-social-ingestion';
+import {
+  BRAND_VAULT_DEFAULT_APIFY_ACTORS,
+  createBrandVaultConnectedSocialEvidence,
+} from '../../lib/shared/brand-vault-connected-social-ingestion';
 
 describe('Brand Vault connected social ingestion', () => {
   it('enriches explicit YouTube post URLs with public metadata and captions even when Google is connected', async () => {
@@ -539,6 +542,166 @@ describe('Brand Vault connected social ingestion', () => {
       }),
     });
     expect(result.warnings).toContain('Brand Vault fetched 1 linkedin public Apify item for review-only social evidence.');
+  });
+
+  it('expands nested LinkedIn actor post arrays while preserving company identity', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.linkedin.com/company/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { linkedin: BRAND_VAULT_DEFAULT_APIFY_ACTORS.linkedin },
+      fetchFn: async () => jsonResponse([
+        {
+          company: {
+            name: 'Insturix',
+            url: 'https://www.linkedin.com/company/insturix/',
+            description: 'AI-assisted content production platform.',
+          },
+          posts: [
+            {
+              textContent: 'Stop losing brand consistency between brief, edit, and publish.',
+              activityUrl: 'https://www.linkedin.com/feed/update/urn:li:activity:900/',
+              stats: {
+                totalReactions: '11',
+                comments: '2',
+                reposts: '1',
+              },
+              document: {
+                coverImageUrl: 'https://media.licdn.com/insturix-nested-cover.jpg',
+              },
+              postedAt: '2026-06-17T10:00:00.000Z',
+            },
+          ],
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'linkedin',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.linkedin.com/feed/update/urn:li:activity:900/',
+      text: 'Stop losing brand consistency between brief, edit, and publish.',
+      publishedAt: '2026-06-17T10:00:00.000Z',
+      media: {
+        mediaType: 'image',
+        mediaUrl: 'https://media.licdn.com/insturix-nested-cover.jpg',
+        thumbnailUrl: 'https://media.licdn.com/insturix-nested-cover.jpg',
+      },
+      metrics: {
+        likeCount: 11,
+        commentCount: 2,
+        repostCount: 1,
+        engagementCount: 14,
+      },
+      profile: {
+        bio: 'AI-assisted content production platform.',
+        website: 'https://www.linkedin.com/company/insturix/',
+      },
+      connection: expect.objectContaining({
+        accountHandle: 'insturix',
+        accountName: 'Insturix',
+        matchStatus: 'matched',
+      }),
+    });
+  });
+
+  it('normalizes Facebook Apify posts with permalink, page identity, media, and metrics', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.facebook.com/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { facebook: BRAND_VAULT_DEFAULT_APIFY_ACTORS.facebook },
+      fetchFn: async () => jsonResponse([
+        {
+          message: 'Content production is broken. One platform. Not ten.',
+          permalink_url: 'https://www.facebook.com/insturix/posts/123',
+          pageName: 'Insturix',
+          pageUrl: 'https://www.facebook.com/insturix',
+          attachments: {
+            data: [
+              {
+                type: 'photo',
+                url: 'https://www.facebook.com/insturix/photos/123',
+                media: {
+                  image: {
+                    src: 'https://cdn.example.com/facebook-post-frame.jpg',
+                  },
+                },
+              },
+            ],
+          },
+          likes: 7,
+          comments: 2,
+          shares: 1,
+          created_time: '2026-06-17T11:00:00.000Z',
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'facebook',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.facebook.com/insturix/posts/123',
+      text: 'Content production is broken. One platform. Not ten.',
+      publishedAt: '2026-06-17T11:00:00.000Z',
+      media: {
+        mediaType: 'image',
+        mediaUrl: 'https://cdn.example.com/facebook-post-frame.jpg',
+        thumbnailUrl: 'https://cdn.example.com/facebook-post-frame.jpg',
+      },
+      metrics: {
+        likeCount: 7,
+        commentCount: 2,
+        shareCount: 1,
+        engagementCount: 10,
+      },
+      profile: {
+        website: 'https://www.facebook.com/insturix',
+      },
+      connection: expect.objectContaining({
+        accountName: 'Insturix',
+        matchStatus: 'matched',
+      }),
+    });
+  });
+
+  it('emits bounded Apify diagnostics without copying rejected post text into warnings', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: BRAND_VAULT_DEFAULT_APIFY_ACTORS.instagram },
+      fetchFn: async () => jsonResponse([
+        {
+          url: 'https://www.instagram.com/p/personal_post/',
+          caption: 'private wrong-account caption should not appear in warning diagnostics',
+          ownerUsername: 'nimitgotnolimit',
+          ownerFullName: 'Nimit Jain',
+          displayUrl: 'https://cdn.example.com/personal-frame.jpg',
+          likesCount: 12,
+        },
+        {
+          url: 'https://www.instagram.com/insturix',
+        },
+      ]),
+    });
+
+    const diagnostic = result.warnings.find((warning) => warning.includes('Apify rejected item diagnostics'));
+    expect(diagnostic).toContain('actor=apify/instagram-scraper');
+    expect(diagnostic).toContain('identity_mismatch');
+    expect(diagnostic).toContain('hollow_item');
+    expect(diagnostic).toContain('identityCandidates=[nimitgotnolimit,Nimit Jain]');
+    expect(diagnostic).toContain('textFields=[caption]');
+    expect(diagnostic).toContain('mediaFields=[displayUrl]');
+    expect(diagnostic).not.toContain('private wrong-account caption');
+    expect(result.warnings).toContain('Brand Vault instagram Apify rejection reasons: hollow_item=1, identity_mismatch=1.');
   });
 
   it('drops Apify public posts whose author does not match the submitted social account', async () => {
