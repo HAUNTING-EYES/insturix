@@ -26,6 +26,10 @@ import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
 } from './brand-vault-social-ocr';
+import {
+  createBrandVaultVisualIdentitySummary,
+  type BrandVaultVisualIdentitySummary,
+} from './brand-vault-visual-identity';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -35,6 +39,16 @@ import type {
   BrandWebsiteSupplementalTextEvidence,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
+
+export type {
+  BrandVaultFontPreview,
+  BrandVaultFontPreviewRole,
+  BrandVaultVisualAssetKind,
+  BrandVaultVisualAssetPreview,
+  BrandVaultVisualIdentitySummary,
+  BrandVaultVisualSwatch,
+  BrandVaultVisualSwatchRole,
+} from './brand-vault-visual-identity';
 
 export type BrandVaultWebsiteDraftJobErrorCode = 'invalid_url' | 'fetch_failed' | 'draft_creation_failed';
 
@@ -197,6 +211,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
   coverage: Record<BrandVaultSignalGroup, BrandVaultSignalGroupCoverage>;
   signalDiagnostics: BrandVaultSignalDiagnostics;
   intake: BrandVaultIntakeSummary;
+  visualIdentity: BrandVaultVisualIdentitySummary;
 }
 
 export interface BrandVaultWebsiteDraftJobInput {
@@ -568,6 +583,11 @@ export function createBrandVaultDraftReviewPayload(args: {
       normalizedUrl: args.normalizedUrl,
       warnings: args.warnings ?? [],
       reviewRequired: args.record.review.required,
+    }),
+    visualIdentity: createBrandVaultVisualIdentitySummary({
+      profile: args.record.profile,
+      candidates: args.candidates,
+      sourceEvidence: args.job.inputs.sourceEvidence ?? [],
     }),
   };
 }

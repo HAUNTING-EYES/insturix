@@ -16,6 +16,7 @@ const HTML = `
     <title>Signal House - Video systems for B2B teams</title>
     <meta name="description" content="Signal House helps agencies launch trusted video systems with fast production workflows.">
     <meta property="og:site_name" content="Signal House">
+    <meta property="og:image" content="/share-card.jpg">
     <meta name="theme-color" content="#0b1b2b">
     <style>
       :root { --brand: #0b1b2b; --accent: #2ee6a6; --paper: #f5f7fa; }
@@ -38,6 +39,7 @@ const HTML = `
     <a href="/demo">Book a demo</a>
     <blockquote>Trusted by 120 agency teams to ship faster.</blockquote>
     <img alt="Signal House logo" src="/logo.svg">
+    <img alt="Signal House product dashboard" class="product-card" src="/product-dashboard.png">
   </body>
 </html>
 `;
@@ -81,7 +83,16 @@ describe('Brand Vault draft orchestrator', () => {
       {
         repository,
         fetchOptions: {
-          fetchFn: async () => htmlResponse(),
+          fetchFn: async (url, init) => {
+            const target = String(url);
+            if (init?.method === 'HEAD' && target.endsWith('.svg')) {
+              return new Response('', { status: 200, headers: { 'content-type': 'image/svg+xml' } });
+            }
+            if (init?.method === 'HEAD' && (target.endsWith('.png') || target.endsWith('.jpg'))) {
+              return new Response('', { status: 200, headers: { 'content-type': 'image/png' } });
+            }
+            return htmlResponse();
+          },
         },
       },
     );
@@ -125,6 +136,33 @@ describe('Brand Vault draft orchestrator', () => {
     });
     expect(result.reviewPayload.intake.nextActions.map((action) => action.id)).toEqual(
       expect.arrayContaining(['review_candidates', 'connect_social', 'add_pinned_posts', 'add_uploads', 'accept_or_reject']),
+    );
+    expect(result.reviewPayload.visualIdentity.colors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'primary', value: '#0b1b2b', label: 'Primary' }),
+        expect.objectContaining({ role: 'accent', value: '#2ee6a6', label: 'Accent' }),
+      ]),
+    );
+    expect(result.reviewPayload.visualIdentity.fonts[0]).toMatchObject({
+      family: 'Inter',
+      role: 'display',
+      sampleText: 'Signal House',
+      signalPath: 'typography.raw',
+    });
+    expect(result.reviewPayload.visualIdentity.logos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'logo',
+          url: 'https://signal.example/logo.svg',
+          availability: expect.objectContaining({ status: 'available' }),
+        }),
+      ]),
+    );
+    expect(result.reviewPayload.visualIdentity.images).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'product', url: 'https://signal.example/product-dashboard.png' }),
+        expect.objectContaining({ kind: 'website_preview', url: 'https://signal.example/share-card.jpg' }),
+      ]),
     );
     expect(repository.getRecord('draft_signal_site')?.status).toBe('draft');
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
