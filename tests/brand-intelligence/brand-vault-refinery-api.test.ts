@@ -520,6 +520,82 @@ describe('Brand Vault refinery API boundary', () => {
     expect(loaded.body.job.inputs.sourceEvidence).toHaveLength(3);
   });
 
+  it('preserves mirrored visual previews when API reloads and updates review status', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const visualHtml = HTML.replace('</body>', '<img alt="Vaultline logo" src="/logo.svg"></body>');
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },
+      {
+        store,
+        clock: () => NOW,
+        fetchOptions: {
+          fetchFn: async (url, init) => {
+            const target = String(url);
+            if (init?.method === 'HEAD' && target.endsWith('.svg')) {
+              return new Response('', { status: 200, headers: { 'content-type': 'image/svg+xml' } });
+            }
+            return new Response(visualHtml, { status: 200, headers: { 'content-type': 'text/html' } });
+          },
+        },
+        visualAssetStorage: {
+          async mirrorAsset(input) {
+            return {
+              ok: true,
+              provider: 'test_r2',
+              storageKey: `brandvault/${input.assetId}`,
+              publicUrl: `https://cdn.vaultline.example/${input.assetId}`,
+              contentType: input.url.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+              sizeBytes: 4096,
+              storedAt: NOW,
+            };
+          },
+        },
+      },
+    );
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const storedLogo = created.body.reviewPayload.visualIdentity.logos[0];
+    expect(storedLogo).toMatchObject({
+      url: expect.stringMatching(/^https:\/\/cdn\.vaultline\.example\/visual_asset_/),
+      originalUrl: 'https://vaultline.example/logo.svg',
+      storage: expect.objectContaining({
+        status: 'stored',
+        provider: 'test_r2',
+        originalUrl: 'https://vaultline.example/logo.svg',
+      }),
+    });
+
+    const loaded = await getBrandVaultRefineryJob(
+      { userId: 'user_vault', jobId: created.body.job.id },
+      { store },
+    );
+    expect(loaded.body.ok).toBe(true);
+    if (!loaded.body.ok) throw new Error(loaded.body.error.message);
+    expect(loaded.body.reviewPayload?.visualIdentity.logos[0]).toEqual(storedLogo);
+
+    const profile = await getBrandVaultSignalProfile(
+      { userId: 'user_vault', recordId: created.body.record.id },
+      { store },
+    );
+    expect(profile.body.ok).toBe(true);
+    if (!profile.body.ok) throw new Error(profile.body.error.message);
+    expect(profile.body.reviewPayload?.visualIdentity.logos[0]).toEqual(storedLogo);
+
+    const accepted = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        body: { action: 'accept' },
+        now: '2026-06-09T06:12:00.000Z',
+      },
+      { store },
+    );
+    expect(accepted.body.ok).toBe(true);
+    if (!accepted.body.ok) throw new Error(accepted.body.error.message);
+    expect(accepted.body.reviewPayload?.visualIdentity.logos[0]).toEqual(storedLogo);
+  });
+
   it('uses configured browser-render fallback evidence when direct website scan only sees a JavaScript shell', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const renderRequests: Array<{ url: string; init?: RequestInit }> = [];

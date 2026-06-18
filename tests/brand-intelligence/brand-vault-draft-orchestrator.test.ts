@@ -168,6 +168,83 @@ describe('Brand Vault draft orchestrator', () => {
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
   });
 
+  it('mirrors visual preview assets into durable storage before returning the review payload', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const mirroredUrls: string[] = [];
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_visual_storage',
+        profileRecordId: 'draft_visual_storage',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async (url, init) => {
+            const target = String(url);
+            if (init?.method === 'HEAD' && target.endsWith('.svg')) {
+              return new Response('', { status: 200, headers: { 'content-type': 'image/svg+xml' } });
+            }
+            if (init?.method === 'HEAD' && (target.endsWith('.png') || target.endsWith('.jpg'))) {
+              return new Response('', { status: 200, headers: { 'content-type': 'image/png' } });
+            }
+            return htmlResponse();
+          },
+        },
+        visualAssetStorage: {
+          async mirrorAsset(input) {
+            mirroredUrls.push(input.url);
+            return {
+              ok: true,
+              provider: 'test_r2',
+              storageKey: `brandvault/${input.assetId}`,
+              publicUrl: `https://cdn.signal.example/${input.assetId}`,
+              contentType: input.url.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+              sizeBytes: 2048,
+              storedAt: NOW,
+            };
+          },
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(mirroredUrls).toEqual(
+      expect.arrayContaining([
+        'https://signal.example/logo.svg',
+        'https://signal.example/product-dashboard.png',
+        'https://signal.example/share-card.jpg',
+      ]),
+    );
+    expect(result.warnings.some((warning) => warning.includes('visual asset storage'))).toBe(false);
+    expect(result.reviewPayload.visualIdentity.logos[0]).toMatchObject({
+      url: expect.stringMatching(/^https:\/\/cdn\.signal\.example\/visual_asset_/),
+      originalUrl: 'https://signal.example/logo.svg',
+      storage: {
+        status: 'stored',
+        provider: 'test_r2',
+        originalUrl: 'https://signal.example/logo.svg',
+        contentType: 'image/svg+xml',
+        sizeBytes: 2048,
+      },
+    });
+    expect(result.reviewPayload.visualIdentity.images).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'product',
+          url: expect.stringMatching(/^https:\/\/cdn\.signal\.example\/visual_asset_/),
+          originalUrl: 'https://signal.example/product-dashboard.png',
+          storage: expect.objectContaining({ status: 'stored', provider: 'test_r2' }),
+        }),
+      ]),
+    );
+  });
+
   it('surfaces weak, missing, and fallback signal diagnostics for review UI', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const sparseHtml = `

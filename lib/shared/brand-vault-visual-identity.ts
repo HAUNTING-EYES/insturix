@@ -44,11 +44,24 @@ export interface BrandVaultFontPreview {
 
 export type BrandVaultVisualAssetKind = 'logo' | 'product' | 'website_preview' | 'social_media' | 'uploaded_asset';
 
+export interface BrandVaultStoredVisualAssetState {
+  status: 'stored' | 'failed' | 'skipped';
+  provider?: string;
+  storageKey?: string;
+  publicUrl?: string;
+  originalUrl?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  storedAt?: string;
+  reason?: string;
+}
+
 export interface BrandVaultVisualAssetPreview {
   id: string;
   kind: BrandVaultVisualAssetKind;
   label: string;
   url: string;
+  originalUrl?: string;
   thumbnailUrl?: string;
   mediaType?: NonNullable<BrandVaultSourceInput['media']>['mediaType'];
   platform?: BrandVaultSourceInput['platform'];
@@ -63,6 +76,7 @@ export interface BrandVaultVisualAssetPreview {
     contentType?: string;
     httpStatus?: number;
   };
+  storage?: BrandVaultStoredVisualAssetState;
 }
 
 export interface BrandVaultVisualIdentitySummary {
