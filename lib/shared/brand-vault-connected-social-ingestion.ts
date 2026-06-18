@@ -1150,8 +1150,16 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   const content = asRecord(record.content);
   const commentary = asRecord(record.commentary);
   const engagement = asRecord(record.engagement);
+  const stats = asRecord(record.stats);
   const doc = asRecord(record.doc);
+  const document = asRecord(record.document);
   const post = asRecord(record.post);
+  const authorProfile = asRecord(record.authorProfile);
+  const profileRecord = asRecord(record.profile);
+  const company = asRecord(record.company);
+  const organization = asRecord(record.organization);
+  const page = asRecord(record.page);
+  const source = asRecord(record.source);
   const text = uniqueStrings([
     stringValue(record.caption),
     stringValue(record.text),
@@ -1183,29 +1191,84 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   const firstMediaUrl = firstStringFromRecordArray(record.media, ['url', 'mediaUrl', 'imageUrl', 'videoUrl', 'thumbnailUrl']);
   const firstAttachmentUrl = firstStringFromRecordArray(record.attachments, ['url', 'mediaUrl', 'imageUrl', 'thumbnailUrl']);
   const firstSlideImage = firstStringFromArray(doc.slide_images);
+  const documentImageUrl = firstString(document.coverImageUrl, document.imageUrl, document.thumbnailUrl, document.url);
   const sourceUrl = firstString(record.url, record.postUrl, record.post_url, record.postLink, record.linkToPost, record.activityUrl, record.permalink, record.link, record.shortUrl, record.share_url, post.url, post.postUrl) ?? parsed.normalizedUrl;
-  const accountHandle = firstString(record.ownerUsername, record.username, record.authorUsername, record.authorHandle, author.username, author.handle, actor.username, actor.handle, record.author);
-  const accountName = firstString(record.ownerFullName, record.fullName, record.author_name, record.authorName, author.name, actor.name, record.pageName, record.companyName);
-  const displayName = firstString(record.ownerUsername, record.username, record.author_name, record.authorName, author.name, actor.name, record.author, record.ownerFullName, record.pageName, record.companyName);
+  const identityUrls = uniqueStrings([
+    stringValue(record.inputUrl),
+    stringValue(record.ownerProfileUrl),
+    stringValue(record.profileUrl),
+    stringValue(record.profile_url),
+    stringValue(record.authorUrl),
+    stringValue(record.author_url),
+    stringValue(author.url),
+    stringValue(author.profileUrl),
+    stringValue(actor.url),
+    stringValue(actor.profileUrl),
+    stringValue(authorProfile.url),
+    stringValue(profileRecord.url),
+    stringValue(company.url),
+    stringValue(company.linkedinUrl),
+    stringValue(organization.url),
+    stringValue(page.url),
+    stringValue(source.url),
+  ]);
+  const explicitAccountHandle = firstString(
+    record.ownerUsername,
+    record.username,
+    record.authorUsername,
+    record.authorHandle,
+    author.username,
+    author.handle,
+    actor.username,
+    actor.handle,
+    company.username,
+    company.handle,
+    company.vanityName,
+    organization.username,
+    organization.handle,
+    organization.vanityName,
+    page.username,
+    page.handle,
+    source.username,
+    source.handle,
+    record.author,
+  );
+  const accountHandle = firstString(
+    explicitAccountHandle,
+    ...identityUrls.map((url) => socialHandleFromUrl(parsed.platform, url)),
+  );
+  const accountName = firstString(record.ownerFullName, record.fullName, record.author_name, record.authorName, author.name, actor.name, record.pageName, record.companyName, company.name, organization.name, page.name, source.name);
+  const displayName = firstString(record.ownerUsername, record.username, record.author_name, record.authorName, author.name, actor.name, record.author, record.ownerFullName, record.pageName, record.companyName, company.name, organization.name, page.name, source.name);
   const identityMatchStatus = apifyIdentityMatchStatus({
     parsed,
     sourceUrl,
     accountHandle,
     accountName,
     displayName,
+    identityUrls,
+    explicitIdentityReturned: Boolean(normalizeHandle(explicitAccountHandle) || normalizeHandle(accountName) || normalizeHandle(displayName)),
   });
   if (!identityMatchStatus) {
     return { source: null, rejectionReason: 'identity_mismatch' };
   }
   const media = socialMedia({
-    mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
-    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, doc.pdf_url),
-    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, firstSlideImage),
+    mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl || documentImageUrl || record.displayUrl || record.imageUrl ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
+    mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, documentImageUrl, doc.pdf_url),
+    thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, documentImageUrl, firstSlideImage),
     ocrText: stringValue(record.ocrText),
     transcript: stringValue(record.transcript),
   });
-  const metrics = socialMetrics({ ...record, ...engagement });
-  const profile = socialProfile({ ...record, ...author, url: undefined });
+  const metrics = socialMetrics({ ...record, ...engagement, ...stats });
+  const profile = socialProfile({
+    ...record,
+    ...author,
+    ...authorProfile,
+    ...profileRecord,
+    ...company,
+    ...organization,
+    ...page,
+    url: firstString(company.url, organization.url, page.url, author.url, authorProfile.url, profileRecord.url),
+  });
   if (!text && !media && !metrics && !profile) return { source: null, rejectionReason: 'hollow_item' };
   return {
     source: {
@@ -1241,12 +1304,15 @@ function apifyIdentityMatchStatus(args: {
   accountHandle?: string;
   accountName?: string;
   displayName?: string;
+  identityUrls?: string[];
+  explicitIdentityReturned?: boolean;
 }): BrandVaultSocialConnectionEvidence['matchStatus'] | null {
   const expected = normalizeHandle(args.parsed.handle);
   if (!expected) return 'unverified';
 
   const normalizedSourceUrl = args.sourceUrl.toLowerCase();
   const sourcePathMatches = urlPathHasHandle(normalizedSourceUrl, expected);
+  const identityUrlMatches = (args.identityUrls ?? []).some((url) => urlPathHasHandle(url.toLowerCase(), expected));
   const identityMatches = [
     args.accountHandle,
     args.accountName,
@@ -1254,10 +1320,39 @@ function apifyIdentityMatchStatus(args: {
   ].some((candidate) => normalizeHandle(candidate) === expected);
 
   if (identityMatches || sourcePathMatches) return 'matched';
+  if (args.explicitIdentityReturned) return null;
+  if (identityUrlMatches) return 'matched';
 
   const hasReturnedIdentity = Boolean(normalizeHandle(args.accountHandle) || normalizeHandle(args.accountName) || normalizeHandle(args.displayName));
   const postLikeUrl = args.parsed.isPostUrl || isPlatformPostUrl(args.parsed.platform, args.sourceUrl);
   return !hasReturnedIdentity && !postLikeUrl ? 'unverified' : null;
+}
+
+function socialHandleFromUrl(platform: BrandVaultSourcePlatform, value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    const segments = url.pathname.split('/').map((segment) => segment.trim()).filter(Boolean);
+    if (platform === 'linkedin') {
+      const companyIndex = segments.findIndex((segment) => segment.toLowerCase() === 'company');
+      if (companyIndex >= 0) return segments[companyIndex + 1];
+      const profileIndex = segments.findIndex((segment) => segment.toLowerCase() === 'in');
+      if (profileIndex >= 0) return segments[profileIndex + 1];
+      return undefined;
+    }
+    if (platform === 'instagram') {
+      const first = segments[0]?.toLowerCase();
+      return first && !['p', 'reel', 'tv', 'stories'].includes(first) ? segments[0] : undefined;
+    }
+    if (platform === 'facebook') {
+      const first = segments[0]?.toLowerCase();
+      if (!first || ['posts', 'videos', 'reel', 'photos', 'story.php'].includes(first)) return undefined;
+      return segments[0];
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 function urlPathHasHandle(value: string, expected: string): boolean {
@@ -1347,7 +1442,12 @@ async function fetchPublicYouTubePostSource(args: {
   const title = firstString(watchPage.evidence.title, oEmbedPayload.title);
   const author = firstString(watchPage.evidence.author, oEmbedPayload.author_name);
   const description = meaningfulYouTubeDescription(firstString(watchPage.evidence.description));
-  const text = uniqueStrings([description]).join('\n');
+  const text = youtubePublicPostText({
+    title,
+    description,
+    author,
+    transcript: watchPage.evidence.transcript,
+  });
   const media = socialMedia({
     mediaType: 'video',
     thumbnailUrl: firstString(watchPage.evidence.thumbnailUrl, oEmbedPayload.thumbnail_url),
@@ -1543,6 +1643,19 @@ function meaningfulYouTubeDescription(value: string | undefined): string | undef
   return genericPhrases.some((phrase) => normalized.includes(phrase)) ? undefined : value;
 }
 
+function youtubePublicPostText(input: {
+  title?: string;
+  description?: string;
+  author?: string;
+  transcript?: string;
+}): string {
+  if (!input.description) return '';
+  const parts = input.transcript
+    ? [input.description]
+    : [input.title, input.description, input.author];
+  return uniqueStrings(parts).join('\n');
+}
+
 async function fetchYouTubeCaptionTranscript(
   player: Record<string, unknown>,
   fetchFn: BrandVaultSocialFetch,
@@ -1732,11 +1845,11 @@ function socialMetrics(value: unknown): BrandVaultSocialMetricsEvidence | undefi
   const likesSummary = asRecord(likes.summary);
   const commentsSummary = asRecord(comments.summary);
   const metrics: BrandVaultSocialMetricsEvidence = {
-    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, record.total_reactions, record.reactionsCount, likesSummary.total_count),
+    likeCount: firstNumber(record.like_count, record.likesCount, record.likeCount, record.total_reactions, record.totalReactions, record.reactionsCount, likesSummary.total_count),
     commentCount: firstNumber(record.comments_count, record.commentsCount, record.commentCount, record.comments, commentsSummary.total_count),
     shareCount: firstNumber(record.shareCount, record.sharesCount, record.shares, shares.count),
     viewCount: firstNumber(record.viewCount, record.videoViewCount, record.playCount),
-    repostCount: firstNumber(record.retweet_count, record.repostCount, record.retweetsCount),
+    repostCount: firstNumber(record.retweet_count, record.repostCount, record.retweetsCount, record.reposts),
     quoteCount: firstNumber(record.quote_count, record.quoteCount),
   };
   const engagement = [metrics.likeCount, metrics.commentCount, metrics.shareCount, metrics.repostCount, metrics.quoteCount]

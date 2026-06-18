@@ -372,6 +372,49 @@ describe('Brand Vault connected social ingestion', () => {
     });
   });
 
+  it('matches Instagram Apify rows when identity is only present in profile URLs', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async () => jsonResponse([
+        {
+          inputUrl: 'https://www.instagram.com/insturix/',
+          postUrl: 'https://www.instagram.com/p/brand_post/',
+          caption: 'Content production is broken. One platform. Not ten.',
+          ownerProfileUrl: 'https://www.instagram.com/insturix/',
+          displayUrl: 'https://cdn.example.com/insturix-frame.jpg',
+          likesCount: 42,
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'instagram',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.instagram.com/p/brand_post/',
+      text: 'Content production is broken. One platform. Not ten.',
+      media: {
+        mediaType: 'image',
+        mediaUrl: 'https://cdn.example.com/insturix-frame.jpg',
+        thumbnailUrl: 'https://cdn.example.com/insturix-frame.jpg',
+      },
+      metrics: {
+        likeCount: 42,
+        engagementCount: 42,
+      },
+      connection: expect.objectContaining({
+        accountHandle: 'insturix',
+        matchStatus: 'matched',
+      }),
+    });
+    expect(result.warnings).toContain('Brand Vault fetched 1 instagram public Apify item for review-only social evidence.');
+  });
+
   it('normalizes nested Apify actor posts and drops hollow public rows', async () => {
     const result = await createBrandVaultConnectedSocialEvidence({
       socialLinks: ['https://www.linkedin.com/company/vaultline'],
@@ -437,6 +480,65 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.sourceEvidence.filter((source) => source.url === 'https://www.linkedin.com/company/vaultline')).toHaveLength(1);
     expect(result.warnings).toContain('Brand Vault discarded 1 linkedin Apify item because they were unreadable, hollow, or did not match the submitted account.');
     expect(result.warnings).toContain('Brand Vault linkedin Apify rejection reasons: hollow_item=1.');
+  });
+
+  it('matches LinkedIn Apify rows when company identity is returned as a nested profile URL', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.linkedin.com/company/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { linkedin: 'atomus/linkedin-posts-scraper-pro' },
+      fetchFn: async () => jsonResponse([
+        {
+          textContent: 'Your content operation should move from brief to publish in one system.',
+          activityUrl: 'https://www.linkedin.com/feed/update/urn:li:activity:789/',
+          company: {
+            name: 'Insturix',
+            url: 'https://www.linkedin.com/company/insturix/',
+            description: 'Automated content production platform.',
+          },
+          document: {
+            coverImageUrl: 'https://media.licdn.com/insturix-cover.jpg',
+          },
+          stats: {
+            totalReactions: 17,
+            comments: 3,
+            reposts: 2,
+          },
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'linkedin',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.linkedin.com/feed/update/urn:li:activity:789/',
+      text: 'Your content operation should move from brief to publish in one system.',
+      media: {
+        mediaType: 'image',
+        mediaUrl: 'https://media.licdn.com/insturix-cover.jpg',
+        thumbnailUrl: 'https://media.licdn.com/insturix-cover.jpg',
+      },
+      metrics: {
+        likeCount: 17,
+        commentCount: 3,
+        repostCount: 2,
+        engagementCount: 22,
+      },
+      profile: {
+        bio: 'Automated content production platform.',
+        website: 'https://www.linkedin.com/company/insturix/',
+      },
+      connection: expect.objectContaining({
+        accountHandle: 'insturix',
+        accountName: 'Insturix',
+        matchStatus: 'matched',
+      }),
+    });
+    expect(result.warnings).toContain('Brand Vault fetched 1 linkedin public Apify item for review-only social evidence.');
   });
 
   it('drops Apify public posts whose author does not match the submitted social account', async () => {
