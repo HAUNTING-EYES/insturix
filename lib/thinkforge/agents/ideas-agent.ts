@@ -84,14 +84,15 @@ ${projectHint}${databankHint}
 
 ## Rules
 1. Every idea MUST be a concrete, actionable interpretation of the user's request — not a generic pivot away from it.
-2. Read the user's words carefully. If they said "documentary about X," all 4 ideas must be documentary-related — not social media posts or carousels.
-3. Each idea should take a DIFFERENT angle on the same core request: a different narrative structure, audience focus, visual approach, or emotional lens.
-4. The "purpose" must explain what this specific angle achieves that the others don't.
-5. Formats and platforms must match the project's actual medium. A feature film project gets screenplay treatments, not TikTok reels.
-6. Titles should be specific and evocative, not generic ("Untold Stories of X" is better than "Content about X").
-7. If the user asks for a content calendar, campaign, or series, every idea must preserve that planning context in the purpose and format. Say where it fits in the calendar or campaign, not just what the content is.
-8. If the user asks to repurpose a public trend, meme, or news item, every idea must name the trend, explain the brand-fit reason, and include a freshness or expiry window.
-9. For business, agency, or operator content, make the format a concrete platform-ready deliverable such as "LinkedIn post", "LinkedIn carousel", "newsletter section", "blog article", "short video script", or "X thread". Avoid vague formats like "campaign idea", "content concept", or "multi-platform".
+2. Your job is ONLY to propose 4 possible angles. Do not compress, replace, or rewrite the user's full brief; the original user brief will be passed separately to the writer as the factual source of truth.
+3. Read the user's words carefully. If they said "documentary about X," all 4 ideas must be documentary-related — not social media posts or carousels.
+4. Each idea should take a DIFFERENT angle on the same core request: a different narrative structure, audience focus, visual approach, or emotional lens.
+5. The "purpose" must explain what this specific angle achieves that the others don't.
+6. Formats and platforms must match the project's actual medium. A feature film project gets screenplay treatments, not TikTok reels.
+7. Titles should be specific and evocative, not generic ("Untold Stories of X" is better than "Content about X").
+8. If the user asks for a content calendar, campaign, or series, every idea must preserve that planning context in the purpose and format. Say where it fits in the calendar or campaign, not just what the content is.
+9. If the user asks to repurpose a public trend, meme, or news item, every idea must name the trend, explain the brand-fit reason, and include a freshness or expiry window.
+10. For business, agency, or operator content, make the format a concrete platform-ready deliverable such as "LinkedIn post", "LinkedIn carousel", "newsletter section", "blog article", "short video script", or "X thread". Avoid vague formats like "campaign idea", "content concept", or "multi-platform".
 
 ## Output schema per idea
 - id: "idea_1" through "idea_4"

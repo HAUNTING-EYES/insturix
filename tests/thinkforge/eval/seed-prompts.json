@@ -1,0 +1,30 @@
+[
+  {
+    "id": "post_linkedin_professional",
+    "prompt": "Write a LinkedIn post about why AI won't replace software engineers but engineers using AI will. Keep it professional but engaging.",
+    "docType": "post",
+    "expectedPlatform": "linkedin",
+    "expectedTone": "professional"
+  },
+  {
+    "id": "post_twitter_punchy",
+    "prompt": "A quick tweet thread about 3 lessons I learned from building a SaaS product in 30 days.",
+    "docType": "post",
+    "expectedPlatform": "twitter",
+    "expectedTone": "punchy"
+  },
+  {
+    "id": "script_youtube_tech",
+    "prompt": "Write a 5-minute YouTube script explaining how quantum computing works for a general audience. Include visual direction.",
+    "docType": "video_script",
+    "expectedPlatform": "generic",
+    "expectedTone": "educational"
+  },
+  {
+    "id": "script_ugc_ad",
+    "prompt": "TikTok UGC ad script for a new sparkling water brand. High energy, fast cuts.",
+    "docType": "video_script",
+    "expectedPlatform": "generic",
+    "expectedTone": "energetic"
+  }
+]

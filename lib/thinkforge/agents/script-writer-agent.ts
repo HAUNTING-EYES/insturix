@@ -1,0 +1,96 @@
+import { z } from 'zod';
+import { StructuredAgent, type AgentConfig } from './base-agent';
+import type { AgentInput } from './types';
+import type { ThinkForgeContentSignalProfile } from '../signals';
+
+// Flat ScriptWriter Output Contract
+export const ScriptWriterResultSchema = z.object({
+  content: z.string().describe('The actual script text, formatted in markdown with scenes'),
+  contentAnalysis: z.object({
+    hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
+    theme: z.string().describe('The core theme of the script'),
+    emphasisPoints: z.array(z.string()).describe('Key moments intended for emphasis'),
+    qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
+  }),
+  visualMetadata: z.object({
+    motionInfo: z.string().describe('General motion graphic styling instructions'),
+    scenePrompts: z.array(z.string()).describe('Detailed prompts per scene to generate visuals. MUST include specific physical props/elements and explicitly define any Text Overlays (headings, dates, locations, quotes).'),
+  }),
+  metadata: z.object({
+    estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
+    platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
+  }),
+});
+
+export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
+
+export interface ScriptWriterInput extends AgentInput {
+  contentSignalProfile?: ThinkForgeContentSignalProfile;
+}
+
+export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
+  protected schema = ScriptWriterResultSchema;
+
+  constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
+    super({
+      ...config,
+      agentType: 'script_writer',
+      // Default to flash for core creative thinking
+      modelName: config?.modelName ?? 'gemini-2.5-flash',
+      maxTokens: config?.maxTokens ?? 8192,
+      temperature: config?.temperature ?? 0.7,
+    });
+  }
+
+  buildPrompt(input: ScriptWriterInput): string {
+    const { context, userPrompt, retrievedContext } = input;
+    
+    // We default to generic video scripts if no explicit platform is passed via prompt.
+    // Platform detection could be added here similar to PostWriter if needed.
+
+    let prompt = `You are an elite Video Scriptwriter and Creative Director.
+Your task is to write a high-retention, engaging video script.
+
+## Context
+**Project Summary:** ${context.projectSummary || 'No summary provided.'}
+**User Prompt:** ${userPrompt}
+
+`;
+
+    // 1. Inject Brand DNA (System Brief)
+    if (context.systemBrief) {
+      prompt += `## Brand DNA & Memory\n${context.systemBrief}\n\n`;
+    }
+
+    // 2. Inject DataBank / Retrieved Context
+    const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
+    if (facts.length > 0) {
+      prompt += `## Relevant Knowledge (DataBank)\n`;
+      facts.forEach((fact, i) => {
+        prompt += `[Source ${i + 1} - ${fact.title}]: ${fact.summary}\n`;
+      });
+      prompt += '\n';
+    }
+
+    // 3. Script Writing Rules
+    prompt += `## Generation Requirements
+1. **Content Formatting:** Write the FINAL script in markdown. Divide the script into logical scenes. Use headers for scenes (e.g., \`## Scene 1: The Hook\`). Do NOT include JSON or meta-commentary inside the content string.
+2. **Narration & Visuals:** For each scene, clearly denote **Narration:** and **Visual:** (what the viewer sees). Visual direction serves the narration.
+3. **Factual Source Of Truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
+4. **Quality:** Do NOT use filler. Be specific. Use facts provided in the context. Ensure a strong hook in Scene 1.
+5. **Visual Metadata:** Provide detailed \`scenePrompts\` mapping 1:1 with the scenes in your script. These prompts will be fed into a visual generation engine (Clickatron/Editron). 
+   - **Source Facts Are Mandatory:** Every scene prompt must carry the relevant source facts from the brief: brand name, logo placement if mentioned, event name, date, time, location, audience, product/service, offer, handouts/freebies, required colors/brand style, and exact words that must appear.
+   - **Include Specific Props/Elements:** Explicitly list relevant physical objects that should appear in the visuals (e.g., for a blood donation drive, specify "blood drops, syringes"; for a clothes drive, specify "folded clothes, donation boxes").
+   - **Include Text Overlays:** Explicitly define exact text overlays from the brief, including heading, brand name, date, location, CTA, and short tagline when available. If a logo is requested, say "Place [Brand Name] logo at [position]" rather than omitting it.
+   - **No Generic Scene Prompts:** Never return prompts like "cinematic scene", "modern visual", or "professional graphic" without the concrete factual details above.
+   - Include \`motionInfo\` to guide pacing and graphic overlays.
+
+Return your response strictly adhering to the JSON schema.`;
+
+    return prompt;
+  }
+}
+
+export function createScriptWriterAgent(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
+  return new ScriptWriterAgent(config);
+}

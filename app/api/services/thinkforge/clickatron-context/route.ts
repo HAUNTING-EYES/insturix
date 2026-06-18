@@ -79,6 +79,7 @@ export async function POST(request: Request) {
       blocks: script?.blocks,
       userVisualChoices,
       signalTrace: script?.metadata?.signalTrace,
+      writerOutput: script?.metadata?.writerOutput,
       title: toNonEmptyString(body.title),
       aspectRatio: toNonEmptyString(body.aspectRatio),
       scenesCount: typeof body.scenesCount === "number" ? body.scenesCount : undefined,

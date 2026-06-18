@@ -133,6 +133,7 @@ export interface ScriptState {
   title: string;
   blocks: ThinkForgeBlock[];
   content: string;
+  richText?: any;
   draft: boolean;
   version: number;
   documentType?: DocumentType;

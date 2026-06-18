@@ -268,9 +268,22 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     if (chat.messages.length > 0) return;
     if (chat.isStreaming) return;
 
-    // Check content AND blocks — ThinkForge stores scripts as Tiptap blocks,
-    // so content can be "" while blocks holds the actual data.
-    const hasData = !!(script?.content || (Array.isArray(script?.blocks) && script.blocks.length > 0));
+    const checkHasData = (s: typeof script) => {
+      if (!s) return false;
+      if (s.content?.trim()) return true;
+      if (Array.isArray(s.blocks)) {
+        return s.blocks.some((b: any) => {
+          if (b.text?.trim()) return true;
+          if (Array.isArray(b.content)) {
+            return b.content.some((c: any) => c.text?.trim());
+          }
+          return false;
+        });
+      }
+      return false;
+    };
+
+    const hasData = checkHasData(script);
     if (hasData) return;
 
     // Wait long enough for the saved script to load from the server.
@@ -279,8 +292,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     // latest script from the ref (the closure captures the stale value).
     const timer = setTimeout(() => {
       if (autoStartFired.current) return;
-      const latest = scriptRef.current;
-      const latestHasData = !!(latest?.content || (Array.isArray(latest?.blocks) && latest.blocks.length > 0));
+      const latestHasData = checkHasData(scriptRef.current);
       if (latestHasData) return;
 
       autoStartFired.current = true;
@@ -288,9 +300,22 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       const platform = selectedIdea.platform || '';
       const formatIncludesPlatform = platform && format.toLowerCase().includes(platform.toLowerCase());
       const prefix = formatIncludesPlatform ? format : `${platform} ${format}`;
+      const sourceBrief = toNonEmptyString((selectedIdea as any).originalPrompt);
+      const sourceBriefLine = sourceBrief ? `\nOriginal user brief: ${sourceBrief}` : '';
       const purposeLine = selectedIdea.purpose ? `\nPurpose: ${selectedIdea.purpose}` : '';
       const styleLine = selectedIdea.style ? `\nStyle: ${selectedIdea.style}` : '';
-      const autoPrompt = `Write a ${prefix}: "${selectedIdea.idea}"${purposeLine}${styleLine}`;
+      const brandBriefLine = toNonEmptyString((selectedIdea as any).brandBrief)
+        ? `\nBrand/source context: ${(selectedIdea as any).brandBrief}`
+        : '';
+      const autoPrompt = [
+        `Write a ${prefix} from the original user brief.`,
+        sourceBriefLine || `\nSelected angle: ${selectedIdea.idea}`,
+        sourceBriefLine ? `\nSelected angle: ${selectedIdea.idea}` : '',
+        purposeLine,
+        styleLine,
+        brandBriefLine,
+        '\nRules: Treat the original user brief as the factual source of truth. The selected angle is only the creative framing. Preserve exact dates, times, locations, brand names, event names, offer details, logo/text-overlay requirements, product/service details, and handout/asset details in both the final copy and visual prompts.'
+      ].filter(Boolean).join('');
       const currentScriptId = scriptIdRef.current || undefined;
       chat.sendMessage(autoPrompt, {
         script: scriptPayload,
@@ -321,6 +346,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       platform: (selectedIdea as any)?.platform,
       tone: selectedIdea?.tone,
       sessionName: (selectedIdea as any)?.sessionName,
+      originalPrompt: (selectedIdea as any)?.originalPrompt,
       ...pickProjectMetaPassthrough(selectedIdea),
     }),
     [selectedIdea]

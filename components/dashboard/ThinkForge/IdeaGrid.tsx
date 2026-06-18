@@ -121,5 +121,6 @@ export interface IdeaCardData {
   platform: string;
   tone: string;
   sessionName?: string;
+  originalPrompt?: string;
+  brandBrief?: string;
 }
-

@@ -6,6 +6,8 @@
 import { chatAgent } from '../agents/chat-agent';
 import { runResearchAgent } from '../agents/research-agent';
 import { generateScriptDraft } from '../agents/script-draft-agent';
+import { PostWriterAgent, type PostWriterInput } from '../agents/post-writer-agent';
+import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writer-agent';
 import { runThinkingAgent } from '../agents/thinking-agent';
 import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
 import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '../context';
@@ -21,11 +23,13 @@ import {
   type ProjectMeta,
   type ScriptState,
 } from '../state/types';
-import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
+import { validateThinkForgeBlocks, type ThinkForgeBlock, ensureThinkForgeBlockId, normalizeThinkForgeRichText } from '../schemas/thinkforge-block';
 import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
+import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
+import { detectContentPath } from '../agents/prompt-utils';
 import crypto from 'crypto';
 
 // Generator may be imperfect. Renderer must never fail.
@@ -783,21 +787,26 @@ CRITICAL: You are editing a SELECTION from a larger document.
         const workingMsg = 'Creating your script...';
         if (!(await emitEvent('token', { content: workingMsg }))) return;
 
-        // Run Thinking Agent before draft (non-blocking on failure)
-        try {
-          const thinking = await runThinkingAgent({
-            userPrompt: effectivePrompt,
-            projectSummary: sessionState.metadata.idea
-              || sessionState.metadata.title
-              || sessionState.metadata.projectName
-              || sessionState.metadata.sessionName
-              || '',
-          });
-          if (thinking) {
-            await emitEvent('thinking', { content: thinking });
+        // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
+        const contentPath = detectContentPath(effectivePrompt, sessionState.metadata.format);
+        
+        // FEATURE FLAG: Only run Thinking Agent for scripts, skip for posts to reduce latency
+        if (contentPath !== 'post') {
+          try {
+            const thinking = await runThinkingAgent({
+              userPrompt: effectivePrompt,
+              projectSummary: sessionState.metadata.idea
+                || sessionState.metadata.title
+                || sessionState.metadata.projectName
+                || sessionState.metadata.sessionName
+                || '',
+            });
+            if (thinking) {
+              await emitEvent('thinking', { content: thinking });
+            }
+          } catch (thinkErr) {
+            console.warn('[chat-service] Thinking agent failed (continuing):', thinkErr);
           }
-        } catch (thinkErr) {
-          console.warn('[chat-service] Thinking agent failed (continuing):', thinkErr);
         }
 
         activeGenerationId = providedGenerationId || `gen_${Date.now()}`;
@@ -808,58 +817,102 @@ CRITICAL: You are editing a SELECTION from a larger document.
             status: 'running',
             intent: 'draft',
             progress: 0.01,
-            message: 'Starting script generation',
+            message: 'Starting content generation',
             startedAt: new Date(),
             updatedAt: new Date(),
           });
         }
-        if (!(await emitEvent('progress', { progress: 0.01, message: 'Starting script generation' }))) return;
+        if (!(await emitEvent('progress', { progress: 0.01, message: 'Starting content generation' }))) return;
 
-        const draft = await generateScriptDraft(
-          effectivePrompt,
-          sessionState,
-          (hasExistingScript && wantsFullRegenerate) ? {
-            title: script?.title || '',
-            blocks: script?.blocks || [],
-            content: script?.content || ''
-          } : null,
-          undefined,
-          {
+        let finalTitle = 'New Script';
+        let finalContent = '';
+        let finalBlocks: ThinkForgeBlock[] = [];
+        let finalRichText: TiptapJSON = { type: 'doc', content: [] } as any;
+        let signalTrace: any = undefined;
+        let writerOutputMetadata: Record<string, any> | undefined;
 
-            onProgress: async ({ progress, message, completed, total }) => {
-              if (session) {
-                await db.updateGenerationState(sessionId || session._id, activeGenerationId!, {
-                  progress,
-                  message,
-                  status: 'running',
-                });
-              }
-              await emitEvent('progress', { progress, message, completed, total });
-            },
-            onPartial: async ({ title, blocks, richText, content, completed, total }) => {
-              const partialUpdate = {
-                script: {
-                  title,
-                  blocks,
-                  richText,
-                  content,
-                },
-                metadata: {
-                  workflow: 'create',
-                  thoughts: 'Streaming draft in progress',
-                  duration_ms: 0,
-                  agent_steps: [],
-                  streaming: true,
-                  completed,
-                  total,
-                }
-              };
-              await emitEvent('script_update', partialUpdate);
-            }
-          },
-          systemBrief,
-          retrievedCtx
-        );
+        try {
+          const baseInput = {
+            context: quickAssembleContext(
+              'script_draft',
+              sessionState.metadata,
+              null,
+              [],
+              null,
+              systemBrief
+            ),
+            userPrompt: effectivePrompt,
+            retrievedContext: retrievedCtx || undefined,
+            project: sessionState.metadata,
+            sessionId: sessionState.sessionId,
+            brandId: sessionState.metadata.brandId,
+          };
+
+          if (contentPath === 'post') {
+            const writer = new PostWriterAgent();
+            const { result } = await writer.runStructured(baseInput as PostWriterInput);
+            finalContent = result.content;
+            finalTitle = result.metadata?.platform ? `${result.metadata.platform} Post` : 'Social Post';
+            writerOutputMetadata = {
+              writerType: 'post',
+              contentAnalysis: result.contentAnalysis,
+              visualPrompts: result.clickatron,
+              writerMetadata: result.metadata,
+            };
+            
+            // Build simple paragraph block for post content
+            const parsedBlocks = parseMarkdownToBlocks(finalContent);
+            finalBlocks = validateThinkForgeBlocks(
+              parsedBlocks.length > 0
+                ? parsedBlocks
+                : [
+                    {
+                      id: ensureThinkForgeBlockId(),
+                      kind: 'paragraph',
+                      content: normalizeThinkForgeRichText([{ type: 'text', text: finalContent, styles: {} }]),
+                    },
+                  ]
+            );
+            finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
+            
+            // Log analytics
+            console.log(`[ThinkForge:PostWriter] Score: ${result.contentAnalysis?.qualityScore}`);
+
+          } else {
+            const writer = new ScriptWriterAgent();
+            const { result } = await writer.runStructured(baseInput as ScriptWriterInput);
+            finalContent = result.content;
+            finalTitle = 'Video Script';
+            writerOutputMetadata = {
+              writerType: 'script',
+              contentAnalysis: result.contentAnalysis,
+              visualPrompts: result.visualMetadata,
+              writerMetadata: result.metadata,
+            };
+
+            // Build structural blocks for script
+            const parsedBlocks = parseMarkdownToBlocks(finalContent);
+            finalBlocks = validateThinkForgeBlocks(
+              parsedBlocks.length > 0
+                ? parsedBlocks
+                : [
+                    {
+                      id: ensureThinkForgeBlockId(),
+                      kind: 'paragraph',
+                      content: normalizeThinkForgeRichText([{ type: 'text', text: finalContent, styles: {} }]),
+                    },
+                  ]
+            );
+            finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
+            
+            // Log analytics
+            console.log(`[ThinkForge:ScriptWriter] Score: ${result.contentAnalysis?.qualityScore}`);
+          }
+        } catch (writerError) {
+          console.error('[chat-service] Writer agent failed:', writerError);
+          // Fallback to old agent if new one fails entirely? No, let it error out so we can debug.
+          throw writerError;
+        }
 
         // Save new script with richText (Tiptap JSON AST)
         let savedVersion: number | undefined;
@@ -873,11 +926,16 @@ CRITICAL: You are editing a SELECTION from a larger document.
             source: 'ai',
             payload: {
               scriptId: effectiveScriptId,
-              title: draft.title,
-              content: draft.content,
-              blocks: draft.blocks,
-              richText: draft.richText as any,
-              ...(draft.signalTrace ? { metadata: { signalTrace: draft.signalTrace } } : {}),
+              title: finalTitle,
+              content: finalContent,
+              blocks: finalBlocks,
+              richText: finalRichText as any,
+              ...((signalTrace || writerOutputMetadata) ? {
+                metadata: {
+                  ...(signalTrace ? { signalTrace } : {}),
+                  ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
+                }
+              } : {}),
             }
           }, userId);
           if (!saveResult.ok) {
@@ -887,22 +945,27 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           // Passive exemplar collection (fire-and-forget, never blocks save)
           const detectedType = /post|linkedin|twitter|instagram/i.test(prompt) ? 'post' : 'video_script';
-          collectExemplarPassively(userId, draft.content, detectedType).catch(() => {});
+          collectExemplarPassively(userId, finalContent, detectedType).catch(() => {});
         }
 
         // Send script update as SSE event
         const scriptUpdate = {
           script: {
-            title: draft.title,
-            blocks: draft.blocks,
-            richText: draft.richText,
-            content: draft.content,
+            title: finalTitle,
+            blocks: finalBlocks,
+            richText: finalRichText,
+            content: finalContent,
             version: savedVersion,
-            ...(draft.signalTrace ? { metadata: { signalTrace: draft.signalTrace } } : {}),
+            ...((signalTrace || writerOutputMetadata) ? {
+              metadata: {
+                ...(signalTrace ? { signalTrace } : {}),
+                ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
+              }
+            } : {}),
           },
           metadata: {
             workflow: 'create',
-            thoughts: 'Script created from scratch',
+            thoughts: 'Script created directly via Writer API',
             duration_ms: 0,
             agent_steps: []
           }
@@ -914,17 +977,17 @@ CRITICAL: You are editing a SELECTION from a larger document.
           await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
             status: 'completed',
             progress: 1,
-            message: 'Script generated',
+            message: 'Content generated',
           });
         }
 
         // Send completion response
-        finalResponse = `\n\nScript "${draft.title}" created successfully!`;
+        finalResponse = `\n\nScript "${finalTitle}" created successfully!`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         // Persist assistant message
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your script...\n\nScript "${draft.title}" created successfully!`, threadId);
+          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your content...\n\nDocument "${finalTitle}" created successfully!`, threadId);
       }
       } else if (intentResult.intent === 'research') {
         // Research intent - use search-grounded agent (non-streaming for metadata access)
@@ -1064,4 +1127,3 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
   return stream.readable;
 }
-

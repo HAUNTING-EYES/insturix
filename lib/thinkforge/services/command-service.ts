@@ -48,10 +48,12 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
   const existing = await db.getScript(sessionId, scriptId);
   const currentVersion = existing?.version ?? 0;
 
+  let effectiveBaseVersion = baseVersion;
   // For ReplaceDocument on a non-existing script, allow creation regardless of baseVersion
   // This enables the "New Page" flow where the editor sends its current version
   if (type === 'ReplaceDocument' && !existing) {
     // Allow creation - treat as version 0 base
+    effectiveBaseVersion = 0;
   } else if (baseVersion !== currentVersion) {
     return { ok: false, error: 'Version conflict', currentVersion };
   }
@@ -127,7 +129,7 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
       richText: nextRichText || undefined,
       metadata: nextMetadata,
     },
-    baseVersion,
+    effectiveBaseVersion,
     scriptId
   );
 
