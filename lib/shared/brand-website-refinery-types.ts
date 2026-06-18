@@ -169,6 +169,7 @@ export interface BrandWebsiteDraftInput {
   html: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
   supplementalText?: BrandWebsiteSupplementalTextEvidence[];
+  renderedPrimitives?: BrandWebsiteRenderedPrimitiveEvidence;
   brandId?: string;
   userId?: string;
   companyName?: string;
@@ -188,6 +189,36 @@ export interface BrandWebsiteSupplementalTextEvidence {
   sourceUrl?: string;
   text: string;
   confidence?: number;
+}
+
+export interface BrandWebsitePrimitiveVisualEvidence {
+  minimalism: number;
+  densityTolerance: number;
+  dataVizAffinity: number;
+  expressiveness: number;
+  geometryTendency: number;
+  decorationTolerance: number;
+  cornerRadiusBias: number;
+  layoutSymmetry: number;
+  contrastPreference: number;
+}
+
+export interface BrandWebsitePrimitiveMotionEvidence {
+  motionEnergy: number;
+  overshootTolerance: number;
+  transitionSharpness: number;
+  rhythmRegularity: number;
+}
+
+export interface BrandWebsiteRenderedPrimitiveEvidence {
+  sourceField: string;
+  motionSourceField?: string;
+  excerpt?: string;
+  atoms: Record<string, number>;
+  visual: BrandWebsitePrimitiveVisualEvidence;
+  motion?: BrandWebsitePrimitiveMotionEvidence;
+  confidence?: number;
+  motionConfidence?: number;
 }
 
 export type BrandWebsiteFetchFallbackReason =
@@ -214,6 +245,7 @@ export interface BrandWebsiteBrowserFallbackSnapshot {
   contentType?: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
   supplementalText?: BrandWebsiteSupplementalTextEvidence[];
+  renderedPrimitives?: BrandWebsiteRenderedPrimitiveEvidence;
   stylesheetWarnings?: string[];
   fetchWarnings?: string[];
 }
@@ -225,6 +257,7 @@ export interface BrandWebsiteSnapshot {
   contentType?: string;
   stylesheets?: BrandWebsiteStylesheetSnapshot[];
   supplementalText?: BrandWebsiteSupplementalTextEvidence[];
+  renderedPrimitives?: BrandWebsiteRenderedPrimitiveEvidence;
   stylesheetWarnings?: string[];
   fetchWarnings?: string[];
   browserFallbackRequired?: boolean;

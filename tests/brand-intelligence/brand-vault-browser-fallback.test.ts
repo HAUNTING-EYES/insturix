@@ -5,6 +5,7 @@ import {
   type BrandVaultBrowserRenderFetch,
   type BrandVaultPlaywrightModule,
 } from '../../lib/shared/brand-vault-browser-fallback';
+import { createWebsiteBrandSignalProfileDraft } from '../../lib/shared/brand-website-refinery';
 
 const INPUT = {
   normalizedUrl: 'https://vaultline.example/',
@@ -183,14 +184,50 @@ describe('Brand Vault browser fallback providers', () => {
                 },
                 newPage: async () => ({
                   content: async () => '<html><body><h1>Rendered locally</h1></body></html>',
-                  evaluate: async <T>() =>
-                    [
+                  evaluate: async <T>(pageFunction: () => T | Promise<T>) => {
+                    if (String(pageFunction).includes('document.styleSheets')) {
+                      return [
                       {
                         url: 'https://vaultline.example/#playwright-stylesheet-0',
                         css: ':root { --brand-primary: #123456; } body { font-family: "Plus Jakarta Sans"; }',
                         contentType: 'text/css',
                       },
-                    ] as T,
+                      ] as T;
+                    }
+                    return {
+                      sourceField: 'website.renderedPrimitives',
+                      motionSourceField: 'website.renderedMotionPrimitives',
+                      excerpt: 'Rendered primitives: 12 visible elements, 2 data-viz markers, 3 transitions, 1 animations.',
+                      atoms: {
+                        'rendered.element_density': 0.18,
+                        'rendered.text_coverage': 0.42,
+                        'rendered.media_coverage': 0.12,
+                        'rendered.data_viz_density': 0.71,
+                        'rendered.motion_intensity': 0.64,
+                        'rendered.transition_density': 0.58,
+                        'rendered.animation_density': 0.22,
+                      },
+                      visual: {
+                        minimalism: 0.41,
+                        densityTolerance: 0.67,
+                        dataVizAffinity: 0.82,
+                        expressiveness: 0.64,
+                        geometryTendency: 0.72,
+                        decorationTolerance: 0.44,
+                        cornerRadiusBias: 0.36,
+                        layoutSymmetry: 0.69,
+                        contrastPreference: 0.5,
+                      },
+                      motion: {
+                        motionEnergy: 0.64,
+                        overshootTolerance: 0.38,
+                        transitionSharpness: 0.71,
+                        rhythmRegularity: 0.66,
+                      },
+                      confidence: 0.66,
+                      motionConfidence: 0.62,
+                    } as T;
+                  },
                   goto: async (url, options) => {
                     gotoCalls.push({ url, waitUntil: options.waitUntil, timeout: options.timeout });
                     return {
@@ -235,6 +272,36 @@ describe('Brand Vault browser fallback providers', () => {
     });
     expect(snapshot?.stylesheets?.[0]?.css).toContain('--brand-primary: #123456');
     expect(snapshot?.stylesheets?.[0]?.css).toContain('Plus Jakarta Sans');
+    expect(snapshot?.renderedPrimitives).toMatchObject({
+      sourceField: 'website.renderedPrimitives',
+      motionSourceField: 'website.renderedMotionPrimitives',
+      atoms: expect.objectContaining({
+        'rendered.data_viz_density': 0.71,
+        'rendered.motion_intensity': 0.64,
+      }),
+    });
+    if (!snapshot) throw new Error('Expected local Playwright snapshot.');
+    const draft = createWebsiteBrandSignalProfileDraft({
+      websiteUrl: snapshot.normalizedUrl ?? INPUT.normalizedUrl,
+      html: snapshot.html,
+      stylesheets: snapshot.stylesheets,
+      renderedPrimitives: snapshot.renderedPrimitives,
+      fetchedAt: INPUT.now,
+      jobId: 'job_rendered_primitives',
+    });
+    expect(draft.profile.visual.dataVizAffinity.value).toBe(0.82);
+    expect(draft.profile.visual.dataVizAffinity.evidenceIds[0]).toBeDefined();
+    expect(draft.profile.evidence.find((item) => item.id === draft.profile.visual.dataVizAffinity.evidenceIds[0])).toMatchObject({
+      signalPath: 'visual.dataVizAffinity',
+      sourceField: 'website.renderedPrimitives',
+      confidence: 0.66,
+    });
+    expect(draft.profile.motion.motionEnergy.value).toBe(0.64);
+    expect(draft.profile.evidence.find((item) => item.id === draft.profile.motion.motionEnergy.evidenceIds[0])).toMatchObject({
+      signalPath: 'motion.motionEnergy',
+      sourceField: 'website.renderedMotionPrimitives',
+      confidence: 0.62,
+    });
     expect(lifecycle).toEqual(['launch', 'context', 'context.close', 'browser.close']);
   });
 

@@ -18,6 +18,7 @@ import type {
   BrandWebsiteDraftInput,
   BrandWebsiteDraftResult,
   BrandWebsiteFetchFallbackReason,
+  BrandWebsiteRenderedPrimitiveEvidence,
   BrandWebsiteSignalProfileResult,
   BrandWebsiteSnapshot,
   BrandWebsiteStylesheetSnapshot,
@@ -355,6 +356,7 @@ async function resolveBrowserFallbackSnapshot(args: {
     contentType: fallback.contentType ?? 'text/html',
     stylesheets: fallback.stylesheets,
     supplementalText: fallback.supplementalText,
+    renderedPrimitives: fallback.renderedPrimitives,
     stylesheetWarnings: fallback.stylesheetWarnings,
     fetchWarnings: uniqueText([
       `Brand Vault used browser-rendered fallback evidence because the direct website scan looked blocked (${describeFetchFallbackReason(args.attempt.reason ?? 'browser_challenge')}).`,
@@ -701,6 +703,7 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   const unsafeOnLight = parsed.colors.filter((color) => contrastRatio(color, LIGHT_SURFACE) < 3);
   const rawTypography = parsed.fonts.join(', ');
   const inferredIndustry = inferIndustry(textForInference, parsed.schemaTypes);
+  const primitiveSignals = renderedPrimitiveSignals(input.renderedPrimitives) ?? extractWebsitePrimitiveSignals(input.html, input.stylesheets ?? [], parsed);
 
   const profile: BrandSignalProfile = {
     version: 1,
@@ -747,8 +750,8 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
       category: rawTypography ? makeSignal('typography.category', inferTypographyCategory(rawTypography), source('css', 'css.fontFamily', parsed.fonts, rawTypography, 0.5, 'inferred_hint')) : fallback('typography.category', 'unknown', 'No website typography evidence.'),
       casingBias: parsed.headings.length ? makeSignal('typography.casingBias', inferCasingBias(parsed.headings), source('website', 'website.headings', parsed.headings, parsed.headings, 0.45, 'inferred_hint')) : fallback('typography.casingBias', 'unknown', 'No heading evidence.'),
     },
-    visual: makeVisualSignals(textForInference, makeSignal, fallback),
-    motion: makeMotionSignals(textForInference, makeSignal, fallback),
+    visual: makeVisualSignals(primitiveSignals, makeSignal, fallback),
+    motion: makeMotionSignals(primitiveSignals, makeSignal, fallback),
     voice: {
       assertiveness: makeSignal('voice.assertiveness', score(textForInference, ['bold', 'direct', 'guarantee', 'fast'], ['gentle', 'soft']), source('website', 'website.copy', textForInference, textForInference, 0.48, 'inferred_hint')),
       warmth: makeSignal('voice.warmth', score(textForInference, ['human', 'friendly', 'community', 'together'], ['enterprise-grade', 'compliance']), source('website', 'website.copy', textForInference, textForInference, 0.48, 'inferred_hint')),
@@ -1123,85 +1126,242 @@ function createFallbackFactory(args: {
   };
 }
 
+interface WebsitePrimitiveSignals {
+  sourceField: string;
+  motionSourceField?: string;
+  excerpt: string;
+  atoms: Record<string, number>;
+  confidence?: number;
+  motionConfidence?: number;
+  visual: {
+    minimalism: number;
+    densityTolerance: number;
+    dataVizAffinity: number;
+    expressiveness: number;
+    geometryTendency: number;
+    decorationTolerance: number;
+    cornerRadiusBias: number;
+    layoutSymmetry: number;
+    contrastPreference: number;
+  };
+  motion?: {
+    motionEnergy: number;
+    overshootTolerance: number;
+    transitionSharpness: number;
+    rhythmRegularity: number;
+  };
+}
+
 function makeVisualSignals(
-  text: string,
+  primitives: WebsitePrimitiveSignals | null,
   makeSignal: MakeSignal,
   fallback: FallbackSignal,
 ): BrandSignalProfile['visual'] {
-  if (!text) {
+  if (!primitives) {
     return {
-      minimalism: fallback('visual.minimalism', 0.5, 'No website visual evidence.'),
-      densityTolerance: fallback('visual.densityTolerance', 0.5, 'No website visual evidence.'),
-      dataVizAffinity: fallback('visual.dataVizAffinity', 0.5, 'No website visual evidence.'),
-      expressiveness: fallback('visual.expressiveness', 0.5, 'No website visual evidence.'),
-      geometryTendency: fallback('visual.geometryTendency', 0.5, 'No website visual evidence.'),
-      decorationTolerance: fallback('visual.decorationTolerance', 0.5, 'No website visual evidence.'),
-      cornerRadiusBias: fallback('visual.cornerRadiusBias', 0.5, 'No website visual evidence.'),
-      layoutSymmetry: fallback('visual.layoutSymmetry', 0.5, 'No website visual evidence.'),
-      contrastPreference: fallback('visual.contrastPreference', 0.5, 'No website visual evidence.'),
+      minimalism: fallback('visual.minimalism', 0.5, 'No website DOM/CSS visual primitives.'),
+      densityTolerance: fallback('visual.densityTolerance', 0.5, 'No website DOM/CSS visual primitives.'),
+      dataVizAffinity: fallback('visual.dataVizAffinity', 0.5, 'No website DOM/CSS visual primitives.'),
+      expressiveness: fallback('visual.expressiveness', 0.5, 'No website DOM/CSS visual primitives.'),
+      geometryTendency: fallback('visual.geometryTendency', 0.5, 'No website DOM/CSS visual primitives.'),
+      decorationTolerance: fallback('visual.decorationTolerance', 0.5, 'No website DOM/CSS visual primitives.'),
+      cornerRadiusBias: fallback('visual.cornerRadiusBias', 0.5, 'No website DOM/CSS visual primitives.'),
+      layoutSymmetry: fallback('visual.layoutSymmetry', 0.5, 'No website DOM/CSS visual primitives.'),
+      contrastPreference: fallback('visual.contrastPreference', 0.5, 'No website DOM/CSS visual primitives.'),
     };
   }
   const visualSource = (value: number): SignalSource => ({
     candidateSourceType: 'website',
-    sourceField: 'website.copy',
-    rawValue: text,
+    sourceField: primitives.sourceField,
+    rawValue: primitives.atoms,
     normalizedValue: value,
-    excerpt: text,
-    confidence: 0.43,
+    excerpt: primitives.excerpt,
+    confidence: primitives.confidence ?? 0.58,
     authorityClass: 'inferred_hint',
   });
-  const minimalism = score(text, ['minimal', 'clean', 'simple', 'premium'], ['busy', 'maximal']);
-  const densityTolerance = score(text, ['dashboard', 'data', 'analytics', 'platform'], ['simple', 'minimal']);
-  const dataVizAffinity = score(text, ['data', 'analytics', 'metrics', 'reporting'], ['lifestyle']);
-  const expressiveness = score(text, ['bold', 'creative', 'playful'], ['restrained', 'compliance']);
-  const geometryTendency = score(text, ['system', 'technical', 'structured'], ['organic', 'handmade']);
-  const decorationTolerance = score(text, ['playful', 'creative', 'immersive'], ['simple', 'clean']);
-  const cornerRadiusBias = score(text, ['friendly', 'easy', 'human'], ['sharp', 'enterprise']);
-  const layoutSymmetry = score(text, ['trusted', 'enterprise', 'professional'], ['playful', 'experimental']);
-  const contrastPreference = score(text, ['bold', 'stand out', 'high impact'], ['subtle', 'calm']);
   return {
-    minimalism: makeSignal('visual.minimalism', minimalism, visualSource(minimalism)),
-    densityTolerance: makeSignal('visual.densityTolerance', densityTolerance, visualSource(densityTolerance)),
-    dataVizAffinity: makeSignal('visual.dataVizAffinity', dataVizAffinity, visualSource(dataVizAffinity)),
-    expressiveness: makeSignal('visual.expressiveness', expressiveness, visualSource(expressiveness)),
-    geometryTendency: makeSignal('visual.geometryTendency', geometryTendency, visualSource(geometryTendency)),
-    decorationTolerance: makeSignal('visual.decorationTolerance', decorationTolerance, visualSource(decorationTolerance)),
-    cornerRadiusBias: makeSignal('visual.cornerRadiusBias', cornerRadiusBias, visualSource(cornerRadiusBias)),
-    layoutSymmetry: makeSignal('visual.layoutSymmetry', layoutSymmetry, visualSource(layoutSymmetry)),
-    contrastPreference: makeSignal('visual.contrastPreference', contrastPreference, visualSource(contrastPreference)),
+    minimalism: makeSignal('visual.minimalism', primitives.visual.minimalism, visualSource(primitives.visual.minimalism)),
+    densityTolerance: makeSignal('visual.densityTolerance', primitives.visual.densityTolerance, visualSource(primitives.visual.densityTolerance)),
+    dataVizAffinity: makeSignal('visual.dataVizAffinity', primitives.visual.dataVizAffinity, visualSource(primitives.visual.dataVizAffinity)),
+    expressiveness: makeSignal('visual.expressiveness', primitives.visual.expressiveness, visualSource(primitives.visual.expressiveness)),
+    geometryTendency: makeSignal('visual.geometryTendency', primitives.visual.geometryTendency, visualSource(primitives.visual.geometryTendency)),
+    decorationTolerance: makeSignal('visual.decorationTolerance', primitives.visual.decorationTolerance, visualSource(primitives.visual.decorationTolerance)),
+    cornerRadiusBias: makeSignal('visual.cornerRadiusBias', primitives.visual.cornerRadiusBias, visualSource(primitives.visual.cornerRadiusBias)),
+    layoutSymmetry: makeSignal('visual.layoutSymmetry', primitives.visual.layoutSymmetry, visualSource(primitives.visual.layoutSymmetry)),
+    contrastPreference: makeSignal('visual.contrastPreference', primitives.visual.contrastPreference, visualSource(primitives.visual.contrastPreference)),
   };
 }
 
 function makeMotionSignals(
-  text: string,
+  primitives: WebsitePrimitiveSignals | null,
   makeSignal: MakeSignal,
   fallback: FallbackSignal,
 ): BrandSignalProfile['motion'] {
-  if (!text) {
+  if (!primitives?.motion) {
     return {
-      motionEnergy: fallback('motion.motionEnergy', 0.5, 'No website motion evidence.'),
-      overshootTolerance: fallback('motion.overshootTolerance', 0.5, 'No website motion evidence.'),
-      transitionSharpness: fallback('motion.transitionSharpness', 0.5, 'No website motion evidence.'),
-      rhythmRegularity: fallback('motion.rhythmRegularity', 0.5, 'No website motion evidence.'),
+      motionEnergy: fallback('motion.motionEnergy', 0.5, 'No website CSS motion primitives.'),
+      overshootTolerance: fallback('motion.overshootTolerance', 0.5, 'No website CSS motion primitives.'),
+      transitionSharpness: fallback('motion.transitionSharpness', 0.5, 'No website CSS motion primitives.'),
+      rhythmRegularity: fallback('motion.rhythmRegularity', 0.5, 'No website CSS motion primitives.'),
     };
   }
   const motionSource = (value: number): SignalSource => ({
     candidateSourceType: 'website',
-    sourceField: 'website.copy',
-    rawValue: text,
+    sourceField: primitives.motionSourceField ?? 'website.motionPrimitives',
+    rawValue: primitives.atoms,
     normalizedValue: value,
-    excerpt: text,
-    confidence: 0.32,
+    excerpt: primitives.excerpt,
+    confidence: primitives.motionConfidence ?? 0.54,
     authorityClass: 'inferred_hint',
   });
-  const motionEnergy = score(text, ['fast', 'dynamic', 'bold'], ['calm', 'stable']);
-  const overshootTolerance = score(text, ['playful', 'fun', 'creator'], ['premium', 'trusted']);
-  const transitionSharpness = score(text, ['fast', 'sharp', 'precision'], ['soft', 'warm']);
-  const rhythmRegularity = score(text, ['system', 'workflow', 'consistent'], ['experimental', 'playful']);
   return {
-    motionEnergy: makeSignal('motion.motionEnergy', motionEnergy, motionSource(motionEnergy)),
-    overshootTolerance: makeSignal('motion.overshootTolerance', overshootTolerance, motionSource(overshootTolerance)),
-    transitionSharpness: makeSignal('motion.transitionSharpness', transitionSharpness, motionSource(transitionSharpness)),
-    rhythmRegularity: makeSignal('motion.rhythmRegularity', rhythmRegularity, motionSource(rhythmRegularity)),
+    motionEnergy: makeSignal('motion.motionEnergy', primitives.motion.motionEnergy, motionSource(primitives.motion.motionEnergy)),
+    overshootTolerance: makeSignal('motion.overshootTolerance', primitives.motion.overshootTolerance, motionSource(primitives.motion.overshootTolerance)),
+    transitionSharpness: makeSignal('motion.transitionSharpness', primitives.motion.transitionSharpness, motionSource(primitives.motion.transitionSharpness)),
+    rhythmRegularity: makeSignal('motion.rhythmRegularity', primitives.motion.rhythmRegularity, motionSource(primitives.motion.rhythmRegularity)),
   };
+}
+
+function extractWebsitePrimitiveSignals(
+  html: string,
+  stylesheets: BrandWebsiteStylesheetSnapshot[],
+  parsed: { bodyText: string; colors: string[]; headings: string[]; ctas: string[] },
+): WebsitePrimitiveSignals | null {
+  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
+  const css = [
+    ...[...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((match) => match[1]),
+    ...stylesheets.map((stylesheet) => stylesheet.css),
+  ].join('\n');
+  const tagCount = countMatches(body, /<([a-z][a-z0-9-]*)\b/gi);
+  const textLength = parsed.bodyText.length + parsed.headings.join(' ').length + parsed.ctas.join(' ').length;
+  if (tagCount === 0 && textLength === 0 && !css.trim()) return null;
+
+  const mediaCount = countMatches(body, /<(?:img|picture|video|svg|canvas)\b/gi);
+  const dataVizCount = countMatches(body, /<(?:table|canvas|svg)\b/gi)
+    + countMatches(body, /\b(?:chart|graph|metric|stat|dashboard|analytics|data-viz|datatable)\b/gi);
+  const interactiveCount = countMatches(body, /<(?:a|button|input|select|textarea)\b/gi);
+  const radiusValues = numericCssValues(css, /border-radius\s*:\s*([^;]+)/gi);
+  const transitionDurations = durationCssValues(css, /transition-duration\s*:\s*([^;]+)/gi);
+  const animationDurations = durationCssValues(css, /animation-duration\s*:\s*([^;]+)/gi);
+  const transitionCount = countMatches(css, /(?:^|[;{\s])transition(?:-[a-z-]+)?\s*:/gi);
+  const animationCount = countMatches(css, /(?:^|[;{\s])animation(?:-[a-z-]+)?\s*:/gi) + countMatches(css, /@keyframes\b/gi);
+  const transformCount = countMatches(css, /\btransform\s*:|translate3?d?\(|scale3?d?\(|rotate3?d?\(/gi);
+  const centerCount = countMatches(css, /justify-content\s*:\s*center|align-items\s*:\s*center|text-align\s*:\s*center|margin-inline\s*:\s*auto|margin\s*:\s*0\s+auto/gi);
+  const layoutSystemCount = countMatches(css, /display\s*:\s*(?:grid|flex)|grid-template|gap\s*:/gi);
+  const decorationCount = countMatches(css, /box-shadow|text-shadow|filter\s*:|backdrop-filter|linear-gradient|radial-gradient|border\s*:/gi);
+  const easingCount = countMatches(css, /cubic-bezier\([^)]*(?:1\.\d|-\d|elastic|back|bounce)[^)]*\)|\b(?:spring|bounce|elastic|back)\b/gi);
+
+  const elementDensity = clamp01(tagCount / 90);
+  const textCoverage = clamp01(textLength / Math.max(600, tagCount * 140));
+  const mediaCoverage = clamp01(mediaCount / Math.max(1, tagCount) * 5);
+  const dataVizDensity = clamp01(dataVizCount / Math.max(1, tagCount) * 8);
+  const interactionDensity = clamp01(interactiveCount / Math.max(1, tagCount) * 4);
+  const averageRadius = radiusValues.length ? radiusValues.reduce((sum, value) => sum + value, 0) / radiusValues.length : 0;
+  const radiusBias = clamp01(averageRadius / 28);
+  const decorationDensity = clamp01((decorationCount + radiusValues.length * 0.35) / 28);
+  const geometryDensity = clamp01((layoutSystemCount + transformCount + dataVizCount) / 36);
+  const layoutSymmetry = clamp01(0.38 + centerCount / 16 + layoutSystemCount / 28 - interactionDensity * 0.12);
+  const contrastPreference = parsed.colors.length ? inferContrastBias(parsed.colors) : 0.5;
+  const colorDiversity = clamp01(parsed.colors.length / 8);
+  const transitionDensity = clamp01(transitionCount / 16);
+  const animationDensity = clamp01(animationCount / 10);
+  const transformDensity = clamp01(transformCount / 16);
+  const motionEvidence = transitionCount + animationCount + transformCount;
+  const durations = [...transitionDurations, ...animationDurations];
+  const averageDurationMs = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 0;
+  const durationRegularity = durations.length > 1 ? 1 - clamp01(durationStdDev(durations) / Math.max(1, averageDurationMs)) : 0.5;
+  const fastness = durations.length ? clamp01(1 - averageDurationMs / 900) : 0.45;
+  const motionEnergy = clamp01(animationDensity * 0.45 + transitionDensity * 0.35 + transformDensity * 0.2);
+
+  const atoms = {
+    'website.element_density': roundSignal(elementDensity),
+    'website.text_coverage': roundSignal(textCoverage),
+    'website.media_coverage': roundSignal(mediaCoverage),
+    'website.data_viz_density': roundSignal(dataVizDensity),
+    'website.interaction_density': roundSignal(interactionDensity),
+    'website.corner_radius_bias': roundSignal(radiusBias),
+    'website.decoration_density': roundSignal(decorationDensity),
+    'website.geometry_density': roundSignal(geometryDensity),
+    'website.layout_symmetry': roundSignal(layoutSymmetry),
+    'website.contrast_preference': roundSignal(contrastPreference),
+    'website.motion_intensity': roundSignal(motionEnergy),
+    'website.transition_density': roundSignal(transitionDensity),
+    'website.animation_density': roundSignal(animationDensity),
+  };
+
+  return {
+    sourceField: 'website.visualPrimitives',
+    excerpt: `DOM/CSS primitives: ${tagCount} elements, ${mediaCount} media nodes, ${dataVizCount} data-viz markers, ${transitionCount} transitions, ${animationCount} animations.`,
+    atoms,
+    visual: {
+      minimalism: roundSignal(clamp01(0.78 - elementDensity * 0.36 - decorationDensity * 0.32 - mediaCoverage * 0.12)),
+      densityTolerance: roundSignal(clamp01(0.32 + elementDensity * 0.36 + textCoverage * 0.18 + dataVizDensity * 0.28)),
+      dataVizAffinity: roundSignal(clamp01(dataVizDensity * 0.76 + geometryDensity * 0.14 + textCoverage * 0.1)),
+      expressiveness: roundSignal(clamp01(decorationDensity * 0.34 + mediaCoverage * 0.22 + colorDiversity * 0.2 + motionEnergy * 0.24)),
+      geometryTendency: roundSignal(clamp01(geometryDensity * 0.48 + layoutSymmetry * 0.28 + dataVizDensity * 0.24)),
+      decorationTolerance: roundSignal(decorationDensity),
+      cornerRadiusBias: roundSignal(radiusBias),
+      layoutSymmetry: roundSignal(layoutSymmetry),
+      contrastPreference: roundSignal(contrastPreference),
+    },
+    motion: motionEvidence
+      ? {
+          motionEnergy: roundSignal(motionEnergy),
+          overshootTolerance: roundSignal(clamp01(easingCount / Math.max(1, transitionCount + animationCount) + animationDensity * 0.18)),
+          transitionSharpness: roundSignal(clamp01(fastness * 0.55 + transitionDensity * 0.25 + geometryDensity * 0.2)),
+          rhythmRegularity: roundSignal(clamp01(durationRegularity * 0.7 + (transitionCount > 0 && animationCount === 0 ? 0.15 : 0))),
+        }
+      : undefined,
+  };
+}
+
+function renderedPrimitiveSignals(value: BrandWebsiteRenderedPrimitiveEvidence | undefined): WebsitePrimitiveSignals | null {
+  if (!value) return null;
+  return {
+    sourceField: value.sourceField,
+    motionSourceField: value.motionSourceField,
+    excerpt: value.excerpt ?? 'Browser-rendered computed layout and motion primitives.',
+    atoms: value.atoms,
+    confidence: value.confidence,
+    motionConfidence: value.motionConfidence,
+    visual: value.visual,
+    motion: value.motion,
+  };
+}
+
+function countMatches(value: string, pattern: RegExp): number {
+  return [...value.matchAll(pattern)].length;
+}
+
+function numericCssValues(css: string, pattern: RegExp): number[] {
+  return [...css.matchAll(pattern)]
+    .flatMap((match) => [...match[1].matchAll(/(-?\d+(?:\.\d+)?)(px|rem|em|%|vh|vw)?/gi)])
+    .map((match) => cssLengthToPixels(Number.parseFloat(match[1]), match[2]))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+}
+
+function durationCssValues(css: string, pattern: RegExp): number[] {
+  return [...css.matchAll(pattern)]
+    .flatMap((match) => [...match[1].matchAll(/(\d+(?:\.\d+)?)(ms|s)\b/gi)])
+    .map((match) => match[2].toLowerCase() === 's' ? Number.parseFloat(match[1]) * 1000 : Number.parseFloat(match[1]))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+}
+
+function cssLengthToPixels(value: number, unit: string | undefined): number {
+  const normalized = unit?.toLowerCase();
+  if (normalized === 'rem' || normalized === 'em') return value * 16;
+  if (normalized === '%') return value / 4;
+  if (normalized === 'vh' || normalized === 'vw') return value / 3;
+  return value;
+}
+
+function durationStdDev(values: number[]): number {
+  if (values.length <= 1) return 0;
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function roundSignal(value: number): number {
+  return Math.round(clamp01(value) * 100) / 100;
 }

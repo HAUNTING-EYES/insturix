@@ -56,4 +56,52 @@ describe('Brand Vault social evidence candidates', () => {
     );
     expect(candidates.map((candidate) => candidate.excerpt).join(' ')).not.toContain('Profile bio:');
   });
+
+  it('keeps post titles available for hook shape without promoting titles, authors, or handles as recurring voice', () => {
+    const source: BrandVaultSourceInput = {
+      kind: 'social_post',
+      url: 'https://www.youtube.com/watch?v=brandhook1',
+      platform: 'youtube',
+      name: 'This is how businesses get robbed',
+      text: '@partnerone @partnertwo @insturix Made with Insturix. One platform. Not ten.',
+      evidenceOrigin: 'public_fallback',
+      media: {
+        mediaType: 'video',
+        transcript: 'Content production is broken. Edit your footage. Not just generate.',
+      },
+      profile: {
+        bio: 'Nimit Jain',
+        category: 'Software',
+      },
+    };
+
+    const candidates = createBrandVaultSocialEvidenceCandidates({
+      jobId: 'brand_refinery_job_social_title_pollution',
+      source,
+      sourceField: 'sourceEvidence.0',
+      startIndex: 0,
+      observedAt: OBSERVED_AT,
+    });
+
+    const voiceCandidate = candidates.find((candidate) => candidate.sourceField === 'sourceEvidence.0.text.voicePhrases');
+    expect(voiceCandidate?.normalizedValue).toEqual(expect.arrayContaining([
+      'Content production is broken',
+      'Edit your footage',
+    ]));
+    expect(voiceCandidate?.normalizedValue).not.toEqual(expect.arrayContaining([
+      'This is how businesses get robbed',
+      'Nimit Jain',
+      '@partnerone @partnertwo @insturix Made with Insturix',
+    ]));
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalPath: 'voice.hookArchetypes',
+          sourceField: 'sourceEvidence.0.text.hookArchetypes',
+          excerpt: 'This is how businesses get robbed',
+        }),
+      ]),
+    );
+  });
 });

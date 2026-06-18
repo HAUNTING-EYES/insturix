@@ -1347,8 +1347,7 @@ async function fetchPublicYouTubePostSource(args: {
   const title = firstString(watchPage.evidence.title, oEmbedPayload.title);
   const author = firstString(watchPage.evidence.author, oEmbedPayload.author_name);
   const description = meaningfulYouTubeDescription(firstString(watchPage.evidence.description));
-  const html = stripHtml(stringValue(oEmbedPayload.html));
-  const text = uniqueStrings([title, description, author, html]).join('\n');
+  const text = uniqueStrings([description]).join('\n');
   const media = socialMedia({
     mediaType: 'video',
     thumbnailUrl: firstString(watchPage.evidence.thumbnailUrl, oEmbedPayload.thumbnail_url),

@@ -21,13 +21,18 @@ import {
   verifyWebsiteBrandAssetCandidates,
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
-import { inferAudience } from './brand-website-refinery-utils';
+import { inferAudience, parseWebsiteHtml } from './brand-website-refinery-utils';
+import {
+  createBrandVaultGeminiSocialOcrProvider,
+  type BrandVaultSocialOcrProvider,
+} from './brand-vault-social-ocr';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
   BrandRefineryJob,
   BrandVaultSourceInput,
   BrandWebsiteSnapshot,
+  BrandWebsiteSupplementalTextEvidence,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 
@@ -255,6 +260,7 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   repository: BrandVaultSignalProfileStore;
   fetchSnapshot?: (websiteUrl: string, options?: FetchWebsiteBrandSnapshotOptions) => Promise<BrandWebsiteSnapshot>;
   fetchOptions?: FetchWebsiteBrandSnapshotOptions;
+  websiteOcrProvider?: BrandVaultSocialOcrProvider | null;
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   clock?: () => string;
 }
@@ -353,6 +359,12 @@ interface CrawlQueueItem {
   discoveredFrom: string;
 }
 
+interface WebsiteOcrTarget {
+  imageUrl: string;
+  sourceField: string;
+  confidence: number;
+}
+
 export async function createBrandVaultWebsiteDraftJob(
   input: BrandVaultWebsiteDraftJobInput,
   dependencies: BrandVaultWebsiteDraftJobDependencies,
@@ -403,6 +415,11 @@ export async function createBrandVaultWebsiteDraftJob(
   }
 
   try {
+    const websiteOcr = await enrichWebsiteSnapshotWithImageOcr({
+      snapshot,
+      provider: resolveWebsiteOcrProvider(dependencies),
+    });
+    snapshot = websiteOcr.snapshot;
     const crawl = await fetchCrawlSnapshots({
       root: snapshot,
       sourceEvidence,
@@ -416,6 +433,7 @@ export async function createBrandVaultWebsiteDraftJob(
         html: snapshot.html,
         stylesheets: snapshot.stylesheets,
         supplementalText: snapshot.supplementalText,
+        renderedPrimitives: snapshot.renderedPrimitives,
         brandId: input.brandId,
         userId: input.userId,
         companyName: input.companyName,
@@ -469,6 +487,7 @@ export async function createBrandVaultWebsiteDraftJob(
     const warnings = mergeWarnings(
       draft.warnings,
       stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),
+      websiteOcr.warnings,
       assetProbe.warnings,
       compiled.warnings ?? [],
       crawl.warnings,
@@ -1555,6 +1574,80 @@ function clampInteger(value: number, min: number, max: number): number {
 
 function stylesheetWarningsForSnapshots(snapshots: BrandWebsiteSnapshot[]): string[] {
   return snapshots.flatMap((snapshot) => [...(snapshot.fetchWarnings ?? []), ...(snapshot.stylesheetWarnings ?? [])]);
+}
+
+function resolveWebsiteOcrProvider(
+  dependencies: BrandVaultWebsiteDraftJobDependencies,
+): BrandVaultSocialOcrProvider | null {
+  if (dependencies.websiteOcrProvider !== undefined) return dependencies.websiteOcrProvider;
+  return createBrandVaultGeminiSocialOcrProvider({
+    enabled: process.env.BRAND_VAULT_WEBSITE_OCR_ENABLED === 'true',
+    fetchFn: dependencies.fetchOptions?.fetchFn ?? fetch,
+  });
+}
+
+async function enrichWebsiteSnapshotWithImageOcr(args: {
+  snapshot: BrandWebsiteSnapshot;
+  provider: BrandVaultSocialOcrProvider | null;
+}): Promise<{ snapshot: BrandWebsiteSnapshot; warnings: string[] }> {
+  if (!args.provider) return { snapshot: args.snapshot, warnings: [] };
+
+  const warnings: string[] = [];
+  const supplementalText: BrandWebsiteSupplementalTextEvidence[] = [...(args.snapshot.supplementalText ?? [])];
+  let extracted = 0;
+
+  for (const target of websiteOcrTargets(args.snapshot)) {
+    const result = await args.provider.readTextFromImage({
+      imageUrl: target.imageUrl,
+      sourceUrl: args.snapshot.normalizedUrl,
+      platform: 'website',
+      mediaType: 'image',
+      sourceKind: 'website',
+    });
+
+    if (result.text) {
+      supplementalText.push({
+        sourceField: target.sourceField,
+        sourceUrl: target.imageUrl,
+        text: result.text,
+        confidence: target.confidence,
+      });
+      extracted += 1;
+    }
+    if (result.warning) warnings.push(result.warning);
+  }
+
+  if (extracted === 0) return { snapshot: args.snapshot, warnings };
+  warnings.push(`Brand Vault OCR extracted readable text from ${extracted} website image${extracted === 1 ? '' : 's'} for draft evidence review.`);
+  return {
+    snapshot: {
+      ...args.snapshot,
+      supplementalText,
+    },
+    warnings,
+  };
+}
+
+function websiteOcrTargets(snapshot: BrandWebsiteSnapshot): WebsiteOcrTarget[] {
+  const parsed = parseWebsiteHtml({
+    websiteUrl: snapshot.normalizedUrl,
+    html: snapshot.html,
+    stylesheets: snapshot.stylesheets,
+    supplementalText: snapshot.supplementalText,
+    renderedPrimitives: snapshot.renderedPrimitives,
+    fetchedAt: snapshot.fetchedAt,
+  });
+  const targets: WebsiteOcrTarget[] = [];
+  const seen = new Set<string>();
+  const add = (imageUrl: string, sourceField: string, confidence: number): void => {
+    if (seen.has(imageUrl)) return;
+    seen.add(imageUrl);
+    targets.push({ imageUrl, sourceField, confidence });
+  };
+
+  for (const imageUrl of parsed.productImages) add(imageUrl, 'website.imageOcr.productImage', 0.57);
+  for (const imageUrl of parsed.socialPreviewImages) add(imageUrl, 'website.imageOcr.socialPreviewImage', 0.5);
+  return targets.slice(0, 3);
 }
 
 function createCrawlCandidates(args: {

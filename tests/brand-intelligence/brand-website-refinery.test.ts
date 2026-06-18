@@ -22,7 +22,10 @@ const HTML = `
     <style>
       :root { --brand: #102033; --accent: #ff6a00; --paper: #f7f7f7; }
       body { color: #102033; background: #f7f7f7; font-family: "Inter", system-ui, sans-serif; }
-      .cta { background: rgb(255, 106, 0); }
+      .hero { display: grid; gap: 24px; justify-content: center; border-radius: 24px; box-shadow: 0 24px 60px rgba(16, 32, 51, 0.18); }
+      .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .chart-panel { border-radius: 18px; background: linear-gradient(135deg, #102033, #ff6a00); }
+      .cta { background: rgb(255, 106, 0); transition-duration: 180ms; transition-property: transform; transition-timing-function: cubic-bezier(.2, .8, .2, 1); }
     </style>
     <script type="application/ld+json">
       {
@@ -35,12 +38,19 @@ const HTML = `
     </script>
   </head>
   <body>
-    <h1>Turn pipeline data into 3x faster decisions</h1>
-    <h2>Trusted dashboards for revenue teams</h2>
-    <a href="/demo">Book a demo</a>
-    <button>Start free</button>
-    <blockquote class="testimonial">Trusted by 500 SaaS teams to improve forecast accuracy.</blockquote>
-    <img alt="Northstar logo" src="/logo-mark.svg">
+    <main class="hero">
+      <h1>Turn pipeline data into 3x faster decisions</h1>
+      <h2>Trusted dashboards for revenue teams</h2>
+      <section class="metric-grid dashboard analytics data-viz">
+        <article class="chart-panel">Pipeline velocity chart</article>
+        <article>Forecast accuracy metric</article>
+        <article>Revenue risk graph</article>
+      </section>
+      <a class="cta" href="/demo">Book a demo</a>
+      <button>Start free</button>
+      <blockquote class="testimonial">Trusted by 500 SaaS teams to improve forecast accuracy.</blockquote>
+      <img alt="Northstar logo" src="/logo-mark.svg">
+    </main>
     <script>window.bad = "<b>do not trust me</b>"</script>
   </body>
 </html>
@@ -154,8 +164,17 @@ describe('Brand website refinery', () => {
     const motionEnergyCandidate = result.candidates.find((candidate) => candidate.signalPath === 'motion.motionEnergy');
     expect(dataVizCandidate?.normalizedValue).toBe(result.profile.visual.dataVizAffinity.value);
     expect(dataVizCandidate?.normalizedValue).toBeGreaterThan(0.5);
+    expect(dataVizCandidate?.sourceField).toBe('website.visualPrimitives');
+    expect(dataVizCandidate?.rawValue).toMatchObject({
+      'website.data_viz_density': expect.any(Number),
+      'website.element_density': expect.any(Number),
+    });
     expect(motionEnergyCandidate?.normalizedValue).toBe(result.profile.motion.motionEnergy.value);
-    expect(motionEnergyCandidate?.normalizedValue).toBeGreaterThan(0.5);
+    expect(motionEnergyCandidate?.sourceField).toBe('website.motionPrimitives');
+    expect(motionEnergyCandidate?.rawValue).toMatchObject({
+      'website.motion_intensity': expect.any(Number),
+      'website.transition_density': expect.any(Number),
+    });
 
     const validation = validateBrandSignalProfile(result.profile);
     expect(validation.valid).toBe(true);

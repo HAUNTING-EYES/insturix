@@ -40,6 +40,8 @@ const COMPILER_INPUT: BrandVaultTextEvidenceCompilerInput = {
       kind: 'social_post',
       platform: 'instagram',
       url: 'https://www.instagram.com/p/founder-led/',
+      name: 'Instagram media founder-led',
+      note: 'Fetched from connected UploaderX Instagram account for Brand Vault draft review.',
       text: 'Content production is broken. One platform. Not ten.',
       media: {
         ocrText: 'Scale production without brand drift.',
@@ -141,6 +143,9 @@ describe('Brand Vault text evidence compiler', () => {
     expect(calls[0].url).toContain('/v1beta/models/gemini-test:generateContent?key=gemini_key');
     expect(JSON.stringify(calls[0].body)).toContain('founder-led creative teams');
     expect(JSON.stringify(calls[0].body)).toContain('sourceEvidence.0.social_post');
+    expect(JSON.stringify(calls[0].body)).toContain('Scale production without brand drift');
+    expect(JSON.stringify(calls[0].body)).not.toContain('Instagram media founder-led');
+    expect(JSON.stringify(calls[0].body)).not.toContain('Fetched from connected UploaderX Instagram account');
     expect(result.warnings).toContain(
       'Brand Vault text evidence compiler produced inferred review candidates from website and source evidence.',
     );

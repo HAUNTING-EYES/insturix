@@ -1,6 +1,7 @@
 import type {
   BrandWebsiteBrowserFallbackInput,
   BrandWebsiteBrowserFallbackSnapshot,
+  BrandWebsiteRenderedPrimitiveEvidence,
   BrandWebsiteStylesheetSnapshot,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
@@ -191,16 +192,19 @@ async function fetchLocalPlaywrightRenderedSnapshot(args: {
     const html = await page.content();
     if (!html.trim()) return undefined;
     const stylesheets = await extractPlaywrightStylesheets(page);
+    const renderedPrimitives = await extractPlaywrightRenderedPrimitives(page);
 
     return {
       normalizedUrl: response?.url() ?? args.input.normalizedUrl,
       html,
       contentType: response?.headers()['content-type'] ?? 'text/html',
       stylesheets,
+      renderedPrimitives,
       fetchWarnings: uniqueStrings([
         'Self-hosted Playwright browser-rendered evidence was used because direct Brand Vault website fetch did not produce usable HTML.',
         response ? `Self-hosted Playwright renderer received HTTP ${response.status()}.` : undefined,
         stylesheets?.length ? 'Self-hosted Playwright renderer attached CSSOM stylesheet evidence for color and font extraction.' : undefined,
+        renderedPrimitives ? 'Self-hosted Playwright renderer attached computed layout and motion primitives for visual signal extraction.' : undefined,
       ]),
     };
   } catch {
@@ -232,6 +236,154 @@ async function extractPlaywrightStylesheets(
       .filter((item): item is { url: string; css: string; contentType: string } => Boolean(item));
   });
   return stylesheets.length > 0 ? stylesheets : undefined;
+}
+
+async function extractPlaywrightRenderedPrimitives(
+  page: BrandVaultPlaywrightPage,
+): Promise<BrandWebsiteRenderedPrimitiveEvidence | undefined> {
+  const primitives = await page.evaluate(() => {
+    const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+    const round = (value: number) => Math.round(clamp01(value) * 100) / 100;
+    const visibleElements = Array.from(document.body?.querySelectorAll<HTMLElement>('*') ?? [])
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const area = Math.max(0, rect.width) * Math.max(0, rect.height);
+        if (area <= 4 || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) <= 0.02) return null;
+        return { element, rect, style, area };
+      })
+      .filter((item): item is { element: HTMLElement; rect: DOMRect; style: CSSStyleDeclaration; area: number } => Boolean(item));
+    if (visibleElements.length === 0) return null;
+
+    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+    const totalArea = visibleElements.reduce((sum, item) => sum + Math.min(item.area, viewportArea), 0);
+    const textArea = visibleElements
+      .filter((item) => Boolean(item.element.innerText?.trim()))
+      .reduce((sum, item) => sum + Math.min(item.area, viewportArea), 0);
+    const mediaArea = visibleElements
+      .filter((item) => /^(IMG|PICTURE|VIDEO|SVG|CANVAS)$/.test(item.element.tagName))
+      .reduce((sum, item) => sum + Math.min(item.area, viewportArea), 0);
+    const dataVizCount = visibleElements.filter((item) =>
+      /^(TABLE|CANVAS|SVG)$/.test(item.element.tagName) ||
+      /\b(?:chart|graph|metric|stat|dashboard|analytics|data-viz|datatable)\b/i.test(`${item.element.className} ${item.element.id} ${item.element.getAttribute('aria-label') ?? ''}`),
+    ).length;
+    const interactiveCount = visibleElements.filter((item) =>
+      /^(A|BUTTON|INPUT|SELECT|TEXTAREA)$/.test(item.element.tagName) || item.element.getAttribute('role') === 'button',
+    ).length;
+    const radiusValues = visibleElements.flatMap((item) =>
+      [item.style.borderTopLeftRadius, item.style.borderTopRightRadius, item.style.borderBottomRightRadius, item.style.borderBottomLeftRadius]
+        .map((value) => Number.parseFloat(value))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    );
+    const centerAlignedCount = visibleElements.filter((item) =>
+      item.style.justifyContent === 'center' ||
+      item.style.alignItems === 'center' ||
+      item.style.textAlign === 'center' ||
+      Math.abs((item.rect.left + item.rect.width / 2) - window.innerWidth / 2) < window.innerWidth * 0.08,
+    ).length;
+    const decoratedCount = visibleElements.filter((item) =>
+      item.style.boxShadow !== 'none' ||
+      item.style.textShadow !== 'none' ||
+      item.style.filter !== 'none' ||
+      item.style.backdropFilter !== 'none' ||
+      item.style.backgroundImage.includes('gradient') ||
+      item.style.borderStyle !== 'none',
+    ).length;
+    const geometryCount = visibleElements.filter((item) =>
+      item.style.display === 'grid' ||
+      item.style.display === 'flex' ||
+      item.style.transform !== 'none' ||
+      /^(SVG|CANVAS)$/.test(item.element.tagName),
+    ).length;
+    const transitionItems = visibleElements.filter((item) =>
+      item.style.transitionDuration.split(',').some((duration) => parseCssDurationMs(duration) > 0),
+    );
+    const animationItems = visibleElements.filter((item) =>
+      item.style.animationName !== 'none' &&
+      item.style.animationDuration.split(',').some((duration) => parseCssDurationMs(duration) > 0),
+    );
+    const transformCount = visibleElements.filter((item) => item.style.transform !== 'none').length;
+    const durations = [...transitionItems, ...animationItems].flatMap((item) => [
+      ...item.style.transitionDuration.split(',').map(parseCssDurationMs),
+      ...item.style.animationDuration.split(',').map(parseCssDurationMs),
+    ]).filter((value) => value > 0);
+    const easingCount = visibleElements.filter((item) =>
+      /cubic-bezier\([^)]*(?:1\.\d|-\d)/i.test(`${item.style.transitionTimingFunction} ${item.style.animationTimingFunction}`),
+    ).length;
+    const elementDensity = clamp01(visibleElements.length / 80);
+    const textCoverage = clamp01(textArea / viewportArea);
+    const mediaCoverage = clamp01(mediaArea / viewportArea);
+    const dataVizDensity = clamp01(dataVizCount / Math.max(1, visibleElements.length) * 8);
+    const interactionDensity = clamp01(interactiveCount / Math.max(1, visibleElements.length) * 4);
+    const averageRadius = radiusValues.length ? radiusValues.reduce((sum, value) => sum + value, 0) / radiusValues.length : 0;
+    const radiusBias = clamp01(averageRadius / 28);
+    const decorationDensity = clamp01(decoratedCount / Math.max(1, visibleElements.length) * 3);
+    const geometryDensity = clamp01(geometryCount / Math.max(1, visibleElements.length) * 3);
+    const layoutSymmetry = clamp01(0.36 + centerAlignedCount / Math.max(1, visibleElements.length) * 0.82 - interactionDensity * 0.12);
+    const transitionDensity = clamp01(transitionItems.length / Math.max(1, visibleElements.length) * 5);
+    const animationDensity = clamp01(animationItems.length / Math.max(1, visibleElements.length) * 5);
+    const transformDensity = clamp01(transformCount / Math.max(1, visibleElements.length) * 4);
+    const averageDurationMs = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 0;
+    const durationRegularity = durations.length > 1 ? 1 - clamp01(durationStdDev(durations) / Math.max(1, averageDurationMs)) : 0.5;
+    const fastness = durations.length ? clamp01(1 - averageDurationMs / 900) : 0.45;
+    const motionEnergy = clamp01(animationDensity * 0.45 + transitionDensity * 0.35 + transformDensity * 0.2);
+    const atoms = {
+      'rendered.element_density': round(elementDensity),
+      'rendered.text_coverage': round(textCoverage),
+      'rendered.media_coverage': round(mediaCoverage),
+      'rendered.data_viz_density': round(dataVizDensity),
+      'rendered.interaction_density': round(interactionDensity),
+      'rendered.corner_radius_bias': round(radiusBias),
+      'rendered.decoration_density': round(decorationDensity),
+      'rendered.geometry_density': round(geometryDensity),
+      'rendered.layout_symmetry': round(layoutSymmetry),
+      'rendered.motion_intensity': round(motionEnergy),
+      'rendered.transition_density': round(transitionDensity),
+      'rendered.animation_density': round(animationDensity),
+    };
+
+    return {
+      sourceField: 'website.renderedPrimitives',
+      motionSourceField: 'website.renderedMotionPrimitives',
+      excerpt: `Rendered primitives: ${visibleElements.length} visible elements, ${dataVizCount} data-viz markers, ${transitionItems.length} transitions, ${animationItems.length} animations.`,
+      atoms,
+      visual: {
+        minimalism: round(clamp01(0.78 - elementDensity * 0.34 - decorationDensity * 0.34 - mediaCoverage * 0.12)),
+        densityTolerance: round(clamp01(0.32 + elementDensity * 0.34 + textCoverage * 0.2 + dataVizDensity * 0.28)),
+        dataVizAffinity: round(clamp01(dataVizDensity * 0.76 + geometryDensity * 0.16 + textCoverage * 0.08)),
+        expressiveness: round(clamp01(decorationDensity * 0.34 + mediaCoverage * 0.24 + motionEnergy * 0.24 + geometryDensity * 0.18)),
+        geometryTendency: round(clamp01(geometryDensity * 0.5 + layoutSymmetry * 0.28 + dataVizDensity * 0.22)),
+        decorationTolerance: round(decorationDensity),
+        cornerRadiusBias: round(radiusBias),
+        layoutSymmetry: round(layoutSymmetry),
+        contrastPreference: 0.5,
+      },
+      motion: transitionItems.length + animationItems.length + transformCount > 0
+        ? {
+            motionEnergy: round(motionEnergy),
+            overshootTolerance: round(clamp01(easingCount / Math.max(1, transitionItems.length + animationItems.length) + animationDensity * 0.18)),
+            transitionSharpness: round(clamp01(fastness * 0.55 + transitionDensity * 0.25 + geometryDensity * 0.2)),
+            rhythmRegularity: round(clamp01(durationRegularity * 0.7 + (transitionItems.length > 0 && animationItems.length === 0 ? 0.15 : 0))),
+          }
+        : undefined,
+      confidence: 0.66,
+      motionConfidence: 0.62,
+    };
+
+    function parseCssDurationMs(value: string): number {
+      const trimmed = value.trim();
+      const match = trimmed.match(/^(\d+(?:\.\d+)?)(ms|s)$/i);
+      if (!match) return 0;
+      return match[2].toLowerCase() === 's' ? Number.parseFloat(match[1]) * 1000 : Number.parseFloat(match[1]);
+    }
+
+    function durationStdDev(values: number[]): number {
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+      return Math.sqrt(variance);
+    }
+  });
+  return renderedPrimitiveSnapshot(primitives);
 }
 
 async function fetchFirecrawlRenderedSnapshot(args: {
@@ -351,9 +503,64 @@ function snapshotFromJsonPayload(
     html,
     contentType: stringValue(data.contentType) ?? stringValue(data.mimeType) ?? 'text/html',
     stylesheets: stylesheetSnapshots(data.stylesheets),
+    renderedPrimitives: renderedPrimitiveSnapshot(data.renderedPrimitives),
     stylesheetWarnings: stringArray(data.stylesheetWarnings),
     fetchWarnings: stringArray(data.fetchWarnings ?? data.warnings),
   };
+}
+
+function renderedPrimitiveSnapshot(value: unknown): BrandWebsiteRenderedPrimitiveEvidence | undefined {
+  const record = objectRecord(value);
+  const visual = objectRecord(record?.visual);
+  const atoms = objectRecord(record?.atoms);
+  if (!record || !visual || !atoms) return undefined;
+
+  const rendered: BrandWebsiteRenderedPrimitiveEvidence = {
+    sourceField: stringValue(record.sourceField) ?? 'website.renderedPrimitives',
+    motionSourceField: stringValue(record.motionSourceField),
+    excerpt: stringValue(record.excerpt),
+    atoms: numberRecord(atoms),
+    visual: {
+      minimalism: clamp01Number(visual.minimalism),
+      densityTolerance: clamp01Number(visual.densityTolerance),
+      dataVizAffinity: clamp01Number(visual.dataVizAffinity),
+      expressiveness: clamp01Number(visual.expressiveness),
+      geometryTendency: clamp01Number(visual.geometryTendency),
+      decorationTolerance: clamp01Number(visual.decorationTolerance),
+      cornerRadiusBias: clamp01Number(visual.cornerRadiusBias),
+      layoutSymmetry: clamp01Number(visual.layoutSymmetry),
+      contrastPreference: clamp01Number(visual.contrastPreference),
+    },
+    confidence: optionalClamp01Number(record.confidence),
+    motionConfidence: optionalClamp01Number(record.motionConfidence),
+  };
+  const motion = objectRecord(record.motion);
+  if (motion) {
+    rendered.motion = {
+      motionEnergy: clamp01Number(motion.motionEnergy),
+      overshootTolerance: clamp01Number(motion.overshootTolerance),
+      transitionSharpness: clamp01Number(motion.transitionSharpness),
+      rhythmRegularity: clamp01Number(motion.rhythmRegularity),
+    };
+  }
+  return Object.keys(rendered.atoms).length > 0 ? rendered : undefined;
+}
+
+function numberRecord(record: Record<string, unknown>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(record)
+      .map(([key, value]) => [key, optionalClamp01Number(value)])
+      .filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+  );
+}
+
+function clamp01Number(value: unknown): number {
+  return optionalClamp01Number(value) ?? 0.5;
+}
+
+function optionalClamp01Number(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return Math.max(0, Math.min(1, value));
 }
 
 function stylesheetSnapshots(value: unknown): BrandWebsiteStylesheetSnapshot[] | undefined {

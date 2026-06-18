@@ -174,9 +174,22 @@ function addSnapshotEvidence(
 }
 
 function sourceText(source: BrandVaultSourceInput): string {
+  if (source.kind === 'social_post' || source.kind === 'social_profile') return socialSourceText(source);
   return cleanText([
     source.name,
     source.note,
+    source.text,
+    source.profile?.bio,
+    source.profile?.category,
+    source.media?.ocrText,
+    source.media?.transcript,
+    source.publishedAt ? `Published: ${source.publishedAt}` : undefined,
+    source.metrics?.engagementCount ? `Engagement: ${source.metrics.engagementCount}` : undefined,
+  ].filter(Boolean).join('\n'));
+}
+
+function socialSourceText(source: BrandVaultSourceInput): string {
+  return cleanText([
     source.text,
     source.profile?.bio,
     source.profile?.category,

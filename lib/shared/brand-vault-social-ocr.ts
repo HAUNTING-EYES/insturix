@@ -5,6 +5,7 @@ export interface BrandVaultSocialOcrInput {
   sourceUrl?: string;
   platform?: BrandVaultSourcePlatform;
   mediaType?: string;
+  sourceKind?: 'social' | 'website';
 }
 
 export interface BrandVaultSocialOcrResult {
@@ -30,7 +31,7 @@ export interface BrandVaultGeminiSocialOcrOptions {
 const DEFAULT_MAX_IMAGE_BYTES = 2_000_000;
 const DEFAULT_MODEL_NAME = 'gemini-2.5-flash';
 const OCR_PROMPT = [
-  'Extract only visible text from this social media image or thumbnail for brand evidence.',
+  'Extract only visible text from this brand evidence image or thumbnail.',
   'Return the exact readable text, preserving short line breaks when useful.',
   'Do not describe the image. Do not infer missing words. If no readable text exists, return NO_TEXT.',
 ].join(' ');
@@ -49,10 +50,12 @@ export function createBrandVaultGeminiSocialOcrProvider(
 
   return {
     async readTextFromImage(input) {
+      const sourceLabel = input.sourceKind === 'website' ? 'website OCR' : 'social OCR';
       const image = await fetchOcrImage({
         imageUrl: input.imageUrl,
         fetchFn,
         maxImageBytes,
+        sourceLabel,
       });
       if (!image.ok) return { warning: image.warning };
 
@@ -67,7 +70,7 @@ export function createBrandVaultGeminiSocialOcrProvider(
         const text = normalizeOcrText(result.response.text());
         return text ? { text } : {};
       } catch (error) {
-        return { warning: `Brand Vault skipped social OCR for ${input.imageUrl}: ${errorMessage(error)}` };
+        return { warning: `Brand Vault skipped ${sourceLabel} for ${input.imageUrl}: ${errorMessage(error)}` };
       }
     },
   };
@@ -77,28 +80,29 @@ async function fetchOcrImage(args: {
   imageUrl: string;
   fetchFn: BrandVaultOcrFetch;
   maxImageBytes: number;
+  sourceLabel: string;
 }): Promise<{ ok: true; base64: string; mimeType: string } | { ok: false; warning: string }> {
   try {
     const response = await args.fetchFn(args.imageUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 BrandVault/1.0' },
     });
     if (!response.ok) {
-      return { ok: false, warning: `Brand Vault skipped social OCR for ${args.imageUrl}: image fetch returned ${response.status}.` };
+      return { ok: false, warning: `Brand Vault skipped ${args.sourceLabel} for ${args.imageUrl}: image fetch returned ${response.status}.` };
     }
 
     const mimeType = imageMimeType(response.headers.get('content-type'));
     if (!mimeType) {
-      return { ok: false, warning: `Brand Vault skipped social OCR for ${args.imageUrl}: response was not an image.` };
+      return { ok: false, warning: `Brand Vault skipped ${args.sourceLabel} for ${args.imageUrl}: response was not an image.` };
     }
 
     const contentLength = numberFromHeader(response.headers.get('content-length'));
     if (contentLength !== undefined && contentLength > args.maxImageBytes) {
-      return { ok: false, warning: `Brand Vault skipped social OCR for ${args.imageUrl}: image exceeded ${args.maxImageBytes} bytes.` };
+      return { ok: false, warning: `Brand Vault skipped ${args.sourceLabel} for ${args.imageUrl}: image exceeded ${args.maxImageBytes} bytes.` };
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > args.maxImageBytes) {
-      return { ok: false, warning: `Brand Vault skipped social OCR for ${args.imageUrl}: image exceeded ${args.maxImageBytes} bytes.` };
+      return { ok: false, warning: `Brand Vault skipped ${args.sourceLabel} for ${args.imageUrl}: image exceeded ${args.maxImageBytes} bytes.` };
     }
 
     return {
@@ -107,7 +111,7 @@ async function fetchOcrImage(args: {
       mimeType,
     };
   } catch (error) {
-    return { ok: false, warning: `Brand Vault skipped social OCR for ${args.imageUrl}: ${errorMessage(error)}` };
+    return { ok: false, warning: `Brand Vault skipped ${args.sourceLabel} for ${args.imageUrl}: ${errorMessage(error)}` };
   }
 }
 

@@ -184,7 +184,7 @@ describe('Brand Vault draft orchestrator', () => {
       diagnostics.summary.weakCount + diagnostics.summary.missingCount + diagnostics.summary.fallbackCount,
     );
     expect(diagnostics.summary.byGroup.voice.fallbackCount).toBeGreaterThan(0);
-    expect(diagnostics.summary.byGroup.motion.weakCount).toBeGreaterThan(0);
+    expect(diagnostics.summary.byGroup.motion.fallbackCount).toBeGreaterThan(0);
 
     expect(byPath.get('identity.brandName')).toMatchObject({
       group: 'identity',
@@ -204,7 +204,7 @@ describe('Brand Vault draft orchestrator', () => {
     });
     expect(byPath.get('motion.motionEnergy')).toMatchObject({
       group: 'motion',
-      status: 'weak',
+      status: 'fallback',
       recommendedEvidence: expect.arrayContaining(['visual_scan']),
     });
     expect(diagnostics.priorityItems.map((item) => item.path)).toEqual(
@@ -411,6 +411,71 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'palette.accent')).toMatchObject({
       status: 'ready',
     });
+  });
+
+  it('uses website image OCR as product and service evidence before drafting signals', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const ocrImageUrls: string[] = [];
+    const html = `
+<!doctype html>
+<html>
+  <head>
+    <title>Glowbar</title>
+    <meta name="description" content="Glowbar makes skincare essentials.">
+    <meta property="og:site_name" content="Glowbar">
+    <meta property="og:image" content="/share/glowbar-card.jpg">
+  </head>
+  <body>
+    <h1>Daily essentials</h1>
+    <img class="product-card" alt="Daily Barrier Serum product packshot" src="/cdn/shop/products/daily-barrier-serum.jpg">
+  </body>
+</html>
+`;
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'glowbar.example',
+        jobId: 'job_website_image_ocr',
+        profileRecordId: 'draft_website_image_ocr',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } }),
+        },
+        websiteOcrProvider: {
+          async readTextFromImage(input) {
+            ocrImageUrls.push(input.imageUrl);
+            return { text: 'Daily Barrier Serum\nDaily skincare essentials for sensitive skin.' };
+          },
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(ocrImageUrls).toEqual([
+      'https://glowbar.example/cdn/shop/products/daily-barrier-serum.jpg',
+      'https://glowbar.example/share/glowbar-card.jpg',
+    ]);
+    expect(result.warnings).toContain('Brand Vault OCR extracted readable text from 2 website images for draft evidence review.');
+    expect(result.profile.identity.productServices?.value).toEqual(
+      expect.arrayContaining(['Daily Barrier Serum Daily skincare essentials for sensitive skin']),
+    );
+    expect(result.profile.assets?.productImages.value).toEqual(['https://glowbar.example/cdn/shop/products/daily-barrier-serum.jpg']);
+    expect(result.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceField: 'website.imageOcr.productImage',
+          sourceUrl: 'https://glowbar.example/cdn/shop/products/daily-barrier-serum.jpg',
+          signalPath: 'identity.productServices',
+          normalizedValue: expect.arrayContaining(['Daily Barrier Serum Daily skincare essentials for sensitive skin']),
+        }),
+      ]),
+    );
   });
 
   it('downgrades unreachable website asset candidates before review payload assembly', async () => {

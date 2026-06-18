@@ -48,6 +48,13 @@ export interface BrandVaultSocialCapability {
   pinnedContentStatus: 'manual_selected_pinned' | 'connected_pinned_read' | 'platform_pinned_supported' | 'not_assumed';
 }
 
+interface SocialInferenceTextParts {
+  voiceText: string;
+  hookText: string;
+  proofText: string;
+  ctaText: string;
+}
+
 export function createBrandVaultSocialEvidenceCandidates(args: {
   brandId?: string;
   jobId: string;
@@ -100,10 +107,10 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
     }),
   );
 
-  const text = socialInferenceText(args.source);
-  if (!text) return candidates;
+  const text = socialInferenceTextParts(args.source);
+  if (!text.voiceText && !text.hookText && !text.proofText && !text.ctaText) return candidates;
 
-  const voicePhrases = extractSocialVoicePhrases(text);
+  const voicePhrases = extractSocialVoicePhrases(text.voiceText);
   if (voicePhrases.length > 0) {
     candidates.push(
       socialCandidate({
@@ -111,7 +118,7 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.voicePhrases`,
         signalPath: 'voice.recurringPhrases',
-        rawValue: socialRawValue(args.source, text),
+        rawValue: socialRawValue(args.source, text.voiceText),
         normalizedValue: voicePhrases,
         excerpt: voicePhrases.join(' | '),
         confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.VOICE_PHRASES_PINNED : BRAND_CONFIDENCE.SOCIAL.VOICE_PHRASES_SAMPLE,
@@ -119,23 +126,24 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
     );
   }
 
-  const hookArchetypes = inferSocialHookArchetypes(text);
+  const hookArchetypes = inferSocialHookArchetypes(text.hookText);
   if (hookArchetypes.length > 0) {
+    const hookSentence = firstMeaningfulSentence(text.hookText);
     candidates.push(
       socialCandidate({
         ...args,
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.hookArchetypes`,
         signalPath: 'voice.hookArchetypes',
-        rawValue: socialRawValue(args.source, firstMeaningfulSentence(text)),
+        rawValue: socialRawValue(args.source, hookSentence),
         normalizedValue: hookArchetypes,
-        excerpt: firstMeaningfulSentence(text),
+        excerpt: hookSentence,
         confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.HOOK_ARCHETYPES_PINNED : BRAND_CONFIDENCE.SOCIAL.HOOK_ARCHETYPES_SAMPLE,
       }),
     );
   }
 
-  const proofStyle = inferSocialProofStyle(text);
+  const proofStyle = inferSocialProofStyle(text.proofText);
   if (proofStyle !== 'unknown') {
     candidates.push(
       socialCandidate({
@@ -143,15 +151,15 @@ export function createBrandVaultSocialEvidenceCandidates(args: {
         index: args.startIndex + candidates.length,
         sourceField: `${args.sourceField}.text.proofStyle`,
         signalPath: 'identity.proofStyle',
-        rawValue: socialRawValue(args.source, text),
+        rawValue: socialRawValue(args.source, text.proofText),
         normalizedValue: proofStyle,
-        excerpt: firstMeaningfulSentence(text),
+        excerpt: firstMeaningfulSentence(text.proofText),
         confidence: args.source.pinned ? BRAND_CONFIDENCE.SOCIAL.PROOF_STYLE_PINNED : BRAND_CONFIDENCE.SOCIAL.PROOF_STYLE_SAMPLE,
       }),
     );
   }
 
-  const ctas = extractSocialCtas(text);
+  const ctas = extractSocialCtas(text.ctaText);
   if (ctas.length > 0) {
     candidates.push(
       socialCandidate({
@@ -433,11 +441,42 @@ function normalizeSocialText(text: string | undefined): string {
 }
 
 function socialInferenceText(source: BrandVaultSourceInput): string {
+  const parts = socialInferenceTextParts(source);
+  return uniqueStrings([parts.voiceText, parts.hookText, parts.proofText, parts.ctaText]).join('\n');
+}
+
+function socialInferenceTextParts(source: BrandVaultSourceInput): SocialInferenceTextParts {
+  const caption = boundedSocialText(source.text);
+  const ocrText = boundedSocialText(source.media?.ocrText);
+  const transcript = boundedSocialText(source.media?.transcript);
+  const bio = boundedSocialText(source.profile?.bio);
+  const postTitle = socialPostTitleText(source);
+  const languageSources = uniqueStrings([caption, ocrText, transcript, bio]);
+  const hookSources = uniqueStrings([postTitle, caption, ocrText, transcript]);
+  const proofSources = uniqueStrings([caption, ocrText, transcript, bio]);
+  return {
+    voiceText: socialTextForIntent(languageSources, 'voice'),
+    hookText: socialTextForIntent(hookSources, 'hook'),
+    proofText: socialTextForIntent(proofSources, 'proof'),
+    ctaText: socialTextForIntent(languageSources, 'cta'),
+  };
+}
+
+function socialPostTitleText(source: BrandVaultSourceInput): string {
+  if (source.kind !== 'social_post') return '';
+  const title = boundedSocialText(source.name);
+  if (!title || isGeneratedSocialSourceName(title)) return '';
+  return title;
+}
+
+function socialTextForIntent(
+  values: string[],
+  intent: 'voice' | 'hook' | 'proof' | 'cta',
+): string {
   return uniqueStrings([
-    boundedSocialText(source.text),
-    boundedSocialText(source.media?.ocrText),
-    boundedSocialText(source.media?.transcript),
-    boundedSocialText(source.profile?.bio),
+    ...values.flatMap((value) =>
+      meaningfulSentences(value).filter((sentence) => isUsableSocialSignalSentence(sentence, intent)),
+    ),
   ]).join('\n');
 }
 
@@ -455,6 +494,7 @@ function extractSocialVoicePhrases(text: string): string[] {
   const sentences = meaningfulSentences(text)
     .filter((sentence) => !/^https?:\/\//i.test(sentence))
     .filter((sentence) => sentence.length >= 14 && sentence.length <= 140)
+    .filter((sentence) => isUsableSocialSignalSentence(sentence, 'voice'))
     .slice(0, 5);
   return uniqueStrings([...sentences, ...hashtags]).slice(0, 8);
 }
@@ -501,6 +541,41 @@ function meaningfulSentences(text: string): string[] {
       .map((sentence) => sanitizeEvidenceExcerpt(sentence, 180))
       .filter((sentence) => sentence.length > 0),
   );
+}
+
+function isUsableSocialSignalSentence(
+  sentence: string,
+  intent: 'voice' | 'hook' | 'proof' | 'cta',
+): boolean {
+  const normalized = sentence.trim();
+  if (!normalized) return false;
+  if (/^https?:\/\//i.test(normalized)) return false;
+  if (/^(?:published|engagement|media type|connection|origin):/i.test(normalized)) return false;
+  if (isGeneratedSocialSourceName(normalized)) return false;
+  if (isGenericPlatformBoilerplate(normalized)) return false;
+  if (intent === 'voice' && isMentionDense(normalized)) return false;
+  if (intent === 'voice' && /^@[\w.-]+(?:\s+@[\w.-]+)*$/i.test(normalized)) return false;
+  if (intent === 'voice' && /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}$/.test(normalized)) return false;
+  return true;
+}
+
+function isMentionDense(value: string): boolean {
+  const mentions = value.match(/@[\w.-]+/g) ?? [];
+  if (mentions.length === 0) return false;
+  const mentionChars = mentions.reduce((sum, mention) => sum + mention.length, 0);
+  return mentions.length >= 2 || mentionChars / Math.max(value.length, 1) > 0.22;
+}
+
+function isGeneratedSocialSourceName(value: string): boolean {
+  return /^(?:instagram media|linkedin post|facebook page post|x post|pinned x post|youtube public post|(?:instagram|linkedin|facebook|x|youtube|tiktok) public item)\b/i.test(value);
+}
+
+function isGenericPlatformBoilerplate(value: string): boolean {
+  const lower = value.toLowerCase();
+  return [
+    'enjoy the videos and music you love, upload original content, and share it all with friends, family, and the world on youtube',
+    'watch videos and music you love',
+  ].some((phrase) => lower.includes(phrase));
 }
 
 function firstMeaningfulSentence(text: string): string {

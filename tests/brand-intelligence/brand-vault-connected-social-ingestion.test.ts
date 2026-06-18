@@ -89,6 +89,7 @@ describe('Brand Vault connected social ingestion', () => {
       evidenceOrigin: 'public_fallback',
       publishedAt: '2026-06-16',
       text: expect.stringContaining('Stop losing brand consistency between strategy and delivery'),
+      name: 'Build one reviewed brand system before the edit starts',
       media: {
         mediaType: 'video',
         thumbnailUrl: 'https://img.youtube.com/vi/abc123/maxresdefault.jpg',
@@ -104,6 +105,7 @@ describe('Brand Vault connected social ingestion', () => {
         category: 'Software',
       },
     });
+    expect(youtubePost?.text).not.toContain('Insturix');
     expect(result.warnings).toContain('Brand Vault fetched youtube public oEmbed, watch metadata, and captions as review-only social evidence.');
     expect(result.warnings).toContain('Brand Vault OCR extracted readable text from 1 social media image for draft evidence review.');
     expect(result.warnings).toContain('Brand Vault added 1 connected social evidence source from existing platform integrations.');
@@ -230,9 +232,9 @@ describe('Brand Vault connected social ingestion', () => {
     });
 
     const youtubePost = result.sourceEvidence.find((source) => source.kind === 'social_post' && source.platform === 'youtube');
-    expect(youtubePost?.text).toContain('This is how businesses get robbed');
-    expect(youtubePost?.text).toContain('Nimit Jain');
-    expect(youtubePost?.text).not.toContain('Enjoy the videos and music you love');
+    expect(youtubePost?.name).toBe('This is how businesses get robbed');
+    expect(youtubePost?.profile?.bio).toBe('Nimit Jain');
+    expect(youtubePost?.text).toBeUndefined();
   });
 
   it('warns when an Apify-supported social profile has no configured actor', async () => {
