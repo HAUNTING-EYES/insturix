@@ -27,6 +27,8 @@ export interface Idea {
   platform: string;
   tone: ThinkingHat;
   sessionName?: string;
+  originalPrompt?: string;
+  brandBrief?: string;
 }
 
 export interface Script {
