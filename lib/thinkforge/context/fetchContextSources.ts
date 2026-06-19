@@ -117,9 +117,10 @@ function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
 async function fetchColdContext(
   userId: string,
   projectId?: string,
+  brandId?: string,
 ): Promise<BrandDNA> {
   try {
-    return await resolveEffectiveBrandDNA(userId, projectId);
+    return await resolveEffectiveBrandDNA(userId, projectId, brandId);
   } catch (error) {
     console.warn('[fetchContextSources] Cold fetch failed, using empty BrandDNA:', error);
     return {};
@@ -384,7 +385,7 @@ export async function fetchContextSources(
   const keywords = extractKeywords(combinedText);
 
   const [brandDNA, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
-    fetchColdContext(userId, projectId),
+    fetchColdContext(userId, projectId, brandId),
     withTimeout(
       sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
       [],

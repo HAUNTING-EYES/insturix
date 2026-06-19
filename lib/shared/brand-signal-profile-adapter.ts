@@ -5,6 +5,17 @@ import {
 } from './brand-signal-profile';
 import type { UnifiedBrand } from './brand-registry';
 
+export interface BrandDNAProjection {
+  voiceLock?: string;
+  nicheMap?: string;
+  killList?: string[];
+  hookArchetypes?: string[];
+  structuralHabits?: string[];
+  recurringAssets?: string[];
+  voiceFingerprint?: unknown;
+  voiceExemplars?: unknown[];
+}
+
 function actionableValue<T>(signal: BrandSignal<T> | undefined): T | undefined {
   return signal && isBrandSignalActionable(signal) ? signal.value : undefined;
 }
@@ -55,5 +66,23 @@ export function brandSignalProfileToUnifiedBrand(
     learning: legacy?.learning ?? { banditProjectCount: 0 },
     createdAt: legacy?.createdAt,
     updatedAt: legacy?.updatedAt,
+  };
+}
+
+export function brandSignalProfileToBrandDNA<T extends BrandDNAProjection>(
+  profile: BrandSignalProfile,
+  legacy: T,
+): T {
+  const audience = actionableArray(profile.identity.audience);
+  const recurringPhrases = actionableArray(profile.voice.recurringPhrases);
+  const killList = actionableArray(profile.voice.killList);
+  const hookArchetypes = actionableArray(profile.voice.hookArchetypes);
+
+  return {
+    ...legacy,
+    nicheMap: audience?.join(', ') ?? legacy.nicheMap,
+    killList: killList ?? legacy.killList,
+    hookArchetypes: hookArchetypes ?? legacy.hookArchetypes,
+    structuralHabits: recurringPhrases ?? legacy.structuralHabits,
   };
 }

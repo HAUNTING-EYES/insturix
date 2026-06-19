@@ -23,6 +23,14 @@
 
 import mongoose, { Schema, Model } from 'mongoose';
 import crypto from 'crypto';
+import { brandVaultSourceEnabled } from '../../shared/brand-flags';
+import { brandSignalProfileToBrandDNA } from '../../shared/brand-signal-profile-adapter';
+import type { BrandSignalProfile } from '../../shared/brand-signal-profile';
+import {
+  getDefaultBrandVaultRefineryStore,
+  type BrandVaultRefineryStore,
+} from '../../shared/brand-vault-refinery-api';
+import type { BrandVaultStoreResult } from '../../shared/brand-vault-draft-orchestrator';
 
 // ==================== Immutability Enforcement ====================
 
@@ -224,6 +232,16 @@ export interface BrandDNA {
   recurringAssets?: string[];
   voiceFingerprint?: VoiceFingerprint;
   voiceExemplars?: VoiceExemplar[];
+}
+
+export type BrandVaultBrandDNAProfileGetter = (
+  filter: { brandId?: string; userId?: string },
+) => BrandVaultStoreResult<BrandSignalProfile | null>;
+
+export interface ResolveEffectiveBrandDNAOptions {
+  enabled?: boolean;
+  getAcceptedProfile?: BrandVaultBrandDNAProfileGetter;
+  onVaultFallback?: (message: string, error: unknown) => void;
 }
 
 export interface UserPreferences {
@@ -747,6 +765,8 @@ const UserSchema = new Schema({
     hookArchetypes: [{ type: String }],
     structuralHabits: [{ type: String }],
     recurringAssets: [{ type: String }],
+    voiceFingerprint: { type: Schema.Types.Mixed },
+    voiceExemplars: [{ type: Schema.Types.Mixed }],
   },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_USERS, timestamps: false });
@@ -780,6 +800,8 @@ const ProjectSchema = new Schema({
     hookArchetypes: [{ type: String }],
     structuralHabits: [{ type: String }],
     recurringAssets: [{ type: String }],
+    voiceFingerprint: { type: Schema.Types.Mixed },
+    voiceExemplars: [{ type: Schema.Types.Mixed }],
   },
   // Legacy compatibility
   projectMeta: { type: Schema.Types.Mixed, default: {} },
@@ -2989,20 +3011,53 @@ export function mergeBrandDNA(userDNA: BrandDNA = {}, projectDNA: BrandDNA = {})
   };
 }
 
+function getDefaultBrandVaultBrandDNAProfile(): BrandVaultBrandDNAProfileGetter {
+  const store: BrandVaultRefineryStore = getDefaultBrandVaultRefineryStore();
+  return (filter) => store.getLatestAcceptedProfile(filter);
+}
+
+function warnBrandDNAVaultFallback(message: string, error: unknown): void {
+  console.warn(`[resolveEffectiveBrandDNA] ${message}`, error);
+}
+
+export async function composeBrandDNAWithBrandVault(
+  baseDNA: BrandDNA = {},
+  userId: string,
+  brandId?: string,
+  options: ResolveEffectiveBrandDNAOptions = {},
+): Promise<BrandDNA> {
+  const enabled = options.enabled ?? brandVaultSourceEnabled('thinkforge');
+  if (!enabled || !brandId) return baseDNA;
+
+  try {
+    const getAcceptedProfile = options.getAcceptedProfile ?? getDefaultBrandVaultBrandDNAProfile();
+    const profile = await getAcceptedProfile({ brandId, userId });
+    if (!profile) return baseDNA;
+    if (profile.brandId && profile.brandId !== brandId) return baseDNA;
+    if (profile.userId && profile.userId !== userId) return baseDNA;
+    return brandSignalProfileToBrandDNA(profile, baseDNA);
+  } catch (error) {
+    (options.onVaultFallback ?? warnBrandDNAVaultFallback)('vault accepted-profile read failed; using legacy BrandDNA.', error);
+    return baseDNA;
+  }
+}
+
 /**
  * Resolve effective BrandDNA for a context: merges user-level defaults with project-level overrides.
  * Project-level fields take precedence; arrays are concatenated and deduplicated.
  */
 export async function resolveEffectiveBrandDNA(
   userId: string,
-  projectId?: string
+  projectId?: string,
+  brandId?: string,
+  options?: ResolveEffectiveBrandDNAOptions,
 ): Promise<BrandDNA> {
   const userDNA = await getUserBrandDNA(userId) || {};
-  if (!projectId) return userDNA;
+  if (!projectId) return composeBrandDNAWithBrandVault(userDNA, userId, brandId, options);
 
   const projectDNA = await getProjectBrandDNA(projectId, userId) || {};
 
-  return mergeBrandDNA(userDNA, projectDNA);
+  return composeBrandDNAWithBrandVault(mergeBrandDNA(userDNA, projectDNA), userId, brandId, options);
 }
 
 // ==================== Interaction Event Logging ====================

@@ -93,6 +93,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
       limit: 200,
       scope: 'global',
     });
+    expect(mocks.resolveEffectiveBrandDNA).toHaveBeenCalledWith('user_1', undefined, 'brand_1');
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual([
       'entry_generic',
       'entry_brand_1',
@@ -152,5 +153,6 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
 
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_generic']);
+    expect(mocks.resolveEffectiveBrandDNA).toHaveBeenCalledWith('user_1', undefined, undefined);
   });
 });
