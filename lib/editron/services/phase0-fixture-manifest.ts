@@ -159,7 +159,7 @@ export function buildPhase0FixtureManifest(
     renderArtifacts: {
       status: 'not-rendered',
       artifactDir: options.artifactDir ?? null,
-      pendingFamilies: ['motion-graphic', 'caption', 'transition', 'sound', 'zoom'],
+      pendingFamilies: ['motion-graphic', 'caption', 'transition', 'sfx', 'zoom'],
       artifactPackStatus: null,
       artifactPackIssues: [],
       renderCommand: null,
