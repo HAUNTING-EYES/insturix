@@ -1172,6 +1172,12 @@ describe('Brand website refinery', () => {
       ...result.profile.palette.supporting.value,
     ]).toEqual(expect.arrayContaining(['#9f5f4f', '#f8d7ca']));
     expect(result.profile.typography.raw?.value).toContain('Fraunces');
+    expect(result.profile.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        signalPath: 'typography.raw',
+        sourceUrl: 'https://fonts.googleapis.com/css2?family=Fraunces:wght@600&display=swap',
+      }),
+    ]));
   });
 
   it('retries blocked website fetches with browser-like headers and records fetch warnings', async () => {

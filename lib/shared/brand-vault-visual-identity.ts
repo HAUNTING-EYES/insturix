@@ -29,12 +29,18 @@ export interface BrandVaultVisualSwatch {
 }
 
 export type BrandVaultFontPreviewRole = 'display' | 'body' | 'mono' | 'accent' | 'unknown';
+export type BrandVaultFontPreviewSourceKind = 'google_fonts_stylesheet' | 'external_stylesheet' | 'website_css' | 'manual_or_local_family';
+export type BrandVaultFontPreviewStatus = 'loadable_stylesheet' | 'family_name_only';
 
 export interface BrandVaultFontPreview {
   id: string;
   family: string;
   cssFontFamily: string;
   role: BrandVaultFontPreviewRole;
+  sourceKind: BrandVaultFontPreviewSourceKind;
+  previewStatus: BrandVaultFontPreviewStatus;
+  sourceUrl?: string;
+  stylesheetUrl?: string;
   sampleText: string;
   confidence: number;
   signalPath: string;
@@ -214,6 +220,7 @@ function createFontPreviews(profile: BrandSignalProfile): BrandVaultFontPreview[
   const evidenceById = new Map(profile.evidence.map((item) => [item.id, item]));
   const evidence = firstSignalEvidence(rawSignal, evidenceById);
   const brandName = profile.identity.brandName.value || 'Brand sample';
+  const fontSource = fontPreviewSource(evidence);
   return uniqueStrings(rawSignal.value.split(',').map(cleanFontFamilyName).filter(isSpecificFontFamily))
     .slice(0, MAX_VISUAL_FONT_PREVIEWS)
     .map((family, index) => ({
@@ -221,6 +228,10 @@ function createFontPreviews(profile: BrandSignalProfile): BrandVaultFontPreview[
       family,
       cssFontFamily: `"${family}", ${fontFallbackForCategory(profile.typography.category.value)}`,
       role: fontPreviewRole(family, index),
+      sourceKind: fontSource.kind,
+      previewStatus: fontSource.status,
+      sourceUrl: fontSource.sourceUrl,
+      stylesheetUrl: fontSource.stylesheetUrl,
       sampleText: index === 0 ? brandName : `${brandName} brand system`,
       confidence: rawSignal.confidence,
       signalPath: 'typography.raw',
@@ -435,6 +446,43 @@ function fontFallbackForCategory(category: BrandSignalProfile['typography']['cat
   if (category === 'mono') return 'monospace';
   if (category === 'serif' || category === 'slab') return 'serif';
   return 'sans-serif';
+}
+
+function fontPreviewSource(evidence: BrandSignalEvidence | undefined): {
+  kind: BrandVaultFontPreviewSourceKind;
+  status: BrandVaultFontPreviewStatus;
+  sourceUrl?: string;
+  stylesheetUrl?: string;
+} {
+  const sourceUrl = normalizeRenderableAssetUrl(evidence?.sourceUrl ?? '');
+  if (!sourceUrl) {
+    return {
+      kind: evidence?.sourceField === 'css.fontFamily' ? 'website_css' : 'manual_or_local_family',
+      status: 'family_name_only',
+    };
+  }
+  if (isGoogleFontsStylesheetUrl(sourceUrl)) {
+    return {
+      kind: 'google_fonts_stylesheet',
+      status: 'loadable_stylesheet',
+      sourceUrl,
+      stylesheetUrl: sourceUrl,
+    };
+  }
+  return {
+    kind: 'external_stylesheet',
+    status: 'family_name_only',
+    sourceUrl,
+  };
+}
+
+function isGoogleFontsStylesheetUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
+  } catch {
+    return false;
+  }
 }
 
 function fontPreviewRole(family: string, index: number): BrandVaultFontPreviewRole {

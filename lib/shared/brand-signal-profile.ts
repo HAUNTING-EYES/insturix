@@ -43,6 +43,7 @@ export interface BrandSignalEvidence {
   signalPath: string;
   sourceType: BrandSignalTrustLevel;
   sourceField?: string;
+  sourceUrl?: string;
   excerpt?: string;
   confidence: number;
   trustLevel: BrandSignalTrustLevel;

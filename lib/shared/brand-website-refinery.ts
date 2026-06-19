@@ -702,6 +702,7 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   const unsafeOnDark = parsed.colors.filter((color) => contrastRatio(color, DARK_SURFACE) < 3);
   const unsafeOnLight = parsed.colors.filter((color) => contrastRatio(color, LIGHT_SURFACE) < 3);
   const rawTypography = parsed.fonts.join(', ');
+  const typographySourceUrl = rawTypography ? stylesheetUrlForTypography(rawTypography, input.stylesheets ?? []) : undefined;
   const inferredIndustry = inferIndustry(textForInference, parsed.schemaTypes);
   const primitiveSignals = renderedPrimitiveSignals(input.renderedPrimitives) ?? extractWebsitePrimitiveSignals(input.html, input.stylesheets ?? [], parsed);
 
@@ -746,8 +747,8 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
       harmony: primary && accent ? makeSignal('palette.harmony', inferHarmony(primary, accent), source('css', 'css.colors', parsed.colors, parsed.colors, 0.45, 'inferred_hint')) : fallback('palette.harmony', 'unknown', 'Need at least two website colors.'),
     },
     typography: {
-      raw: rawTypography ? makeSignal('typography.raw', rawTypography, source('css', 'css.fontFamily', parsed.fonts, rawTypography, 0.64, 'brand_preference')) : undefined,
-      category: rawTypography ? makeSignal('typography.category', inferTypographyCategory(rawTypography), source('css', 'css.fontFamily', parsed.fonts, rawTypography, 0.5, 'inferred_hint')) : fallback('typography.category', 'unknown', 'No website typography evidence.'),
+      raw: rawTypography ? makeSignal('typography.raw', rawTypography, { ...source('css', 'css.fontFamily', parsed.fonts, rawTypography, 0.64, 'brand_preference'), sourceUrl: typographySourceUrl }) : undefined,
+      category: rawTypography ? makeSignal('typography.category', inferTypographyCategory(rawTypography), { ...source('css', 'css.fontFamily', parsed.fonts, rawTypography, 0.5, 'inferred_hint'), sourceUrl: typographySourceUrl }) : fallback('typography.category', 'unknown', 'No website typography evidence.'),
       casingBias: parsed.headings.length ? makeSignal('typography.casingBias', inferCasingBias(parsed.headings), source('website', 'website.headings', parsed.headings, parsed.headings, 0.45, 'inferred_hint')) : fallback('typography.casingBias', 'unknown', 'No heading evidence.'),
     },
     visual: makeVisualSignals(primitiveSignals, makeSignal, fallback),
@@ -1068,6 +1069,7 @@ function createSignalFactory(args: {
       signalPath: path,
       sourceType: trustLevel,
       sourceField: item.sourceField,
+      sourceUrl: item.sourceUrl,
       excerpt: excerpt ? sanitizeEvidenceExcerpt(excerpt) : undefined,
       confidence,
       trustLevel,
@@ -1080,7 +1082,7 @@ function createSignalFactory(args: {
       brandId: args.input.brandId,
       jobId: args.input.jobId,
       sourceType: item.candidateSourceType,
-      sourceUrl: args.normalizedUrl,
+      sourceUrl: item.sourceUrl ?? args.normalizedUrl,
       sourceField: item.sourceField,
       signalPath: path,
       rawValue: item.rawValue,
@@ -1124,6 +1126,25 @@ function createFallbackFactory(args: {
       fallbackReason: reason,
     };
   };
+}
+
+function stylesheetUrlForTypography(rawTypography: string, stylesheets: BrandWebsiteStylesheetSnapshot[]): string | undefined {
+  const families = uniqueText(rawTypography.split(',').map((value) => value.replace(/^['"]|['"]$/g, '').trim()));
+  if (families.length === 0) return undefined;
+  const matches = stylesheets.filter((stylesheet) => {
+    const haystack = `${stylesheet.url}\n${stylesheet.css}`.toLowerCase();
+    return families.some((family) => haystack.includes(family.toLowerCase()));
+  });
+  return matches.find((stylesheet) => isGoogleFontsStylesheetUrl(stylesheet.url))?.url ?? matches[0]?.url;
+}
+
+function isGoogleFontsStylesheetUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
+  } catch {
+    return false;
+  }
 }
 
 interface WebsitePrimitiveSignals {

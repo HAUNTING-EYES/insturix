@@ -349,6 +349,7 @@ export interface ParsedWebsiteEvidence {
 export interface SignalSource {
   candidateSourceType: BrandEvidenceCandidateSourceType;
   sourceField: string;
+  sourceUrl?: string;
   rawValue: unknown;
   normalizedValue: unknown;
   excerpt?: string;
