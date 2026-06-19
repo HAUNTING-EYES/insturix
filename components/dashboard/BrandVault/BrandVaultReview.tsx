@@ -20,8 +20,7 @@ import {
   extractBrandVaultUploadEvidence,
   type BrandVaultUploadSourceEvidence,
 } from '@/lib/frontend/services/brand-vault-upload-extraction';
-import { BrandConstellation } from './BrandConstellation';
-import type { BrandConstellationFacet } from './BrandConstellation';
+import { BrandHero } from './BrandHero';
 import { SourceStrip } from './SourceStrip';
 import { BrandVaultStats } from './BrandVaultStats';
 import { ConflictCard } from './ConflictCard';
@@ -36,7 +35,6 @@ import {
   formatValue,
   groupConflicts,
   groupMeta,
-  GROUPS,
   mergeSnapshot,
   parseSocialLinks,
   profileBrandName,
@@ -44,10 +42,10 @@ import {
 } from './brand-vault-data';
 import type { BrandVaultIntakeGuidance } from './brand-vault-data';
 import type {
+  BrandConstellationFacet,
   BrandVaultSignalGroup,
   BrandVaultSnapshot,
   BrandVaultSourceInput,
-  SignalConflict,
   SourceLane,
 } from './brand-vault-types';
 import { useBrandVaultJob, useBrandVaultMutations, useBrandVaultProfile } from './useBrandVault';
@@ -373,11 +371,12 @@ export function BrandVaultReview() {
           </button>
         </header>
 
-        <BrandConstellation
+        <BrandHero
           brandName={brandName}
+          signals={signals}
+          visualIdentity={snapshot.reviewPayload?.visualIdentity ?? null}
           facets={facets}
-          conflict={displayedConflict ? conflictToConstellation(displayedConflict) : null}
-          resolved={Boolean(resolvingConflictPath)}
+          conflict={displayedConflict ? { label: displayedConflict.label } : null}
         />
 
         <main className="mx-auto max-w-[1180px] px-10">
@@ -1121,16 +1120,6 @@ function augmentSourceLanes(
     if (lane.id === 'uploads') return { ...lane, count: uploadedSources.length, status: uploadedSources.length > 0 ? 'pending' : 'not_provided' };
     return lane;
   });
-}
-
-function conflictToConstellation(conflict: SignalConflict) {
-  const source = conflict.candidates[0]?.sourceType.replace(/_/g, ' ') ?? 'source';
-  return {
-    facetId: conflict.group,
-    label: source,
-    sourceLabel: `${conflict.candidates[0]?.authorityClass ?? 'untrusted'} / review`,
-    detail: 'conflicts',
-  };
 }
 
 function createSourceEvidence(

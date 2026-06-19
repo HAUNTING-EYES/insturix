@@ -125,6 +125,15 @@ export interface SourceLane {
   icon: string;
 }
 
+/** A coverage facet for the brand-first hero's compact coverage map (one per signal group). */
+export interface BrandConstellationFacet {
+  id: string;
+  label: string;
+  color: string;
+  /** 0..1 coverage/confidence; drives the facet star magnitude. */
+  coverage: number;
+}
+
 /** Two or more candidates disagree for the same signal path. */
 export interface SignalConflict {
   path: string;
