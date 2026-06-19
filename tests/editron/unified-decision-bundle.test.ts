@@ -25,7 +25,7 @@ describe('unified decision bundle merge', () => {
     expect(merged.source).toBe('creative-brief+signal-driven');
     expect(merged.authority).toEqual({
       version: 'unified-decision-authority-v1',
-      executableProducer: 'unified-planner',
+      executableProducer: 'creative-brief',
       decisionMode: 'merged-supplemental',
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'advisor',
@@ -52,6 +52,7 @@ describe('unified decision bundle merge', () => {
         }),
       ],
     }));
+    expect(merged.edl.decisions[0].params.unifiedDecisionOwner).toBeUndefined();
   });
 
   it('lets high-confidence non-overlapping signal transitions become executable through the unified planner', () => {
@@ -84,6 +85,8 @@ describe('unified decision bundle merge', () => {
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
     });
     expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'transition']);
     expect(merged.edl.stats).toEqual(expect.objectContaining({
@@ -98,6 +101,20 @@ describe('unified decision bundle merge', () => {
     expect(merged.edl.decisions[1].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
       role: 'signal-supplement',
       executionLicense: 'licensed-by-transition-boundary-atoms',
+      plannerOwned: true,
+    }));
+    expect(merged.edl.decisions[0].params.unifiedDecisionOwner).toEqual(expect.objectContaining({
+      version: 'unified-decision-owner-v1',
+      owner: 'unified-planner',
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
+      producerSource: 'creative-brief:test',
+      plannerRole: 'planner-owned-primary',
+    }));
+    expect(merged.edl.decisions[1].params.unifiedDecisionOwner).toEqual(expect.objectContaining({
+      owner: 'unified-planner',
+      producerSource: 'signal-executor:test',
+      plannerRole: 'signal-supplement',
     }));
     expect(merged.expectedSkipped).toBe(0);
   });
@@ -129,6 +146,7 @@ describe('unified decision bundle merge', () => {
       'missing-audio-beat-atoms': expect.objectContaining({ count: 1 }),
       'missing-caption-moment-atoms': expect.objectContaining({ count: 1 }),
     }));
+    expect(merged.edl.decisions[0].params.unifiedDecisionOwner).toBeUndefined();
   });
 
   it('lets high-confidence signal graphics execute only when backed by content facts', () => {
@@ -281,6 +299,116 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('passes zoom camera atoms into the atomic zoom resolver instead of relying on scale labels', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'zoom',
+        frame: 420,
+        source: 'signal-executor:zoom-camera-atoms',
+        confidence: 0.88,
+        params: {
+          signals: {
+            speech_energy: 0.84,
+            word_importance: 0.76,
+            music_energy: 0.68,
+            mainSubjectX: 0.72,
+            mainSubjectY: 0.42,
+            face_present: 1,
+            motion_intensity: 0.28,
+            text_on_screen: 0.12,
+          },
+        },
+      }),
+    ]));
+
+    const zoom = merged.edl.decisions.find((decision) => decision.type === 'zoom');
+    expect(zoom?.params).toEqual(expect.objectContaining({
+      signals: expect.objectContaining({
+        speech_energy: 0.84,
+        word_importance: 0.76,
+        beat_strength: 0.68,
+        main_subject_x: 0.72,
+        main_subject_y: 0.42,
+      }),
+      zoomMotionPlan: expect.objectContaining({
+        version: 'zoom-motion-plan-v1',
+        visualMotionAllowed: true,
+        reasonKeys: expect.arrayContaining(['speech-peak', 'word-importance', 'beat', 'subject-anchor']),
+        evidence: expect.objectContaining({
+          intensity: 0.84,
+          hasSubjectAnchor: true,
+        }),
+        calibrationStatus: 'invented-needs-calibration',
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        executionLicense: 'licensed-by-camera-motion-atoms',
+        familyPlanner: expect.objectContaining({
+          version: 'zoom-family-planner-v1',
+          family: 'zoom',
+          visualMotionAllowed: true,
+        }),
+      }),
+    }));
+    expect(zoom?.params).not.toHaveProperty('zoomJob');
+    expect(zoom?.params).not.toHaveProperty('zoomIntent');
+    const zoomSignals = zoom?.params.signals as Record<string, unknown>;
+    expect(zoomSignals).not.toHaveProperty('zoom_focal_x');
+    expect(zoomSignals).not.toHaveProperty('zoom_focal_y');
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'licensed-by-camera-motion-atoms': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('keeps visually busy low-importance zoom signals as evidence instead of camera motion', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'zoom',
+        frame: 420,
+        source: 'signal-executor:busy-frame-zoom',
+        confidence: 0.88,
+        params: {
+          signals: {
+            speech_energy: 0.22,
+            text_on_screen: 0.9,
+            visual_complexity: 0.84,
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'zoom',
+      family: 'camera',
+      source: 'signal-executor:busy-frame-zoom',
+      reason: 'zoom-family-plan-kept-clean-camera',
+      candidate: expect.objectContaining({
+        projectedAtoms: expect.objectContaining({
+          speechPeak: 0.22,
+          textOnScreen: 0.9,
+          visualComplexity: 0.84,
+        }),
+      }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'zoom-family-plan-kept-clean-camera': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
   it('normalizes Path E brief-executor EDL shape before merge/execution', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -370,6 +498,8 @@ describe('unified decision bundle merge', () => {
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
     });
     expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'transition']);
     expect(bundle.evidence).toEqual(expect.objectContaining({
@@ -413,6 +543,8 @@ describe('unified decision bundle merge', () => {
       advisoryProducers: ['creative-brief', 'signal-driven'],
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
     });
     expect(bundle.edl.decisions.map((d) => d.source)).toEqual([
       'creative-brief:test',
@@ -544,6 +676,56 @@ describe('unified decision bundle merge', () => {
     expect(merged.expectedSkipped).toBe(0);
   });
 
+  it('keeps unified-planner authority after later signal batches add only evidence', () => {
+    let bundle = planUnifiedDecisionBundle(null, {
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 90, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    bundle = planUnifiedDecisionBundle(bundle, {
+      source: 'signal-driven',
+      edl: edl([
+        decision({
+          type: 'transition',
+          frame: 180,
+          source: 'signal-executor:licensed',
+          confidence: 0.82,
+          params: { transitionType: 'whip-pan', boundaryFrame: 180, topicDelta: 0.72 },
+        }),
+      ]),
+    });
+
+    bundle = planUnifiedDecisionBundle(bundle, {
+      source: 'signal-driven',
+      edl: edl([
+        decision({
+          type: 'zoom',
+          frame: 196,
+          source: 'signal-executor:duplicate',
+          confidence: 0.86,
+          params: { scale: 1.08 },
+        }),
+      ]),
+    });
+
+    expect(bundle.authority).toEqual({
+      version: 'unified-decision-authority-v1',
+      executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
+      advisoryProducers: ['creative-brief', 'signal-driven'],
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
+    });
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 1,
+      signalDecisionCount: 2,
+    }));
+  });
+
   it('requires transition-anchored SFX to carry real boundary evidence', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -621,6 +803,68 @@ describe('unified decision bundle merge', () => {
     expect(merged.expectedSkipped).toBe(0);
   });
 
+  it('lets boundary atoms promote hard-cut compatibility hints into planned transitions', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'transition',
+        frame: 300,
+        source: 'signal-executor:motion-boundary',
+        confidence: 0.91,
+        params: {
+          transitionType: 'hard-cut',
+          signals: {
+            motionVectorX: 0.72,
+            motion_intensity: 0.8,
+            narrative_pressure: 0.64,
+            music_energy: 0.78,
+            silence_duration_ms: 260,
+          },
+        },
+      }),
+    ]));
+
+    const transition = merged.edl.decisions.find((decision) => decision.type === 'transition');
+    expect(transition?.params).toEqual(expect.objectContaining({
+      transitionType: 'hard-cut',
+      signals: expect.objectContaining({
+        motion_vector_x: 0.72,
+        motion_intensity: 0.8,
+        topic_shift: 0.64,
+        beat_strength: 0.78,
+      }),
+      transitionBoundaryPlan: expect.objectContaining({
+        version: 'transition-boundary-plan-v1',
+        visualTransitionAllowed: true,
+        reasonKeys: expect.arrayContaining(['motion-direction', 'visual-motion', 'topic-shift', 'beat', 'speech-gap']),
+        evidence: expect.objectContaining({
+          directionMagnitude: 0.72,
+        }),
+        calibrationStatus: 'invented-needs-calibration',
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        executionLicense: 'licensed-by-transition-family-plan',
+        familyPlanner: expect.objectContaining({
+          version: 'transition-family-planner-v1',
+          family: 'transition',
+          visualTransitionAllowed: true,
+        }),
+      }),
+    }));
+    expect(transition?.params).not.toHaveProperty('transitionJob');
+    expect(transition?.params).not.toHaveProperty('transitionIntent');
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'licensed-by-transition-family-plan': expect.objectContaining({ count: 1 }),
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisionCount).toBe(0);
+  });
+
   it('requires transition signals to have both a boundary anchor and a boundary reason', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -644,6 +888,112 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'missing-transition-boundary-atoms': expect.objectContaining({ count: 2 }),
       'licensed-by-transition-boundary-atoms': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('splits moment importance from execution confidence and projects nested signal atoms', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'transition',
+        frame: 300,
+        source: 'signal-executor:nested-transition',
+        confidence: 0.42,
+        params: {
+          transitionType: 'whip-pan',
+          executionConfidence: 0.86,
+          momentWeight: 0.42,
+          signals: {
+            narrative_pressure: 0.82,
+            motionVectorX: 0.64,
+            silence_duration_ms: 320,
+          },
+        },
+      }),
+      decision({
+        type: 'zoom',
+        frame: 520,
+        source: 'signal-executor:weak-camera',
+        confidence: 0.95,
+        params: {
+          executionConfidence: 0.4,
+          momentWeight: 0.95,
+          signals: {
+            speech_energy: 0.88,
+            shot_scale: 'close',
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic', 'transition']);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 2,
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+
+    const transitionCandidate = merged.evidence.signalDecisionAudit.candidates.find(
+      (candidate) => candidate.source === 'signal-executor:nested-transition',
+    );
+    expect(transitionCandidate).toEqual(expect.objectContaining({
+      family: 'transition',
+      job: 'transition-boundary',
+      confidence: 0.86,
+      momentImportance: 0.42,
+      projectedAtoms: expect.objectContaining({
+        boundaryFrame: 300,
+        topicDelta: 0.82,
+        motionVectorX: 0.64,
+        speechGapMs: 320,
+      }),
+      sourcePacket: expect.objectContaining({
+        hasSignals: true,
+        signalKeys: ['motionVectorX', 'narrative_pressure', 'silence_duration_ms'],
+      }),
+    }));
+    const transitionDecision = merged.edl.decisions.find(
+      (decision) => decision.source === 'signal-executor:nested-transition',
+    );
+    expect(transitionDecision?.params).toEqual(expect.objectContaining({
+      transitionBoundaryPlan: expect.objectContaining({
+        version: 'transition-boundary-plan-v1',
+        visualTransitionAllowed: true,
+      }),
+      signals: expect.objectContaining({
+        motion_vector_x: 0.64,
+        topic_shift: 0.82,
+        silence_duration_ms: 320,
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        familyPlanner: expect.objectContaining({
+          family: 'transition',
+          visualTransitionAllowed: true,
+        }),
+      }),
+    }));
+
+    const weakZoom = merged.evidence.evidenceOnlySignalDecisions.find(
+      (sample) => sample.source === 'signal-executor:weak-camera',
+    );
+    expect(weakZoom).toEqual(expect.objectContaining({
+      family: 'camera',
+      reason: 'below-signal-confidence-floor',
+      confidence: 0.4,
+      candidate: expect.objectContaining({
+        confidence: 0.4,
+        momentImportance: 0.95,
+        projectedAtoms: expect.objectContaining({
+          speechPeak: 0.88,
+          shotScale: 'close',
+        }),
+      }),
     }));
   });
 

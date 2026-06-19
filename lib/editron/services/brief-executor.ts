@@ -45,6 +45,34 @@ export interface BriefExecutorOutput {
 
 const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
 
+type BriefSemanticFamily = 'camera' | 'transition' | 'graphic' | 'caption' | 'audio' | 'pacing' | 'unknown';
+
+interface BriefDecisionParamContext {
+  reason: string;
+  coordinateSource: 'timestamp' | 'beat' | 'word';
+  targetWordIdx?: number;
+  targetTimestampMs?: number;
+  targetBeatIdx?: number;
+}
+
+interface BriefSemanticCandidate {
+  version: 'brief-semantic-candidate-v1';
+  role: 'semantic-context';
+  executableAuthority: false;
+  originalType: BriefDecisionType;
+  family: BriefSemanticFamily;
+  reason: string;
+  timing: {
+    source: 'timestamp' | 'beat' | 'word';
+    targetWordIdx?: number;
+    resolvedWordIdx?: number;
+    targetTimestampMs?: number;
+    targetBeatIdx?: number;
+  };
+  compatibilityHints: Record<string, string>;
+  semanticFacts: Record<string, unknown>;
+}
+
 // ─── Main Function ──────────────────────────────────────────────────────────
 
 const ENERGY_SNAP_WINDOW_MS = 500;
@@ -238,7 +266,13 @@ function resolveDecisionToFrame(
     confidence,
     source: `creative-brief:${reason}:${coordinateSource}`,
     technique: type,
-    params: normalizeBriefDecisionParams(type, params, transcription, targetWordIdxForContext) as EditDecision['params'],
+    params: normalizeBriefDecisionParams(type, params, transcription, targetWordIdxForContext, {
+      reason,
+      coordinateSource,
+      targetWordIdx: decision.targetWordIdx,
+      targetTimestampMs: decision.targetTimestampMs,
+      targetBeatIdx: decision.targetBeatIdx,
+    }) as EditDecision['params'],
     reason: reason,
   };
 
@@ -294,34 +328,134 @@ function normalizeBriefDecisionParams(
   params: Record<string, unknown>,
   transcription: { word: string; startMs: number; endMs: number }[] = [],
   targetWordIdx: number | null = null,
+  context?: BriefDecisionParamContext,
 ): Record<string, unknown> {
-  const normalized: Record<string, unknown> = { ...(params ?? {}) };
+  const rawParams: Record<string, unknown> = { ...(params ?? {}) };
+  const normalized: Record<string, unknown> = { ...rawParams };
 
   // Path E owns intent and timing hints only. Concrete legacy form labels are
   // resolved later by atomic/utility resolvers in executeEDL.
   delete normalized.zoomType;
   delete normalized.graphicType;
+  delete normalized.transitionType;
+  delete normalized.transitionCompatibilityHint;
   delete normalized.scaleFrom;
   delete normalized.scaleTo;
   delete normalized.durationFrames;
   delete normalized.durationMs;
   delete normalized.direction;
+  if (type.startsWith('sfx_')) {
+    delete normalized.sfxType;
+    delete normalized.sfxCue;
+    delete normalized.soundEffectType;
+    delete normalized.audioDescription;
+    delete normalized.soundDescription;
+  }
 
   normalized.creativeDecisionType = type;
+  normalized.creativeDecisionAuthority = 'semantic-context';
   if (type.startsWith('transition_')) {
     const transitionAtoms = transitionAtomsFromBriefType(type);
     if (transitionAtoms) {
       normalized.transitionIntent = transitionAtoms.intent;
       normalized.transitionRelation = transitionAtoms.relation;
       normalized.transitionEnergy = transitionAtoms.energy;
-      normalized.transitionCompatibilityHint = transitionAtoms.compatibilityHint;
     }
   }
   if (type.startsWith('graphic_')) {
     atomizeGraphicDecision(normalized, transcription, targetWordIdx);
   }
+  normalized.creativeBriefSemanticCandidate = buildBriefSemanticCandidate(type, rawParams, normalized, targetWordIdx, context);
 
   return normalized;
+}
+
+function buildBriefSemanticCandidate(
+  type: BriefDecisionType,
+  rawParams: Record<string, unknown>,
+  normalized: Record<string, unknown>,
+  resolvedWordIdx: number | null,
+  context?: BriefDecisionParamContext,
+): BriefSemanticCandidate {
+  const transitionAtoms = transitionAtomsFromBriefType(type);
+  const timing: BriefSemanticCandidate['timing'] = {
+    source: context?.coordinateSource ?? 'word',
+  };
+  if (typeof context?.targetWordIdx === 'number' && Number.isFinite(context.targetWordIdx)) {
+    timing.targetWordIdx = context.targetWordIdx;
+  }
+  if (resolvedWordIdx !== null) timing.resolvedWordIdx = resolvedWordIdx;
+  if (typeof context?.targetTimestampMs === 'number' && Number.isFinite(context.targetTimestampMs)) {
+    timing.targetTimestampMs = context.targetTimestampMs;
+  }
+  if (typeof context?.targetBeatIdx === 'number' && Number.isFinite(context.targetBeatIdx)) {
+    timing.targetBeatIdx = context.targetBeatIdx;
+  }
+
+  return {
+    version: 'brief-semantic-candidate-v1',
+    role: 'semantic-context',
+    executableAuthority: false,
+    originalType: type,
+    family: briefSemanticFamily(type),
+    reason: context?.reason ?? 'unknown',
+    timing,
+    compatibilityHints: compactStringRecord({
+      legacyType: type,
+      transitionStyle: transitionAtoms?.compatibilityHint,
+      graphicKind: type.startsWith('graphic_') ? type.replace(/^graphic_/, '').replace(/_/g, '-') : undefined,
+      zoomKind: type.startsWith('zoom_') ? type.replace(/^zoom_/, '').replace(/_/g, '-') : stringParam(rawParams.zoomType),
+      sfxToken: type.startsWith('sfx_') ? sfxCompatibilityHint(type, rawParams) : undefined,
+      captionKind: type === 'caption_emphasis' ? 'emphasis' : undefined,
+    }),
+    semanticFacts: compactRecord({
+      transitionIntent: normalized.transitionIntent,
+      transitionRelation: normalized.transitionRelation,
+      transitionEnergy: normalized.transitionEnergy,
+      semanticAtoms: rawParams.semanticAtoms,
+      contentStructure: normalized.contentStructure,
+      text: normalized.text ?? rawParams.text,
+      title: normalized.title ?? rawParams.title,
+      body: normalized.body ?? rawParams.body,
+      quote: normalized.quote ?? rawParams.quote,
+      keyword: normalized.keyword ?? rawParams.keyword,
+      value: normalized.value ?? rawParams.value,
+      label: normalized.label ?? rawParams.label,
+      from: normalized.from ?? rawParams.from,
+      to: normalized.to ?? rawParams.to,
+      relation: normalized.relation ?? rawParams.relation,
+      items: normalized.items ?? rawParams.items,
+      audioIntent: rawParams.audioDescription ?? rawParams.soundDescription ?? rawParams.intent,
+    }),
+  };
+}
+
+function briefSemanticFamily(type: BriefDecisionType): BriefSemanticFamily {
+  if (type.startsWith('zoom_') || type.startsWith('camera_')) return 'camera';
+  if (type.startsWith('transition_')) return 'transition';
+  if (type.startsWith('graphic_')) return 'graphic';
+  if (type.startsWith('caption_')) return 'caption';
+  if (type.startsWith('sfx_') || type.startsWith('audio_')) return 'audio';
+  if (type.includes('pacing')) return 'pacing';
+  return 'unknown';
+}
+
+function sfxCompatibilityHint(type: BriefDecisionType, rawParams: Record<string, unknown>): string {
+  return stringParam(rawParams.sfxType)
+    || stringParam(rawParams.sfxCue)
+    || type.replace(/^sfx_/, '').replace(/_/g, '-');
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined && value !== null && value !== '')
+  );
+}
+
+function compactStringRecord(record: Record<string, string | null | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => typeof value === 'string' && value.length > 0)
+  ) as Record<string, string>;
 }
 
 function transitionAtomsFromBriefType(type: BriefDecisionType): {

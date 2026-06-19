@@ -116,6 +116,14 @@ describe('brief decision conversion', () => {
       technique: 'zoom_pull_back',
       params: {
         creativeDecisionType: 'zoom_pull_back',
+        creativeDecisionAuthority: 'semantic-context',
+        creativeBriefSemanticCandidate: expect.objectContaining({
+          family: 'camera',
+          executableAuthority: false,
+          compatibilityHints: expect.objectContaining({
+            zoomKind: 'pull-back',
+          }),
+        }),
       },
     });
   });
@@ -134,9 +142,14 @@ describe('brief decision conversion', () => {
       totalDurationMs: 3000,
     });
 
-    expect(output.edl.decisions[0].params).toEqual({
+    const params = output.edl.decisions[0].params as Record<string, unknown>;
+
+    expect(params).toEqual(expect.objectContaining({
       creativeDecisionType: 'zoom_pull_back',
-    });
+      creativeDecisionAuthority: 'semantic-context',
+    }));
+    expect(params).not.toHaveProperty('scaleFrom');
+    expect(params).not.toHaveProperty('scaleTo');
   });
 
   it('keeps transition and graphic decisions as intent/content, not preset form labels', () => {
@@ -163,21 +176,86 @@ describe('brief decision conversion', () => {
     });
 
     expect(output.edl.decisions).toHaveLength(2);
+    const transitionParams = output.edl.decisions[0].params as Record<string, unknown>;
+    const graphicParams = output.edl.decisions[1].params as Record<string, unknown>;
+
     expect(output.edl.decisions[0]).toMatchObject({
       type: 'transition',
       technique: 'transition_dissolve',
       params: {
         creativeDecisionType: 'transition_dissolve',
+        creativeDecisionAuthority: 'semantic-context',
         transitionIntent: 'continuity-blend',
         transitionRelation: 'soft-topic-bridge',
-        transitionCompatibilityHint: 'dissolve',
+        creativeBriefSemanticCandidate: expect.objectContaining({
+          family: 'transition',
+          executableAuthority: false,
+          compatibilityHints: expect.objectContaining({
+            transitionStyle: 'dissolve',
+          }),
+        }),
       },
     });
+    expect(transitionParams).not.toHaveProperty('transitionCompatibilityHint');
+    expect(transitionParams).not.toHaveProperty('transitionType');
+
     expect(output.edl.decisions[1]).toMatchObject({
       type: 'graphic',
       technique: 'graphic_stat_counter',
-      params: { creativeDecisionType: 'graphic_stat_counter', value: '42%', label: 'lift' },
+      params: {
+        creativeDecisionType: 'graphic_stat_counter',
+        creativeDecisionAuthority: 'semantic-context',
+        value: '42%',
+        label: 'lift',
+        creativeBriefSemanticCandidate: expect.objectContaining({
+          family: 'graphic',
+          executableAuthority: false,
+          compatibilityHints: expect.objectContaining({
+            graphicKind: 'stat-counter',
+          }),
+        }),
+      },
     });
+    expect(graphicParams).not.toHaveProperty('graphicType');
+  });
+
+  it('keeps SFX labels as semantic compatibility hints only', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'sfx_whoosh',
+        targetWordIdx: 1,
+        confidence: 0.8,
+        reason: 'emphasis_word',
+        params: {
+          sfxType: 'whoosh',
+          sfxCue: 'whoosh',
+          audioDescription: 'whoosh rise',
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    const params = output.edl.decisions[0].params as Record<string, unknown>;
+
+    expect(params).toEqual(expect.objectContaining({
+      creativeDecisionType: 'sfx_whoosh',
+      creativeDecisionAuthority: 'semantic-context',
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        family: 'audio',
+        executableAuthority: false,
+        compatibilityHints: expect.objectContaining({
+          sfxToken: 'whoosh',
+        }),
+        semanticFacts: expect.objectContaining({
+          audioIntent: 'whoosh rise',
+        }),
+      }),
+    }));
+    expect(params).not.toHaveProperty('sfxType');
+    expect(params).not.toHaveProperty('sfxCue');
+    expect(params).not.toHaveProperty('audioDescription');
   });
 
   it('converts semantic MG facts into structure atoms before executeEDL', () => {

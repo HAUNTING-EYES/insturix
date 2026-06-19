@@ -41,6 +41,8 @@ export interface UnifiedDecisionBundleAuthority {
   signalDecisionRole: 'none' | 'primary' | 'advisor' | 'co-owner';
   signalDecisionsCanAddExecutable: boolean;
   decisionMode: UnifiedDecisionExecutionMode;
+  creativeBriefRole?: 'semantic-context';
+  signalRole?: 'candidate-source';
 }
 
 export interface UnifiedSignalDecisionEvidence {
@@ -88,7 +90,12 @@ export type UnifiedSignalTimingAnchorKind = 'boundary' | 'moment' | 'span';
 export interface UnifiedSignalExecutionCandidate {
   version: 'signal-execution-candidate-v1';
   family: UnifiedSignalDecisionFamily;
+  job: UnifiedSignalDecisionRole;
   role: UnifiedSignalDecisionRole;
+  source: string;
+  signal: string;
+  confidence: number;
+  momentImportance: number;
   timingAnchor: {
     kind: UnifiedSignalTimingAnchorKind;
     frame: number;
@@ -96,8 +103,46 @@ export interface UnifiedSignalExecutionCandidate {
   };
   evidenceStrength: number;
   completeness: number;
+  physicalFormReadiness: number;
   risk: number;
   riskFlags: string[];
+  projectedAtoms: Record<string, string | number | boolean>;
+  sourcePacket: {
+    hasSignals: boolean;
+    signalKeys: string[];
+    hasAtomicMomentBundle: boolean;
+    hasUnifiedMomentEvidence: boolean;
+  };
+  calibrationStatus: 'invented-needs-calibration';
+}
+
+interface UnifiedTransitionBoundaryPlan {
+  version: 'transition-boundary-plan-v1';
+  family: 'transition';
+  source: 'signal-family-planner';
+  visualTransitionAllowed: boolean;
+  reasonKeys: string[];
+  atoms: Record<string, string | number | boolean>;
+  evidence: {
+    directionMagnitude: number;
+    intensity: number;
+    visualPressure: number;
+  };
+  calibrationStatus: 'invented-needs-calibration';
+}
+
+interface UnifiedZoomMotionPlan {
+  version: 'zoom-motion-plan-v1';
+  family: 'zoom';
+  source: 'signal-family-planner';
+  visualMotionAllowed: boolean;
+  reasonKeys: string[];
+  atoms: Record<string, string | number | boolean>;
+  evidence: {
+    intensity: number;
+    visualPressure: number;
+    hasSubjectAnchor: boolean;
+  };
   calibrationStatus: 'invented-needs-calibration';
 }
 
@@ -304,11 +349,19 @@ export function mergeSignalDrivenBundle(
     }
   }
 
+  const nextAuthority = authorityAfterSignalMerge(
+    primaryBundle.authority,
+    signalDecisionCount,
+    addedSignalDecisionCount,
+  );
   const mergedEdl = normalizeEdl({
     ...primaryBundle.edl,
-    decisions: mergedDecisionEntries
-      .map((entry) => entry.decision)
-      .sort((a, b) => a.frame - b.frame || a.priority - b.priority),
+    decisions: stampUnifiedPlannerOwnership(
+      mergedDecisionEntries
+        .map((entry) => entry.decision)
+        .sort((a, b) => a.frame - b.frame || a.priority - b.priority),
+      nextAuthority,
+    ),
   });
 
   return {
@@ -316,7 +369,7 @@ export function mergeSignalDrivenBundle(
     source: primaryBundle.authority.executableProducer === 'creative-brief'
       ? 'creative-brief+signal-driven'
       : primaryBundle.source,
-    authority: authorityAfterSignalMerge(primaryBundle.authority, signalDecisionCount, addedSignalDecisionCount),
+    authority: nextAuthority,
     edl: mergedEdl,
     expectedExecuted: mergedEdl.totalDecisions,
     expectedSkipped: primaryBundle.expectedSkipped,
@@ -386,15 +439,24 @@ function authorityAfterSignalMerge(
     return authority;
   }
 
-  const decisionMode = addedSignalDecisionCount > 0 ? 'unified-planner' : 'merged-supplemental';
+  const alreadyUnified = authority.decisionMode === 'unified-planner'
+    || (authority.executableProducer === 'unified-planner' && authority.signalDecisionsCanAddExecutable);
+  const hasExecutableSignalSupplement = addedSignalDecisionCount > 0 || alreadyUnified;
+  const decisionMode = hasExecutableSignalSupplement ? 'unified-planner' : 'merged-supplemental';
 
   return {
     version: 'unified-decision-authority-v1',
-    executableProducer: 'unified-planner',
+    executableProducer: hasExecutableSignalSupplement ? 'unified-planner' : authority.executableProducer,
     advisoryProducers: mergeAdvisoryProducers(authority.advisoryProducers, ['creative-brief', 'signal-driven']),
-    signalDecisionRole: addedSignalDecisionCount > 0 ? 'co-owner' : 'advisor',
-    signalDecisionsCanAddExecutable: addedSignalDecisionCount > 0,
+    signalDecisionRole: hasExecutableSignalSupplement ? 'co-owner' : 'advisor',
+    signalDecisionsCanAddExecutable: hasExecutableSignalSupplement,
     decisionMode,
+    ...(hasExecutableSignalSupplement
+      ? {
+          creativeBriefRole: 'semantic-context' as const,
+          signalRole: 'candidate-source' as const,
+        }
+      : {}),
   };
 }
 
@@ -543,9 +605,9 @@ function recordSignalDecisionAudit(
   const evidence = summarizeSignalDecisionEvidence(decision, candidate, outcome, reason);
   audit.totalCount++;
   audit.outcomes[outcome] = (audit.outcomes[outcome] ?? 0) + 1;
-  updateAuditBucket(audit.byType, decision.type, decision);
-  updateAuditBucket(audit.byFamily, candidate.family, decision);
-  updateAuditBucket(audit.byReason, reason, decision);
+  updateAuditBucket(audit.byType, decision.type, decision, candidate.confidence);
+  updateAuditBucket(audit.byFamily, candidate.family, decision, candidate.confidence);
+  updateAuditBucket(audit.byReason, reason, decision, candidate.confidence);
   if (audit.candidates.length < SIGNAL_AUDIT_CANDIDATE_LIMIT) {
     audit.candidates.push(candidate);
   }
@@ -573,9 +635,10 @@ function updateAuditBucket(
   buckets: Record<string, MutableSignalDecisionAuditBucket>,
   key: string,
   decision: ReactiveEditDecision,
+  normalizedConfidence = decision.confidence,
 ): void {
   const bucket = buckets[key] ?? createMutableAuditBucket();
-  const confidence = Number.isFinite(decision.confidence) ? decision.confidence : 0;
+  const confidence = Number.isFinite(normalizedConfidence) ? normalizedConfidence : 0;
   bucket.count++;
   bucket.confidenceSum += confidence;
   bucket.confidence.min = bucket.count === 1 ? confidence : Math.min(bucket.confidence.min, confidence);
@@ -617,25 +680,241 @@ function familyForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalD
 
 function normalizeSignalExecutionCandidate(decision: ReactiveEditDecision): UnifiedSignalExecutionCandidate {
   const family = familyForSignalDecision(decision);
+  const role = roleForSignalDecision(decision);
+  const projectedAtoms = projectSignalFamilyAtoms(decision);
+  const executionConfidence = signalExecutionConfidence(decision);
+  const momentImportance = signalMomentImportance(decision);
+  const evidenceStrength = signalEvidenceStrength(decision, executionConfidence);
   const completeness = completenessForSignalDecision(decision);
   const riskFlags = riskFlagsForSignalDecision(decision, completeness);
-  const risk = roundAuditNumber(Math.min(1, Math.max(0, (1 - decision.confidence) * 0.6 + (1 - completeness) * 0.4)));
+  const physicalFormReadiness = physicalFormReadinessForSignalDecision(decision, completeness, projectedAtoms, riskFlags);
+  const risk = roundAuditNumber(Math.min(1, Math.max(0, (1 - executionConfidence) * 0.45 + (1 - completeness) * 0.35 + (1 - physicalFormReadiness) * 0.2)));
 
   return {
     version: 'signal-execution-candidate-v1',
     family,
-    role: roleForSignalDecision(decision),
+    job: role,
+    role,
+    source: decision.source,
+    signal: decision.signal,
+    confidence: executionConfidence,
+    momentImportance,
     timingAnchor: {
       kind: timingAnchorKindForSignalDecision(decision),
       frame: decision.frame,
       durationFrames: Math.max(1, decision.durationFrames ?? 1),
     },
-    evidenceStrength: roundAuditNumber(clamp01(decision.confidence)),
+    evidenceStrength,
     completeness,
+    physicalFormReadiness,
     risk,
     riskFlags,
+    projectedAtoms,
+    sourcePacket: summarizeSignalSourcePacket(decision),
     calibrationStatus: 'invented-needs-calibration',
   };
+}
+
+function signalExecutionConfidence(decision: ReactiveEditDecision): number {
+  return roundAuditNumber(clamp01(numberParam(decision.params.executionConfidence)
+    ?? numberParam(decision.params.candidateConfidence)
+    ?? numberParam(decision.params.familyConfidence)
+    ?? decision.confidence));
+}
+
+function signalMomentImportance(decision: ReactiveEditDecision): number {
+  return roundAuditNumber(clamp01(numberParam(decision.params.momentImportance)
+    ?? numberParam(decision.params.momentWeight)
+    ?? numberParam(decision.params.momentScore)
+    ?? decision.confidence));
+}
+
+function signalEvidenceStrength(decision: ReactiveEditDecision, executionConfidence: number): number {
+  return roundAuditNumber(clamp01(numberParam(decision.params.evidenceStrength)
+    ?? numberParam(decision.params.signalEvidenceStrength)
+    ?? executionConfidence));
+}
+
+function physicalFormReadinessForSignalDecision(
+  decision: ReactiveEditDecision,
+  completeness: number,
+  projectedAtoms: Record<string, string | number | boolean>,
+  riskFlags: string[],
+): number {
+  const atomBonus = Object.keys(projectedAtoms).length > 0 ? 0.18 : 0;
+  const directFormBonus = hasAnyDirectParam(decision, [
+    'transitionType',
+    'type',
+    'sfxType',
+    'targetScale',
+    'scale',
+    'intensity',
+    'value',
+    'label',
+    'keyword',
+    'text',
+  ]) ? 0.12 : 0;
+  const riskPenalty = riskFlags.length > 0 ? 0.16 : 0;
+  return roundAuditNumber(clamp01(completeness * 0.7 + atomBonus + directFormBonus - riskPenalty));
+}
+
+function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string, string | number | boolean> {
+  const atoms: Record<string, string | number | boolean> = {};
+  const family = familyForSignalDecision(decision);
+  const sourcePacket = summarizeSignalSourcePacket(decision);
+
+  const setAtom = (atom: string, aliases: string[]): void => {
+    const value = lookupSourcePrimitive(decision, aliases);
+    if (value !== undefined) atoms[atom] = value;
+  };
+
+  if (family === 'transition' || family === 'pacing') {
+    setAtom('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
+    setAtom('speechGapMs', ['speechGapMs', 'pauseMs', 'silence_duration_ms', 'speech_gap_ms']);
+    setAtom('beatPhase', ['beatPhase', 'music_tatum', 'beat_phase']);
+    setAtom('visualContinuity', ['visualContinuity', 'visual_continuity', 'visual_complexity']);
+    setAtom('motionVectorX', ['motionVectorX', 'motion_vector_x', 'visual_motion_x']);
+    setAtom('motionVectorY', ['motionVectorY', 'motion_vector_y', 'visual_motion_y']);
+    setAtom('motionIntensity', ['motionIntensity', 'motion_intensity', 'visual.motion_intensity', 'visualMotion']);
+    setAtom('visualChange', ['visualChange', 'visual_change', 'visual_change_rate', 'visual.significance']);
+    setAtom('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
+    setAtom('emotionJump', ['emotionJump', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
+    setAtom('textCoverage', ['textCoverage', 'text_coverage', 'visual.text_coverage']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+    if (family === 'transition' && !hasAnyDirectParam(decision, ['boundaryFrame', 'boundaryAtom', 'clipAId', 'clipBId'])) {
+      const hasProjectedBoundaryReason = [
+        'topicDelta',
+        'speechGapMs',
+        'beatPhase',
+        'visualContinuity',
+        'motionVectorX',
+        'motionVectorY',
+        'motionIntensity',
+        'visualChange',
+        'beatStrength',
+        'emotionJump',
+      ]
+        .some((atom) => atoms[atom] !== undefined);
+      if (sourcePacket.hasSignals && hasProjectedBoundaryReason) atoms.boundaryFrame = decision.frame;
+    }
+  }
+
+  if (family === 'camera') {
+    setAtom('mainSubjectX', ['mainSubjectX', 'subjectX', 'main_subject_x', 'subject_x']);
+    setAtom('mainSubjectY', ['mainSubjectY', 'subjectY', 'main_subject_y', 'subject_y']);
+    setAtom('mainSubjectWidth', ['mainSubjectWidth', 'subjectWidth', 'main_subject_width', 'subject_width']);
+    setAtom('mainSubjectHeight', ['mainSubjectHeight', 'subjectHeight', 'main_subject_height', 'subject_height']);
+    setAtom('facePresent', ['facePresent', 'face_present', 'visual.face_present']);
+    setAtom('motionVectorX', ['motionVectorX', 'motion_vector_x', 'visual_motion_x']);
+    setAtom('motionVectorY', ['motionVectorY', 'motion_vector_y', 'visual_motion_y']);
+    setAtom('shotScale', ['shotScale', 'shot_scale']);
+    setAtom('speechPeak', ['speechPeak', 'speech_energy', 'energy_delta', 'speech.energy']);
+    setAtom('wordImportance', ['wordImportance', 'word_importance', 'word.importance']);
+    setAtom('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
+    setAtom('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
+    setAtom('visualSignificance', ['visualSignificance', 'visual_significance', 'visual.significance']);
+    setAtom('visualMotion', ['visualMotion', 'motion_intensity', 'visual.motion_intensity']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
+    setAtom('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
+  }
+
+  if (family === 'audio') {
+    setAtom('beatStrength', ['beatStrength', 'music_energy', 'audio.music_energy']);
+    setAtom('phraseImpact', ['phraseImpact', 'visceral_impact', 'emotion_intensity', 'speech_energy']);
+    setAtom('rhythmRole', ['rhythmRole', 'music_section', 'audio.music_section']);
+    if (!hasAnyDirectParam(decision, ['beatFrame', 'anchorFrame']) && atoms.beatStrength !== undefined) {
+      atoms.beatFrame = decision.frame;
+    }
+  }
+
+  if (family === 'caption') {
+    setAtom('speechRate', ['speechRate', 'speaking_rate_wpm', 'speech.speaking_rate_wpm']);
+    setAtom('keyword', ['keyword', 'targetWord', 'word', 'phrase']);
+    setAtom('momentId', ['momentId', 'segmentId']);
+  }
+
+  if (family === 'timing') {
+    setAtom('motionIntensity', ['motionIntensity', 'motion_intensity', 'visual.motion_intensity']);
+    setAtom('speechRate', ['speechRate', 'speaking_rate_wpm']);
+    setAtom('beatStrength', ['beatStrength', 'music_energy']);
+  }
+
+  return atoms;
+}
+
+function summarizeSignalSourcePacket(decision: ReactiveEditDecision): UnifiedSignalExecutionCandidate['sourcePacket'] {
+  const signals = recordParam(decision.params.signals);
+  const signalKeys = signals ? Object.keys(signals).sort().slice(0, 40) : [];
+  return {
+    hasSignals: signalKeys.length > 0,
+    signalKeys,
+    hasAtomicMomentBundle: recordParam(decision.params.atomicMomentBundle) !== null,
+    hasUnifiedMomentEvidence: recordParam(decision.params.unifiedMomentEvidence) !== null,
+  };
+}
+
+function lookupSourcePrimitive(decision: ReactiveEditDecision, aliases: string[]): string | number | boolean | undefined {
+  const sources = [
+    recordParam(decision.params.signals),
+    recordParam(decision.params.atomicMomentBundle),
+    recordParam(decision.params.unifiedMomentEvidence),
+  ].filter((source): source is Record<string, unknown> => source !== null);
+
+  for (const source of sources) {
+    const value = lookupPrimitiveInRecord(source, aliases, 0);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function lookupPrimitiveInRecord(
+  record: Record<string, unknown>,
+  aliases: string[],
+  depth: number,
+): string | number | boolean | undefined {
+  if (depth > 3) return undefined;
+  for (const alias of aliases) {
+    const directValue = valueAtPath(record, alias);
+    const primitive = primitiveSignalValue(directValue);
+    if (primitive !== undefined) return primitive;
+  }
+  for (const value of Object.values(record)) {
+    const nested = recordParam(value);
+    if (!nested) continue;
+    const primitive = lookupPrimitiveInRecord(nested, aliases, depth + 1);
+    if (primitive !== undefined) return primitive;
+  }
+  return undefined;
+}
+
+function valueAtPath(record: Record<string, unknown>, path: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(record, path)) return record[path];
+  if (!path.includes('.')) return undefined;
+  let current: unknown = record;
+  for (const part of path.split('.')) {
+    const currentRecord = recordParam(current);
+    if (!currentRecord || !Object.prototype.hasOwnProperty.call(currentRecord, part)) return undefined;
+    current = currentRecord[part];
+  }
+  return current;
+}
+
+function primitiveSignalValue(value: unknown): string | number | boolean | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  return undefined;
+}
+
+function recordParam(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function numberParam(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function roleForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalDecisionRole {
@@ -715,7 +994,7 @@ function riskFlagsForSignalDecision(decision: ReactiveEditDecision, completeness
   const flags: string[] = [];
   const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[decision.type];
   if (minConfidence === undefined) flags.push('unsupported-executable-type');
-  if (minConfidence !== undefined && decision.confidence < minConfidence) flags.push('below-execution-confidence');
+  if (minConfidence !== undefined && signalExecutionConfidence(decision) < minConfidence) flags.push('below-execution-confidence');
   if (completeness < 0.8) flags.push('incomplete-intent');
 
   if (decision.type === 'transition') {
@@ -741,11 +1020,20 @@ function riskFlagsForSignalDecision(decision: ReactiveEditDecision, completeness
 }
 
 function hasAnyParam(decision: ReactiveEditDecision, keys: string[]): boolean {
+  const projectedAtoms = projectSignalFamilyAtoms(decision);
   return keys.some((key) => {
-    const value = decision.params[key];
-    if (typeof value === 'string') return value.trim().length > 0;
-    return value !== undefined && value !== null;
+    if (hasDirectParamValue(decision.params[key])) return true;
+    return hasDirectParamValue(projectedAtoms[key]);
   });
+}
+
+function hasAnyDirectParam(decision: ReactiveEditDecision, keys: string[]): boolean {
+  return keys.some((key) => hasDirectParamValue(decision.params[key]));
+}
+
+function hasDirectParamValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== undefined && value !== null;
 }
 
 function hasEvidenceBackedGraphicContent(decision: ReactiveEditDecision): boolean {
@@ -758,6 +1046,342 @@ function hasEvidenceBackedGraphicContent(decision: ReactiveEditDecision): boolea
   if (Array.isArray(items)) return items.length > 0;
 
   return false;
+}
+
+function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedTransitionBoundaryPlan | null {
+  if (familyForSignalDecision(decision) !== 'transition') return null;
+
+  const atoms = projectSignalFamilyAtoms(decision);
+  const topicDelta = transitionAtomNumber(atoms, 'topicDelta');
+  const speechGapMs = transitionAtomRawNumber(atoms, 'speechGapMs');
+  const beatStrength = transitionAtomNumber(atoms, 'beatStrength');
+  const emotionJump = transitionAtomNumber(atoms, 'emotionJump');
+  const motionIntensity = transitionAtomNumber(atoms, 'motionIntensity');
+  const visualChange = transitionAtomNumber(atoms, 'visualChange');
+  const textCoverage = transitionAtomNumber(atoms, 'textCoverage');
+  const textOnScreen = transitionAtomNumber(atoms, 'textOnScreen');
+  const visualContinuity = transitionAtomNumber(atoms, 'visualContinuity');
+  const directionX = transitionAtomSignedNumber(atoms, 'motionVectorX');
+  const directionY = transitionAtomSignedNumber(atoms, 'motionVectorY');
+  const directionMagnitude = roundAuditNumber(clamp01(Math.max(Math.abs(directionX), Math.abs(directionY))));
+  const visualPressure = roundAuditNumber(clamp01(Math.max(
+    textCoverage,
+    textOnScreen,
+    visualContinuity,
+    motionIntensity * 0.48,
+    visualChange * 0.36,
+  )));
+  const intensity = roundAuditNumber(clamp01(Math.max(
+    beatStrength,
+    topicDelta * 0.92,
+    emotionJump * 0.88,
+    motionIntensity * 0.76,
+    visualChange * 0.72,
+    directionMagnitude * 0.7,
+  )));
+  const reasonKeys = transitionBoundaryReasonKeys({
+    atoms,
+    decision,
+    directionMagnitude,
+    motionIntensity,
+    topicDelta,
+    beatStrength,
+    emotionJump,
+    visualChange,
+    speechGapMs,
+    visualPressure,
+  });
+
+  if (!transitionHasBoundaryAnchor(decision, atoms) || reasonKeys.length === 0) return null;
+
+  const visualTransitionAllowed = transitionBoundaryLicensesVisual({
+    directionMagnitude,
+    intensity,
+    topicDelta,
+    beatStrength,
+    emotionJump,
+    motionIntensity,
+    speechGapMs,
+    visualPressure,
+    textOnScreen,
+  });
+
+  return {
+    version: 'transition-boundary-plan-v1',
+    family: 'transition',
+    source: 'signal-family-planner',
+    visualTransitionAllowed,
+    reasonKeys,
+    atoms,
+    evidence: {
+      directionMagnitude,
+      intensity,
+      visualPressure,
+    },
+    calibrationStatus: 'invented-needs-calibration',
+  };
+}
+
+function transitionAtomNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  return typeof value === 'number' && Number.isFinite(value) ? clamp01(value) : 0;
+}
+
+function transitionAtomRawNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function transitionAtomSignedNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return roundAuditNumber(Math.max(-1, Math.min(1, value)));
+}
+
+function transitionHasBoundaryAnchor(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+): boolean {
+  return [
+    'boundaryAtom',
+    'boundaryFrame',
+    'clipAId',
+    'clipBId',
+    'transitionFrame',
+    'cutFrame',
+  ].some((key) => hasDirectParamValue(decision.params[key]) || hasDirectParamValue(atoms[key]));
+}
+
+function transitionBoundaryReasonKeys(input: {
+  atoms: Record<string, string | number | boolean>;
+  decision: ReactiveEditDecision;
+  directionMagnitude: number;
+  motionIntensity: number;
+  topicDelta: number;
+  beatStrength: number;
+  emotionJump: number;
+  visualChange: number;
+  speechGapMs: number;
+  visualPressure: number;
+}): string[] {
+  const reasonKeys: string[] = [];
+  if (hasAnyDirectParam(input.decision, ['transitionJob', 'transition_job'])) reasonKeys.push('explicit-job');
+  if (hasAnyDirectParam(input.decision, ['transitionIntent'])) reasonKeys.push('explicit-intent');
+  if (input.directionMagnitude >= 0.32) reasonKeys.push('motion-direction');
+  if (input.motionIntensity >= 0.48) reasonKeys.push('visual-motion');
+  if (input.topicDelta >= 0.38) reasonKeys.push('topic-shift');
+  if (input.beatStrength >= 0.62) reasonKeys.push('beat');
+  if (input.emotionJump >= 0.62) reasonKeys.push('emotion');
+  if (input.visualChange >= 0.45) reasonKeys.push('visual-change');
+  if (input.speechGapMs >= 220) reasonKeys.push('speech-gap');
+  if (input.visualPressure >= 0.72) reasonKeys.push('visual-pressure');
+  return [...new Set(reasonKeys)];
+}
+
+function transitionBoundaryLicensesVisual(input: {
+  directionMagnitude: number;
+  intensity: number;
+  topicDelta: number;
+  beatStrength: number;
+  emotionJump: number;
+  motionIntensity: number;
+  speechGapMs: number;
+  visualPressure: number;
+  textOnScreen: number;
+}): boolean {
+  if (input.visualPressure >= 0.86 || input.textOnScreen >= 0.72) return false;
+  return input.directionMagnitude >= 0.48
+    || (input.directionMagnitude >= 0.32 && input.motionIntensity >= 0.48)
+    || input.intensity >= 0.84
+    || input.beatStrength >= 0.72
+    || (input.speechGapMs >= 450 && input.topicDelta >= 0.38)
+    || input.topicDelta >= 0.56
+    || input.emotionJump >= 0.62;
+}
+
+function transitionSignalAliases(plan: UnifiedTransitionBoundaryPlan): Record<string, unknown> {
+  const aliases: Record<string, unknown> = {};
+  const assign = (alias: string, atom: string): void => {
+    const value = plan.atoms[atom];
+    if (value !== undefined) aliases[alias] = value;
+  };
+
+  assign('topic_shift', 'topicDelta');
+  assign('silence_duration_ms', 'speechGapMs');
+  assign('beat_phase', 'beatPhase');
+  assign('visual_continuity', 'visualContinuity');
+  assign('motion_vector_x', 'motionVectorX');
+  assign('motion_vector_y', 'motionVectorY');
+  assign('motion_intensity', 'motionIntensity');
+  assign('visual_significance', 'visualChange');
+  assign('beat_strength', 'beatStrength');
+  assign('emotion_intensity', 'emotionJump');
+  assign('text_coverage', 'textCoverage');
+  assign('text_on_screen', 'textOnScreen');
+  return aliases;
+}
+
+function resolveZoomMotionPlan(decision: ReactiveEditDecision): UnifiedZoomMotionPlan | null {
+  if (decision.type !== 'zoom' || familyForSignalDecision(decision) !== 'camera') return null;
+
+  const atoms = zoomMotionAtoms(decision);
+  const speechPeak = zoomAtomNumber(atoms, 'speechPeak');
+  const wordImportance = zoomAtomNumber(atoms, 'wordImportance');
+  const beatStrength = zoomAtomNumber(atoms, 'beatStrength');
+  const emotionIntensity = zoomAtomNumber(atoms, 'emotionIntensity');
+  const visualSignificance = zoomAtomNumber(atoms, 'visualSignificance');
+  const visualMotion = zoomAtomNumber(atoms, 'visualMotion');
+  const shotScale = zoomAtomNumber(atoms, 'shotScale');
+  const textOnScreen = zoomAtomNumber(atoms, 'textOnScreen');
+  const visualComplexity = zoomAtomNumber(atoms, 'visualComplexity');
+  const topicDelta = zoomAtomNumber(atoms, 'topicDelta');
+  const hasSubjectAnchor = zoomHasSubjectAnchor(atoms);
+  const intensity = roundAuditNumber(clamp01(Math.max(
+    speechPeak,
+    wordImportance,
+    beatStrength,
+    emotionIntensity,
+    visualSignificance * 0.86,
+    visualMotion * 0.72,
+  )));
+  const visualPressure = roundAuditNumber(clamp01(Math.max(
+    textOnScreen,
+    visualComplexity,
+    visualMotion * 0.66,
+    shotScale * 0.18,
+  )));
+  const reasonKeys = zoomMotionReasonKeys({
+    speechPeak,
+    wordImportance,
+    beatStrength,
+    emotionIntensity,
+    visualSignificance,
+    visualMotion,
+    topicDelta,
+    hasSubjectAnchor,
+    visualPressure,
+  });
+
+  if (reasonKeys.length === 0) return null;
+
+  const visualMotionAllowed = intensity >= 0.45 && visualPressure < 0.9;
+
+  return {
+    version: 'zoom-motion-plan-v1',
+    family: 'zoom',
+    source: 'signal-family-planner',
+    visualMotionAllowed,
+    reasonKeys,
+    atoms,
+    evidence: {
+      intensity,
+      visualPressure,
+      hasSubjectAnchor,
+    },
+    calibrationStatus: 'invented-needs-calibration',
+  };
+}
+
+function zoomMotionAtoms(decision: ReactiveEditDecision): Record<string, string | number | boolean> {
+  const atoms = { ...projectSignalFamilyAtoms(decision) };
+  const setFallback = (atom: string, aliases: string[]): void => {
+    if (atoms[atom] !== undefined) return;
+    const value = lookupPrimitiveInRecord(decision.params, aliases, 0);
+    if (value !== undefined) atoms[atom] = value;
+  };
+
+  setFallback('mainSubjectX', ['mainSubjectX', 'subjectX', 'main_subject_x', 'subject_x']);
+  setFallback('mainSubjectY', ['mainSubjectY', 'subjectY', 'main_subject_y', 'subject_y']);
+  setFallback('mainSubjectWidth', ['mainSubjectWidth', 'subjectWidth', 'main_subject_width', 'subject_width']);
+  setFallback('mainSubjectHeight', ['mainSubjectHeight', 'subjectHeight', 'main_subject_height', 'subject_height']);
+  setFallback('facePresent', ['facePresent', 'face_present', 'visual.face_present']);
+  setFallback('shotScale', ['shotScale', 'shot_scale']);
+  setFallback('speechPeak', ['speechPeak', 'speech_energy', 'energy_delta', 'speech.energy']);
+  setFallback('wordImportance', ['wordImportance', 'word_importance', 'word.importance']);
+  setFallback('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
+  setFallback('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
+  setFallback('visualSignificance', ['visualSignificance', 'visual_significance', 'visual.significance']);
+  setFallback('visualMotion', ['visualMotion', 'motion_intensity', 'visual.motion_intensity']);
+  setFallback('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+  setFallback('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
+  setFallback('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
+  return atoms;
+}
+
+function zoomAtomNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return clamp01(value);
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return 0;
+}
+
+function zoomMotionReasonKeys(input: {
+  speechPeak: number;
+  wordImportance: number;
+  beatStrength: number;
+  emotionIntensity: number;
+  visualSignificance: number;
+  visualMotion: number;
+  topicDelta: number;
+  hasSubjectAnchor: boolean;
+  visualPressure: number;
+}): string[] {
+  const reasonKeys: string[] = [];
+  if (input.speechPeak >= 0.58) reasonKeys.push('speech-peak');
+  if (input.wordImportance >= 0.58) reasonKeys.push('word-importance');
+  if (input.beatStrength >= 0.62) reasonKeys.push('beat');
+  if (input.emotionIntensity >= 0.58) reasonKeys.push('emotion');
+  if (input.visualSignificance >= 0.48) reasonKeys.push('visual-significance');
+  if (input.visualMotion >= 0.48) reasonKeys.push('visual-motion');
+  if (input.topicDelta >= 0.62) reasonKeys.push('topic-shift');
+  if (input.hasSubjectAnchor) reasonKeys.push('subject-anchor');
+  if (input.visualPressure >= 0.72) reasonKeys.push('visual-pressure');
+  return reasonKeys;
+}
+
+function zoomHasSubjectAnchor(atoms: Record<string, string | number | boolean>): boolean {
+  return zoomAtomNumber(atoms, 'mainSubjectX') > 0
+    || zoomAtomNumber(atoms, 'mainSubjectY') > 0
+    || zoomAtomNumber(atoms, 'mainSubjectWidth') > 0
+    || zoomAtomNumber(atoms, 'mainSubjectHeight') > 0
+    || zoomAtomNumber(atoms, 'facePresent') >= 0.5;
+}
+
+function zoomSignalAliases(plan: UnifiedZoomMotionPlan): Record<string, unknown> {
+  const aliases: Record<string, unknown> = {};
+  const assign = (alias: string, atom: string): void => {
+    const value = plan.atoms[atom];
+    if (value !== undefined) aliases[alias] = value;
+  };
+
+  assign('main_subject_x', 'mainSubjectX');
+  assign('main_subject_y', 'mainSubjectY');
+  assign('main_subject_width', 'mainSubjectWidth');
+  assign('main_subject_height', 'mainSubjectHeight');
+  assign('face_present', 'facePresent');
+  assign('shot_scale', 'shotScale');
+  assign('speech_energy', 'speechPeak');
+  assign('word_importance', 'wordImportance');
+  assign('beat_strength', 'beatStrength');
+  assign('emotion_intensity', 'emotionIntensity');
+  assign('visual_significance', 'visualSignificance');
+  assign('motion_intensity', 'visualMotion');
+  assign('text_on_screen', 'textOnScreen');
+  assign('visual_complexity', 'visualComplexity');
+  assign('topic_shift', 'topicDelta');
+  return aliases;
 }
 
 function createMutableAuditBucket(): MutableSignalDecisionAuditBucket {
@@ -854,22 +1478,14 @@ function resolveSignalExecutionLicense(
   signalDecision: ReactiveEditDecision,
   budgets: Partial<Record<ReactiveEditDecision['type'], number>>,
 ): { executable: boolean; reason: string } {
+  const candidate = normalizeSignalExecutionCandidate(signalDecision);
   const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[signalDecision.type];
   if (minConfidence === undefined) {
     return { executable: false, reason: 'unsupported-signal-decision-type' };
   }
 
-  if (signalDecision.confidence < minConfidence) {
+  if (candidate.confidence < minConfidence) {
     return { executable: false, reason: 'below-signal-confidence-floor' };
-  }
-
-  if (signalDecision.type === 'transition') {
-    const transitionType = normalizeParamString(
-      signalDecision.params.transitionType ?? signalDecision.params.type ?? signalDecision.params.transType,
-    );
-    if (NON_EXECUTABLE_TRANSITION_TYPES.has(transitionType)) {
-      return { executable: false, reason: 'hard-cut-is-boundary-evidence' };
-    }
   }
 
   if (signalDecision.type === 'sfx' || signalDecision.type === 'sfx-trigger') {
@@ -913,13 +1529,9 @@ function resolveFamilyExecutionLicense(
 ): { executable: boolean; reason: string } {
   switch (familyForSignalDecision(decision)) {
     case 'transition':
-      return hasTransitionBoundaryEvidence(decision)
-        ? { executable: true, reason: 'licensed-by-transition-boundary-atoms' }
-        : { executable: false, reason: 'missing-transition-boundary-atoms' };
+      return resolveTransitionExecutionLicense(decision);
     case 'camera':
-      return hasCameraMotionEvidence(decision)
-        ? { executable: true, reason: 'licensed-by-camera-motion-atoms' }
-        : { executable: false, reason: 'missing-camera-motion-atoms' };
+      return resolveCameraExecutionLicense(decision);
     case 'audio':
       if (isTransitionAnchoredSfx(decision)) {
         return hasTransitionSfxBoundaryEvidence(decision)
@@ -948,18 +1560,67 @@ function resolveFamilyExecutionLicense(
   }
 }
 
+function resolveTransitionExecutionLicense(decision: ReactiveEditDecision): { executable: boolean; reason: string } {
+  const transitionType = normalizeParamString(
+    decision.params.transitionType ?? decision.params.type ?? decision.params.transType,
+  );
+  const isNonExecutableCompatibilityHint = NON_EXECUTABLE_TRANSITION_TYPES.has(transitionType);
+  const plan = resolveTransitionBoundaryPlan(decision);
+
+  if (!hasTransitionBoundaryEvidence(decision)) {
+    return isNonExecutableCompatibilityHint
+      ? { executable: false, reason: 'hard-cut-is-boundary-evidence' }
+      : { executable: false, reason: 'missing-transition-boundary-atoms' };
+  }
+
+  if (isNonExecutableCompatibilityHint) {
+    return plan?.visualTransitionAllowed
+      ? { executable: true, reason: 'licensed-by-transition-family-plan' }
+      : { executable: false, reason: 'hard-cut-is-boundary-evidence' };
+  }
+
+  if (plan && !plan.visualTransitionAllowed) {
+    return { executable: false, reason: 'transition-family-plan-kept-clean-cut' };
+  }
+
+  return { executable: true, reason: 'licensed-by-transition-boundary-atoms' };
+}
+
+function resolveCameraExecutionLicense(decision: ReactiveEditDecision): { executable: boolean; reason: string } {
+  if (!hasCameraMotionEvidence(decision)) {
+    return { executable: false, reason: 'missing-camera-motion-atoms' };
+  }
+
+  if (decision.type === 'zoom') {
+    const zoomPlan = resolveZoomMotionPlan(decision);
+    if (zoomPlan && !zoomPlan.visualMotionAllowed) {
+      return { executable: false, reason: 'zoom-family-plan-kept-clean-camera' };
+    }
+  }
+
+  return { executable: true, reason: 'licensed-by-camera-motion-atoms' };
+}
+
 function hasTransitionBoundaryEvidence(decision: ReactiveEditDecision): boolean {
   const hasBoundaryAnchor = hasAnyParam(decision, [
     'boundaryAtom',
     'boundaryFrame',
     'clipAId',
     'clipBId',
+    'transitionFrame',
+    'cutFrame',
   ]);
   const hasBoundaryReason = hasAnyParam(decision, [
     'topicDelta',
     'speechGapMs',
     'beatPhase',
     'visualContinuity',
+    'motionIntensity',
+    'visualChange',
+    'beatStrength',
+    'emotionJump',
+    'textCoverage',
+    'textOnScreen',
     'transitionJob',
     'relation',
     'motionVectorX',
@@ -982,8 +1643,13 @@ function hasCameraMotionEvidence(decision: ReactiveEditDecision): boolean {
     'speechPeak',
     'beatStrength',
     'wordImportance',
+    'emotionIntensity',
     'emotion',
+    'visualSignificance',
     'visualMotion',
+    'textOnScreen',
+    'visualComplexity',
+    'topicDelta',
   ]);
 }
 
@@ -1099,7 +1765,7 @@ function summarizeSignalDecisionEvidence(
     candidate,
     frame: decision.frame,
     ...(decision.durationFrames === undefined ? {} : { durationFrames: decision.durationFrames }),
-    confidence: decision.confidence,
+    confidence: candidate.confidence,
     source: decision.source,
     signal: decision.signal,
     reason: reason ?? decision.reason,
@@ -1218,19 +1884,110 @@ function attachSignalValidation(primary: ReactiveEditDecision, signalDecision: R
   };
 }
 
-function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+  const transitionPlan = resolveTransitionBoundaryPlan(signalDecision);
+  if (transitionPlan) {
+    const existingSignals = recordParam(signalDecision.params.signals) ?? {};
+    return {
+      ...signalDecision,
+      params: {
+        ...signalDecision.params,
+        signals: {
+          ...existingSignals,
+          ...transitionSignalAliases(transitionPlan),
+        },
+        transitionBoundaryPlan: transitionPlan,
+        unifiedDecisionMerge: {
+          ...readMergeMetadata(signalDecision),
+          familyPlanner: {
+            version: 'transition-family-planner-v1',
+            family: 'transition',
+            visualTransitionAllowed: transitionPlan.visualTransitionAllowed,
+            executionLicense: reason,
+            reasonKeys: transitionPlan.reasonKeys,
+          },
+        },
+      },
+    };
+  }
+
+  const zoomPlan = resolveZoomMotionPlan(signalDecision);
+  if (!zoomPlan) return signalDecision;
+  const existingSignals = recordParam(signalDecision.params.signals) ?? {};
   return {
     ...signalDecision,
     params: {
       ...signalDecision.params,
+      signals: {
+        ...existingSignals,
+        ...zoomSignalAliases(zoomPlan),
+      },
+      zoomMotionPlan: zoomPlan,
       unifiedDecisionMerge: {
         ...readMergeMetadata(signalDecision),
+        familyPlanner: {
+          version: 'zoom-family-planner-v1',
+          family: 'zoom',
+          visualMotionAllowed: zoomPlan.visualMotionAllowed,
+          executionLicense: reason,
+          reasonKeys: zoomPlan.reasonKeys,
+        },
+      },
+    },
+  };
+}
+
+function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+  const plannedDecision = applySignalFamilyPlanner(signalDecision, reason);
+  return {
+    ...plannedDecision,
+    params: {
+      ...plannedDecision.params,
+      unifiedDecisionMerge: {
+        ...readMergeMetadata(plannedDecision),
         version: 'unified-decision-bundle-v1',
         role: 'signal-supplement',
         executionLicense: reason,
       },
     },
   };
+}
+
+function stampUnifiedPlannerOwnership(
+  decisions: ReactiveEditDecision[],
+  authority: UnifiedDecisionBundleAuthority,
+): ReactiveEditDecision[] {
+  if (authority.executableProducer !== 'unified-planner' || authority.decisionMode !== 'unified-planner') {
+    return decisions;
+  }
+
+  return decisions.map((decision) => {
+    const existingMerge = readMergeMetadata(decision);
+    const plannerRole = typeof existingMerge.role === 'string' && existingMerge.role.trim().length > 0
+      ? existingMerge.role
+      : 'planner-owned-primary';
+
+    return {
+      ...decision,
+      params: {
+        ...decision.params,
+        unifiedDecisionMerge: {
+          ...existingMerge,
+          version: 'unified-decision-bundle-v1',
+          role: plannerRole,
+          plannerOwned: true,
+        },
+        unifiedDecisionOwner: {
+          version: 'unified-decision-owner-v1',
+          owner: 'unified-planner',
+          creativeBriefRole: 'semantic-context',
+          signalRole: 'candidate-source',
+          producerSource: decision.source,
+          plannerRole,
+        },
+      },
+    };
+  });
 }
 
 function readMergeMetadata(decision: ReactiveEditDecision): Record<string, unknown> {
