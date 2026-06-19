@@ -936,6 +936,14 @@ describe('unified decision bundle merge', () => {
           sfxAnchor: 'transition',
           boundaryFrame: 420,
           transitionJob: 'emphasize-turn',
+          beatStrength: 0.78,
+          silencePocketMs: 260,
+          providerQuality: 0.82,
+          providerConfidence: 0.84,
+          assetQualityFloor: 0.64,
+          musicEnergy: 0.24,
+          activeOverlayDensity: 0.18,
+          recentSfxDensity: 0.1,
         },
       }),
     ]));
@@ -951,9 +959,38 @@ describe('unified decision bundle merge', () => {
       sfxSyncPlan: expect.objectContaining({
         version: 'sfx-sync-plan-v1',
         placementAllowed: true,
-        reasonKeys: expect.arrayContaining(['transition-boundary', 'impact', 'sync-confidence']),
+        reasonKeys: expect.arrayContaining(['transition-boundary', 'impact', 'sync-confidence', 'exact-sync-window', 'provider-quality']),
+        jobVector: expect.objectContaining({
+          impact: expect.any(Number),
+          glue: expect.any(Number),
+          restraint: expect.any(Number),
+        }),
+        syncWindow: expect.objectContaining({
+          anchorFrame: 420,
+          requestedFrame: 420,
+          distanceFrames: 0,
+          toleranceFrames: 3,
+          exactSyncPressure: 1,
+          driftRisk: 0,
+        }),
+        mixSafety: expect.objectContaining({
+          overmixRisk: expect.any(Number),
+          recentSfxDensity: 0.1,
+        }),
+        providerGate: expect.objectContaining({
+          providerQuality: 0.82,
+          providerConfidence: 0.84,
+          assetQualityFloor: 0.64,
+          externalSourceRequired: true,
+        }),
+        crossFamily: expect.objectContaining({
+          transitionAnchored: true,
+        }),
         evidence: expect.objectContaining({
           transitionAnchored: true,
+          exactSyncPressure: 1,
+          driftRisk: 0,
+          providerQuality: 0.82,
         }),
         calibrationStatus: 'invented-needs-calibration',
       }),
@@ -963,9 +1000,23 @@ describe('unified decision bundle merge', () => {
           version: 'sfx-family-planner-v1',
           family: 'audio',
           placementAllowed: true,
+          syncWindow: expect.objectContaining({ distanceFrames: 0 }),
+          providerGate: expect.objectContaining({ externalSourceRequired: true }),
+          mixSafety: expect.objectContaining({ recentSfxDensity: 0.1 }),
         }),
       }),
     }));
+    expect(sfx?.params.signals).toEqual(expect.objectContaining({
+      sfx_anchor_distance_frames: 0,
+      sfx_sync_tolerance_frames: 3,
+      sfx_drift_risk: 0,
+      sfx_provider_risk: 0,
+      sfx_external_source_required: true,
+    }));
+    expect(sfx?.params).not.toHaveProperty('assetQuery');
+    expect(sfx?.params).not.toHaveProperty('sfxAssetId');
+    expect(sfx?.params).not.toHaveProperty('sfxSearchQuery');
+    expect(sfx?.params).not.toHaveProperty('volume');
     expect(merged.evidence.signalDecisionAudit.candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({
         family: 'audio',
@@ -980,6 +1031,65 @@ describe('unified decision bundle merge', () => {
         riskFlags: [],
       }),
     ]));
+  });
+
+  it('keeps drifted overmixed or low-provider SFX evidence-only', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'sfx-trigger',
+        frame: 200,
+        source: 'signal-executor:bad-sfx',
+        confidence: 0.93,
+        params: {
+          sfxType: 'impact',
+          beatFrame: 260,
+          beatStrength: 0.8,
+          providerQuality: 0.2,
+          providerConfidence: 0.44,
+          assetQualityFloor: 0.75,
+          speechEnergy: 0.94,
+          recentSfxDensity: 0.92,
+          activeOverlayDensity: 0.7,
+          signals: {
+            beatStrength: 0.8,
+            beatFrame: 260,
+            providerQuality: 0.2,
+            providerConfidence: 0.44,
+            assetQualityFloor: 0.75,
+            speechEnergy: 0.94,
+            recentSfxDensity: 0.92,
+            activeOverlayDensity: 0.7,
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(0);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'sfx-family-plan-kept-silent': expect.objectContaining({ count: 1 }),
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'sfx-trigger',
+      frame: 200,
+      reason: 'sfx-family-plan-kept-silent',
+    }));
+    const candidate = merged.evidence.signalDecisionAudit.candidates.find((item) => item.family === 'audio');
+    expect(candidate?.projectedAtoms).toEqual(expect.objectContaining({
+      providerQuality: 0.2,
+      recentSfxDensity: 0.92,
+      beatFrame: 260,
+    }));
   });
 
   it('keeps hard-cut signal transitions as evidence while executing licensed special transitions', () => {

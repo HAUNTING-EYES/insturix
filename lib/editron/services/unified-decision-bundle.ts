@@ -302,11 +302,53 @@ interface UnifiedSfxSyncPlan {
   placementAllowed: boolean;
   reasonKeys: string[];
   atoms: Record<string, string | number | boolean>;
+  jobVector: {
+    impact: number;
+    glue: number;
+    build: number;
+    texture: number;
+    restraint: number;
+  };
+  syncWindow: {
+    anchorFrame: number | null;
+    requestedFrame: number;
+    distanceFrames: number | null;
+    toleranceFrames: number;
+    exactSyncPressure: number;
+    driftRisk: number;
+  };
+  mixSafety: {
+    speechConflict: number;
+    musicConflict: number;
+    overlayDensity: number;
+    recentSfxDensity: number;
+    overmixRisk: number;
+    silenceNeed: number;
+  };
+  providerGate: {
+    providerQuality: number;
+    providerConfidence: number;
+    assetQualityFloor: number;
+    providerRisk: number;
+    externalSourceRequired: boolean;
+    cachePreferred: boolean;
+  };
+  crossFamily: {
+    transitionAnchored: boolean;
+    mgAnchored: boolean;
+    zoomAnchored: boolean;
+    captionAnchored: boolean;
+    linkedOverlay: boolean;
+  };
   evidence: {
     syncConfidence: number;
     impact: number;
     restraint: number;
     transitionAnchored: boolean;
+    providerQuality: number;
+    overmixRisk: number;
+    driftRisk: number;
+    exactSyncPressure: number;
   };
   calibrationStatus: 'invented-needs-calibration';
 }
@@ -1026,10 +1068,30 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('phraseImpact', ['phraseImpact', 'visceral_impact', 'emotion_intensity', 'speech_energy']);
     setAtom('rhythmRole', ['rhythmRole', 'music_section', 'audio.music_section']);
     setAtom('syncAnchor', ['sfxAnchor', 'syncAnchor', 'anchor']);
+    setAtom('syncFrame', ['syncFrame', 'targetSyncFrame']);
+    setAtom('mgLandingFrame', ['mgLandingFrame', 'graphicLandingFrame', 'overlay_landing_frame']);
+    setAtom('zoomPeakFrame', ['zoomPeakFrame', 'zoomImpactFrame', 'camera_peak_frame']);
+    setAtom('captionEmphasisFrame', ['captionEmphasisFrame', 'keywordFrame', 'wordEmphasisFrame']);
+    setAtom('motionPeakFrame', ['motionPeakFrame', 'visual_motion_peak_frame']);
     setAtom('transitionEnergy', ['transitionEnergy', 'topicDelta', 'topic_shift', 'narrative_pressure', 'motion_intensity']);
+    setAtom('topicDelta', ['topicDelta', 'topic_shift', 'narrative_pressure']);
+    setAtom('visualMotion', ['visualMotion', 'motion_intensity', 'visual.motion_intensity']);
     setAtom('silencePocketMs', ['silencePocketMs', 'speechGapMs', 'silence_duration_ms', 'speech_gap_ms']);
     setAtom('speechEnergy', ['speechEnergy', 'speech_energy', 'speech.energy']);
+    setAtom('musicEnergy', ['musicEnergy', 'music_energy', 'audio.music_energy']);
+    setAtom('musicLoudness', ['musicLoudness', 'music_loudness', 'audio.music_loudness']);
+    setAtom('speechLoudness', ['speechLoudness', 'speech_loudness', 'audio.speech_loudness']);
     setAtom('providerQuality', ['providerQuality', 'asset_quality', 'candidateQuality']);
+    setAtom('providerConfidence', ['providerConfidence', 'asset_confidence', 'candidateConfidence']);
+    setAtom('assetQualityFloor', ['assetQualityFloor', 'qualityFloor', 'provider_quality_floor']);
+    setAtom('activeOverlayDensity', ['activeOverlayDensity', 'active_overlay_density', 'recent_overlay_density']);
+    setAtom('recentSfxDensity', ['recentSfxDensity', 'recent_sfx_density', 'sfx_density']);
+    setAtom('captionPressure', ['captionPressure', 'caption_pressure', 'active_caption_pressure']);
+    setAtom('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
+    setAtom('zoomPressure', ['zoomPressure', 'zoom_pressure', 'active_zoom_pressure']);
+    setAtom('transitionPressure', ['transitionPressure', 'transition_pressure', 'active_transition_pressure']);
+    setAtom('brandRestraint', ['brandRestraint', 'brand_restraint', 'audio_restraint']);
+    setAtom('cacheHit', ['cacheHit', 'asset_cache_hit', 'sfx_cache_hit']);
     if (!hasAnyDirectParam(decision, ['beatFrame', 'anchorFrame']) && atoms.beatStrength !== undefined) {
       atoms.beatFrame = decision.frame;
     }
@@ -2752,16 +2814,35 @@ function resolveSfxSyncPlan(decision: ReactiveEditDecision): UnifiedSfxSyncPlan 
 
   const atoms = sfxSyncAtoms(decision);
   const transitionAnchored = isTransitionAnchoredSfx(decision);
+  const syncAnchor = sfxSyncAnchorKind(decision, atoms);
   const beatStrength = signalAtomNumber(atoms, 'beatStrength');
   const phraseImpact = signalAtomNumber(atoms, 'phraseImpact');
   const transitionEnergy = signalAtomNumber(atoms, 'transitionEnergy');
+  const topicDelta = signalAtomNumber(atoms, 'topicDelta');
+  const visualMotion = signalAtomNumber(atoms, 'visualMotion');
   const providerQuality = signalAtomNumber(atoms, 'providerQuality');
+  const providerConfidence = signalAtomNumber(atoms, 'providerConfidence');
+  const assetQualityFloor = sfxAtomNumberWithDefault(atoms, 'assetQualityFloor', 0.62);
   const speechEnergy = signalAtomNumber(atoms, 'speechEnergy');
+  const speechLoudness = signalAtomNumber(atoms, 'speechLoudness');
+  const musicEnergy = signalAtomNumber(atoms, 'musicEnergy');
+  const musicLoudness = signalAtomNumber(atoms, 'musicLoudness');
+  const activeOverlayDensity = signalAtomNumber(atoms, 'activeOverlayDensity');
+  const recentSfxDensity = signalAtomNumber(atoms, 'recentSfxDensity');
+  const captionPressure = signalAtomNumber(atoms, 'captionPressure');
+  const mgPressure = signalAtomNumber(atoms, 'mgPressure');
+  const zoomPressure = signalAtomNumber(atoms, 'zoomPressure');
+  const brandRestraint = signalAtomNumber(atoms, 'brandRestraint');
   const silencePocketMs = signalAtomRawNumber(atoms, 'silencePocketMs');
   const hasBeatAnchor = sfxHasBeatAnchor(decision, atoms);
   const hasLinkedOverlay = hasAnyParam(decision, ['linkedOverlayId']) || atoms.linkedOverlayId !== undefined;
   const hasTransitionEvidence = !transitionAnchored || hasTransitionSfxBoundaryEvidence(decision);
-  const hasRealSyncAnchor = hasBeatAnchor || (transitionAnchored && hasTransitionEvidence) || hasLinkedOverlay;
+  const syncWindow = sfxSyncWindow(decision, atoms, syncAnchor, transitionAnchored, hasTransitionEvidence);
+  const crossFamily = sfxCrossFamily(decision, atoms, syncAnchor, transitionAnchored, hasLinkedOverlay);
+  const hasRealSyncAnchor = syncWindow.anchorFrame !== null
+    || hasBeatAnchor
+    || (transitionAnchored && hasTransitionEvidence)
+    || hasLinkedOverlay;
   const anchoredTokenImpact = hasRealSyncAnchor
     ? sfxCompatibilityTokenImpact(sfxType)
     : 0;
@@ -2772,18 +2853,77 @@ function resolveSfxSyncPlan(decision: ReactiveEditDecision): UnifiedSfxSyncPlan 
     anchoredTokenImpact,
     transitionAnchored ? 0.62 : 0,
   )));
+  const jobVector = {
+    impact,
+    glue: roundAuditNumber(clamp01(Math.max(
+      transitionAnchored ? 0.58 : 0,
+      transitionEnergy * 0.86,
+      beatStrength * 0.46,
+      visualMotion * 0.38,
+    ))),
+    build: roundAuditNumber(clamp01(Math.max(
+      sfxType.includes('riser') ? 0.7 : 0,
+      topicDelta * 0.44,
+      beatStrength * 0.38,
+      transitionEnergy * 0.34,
+    ))),
+    texture: roundAuditNumber(clamp01(Math.max(
+      sfxType.includes('ambient') || sfxType.includes('foley') ? 0.72 : 0,
+      silencePocketMs >= 220 ? 0.42 : 0,
+      visualMotion * 0.28,
+    ))),
+    restraint: 0,
+  };
   const syncConfidence = roundAuditNumber(clamp01(Math.max(
     beatStrength,
     phraseImpact,
     transitionAnchored && hasTransitionEvidence ? 0.74 : 0,
     hasBeatAnchor ? 0.68 : 0,
     hasLinkedOverlay ? 0.64 : 0,
+    syncWindow.exactSyncPressure * 0.72,
     silencePocketMs >= 140 ? 0.48 : 0,
   )));
-  const restraint = roundAuditNumber(clamp01(Math.max(
-    speechEnergy * 0.42,
-    providerQuality > 0 ? (1 - providerQuality) * 0.35 : 0,
+  const providerHasEvidence = hasDirectParamValue(atoms.providerQuality)
+    || hasDirectParamValue(atoms.providerConfidence)
+    || hasDirectParamValue(decision.params.providerQuality)
+    || hasDirectParamValue(decision.params.asset_quality)
+    || hasDirectParamValue(decision.params.candidateQuality);
+  const providerRisk = roundAuditNumber(providerHasEvidence
+    ? clamp01(Math.max(0, assetQualityFloor - providerQuality) / Math.max(0.01, assetQualityFloor))
+    : 0);
+  const speechConflict = roundAuditNumber(clamp01(Math.max(speechEnergy, speechLoudness)));
+  const musicConflict = roundAuditNumber(clamp01(Math.max(musicEnergy, musicLoudness)));
+  const overmixRisk = roundAuditNumber(clamp01(Math.max(
+    speechConflict * 0.48,
+    musicConflict * 0.36,
+    activeOverlayDensity * 0.72,
+    recentSfxDensity * 0.94,
+    captionPressure * 0.62,
+    mgPressure * 0.58,
+    zoomPressure * 0.48,
   )));
+  const mixSafety = {
+    speechConflict,
+    musicConflict,
+    overlayDensity: roundAuditNumber(activeOverlayDensity),
+    recentSfxDensity: roundAuditNumber(recentSfxDensity),
+    overmixRisk,
+    silenceNeed: roundAuditNumber(clamp01(Math.max(overmixRisk, brandRestraint, providerRisk * 0.78))),
+  };
+  const providerGate = {
+    providerQuality: roundAuditNumber(providerQuality),
+    providerConfidence: roundAuditNumber(providerConfidence),
+    assetQualityFloor: roundAuditNumber(assetQualityFloor),
+    providerRisk,
+    externalSourceRequired: true,
+    cachePreferred: Boolean(atoms.cacheHit) || providerHasEvidence,
+  };
+  const restraint = roundAuditNumber(clamp01(Math.max(
+    mixSafety.silenceNeed,
+    speechEnergy * 0.42,
+    providerRisk * 0.64,
+  )));
+  jobVector.restraint = restraint;
   const reasonKeys = sfxSyncReasonKeys({
     beatStrength,
     phraseImpact,
@@ -2794,11 +2934,25 @@ function resolveSfxSyncPlan(decision: ReactiveEditDecision): UnifiedSfxSyncPlan 
     silencePocketMs,
     impact,
     syncConfidence,
+    syncWindow,
+    mixSafety,
+    providerGate,
+    crossFamily,
+    jobVector,
   });
 
   if (reasonKeys.length === 0) return null;
 
-  const placementAllowed = hasTransitionEvidence && syncConfidence >= 0.45 && impact >= 0.42 && restraint < 0.95;
+  const hasUsefulJob = impact >= 0.42 || jobVector.build >= 0.5 || jobVector.texture >= 0.5;
+  const providerHardFail = providerHasEvidence && providerQuality < Math.max(0.35, assetQualityFloor - 0.2);
+  const placementAllowed = hasTransitionEvidence
+    && hasRealSyncAnchor
+    && syncConfidence >= 0.45
+    && hasUsefulJob
+    && syncWindow.driftRisk < 0.55
+    && mixSafety.overmixRisk < 0.92
+    && restraint < 0.95
+    && !providerHardFail;
 
   return {
     version: 'sfx-sync-plan-v1',
@@ -2807,11 +2961,20 @@ function resolveSfxSyncPlan(decision: ReactiveEditDecision): UnifiedSfxSyncPlan 
     placementAllowed,
     reasonKeys,
     atoms,
+    jobVector,
+    syncWindow,
+    mixSafety,
+    providerGate,
+    crossFamily,
     evidence: {
       syncConfidence,
       impact,
       restraint,
       transitionAnchored,
+      providerQuality: roundAuditNumber(providerQuality),
+      overmixRisk,
+      driftRisk: syncWindow.driftRisk,
+      exactSyncPressure: syncWindow.exactSyncPressure,
     },
     calibrationStatus: 'invented-needs-calibration',
   };
@@ -2830,13 +2993,32 @@ function sfxSyncAtoms(decision: ReactiveEditDecision): Record<string, string | n
   setFallback('anchorFrame', ['anchorFrame', 'targetFrame']);
   setFallback('linkedOverlayId', ['linkedOverlayId']);
   setFallback('syncAnchor', ['sfxAnchor', 'syncAnchor', 'anchor']);
+  setFallback('syncFrame', ['syncFrame', 'targetSyncFrame']);
   setFallback('transitionFrame', ['transitionFrame', 'boundaryFrame', 'cutFrame']);
+  setFallback('mgLandingFrame', ['mgLandingFrame', 'graphicLandingFrame', 'overlayLandingFrame']);
+  setFallback('zoomPeakFrame', ['zoomPeakFrame', 'zoomImpactFrame']);
+  setFallback('captionEmphasisFrame', ['captionEmphasisFrame', 'keywordFrame', 'wordEmphasisFrame']);
+  setFallback('motionPeakFrame', ['motionPeakFrame', 'visualMotionPeakFrame']);
   setFallback('transitionEnergy', ['transitionEnergy', 'topicDelta', 'topic_shift', 'motion_intensity']);
+  setFallback('topicDelta', ['topicDelta', 'topic_shift', 'narrative_pressure']);
+  setFallback('visualMotion', ['visualMotion', 'motion_intensity', 'visual_motion']);
   setFallback('beatStrength', ['beatStrength', 'beat_strength', 'music_energy']);
   setFallback('phraseImpact', ['phraseImpact', 'visceral_impact', 'speech_energy']);
   setFallback('silencePocketMs', ['silencePocketMs', 'speechGapMs', 'silence_duration_ms']);
   setFallback('speechEnergy', ['speechEnergy', 'speech_energy']);
+  setFallback('musicEnergy', ['musicEnergy', 'music_energy']);
+  setFallback('musicLoudness', ['musicLoudness', 'music_loudness']);
+  setFallback('speechLoudness', ['speechLoudness', 'speech_loudness']);
   setFallback('providerQuality', ['providerQuality', 'asset_quality', 'candidateQuality']);
+  setFallback('providerConfidence', ['providerConfidence', 'asset_confidence', 'candidateConfidence']);
+  setFallback('assetQualityFloor', ['assetQualityFloor', 'qualityFloor']);
+  setFallback('activeOverlayDensity', ['activeOverlayDensity', 'active_overlay_density', 'recent_overlay_density']);
+  setFallback('recentSfxDensity', ['recentSfxDensity', 'recent_sfx_density', 'sfx_density']);
+  setFallback('captionPressure', ['captionPressure', 'caption_pressure', 'active_caption_pressure']);
+  setFallback('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
+  setFallback('zoomPressure', ['zoomPressure', 'zoom_pressure', 'active_zoom_pressure']);
+  setFallback('brandRestraint', ['brandRestraint', 'brand_restraint', 'audio_restraint']);
+  setFallback('cacheHit', ['cacheHit', 'asset_cache_hit', 'sfx_cache_hit']);
   return atoms;
 }
 
@@ -2857,6 +3039,11 @@ function sfxSyncReasonKeys(input: {
   silencePocketMs: number;
   impact: number;
   syncConfidence: number;
+  syncWindow: UnifiedSfxSyncPlan['syncWindow'];
+  mixSafety: UnifiedSfxSyncPlan['mixSafety'];
+  providerGate: UnifiedSfxSyncPlan['providerGate'];
+  crossFamily: UnifiedSfxSyncPlan['crossFamily'];
+  jobVector: UnifiedSfxSyncPlan['jobVector'];
 }): string[] {
   const reasonKeys: string[] = [];
   if (input.beatStrength >= 0.5 || input.hasBeatAnchor) reasonKeys.push('beat-anchor');
@@ -2866,6 +3053,19 @@ function sfxSyncReasonKeys(input: {
   if (input.silencePocketMs >= 140) reasonKeys.push('silence-pocket');
   if (input.impact >= 0.58) reasonKeys.push('impact');
   if (input.syncConfidence >= 0.62) reasonKeys.push('sync-confidence');
+  if (input.syncWindow.distanceFrames !== null && input.syncWindow.distanceFrames <= input.syncWindow.toleranceFrames) reasonKeys.push('exact-sync-window');
+  if (input.syncWindow.driftRisk >= 0.35) reasonKeys.push('sync-drift-risk');
+  if (input.mixSafety.overmixRisk >= 0.55) reasonKeys.push('overmix-risk');
+  if (input.mixSafety.recentSfxDensity >= 0.45) reasonKeys.push('recent-sfx-density');
+  if (input.providerGate.providerQuality >= input.providerGate.assetQualityFloor) reasonKeys.push('provider-quality');
+  if (input.providerGate.providerRisk >= 0.35) reasonKeys.push('provider-risk');
+  if (input.providerGate.cachePreferred) reasonKeys.push('cache-preferred');
+  if (input.crossFamily.mgAnchored) reasonKeys.push('mg-sync');
+  if (input.crossFamily.zoomAnchored) reasonKeys.push('zoom-sync');
+  if (input.crossFamily.captionAnchored) reasonKeys.push('caption-sync');
+  if (input.jobVector.build >= 0.5) reasonKeys.push('build-intent');
+  if (input.jobVector.texture >= 0.5) reasonKeys.push('texture-intent');
+  if (input.jobVector.restraint >= 0.7) reasonKeys.push('silence-preferred');
   return [...new Set(reasonKeys)];
 }
 
@@ -2875,6 +3075,115 @@ function sfxCompatibilityTokenImpact(sfxType: string): number {
   if (sfxType.includes('whoosh') || sfxType.includes('swoosh') || sfxType.includes('swish')) return 0.5;
   if (sfxType.includes('tick') || sfxType.includes('click')) return 0.44;
   return 0.42;
+}
+
+function sfxSyncAnchorKind(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+): string {
+  return normalizeParamString(atoms.syncAnchor ?? decision.params.sfxAnchor ?? decision.params.syncAnchor ?? decision.params.anchor);
+}
+
+function sfxSyncWindow(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+  syncAnchor: string,
+  transitionAnchored: boolean,
+  hasTransitionEvidence: boolean,
+): UnifiedSfxSyncPlan['syncWindow'] {
+  const requestedFrame = Number.isFinite(decision.frame) ? Math.max(0, Math.round(decision.frame)) : 0;
+  const anchorFrame = sfxAnchorFrame(atoms, syncAnchor, transitionAnchored, hasTransitionEvidence);
+  const toleranceFrames = sfxSyncToleranceFrames(syncAnchor, transitionAnchored);
+  const distanceFrames = anchorFrame === null ? null : Math.abs(anchorFrame - requestedFrame);
+  const driftRisk = roundAuditNumber(distanceFrames === null
+    ? 0.25
+    : clamp01(Math.max(0, distanceFrames - toleranceFrames) / 24));
+  const exactSyncPressure = roundAuditNumber(distanceFrames === null
+    ? 0
+    : clamp01(1 - driftRisk));
+
+  return {
+    anchorFrame,
+    requestedFrame,
+    distanceFrames,
+    toleranceFrames,
+    exactSyncPressure,
+    driftRisk,
+  };
+}
+
+function sfxAnchorFrame(
+  atoms: Record<string, string | number | boolean>,
+  syncAnchor: string,
+  transitionAnchored: boolean,
+  hasTransitionEvidence: boolean,
+): number | null {
+  if (transitionAnchored || syncAnchor === 'transition') {
+    return hasTransitionEvidence
+      ? firstSignalFrame(atoms, ['transitionFrame', 'syncFrame', 'anchorFrame', 'beatFrame'])
+      : null;
+  }
+  if (syncAnchor === 'mg-landing' || syncAnchor === 'graphic' || syncAnchor === 'overlay') {
+    return firstSignalFrame(atoms, ['mgLandingFrame', 'syncFrame', 'anchorFrame', 'beatFrame']);
+  }
+  if (syncAnchor === 'zoom' || syncAnchor === 'zoom-peak' || syncAnchor === 'camera') {
+    return firstSignalFrame(atoms, ['zoomPeakFrame', 'syncFrame', 'anchorFrame', 'beatFrame']);
+  }
+  if (syncAnchor === 'caption' || syncAnchor === 'keyword') {
+    return firstSignalFrame(atoms, ['captionEmphasisFrame', 'syncFrame', 'anchorFrame', 'beatFrame']);
+  }
+  if (syncAnchor === 'motion-peak' || syncAnchor === 'motion') {
+    return firstSignalFrame(atoms, ['motionPeakFrame', 'syncFrame', 'anchorFrame', 'beatFrame']);
+  }
+  return firstSignalFrame(atoms, ['syncFrame', 'beatFrame', 'anchorFrame', 'transitionFrame', 'mgLandingFrame', 'zoomPeakFrame', 'captionEmphasisFrame', 'motionPeakFrame']);
+}
+
+function sfxSyncToleranceFrames(syncAnchor: string, transitionAnchored: boolean): number {
+  if (transitionAnchored || syncAnchor === 'transition') return 3;
+  if (syncAnchor === 'mg-landing' || syncAnchor === 'zoom' || syncAnchor === 'zoom-peak' || syncAnchor === 'caption' || syncAnchor === 'keyword' || syncAnchor === 'motion-peak') return 4;
+  if (syncAnchor === 'beat' || syncAnchor === '') return 6;
+  if (syncAnchor === 'scene-bed' || syncAnchor === 'ambient') return 18;
+  return 8;
+}
+
+function sfxCrossFamily(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+  syncAnchor: string,
+  transitionAnchored: boolean,
+  hasLinkedOverlay: boolean,
+): UnifiedSfxSyncPlan['crossFamily'] {
+  const hasAtom = (key: string): boolean => hasDirectParamValue(atoms[key]);
+  return {
+    transitionAnchored,
+    mgAnchored: syncAnchor.includes('mg') || syncAnchor.includes('graphic') || hasAtom('mgLandingFrame'),
+    zoomAnchored: syncAnchor.includes('zoom') || syncAnchor.includes('camera') || hasAtom('zoomPeakFrame'),
+    captionAnchored: syncAnchor.includes('caption') || syncAnchor.includes('keyword') || hasAtom('captionEmphasisFrame'),
+    linkedOverlay: hasLinkedOverlay || hasDirectParamValue(decision.params.linkedOverlayId),
+  };
+}
+
+function firstSignalFrame(atoms: Record<string, string | number | boolean>, keys: string[]): number | null {
+  for (const key of keys) {
+    const frame = signalAtomFrame(atoms, key);
+    if (frame !== null) return frame;
+  }
+  return null;
+}
+
+function signalAtomFrame(atoms: Record<string, string | number | boolean>, key: string): number | null {
+  const value = atoms[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
+  return null;
+}
+
+function sfxAtomNumberWithDefault(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+  fallback: number,
+): number {
+  if (atoms[key] === undefined) return clamp01(fallback);
+  return signalAtomNumber(atoms, key);
 }
 
 function sfxSignalAliases(plan: UnifiedSfxSyncPlan): Record<string, unknown> {
@@ -2891,6 +3200,20 @@ function sfxSignalAliases(plan: UnifiedSfxSyncPlan): Record<string, unknown> {
   assign('silence_duration_ms', 'silencePocketMs');
   assign('speech_energy', 'speechEnergy');
   assign('provider_quality', 'providerQuality');
+  assign('provider_confidence', 'providerConfidence');
+  assign('asset_quality_floor', 'assetQualityFloor');
+  aliases.sfx_sync_confidence = plan.evidence.syncConfidence;
+  aliases.sfx_impact = plan.evidence.impact;
+  aliases.sfx_restraint = plan.evidence.restraint;
+  aliases.sfx_anchor_distance_frames = plan.syncWindow.distanceFrames;
+  aliases.sfx_sync_tolerance_frames = plan.syncWindow.toleranceFrames;
+  aliases.sfx_drift_risk = plan.syncWindow.driftRisk;
+  aliases.sfx_exact_sync_pressure = plan.syncWindow.exactSyncPressure;
+  aliases.sfx_overmix_risk = plan.mixSafety.overmixRisk;
+  aliases.sfx_recent_density = plan.mixSafety.recentSfxDensity;
+  aliases.sfx_provider_risk = plan.providerGate.providerRisk;
+  aliases.sfx_external_source_required = plan.providerGate.externalSourceRequired;
+  aliases.sfx_cache_preferred = plan.providerGate.cachePreferred;
   return aliases;
 }
 
@@ -3556,6 +3879,11 @@ function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: 
             placementAllowed: sfxPlan.placementAllowed,
             executionLicense: reason,
             reasonKeys: sfxPlan.reasonKeys,
+            jobVector: sfxPlan.jobVector,
+            syncWindow: sfxPlan.syncWindow,
+            mixSafety: sfxPlan.mixSafety,
+            providerGate: sfxPlan.providerGate,
+            crossFamily: sfxPlan.crossFamily,
           },
         },
       },
