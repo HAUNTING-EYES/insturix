@@ -65,6 +65,7 @@ Migrated from the prior Claude-Code sessions. Layout:
 - **Forced verification:** never report "done" without `npx tsc --noEmit` (+ `pnpm lint`); fix new errors. Prefer verifying on **real data/the real path**, not code-reading (3 code-read hypotheses were overturned by real-data checks in the latest session).
 - **Edit safety:** re-read a file immediately before editing; when renaming, grep every reference kind (calls, types, strings, dynamic imports, re-exports, tests).
 - **Motion Graphics Rule 11:** don't reduce MGs to named template components; the system should *generate* form, not select presets.
+- **Single form owner:** before adding or changing any planner/resolver/composer/renderer, grep for the existing owner of that overlay family. Planners may rank, license, reject, normalize atoms/signals, and attach audit metadata, but must not duplicate final form logic already owned by atomic resolvers/composers/renderers (duration, keyframes, scale, blur, style, SFX token, asset query, layout, typography, animation form). If a field looks like final render form, cite the owning resolver and prove it is only an input alias/evidence, or move it to the owner.
 - **Footguns:** never `git add scripts/` or `-A` (untracked dev probes + `.calibration-temp/`); `.env.local*` hold **real secrets** (do not commit/print); push to **origin only**.
 
 ## 8. Current git state

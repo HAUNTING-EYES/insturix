@@ -146,12 +146,728 @@ not re-open solved plumbing or over-claim unfinished behavior.
 2. Run Phase 0 artifact packs against real upload-to-edit projects and persist
    concrete rendered/audio timing issue evidence.
 3. Make the unified planner the only executable decision owner.
-4. Build production family planners: captions, transitions, zoom/visual motion,
+4. Add the missing signal candidate normalizer: split moment importance from
+   execution confidence, project nested signal snapshots into family atoms, and
+   mark invented thresholds as calibration-needed.
+5. Build production family planners: captions, transitions, zoom/visual motion,
    and SFX. MG continues in the separate MG branch but must plug into the same
    planner contract.
-5. Add V-JEPA degraded-mode governance and visual-cutting support.
-6. Run reference calibration for weights, curves, density, timing, sizes, and
+6. Add V-JEPA degraded-mode governance and visual-cutting support.
+7. Run reference calibration for weights, curves, density, timing, sizes, and
    thresholds only after the above gates are stable.
+
+## Verified Root Cause Update - 2026-06-18
+
+This update exists to prevent a repeat of the stale diagnosis "Path E only has
+eight globals." That was a useful suspicion, but it is not the current root
+cause in the live code.
+
+### What Was Verified Twice
+
+Code evidence:
+
+- `lib/editron/agent/director-agent.ts` currently attaches per-moment
+  `context.signals`, `atomicMomentBundle`, and `unifiedMomentEvidence` onto Path
+  E decisions after the Creative Brief EDL is generated.
+- Path D also attaches the same unified moment packet before its decisions enter
+  the shared bundle.
+- `tests/editron/director-unified-decision-bundle.test.ts` still names the
+  current architecture correctly: Path E and Path D remain producers that execute
+  through one shared decision bundle. This is downstream convergence, not one
+  true decision brain.
+- `lib/editron/services/unified-decision-bundle.ts` can promote atom-rich signal
+  decisions, but only after confidence floors and family license checks pass.
+- `lib/editron/services/signal-executor.ts` still uses `momentWeight` as the
+  executable confidence. Complements reduce it further: SFX uses `momentWeight *
+  0.8`, caption emphasis uses `momentWeight * 0.7`, and zoom uses `momentWeight
+  * 0.6`.
+- Family license checks require top-level atoms such as `boundaryFrame`,
+  `topicDelta`, `motionVectorX`, `speechPeak`, `beatFrame`, `keyword`, or
+  `momentId`. Many signal-executor outputs keep useful evidence inside
+  `params.signals` or legacy technique fields instead of normalizing it into
+  these family atom fields.
+
+Project evidence:
+
+- Phase 0 fixture for `proj_2Mq5uesPpNOD` reported `video=89`, `caption=1`,
+  `transition=5`, `sound=2`, and `motion-graphic=3`.
+- Decision authority reported `decisionMode=merged-supplemental`,
+  `signalDecisionRole=advisor`, and `signalDecisionsCanAddExecutable=false`.
+- The same run had `primaryDecisionCount=67`, `signalDecisionCount=490`,
+  `addedSignalDecisionCount=0`, and `evidenceOnlySignalDecisionCount=485`.
+- The dominant rejection bucket was `below-signal-confidence-floor`: 475 signal
+  decisions. The observed rejected confidence average was about `0.587`, while
+  current executable floors sit around `0.68-0.82` by family.
+- V-JEPA primitives are not dropped in the persisted segment path: motion vector,
+  main subject, text coverage, negative space, object count, and face count show
+  field coverage. But face emotion and eye contact were `0`, and the screen-aware
+  policy was degraded because overlay hit rate was below the trust bar.
+- Quality review knew the result was bad (`overallScore=0` with critical
+  issues), which explains why bad edits can ship. It does not explain why signal
+  decisions fail to become overlays.
+
+### Actual Root Cause
+
+Signals are fed, but they do not yet own the executable decisions.
+
+The current system behaves like this:
+
+```text
+Creative Brief chooses executable decisions
+Path E attaches per-moment signals after that choice
+Path D emits many signal decisions
+Unified bundle accepts Path E as primary
+Signal decisions must pass confidence + family atom license
+Most signal decisions fail and become evidence-only
+executeEDL can use signals for form only after a decision survives
+```
+
+That means the problem is not simply "add more signals to Gemini." The problem
+is authority and normalization after the final cut:
+
+1. Creative Brief still chooses many executable overlay moments before the
+   deterministic signal family planners exist.
+2. Signal decisions use moment importance as execution confidence, which is the
+   wrong contract. A subtle but certain transition boundary can be important
+   enough to execute even if its global moment weight is not huge.
+3. Signal executor outputs are not consistently normalized into the top-level
+   family atoms required by the license layer.
+4. The unified bundle can promote strong signal decisions in tests, but real
+   upload-to-edit runs are not producing enough licensed atom-rich candidates.
+5. EDL family resolvers can use signals for physical form, but they cannot
+   rescue decisions that never become executable.
+
+### Consolidated Phase Status After This Investigation
+
+- Phase 0, rendered truth fixtures: partially done. Manifests and taxonomy exist,
+  but rendered stills/clips/audio windows are not yet a hard production gate.
+- Phase 1, canonical timeline as law: partially done. The edited timeline exists,
+  but all candidates still need to be normalized on that timeline before
+  execution ownership is decided.
+- Phase 2, one decision owner: not done. Current evidence shows
+  `merged-supplemental`, not a true signal-owned planner.
+- Phase 2A, signal candidate normalizer: missing. This is now a required
+  sub-phase before family planners can become reliable.
+- Phase 3, caption planner: not done. The canonical full-track caption overlay
+  is useful substrate, but moment-owned caption planning is still missing.
+- Phase 4/5, MG scene atoms and semantic spine: owned by the separate MG branch.
+  It must plug into the same planner contract, but this plan should not edit MG
+  engine WIP from this lane.
+- Phase 6, zoom and transition choreography: not done. They need family planners
+  that build jobs from atoms, not fallback transition names or samey zoom hints.
+- Phase 7, SFX system: partial. Form and provider plumbing exist, but timing,
+  rejection telemetry, cache/provider quality, and cross-family sync are not
+  production-grade.
+- Phase 8, V-JEPA quality and visual cutting: partial. Primitives are preserved,
+  but quality/degraded-mode governance and visual-cutting use are incomplete.
+- Phase 9, rendered aesthetic gate: not done as a hard blocker.
+- Phase 10, calibration: still pending. Do not run full weight/curve calibration
+  until the planner and rendered gate are sane.
+
+## MG Port Investigation - 2026-06-18
+
+This section ports the separate MG work back into the canonical Editron plan.
+It is based on:
+
+- `docs/agents/sessions/editron/MG-Session-Port-Handoff-2026-06-18.md`
+- `docs/agents/sessions/editron/MG-Final-Build-Plan-2026-06-18.md`
+- `docs/agents/sessions/editron/MG-Calibration-Readiness-Findings-2026-06-18.md`
+- `docs/agents/sessions/editron/MG-Encoding-Law-Phase-Ledger-2026-06-16.md`
+- `docs/agents/sessions/editron/Session-2026-06-14-MG-Separate-Branch-Handoff.md`
+- Current code in the Director, unified bundle, EDL executor, MG expression
+  authority, visual explanation contract, composition planner, composition
+  renderer, and focused MG tests.
+
+### Current MG Runtime Truth
+
+The live MG path is not empty and it is not a simple template menu:
+
+```text
+Director Path E / Path D
+  -> per-moment signals + atomicMomentBundle + unifiedMomentEvidence
+  -> unified decision bundle
+  -> executeEDL applyGraphic
+  -> normalizeMotionGraphicContent
+  -> semantic MG ledger gate and candidate selection
+  -> buildMotionGraphicSignalSnapshot
+  -> utility scorer mg.* dials
+  -> resolveMgExpressionAuthority
+  -> planComposition
+  -> applyMgExpressionAuthorityToRecipe
+  -> buildAtomicOverlayPlan / decideAtomicOverlay
+  -> persisted motion-graphic overlay
+  -> MotionGraphicLayerContent
+  -> SafeCompositionRenderer
+```
+
+Verified code anchors:
+
+- `director-agent.ts` attaches per-moment `context.signals`,
+  `atomicMomentBundle`, and `unifiedMomentEvidence` to Path E decisions around
+  the Creative Brief EDL loop. The stale diagnosis "Path E only gets 8 globals"
+  is not true for this current main path.
+- `director-agent.ts` also attaches the same packet to Path D before the shared
+  bundle.
+- `unified-decision-bundle.ts` still treats the current architecture as
+  `merged-supplemental` unless signal candidates pass confidence and license
+  checks.
+- `edl-executor.ts` builds MG signal snapshots, normalizes V-JEPA/text/audio
+  aliases, resolves semantic MG candidates, calls MG expression authority, then
+  persists `contentSignals`, `mgExpressionAuthority`,
+  `visualExplanationContract`, semantic candidate metadata, atomic plan, and
+  atomic decision.
+- `motion-graphic-layer-content.tsx` uses the precomputed recipe when present
+  and renders it through `SafeCompositionRenderer`; it does not re-plan live
+  overlays unless the overlay lacks a recipe.
+
+So the current root is not "no signals reach MG at all." The root is narrower
+and more dangerous:
+
+```text
+rich signal and fact bus
+  -> narrow MG expression authority
+  -> weak stage/layout survival
+  -> partial semantic atom families
+  -> repeated renderer grammar
+  -> rendered quality evidence not yet hard authority
+```
+
+### Actual MG Root Causes
+
+1. MG authority consumes too little of the signal/fact surface.
+   `mg-expression-authority.ts` computes relevance, screen pressure, and a
+   visual explanation contract, but `applyMgExpressionAuthorityToScores` only
+   writes three score families today: `mg.typography.font_size`,
+   `mg.emphasis.scale_contrast`, and `mg.layout.center_avoidance`. That is too
+   narrow to express stage mode, atom-family permission, valence color, proof
+   framing, transition-led choreography, density cost, read time, or render
+   risk.
+
+2. Full-frame and stage intent can be downgraded by caption coordination.
+   `recipeVisualIntentFromContract` can correctly set `preferFullFrame`, but
+   `applyVisualIntentToLayout` treats `captionZoneAware` /
+   `coordinateWithCaptions` as a reason to fall back to a corner-safe layout.
+   The test currently expects a `full-frame-graphic-scene` to resolve to
+   `top-right` with `40%` max width. That proves the contract is threaded, but
+   also proves stage intent is not authoritative enough.
+
+3. Semantic facts exist but are conservative and incomplete.
+   `mg-semantic-fact-extractor.ts`, `mg-semantic-facts.ts`,
+   `mg-content-atoms.ts`, and `semantic-mg-candidates.ts` can license numbers,
+   bounded stats, comparisons, quotes, identity, concept context, refutation,
+   and lists. They still miss many creator-video facts: rhetorical claims,
+   setup/payoff, phrase salience, visual object support, social proof, device or
+   search scenes, before/after change, story beat, contradiction, and proof
+   hierarchy unless the text is very explicit.
+
+4. Renderer vocabulary is richer than what production usually licenses.
+   `composition-renderer.tsx` already has stage chrome, semantic concept maps,
+   quote proof atoms, refutation proof atoms, stat fields/axes, rhythm ticks,
+   full-frame layout, split layout, device frame, stage-aware text treatment, and
+   animated scene atoms. The output remains weak because the upstream authority
+   does not consistently select or preserve these stage/atom instructions from
+   real project evidence.
+
+5. The current MG recipe is still shape-first after structure.
+   `composition-planner.ts` derives a structural signature, then dispatches to
+   numeric, series, comparison, identity, quotation, brand, process, structured,
+   or emphasis composers. That is much better than an LLM choosing a label, but
+   the next step is to make the composer receive an explicit fact/wire/stage
+   contract so the form comes from evidence, not only from the first projected
+   shape.
+
+6. Rendered gates are not final authority.
+   Real-project taste gates and render scripts exist, but upload-to-edit still
+   needs hard rendered evidence for MG count, stage match, readability,
+   repetition, blank/cheap output, caption collision, and timing before learning
+   or calibration writes are trusted.
+
+7. Calibration is blocked by structure.
+   The code still contains invented thresholds, sizes, weights, and curve ranges
+   across MG authority, planner, renderer, and taste gates. Calibration should
+   tune those only after the contract produces reliable candidates and rendered
+   evidence. Otherwise calibration will learn around broken authority.
+
+### MG Encoding Law
+
+MG form must be generated from evidence-backed visual encodings:
+
+| Fact / relation | Licensed wire | Meaning |
+| --- | --- | --- |
+| Any defended phrase/value | `literal` | render the phrase/value as glyphs |
+| Comparable magnitude | `length` | length/size represents amount |
+| Bounded proportion | `sweep` | arc/ring/bar fill represents percent/fraction |
+| Ordered series | `slope` | line/sparkline represents trend |
+| Ordering or timeline | `position` | placement represents order/time |
+| Polarity | `valence` | color/lightness represents positive/negative |
+| Negation/refutation | `strike` | strike/cut line represents denial/refutation |
+| Directional change | `pair` | connector represents before -> after |
+| Salience/hierarchy | `emphasis` | scale/weight represents importance |
+| Very large comparable magnitude | `area` | area/mark size represents scale |
+
+These wires are not presets. They are the grammar between facts and pixels.
+Renderer components may still have adapter names, but those names must be the
+last mile after the wire is licensed.
+
+### MG 0-14 Production Phase Ledger
+
+Do not renumber these phases. Older shorthand sometimes compressed the active
+work into 8-9 buckets, but the live MG roadmap is a 0-14 ledger. Phase 8 was
+later merged into Phase 14, but it remains listed here so old references still
+resolve mechanically.
+
+#### Phase 0: Baseline Artifact Pack
+
+Build a real project MG audit that dumps one record per MG candidate and
+persisted MG:
+
+- decision id, frame, source, raw type, reason
+- raw `decision.params.signals` keys and values
+- normalized `contentSignals` after `buildMotionGraphicSignalSnapshot`
+- `atomicMomentBundle` and `unifiedMomentEvidence` summary
+- normalized content, structure, semantic atoms, semantic ledger candidates,
+  selected semantic candidate, and suppressed candidate reasons
+- visual explanation contract input and output
+- MG expression authority output
+- `mgScores` before and after authority patches
+- recipe id, layout, visual intent, element roles, and stage mode
+- atomic overlay plan and decision
+- renderer scene atom families expected from content and stage
+- rendered artifact link when available
+
+Acceptance:
+
+- A bad project can explain whether MG failed because of missing facts, missing
+  signals, authority veto, stage downgrade, renderer output, or quality gate.
+- No behavior changes in this phase.
+- The report must fail loudly if a source packet has V-JEPA/moment fields but
+  the MG snapshot loses them.
+
+Current remaining work:
+
+- Re-render real projects after current code changes, not only probe fixtures.
+- Capture stills, clips where available, logs, MG count, gate scores, signal
+  packets, recipes, and visible failures.
+- Make this the truth input for later phases.
+
+#### Phase 1: Visual Explanation Contract
+
+The Visual Explanation Contract must decide whether a graphic is worth making
+and what stage it deserves.
+
+Code-level targets:
+
+- Expand `visual-explanation-contract.ts` obligations beyond current numbers,
+  comparison, quote, list, identity, device, and concept evidence:
+  claim/proof, setup/payoff, contradiction, before/after, cause/effect,
+  social proof, visual object support, screen demo/search, action state, and
+  rhetorical hero phrase.
+- Replace generic `communicationGain` only with a job vector:
+  `explain`, `prove`, `compare`, `emphasize`, `summarize`, `resetAttention`,
+  `showProcess`, `showEvidence`, `bridgeTransition`, and `avoidRedundancy`.
+- Every high job score must cite content atoms, relations, or moment signals.
+- A weak keyword with no relation stays caption evidence, not standalone MG.
+
+Acceptance:
+
+- MG can answer "why this deserves a graphic" from facts and signals.
+- The system can skip words that captions already handle, but promote moments
+  where graphics add explanation, proof, comparison, or attention reset.
+
+#### Phase 2: Wire Contract Into MG Authority
+
+MG selection must be driven by facts, wires, signals, and the Visual
+Explanation Contract. Weak text-card output should be rejectable before render.
+
+Code-level targets:
+
+- Keep `director-agent.ts` per-moment packet attachment, but add a test that Path
+  E graphic decisions receive nested visual/audio/speech atoms after the brief is
+  generated.
+- Extend `edl-executor.ts::buildMotionGraphicSignalSnapshot` and its aliases so
+  MG authority receives all relevant stable keys: subject bbox, text boxes,
+  text coverage, negative space by side, motion vector, object/face count, face
+  presence, eye contact, shot scale, visual complexity, speech energy, speech
+  pace, emotion intensity, beat/music energy, cinematic moment, narrative
+  pressure, active overlay count, caption redundancy, recent MG form memory, and
+  V-JEPA degraded-mode policy.
+- Persist a compact `mgSignalAudit` on each MG overlay: present keys, missing
+  high-value keys, degraded sources, and calibration flags.
+- Feed the contract output into `mg-expression-authority.ts` as the source of
+  allowed stages, wires, and quality vetoes.
+- Expand authority output beyond the current narrow score patches. Required
+  fields: `stageMode`, `jobVector`, `licensedWires`,
+  `atomFamilyPermissions`, `layoutIntent`, `typographyIntent`, `colorIntent`,
+  `motionIntent`, `densityCost`, `readTime`, `captionChoreography`,
+  `crossFamilySync`, `renderRisk`, and `calibrationFields`.
+- Map those authority fields into `mgScores` only where a curve/dial already
+  exists, into recipe `visualIntent` and layout where stage requires it, and
+  into atomic overlay plan/decision where timing, motion, and style need exact
+  execution.
+
+Acceptance:
+
+- Real project MG overlays show a rich per-moment packet, not only personality
+  globals.
+- Missing V-JEPA/word-timing/audio data is visible as degraded evidence, not
+  silent default zeros.
+- Weak keyword/text-card MGs become caption evidence or rejected candidates
+  unless they add visual explanation value.
+
+#### Phase 2A: Signal Candidate Normalizer
+
+This is shared Editron work required before MG, captions, zoom, transitions, and
+SFX can all behave consistently.
+
+Targets:
+
+- Split moment importance from execution confidence.
+- Normalize candidate family, job role, timing anchor, evidence strength,
+  completeness, risk, source, calibration status, and physical-form readiness.
+- Project nested signal snapshots into top-level family atoms without losing the
+  original source packet.
+- Treat LLM/brief labels as semantic hints, not executable renderer labels.
+
+Acceptance:
+
+- Signal decisions can be promoted or rejected for clear reasons.
+- `unified-planner` is used only when one planner truly ranks all candidates.
+
+#### Phase 3: Stage-Aware Layout
+
+Stage mode is not a suggestion. If the contract chooses full-frame, split,
+device, or transition-led, the recipe and renderer must honor it or record a
+downgrade reason.
+
+Code-level targets:
+
+- In `mg-expression-authority.ts`, split `captionZoneAware` from
+  `captionForcesCorner`. Caption coordination means choreography and reserved
+  caption space; it must not automatically turn full-frame into top-right.
+- Change `applyVisualIntentToLayout` so:
+  - `full-frame-graphic-scene` resolves to center/full-frame layout unless
+    screen risk explicitly downgrades it.
+  - `split-footage-graphic` keeps split layout unless clip-screen risk blocks it.
+  - `device-or-screen-scene` keeps device frame unless device evidence is weak.
+  - `mg-led-transition` keeps full-width transition lane.
+  - any downgrade persists `stageDowngradeReason`.
+- Update tests that currently expect `full-frame-graphic-scene -> top-right` so
+  they assert the new invariant.
+
+Acceptance:
+
+- Full-frame MGs can exist above footage/audio when that is the right visual job.
+- Caption safety coordinates with stage; it does not erase stage.
+
+Stage modes to support:
+
+- compact overlay
+- full-frame graphic scene
+- split footage/graphic scene
+- device or screen scene
+- interstitial graphic scene
+- MG-led transition scene
+
+This is the big "stop making corner cards" phase.
+
+#### Phase 4: Scene Atom Library
+
+Renderer work must follow the encoding law, not a template library menu.
+
+Add or harden scene atom families:
+
+- scalar hero with magnitude/valence/strike wires
+- bounded proportion ring/bar/arc from `sweep`
+- comparison rail/split from `pair`
+- process track from `position`
+- quote/proof frame from `quote-proof`
+- contradiction/refutation cut from `strike`
+- device/search/browser shell from device evidence
+- social proof counter cluster from count + source
+- word/phrase kinetic cluster from salience + speech timing
+- transition-led MG bridge from boundary atoms
+
+Acceptance:
+
+- Forms are generated by licensed wires and physical parameters.
+- Repeated chrome without fact support fails the taste gate.
+
+#### Phase 5: Generative Assembler
+
+The composer layer must receive fact/wire/stage contracts, not merely projected
+shape labels.
+
+Targets:
+
+- Convert remaining shape-first composers into fact/wire candidate generation.
+- Keep `composition-planner.ts` structural signature, but make `compose*`
+  functions consume licensed wires and stage constraints.
+- Preserve current numeric/data-series work, where candidate enumeration,
+  gating, scoring, and selection already exist.
+- Remove or quarantine any renderer-key-as-decision behavior.
+
+Acceptance:
+
+- The system can explain the form from evidence before it names a renderer
+  component.
+- Explicit `kind` or `graphicType` cannot override content evidence.
+
+#### Phase 6: Multi-Overlay Choreography Wiring
+
+MGs should land as part of a moment bundle:
+
+```text
+caption emphasis + MG + zoom + transition + SFX + pacing
+```
+
+Targets:
+
+- Thread signal curves, atomic plan, and atomic decision into render reliably.
+- Coordinate MG with captions, zoom, transition, SFX, and pacing anchors.
+- Preserve exact timing anchors: phrase start/end, beat, pause, boundary, or
+  source visual event.
+- Prevent same-moment overlay spam by assigning one moment owner and dependents.
+
+Acceptance:
+
+- The system can make a slow push, keyword snap, full-frame proof MG, SFX hit,
+  and transition land on the same emotional beat without one family spamming.
+
+#### Phase 7: Rendered Aesthetic Gate
+
+Make rendered evidence a hard review gate before learning/calibration.
+
+Checks:
+
+- too few MGs for high-opportunity videos
+- too many MGs or overlay spam
+- repeated same recipe/stage/chrome
+- stage mismatch
+- unreadable text
+- text outside safe box
+- face/caption collision
+- weak tiny stat
+- blank or near-blank render
+- low contrast
+- motion landing late/early
+- unsupported data-viz
+- caption duplicate with no visual gain
+
+Acceptance:
+
+- A project with `overallScore=0` cannot silently look "successful."
+- Quality issue details include affected overlay id, frame range, reason, and
+  rendered artifact link.
+
+#### Phase 8: Calibration Placeholder, Merged Into Phase 14
+
+Historical phase. Do not start broad calibration here. Keep this as an alias for
+older handoffs, but execute calibration under Phase 14 after structure, rendered
+gates, and holdout evaluation are ready.
+
+#### Phase 9: Semantic Fact Extractor And Candidate Ledger
+
+Add deterministic fact extractors and content-structure roles for:
+
+- rhetorical claim
+- proof/evidence
+- setup/payoff
+- cause/effect
+- before/after
+- contradiction/refutation
+- quote/source
+- process/list
+- social proof/counts
+- device/screen/search
+- visual object support
+- phrase salience and keyword grouping
+
+Rules:
+
+- No LLM production fact authority.
+- Every fact has source span or visual source evidence.
+- Unknown or weak atoms render conservatively as readable text/caption evidence.
+
+Acceptance:
+
+- Talking-head videos produce more than numeric/keyword boxes when the speech
+  contains claims, proof, contradiction, process, or narrative turns.
+- Rich MGs do not appear from unsupported vibes.
+
+#### Phase 10: Real-Project Taste Gate
+
+Run the phase-0 pack and rendered gate on real projects continuously while Phase
+9-13 work lands.
+
+Targets:
+
+- Dump project MG candidates, selected overlays, recipes, atomic plans, atomic
+  decisions, captions, and rendered stills/clips.
+- Fail projects with sparse MG count, stale stage, repeated shells, weak stat
+  choices, bad placement, unreadable text, or caption/MG duplication.
+- Keep this gate project-generic. No Hank/Iman/Vlogbrothers-specific exceptions.
+
+Acceptance:
+
+- We can say exactly why a real project's MGs looked bad without reading huge
+  logs manually.
+- Good-looking probes are not enough; real upload-to-edit projects must pass.
+
+#### Phase 11: Kill Remaining Fallback / Template Authority
+
+Finish removing template/composer fallback power, legacy `graphicType`
+selection, renderer-key-as-decision behavior, and explicit preset authority.
+
+Targets:
+
+- `graphicType`, `kind`, recipe id, renderer atom name, particle name, and
+  legacy template id must be compatibility metadata only.
+- Fallbacks may render conservative text when evidence is weak, but they cannot
+  be the creative authority.
+- Template registries or composer defaults must not silently win over
+  fact/wire/stage contracts.
+- Add invariant tests around this rule.
+
+Acceptance:
+
+- No code path can create a rich MG only because a label said
+  `keyword-highlight`, `stat-counter`, `quote-card`, or a renderer key.
+
+#### Phase 12: Atom Expansion After Facts
+
+This is the broad atom-family expansion phase. It must happen after Phase 9
+facts exist, not before.
+
+Priority atom families:
+
+- number hero
+- valence color
+- per-word emphasis
+- comparison
+- process/sequence
+- speaker identity
+- proof/refutation
+- quote/proof
+- tiny-rate contextualization
+- device/search/social proof where evidence exists
+
+Acceptance:
+
+- Each atom family has evidence gates, rendered before/after proof, and invariant
+  tests.
+- Atom families are parametric and evidence licensed, not a menu of templates.
+
+#### Phase 13: Choreography Proof And Timeline Memory
+
+Prove MG + captions + zoom + transition + SFX coordinate on one edited timeline.
+
+Targets:
+
+- Add recent MG memory to candidate scoring: stage, wire, atom family, placement,
+  motion pattern, and density cost.
+- Let MG suppress/reshape caption emphasis when it owns the same phrase.
+- Let transitions/zooms/SFX sync to MG landing when the moment bundle chooses
+  graphic-led emphasis.
+- Score repetition and collision as first-class failures.
+- Produce rendered proof windows showing the whole moment bundle, not isolated
+  MG stills only.
+
+Acceptance:
+
+- A moment bundle can land as layered timing, not separate overlay spam.
+
+#### Phase 14: Calibration And Holdout Evaluation
+
+Calibration should tune:
+
+- authority weights
+- Visual Explanation Contract thresholds
+- stage-mode thresholds
+- wire-selection weights
+- typography sizes
+- line-height and wrapping limits
+- density budgets
+- animation durations and curves
+- render-risk thresholds
+- taste-gate severity
+
+Requirements:
+
+- human labels
+- render-in-loop scorecard
+- writable curve store
+- CMA-ES or equivalent offline weight tuning
+- at least 50 diverse cases before trusting broad trends
+- holdout split
+- VLM gate must fail loud when no API key or no rendered artifact exists
+- no tuning to one Hank Green / Vlogbrothers / Iman clip
+- no bandit/brand learning writes from failed-quality projects unless diagnostic
+
+Acceptance:
+
+- Calibration changes numbers and curves, not architecture.
+- The holdout set improves or the tuning run is rejected.
+
+### CEO Review Of The MG Plan
+
+Options reviewed:
+
+1. Patch current dial thresholds.
+   - Fastest, but it treats symptoms. It would make some MGs larger or more
+     frequent without proving they are visually justified.
+   - Rejected.
+
+2. Rewrite the MG engine.
+   - Tempting, but wasteful. The renderer, content structure, wires, VEC,
+     planner, tests, and render scripts already contain useful production
+     pieces.
+   - Rejected.
+
+3. Strangler contract above the current MG engine.
+   - Keep the existing renderer and composers.
+   - Add a hard fact/wire/stage authority layer, prove it with audits and
+     rendered evidence, then expand atom families.
+   - Recommended.
+
+CEO verdict:
+
+- Do not pivot back to "LLM chooses better graphic labels."
+- Do not calibrate first.
+- Do not claim AutoAE-level quality from existing pieces yet.
+- The near-term win is to make the existing MG stack honest and executable:
+  every visible MG must cite a fact, a wire, a stage, a physical form, and a
+  rendered-quality result.
+
+Production risk:
+
+- The branch is currently dirty and behind origin. Do not land MG runtime edits
+  until unrelated Brand Vault and local MG WIP are separated or explicitly
+  accepted.
+- Existing tests prove unit behavior, not live-project aesthetics. The next
+  implementation must start with MG-0 audit truth before broad form changes.
+
+### Corrected Implementation Order
+
+1. Keep Phase 0 read-only truth packs active on every serious fixture project.
+2. Build Phase 2A signal candidate normalization before changing family output:
+   candidate family, job role, timing anchor, evidence strength, completeness,
+   risk, normalized atoms, and calibration status.
+3. Change decision authority so `unified-planner` is used only when one planner
+   has ranked all candidates, not when Path E stayed primary and signals merely
+   decorated or validated it.
+4. Convert Creative Brief output into semantic facts and narrative intent:
+   claim, proof, contrast, quote, topic shift, emotional beat, and optional
+   family hint. Those facts can influence candidates but cannot directly force a
+   renderer label.
+5. Implement family planners in this order: caption/readability, transition
+   boundary, zoom/camera motion, SFX. MG now follows the MG Port plan above:
+   audit truth, evidence normalization, VEC authority, stage survival, authority
+   output expansion, atom-family expansion, rendered gate, choreography, then
+   calibration.
+6. Make rendered quality evidence a hard review gate before learning or broad
+   calibration.
+7. Run calibration only after real fixtures prove candidate selection, timing,
+   placement, and rendered output are stable.
 
 ## Correct Architecture
 
