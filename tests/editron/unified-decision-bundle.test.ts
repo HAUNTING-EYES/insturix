@@ -1233,6 +1233,47 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence.evidenceOnlySignalDecisionCount).toBe(0);
   });
 
+  it('lets explicit hard-cut boundary intent execute even when visualTransitionAllowed is false', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'transition',
+        frame: 280,
+        source: 'signal-executor:hard-cut-intent',
+        confidence: 0.89,
+        params: {
+          transitionType: 'hard-cut',
+          transitionIntent: 'impact-transfer',
+          boundaryFrame: 280,
+          textOnScreen: 0.82,
+          topicDelta: 0.26,
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.filter((d) => d.type === 'transition')).toHaveLength(1);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
+      signalDecisionCount: 1,
+    }));
+    expect(merged.edl.decisions.find((d) => d.type === 'transition')?.params.unifiedDecisionMerge).toEqual(
+      expect.objectContaining({
+        executionLicense: 'licensed-by-transition-family-plan',
+      }),
+    );
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'licensed-by-transition-family-plan': expect.objectContaining({ count: 1 }),
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions.map((d) => d.reason)).not.toContain('hard-cut-is-boundary-evidence');
+  });
+
   it('requires transition signals to have both a boundary anchor and a boundary reason', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',

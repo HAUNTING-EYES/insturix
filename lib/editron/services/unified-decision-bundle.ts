@@ -3423,7 +3423,8 @@ function resolveTransitionExecutionLicense(decision: ReactiveEditDecision): { ex
   }
 
   if (isNonExecutableCompatibilityHint) {
-    return plan?.visualTransitionAllowed
+    const allowsBoundaryCompatibilityExecution = canExecuteHardCutTransitionAsCompatibilityHint(decision, plan);
+    return allowsBoundaryCompatibilityExecution
       ? { executable: true, reason: 'licensed-by-transition-family-plan' }
       : { executable: false, reason: 'hard-cut-is-boundary-evidence' };
   }
@@ -3433,6 +3434,39 @@ function resolveTransitionExecutionLicense(decision: ReactiveEditDecision): { ex
   }
 
   return { executable: true, reason: 'licensed-by-transition-boundary-atoms' };
+}
+
+function canExecuteHardCutTransitionAsCompatibilityHint(
+  decision: ReactiveEditDecision,
+  plan: UnifiedTransitionBoundaryPlan | null,
+): boolean {
+  if (!plan) return false;
+  if (plan.physicalFormInputs.repetitionPressure >= 0.86 || plan.physicalFormInputs.screenSafetyPressure >= 0.92) {
+    return false;
+  }
+
+  if (plan.visualTransitionAllowed) return true;
+
+  if (hasAnyDirectParam(decision, ['transitionJob', 'transition_job']) || hasAnyDirectParam(decision, ['transitionIntent'])) {
+    return true;
+  }
+
+  if (plan.reasonKeys.includes('motion-direction')
+    || plan.reasonKeys.includes('visual-motion')
+    || plan.reasonKeys.includes('beat')
+    || plan.reasonKeys.includes('topic-shift')
+    || plan.reasonKeys.includes('emotion')
+    || plan.reasonKeys.includes('semantic-contrast')
+    || plan.reasonKeys.includes('claim-evidence-relation')
+    || plan.reasonKeys.includes('sentence-continues')
+    || plan.reasonKeys.includes('music-hit')
+    || plan.reasonKeys.includes('audio-tail')
+    || plan.reasonKeys.includes('visual-change')
+    || plan.reasonKeys.includes('speech-gap')) {
+    return true;
+  }
+
+  return false;
 }
 
 function resolveCameraExecutionLicense(decision: ReactiveEditDecision): { executable: boolean; reason: string } {
