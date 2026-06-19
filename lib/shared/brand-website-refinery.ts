@@ -703,7 +703,9 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   const unsafeOnLight = parsed.colors.filter((color) => contrastRatio(color, LIGHT_SURFACE) < 3);
   const rawTypography = parsed.fonts.join(', ');
   const typographySourceUrl = rawTypography ? stylesheetUrlForTypography(rawTypography, input.stylesheets ?? []) : undefined;
-  const inferredIndustry = inferIndustry(textForInference, parsed.schemaTypes);
+  const textForTaxonomy = taxonomyInferenceText(textForInference);
+  const inferredIndustry = textForTaxonomy ? inferIndustry(textForTaxonomy, parsed.schemaTypes) : undefined;
+  const inferredCategory = textForTaxonomy ? inferCategory(textForTaxonomy) : 'unknown';
   const primitiveSignals = renderedPrimitiveSignals(input.renderedPrimitives) ?? extractWebsitePrimitiveSignals(input.html, input.stylesheets ?? [], parsed);
 
   const profile: BrandSignalProfile = {
@@ -722,9 +724,9 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
         trustLevel: input.companyName ? 'manual_user_entry' : 'first_party_website',
       }),
       industry: inferredIndustry
-        ? makeSignal('identity.industry', inferredIndustry, source('website_metadata', 'website.copy', textForInference, inferredIndustry, description ? 0.58 : 0.38, 'inferred_hint'))
+        ? makeSignal('identity.industry', inferredIndustry, source('website_metadata', 'website.copy', textForTaxonomy, inferredIndustry, description ? 0.58 : 0.38, 'inferred_hint'))
         : undefined,
-      category: makeSignal('identity.category', inferCategory(textForInference), source('website_metadata', 'website.copy', textForInference, textForInference, description ? 0.58 : 0.35, 'inferred_hint')),
+      category: makeSignal('identity.category', inferredCategory, source('website_metadata', 'website.copy', textForTaxonomy || textForInference, textForTaxonomy || textForInference, description ? 0.58 : 0.35, 'inferred_hint')),
       audience: makeSignal('identity.audience', inferAudience(textForInference), source('website', 'website.copy', textForInference, textForInference, textForInference ? 0.5 : 0.2, 'inferred_hint')),
       productServices: parsed.productServices.length
         ? makeSignal('identity.productServices', parsed.productServices, source('website', 'website.productServices', parsed.productServices, parsed.productServices, 0.58, 'inferred_hint'))
@@ -1064,6 +1066,17 @@ function assetAvailabilityWarnings(unavailableCount: number, unknownCount: numbe
     );
   }
   return warnings;
+}
+
+function taxonomyInferenceText(text: string): string {
+  let clean = text;
+  if (/\b(?:investor relations|stockholders?|financial analysts?|earnings|dividend|sec filings?)\b/i.test(clean)) {
+    clean = clean.replace(
+      /\b(?:investor relations?|stockholders?|potential investors?|financial analysts?|quarterly financial information|financial results|earnings webcast|earnings release|earnings presentation|dividends?|stock quote|stock chart|sec filings?|annual reports?|conference calls?|webcasts?|investment calculator|analyst coverage)\b/gi,
+      ' ',
+    );
+  }
+  return sanitizeEvidenceExcerpt(clean.replace(/\s+/g, ' ').trim(), 4000);
 }
 
 function createSignalFactory(args: {

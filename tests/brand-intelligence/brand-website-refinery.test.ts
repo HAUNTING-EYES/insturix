@@ -569,6 +569,118 @@ describe('Brand website refinery', () => {
     expect(consumerElectronics.profile.identity.category.value).toBe('electronics/appliances');
   });
 
+  it('classifies broad-scan thin-page verticals without brand-name special cases', () => {
+    const industrial = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://industrial.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Industrial systems company</title>
+    <meta name="description" content="Diversified technology and engineered products for industrial growth markets, instrumentation, imaging systems, and test and measurement teams.">
+  </head>
+  <body><h1>Industrial technology for critical equipment markets</h1></body>
+</html>
+`,
+      brandId: 'brand_industrial',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_industrial_taxonomy',
+    });
+
+    expect(industrial.profile.identity.industry?.value).toBe('hardware/electronics');
+    expect(industrial.profile.identity.category.value).toBe('hardware/electronics');
+
+    const botanicalCare = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://botanical-care.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Botanical Care - Hair and skin essentials</title>
+    <meta name="description" content="Botanical care products for hair fall, anti-aging, skin brightening, shampoo, body wash, and personal care routines.">
+  </head>
+  <body><h1>Natural beauty routines for skin and hair</h1></body>
+</html>
+`,
+      brandId: 'brand_botanical_care',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_botanical_care_taxonomy',
+    });
+
+    expect(botanicalCare.profile.identity.industry?.value).toBe('beauty/personal care');
+    expect(botanicalCare.profile.identity.category.value).toBe('beauty/personal care');
+
+    const fashion = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://style-market.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Style Market - Women's fashion</title>
+    <meta name="description" content="Women's fashion with dresses, co-ords, tops, bottoms, and everyday wardrobe drops.">
+  </head>
+  <body><h1>New-season style for modern wardrobes</h1></body>
+</html>
+`,
+      brandId: 'brand_style_market',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_style_market_taxonomy',
+    });
+
+    expect(fashion.profile.identity.industry?.value).toBe('fashion/apparel');
+    expect(fashion.profile.identity.category.value).toBe('fashion/apparel');
+
+    const beverage = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://drink-maker.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Drink Maker - Traditional Indian drinks</title>
+    <meta name="description" content="Traditional Indian drinks, fruit drinks, nuts, seeds, berries, and memories for everyday beverage occasions.">
+  </head>
+  <body><h1>Drinks and memories for families and food lovers</h1></body>
+</html>
+`,
+      brandId: 'brand_drink_maker',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_drink_maker_taxonomy',
+    });
+
+    expect(beverage.profile.identity.industry?.value).toBe('food/beverage');
+    expect(beverage.profile.identity.category.value).toBe('food/beverage');
+  });
+
+  it('does not classify investor-relations boilerplate as the brand industry', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://industrial-holdco.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Investor Relations | Industrial HoldCo</title>
+    <meta name="description" content="Investor relations website for stockholders, potential investors, and financial analysts.">
+  </head>
+  <body>
+    <h1>Investor Relations</h1>
+    <p>Recent financial results, quarterly financial information, earnings webcast, dividend, stock quote, SEC filings, and annual reports.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_investor_noise',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_investor_taxonomy_noise',
+    });
+
+    expect(result.profile.identity.industry).toBeUndefined();
+    expect(result.profile.identity.category.value).toBe('unknown');
+  });
+
   it('filters ecommerce, browser, and markup junk from consumer audience signals', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://consumer.example',

@@ -63,8 +63,8 @@ const CATEGORY_RULES: Array<{
   {
     label: 'hardware/electronics',
     signals: [
-      [/\b(?:technology hardware|computer hardware|electronic components?|electronic equipment|electronic instruments?|hardware platforms?|data storage|storage systems?|peripherals?|servers?|workstations?|printers?|pcs?|personal computers?)\b/g, 2],
-      [/\b(?:memory|drives?|ssd|hdd|connectors?|sensors?|test and measurement|industrial instruments?|manufacturing services|electronics manufacturing)\b/g, 1.75],
+      [/\b(?:technology hardware|computer hardware|electronic components?|electronic equipment|electronic instruments?|hardware platforms?|data storage|storage systems?|peripherals?|servers?|workstations?|printers?|pcs?|personal computers?|industrial technolog(?:y|ies)|engineered products?|diversified technology)\b/g, 2],
+      [/\b(?:memory|drives?|ssd|hdd|connectors?|sensors?|test and measurement|industrial instruments?|instrumentation|manufacturing services|electronics manufacturing|imaging systems?|aerospace and defense|industrial growth markets?)\b/g, 1.75],
       [/\b(?:hardware|devices?|components?)\b/g, 1],
     ],
   },
@@ -99,15 +99,15 @@ const CATEGORY_RULES: Array<{
   {
     label: 'beauty/personal care',
     signals: [
-      [/\b(?:skincare|skin care|haircare|hair care|personal care|beauty|cosmetics?|makeup|grooming|fragrance|ayurvedic|dermatologist|derma|bodycare|body care|bath and body)\b/g, 2],
-      [/\b(?:sunscreen|serum|cleanser|face wash|moisturi[sz]er|shampoo|conditioner|spf|de-?tan|acne|pigmentation|beard|razor)\b/g, 1.5],
+      [/\b(?:skincare|skin care|haircare|hair care|personal care|beauty|cosmetics?|makeup|grooming|fragrance|ayurvedic|dermatologist|derma|bodycare|body care|bath and body|botanical care)\b/g, 2],
+      [/\b(?:sunscreen|serum|cleanser|face wash|moisturi[sz]er|shampoo|conditioner|spf|de-?tan|acne|pigmentation|beard|razor|hair fall|anti-?aging|skin brightening|body wash)\b/g, 1.5],
     ],
   },
   {
     label: 'fashion/apparel',
     signals: [
-      [/\b(?:fashion|apparel|clothing|womenswear|menswear|ethnic wear|western wear|innerwear|lingerie|activewear|streetwear)\b/g, 2],
-      [/\b(?:kurtas?|sarees?|saris?|lehengas?|denim|shirts?|t-?shirts?|tees?|dresses|bottomwear|wardrobe|outdoor clothing)\b/g, 1.5],
+      [/\b(?:fashion|apparel|clothing|womenswear|menswear|ethnic wear|western wear|innerwear|lingerie|activewear|streetwear|women'?s fashion|men'?s fashion)\b/g, 2],
+      [/\b(?:kurtas?|sarees?|saris?|lehengas?|denim|shirts?|t-?shirts?|tees?|dresses|bottomwear|wardrobe|outdoor clothing|co-ords?|jumpsuits?|tops?|bottoms?)\b/g, 1.5],
       [/\b(?:wear|gear)\b/g, 0.75],
     ],
   },
@@ -127,8 +127,8 @@ const CATEGORY_RULES: Array<{
   {
     label: 'food/beverage',
     signals: [
-      [/\b(?:food|beverage|coffee|roaster|cafe|espresso|beans|brew|drink|snacks?|nutrition bars?|meat|seafood|dairy|grocery|juice|tonic|sauce|tea|chocolate|protein|superfoods?)\b/g, 1.75],
-      [/\b(?:organic food|cold brew|ready to drink|ready-to-drink)\b/g, 2],
+      [/\b(?:food|beverages?|coffee|roaster|cafe|espresso|beans|brew|drinks?|snacks?|nutrition bars?|meat|seafood|dairy|grocery|juice|tonic|sauce|tea|chocolate|protein|superfoods?|nuts|seeds|berries)\b/g, 1.75],
+      [/\b(?:organic food|cold brew|ready to drink|ready-to-drink|traditional indian drinks?|fruit drinks?)\b/g, 2],
     ],
   },
   {

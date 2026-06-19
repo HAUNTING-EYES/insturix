@@ -21,7 +21,7 @@ import {
   verifyWebsiteBrandAssetCandidates,
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
-import { inferAudience, parseWebsiteHtml } from './brand-website-refinery-utils';
+import { inferAudience, inferCategory, inferIndustry, parseWebsiteHtml } from './brand-website-refinery-utils';
 import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
@@ -328,6 +328,8 @@ const PROMOTABLE_REVIEW_SIGNAL_PATHS = new Set([
   'voice.killList',
   'voice.recurringPhrases',
   'voice.hookArchetypes',
+  'identity.industry',
+  'identity.category',
   'identity.audience',
   'identity.productServices',
   'identity.proofStyle',
@@ -1836,6 +1838,31 @@ function crawlSignalCandidates(args: {
       confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_CTA_DIRECTNESS,
     });
   }
+  const verticalText = crawlVerticalInferenceText(args.content);
+  if (verticalText) {
+    const industry = inferIndustry(verticalText);
+    const category = inferCategory(verticalText);
+    if (industry) {
+      add({
+        sourceField: 'industry',
+        signalPath: 'identity.industry',
+        rawValue: verticalText,
+        normalizedValue: industry,
+        excerpt: verticalText,
+        confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_PROOF_STYLE,
+      });
+    }
+    if (category !== 'unknown') {
+      add({
+        sourceField: 'category',
+        signalPath: 'identity.category',
+        rawValue: verticalText,
+        normalizedValue: category,
+        excerpt: verticalText,
+        confidence: BRAND_CONFIDENCE.WEBSITE.CRAWL_PROOF_STYLE,
+      });
+    }
+  }
   if (args.content.proofSnippets.length > 0) {
     add({
       sourceField: 'proof',
@@ -1859,6 +1886,34 @@ function crawlSignalCandidates(args: {
   }
 
   return candidates.slice(0, 6);
+}
+
+function crawlVerticalInferenceText(content: CrawlPageContent): string {
+  const text = uniqueStrings([
+    content.title,
+    ...content.headings,
+    content.bodyText,
+  ].filter((value): value is string => Boolean(value?.trim())))
+    .join(' ')
+    .slice(0, 1200);
+  return stripCrawlVerticalNoise(text);
+}
+
+function stripCrawlVerticalNoise(text: string): string {
+  let clean = text;
+  if (/\b(?:cookie settings|privacy overview|save\s*&\s*accept|accept all)\b/i.test(clean)) {
+    clean = clean.replace(
+      /\b(?:skip to main navigation|cookie settings|accept all|privacy overview|necessary|functional|performance|analytics|advertisement|others|save\s*&\s*accept)\b/gi,
+      ' ',
+    );
+  }
+  if (/\b(?:cash return on investment|compounding cash|financial results|stock quote|shareholders?)\b/i.test(clean)) {
+    clean = clean.replace(
+      /\b(?:cash return on investment|compounding cash flows?|financial results|quarterly financial information|earnings|dividends?|stock quote|stock chart|investment calculator|shareholders?|mutual funds?|analyst coverage|minimi[sz]e risk)\b/gi,
+      ' ',
+    );
+  }
+  return sanitizeEvidenceExcerpt(clean.replace(/\s+/g, ' ').trim(), 1200);
 }
 
 interface CrawlPageContent {
@@ -2360,6 +2415,18 @@ function promoteCandidateToProfile(
     profile.identity.productServices ??= emptyPromotableStringArraySignal('identity.productServices');
     return mergeStringArraySignal(profile.identity.productServices, candidate, evidence, profile);
   }
+  if (candidate.signalPath === 'identity.industry') {
+    const industry = normalizeStringCandidate(candidate.normalizedValue);
+    if (!industry) return false;
+    profile.identity.industry ??= emptyPromotableStringSignal('identity.industry', 'unknown');
+    return replaceStringSignalValue(profile.identity.industry, industry, candidate, evidence, profile);
+  }
+  if (candidate.signalPath === 'identity.category') {
+    const category = normalizeStringCandidate(candidate.normalizedValue);
+    return category && category !== 'unknown'
+      ? replaceStringSignalValue(profile.identity.category, category, candidate, evidence, profile)
+      : false;
+  }
   if (candidate.signalPath === 'identity.proofStyle') {
     const proofStyle = normalizeProofStyleCandidate(candidate.normalizedValue);
     return proofStyle ? replaceSignalValue(profile.identity.proofStyle, proofStyle, candidate, evidence, profile) : false;
@@ -2416,6 +2483,22 @@ function replaceSignalValue<T>(
   return true;
 }
 
+function replaceStringSignalValue(
+  signal: BrandSignal<string>,
+  value: string,
+  candidate: BrandEvidenceCandidate,
+  evidence: BrandSignalEvidence,
+  profile: BrandSignalProfile,
+): boolean {
+  if (candidate.confidence <= signal.confidence && signal.trustLevel !== 'fallback_default' && signal.value !== 'unknown') return false;
+
+  profile.evidence.push(evidence);
+  signal.value = value;
+  signal.evidenceIds = uniqueStrings([...signal.evidenceIds, evidence.id]);
+  adoptCandidateSignalAuthority(signal, candidate, evidence);
+  return true;
+}
+
 function adoptCandidateSignalAuthority<T>(
   signal: BrandSignal<T>,
   candidate: BrandEvidenceCandidate,
@@ -2444,6 +2527,7 @@ function promotedEvidenceFromCandidate(
     signalPath: candidate.signalPath,
     sourceType: trustLevel,
     sourceField: candidate.sourceField,
+    sourceUrl: candidate.sourceUrl,
     excerpt: candidate.excerpt ? sanitizeEvidenceExcerpt(candidate.excerpt) : undefined,
     confidence: candidate.confidence,
     trustLevel,
@@ -2557,6 +2641,21 @@ function emptyPromotableStringArraySignal(path: string): BrandSignal<string[]> {
     evidenceIds: [],
     fallbackReason: `No reviewed evidence for ${path}.`,
   };
+}
+
+function emptyPromotableStringSignal(path: string, value: string): BrandSignal<string> {
+  return {
+    value,
+    confidence: 0,
+    trustLevel: 'fallback_default',
+    authorityClass: 'inferred_hint',
+    evidenceIds: [],
+    fallbackReason: `No reviewed evidence for ${path}.`,
+  };
+}
+
+function normalizeStringCandidate(value: unknown): string | undefined {
+  return typeof value === 'string' ? cleanPromotedPhrase(value) : undefined;
 }
 
 function cleanPromotedPhrase(value: string): string | undefined {

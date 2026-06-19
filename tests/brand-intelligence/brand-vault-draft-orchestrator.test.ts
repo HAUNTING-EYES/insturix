@@ -1100,11 +1100,11 @@ describe('Brand Vault draft orchestrator', () => {
     expect(crawlLane).toMatchObject({
       status: 'complete',
       sourceCount: 3,
-      topSignalPaths: expect.arrayContaining(['identity.proofStyle', 'identity.audience', 'voice.recurringPhrases']),
+      topSignalPaths: expect.arrayContaining(['identity.proofStyle', 'identity.audience', 'identity.category', 'identity.industry']),
     });
     expect(crawlLane?.candidateCount).toBeGreaterThan(3);
     expect(crawlLane?.notes).toEqual([
-      'Crawled 3 additional pages and extracted 10 page-level candidates.',
+      'Crawled 3 additional pages and extracted 16 page-level candidates.',
     ]);
     expect(crawlSignalCandidates.map((candidate) => candidate.sourceField)).toEqual(
       expect.arrayContaining([
@@ -1116,7 +1116,13 @@ describe('Brand Vault draft orchestrator', () => {
       ]),
     );
     expect(crawlSignalCandidates.map((candidate) => candidate.signalPath)).toEqual(
-      expect.arrayContaining(['identity.audience', 'identity.proofStyle', 'voice.recurringPhrases', 'voice.hookArchetypes']),
+      expect.arrayContaining([
+        'identity.audience',
+        'identity.category',
+        'identity.industry',
+        'identity.proofStyle',
+        'voice.hookArchetypes',
+      ]),
     );
     expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'identity.proofStyle')?.candidateCount).toBeGreaterThan(3);
     expect(result.reviewPayload.signalDiagnostics.items.find((item) => item.path === 'identity.audience')?.candidateCount).toBeGreaterThan(1);
@@ -1199,6 +1205,92 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.profile.voice.hookArchetypes.confidence).toBe(0.48);
     expect(result.profile.voice.hookArchetypes.confidence).toBeLessThan(0.55);
     expect(result.profile.voice.hookArchetypes.evidenceIds.length).toBeGreaterThan(1);
+  });
+
+  it('promotes crawled vertical evidence when the root page is thin', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const pages: Record<string, string> = {
+      'https://roper.example/': pageHtml(
+        'Investor Relations | Roper Technologies, Inc.',
+        [
+          '<h1>Investor Relations</h1>',
+          '<p>Cookie settings and investor news.</p>',
+        ].join(''),
+      ),
+      'https://roper.example/about-us/who-we-are': pageHtml(
+        'Who We Are | Roper Technologies',
+        [
+          '<h1>Diversified industrial technology</h1>',
+          '<p>Cookie Settings Accept All Privacy Overview Necessary Functional Performance Analytics Advertisement Others SAVE & ACCEPT.</p>',
+          '<p>Cash return on investment, compounding cash flow, minimize risk, shareholders, and financial results.</p>',
+          '<p>Roper is a diversified technology company with engineered products, application software, instrumentation, imaging systems, and industrial growth markets.</p>',
+          '<p>Our businesses serve test and measurement, aerospace and defense, and industrial teams.</p>',
+        ].join(''),
+      ),
+    };
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_roper',
+        brandId: 'brand_roper',
+        websiteUrl: 'roper.example',
+        jobId: 'job_crawl_vertical',
+        profileRecordId: 'draft_crawl_vertical',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://roper.example/about-us/who-we-are',
+            platform: 'website',
+            crawl: {
+              maxPages: 1,
+              maxDepth: 0,
+              includePaths: ['/about-us/who-we-are'],
+            },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          const html = pages[url];
+          if (!html) throw new Error(`Unexpected crawl URL: ${url}`);
+          return {
+            normalizedUrl: url,
+            html,
+            contentType: 'text/html',
+            fetchedAt: NOW,
+          };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+
+    const verticalCandidate = result.candidates.find((candidate) =>
+      candidate.extractorId === 'brand-vault-crawler.v1' && candidate.signalPath === 'identity.industry'
+    );
+    expect(verticalCandidate).toMatchObject({
+      sourceField: 'crawl.page.1.industry',
+      sourceUrl: 'https://roper.example/about-us/who-we-are',
+      normalizedValue: 'hardware/electronics',
+      confidence: 0.58,
+    });
+    expect(result.profile.identity.industry).toMatchObject({
+      value: 'hardware/electronics',
+      confidence: 0.58,
+      trustLevel: 'first_party_website',
+    });
+    expect(result.profile.identity.category).toMatchObject({
+      value: 'hardware/electronics',
+      confidence: 0.58,
+      trustLevel: 'first_party_website',
+    });
+    const industryEvidence = result.profile.evidence.find((item) =>
+      item.signalPath === 'identity.industry' && item.extractor === 'brand-vault-crawler.v1'
+    );
+    expect(industryEvidence?.sourceUrl).toBe('https://roper.example/about-us/who-we-are');
   });
 
   it('keeps full-crawl app UI evidence out of canonical website copy', async () => {
