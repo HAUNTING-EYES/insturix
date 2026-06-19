@@ -112,6 +112,14 @@ describe('Brand Vault text evidence compiler', () => {
                           confidence: 0.91,
                         },
                         {
+                          signalPath: 'identity.productServices',
+                          normalizedValue: ['video systems', 'software', 'Book a demo'],
+                          excerpt: 'Video systems for founder-led creative teams.',
+                          sourceField: 'website.root',
+                          sourceUrl: 'https://signal.example/',
+                          confidence: 0.67,
+                        },
+                        {
                           signalPath: 'identity.proofStyle',
                           normalizedValue: 'metrics',
                           excerpt: 'Trusted by 120 agency operators.',
@@ -149,6 +157,7 @@ describe('Brand Vault text evidence compiler', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toContain('/v1beta/models/gemini-test:generateContent?key=gemini_key');
     expect(JSON.stringify(calls[0].body)).toContain('founder-led creative teams');
+    expect(JSON.stringify(calls[0].body)).toContain('identity.productServices');
     expect(JSON.stringify(calls[0].body)).toContain('sourceEvidence.0.social_post');
     expect(JSON.stringify(calls[0].body)).toContain('Scale production without brand drift');
     expect(JSON.stringify(calls[0].body)).not.toContain('Instagram media founder-led');
@@ -159,7 +168,7 @@ describe('Brand Vault text evidence compiler', () => {
     expect(result.warnings).toContain(
       'Brand Vault text evidence compiler discarded 1 unsupported, duplicate, or ungrounded candidate.',
     );
-    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates).toHaveLength(4);
     expect(result.candidates[0]).toMatchObject({
       brandId: 'brand_signal',
       jobId: 'job_text_compiler_provider',
@@ -174,11 +183,17 @@ describe('Brand Vault text evidence compiler', () => {
     });
     expect(result.candidates[1]).toMatchObject({
       sourceType: 'website',
+      signalPath: 'identity.productServices',
+      normalizedValue: ['video systems'],
+      confidence: 0.67,
+    });
+    expect(result.candidates[2]).toMatchObject({
+      sourceType: 'website',
       signalPath: 'identity.proofStyle',
       normalizedValue: 'metrics',
       confidence: 0.62,
     });
-    expect(result.candidates[2]).toMatchObject({
+    expect(result.candidates[3]).toMatchObject({
       signalPath: 'voice.ctaDirectness',
       normalizedValue: 1,
       confidence: 0.6,
@@ -221,6 +236,13 @@ describe('Brand Vault text evidence compiler', () => {
                         sourceUrl: 'https://signal.example/',
                         confidence: 0.68,
                       },
+                      {
+                        signalPath: 'identity.productServices',
+                        normalizedValue: ['software', 'Book a demo'],
+                        excerpt: 'Generic product/service junk should be rejected.',
+                        sourceField: 'website.root',
+                        confidence: 0.68,
+                      },
                     ],
                   }),
                 },
@@ -242,7 +264,7 @@ describe('Brand Vault text evidence compiler', () => {
       normalizedValue: ['founder-led creative teams'],
     });
     expect(result.warnings).toContain(
-      'Brand Vault text evidence compiler discarded 2 unsupported, duplicate, or ungrounded candidates.',
+      'Brand Vault text evidence compiler discarded 3 unsupported, duplicate, or ungrounded candidates.',
     );
   });
 

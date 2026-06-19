@@ -15,6 +15,7 @@ type BrandVaultTextCompilerFetch = (input: string, init?: RequestInit) => Promis
 
 type CompilerSignalPath =
   | 'identity.audience'
+  | 'identity.productServices'
   | 'identity.proofStyle'
   | 'voice.recurringPhrases'
   | 'voice.hookArchetypes'
@@ -55,6 +56,7 @@ const MAX_TEXT_BLOCK_CHARS = 1_600;
 const MAX_CANDIDATES = 12;
 const SIGNAL_PATHS = new Set<CompilerSignalPath>([
   'identity.audience',
+  'identity.productServices',
   'identity.proofStyle',
   'voice.recurringPhrases',
   'voice.hookArchetypes',
@@ -165,7 +167,7 @@ function buildCompilerPrompt(input: BrandVaultTextEvidenceCompilerInput): string
   return truncateText(`You are Brand Vault's evidence compiler.
 
 Return JSON only:
-{"candidates":[{"signalPath":"identity.audience|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
+{"candidates":[{"signalPath":"identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
 
 Rules:
 - Return the JSON object directly. Do not wrap it in Markdown fences or prose.
@@ -175,6 +177,7 @@ Rules:
 - Prefer precise product/service, audience, proof, and voice evidence over generic descriptions.
 - Treat OCR and transcript text as first-class evidence when present.
 - Audience values must be specific buyer/user groups, not generic words like "businesses" alone.
+- Product/service values must be concrete offerings, product categories, service categories, or named platform capabilities. Do not emit CTAs, audiences, proof claims, page labels, or generic words like "software" alone.
 - Proof style must be one of: testimonial, metrics, authority, community, demo, editorial.
 - Hook archetypes should be compact labels such as statement-led, system, question, contrast, metric-led, demo-led.
 - Recurring phrases should be short exact or near-exact brand-language fragments.
@@ -363,9 +366,24 @@ function normalizeCandidateValue(signalPath: CompilerSignalPath, value: unknown)
   const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
   const normalized = values
     .map((item) => typeof item === 'string' ? sanitizeEvidenceExcerpt(item, 90) : '')
-    .filter((item) => item.length >= 3)
-    .filter((item) => !/^(?:businesses|users|customers|people|everyone|brands?)$/i.test(item));
-  return normalized.length > 0 ? Array.from(new Set(normalized)).slice(0, 8) : undefined;
+    .filter((item) => item.length >= 3);
+  const filtered = signalPath === 'identity.productServices'
+    ? normalized.filter(isCompilerProductServiceValue)
+    : normalized.filter((item) => !/^(?:businesses|users|customers|people|everyone|brands?)$/i.test(item));
+  return filtered.length > 0 ? Array.from(new Set(filtered)).slice(0, 8) : undefined;
+}
+
+function isCompilerProductServiceValue(value: string): boolean {
+  if (value.length < 4 || value.length > 96) return false;
+  if (/^(?:products?|services?|solutions?|features?|collections?|home|about|contact|pricing|software|platform|app|tool|tools)$/i.test(value)) {
+    return false;
+  }
+  if (/\b(?:shop now|add to cart|buy now|wishlist|no reviews?|mrp|price|sale|discount|select size|checkout|cart|book a demo|get started|contact sales|learn more)\b/i.test(value)) {
+    return false;
+  }
+  if (/^https?:\/\//i.test(value) || /[{}<>]|(?:document\.|window\.|function\s*\(|=>)/.test(value)) return false;
+  if (/^(?:agenc(?:y|ies)|creative teams?|founders?|operators?|customers?|users|businesses|brands?)$/i.test(value)) return false;
+  return true;
 }
 
 function extractGeminiText(payload: unknown): string | undefined {
@@ -461,7 +479,7 @@ function buildCompilerJsonRepairPrompt(rawText: string): string {
   return truncateText(`Repair the following Brand Vault model output into strict JSON.
 
 Return only this JSON shape:
-{"candidates":[{"signalPath":"identity.audience|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
+{"candidates":[{"signalPath":"identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
 
 Rules:
 - Preserve only candidate fields already present in the malformed output.
