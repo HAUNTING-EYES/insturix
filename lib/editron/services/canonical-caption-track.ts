@@ -85,13 +85,13 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
   const displayConfig = resolveDisplayConfig(input.presentation);
   const readability = captionReadabilityPolicy(input.presentation, displayConfig);
   const groupingConfig = {
-    wordsPerGroup: readability.wordsPerGroup,
+    wordsPerGroup: readability.groupWordsPerCaption,
     groupByPunctuation: true,
     maxGroupDuration: readability.maxGroupDurationMs,
     maxCharsPerLine: readability.maxCharsPerCaption,
   };
   const captionBoundaries = captionBoundaryPlanMs(input.editedTimelineContext, words, readability);
-  const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundaries.allMs);
+  const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundaries.allMs, readability);
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
   const protectedRegions = collectCaptionProtectedRegions(input.overlays);
   const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
@@ -129,6 +129,8 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         clipBoundaryCount: captionBoundaries.clipBoundaryCount,
         speechPauseBoundaryCount: captionBoundaries.speechPauseBoundaryCount,
         speechPauseBoundaryMs: captionBoundaries.speechPauseBoundaryMs,
+        sourceDisplayMode: input.presentation.displayMode,
+        renderDisplayMode: displayConfig.mode,
         captionAesthetic: input.presentation.aesthetic,
         readability,
         protectedRegionCount: protectedRegions.length,
@@ -154,11 +156,13 @@ function captionBoundaryPlanMs(
   words: CaptionWord[],
   readability: ReturnType<typeof captionReadabilityPolicy>,
 ): CaptionBoundaryPlan {
-  const clipBoundaries = context.sourceClips
+  const rawClipBoundaries = context.sourceClips
     .map((clip) => Math.round((clip.from / context.fps) * 1000))
     .filter((ms) => ms > 0 && ms < context.durationMs)
     .sort((a, b) => a - b);
   const speechPauseBoundaries = speechPauseBoundaryMs(words, readability.speechPauseBoundaryMs);
+  const clipBoundaries = rawClipBoundaries
+    .filter((ms) => isCaptionSafeClipBoundary(ms, words, readability));
   const allMs = uniqueSortedMs([...clipBoundaries, ...speechPauseBoundaries]);
 
   return {
@@ -167,6 +171,22 @@ function captionBoundaryPlanMs(
     speechPauseBoundaryCount: speechPauseBoundaries.length,
     speechPauseBoundaryMs: readability.speechPauseBoundaryMs,
   };
+}
+
+function isCaptionSafeClipBoundary(
+  boundaryMs: number,
+  words: CaptionWord[],
+  readability: ReturnType<typeof captionReadabilityPolicy>,
+): boolean {
+  const previous = [...words].reverse().find((word) => word.endMs <= boundaryMs);
+  const next = words.find((word) => word.startMs >= boundaryMs);
+  if (!previous || !next) return true;
+
+  const speechGapMs = next.startMs - previous.endMs;
+  if (speechGapMs >= readability.softClipBoundaryGapMs) return true;
+
+  const punctuationPause = /[.!?;:]$/.test(previous.word.trim());
+  return punctuationPause && speechGapMs >= readability.punctuationClipBoundaryGapMs;
 }
 
 function speechPauseBoundaryMs(words: CaptionWord[], pauseBoundaryMs: number): number[] {
@@ -192,16 +212,17 @@ function groupWordsIntoBoundaryAwareCaptions(
   words: CaptionWord[],
   config: Parameters<typeof groupWordsIntoCaptions>[1],
   boundariesMs: number[],
+  readability: ReturnType<typeof captionReadabilityPolicy>,
 ): Caption[] {
-  if (boundariesMs.length === 0) return groupWordsIntoCaptions(words, config);
+  if (boundariesMs.length === 0) return readableCaptionGroups(words, config, readability);
 
   const captions: Caption[] = [];
   let currentWords: CaptionWord[] = [];
   let boundaryIndex = 0;
 
-  const pushCurrentWords = () => {
+  const pushCurrentWords = (segmentEndMs?: number) => {
     if (currentWords.length === 0) return;
-    captions.push(...groupWordsIntoCaptions(currentWords, config));
+    captions.push(...readableCaptionGroups(currentWords, config, readability, segmentEndMs));
     currentWords = [];
   };
 
@@ -210,7 +231,7 @@ function groupWordsIntoBoundaryAwareCaptions(
       boundaryIndex < boundariesMs.length &&
       word.startMs >= boundariesMs[boundaryIndex]
     ) {
-      pushCurrentWords();
+      pushCurrentWords(boundariesMs[boundaryIndex]);
       boundaryIndex++;
     }
     currentWords.push(word);
@@ -218,6 +239,120 @@ function groupWordsIntoBoundaryAwareCaptions(
   pushCurrentWords();
 
   return captions;
+}
+
+function readableCaptionGroups(
+  words: CaptionWord[],
+  config: Parameters<typeof groupWordsIntoCaptions>[1],
+  readability: ReturnType<typeof captionReadabilityPolicy>,
+  segmentEndMs?: number,
+): Caption[] {
+  return padReadableCaptionWindows(
+    normalizeReadableCaptionGroups(groupWordsIntoCaptions(words, config), readability),
+    readability,
+    segmentEndMs,
+  );
+}
+
+function normalizeReadableCaptionGroups(
+  captions: Caption[],
+  readability: ReturnType<typeof captionReadabilityPolicy>,
+): Caption[] {
+  const normalized: Caption[] = [];
+
+  for (const caption of captions) {
+    const previous = normalized[normalized.length - 1];
+    if (
+      previous &&
+      (captionDurationMs(previous) < readability.minGroupDurationMs || captionDurationMs(caption) < readability.minGroupDurationMs) &&
+      canMergeCaptionGroups(previous, caption, readability)
+    ) {
+      normalized[normalized.length - 1] = mergeCaptionGroups(previous, caption);
+    } else {
+      normalized.push(caption);
+    }
+  }
+
+  return normalized;
+}
+
+function canMergeCaptionGroups(
+  left: Caption,
+  right: Caption,
+  readability: ReturnType<typeof captionReadabilityPolicy>,
+): boolean {
+  const words = [...(left.words ?? []), ...(right.words ?? [])];
+  const text = words.map((word) => word.word).join(' ');
+  const durationMs = (right.endMs ?? 0) - (left.startMs ?? 0);
+
+  return words.length <= readability.maxMergeWords
+    && text.length <= readability.maxMergeChars
+    && durationMs <= readability.maxMergedGroupDurationMs;
+}
+
+function mergeCaptionGroups(left: Caption, right: Caption): Caption {
+  const words = [...(left.words ?? []), ...(right.words ?? [])];
+  const text = words.map((word) => word.word).join(' ');
+  const confidence = words.length > 0
+    ? words.reduce((sum, word) => sum + (word.confidence ?? 1), 0) / words.length
+    : Math.min(left.confidence ?? 1, right.confidence ?? 1);
+
+  return {
+    text,
+    startMs: left.startMs,
+    endMs: right.endMs,
+    timestampMs: null,
+    confidence,
+    words,
+  };
+}
+
+function captionDurationMs(caption: Caption): number {
+  return Math.max(0, (caption.endMs ?? 0) - (caption.startMs ?? 0));
+}
+
+function padReadableCaptionWindows(
+  captions: Caption[],
+  readability: ReturnType<typeof captionReadabilityPolicy>,
+  segmentEndMs?: number,
+): Caption[] {
+  return captions.map((caption, index) => {
+    const durationMs = captionDurationMs(caption);
+    if (durationMs >= readability.minGroupDurationMs) return caption;
+
+    const previous = captions[index - 1];
+    const next = captions[index + 1];
+    const minStartMs = (previous?.endMs ?? 0) + readability.minCaptionGapMs;
+    const maxEndMs = Math.min(
+      next ? next.startMs - readability.minCaptionGapMs : Number.POSITIVE_INFINITY,
+      Number.isFinite(segmentEndMs) ? (segmentEndMs ?? Number.POSITIVE_INFINITY) - readability.minCaptionGapMs : Number.POSITIVE_INFINITY,
+    );
+
+    let startMs = caption.startMs;
+    let endMs = caption.endMs;
+    let remainingMs = readability.minGroupDurationMs - durationMs;
+
+    const postRollMs = Math.min(
+      remainingMs,
+      readability.maxCaptionPostRollMs,
+      Math.max(0, maxEndMs - endMs),
+    );
+    endMs += postRollMs;
+    remainingMs -= postRollMs;
+
+    const preRollMs = Math.min(
+      remainingMs,
+      readability.maxCaptionPreRollMs,
+      Math.max(0, startMs - minStartMs),
+    );
+    startMs -= preRollMs;
+
+    return {
+      ...caption,
+      startMs: Math.max(0, Math.round(startMs)),
+      endMs: Math.max(Math.round(startMs) + 80, Math.round(endMs)),
+    };
+  });
 }
 
 function removeSupersededGeneratedCaptionTracks(overlays: any[]): number {
@@ -245,52 +380,92 @@ function isManualCaptionTrack(overlay: any): boolean {
 }
 
 function resolveDisplayConfig(presentation: AtomicCaptionPresentation): CaptionDisplayConfig {
-  const displayConfig = createDisplayConfig(presentation.displayMode, {
+  const renderMode = renderCaptionModeForPresentation(presentation);
+  const displayConfig = createDisplayConfig(renderMode, {
     wordsPerGroup: presentation.wordsPerGroup,
   });
   const readability = captionReadabilityPolicy(presentation, displayConfig);
   return {
     ...displayConfig,
+    mode: readability.renderMode,
     wordsPerGroup: readability.wordsPerGroup,
     maxWordsPerLine: readability.maxWordsPerLine,
   };
+}
+
+function renderCaptionModeForPresentation(presentation: AtomicCaptionPresentation): CaptionDisplayConfig['mode'] {
+  if (presentation.displayMode === 'karaoke' && presentation.aesthetic.surface === 'subtitle-panel') {
+    return 'phrase';
+  }
+  return presentation.displayMode;
 }
 
 function captionReadabilityPolicy(
   presentation: AtomicCaptionPresentation,
   displayConfig: CaptionDisplayConfig,
 ) {
-  const mode = presentation.displayMode;
+  const sourceMode = presentation.displayMode;
+  const mode = displayConfig.mode;
   const fastSpeech = presentation.signals.speakingRate > 165;
+  const sourceKaraokeMode = sourceMode === 'karaoke';
   const highEnergy = presentation.signals.energy > 0.68 || mode === 'hormozi' || mode === 'instagram' || mode === 'word-by-word';
-  const subtitleMode = mode === 'subtitle';
-  const karaokeMode = mode === 'karaoke';
-  const panelMode = subtitleMode || karaokeMode;
+  const subtitleMode = sourceMode === 'subtitle' || mode === 'subtitle';
+  const karaokeMode = sourceKaraokeMode || mode === 'karaoke';
+  const panelMode = subtitleMode || sourceKaraokeMode;
   const maxWordsPerLine = subtitleMode
     ? Math.min(6, displayConfig.maxWordsPerLine)
-    : karaokeMode
+    : sourceKaraokeMode
       ? Math.min(4, displayConfig.maxWordsPerLine)
     : highEnergy
       ? Math.min(2, displayConfig.maxWordsPerLine)
       : Math.min(3, displayConfig.maxWordsPerLine);
   const wordsPerGroup = subtitleMode
     ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 6 : 8)
+    : sourceKaraokeMode
+      ? 1
     : karaokeMode
-      ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 4 : 5)
+      ? Math.min(displayConfig.wordsPerGroup, fastSpeech ? 3 : 4)
     : highEnergy
       ? Math.min(displayConfig.wordsPerGroup, mode === 'word-by-word' ? 1 : 3)
       : Math.min(displayConfig.wordsPerGroup, 4);
-  const maxCharsPerCaption = subtitleMode ? 38 : karaokeMode ? 30 : highEnergy ? 22 : 30;
-  const maxGroupDurationMs = panelMode ? 2300 : highEnergy ? 1450 : 1900;
+  const groupWordsPerCaption = sourceKaraokeMode
+    ? Math.max(wordsPerGroup + 8, fastSpeech ? 12 : 14)
+    : wordsPerGroup;
+  const maxCharsPerCaption = subtitleMode ? 38 : sourceKaraokeMode ? 84 : highEnergy ? 22 : 30;
+  const maxGroupDurationMs = sourceKaraokeMode ? 2800 : panelMode ? 2300 : highEnergy ? 1450 : 1900;
   const speechPauseBoundaryMs = highEnergy ? 380 : panelMode ? 620 : 500;
+  const minGroupDurationMs = subtitleMode ? 900 : karaokeMode ? 760 : highEnergy ? 560 : 680;
+  const maxMergeWords = subtitleMode
+    ? Math.max(wordsPerGroup, 10)
+    : sourceKaraokeMode
+      ? Math.max(groupWordsPerCaption, 18)
+      : highEnergy
+        ? Math.max(wordsPerGroup + 2, 5)
+        : Math.max(wordsPerGroup + 2, 6);
+  const maxMergeChars = subtitleMode ? 52 : sourceKaraokeMode ? 112 : highEnergy ? 30 : 38;
+  const maxMergedGroupDurationMs = sourceKaraokeMode
+    ? Math.max(maxGroupDurationMs, 5200)
+    : Math.max(maxGroupDurationMs, minGroupDurationMs + 700);
 
   return {
     version: 'caption-readability-policy-v1',
+    sourceMode,
+    renderMode: mode,
     wordsPerGroup: Math.max(1, wordsPerGroup),
+    groupWordsPerCaption: Math.max(wordsPerGroup, groupWordsPerCaption),
     maxWordsPerLine: Math.max(1, maxWordsPerLine),
     maxCharsPerCaption,
     maxGroupDurationMs,
+    minGroupDurationMs,
+    maxMergeWords,
+    maxMergeChars,
+    maxMergedGroupDurationMs,
+    maxCaptionPreRollMs: panelMode ? 320 : 260,
+    maxCaptionPostRollMs: panelMode ? 520 : 420,
+    minCaptionGapMs: 80,
     speechPauseBoundaryMs,
+    softClipBoundaryGapMs: Math.max(220, Math.round(speechPauseBoundaryMs * 0.65)),
+    punctuationClipBoundaryGapMs: 140,
     contrastFloor: 4.5,
     surface: presentation.aesthetic.surface,
     status: 'invented-needs-calibration',

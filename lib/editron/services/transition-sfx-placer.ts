@@ -538,6 +538,41 @@ export interface TransitionSFXResult {
   tokensUsed: string[];
 }
 
+type TransitionSfxPlacementStatus = 'placed' | 'skipped' | 'suppressed';
+
+interface TransitionSfxPlacementEvidence {
+  version: 'transition-sfx-placement-v1';
+  status: TransitionSfxPlacementStatus;
+  reason: string;
+  policy: 'full' | 'subtle' | 'off';
+  style: string;
+  token?: SFXToken;
+  rule?: string;
+  searchQuery?: string;
+  syncFrame?: number;
+  soundOverlayId?: number;
+  assetQualityDecision?: string;
+  assetQualityScore?: number;
+}
+
+function recordTransitionSfxPlacement(
+  transition: TransitionOverlayShape,
+  evidence: Omit<TransitionSfxPlacementEvidence, 'version' | 'style'>,
+): void {
+  const style = transition.transitionStyle || 'unknown';
+  transition.metadata = {
+    ...(transition.metadata ?? {}),
+    transitionSfxPlacement: {
+      version: 'transition-sfx-placement-v1',
+      style,
+      ...evidence,
+    },
+    transitionSfxPlacementStatus: evidence.status,
+    transitionSfxSkipReason: evidence.status === 'placed' ? undefined : evidence.reason,
+    transitionSfxPolicy: evidence.policy,
+  };
+}
+
 /**
  * Main entry: iterate all transition overlays in the project and place SFX
  * per KB Part 9 rules. Mutates the overlays array in place (appends SFX overlays).
@@ -562,11 +597,30 @@ export async function placeTransitionSFX(
     tokensUsed: [],
   };
 
+  // Find all transition overlays (TransitionOverlay tiles from EDL or edit-direction-applier)
+  const transitions: TransitionOverlayShape[] = overlays.filter(
+    o => o && o.type === 'transition'
+  );
+
+  if (transitions.length === 0) {
+    console.log('[TransitionSFX] No transitions in project — nothing to do');
+    return result;
+  }
+
   // Profile policy check — 'off' profiles skip transition SFX entirely.
   // This is the opinionated path (documentary / luxury / minimalist profiles
   // that deliberately use silence or natural-only audio).
   const policy = resolvePolicy(profile);
   if (policy === 'off') {
+    for (const transition of transitions) {
+      recordTransitionSfxPlacement(transition, {
+        status: 'suppressed',
+        reason: 'profile-policy-off',
+        policy,
+      });
+    }
+    result.skipped += transitions.length;
+    bumpSkipReason(result, 'profile-policy-off');
     console.log(
       `[TransitionSFX] Profile ${profile?.profileId || '(none)'} has transitionSFXPolicy='off' — ` +
       `skipping all transition SFX by design (silence is the aesthetic)`
@@ -576,20 +630,19 @@ export async function placeTransitionSFX(
 
   // Library availability check — graceful degradation (Rule 16)
   if (!isSFXLibraryAvailable()) {
+    for (const transition of transitions) {
+      recordTransitionSfxPlacement(transition, {
+        status: 'skipped',
+        reason: 'sfx-library-unavailable',
+        policy,
+      });
+    }
+    result.skipped += transitions.length;
+    bumpSkipReason(result, 'sfx-library-unavailable');
     console.warn('[TransitionSFX] SFX library not available (no PIXABAY_API_KEY/FREESOUND_API_KEY) — skipping all');
     if (warnings) {
       warnings.degraded('sfx', 'transition-placer', 'No SFX library API keys configured — transition SFX skipped');
     }
-    return result;
-  }
-
-  // Find all transition overlays (TransitionOverlay tiles from EDL or edit-direction-applier)
-  const transitions: TransitionOverlayShape[] = overlays.filter(
-    o => o && o.type === 'transition'
-  );
-
-  if (transitions.length === 0) {
-    console.log('[TransitionSFX] No transitions in project — nothing to do');
     return result;
   }
 
@@ -632,6 +685,11 @@ export async function placeTransitionSFX(
         ? `silence-wins (${style})`
         : `unknown-style (${style})`;
       bumpSkipReason(result, reason);
+      recordTransitionSfxPlacement(transition, {
+        status: 'suppressed',
+        reason,
+        policy,
+      });
       continue;
     }
 
@@ -640,6 +698,16 @@ export async function placeTransitionSFX(
     if (existingIds.has(sfxId)) {
       result.skipped++;
       bumpSkipReason(result, 'already-placed');
+      recordTransitionSfxPlacement(transition, {
+        status: 'placed',
+        reason: 'already-placed',
+        policy,
+        token: spec.token,
+        rule: spec.rule,
+        searchQuery: spec.searchQuery,
+        syncFrame: spec.form.timing.syncFrame,
+        soundOverlayId: sfxId,
+      });
       continue;
     }
 
@@ -647,6 +715,15 @@ export async function placeTransitionSFX(
     if (!placement.ok) {
       result.skipped++;
       bumpSkipReason(result, placement.reason);
+      recordTransitionSfxPlacement(transition, {
+        status: 'skipped',
+        reason: placement.reason,
+        policy,
+        token: spec.token,
+        rule: spec.rule,
+        searchQuery: spec.searchQuery,
+        syncFrame: spec.form.timing.syncFrame,
+      });
       if (warnings) {
         warnings.degraded('sfx', `transition ${style} @ frame ${transition.from}`,
           `Transition SFX skipped: ${placement.reason}`);
@@ -659,6 +736,17 @@ export async function placeTransitionSFX(
     if (!sfx || !sfx.result.audioUrl) {
       result.skipped++;
       bumpSkipReason(result, `library-miss-or-quality-reject-${spec.token}`);
+      recordTransitionSfxPlacement(transition, {
+        status: 'skipped',
+        reason: `library-miss-or-quality-reject-${spec.token}`,
+        policy,
+        token: spec.token,
+        rule: spec.rule,
+        searchQuery: spec.searchQuery,
+        syncFrame: spec.form.timing.syncFrame,
+        assetQualityDecision: sfx?.assetQuality.decision,
+        assetQualityScore: sfx?.assetQuality.score,
+      });
       if (warnings) {
         warnings.degraded('sfx', `transition ${style} @ frame ${transition.from}`,
           `SFX library returned no acceptable "${spec.token}" audio — transition has no SFX`);
@@ -701,6 +789,18 @@ export async function placeTransitionSFX(
 
     attachTransitionSFXAtomicReceipt(overlay, transition, spec, sfx.assetQuality);
     overlays.push(overlay);
+    recordTransitionSfxPlacement(transition, {
+      status: 'placed',
+      reason: 'placed',
+      policy,
+      token: spec.token,
+      rule: spec.rule,
+      searchQuery: spec.searchQuery,
+      syncFrame: spec.form.timing.syncFrame,
+      soundOverlayId: sfxId,
+      assetQualityDecision: sfx.assetQuality.decision,
+      assetQualityScore: sfx.assetQuality.score,
+    });
     result.placed++;
 
     console.log(

@@ -185,11 +185,59 @@ describe('non-MG atomic overlay receipts', () => {
     ];
 
     const result = await placeTransitionSFX(overlays, 'user-1', null);
+    const transition = overlays.find((overlay) => overlay.id === 702);
 
     expect(result.placed).toBe(0);
     expect(result.skipped).toBe(1);
     expect(result.skipReasons).toEqual(expect.objectContaining({ 'sfx-too-dense-0f': 1 }));
     expect(overlays.filter((overlay) => overlay.type === 'sound')).toHaveLength(1);
+    expect(transition.metadata.transitionSfxPlacement).toEqual(expect.objectContaining({
+      version: 'transition-sfx-placement-v1',
+      status: 'skipped',
+      reason: 'sfx-too-dense-0f',
+      policy: 'full',
+      style: 'dissolve',
+      token: 'whoosh',
+      syncFrame: 90,
+    }));
+    expect(searchAndDownloadSFX).not.toHaveBeenCalled();
+  });
+
+  it('records intentional transition SFX suppression when profile policy says silence wins', async () => {
+    const transitionReceipt = buildOverlayAtomicReceipt({
+      family: 'transition',
+      intent: 'documentary-restraint',
+      frame: 150,
+      durationFrames: 12,
+      signals: { visual_significance: 0.7, motion_intensity: 0.4 },
+    });
+    const overlays: any[] = [{
+      id: 705,
+      type: 'transition',
+      transitionStyle: 'zoom-punch',
+      from: 150,
+      durationInFrames: 12,
+      clipAId: 41,
+      clipBId: 42,
+      metadata: { atomicOverlayReceipt: transitionReceipt },
+    }];
+
+    const result = await placeTransitionSFX(overlays, 'user-1', {
+      profileId: 'D-02',
+      transitionSFXPolicy: 'off',
+    } as any);
+
+    expect(result.placed).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.skipReasons).toEqual(expect.objectContaining({ 'profile-policy-off': 1 }));
+    expect(overlays.some((overlay) => overlay.type === 'sound')).toBe(false);
+    expect(overlays[0].metadata.transitionSfxPlacement).toEqual(expect.objectContaining({
+      version: 'transition-sfx-placement-v1',
+      status: 'suppressed',
+      reason: 'profile-policy-off',
+      policy: 'off',
+      style: 'zoom-punch',
+    }));
     expect(searchAndDownloadSFX).not.toHaveBeenCalled();
   });
 
@@ -230,9 +278,23 @@ describe('non-MG atomic overlay receipts', () => {
 
     const result = await placeTransitionSFX(overlays, 'user-1', null);
     const sound = overlays.find((overlay) => overlay.type === 'sound');
+    const transition = overlays.find((overlay) => overlay.id === 88);
     const receipt = sound?.metadata.atomicOverlayReceipt;
 
     expect(result.placed).toBe(1);
+    expect(transition.metadata.transitionSfxPlacement).toEqual(expect.objectContaining({
+      version: 'transition-sfx-placement-v1',
+      status: 'placed',
+      reason: 'placed',
+      policy: 'full',
+      style: 'soft-cut',
+      token: 'impact',
+      rule: 'AT-SFX-003',
+      searchQuery: sound.metadata.sfxQuery,
+      syncFrame: 120,
+      soundOverlayId: sound.id,
+      assetQualityDecision: 'accept',
+    }));
     expect(sound.metadata.token).toBe('impact');
     expect(sound.styles.volume).toBeCloseTo(sound.metadata.atomicSfxForm.mix.volume, 5);
     expect(sound.metadata.atomicSfxForm).toEqual(expect.objectContaining({

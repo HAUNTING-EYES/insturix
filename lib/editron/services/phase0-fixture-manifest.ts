@@ -891,12 +891,19 @@ function hasSfxTransitionEvidenceSource(overlay: Phase0OverlayLike): boolean {
 
 function sfxReceipt(overlay: Phase0OverlayLike): JsonRecord {
   const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
-  if (isRecord(metadata.atomicOverlayReceipt)) return metadata.atomicOverlayReceipt;
-  if (Array.isArray(metadata.atomicOverlayReceipts)) {
-    const firstReceipt = metadata.atomicOverlayReceipts.find(isRecord);
-    if (firstReceipt) return firstReceipt;
-  }
-  return {};
+  const receipts = [
+    ...(Array.isArray(metadata.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts.filter(isRecord) : []),
+    ...(isRecord(metadata.atomicOverlayReceipt) ? [metadata.atomicOverlayReceipt] : []),
+  ];
+  return receipts.find(isSfxReceipt) ?? receipts[0] ?? {};
+}
+
+function isSfxReceipt(receipt: JsonRecord): boolean {
+  const payload = isRecord(receipt.payload) ? receipt.payload : {};
+  const form = isRecord(receipt.form) ? receipt.form : {};
+  return readString(receipt.family) === 'sfx'
+    || readString(form.family) === 'sfx'
+    || readString(payload.formVersion) === 'atomic-sfx-form-v1';
 }
 
 function sfxReceiptAtoms(overlay: Phase0OverlayLike): JsonRecord[] {
@@ -1001,8 +1008,10 @@ function captionGeometryMismatch(overlay: Phase0OverlayLike, playerDimensions?: 
   const normalizedTop = top / resolvedHeight;
   const normalizedCenter = (top + height / 2) / resolvedHeight;
   const normalizedBottom = (top + height) / resolvedHeight;
-  const wantsLower = /\b(subtitle|balanced|lower|bottom)\b/i.test(layout);
-  const wantsUpper = /\b(upper|top)\b/i.test(layout);
+  const selectedWantsLower = /\b(lower|bottom)\b/i.test(selectedRegion);
+  const selectedWantsUpper = /\b(upper|top)\b/i.test(selectedRegion);
+  const wantsLower = selectedWantsLower || (!selectedWantsUpper && /\b(subtitle|balanced|lower|bottom)\b/i.test(layout));
+  const wantsUpper = selectedWantsUpper || (!selectedWantsLower && /\b(upper|top)\b/i.test(layout));
   const lowerMismatch = wantsLower && normalizedCenter < 0.5;
   const upperMismatch = wantsUpper && normalizedCenter > 0.5;
   if (!lowerMismatch && !upperMismatch) return null;

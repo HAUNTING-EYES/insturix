@@ -363,6 +363,49 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('does not warn when selected caption region explains safe-zone relocation', () => {
+    const project = cleanProject();
+    project.playerDimensions = { width: 1920, height: 1080 };
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 0 },
+      {
+        id: 'caption-relocated',
+        type: 'caption',
+        from: 0,
+        durationInFrames: 180,
+        top: 130,
+        left: 320,
+        width: 1280,
+        height: 140,
+        captions: [{ text: 'this is readable caption text' }],
+        metadata: {
+          source: 'canonical-caption-track',
+          captionPresentation: {
+            version: 'atomic-caption-form-v1',
+            aesthetic: {
+              layout: 'subtitle-lower',
+              surface: 'subtitle-panel',
+            },
+          },
+          evidence: {
+            selectedRegion: 'top-center',
+          },
+        },
+      },
+    ];
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_caption_relocated',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_caption_relocated',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(taxonomy.classes.find((item) => item.id === 'overlay.caption_layout_mismatch')).toBeUndefined();
+  });
+
   it('warns when cut plan evidence is missing from a Phase 0 fixture', () => {
     const project = cleanProject();
     project.rawFootageAnalysis = undefined;
@@ -653,7 +696,11 @@ describe('phase0 failure taxonomy', () => {
               anchor: 'transition',
             },
           },
-          atomicOverlayReceipt: transitionSfxReceipt(),
+          atomicOverlayReceipt: {
+            family: 'sound',
+            reason: 'overlays replaced in the editor',
+          },
+          atomicOverlayReceipts: [transitionSfxReceipt()],
         },
       },
     ];
@@ -667,10 +714,56 @@ describe('phase0 failure taxonomy', () => {
     const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
     const quality = runQualityReview(project.overlays as any, project.fps, project.durationInFrames);
 
+    expect(manifest.overlayFamilies.sfx.withTransitionEvidence).toBe(1);
+    expect(manifest.overlayFamilies.sfx.transitionEvidenceMissing).toEqual([]);
     expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.sfx_timing_drift');
     expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.transition_sfx_missing');
     expect(quality.issues.map((issue) => issue.type)).not.toContain('orphan_sfx');
     expect(quality.issues.map((issue) => issue.type)).not.toContain('missing_transition_sfx');
+  });
+
+  it('does not call motion-peak atomic SFX random when motion evidence licenses the audio anchor', () => {
+    const project = cleanProject();
+    project.durationInFrames = 180;
+    project.overlays = [
+      { id: 'clip-1', type: 'video', from: 0, durationInFrames: 180, row: 2, sourceStartFrame: 0 },
+      {
+        id: 'sfx-motion',
+        type: 'sound',
+        from: 118,
+        durationInFrames: 12,
+        row: 0,
+        assetId: 'sfx-motion',
+        metadata: {
+          atomicSfxForm: {
+            role: 'impact',
+            timing: {
+              syncFrame: 120,
+              startFrame: 118,
+              anchor: 'motion-peak',
+            },
+          },
+          atomicOverlayReceipt: {
+            family: 'sfx',
+            payload: { syncAnchor: 'motion-peak' },
+            visualContext: { motionIntensity: 0.8 },
+            atoms: [{ kind: 'motion-intensity', key: 'visual.motion_intensity', value: 0.8 }],
+          },
+        },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_sfx_motion_peak',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_sfx_motion_peak',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    const quality = runQualityReview(project.overlays as any, project.fps, project.durationInFrames);
+
+    expect(taxonomy.classes.map((item) => item.id)).not.toContain('timeline.sfx_orphan');
+    expect(quality.issues.map((issue) => issue.type)).not.toContain('orphan_sfx');
   });
 
   it('warns when nearby transition SFX lacks transition provenance', () => {
@@ -762,6 +855,24 @@ describe('phase0 failure taxonomy', () => {
         row: 3,
         transitionStyle: 'dissolve',
         metadata: { atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'dissolve', sfxRole: 'none' } },
+      },
+      {
+        id: 'tr-profile-suppressed',
+        type: 'transition',
+        from: 120,
+        durationInFrames: 18,
+        row: 3,
+        transitionStyle: 'zoom-punch',
+        metadata: {
+          atomicTransitionForm: { version: 'atomic-transition-form-v1', style: 'zoom-punch', sfxRole: 'impact' },
+          transitionSfxPlacement: {
+            version: 'transition-sfx-placement-v1',
+            status: 'suppressed',
+            reason: 'profile-policy-off',
+            policy: 'off',
+            style: 'zoom-punch',
+          },
+        },
       },
     ];
     const manifest = buildPhase0FixtureManifest(project, {

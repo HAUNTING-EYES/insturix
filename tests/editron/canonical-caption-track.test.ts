@@ -100,7 +100,7 @@ describe('canonical caption track', () => {
     expect(captions[0].captions.map((caption: any) => caption.text).join(' ')).toContain('finally canonical');
   });
 
-  it('does not group caption text across edited clip boundaries', () => {
+  it('splits caption text at edited clip boundaries only when the speech gap is readable', () => {
     const overlays: any[] = [
       { id: 10, type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 300 },
       { id: 11, type: 'video', from: 90, durationInFrames: 90, sourceStartFrame: 900 },
@@ -109,8 +109,8 @@ describe('canonical caption track', () => {
     editedContext.transcription = [
       { word: 'before', startMs: 2500, endMs: 2680, originalStartMs: 10_000, originalEndMs: 10_180 },
       { word: 'cut', startMs: 2720, endMs: 2900, originalStartMs: 10_220, originalEndMs: 10_400 },
-      { word: 'after', startMs: 3040, endMs: 3220, originalStartMs: 20_000, originalEndMs: 20_180 },
-      { word: 'lands', startMs: 3260, endMs: 3440, originalStartMs: 20_220, originalEndMs: 20_400 },
+      { word: 'after', startMs: 3320, endMs: 3500, originalStartMs: 20_000, originalEndMs: 20_180 },
+      { word: 'lands', startMs: 3540, endMs: 3720, originalStartMs: 20_220, originalEndMs: 20_400 },
     ];
 
     const result = installCanonicalCaptionTrack({
@@ -128,7 +128,100 @@ describe('canonical caption track', () => {
     expect(caption.captions.map((item: any) => item.text)).toEqual(['before cut', 'after lands']);
     expect(caption.captions[0].endMs).toBeLessThan(3000);
     expect(caption.captions[1].startMs).toBeGreaterThanOrEqual(3000);
-    expect(caption.metadata.evidence.captionBoundaryCount).toBe(1);
+    expect(caption.metadata.evidence.clipBoundaryCount).toBe(1);
+  });
+
+  it('does not create unreadable caption flashes just because speech crosses a cut', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 300 },
+      { id: 11, type: 'video', from: 90, durationInFrames: 90, sourceStartFrame: 900 },
+    ];
+    const editedContext = context(['before', 'cut', 'after', 'lands']);
+    editedContext.transcription = [
+      { word: 'before', startMs: 2500, endMs: 2680, originalStartMs: 10_000, originalEndMs: 10_180 },
+      { word: 'cut', startMs: 2720, endMs: 2960, originalStartMs: 10_220, originalEndMs: 10_460 },
+      { word: 'after', startMs: 3020, endMs: 3220, originalStartMs: 20_000, originalEndMs: 20_200 },
+      { word: 'lands', startMs: 3260, endMs: 3480, originalStartMs: 20_240, originalEndMs: 20_460 },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: {
+        ...presentation,
+        wordsPerGroup: 8,
+      },
+    });
+
+    expect(result).toMatchObject({ created: 1, captionCount: 1 });
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.captions.map((item: any) => item.text)).toEqual(['before cut after lands']);
+    expect(caption.metadata.evidence.clipBoundaryCount).toBe(0);
+  });
+
+  it('merges subsecond punctuation groups into readable caption windows', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    const editedContext = context(['And', 'yeah,', 'we', 'keep', 'going']);
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    editedContext.transcription = [
+      { word: 'And', startMs: 120, endMs: 210, originalStartMs: 10_000, originalEndMs: 10_090 },
+      { word: 'yeah,', startMs: 230, endMs: 360, originalStartMs: 10_110, originalEndMs: 10_240 },
+      { word: 'we', startMs: 390, endMs: 510, originalStartMs: 10_270, originalEndMs: 10_390 },
+      { word: 'keep', startMs: 540, endMs: 700, originalStartMs: 10_420, originalEndMs: 10_580 },
+      { word: 'going', startMs: 730, endMs: 930, originalStartMs: 10_610, originalEndMs: 10_810 },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: {
+        ...presentation,
+        wordsPerGroup: 8,
+      },
+    });
+
+    expect(result).toMatchObject({ created: 1, captionCount: 1 });
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.captions.map((item: any) => item.text)).toEqual(['And yeah, we keep going']);
+    expect(caption.captions[0].endMs - caption.captions[0].startMs).toBeGreaterThanOrEqual(700);
+  });
+
+  it('pads short standalone caption groups into nearby silence without crossing the next segment', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    const editedContext = context(['Yes.', 'Then', 'continue']);
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    editedContext.transcription = [
+      { word: 'Yes.', startMs: 1000, endMs: 1120, originalStartMs: 10_000, originalEndMs: 10_120 },
+      { word: 'Then', startMs: 1500, endMs: 1680, originalStartMs: 10_500, originalEndMs: 10_680 },
+      { word: 'continue', startMs: 1720, endMs: 1940, originalStartMs: 10_720, originalEndMs: 10_940 },
+    ];
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: {
+        ...presentation,
+        wordsPerGroup: 8,
+      },
+    });
+
+    expect(result).toMatchObject({ created: 1, captionCount: 2 });
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.captions[0].text).toBe('Yes.');
+    expect(caption.captions[0].startMs).toBeLessThan(1000);
+    expect(caption.captions[0].endMs).toBeLessThanOrEqual(1420);
+    expect(caption.captions[0].endMs - caption.captions[0].startMs).toBeGreaterThanOrEqual(560);
   });
 
   it('splits caption groups at speech-pause moment boundaries inside a long clip', () => {
@@ -191,7 +284,7 @@ describe('canonical caption track', () => {
 
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
-    expect(caption.displayConfig).toMatchObject({ mode: 'karaoke', wordsPerGroup: 5, maxWordsPerLine: 4 });
+    expect(caption.displayConfig).toMatchObject({ mode: 'phrase', wordsPerGroup: 1, maxWordsPerLine: 4 });
     expect(caption.width).toBe(1120);
     expect(caption.height).toBeLessThanOrEqual(150);
     expect(caption.top).toBeGreaterThan(800);
@@ -210,11 +303,106 @@ describe('canonical caption track', () => {
     });
     expect(caption.metadata.evidence.readability).toMatchObject({
       version: 'caption-readability-policy-v1',
+      sourceMode: 'karaoke',
+      renderMode: 'phrase',
       maxWordsPerLine: 4,
-      maxCharsPerCaption: 30,
+      maxCharsPerCaption: 84,
+      groupWordsPerCaption: 14,
       contrastFloor: 4.5,
       status: 'invented-needs-calibration',
     });
+  });
+
+  it('separates karaoke caption timing windows from the visible word window', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 240, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+    const editedContext = context(['But', 'I', 'wanna', 'make', 'a', 'hypothesis', 'here', 'that', 'allows', 'me']);
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 240, sourceStartFrame: 300 },
+    ];
+    editedContext.transcription = editedContext.transcription.map((word, index) => ({
+      ...word,
+      startMs: 1000 + index * 170,
+      endMs: 1120 + index * 170,
+    }));
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.displayConfig).toMatchObject({
+      mode: 'phrase',
+      wordsPerGroup: 1,
+      maxWordsPerLine: 4,
+    });
+    expect(caption.captions).toHaveLength(1);
+    expect(caption.captions[0].words).toHaveLength(10);
+    expect(caption.captions[0].words.length).toBeGreaterThan(caption.displayConfig.wordsPerGroup);
+    expect(caption.metadata.evidence).toMatchObject({
+      sourceDisplayMode: 'karaoke',
+      renderDisplayMode: 'phrase',
+    });
+    expect(caption.metadata.evidence.readability).toMatchObject({
+      sourceMode: 'karaoke',
+      renderMode: 'phrase',
+      wordsPerGroup: 1,
+      groupWordsPerCaption: 14,
+      maxWordsPerLine: 4,
+    });
+  });
+
+  it('absorbs terminal one-word flashes into karaoke timing windows', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+    const editedContext = context(['what', 'we', 'are', 'looking', 'at', 'down', 'in', 'the', 'comments', 'is', 'selection', 'bias.']);
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    editedContext.durationFrames = 180;
+    editedContext.durationMs = 6000;
+    editedContext.transcription = editedContext.transcription.map((word, index) => ({
+      ...word,
+      startMs: index === 11 ? 3920 : 1000 + index * 260,
+      endMs: index === 11 ? 4180 : 1160 + index * 260,
+    }));
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.displayConfig).toMatchObject({ mode: 'phrase', wordsPerGroup: 1 });
+    expect(caption.captions).toHaveLength(1);
+    expect(caption.captions[0].text).toContain('selection bias.');
+    expect(caption.captions[0].words).toHaveLength(12);
+    expect(caption.metadata.evidence.readability.maxMergedGroupDurationMs).toBeGreaterThanOrEqual(5200);
   });
 
   it('keeps high-energy fancy captions expressive while enforcing readable grouping and contrast', () => {

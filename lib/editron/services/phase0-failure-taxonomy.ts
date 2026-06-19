@@ -541,6 +541,7 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
       frame: sfxSyncFrameOf(overlay),
       role: sfxRole(overlay),
       transitionLinked: hasSfxTransitionEvidence(overlay),
+      selfLicensedAudioAnchor: hasSelfLicensedSfxAudioAnchor(overlay),
     }))
     .sort((a, b) => a.frame - b.frame);
   const anchors = collectVisualSyncAnchors(overlays).sort((a, b) => a.frame - b.frame);
@@ -564,6 +565,7 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
   }
 
   for (const item of sfx) {
+    if (item.selfLicensedAudioAnchor) continue;
     const nearest = nearestAnchor(item.frame, anchors);
     if (!nearest) {
       orphanSamples.push({
@@ -604,8 +606,11 @@ function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0Over
       frame: frameOf(overlay),
       style: transitionStyle(overlay),
       sfxRole: transitionSfxRole(overlay),
+      sfxPlacementStatus: transitionSfxPlacementStatus(overlay),
+      sfxPlacementReason: transitionSfxPlacementReason(overlay),
     }))
     .filter((transition) => transitionNeedsSfx(transition.style, transition.sfxRole))
+    .filter((transition) => !transitionSfxSuppressed(transition.sfxPlacementStatus, transition.sfxPlacementReason))
     .filter((transition) => !sfx.some((item) => item.transitionLinked && Math.abs(item.frame - transition.frame) <= SFX_SYNC_WINDOW_FRAMES))
     .slice(0, TIMELINE_SAMPLE_LIMIT);
 
@@ -966,6 +971,25 @@ function transitionSfxRole(overlay: Phase0OverlayLike): string | null {
   return readString(form.sfxRole);
 }
 
+function transitionSfxPlacementStatus(overlay: Phase0OverlayLike): string | null {
+  const metadata = asRecord(overlay.metadata);
+  const placement = asRecord(metadata.transitionSfxPlacement);
+  return readString(placement.status ?? metadata.transitionSfxPlacementStatus);
+}
+
+function transitionSfxPlacementReason(overlay: Phase0OverlayLike): string | null {
+  const metadata = asRecord(overlay.metadata);
+  const placement = asRecord(metadata.transitionSfxPlacement);
+  return readString(placement.reason ?? metadata.transitionSfxSkipReason);
+}
+
+function transitionSfxSuppressed(status: string | null, reason: string | null): boolean {
+  if (status === 'suppressed') return true;
+  return reason === 'profile-policy-off'
+    || reason === 'atomic-silence'
+    || Boolean(reason?.startsWith('silence-wins'));
+}
+
 function transitionStyle(overlay: Phase0OverlayLike): string {
   const metadata = asRecord(overlay.metadata);
   const form = asRecord(metadata.atomicTransitionForm);
@@ -995,6 +1019,37 @@ function sfxSyncFrameOf(overlay: Phase0OverlayLike): number {
       ?? readNumber(metadata.sfxSyncFrame)
       ?? frameOf(overlay),
   ));
+}
+
+function hasSelfLicensedSfxAudioAnchor(overlay: Phase0OverlayLike): boolean {
+  const anchor = sfxTimingAnchor(overlay);
+  if (anchor === 'motion-peak') return sfxMotionEvidenceStrength(overlay) >= 0.62;
+  return anchor === 'keyword' || anchor === 'speech-peak' || anchor === 'beat';
+}
+
+function sfxTimingAnchor(overlay: Phase0OverlayLike): string | null {
+  const metadata = asRecord(overlay.metadata);
+  const form = asRecord(metadata.atomicSfxForm);
+  const timing = asRecord(form.timing);
+  const receipt = sfxReceipt(overlay);
+  const payload = asRecord(receipt.payload);
+  return normalizeStyle(
+    readString(timing.anchor)
+      ?? readString(metadata.sfxAnchor)
+      ?? readString(payload.syncAnchor)
+      ?? '',
+  ) || null;
+}
+
+function sfxMotionEvidenceStrength(overlay: Phase0OverlayLike): number {
+  const receipt = sfxReceipt(overlay);
+  const visualContext = asRecord(receipt.visualContext);
+  const motionFromContext = readNumber(visualContext.motionIntensity) ?? readNumber(visualContext.motion_intensity) ?? 0;
+  const motionFromAtoms = sfxReceiptAtoms(overlay).reduce((max, atom) => {
+    if (readString(atom.key) !== 'visual.motion_intensity') return max;
+    return Math.max(max, readNumber(atom.value) ?? 0);
+  }, 0);
+  return Math.max(motionFromContext, motionFromAtoms);
 }
 
 function hasSfxTransitionEvidence(overlay: Phase0OverlayLike): boolean {
@@ -1043,13 +1098,19 @@ function hasSfxTransitionEvidenceSource(overlay: Phase0OverlayLike): boolean {
 
 function sfxReceipt(overlay: Phase0OverlayLike): JsonRecord {
   const metadata = asRecord(overlay.metadata);
-  const receipt = asRecord(metadata.atomicOverlayReceipt);
-  if (Object.keys(receipt).length > 0) return receipt;
-  if (Array.isArray(metadata.atomicOverlayReceipts)) {
-    const firstReceipt = metadata.atomicOverlayReceipts.find((item) => Object.keys(asRecord(item)).length > 0);
-    if (firstReceipt) return asRecord(firstReceipt);
-  }
-  return {};
+  const receipts = [
+    ...(Array.isArray(metadata.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts.map(asRecord) : []),
+    asRecord(metadata.atomicOverlayReceipt),
+  ].filter((receipt) => Object.keys(receipt).length > 0);
+  return receipts.find(isSfxReceipt) ?? receipts[0] ?? {};
+}
+
+function isSfxReceipt(receipt: JsonRecord): boolean {
+  const payload = asRecord(receipt.payload);
+  const form = asRecord(receipt.form);
+  return readString(receipt.family) === 'sfx'
+    || readString(form.family) === 'sfx'
+    || readString(payload.formVersion) === 'atomic-sfx-form-v1';
 }
 
 function sfxReceiptAtoms(overlay: Phase0OverlayLike): JsonRecord[] {

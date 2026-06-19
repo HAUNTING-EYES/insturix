@@ -253,9 +253,10 @@ export async function runRenderedAestheticHarness(
 
     const fullImage = fs.existsSync(fullStill) ? await readRawImage(fullStill) : undefined;
     const baselineImage = fs.existsSync(baselineStill) ? await readRawImage(baselineStill) : undefined;
+    const activeAuditedVisualOverlays = overlays.filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame));
     const isolatedImages = baselineImage
       ? await renderIsolatedOverlayImages({
-        activeOverlays: overlays.filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame)),
+        activeOverlays: activeAuditedVisualOverlays,
         baselineOverlays,
         frame,
         frameDir,
@@ -273,6 +274,7 @@ export async function runRenderedAestheticHarness(
         sample,
       })
       : activeRenderedOverlayEvidence(overlays, frame, { fps: input.fps, sample });
+    const timelineEvidence = activeTimelineOverlayEvidence(overlays, frame);
 
     const report = scoreRenderedFrameAesthetic({
       width: input.width,
@@ -281,17 +283,19 @@ export async function runRenderedAestheticHarness(
       frame,
       logs,
       image,
-      blankImageJustification: sourceDependentTransitionBlankJustification({
+      blankImageJustification: overlayOnlyBlankImageJustification({
         overlayOnly: Boolean(options.overlayOnly),
         sample,
         sourceOverlays: overlays,
         renderOverlays,
+        activeAuditedVisualTypes: activeAuditedVisualOverlays.map((overlay) => String(overlay.type)),
+        activeVisualEvidenceCount: evidence.length,
+        activeTimelineEvidenceCount: timelineEvidence.length,
       }),
       renderError,
       overlays: evidence,
     });
 
-    const timelineEvidence = activeTimelineOverlayEvidence(overlays, frame);
     const activeIds = uniqueIds([
       ...evidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
       ...timelineEvidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
@@ -599,6 +603,37 @@ export function sourceDependentTransitionBlankJustification(input: {
   });
   if (!transitionHasRemovedSourceClip) return undefined;
   return 'overlay-only transition sample omitted linked source video clips; blank transition pixels are source-dependent and not a renderer failure';
+}
+
+export function overlayOnlyBlankImageJustification(input: {
+  overlayOnly: boolean;
+  sample: RenderedAestheticSample;
+  sourceOverlays: Overlay[];
+  renderOverlays: Overlay[];
+  activeAuditedVisualTypes?: string[];
+  activeVisualEvidenceCount?: number;
+  activeTimelineEvidenceCount?: number;
+}): string | undefined {
+  const transitionJustification = sourceDependentTransitionBlankJustification(input);
+  if (transitionJustification) return transitionJustification;
+  if (!input.overlayOnly) return undefined;
+  if ((input.activeVisualEvidenceCount ?? 0) > 0) return undefined;
+
+  const activeVisualTypes = uniqueStrings((input.activeAuditedVisualTypes ?? []).map(String));
+  if (activeVisualTypes.every((type) => type === String(OverlayType.CAPTION)) && activeVisualTypes.length > 0) {
+    return 'overlay-only caption sample has no active caption words at this frame; blank pixels are a speech-gap sample, not a renderer failure';
+  }
+
+  if (activeVisualTypes.length > 0) return undefined;
+
+  const sampledTypes = uniqueStrings(input.sample.sourceOverlayTypes.map(String));
+  const hasTimingOnlySignal = sampledTypes.some((type) => (
+    type === String(OverlayType.VIDEO) ||
+    AUDITED_TIMING_TYPES.has(type)
+  )) || (input.activeTimelineEvidenceCount ?? 0) > 0;
+  if (!hasTimingOnlySignal) return undefined;
+
+  return `overlay-only sample has no active visual overlays; ${sampledTypes.join(', ') || 'timing'} evidence is source/timing-only and not a renderer failure`;
 }
 
 export function renderedOverlayBoxAtFrame(overlay: Overlay, frame: number): RenderedOverlayBox {

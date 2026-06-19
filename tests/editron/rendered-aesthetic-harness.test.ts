@@ -16,6 +16,7 @@ import {
   changedPixelBounds,
   hydratePhase0RenderArtifactPackForTaxonomy,
   normalizeRenderedAestheticSamplePlan,
+  overlayOnlyBlankImageJustification,
   pickRenderedAestheticSampleFrames,
   planRenderedAestheticSamples,
   renderRenderedAestheticHtmlReport,
@@ -144,6 +145,74 @@ describe('rendered aesthetic harness helpers', () => {
     })).toBeUndefined();
   });
 
+  it('justifies overlay-only blank frames for source and timing-only samples', () => {
+    const sourceOverlays = [
+      videoOverlay({ id: 1 }),
+      zoomOverlay({ id: 2, from: 30, durationInFrames: 24 }),
+      soundOverlay({ id: 3, from: 30, durationInFrames: 24 }),
+    ];
+
+    const justification = overlayOnlyBlankImageJustification({
+      overlayOnly: true,
+      sample: {
+        frame: 36,
+        roles: ['zoom-anchor', 'sfx-sync'],
+        sourceOverlayIds: [1, 2, 3],
+        sourceOverlayTypes: ['video', 'zoom', 'sound'],
+      },
+      sourceOverlays,
+      renderOverlays: buildOverlayOnlyRenderOverlays(sourceOverlays, 1080, 1920),
+      activeAuditedVisualTypes: [],
+      activeVisualEvidenceCount: 0,
+      activeTimelineEvidenceCount: 2,
+    });
+
+    expect(justification).toContain('source/timing-only');
+  });
+
+  it('justifies overlay-only caption gaps without hiding visual overlay blanks', () => {
+    const caption = captionOverlay({
+      id: 8,
+      from: 0,
+      durationInFrames: 180,
+      captions: [
+        captionText('visible intro', 0, 1000),
+        captionText('visible outro', 3000, 4200),
+      ],
+      displayConfig: { mode: 'word-by-word', wordsPerGroup: 1, maxWordsPerLine: 1 },
+    });
+
+    expect(overlayOnlyBlankImageJustification({
+      overlayOnly: true,
+      sample: {
+        frame: 60,
+        roles: ['hold'],
+        sourceOverlayIds: [8],
+        sourceOverlayTypes: ['caption'],
+      },
+      sourceOverlays: [caption],
+      renderOverlays: buildOverlayOnlyRenderOverlays([caption], 1080, 1920),
+      activeAuditedVisualTypes: ['caption'],
+      activeVisualEvidenceCount: 0,
+      activeTimelineEvidenceCount: 0,
+    })).toContain('no active caption words');
+
+    expect(overlayOnlyBlankImageJustification({
+      overlayOnly: true,
+      sample: {
+        frame: 60,
+        roles: ['hold'],
+        sourceOverlayIds: [9],
+        sourceOverlayTypes: ['motion-graphic'],
+      },
+      sourceOverlays: [motionGraphicOverlay({ id: 9, from: 50, durationInFrames: 30 })],
+      renderOverlays: [motionGraphicOverlay({ id: 9, from: 50, durationInFrames: 30 })],
+      activeAuditedVisualTypes: ['motion-graphic'],
+      activeVisualEvidenceCount: 0,
+      activeTimelineEvidenceCount: 0,
+    })).toBeUndefined();
+  });
+
   it('uses persisted Phase 0 sample identity instead of regenerating active overlays', () => {
     const sourceOverlays = [
       videoOverlay({ id: 1 }),
@@ -260,8 +329,8 @@ describe('rendered aesthetic harness helpers', () => {
     const overlay = captionOverlay({
       id: 8,
       captions: [
-        caption('alpha beta gamma delta epsilon zeta eta theta iota kappa', 0, 2000),
-        caption('Hank', 3000, 4200),
+        captionText('alpha beta gamma delta epsilon zeta eta theta iota kappa', 0, 2000),
+        captionText('Hank', 3000, 4200),
       ],
       displayConfig: { mode: 'word-by-word', wordsPerGroup: 1, maxWordsPerLine: 1 },
     });
@@ -279,8 +348,8 @@ describe('rendered aesthetic harness helpers', () => {
       from: 0,
       durationInFrames: 180,
       captions: [
-        caption('visible intro', 0, 1000),
-        caption('visible outro', 3000, 4200),
+        captionText('visible intro', 0, 1000),
+        captionText('visible outro', 3000, 4200),
       ],
       displayConfig: { mode: 'word-by-word', wordsPerGroup: 1, maxWordsPerLine: 1 },
     });
@@ -521,7 +590,7 @@ function motionGraphicOverlay(input: OverlayFixtureInput & { id: number }): Over
   } as unknown as Overlay;
 }
 
-function caption(text: string, startMs: number, endMs: number) {
+function captionText(text: string, startMs: number, endMs: number) {
   const parts = text.split(/\s+/).filter(Boolean);
   const step = Math.max(1, (endMs - startMs) / Math.max(1, parts.length));
   return {

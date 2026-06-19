@@ -121,6 +121,63 @@ function getSfxSyncFrame(overlay: AnalyzableOverlay): number {
     ?? overlay.from;
 }
 
+function getSfxTimingAnchor(overlay: AnalyzableOverlay): string | null {
+  const anchor = overlay.metadata?.atomicSfxForm?.timing?.anchor
+    ?? overlay.metadata?.sfxAnchor
+    ?? sfxReceiptPayload(overlay).syncAnchor;
+  return typeof anchor === 'string' && anchor.trim()
+    ? anchor.trim().toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-')
+    : null;
+}
+
+function hasSelfLicensedSfxAudioAnchor(overlay: AnalyzableOverlay): boolean {
+  const anchor = getSfxTimingAnchor(overlay);
+  if (anchor === 'motion-peak') return getSfxMotionEvidenceStrength(overlay) >= 0.62;
+  return anchor === 'keyword' || anchor === 'speech-peak' || anchor === 'beat';
+}
+
+function getSfxMotionEvidenceStrength(overlay: AnalyzableOverlay): number {
+  const receipt = preferredSfxReceipt(overlay);
+  const visualContext = isPlainRecord(receipt.visualContext) ? receipt.visualContext : {};
+  const atoms = Array.isArray(receipt.atoms) ? receipt.atoms.filter(isPlainRecord) : [];
+  const atomMotion = atoms.reduce((max, atom) => (
+    atom.key === 'visual.motion_intensity'
+      ? Math.max(max, finiteNumber(atom.value) ?? 0)
+      : max
+  ), 0);
+  return Math.max(
+    finiteNumber(visualContext.motionIntensity) ?? 0,
+    finiteNumber(visualContext.motion_intensity) ?? 0,
+    atomMotion,
+  );
+}
+
+function preferredSfxReceipt(overlay: AnalyzableOverlay): Record<string, any> {
+  const metadata = isPlainRecord(overlay.metadata) ? overlay.metadata : {};
+  const receipts = [
+    ...(Array.isArray(metadata.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts.filter(isPlainRecord) : []),
+    ...(isPlainRecord(metadata.atomicOverlayReceipt) ? [metadata.atomicOverlayReceipt] : []),
+  ];
+  return receipts.find(isSfxReceipt) ?? receipts[0] ?? {};
+}
+
+function sfxReceiptPayload(overlay: AnalyzableOverlay): Record<string, any> {
+  const payload = preferredSfxReceipt(overlay).payload;
+  return isPlainRecord(payload) ? payload : {};
+}
+
+function isSfxReceipt(receipt: Record<string, any>): boolean {
+  const payload = isPlainRecord(receipt.payload) ? receipt.payload : {};
+  const form = isPlainRecord(receipt.form) ? receipt.form : {};
+  return receipt.family === 'sfx'
+    || form.family === 'sfx'
+    || payload.formVersion === 'atomic-sfx-form-v1';
+}
+
+function isPlainRecord(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 // ─── Check Functions ─────────────────────────────────────────────
 
 function checkTimelineGaps(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
@@ -590,6 +647,7 @@ function checkOrphanSfx(overlays: AnalyzableOverlay[], fps: number): QualityIssu
 
   for (const s of sfx) {
     const syncFrame = getSfxSyncFrame(s);
+    if (hasSelfLicensedSfxAudioAnchor(s)) continue;
     const nearTransition = transitions.some(t => Math.abs(t.from - syncFrame) <= DRIFT_THRESHOLD);
     const nearCut = cuts.some(c => Math.abs(c - syncFrame) <= DRIFT_THRESHOLD);
     const nearGraphic = graphicStarts.some(g => Math.abs(g - syncFrame) <= DRIFT_THRESHOLD);
@@ -1054,6 +1112,7 @@ function getTransitionStyle(overlay: AnalyzableOverlay): string {
 
 function transitionNeedsPairedSfx(style: string, overlay?: AnalyzableOverlay): boolean {
   const atomicSfxRole = getAtomicTransitionSfxRole(overlay);
+  if (transitionSfxSuppressedByOwner(overlay)) return false;
   if (atomicSfxRole === 'none') return false;
   if (atomicSfxRole) return true;
   return ![
@@ -1076,6 +1135,17 @@ function getAtomicTransitionSfxRole(overlay?: AnalyzableOverlay): string | null 
   const form = (overlay?.metadata as any)?.atomicTransitionForm;
   const role = form && typeof form === 'object' ? form.sfxRole : undefined;
   return typeof role === 'string' && role.trim() ? role.trim() : null;
+}
+
+function transitionSfxSuppressedByOwner(overlay?: AnalyzableOverlay): boolean {
+  const metadata = isPlainRecord(overlay?.metadata) ? overlay.metadata : {};
+  const placement = isPlainRecord(metadata.transitionSfxPlacement) ? metadata.transitionSfxPlacement : {};
+  const status = typeof placement.status === 'string' ? placement.status : metadata.transitionSfxPlacementStatus;
+  const reason = typeof placement.reason === 'string' ? placement.reason : metadata.transitionSfxSkipReason;
+  return status === 'suppressed'
+    || reason === 'profile-policy-off'
+    || reason === 'atomic-silence'
+    || (typeof reason === 'string' && reason.startsWith('silence-wins'));
 }
 
 function isWarmColdConflict(a: string, b: string): boolean {
