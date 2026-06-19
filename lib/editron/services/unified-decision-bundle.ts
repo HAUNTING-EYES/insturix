@@ -239,11 +239,58 @@ interface UnifiedCaptionMomentPlan {
   emphasisAllowed: boolean;
   reasonKeys: string[];
   atoms: Record<string, string | number | boolean>;
+  jobVector: {
+    subtitleClarity: number;
+    emphasisPunch: number;
+    phraseGrouping: number;
+    hold: number;
+    kinetic: number;
+    restraint: number;
+  };
+  grouping: {
+    speechRateWpm: number;
+    phraseWordCount: number;
+    readableWindowFrames: number;
+    minReadableDurationFrames: number;
+    durationPressure: number;
+    splitPressure: number;
+    lineBreakPressure: number;
+  };
+  readability: {
+    readabilityPressure: number;
+    speechPace: number;
+    visualComplexity: number;
+    textOnScreen: number;
+    negativeSpaceBottom: number;
+    safeZonePressure: number;
+    contrastNeed: number;
+    collisionRisk: number;
+    readingSpeedRisk: number;
+  };
+  styleIntent: {
+    subtitleMode: number;
+    phraseMode: number;
+    wordByWord: number;
+    emphasisScale: number;
+    surfaceNeed: number;
+    brandFitPressure: number;
+    formality: number;
+  };
+  crossFamily: {
+    mgConflictRisk: number;
+    zoomConflictRisk: number;
+    transitionConflictRisk: number;
+    sfxPairingAllowed: boolean;
+  };
   evidence: {
     salience: number;
     readabilityPressure: number;
     speechPace: number;
     hasTextAnchor: boolean;
+    phraseImpact: number;
+    emphasisPunch: number;
+    readingSpeedRisk: number;
+    collisionRisk: number;
   };
   calibrationStatus: 'invented-needs-calibration';
 }
@@ -1000,6 +1047,30 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
     setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
     setAtom('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom', 'visual.negative_space_bottom']);
+    setAtom('phraseWordCount', ['phraseWordCount', 'word_count', 'caption_word_count']);
+    setAtom('captionDurationMs', ['captionDurationMs', 'duration_ms', 'display_duration_ms']);
+    setAtom('captionSpanFrames', ['captionSpanFrames', 'durationFrames']);
+    setAtom('lineBreakCount', ['lineBreakCount', 'line_break_count']);
+    setAtom('maxCharsPerLine', ['maxCharsPerLine', 'max_chars_per_line']);
+    setAtom('textLength', ['textLength', 'text_length', 'caption_text_length']);
+    setAtom('formality', ['formality', 'speech.formality', 'brand.formality']);
+    setAtom('brandContrast', ['brandContrast', 'brand_contrast', 'caption_contrast']);
+    setAtom('brandCaptionEnergy', ['brandCaptionEnergy', 'brand_caption_energy', 'caption_energy']);
+    setAtom('safeZoneBottom', ['safeZoneBottom', 'safe_zone_bottom', 'caption_safe_zone_pressure']);
+    setAtom('negativeSpaceTop', ['negativeSpaceTop', 'negative_space_top', 'visual.negative_space_top']);
+    setAtom('negativeSpaceCenter', ['negativeSpaceCenter', 'negative_space_center', 'visual.negative_space_center']);
+    setAtom('subjectBottom', ['subjectBottom', 'subject_bottom', 'visual.subject_bottom']);
+    setAtom('faceBottom', ['faceBottom', 'face_bottom', 'visual.face_bottom']);
+    setAtom('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
+    setAtom('zoomPressure', ['zoomPressure', 'zoom_pressure', 'active_zoom_pressure']);
+    setAtom('transitionPressure', ['transitionPressure', 'transition_pressure', 'active_transition_pressure']);
+    setAtom('activeOverlayDensity', ['activeOverlayDensity', 'active_overlay_density', 'recent_overlay_density']);
+    setAtom('phraseBoundary', ['phraseBoundary', 'phrase_boundary']);
+    setAtom('sentenceBoundary', ['sentenceBoundary', 'sentence_boundary']);
+    setAtom('cutBoundaryDistanceFrames', ['cutBoundaryDistanceFrames', 'cut_boundary_distance_frames']);
+    setAtom('speechCoverage', ['speechCoverage', 'speech_coverage']);
+    setAtom('captionDensity', ['captionDensity', 'caption_density']);
+    setAtom('captionRepetition', ['captionRepetition', 'caption_repetition']);
   }
 
   if (family === 'timing') {
@@ -2280,6 +2351,60 @@ function resolveCaptionMomentPlan(decision: ReactiveEditDecision): UnifiedCaptio
   const beatStrength = signalAtomNumber(atoms, 'beatStrength');
   const visualComplexity = signalAtomNumber(atoms, 'visualComplexity');
   const textOnScreen = signalAtomNumber(atoms, 'textOnScreen');
+  const negativeSpaceBottom = captionAtomNumberWithDefault(atoms, 'negativeSpaceBottom', 0.55);
+  const safeZoneBottom = signalAtomNumber(atoms, 'safeZoneBottom');
+  const faceBottom = signalAtomNumber(atoms, 'faceBottom');
+  const subjectBottom = signalAtomNumber(atoms, 'subjectBottom');
+  const activeOverlayDensity = signalAtomNumber(atoms, 'activeOverlayDensity');
+  const mgPressure = signalAtomNumber(atoms, 'mgPressure');
+  const zoomPressure = signalAtomNumber(atoms, 'zoomPressure');
+  const transitionPressure = signalAtomNumber(atoms, 'transitionPressure');
+  const captionDensity = signalAtomNumber(atoms, 'captionDensity');
+  const captionRepetition = signalAtomNumber(atoms, 'captionRepetition');
+  const speechCoverage = signalAtomNumber(atoms, 'speechCoverage');
+  const phraseBoundary = signalAtomNumber(atoms, 'phraseBoundary');
+  const sentenceBoundary = signalAtomNumber(atoms, 'sentenceBoundary');
+  const formality = signalAtomNumber(atoms, 'formality');
+  const brandContrast = captionAtomNumberWithDefault(atoms, 'brandContrast', 0.58);
+  const brandCaptionEnergy = signalAtomNumber(atoms, 'brandCaptionEnergy');
+  const phraseWordCount = captionPhraseWordCount(decision, atoms);
+  const readableWindowFrames = captionReadableWindowFrames(decision, atoms);
+  const minReadableDurationFrames = captionMinReadableDurationFrames(phraseWordCount, speechRateWpm);
+  const readingSpeedRisk = roundAuditNumber(clamp01(speechRateWpm > 0 ? (speechRateWpm - 160) / 80 : 0));
+  const durationPressure = roundAuditNumber(clamp01(
+    readableWindowFrames > 0
+      ? (minReadableDurationFrames - readableWindowFrames) / Math.max(1, minReadableDurationFrames)
+      : phraseWordCount >= 5 ? 0.22 : 0,
+  ));
+  const splitPressure = roundAuditNumber(clamp01(Math.max(
+    readingSpeedRisk,
+    durationPressure,
+    phraseWordCount > 5 ? (phraseWordCount - 5) / 8 : 0,
+    phraseBoundary > 0 ? 0.42 : 0,
+    sentenceBoundary > 0 ? 0.35 : 0,
+  )));
+  const lineBreakPressure = roundAuditNumber(clamp01(Math.max(
+    signalAtomRawNumber(atoms, 'textLength') / 64,
+    phraseWordCount > 4 ? (phraseWordCount - 4) / 8 : 0,
+    signalAtomNumber(atoms, 'lineBreakCount') * 0.42,
+  )));
+  const safeZonePressure = roundAuditNumber(clamp01(Math.max(
+    safeZoneBottom,
+    Math.max(0, 0.42 - negativeSpaceBottom) / 0.42,
+    faceBottom,
+    subjectBottom * 0.72,
+  )));
+  const contrastNeed = roundAuditNumber(clamp01(Math.max(
+    visualComplexity * 0.7,
+    textOnScreen * 0.86,
+    1 - brandContrast,
+  )));
+  const collisionRisk = roundAuditNumber(clamp01(Math.max(
+    mgPressure,
+    activeOverlayDensity,
+    textOnScreen * 0.82,
+    safeZonePressure * 0.78,
+  )));
   const hasTextAnchor = captionHasTextAnchor(decision, atoms);
   const salience = roundAuditNumber(clamp01(Math.max(
     wordImportance,
@@ -2293,7 +2418,79 @@ function resolveCaptionMomentPlan(decision: ReactiveEditDecision): UnifiedCaptio
     textOnScreen,
     visualComplexity,
     speechPace * 0.56,
+    readingSpeedRisk,
+    durationPressure,
+    collisionRisk * 0.86,
+    contrastNeed * 0.7,
   )));
+  const emphasisPunch = roundAuditNumber(clamp01(Math.max(
+    salience,
+    phraseImpact * 0.94,
+    speechPeak * 0.9,
+    beatStrength * 0.72,
+  )));
+  const subtitleClarity = roundAuditNumber(clamp01(Math.max(
+    readabilityPressure,
+    formality * 0.8,
+    readingSpeedRisk,
+    speechCoverage * 0.72,
+  )));
+  const phraseGrouping = roundAuditNumber(clamp01(Math.max(
+    splitPressure,
+    lineBreakPressure,
+    readingSpeedRisk,
+    phraseBoundary,
+    sentenceBoundary * 0.82,
+  )));
+  const restraint = roundAuditNumber(clamp01(Math.max(
+    readabilityPressure * 0.84,
+    collisionRisk,
+    captionRepetition,
+    captionDensity * 0.72,
+  )));
+  const jobVector = {
+    subtitleClarity,
+    emphasisPunch,
+    phraseGrouping,
+    hold: roundAuditNumber(clamp01(Math.max(sentenceBoundary * 0.62, phraseImpact * 0.44, speechPace < 0.58 ? emotionIntensity * 0.36 : 0))),
+    kinetic: roundAuditNumber(clamp01(Math.max((1 - formality) * speechPeak * (1 - readingSpeedRisk), wordImportance * 0.54, brandCaptionEnergy * 0.42))),
+    restraint,
+  };
+  const grouping = {
+    speechRateWpm: roundAuditNumber(speechRateWpm),
+    phraseWordCount,
+    readableWindowFrames: roundAuditNumber(readableWindowFrames),
+    minReadableDurationFrames: roundAuditNumber(minReadableDurationFrames),
+    durationPressure,
+    splitPressure,
+    lineBreakPressure,
+  };
+  const readability = {
+    readabilityPressure,
+    speechPace,
+    visualComplexity,
+    textOnScreen,
+    negativeSpaceBottom,
+    safeZonePressure,
+    contrastNeed,
+    collisionRisk,
+    readingSpeedRisk,
+  };
+  const styleIntent = {
+    subtitleMode: roundAuditNumber(clamp01(Math.max(formality * (1 - Math.max(0, speechPace - 0.72)), readingSpeedRisk, subtitleClarity * 0.56))),
+    phraseMode: roundAuditNumber(clamp01(Math.max(phraseGrouping, readingSpeedRisk, formality > 0.35 && formality < 0.75 ? 0.5 : 0))),
+    wordByWord: roundAuditNumber(clamp01(Math.max(jobVector.kinetic, speechRateWpm > 180 ? 0 : (1 - formality) * emphasisPunch * 0.72))),
+    emphasisScale: roundAuditNumber(clamp01(emphasisPunch * (1 - readabilityPressure * 0.35))),
+    surfaceNeed: roundAuditNumber(clamp01(Math.max(contrastNeed, visualComplexity, textOnScreen))),
+    brandFitPressure: roundAuditNumber(clamp01(Math.max(formality, brandCaptionEnergy, 1 - brandContrast))),
+    formality,
+  };
+  const crossFamily = {
+    mgConflictRisk: mgPressure,
+    zoomConflictRisk: zoomPressure,
+    transitionConflictRisk: transitionPressure,
+    sfxPairingAllowed: emphasisPunch >= 0.68 && readabilityPressure < 0.82 && collisionRisk < 0.72,
+  };
   const reasonKeys = captionMomentReasonKeys({
     atoms,
     decision,
@@ -2306,11 +2503,22 @@ function resolveCaptionMomentPlan(decision: ReactiveEditDecision): UnifiedCaptio
     emotionIntensity,
     beatStrength,
     readabilityPressure,
+    readingSpeedRisk,
+    collisionRisk,
+    splitPressure,
+    lineBreakPressure,
+    safeZonePressure,
+    jobVector,
+    styleIntent,
   });
 
-  if (!hasTextAnchor && reasonKeys.length === 0) return null;
+  if (!hasTextAnchor) return null;
 
-  const emphasisAllowed = hasTextAnchor && salience >= 0.38 && readabilityPressure < 0.94;
+  const emphasisAllowed = hasTextAnchor
+    && salience >= 0.38
+    && readabilityPressure < 0.9
+    && collisionRisk < 0.88
+    && jobVector.restraint < 0.88;
 
   return {
     version: 'caption-moment-plan-v1',
@@ -2319,11 +2527,20 @@ function resolveCaptionMomentPlan(decision: ReactiveEditDecision): UnifiedCaptio
     emphasisAllowed,
     reasonKeys,
     atoms,
+    jobVector,
+    grouping,
+    readability,
+    styleIntent,
+    crossFamily,
     evidence: {
       salience,
       readabilityPressure,
       speechPace,
       hasTextAnchor,
+      phraseImpact,
+      emphasisPunch,
+      readingSpeedRisk,
+      collisionRisk,
     },
     calibrationStatus: 'invented-needs-calibration',
   };
@@ -2353,7 +2570,79 @@ function captionMomentAtoms(decision: ReactiveEditDecision): Record<string, stri
   setFallback('visualComplexity', ['visualComplexity', 'visual_complexity']);
   setFallback('textOnScreen', ['textOnScreen', 'text_on_screen']);
   setFallback('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom']);
+  setFallback('phraseWordCount', ['phraseWordCount', 'word_count', 'caption_word_count']);
+  setFallback('captionDurationMs', ['captionDurationMs', 'duration_ms', 'display_duration_ms']);
+  setFallback('captionSpanFrames', ['captionSpanFrames', 'durationFrames']);
+  setFallback('lineBreakCount', ['lineBreakCount', 'line_break_count']);
+  setFallback('maxCharsPerLine', ['maxCharsPerLine', 'max_chars_per_line']);
+  setFallback('textLength', ['textLength', 'text_length', 'caption_text_length']);
+  setFallback('formality', ['formality', 'speech.formality', 'brand.formality']);
+  setFallback('brandContrast', ['brandContrast', 'brand_contrast', 'caption_contrast']);
+  setFallback('brandCaptionEnergy', ['brandCaptionEnergy', 'brand_caption_energy', 'caption_energy']);
+  setFallback('safeZoneBottom', ['safeZoneBottom', 'safe_zone_bottom', 'caption_safe_zone_pressure']);
+  setFallback('negativeSpaceTop', ['negativeSpaceTop', 'negative_space_top']);
+  setFallback('negativeSpaceCenter', ['negativeSpaceCenter', 'negative_space_center']);
+  setFallback('subjectBottom', ['subjectBottom', 'subject_bottom']);
+  setFallback('faceBottom', ['faceBottom', 'face_bottom']);
+  setFallback('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
+  setFallback('zoomPressure', ['zoomPressure', 'zoom_pressure', 'active_zoom_pressure']);
+  setFallback('transitionPressure', ['transitionPressure', 'transition_pressure', 'active_transition_pressure']);
+  setFallback('activeOverlayDensity', ['activeOverlayDensity', 'active_overlay_density', 'recent_overlay_density']);
+  setFallback('phraseBoundary', ['phraseBoundary', 'phrase_boundary']);
+  setFallback('sentenceBoundary', ['sentenceBoundary', 'sentence_boundary']);
+  setFallback('cutBoundaryDistanceFrames', ['cutBoundaryDistanceFrames', 'cut_boundary_distance_frames']);
+  setFallback('speechCoverage', ['speechCoverage', 'speech_coverage']);
+  setFallback('captionDensity', ['captionDensity', 'caption_density']);
+  setFallback('captionRepetition', ['captionRepetition', 'caption_repetition']);
   return atoms;
+}
+
+function captionAtomNumberWithDefault(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+  fallback: number,
+): number {
+  const value = atoms[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return clamp01(value);
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return clamp01(fallback);
+}
+
+function captionPhraseWordCount(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+): number {
+  const explicitCount = signalAtomRawNumber(atoms, 'phraseWordCount');
+  if (explicitCount > 0) return Math.max(1, Math.round(explicitCount));
+
+  for (const key of ['phrase', 'text', 'keyword'] as const) {
+    const value = typeof atoms[key] === 'string' ? atoms[key] : decision.params[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return Math.max(1, value.trim().split(/\s+/).length);
+    }
+  }
+  return 1;
+}
+
+function captionReadableWindowFrames(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+): number {
+  const explicitFrames = signalAtomRawNumber(atoms, 'captionSpanFrames');
+  if (explicitFrames > 0) return explicitFrames;
+
+  const durationMs = signalAtomRawNumber(atoms, 'captionDurationMs');
+  if (durationMs > 0) return durationMs / (1000 / 30);
+
+  return decision.durationFrames && Number.isFinite(decision.durationFrames)
+    ? Math.max(0, decision.durationFrames)
+    : 0;
+}
+
+function captionMinReadableDurationFrames(phraseWordCount: number, speechRateWpm: number): number {
+  const baseFrames = 30;
+  const wordFrames = Math.max(0, phraseWordCount - 1) * (speechRateWpm > 180 ? 7 : 9);
+  return Math.min(120, baseFrames + wordFrames);
 }
 
 function captionHasTextAnchor(
@@ -2384,6 +2673,13 @@ function captionMomentReasonKeys(input: {
   emotionIntensity: number;
   beatStrength: number;
   readabilityPressure: number;
+  readingSpeedRisk: number;
+  collisionRisk: number;
+  splitPressure: number;
+  lineBreakPressure: number;
+  safeZonePressure: number;
+  jobVector: UnifiedCaptionMomentPlan['jobVector'];
+  styleIntent: UnifiedCaptionMomentPlan['styleIntent'];
 }): string[] {
   const reasonKeys: string[] = [];
   if (input.hasTextAnchor) reasonKeys.push('text-anchor');
@@ -2394,6 +2690,16 @@ function captionMomentReasonKeys(input: {
   if (input.beatStrength >= 0.62) reasonKeys.push('beat');
   if (input.speechPace >= 0.72) reasonKeys.push('fast-speech');
   if (input.readabilityPressure >= 0.72) reasonKeys.push('readability-pressure');
+  if (input.readingSpeedRisk >= 0.35) reasonKeys.push('speaking-rate');
+  if (input.collisionRisk >= 0.55) reasonKeys.push('caption-collision-risk');
+  if (input.splitPressure >= 0.45) reasonKeys.push('phrase-grouping');
+  if (input.lineBreakPressure >= 0.45) reasonKeys.push('line-break-pressure');
+  if (input.safeZonePressure >= 0.55) reasonKeys.push('safe-zone-pressure');
+  if (input.jobVector.hold >= 0.35) reasonKeys.push('hold-intent');
+  if (input.jobVector.kinetic >= 0.45) reasonKeys.push('kinetic-intent');
+  if (input.styleIntent.subtitleMode >= 0.55) reasonKeys.push('subtitle-mode');
+  if (input.styleIntent.phraseMode >= 0.55) reasonKeys.push('phrase-mode');
+  if (input.styleIntent.wordByWord >= 0.55) reasonKeys.push('word-by-word-intent');
   if (hasAnyParam(input.decision, ['momentId', 'segmentId']) || input.atoms.momentId !== undefined) reasonKeys.push('moment-anchor');
   if (input.salience >= 0.58) reasonKeys.push('salient-caption-moment');
   return [...new Set(reasonKeys)];
@@ -2415,6 +2721,26 @@ function captionSignalAliases(plan: UnifiedCaptionMomentPlan): Record<string, un
   assign('visual_complexity', 'visualComplexity');
   assign('text_on_screen', 'textOnScreen');
   assign('negative_space_bottom', 'negativeSpaceBottom');
+  assign('caption_phrase_word_count', 'phraseWordCount');
+  assign('caption_duration_ms', 'captionDurationMs');
+  assign('caption_span_frames', 'captionSpanFrames');
+  assign('caption_text_length', 'textLength');
+  assign('caption_formality', 'formality');
+  assign('caption_mg_pressure', 'mgPressure');
+  assign('caption_active_overlay_density', 'activeOverlayDensity');
+  aliases.caption_salience = plan.evidence.salience;
+  aliases.caption_readability_pressure = plan.readability.readabilityPressure;
+  aliases.caption_speech_pace = plan.readability.speechPace;
+  aliases.caption_reading_speed_risk = plan.readability.readingSpeedRisk;
+  aliases.caption_collision_risk = plan.readability.collisionRisk;
+  aliases.caption_split_pressure = plan.grouping.splitPressure;
+  aliases.caption_line_break_pressure = plan.grouping.lineBreakPressure;
+  aliases.caption_style_subtitle_mode = plan.styleIntent.subtitleMode;
+  aliases.caption_style_phrase_mode = plan.styleIntent.phraseMode;
+  aliases.caption_style_word_by_word = plan.styleIntent.wordByWord;
+  aliases.caption_emphasis_scale = plan.styleIntent.emphasisScale;
+  aliases.caption_surface_need = plan.styleIntent.surfaceNeed;
+  aliases.caption_mg_conflict_risk = plan.crossFamily.mgConflictRisk;
   return aliases;
 }
 
@@ -3199,6 +3525,11 @@ function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: 
             emphasisAllowed: captionPlan.emphasisAllowed,
             executionLicense: reason,
             reasonKeys: captionPlan.reasonKeys,
+            jobVector: captionPlan.jobVector,
+            grouping: captionPlan.grouping,
+            readability: captionPlan.readability,
+            styleIntent: captionPlan.styleIntent,
+            crossFamily: captionPlan.crossFamily,
           },
         },
       },

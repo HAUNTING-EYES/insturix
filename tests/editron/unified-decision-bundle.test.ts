@@ -536,6 +536,63 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('keeps unreadable caption emphasis as evidence instead of adding noisy caption motion', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'caption-emphasis',
+        frame: 520,
+        source: 'signal-executor:busy-caption',
+        confidence: 0.92,
+        params: {
+          keyword: 'everything',
+          phrase: 'everything changed right here',
+          signals: {
+            speaking_rate_wpm: 232,
+            speech_energy: 0.88,
+            word_importance: 0.9,
+            visceral_impact: 0.84,
+            visual_complexity: 0.92,
+            text_on_screen: 0.88,
+            active_mg_pressure: 0.84,
+            active_overlay_density: 0.91,
+            caption_word_count: 4,
+            display_duration_ms: 820,
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'caption-emphasis',
+      family: 'caption',
+      source: 'signal-executor:busy-caption',
+      reason: 'caption-family-plan-kept-readable',
+      candidate: expect.objectContaining({
+        projectedAtoms: expect.objectContaining({
+          speechRate: 232,
+          speechPeak: 0.88,
+          wordImportance: 0.9,
+          phraseImpact: 0.84,
+          visualComplexity: 0.92,
+          textOnScreen: 0.88,
+          mgPressure: 0.84,
+          activeOverlayDensity: 0.91,
+        }),
+      }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'caption-family-plan-kept-readable': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
   it('normalizes Path E brief-executor EDL shape before merge/execution', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -1207,7 +1264,30 @@ describe('unified decision bundle merge', () => {
     });
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
-      decision({ type: 'caption-emphasis', frame: 50, source: 'signal-executor:caption', confidence: 0.91, params: { keyword: 'finally' } }),
+      decision({
+        type: 'caption-emphasis',
+        frame: 50,
+        source: 'signal-executor:caption',
+        confidence: 0.91,
+        params: {
+          keyword: 'finally',
+          phrase: 'finally the growth clicked',
+          signals: {
+            speaking_rate_wpm: 168,
+            speech_energy: 0.72,
+            word_importance: 0.81,
+            visceral_impact: 0.68,
+            visual_complexity: 0.18,
+            text_on_screen: 0.12,
+            negative_space_bottom: 0.7,
+            formality: 0.36,
+            caption_word_count: 4,
+            display_duration_ms: 1400,
+            active_mg_pressure: 0.08,
+            active_overlay_density: 0.16,
+          },
+        },
+      }),
       decision({ type: 'zoom', frame: 90, source: 'signal-executor:zoom', confidence: 0.4 }),
       decision({ type: 'transition', frame: 180, source: 'signal-executor:transition', confidence: 0.95, params: { transitionType: 'hard-cut' } }),
       decision({ type: 'sfx-trigger', frame: 360, source: 'signal-executor:sfx', confidence: 0.89, params: { sfxType: 'impact', beatFrame: 360 } }),
@@ -1244,9 +1324,44 @@ describe('unified decision bundle merge', () => {
       captionMomentPlan: expect.objectContaining({
         version: 'caption-moment-plan-v1',
         emphasisAllowed: true,
-        reasonKeys: expect.arrayContaining(['text-anchor', 'salient-caption-moment']),
+        reasonKeys: expect.arrayContaining(['text-anchor', 'salient-caption-moment', 'phrase-impact', 'speech-peak']),
+        jobVector: expect.objectContaining({
+          subtitleClarity: expect.any(Number),
+          emphasisPunch: expect.any(Number),
+          phraseGrouping: expect.any(Number),
+          kinetic: expect.any(Number),
+          restraint: expect.any(Number),
+        }),
+        grouping: expect.objectContaining({
+          speechRateWpm: 168,
+          phraseWordCount: 4,
+          readableWindowFrames: expect.any(Number),
+          minReadableDurationFrames: expect.any(Number),
+          splitPressure: expect.any(Number),
+        }),
+        readability: expect.objectContaining({
+          readabilityPressure: expect.any(Number),
+          readingSpeedRisk: expect.any(Number),
+          collisionRisk: expect.any(Number),
+          negativeSpaceBottom: 0.7,
+        }),
+        styleIntent: expect.objectContaining({
+          subtitleMode: expect.any(Number),
+          phraseMode: expect.any(Number),
+          wordByWord: expect.any(Number),
+          emphasisScale: expect.any(Number),
+          surfaceNeed: expect.any(Number),
+        }),
+        crossFamily: expect.objectContaining({
+          mgConflictRisk: 0.08,
+          sfxPairingAllowed: expect.any(Boolean),
+        }),
         evidence: expect.objectContaining({
           hasTextAnchor: true,
+          phraseImpact: 0.68,
+          emphasisPunch: expect.any(Number),
+          readingSpeedRisk: expect.any(Number),
+          collisionRisk: expect.any(Number),
         }),
         calibrationStatus: 'invented-needs-calibration',
       }),
@@ -1256,11 +1371,36 @@ describe('unified decision bundle merge', () => {
           version: 'caption-family-planner-v1',
           family: 'caption',
           emphasisAllowed: true,
+          jobVector: expect.objectContaining({
+            emphasisPunch: expect.any(Number),
+          }),
+          grouping: expect.objectContaining({
+            phraseWordCount: 4,
+          }),
+          readability: expect.objectContaining({
+            readabilityPressure: expect.any(Number),
+          }),
+          styleIntent: expect.objectContaining({
+            emphasisScale: expect.any(Number),
+          }),
+          crossFamily: expect.objectContaining({
+            mgConflictRisk: 0.08,
+          }),
         }),
       }),
     }));
     expect(captionDecision?.params).not.toHaveProperty('captionStyle');
     expect(captionDecision?.params).not.toHaveProperty('displayMode');
+    expect(captionDecision?.params.signals).toEqual(expect.objectContaining({
+      caption_salience: expect.any(Number),
+      caption_readability_pressure: expect.any(Number),
+      caption_reading_speed_risk: expect.any(Number),
+      caption_style_word_by_word: expect.any(Number),
+      caption_emphasis_scale: expect.any(Number),
+      caption_mg_conflict_risk: 0.08,
+    }));
+    expect(captionDecision?.params.signals).not.toHaveProperty('captionStyle');
+    expect(captionDecision?.params.signals).not.toHaveProperty('displayMode');
 
     const sfxDecision = merged.edl.decisions.find((d) => d.type === 'sfx-trigger');
     expect(sfxDecision?.params).toEqual(expect.objectContaining({
