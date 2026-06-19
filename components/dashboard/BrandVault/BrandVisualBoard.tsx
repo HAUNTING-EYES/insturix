@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertTriangle, ExternalLink, Image as ImageIcon, Palette, Type } from 'lucide-react';
 import type {
@@ -29,6 +29,35 @@ export function BrandVisualBoard({ visualIdentity, brandName }: BrandVisualBoard
   const logos = useMemo(() => visual.logos.slice(0, 6), [visual.logos]);
   const images = useMemo(() => visual.images.slice(0, 8), [visual.images]);
   const visualCount = colors.length + fonts.length + logos.length + images.length;
+  const fontStylesheetUrls = useMemo(
+    () => uniqueRenderableUrls(fonts.map((font) => font.stylesheetUrl).filter(Boolean)),
+    [fonts],
+  );
+
+  useEffect(() => {
+    if (fontStylesheetUrls.length === 0) return;
+
+    const createdLinks: HTMLLinkElement[] = [];
+    const existingLinks = Array.from(document.querySelectorAll<HTMLLinkElement>('link[data-brand-vault-font-url]'));
+
+    for (const url of fontStylesheetUrls) {
+      const alreadyLoaded = existingLinks.some((link) => link.href === url || link.getAttribute('href') === url);
+      if (alreadyLoaded) continue;
+
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.setAttribute('data-brand-vault-font-url', url);
+      document.head.appendChild(link);
+      createdLinks.push(link);
+    }
+
+    return () => {
+      for (const link of createdLinks) {
+        link.parentElement?.removeChild(link);
+      }
+    };
+  }, [fontStylesheetUrls]);
 
   if (visualCount === 0) {
     return (
@@ -198,6 +227,9 @@ function ColorCard({ swatch }: { swatch: BrandVaultVisualSwatch }) {
 
 function FontCard({ font, brandName }: { font: BrandVaultFontPreview; brandName: string }) {
   const sample = font.sampleText || brandName || 'Brand system';
+  const sourceKind = font.sourceKind ?? 'manual_or_local_family';
+  const previewStatus = font.previewStatus ?? 'family_name_only';
+  const sourceUrl = font.sourceUrl ?? font.stylesheetUrl;
   return (
     <div className="grid min-w-0 gap-3 rounded-[8px] border border-[#1C1B19] bg-[#131312] p-3">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -213,6 +245,24 @@ function FontCard({ font, brandName }: { font: BrandVaultFontPreview; brandName:
       >
         {sample}
       </p>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 font-['JetBrains_Mono'] text-[10px] uppercase">
+        <span className={previewStatus === 'loadable_stylesheet' ? 'text-[#5EC97E]' : 'text-[#7A776E]'}>
+          {fontPreviewStatusLabel(previewStatus)}
+        </span>
+        <span className="min-w-0 truncate text-[#5F5E5A]">{fontSourceKindLabel(sourceKind)}</span>
+        {sourceUrl ? (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[#D4A652] transition hover:text-[#F2C66D]"
+            aria-label={`Open ${font.family} font source`}
+          >
+            Source
+            <ExternalLink size={11} />
+          </a>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -312,6 +362,36 @@ function EmptyLane({ label }: { label: string }) {
       <span>{label}</span>
     </div>
   );
+}
+
+function uniqueRenderableUrls(values: Array<string | undefined>): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:') continue;
+      const normalized = url.toString();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      urls.push(normalized);
+    } catch {
+      continue;
+    }
+  }
+  return urls;
+}
+
+function fontPreviewStatusLabel(status: BrandVaultFontPreview['previewStatus'] | undefined): string {
+  return status === 'loadable_stylesheet' ? 'Live font preview' : 'Family-name specimen';
+}
+
+function fontSourceKindLabel(kind: BrandVaultFontPreview['sourceKind'] | undefined): string {
+  if (kind === 'google_fonts_stylesheet') return 'Google Fonts stylesheet';
+  if (kind === 'external_stylesheet') return 'External stylesheet';
+  if (kind === 'website_css') return 'Website CSS';
+  return 'Manual or local family';
 }
 
 function readableTextColor(hex: string): string {
