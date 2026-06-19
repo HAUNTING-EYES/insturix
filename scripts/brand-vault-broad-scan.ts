@@ -1,9 +1,16 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  createBrandVaultBrowserFallbackFetchFromEnvironment,
+  type BrandVaultBrowserRenderEnvironment,
+  type BrandVaultBrowserRenderFetch,
+} from '../lib/shared/brand-vault-browser-fallback';
 import {
   createBrandVaultRefineryJobFromWebsite,
   createInMemoryBrandVaultRefineryStore,
 } from '../lib/shared/brand-vault-refinery-api';
+import type { FetchWebsiteBrandSnapshotOptions } from '../lib/shared/brand-website-refinery-types';
 
 type OldScanFile = {
   results?: OldScanTarget[];
@@ -181,12 +188,7 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
       {
         store,
         clock: () => new Date().toISOString(),
-        fetchOptions: {
-          timeoutMs: 12_000,
-          stylesheetTimeoutMs: 4_000,
-          maxStylesheetBytes: 120_000,
-          maxLinkedStylesheets: 8,
-        },
+        fetchOptions: createBroadScanFetchOptions(),
       },
     );
 
@@ -236,6 +238,20 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
   } catch (error) {
     return failedTarget(target, 'exception', [errorMessage(error)], errorMessage(error));
   }
+}
+
+export function createBroadScanFetchOptions(
+  env: BrandVaultBrowserRenderEnvironment = process.env,
+  renderFetchFn: BrandVaultBrowserRenderFetch = fetch,
+): FetchWebsiteBrandSnapshotOptions {
+  const browserFallbackFetchFn = createBrandVaultBrowserFallbackFetchFromEnvironment(env, renderFetchFn);
+  return {
+    timeoutMs: 12_000,
+    stylesheetTimeoutMs: 4_000,
+    maxStylesheetBytes: 120_000,
+    maxLinkedStylesheets: 8,
+    ...(browserFallbackFetchFn ? { browserFallbackFetchFn } : {}),
+  };
 }
 
 function failedTarget(
@@ -398,7 +414,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (isDirectCliRun()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+function isDirectCliRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(entrypoint && import.meta.url === pathToFileURL(path.resolve(entrypoint)).href);
+}
