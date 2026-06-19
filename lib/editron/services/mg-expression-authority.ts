@@ -242,7 +242,7 @@ export function applyMgExpressionAuthorityToRecipe(
   const layout = applyVisualIntentToLayout(authorityLayout, visualIntent);
   return {
     ...recipe,
-    layout: enforceCaptionSafeCenterLayout(layout),
+    layout: enforceCaptionSafeCenterLayout(layout, visualIntent),
     visualIntent,
   };
 }
@@ -581,7 +581,7 @@ function applyVisualIntentToLayout(
     };
   }
   if (visualIntent.renderDirectives.preferFullFrame) {
-    if (captionCoordinated) {
+    if (captionCoordinated && isExplicitSideLayout(layout.position)) {
       return {
         ...layout,
         position: captionSafePosition,
@@ -639,7 +639,8 @@ function applyVisualIntentToLayout(
   return layout;
 }
 
-function enforceCaptionSafeCenterLayout(layout: RecipeLayout): RecipeLayout {
+function enforceCaptionSafeCenterLayout(layout: RecipeLayout, visualIntent: RecipeVisualIntent): RecipeLayout {
+  if (isFullSceneVisualIntent(visualIntent)) return layout;
   if (layout.captionZoneAware === true && layout.position === 'center') {
     return {
       ...layout,
@@ -648,6 +649,18 @@ function enforceCaptionSafeCenterLayout(layout: RecipeLayout): RecipeLayout {
     };
   }
   return layout;
+}
+
+function isFullSceneVisualIntent(visualIntent: RecipeVisualIntent): boolean {
+  return visualIntent.renderDirectives.preferFullFrame
+    || visualIntent.stageMode === 'interstitial-graphic-scene';
+}
+
+function isExplicitSideLayout(position: RecipeLayout['position'] | undefined): boolean {
+  return position === 'top-left'
+    || position === 'top-right'
+    || position === 'bottom-left'
+    || position === 'bottom-right';
 }
 
 function isKeywordOnly(content: Record<string, unknown>, structure: ContentStructureSignature | undefined): boolean {

@@ -1572,6 +1572,18 @@ function buildMotionGraphicSignalSnapshot(decision: EditDecision): Record<string
   return normalizePlannerSignals(decisionSignals(decision));
 }
 
+function contentSalienceFromDecisionSignals(decision: EditDecision): number | undefined {
+  const signals = buildMotionGraphicSignalSnapshot(decision);
+  const candidates = [
+    readNumber(signals, 'visceral_impact'),
+    readNumber(signals, 'cinematic_moment'),
+    readNumber(signals, 'emotional_arousal', 'emotion_intensity'),
+  ].filter((value): value is number => typeof value === 'number' && isFinite(value));
+  if (candidates.length === 0) return undefined;
+  const salience = Math.max(...candidates);
+  return salience >= 0.66 ? round4(clamp01(salience)) : undefined;
+}
+
 function round4(value: number): number {
   return Math.round(value * 10000) / 10000;
 }
@@ -2802,6 +2814,10 @@ async function applyGraphic(
     position: _positionForContent,
     ...contentParamsForNormalization
   } = decision.params;
+  const signalSalience = contentSalienceFromDecisionSignals(decision);
+  if (contentParamsForNormalization.salience == null && signalSalience != null) {
+    contentParamsForNormalization.salience = signalSalience;
+  }
   const normalizedGraphicContent = normalizeMotionGraphicContent(contentParamsForNormalization);
   const contentMap = normalizedGraphicContent.content;
   const text = String(

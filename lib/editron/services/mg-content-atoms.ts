@@ -54,7 +54,8 @@ function resolveSemanticSourceSpan(content: Record<string, unknown>): SemanticMg
     ?? stringValue(content.contextPhrase)
     ?? stringValue(content.text)
     ?? stringValue(content.quote)
-    ?? stringValue(content.evidencePhrase);
+    ?? stringValue(content.evidencePhrase)
+    ?? fallbackSemanticSourceText(content);
   if (!text) return undefined;
   const startMs = numberValue(existing?.startMs) ?? numberValue(content.contextStartMs) ?? numberValue(content.targetWordStartMs);
   const endMs = numberValue(existing?.endMs) ?? numberValue(content.contextEndMs) ?? numberValue(content.targetWordEndMs);
@@ -69,6 +70,30 @@ function resolveSemanticSourceSpan(content: Record<string, unknown>): SemanticMg
     ...(wordEnd != null ? { wordEnd } : {}),
     source: stringValue(existing?.source) ?? stringValue(content.text_source) ?? 'mg-content-normalization',
   };
+}
+
+function fallbackSemanticSourceText(content: Record<string, unknown>): string | undefined {
+  const from = stringValue(content.from);
+  const to = stringValue(content.to);
+  if (from && to) return `${from} to ${to}`;
+
+  const value = stringValue(content.value) ?? stringValue(content.number);
+  const label = stringValue(content.label) ?? stringValue(content.quantityKind) ?? stringValue(content.unit);
+  if (value && label) return `${value} ${label}`;
+  if (value) return value;
+
+  const title = stringValue(content.title);
+  const body = stringValue(content.body);
+  if (title && body) return `${title} ${body}`;
+
+  const keyword = stringValue(content.keyword);
+  if (keyword && body) return `${keyword} ${body}`;
+
+  const name = stringValue(content.name);
+  const role = stringValue(content.role) ?? stringValue(content.subtitle);
+  if (name && role) return `${name} ${role}`;
+
+  return title ?? keyword ?? name;
 }
 
 function applySemanticAtoms(atoms: Record<string, unknown>, content: Record<string, unknown>): void {

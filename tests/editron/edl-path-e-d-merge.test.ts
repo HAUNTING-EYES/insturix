@@ -524,7 +524,7 @@ describe('EDL Path E+D merge', () => {
     expect(graphic?.content.title).toBe('One thing');
     expect(graphic?.content.body).toBe('Changed everything');
     expect(graphic?.content.contextPhrase).toBe('this is the one thing that changed everything');
-    expect(graphic?.recipe.id).toBe('composed-structured');
+    expect(graphic?.recipe.id).toBe('composed-structured-claim');
   });
 
   it('does not let transcript context alone promote weak keywords into standalone MGs', async () => {
