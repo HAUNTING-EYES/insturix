@@ -19,7 +19,6 @@ import {
 } from './structural-moves';
 import { generateBrandPattern } from './brand-pattern-generator';
 import { deriveBrandRules } from './brand-composition-rules';
-import { getCompositionTemplate } from './composition-templates';
 import {
   enumerateNumericEncodingCandidates,
   selectNumericEncodingCandidate,
@@ -557,13 +556,8 @@ function composeFromStructure(
     if (emphasis) return composeEmphasis(elements, emphasis, language, signals, mgScores);
   }
 
-  const fallback = shape('free-text') ?? strategy.shapes[0];
-  const template = fallback ? getCompositionTemplate(fallback.kind) : undefined;
-  if (template && fallback) {
-    elements.push(...template.compose(fallback as unknown as Record<string, unknown>, language, signals));
-  } else {
-    elements.push(makeTextElement('primary', 'content:text', language));
-  }
+  // The removed template registry had no registered producers; keep unknown structures readable.
+  elements.push(makeTextElement('primary', 'content:text', language));
 }
 
 function hasPart(structure: ContentStructureSignature, role: ContentPartRole): boolean {
