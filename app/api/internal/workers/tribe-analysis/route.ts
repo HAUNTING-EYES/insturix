@@ -327,30 +327,39 @@ async function handler(request: NextRequest) {
     );
 
     const totalMs = Date.now() - startMs;
+    const projectAfterDirector = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
+    );
+    const learningDecision = resolveEditronLearningOutcome({
+      hasQualityReview: !!projectAfterDirector?.qualityReview,
+      qualityScore: projectAfterDirector?.qualityReview?.overallScore,
+      criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
+    });
+    const completionSet: Record<string, unknown> = {
+      autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review',
+      autoEditCompletedAt: new Date(),
+      autoEditDurationMs: totalMs,
+      directorProfileUsed: profileId,
+    };
+    const completionUpdate: Record<string, unknown> = { $set: completionSet };
+    if (!learningDecision.shouldRecord) {
+      completionSet.projectStatus = 'needs-attention';
+      completionSet.autoEditHealth = 'needs_review';
+      completionSet.autoEditWarning = learningDecision.reason === 'missing_quality_review'
+        ? 'Director completed without a persisted quality review.'
+        : `Director completed with quality score ${learningDecision.qualityScore ?? 0} and ${projectAfterDirector?.qualityReview?.criticalCount ?? 0} critical issue(s).`;
+    } else {
+      completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
+    }
     await db.collection('projects').updateOne(
       { projectId },
-      {
-        $set: {
-          autoEditStatus: 'complete',
-          autoEditCompletedAt: new Date(),
-          autoEditDurationMs: totalMs,
-          directorProfileUsed: profileId,
-        },
-      },
+      completionUpdate,
     );
 
     console.log(`[TribeWorker] Complete (inline): ${projectId} in ${totalMs}ms (${directorResult.actionsExecuted} actions)`);
 
     try {
-      const projectAfterDirector = await db.collection('projects').findOne(
-        { projectId },
-        { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
-      );
-      const learningDecision = resolveEditronLearningOutcome({
-        hasQualityReview: !!projectAfterDirector?.qualityReview,
-        qualityScore: projectAfterDirector?.qualityReview?.overallScore,
-        criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
-      });
       if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
         await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false);

@@ -43,6 +43,7 @@ function getStageFromProgress(progress: string): number {
   if (p.includes('register')) return 1;
   if (p.includes('transcrib')) return 2;
   if (p.includes('clean') || p.includes('silence')) return 3;
+  if (p.includes('review')) return 5;
   if (p.includes('edit') || p.includes('transition') || p.includes('caption')) return 4;
   if (p.includes('complete') || p.includes('opening')) return 5;
   return 0;
@@ -350,6 +351,12 @@ export default function ProjectDashboard() {
               router.push(`/dashboard/editron/project/${projectId}`);
               return;
             }
+            if (status === 'needs_review') {
+              const warning = proj.project?.autoEditWarning || proj.autoEditWarning || 'AI edit completed, but the quality check needs review.';
+              toast({ title: 'Edit needs review', description: warning });
+              router.push(`/dashboard/editron/project/${projectId}`);
+              return;
+            }
             if (status === 'failed') {
               throw new Error(proj.project?.autoEditError || 'AI editing failed');
             }
@@ -364,6 +371,7 @@ export default function ProjectDashboard() {
               directing_queued: 'Queued for editing...',
               directing: 'Applying edits, transitions, captions...',
               editing: 'Applying edits, transitions, captions...',
+              needs_review: 'Edit complete, review needed...',
             };
             setAutoEditProgress(progressMap[status] || `Processing (${status})...`);
           }

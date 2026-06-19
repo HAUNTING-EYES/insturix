@@ -50,6 +50,7 @@ interface DirectorCompletionHealth {
   qualityScore: number;
   criticalCount: number;
   needsQualityAttention: boolean;
+  autoEditStatus: 'complete' | 'needs_review';
   warning?: string;
 }
 
@@ -71,6 +72,7 @@ export function resolveDirectorCompletionHealth(
     qualityScore,
     criticalCount,
     needsQualityAttention,
+    autoEditStatus: needsQualityAttention ? 'needs_review' : 'complete',
     ...(needsQualityAttention && {
       warning: !hasQualityReview
         ? 'Director completed without a persisted quality review.'
@@ -178,7 +180,7 @@ async function handler(request: NextRequest) {
     );
     const completionHealth = resolveDirectorCompletionHealth(projectAfterDirector?.qualityReview);
     const completionSet: Record<string, unknown> = {
-      autoEditStatus: 'complete',
+      autoEditStatus: completionHealth.autoEditStatus,
       autoEditCompletedAt: new Date(),
       autoEditDurationMs: totalPipelineMs,
       directorDurationMs: directorMs,
@@ -230,6 +232,7 @@ async function handler(request: NextRequest) {
       totalMs: directorMs,
       actionsExecuted: directorResult.actionsExecuted,
       decisionAuthority: directorDecisionAuthority,
+      completionHealth,
     });
 
   } catch (error: unknown) {
