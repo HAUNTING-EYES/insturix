@@ -6,6 +6,7 @@ import type {
   BrandEvidenceCandidateSourceType,
   BrandWebsiteLogoCandidate,
   BrandWebsiteLogoCandidateRole,
+  BrandWebsiteProductImageCandidate,
   BrandWebsiteDraftInput,
   ParsedWebsiteEvidence,
   SignalSource,
@@ -248,7 +249,8 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const colors = extractColors($, stylesheetCss);
   const fonts = extractFonts($, stylesheetCss);
   const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
-  const productImages = extractProductImages($, normalizedUrl);
+  const productImageCandidates = extractProductImages($, normalizedUrl);
+  const productImages = productImageCandidates.map((image) => image.url);
   const socialPreviewImages = extractSocialPreviewImages($, normalizedUrl);
   const nextDataText = extractNextDataTextEvidence($);
   const supplementalText = input.supplementalText ?? [];
@@ -298,6 +300,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     productServices,
     logoCandidates,
     productImages,
+    productImageCandidates,
     socialPreviewImages,
     bodyText,
     nextDataText,
@@ -485,17 +488,19 @@ function extractSocialPreviewImages($: ReturnType<typeof load>, normalizedUrl: s
     .slice(0, 4);
 }
 
-function extractProductImages($: ReturnType<typeof load>, normalizedUrl: string): string[] {
+function extractProductImages($: ReturnType<typeof load>, normalizedUrl: string): BrandWebsiteProductImageCandidate[] {
   const baseUrl = new URL(normalizedUrl);
-  const images: string[] = [];
+  const images = new Map<string, BrandWebsiteProductImageCandidate>();
 
   $('img,source').each((_, el) => {
     const node = $(el);
+    const altText = cleanText(node.attr('alt') ?? node.attr('aria-label') ?? node.attr('title'));
+    const nearbyText = cleanText(node.closest('figure,article,section,div').find('figcaption,h1,h2,h3,p').first().text());
     const context = [
-      node.attr('alt'),
+      altText,
+      nearbyText,
       node.attr('class'),
       node.attr('id'),
-      node.attr('aria-label'),
       node.attr('data-testid'),
       node.attr('data-test'),
       node.attr('src'),
@@ -504,11 +509,23 @@ function extractProductImages($: ReturnType<typeof load>, normalizedUrl: string)
     if (!PRODUCT_IMAGE_CONTEXT_PATTERN.test(context)) return;
     for (const sourceValue of imageSourceCandidates(node)) {
       const url = resolveWebsiteAssetUrl(sourceValue, baseUrl);
-      if (url && isProductImageCandidate(url, context)) images.push(url);
+      if (!url || !isProductImageCandidate(url, context)) continue;
+      const candidate: BrandWebsiteProductImageCandidate = {
+        url,
+        rawValue: sourceValue,
+        sourceField: 'website.productImage',
+        altText,
+        context: sanitizeEvidenceExcerpt(uniqueText([altText, nearbyText, node.attr('class'), node.attr('id')]).join(' '), 220),
+        confidence: confidenceForProductImage(url, context, altText),
+      };
+      const existing = images.get(url);
+      if (!existing || candidate.confidence > existing.confidence) images.set(url, candidate);
     }
   });
 
-  return uniqueText(images).slice(0, 16);
+  return [...images.values()]
+    .sort((left, right) => right.confidence - left.confidence || left.url.localeCompare(right.url))
+    .slice(0, 16);
 }
 
 function isProductImageCandidate(url: string, context: string): boolean {
@@ -517,6 +534,18 @@ function isProductImageCandidate(url: string, context: string): boolean {
   if (!IMAGE_ASSET_EXTENSIONS.has(pathExtension(path))) return false;
   if (SOCIAL_PREVIEW_ASSET_PATTERN.test(path) || STRONG_LOGO_CONTEXT_PATTERN.test(context) || isLogoAssetCandidate(url, context)) return false;
   return PRODUCT_IMAGE_CONTEXT_PATTERN.test(`${path} ${context}`);
+}
+
+function confidenceForProductImage(url: string, context: string, altText: string | undefined): number {
+  const parsed = new URL(url);
+  const haystack = `${parsed.pathname} ${context}`.toLowerCase();
+  let value = 0.46;
+  if (altText) value += 0.08;
+  if (/\b(?:product|dashboard|platform|app|demo|mockup|studio|workflow|packshot|hero-product)\b/.test(haystack)) value += 0.1;
+  if (/\b(?:collection|catalog|pdp|plp|shopify|sku|item)\b/.test(haystack)) value += 0.05;
+  if (/\b(?:hero|above[-_\s]?fold|feature|showcase)\b/.test(haystack)) value += 0.04;
+  if (/\b(?:thumb|thumbnail|icon|avatar|sprite|badge|payment)\b/.test(haystack)) value -= 0.08;
+  return Math.min(0.78, Math.max(0.42, value));
 }
 
 function pathExtension(pathname: string): string {

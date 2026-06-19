@@ -284,7 +284,7 @@ function createVisualAssetPreviews(
       if (url) {
         add({
           kind: 'product',
-          label: 'Product or service image',
+          label: candidateProductImageLabel(candidate),
           url,
           confidence: candidate.confidence,
           signalPath: candidate.signalPath,
@@ -528,6 +528,27 @@ function candidateLogoLabel(candidate: BrandEvidenceCandidate): string {
   if (role === 'icon') return 'Icon candidate';
   if (candidate.sourceType === 'uploaded_asset') return 'Uploaded logo';
   return 'Logo candidate';
+}
+
+function candidateProductImageLabel(candidate: BrandEvidenceCandidate): string {
+  const label = candidateProductImageText(candidate);
+  return label ? truncateVisualLabel(label) : 'Product or service image';
+}
+
+function candidateProductImageText(candidate: BrandEvidenceCandidate): string | undefined {
+  for (const value of [candidate.normalizedValue, candidate.rawValue]) {
+    if (!isRecord(value)) continue;
+    for (const key of ['altText', 'context']) {
+      const text = typeof value[key] === 'string' ? value[key].trim() : '';
+      if (text && !/^https?:\/\//i.test(text)) return text;
+    }
+  }
+  return undefined;
+}
+
+function truncateVisualLabel(value: string): string {
+  const cleaned = value.replace(/\s+/g, ' ').trim();
+  return cleaned.length > 58 ? `${cleaned.slice(0, 55).trim()}...` : cleaned;
 }
 
 function candidateLogoRole(candidate: BrandEvidenceCandidate): string | undefined {

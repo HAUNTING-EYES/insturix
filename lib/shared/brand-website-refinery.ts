@@ -733,7 +733,7 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
     },
     assets: parsed.productImages.length
       ? {
-          productImages: makeSignal('assets.productImages', parsed.productImages, source('website', 'website.productImages', parsed.productImages, parsed.productImages, 0.56, 'inferred_hint')),
+          productImages: makeSignal('assets.productImages', parsed.productImages, source('website', 'website.productImages', parsed.productImageCandidates, parsed.productImages, 0.56, 'inferred_hint')),
         }
       : undefined,
     palette: {
@@ -781,8 +781,23 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
   for (const image of parsed.socialPreviewImages) {
     candidates.push(candidateOnly('assets.socialPreviewImages', image, 'website_metadata', 'metadata.socialPreviewImage', normalizedUrl, observedAt, extractor, input));
   }
-  for (const image of parsed.productImages) {
-    candidates.push(candidateOnly('assets.productImages', image, 'website_metadata', 'website.productImage', normalizedUrl, observedAt, extractor, input));
+  for (const image of parsed.productImageCandidates) {
+    const candidate = candidateOnly('assets.productImages', image.url, 'website_metadata', image.sourceField, normalizedUrl, observedAt, extractor, input);
+    candidate.rawValue = {
+      url: image.rawValue,
+      altText: image.altText,
+      context: image.context,
+      sourceField: image.sourceField,
+    };
+    candidate.normalizedValue = {
+      url: image.url,
+      altText: image.altText,
+      context: image.context,
+      sourceField: image.sourceField,
+    };
+    candidate.confidence = image.confidence;
+    candidate.excerpt = sanitizeEvidenceExcerpt(`Product or service image from ${image.sourceField}: ${image.altText ?? image.context ?? image.url}`);
+    candidates.push(candidate);
   }
   appendNextDataSignalCandidates({
     input,

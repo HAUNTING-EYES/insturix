@@ -323,6 +323,15 @@ export interface BrandWebsiteLogoCandidate {
   confidence: number;
 }
 
+export interface BrandWebsiteProductImageCandidate {
+  url: string;
+  rawValue: string;
+  sourceField: string;
+  altText?: string;
+  context?: string;
+  confidence: number;
+}
+
 export interface ParsedWebsiteEvidence {
   normalizedUrl: string;
   host: string;
@@ -340,6 +349,7 @@ export interface ParsedWebsiteEvidence {
   productServices: string[];
   logoCandidates: BrandWebsiteLogoCandidate[];
   productImages: string[];
+  productImageCandidates: BrandWebsiteProductImageCandidate[];
   socialPreviewImages: string[];
   bodyText: string;
   nextDataText: string[];

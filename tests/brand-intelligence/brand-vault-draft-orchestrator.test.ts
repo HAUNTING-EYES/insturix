@@ -160,8 +160,24 @@ describe('Brand Vault draft orchestrator', () => {
     );
     expect(result.reviewPayload.visualIdentity.images).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'product', url: 'https://signal.example/product-dashboard.png' }),
+        expect.objectContaining({
+          kind: 'product',
+          label: 'Signal House product dashboard',
+          url: 'https://signal.example/product-dashboard.png',
+        }),
         expect.objectContaining({ kind: 'website_preview', url: 'https://signal.example/share-card.jpg' }),
+      ]),
+    );
+    expect(result.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalPath: 'assets.productImages',
+          normalizedValue: expect.objectContaining({
+            url: 'https://signal.example/product-dashboard.png',
+            altText: 'Signal House product dashboard',
+          }),
+          confidence: 0.64,
+        }),
       ]),
     );
     expect(repository.getRecord('draft_signal_site')?.status).toBe('draft');
