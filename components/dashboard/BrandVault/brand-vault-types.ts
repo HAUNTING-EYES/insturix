@@ -20,8 +20,12 @@ import type {
   BrandVaultSourceInput,
 } from '@/lib/shared/brand-website-refinery-types';
 import type {
+  BrandVaultFontPreview,
   BrandVaultSignalGroup,
   BrandVaultSignalGroupCoverage,
+  BrandVaultVisualAssetPreview,
+  BrandVaultVisualIdentitySummary,
+  BrandVaultVisualSwatch,
   BrandVaultWebsiteDraftReviewPayload,
 } from '@/lib/shared/brand-vault-draft-orchestrator';
 
@@ -35,8 +39,12 @@ export type {
   BrandEvidenceCandidate,
   BrandRefineryJob,
   BrandVaultSourceInput,
+  BrandVaultFontPreview,
   BrandVaultSignalGroup,
   BrandVaultSignalGroupCoverage,
+  BrandVaultVisualAssetPreview,
+  BrandVaultVisualIdentitySummary,
+  BrandVaultVisualSwatch,
   BrandVaultWebsiteDraftReviewPayload,
 };
 

@@ -109,6 +109,7 @@ describe('Brand Vault connected social ingestion', () => {
       },
     });
     expect(youtubePost?.text).not.toContain('Insturix');
+    expect(youtubePost?.text).toContain('Book a demo this week. See the brand system in action.');
     expect(result.warnings).toContain('Brand Vault fetched youtube public oEmbed, watch metadata, and captions as review-only social evidence.');
     expect(result.warnings).toContain('Brand Vault OCR extracted readable text from 1 social media image for draft evidence review.');
     expect(result.warnings).toContain('Brand Vault added 1 connected social evidence source from existing platform integrations.');
@@ -203,7 +204,7 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.warnings).toContain('Brand Vault staged 2 public social fallback sources for review-only enrichment.');
   });
 
-  it('filters generic YouTube boilerplate from public video text evidence', async () => {
+  it('filters generic YouTube boilerplate from public video text evidence while keeping the sourced title', async () => {
     const fetchFn = async (url: string): Promise<Response> => {
       if (url.includes('/oembed')) {
         return jsonResponse({
@@ -237,7 +238,7 @@ describe('Brand Vault connected social ingestion', () => {
     const youtubePost = result.sourceEvidence.find((source) => source.kind === 'social_post' && source.platform === 'youtube');
     expect(youtubePost?.name).toBe('This is how businesses get robbed');
     expect(youtubePost?.profile?.bio).toBe('Nimit Jain');
-    expect(youtubePost?.text).toBeUndefined();
+    expect(youtubePost?.text).toBe('This is how businesses get robbed');
   });
 
   it('warns when an Apify-supported social profile has no configured actor', async () => {
@@ -689,6 +690,9 @@ describe('Brand Vault connected social ingestion', () => {
         },
         {
           url: 'https://www.instagram.com/insturix',
+          type: 'actor_error',
+          error_kind: 'login_required',
+          reason: 'Actor returned no public posts without a fresh session.',
         },
       ]),
     });
@@ -698,10 +702,46 @@ describe('Brand Vault connected social ingestion', () => {
     expect(diagnostic).toContain('identity_mismatch');
     expect(diagnostic).toContain('hollow_item');
     expect(diagnostic).toContain('identityCandidates=[nimitgotnolimit,Nimit Jain]');
+    expect(diagnostic).toContain('actorErrorKind=login_required');
+    expect(diagnostic).toContain('actorReason=Actor returned no public posts without a fresh session.');
     expect(diagnostic).toContain('textFields=[caption]');
     expect(diagnostic).toContain('mediaFields=[displayUrl]');
     expect(diagnostic).not.toContain('private wrong-account caption');
     expect(result.warnings).toContain('Brand Vault instagram Apify rejection reasons: hollow_item=1, identity_mismatch=1.');
+  });
+
+  it('stages related Apify public posts from a different identity when they mention the submitted account', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.instagram.com/insturix'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { instagram: 'apify/instagram-scraper' },
+      fetchFn: async () => jsonResponse([
+        {
+          url: 'https://www.instagram.com/p/personal_post/',
+          caption: 'Made with Insturix, personal behind-the-scenes copy.',
+          ownerUsername: 'nimitgotnolimit',
+          ownerFullName: 'Nimit Jain',
+        },
+      ]),
+    });
+
+    const publicPosts = result.sourceEvidence.filter((source) => source.kind === 'social_post');
+    expect(publicPosts).toHaveLength(1);
+    expect(publicPosts[0]).toMatchObject({
+      platform: 'instagram',
+      evidenceOrigin: 'public_fallback',
+      url: 'https://www.instagram.com/p/personal_post/',
+      text: 'Made with Insturix, personal behind-the-scenes copy.',
+      note: expect.stringContaining('related identity'),
+      connection: expect.objectContaining({
+        accountHandle: 'nimitgotnolimit',
+        accountName: 'Nimit Jain',
+        matchStatus: 'unverified',
+      }),
+    });
+    expect(result.warnings).toContain('Brand Vault staged 1 instagram public Apify item from a related identity that mentioned the submitted account; review before accepting.');
   });
 
   it('drops Apify public posts whose author does not match the submitted social account', async () => {
@@ -714,7 +754,7 @@ describe('Brand Vault connected social ingestion', () => {
       fetchFn: async () => jsonResponse([
         {
           url: 'https://www.instagram.com/p/personal_post/',
-          caption: 'Made with Insturix, personal behind-the-scenes copy.',
+          caption: 'Personal behind-the-scenes copy for a different project.',
           ownerUsername: 'nimitgotnolimit',
           ownerFullName: 'Nimit Jain',
         },

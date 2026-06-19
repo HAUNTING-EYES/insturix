@@ -16,6 +16,10 @@ import {
   type BrandVaultWebsiteDraftJobResult,
   type BrandVaultWebsiteDraftReviewPayload,
 } from './brand-vault-draft-orchestrator';
+import {
+  createBrandVaultVisualAssetStorageFromEnvironment,
+  type BrandVaultVisualAssetStorageProvider,
+} from './brand-vault-visual-asset-storage';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -167,6 +171,7 @@ type BrandVaultRefineryJobExecutionDependencies = {
   clock?: () => string;
   sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
+  visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
 };
 
 export type ProcessQueuedBrandVaultRefineryJobResult = {
@@ -268,6 +273,7 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
           candidates: current.candidates,
           normalizedUrl: current.normalizedUrl ?? updatedJob.inputs.websiteUrl ?? '',
           warnings: updatedJob.warnings,
+          visualIdentity: current.reviewPayload?.visualIdentity,
         })
       : current.reviewPayload;
     return this.saveJobSnapshot({
@@ -331,6 +337,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       fetchOptions: dependencies.fetchOptions,
       clock: dependencies.clock,
       textEvidenceCompiler: dependencies.textEvidenceCompiler,
+      visualAssetStorage: resolveVisualAssetStorageProvider(dependencies),
     },
   );
 
@@ -359,6 +366,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
           candidates: result.candidates,
           normalizedUrl: result.normalizedUrl,
           warnings: job.warnings,
+          visualIdentity: result.reviewPayload.visualIdentity,
         });
 
   await dependencies.store.saveJobSnapshot({
@@ -582,6 +590,13 @@ function appendWarningsToJob(job: BrandRefineryJob, warnings: string[]): BrandRe
   return { ...job, warnings: mergeWarnings(job.warnings, warnings) };
 }
 
+function resolveVisualAssetStorageProvider(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): BrandVaultVisualAssetStorageProvider | null {
+  if (dependencies.visualAssetStorage !== undefined) return dependencies.visualAssetStorage;
+  return createBrandVaultVisualAssetStorageFromEnvironment();
+}
+
 function mergeWarnings(...groups: string[][]): string[] {
   return [...new Set(groups.flat().filter(Boolean))];
 }
@@ -633,6 +648,7 @@ export async function getBrandVaultRefineryJob(
             candidates: snapshot.candidates,
             normalizedUrl: snapshot.normalizedUrl ?? snapshot.job.inputs.websiteUrl ?? '',
             warnings: snapshot.job.warnings,
+            visualIdentity: snapshot.reviewPayload?.visualIdentity,
           })
         : snapshot.reviewPayload ?? null,
       candidates: snapshot.candidates,
@@ -702,6 +718,7 @@ export async function getBrandVaultSignalProfile(
         candidates: snapshot?.candidates ?? [],
         normalizedUrl: snapshot?.normalizedUrl ?? '',
         warnings: snapshot?.job.warnings ?? [],
+        visualIdentity: snapshot?.reviewPayload?.visualIdentity,
       }),
       candidates: snapshot?.candidates ?? [],
     },

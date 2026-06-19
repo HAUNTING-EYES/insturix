@@ -26,6 +26,14 @@ import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
 } from './brand-vault-social-ocr';
+import {
+  createBrandVaultVisualIdentitySummary,
+  type BrandVaultVisualIdentitySummary,
+} from './brand-vault-visual-identity';
+import {
+  mirrorBrandVaultVisualIdentityAssets,
+  type BrandVaultVisualAssetStorageProvider,
+} from './brand-vault-visual-asset-storage';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -35,6 +43,17 @@ import type {
   BrandWebsiteSupplementalTextEvidence,
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
+
+export type {
+  BrandVaultFontPreview,
+  BrandVaultFontPreviewRole,
+  BrandVaultStoredVisualAssetState,
+  BrandVaultVisualAssetKind,
+  BrandVaultVisualAssetPreview,
+  BrandVaultVisualIdentitySummary,
+  BrandVaultVisualSwatch,
+  BrandVaultVisualSwatchRole,
+} from './brand-vault-visual-identity';
 
 export type BrandVaultWebsiteDraftJobErrorCode = 'invalid_url' | 'fetch_failed' | 'draft_creation_failed';
 
@@ -197,6 +216,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
   coverage: Record<BrandVaultSignalGroup, BrandVaultSignalGroupCoverage>;
   signalDiagnostics: BrandVaultSignalDiagnostics;
   intake: BrandVaultIntakeSummary;
+  visualIdentity: BrandVaultVisualIdentitySummary;
 }
 
 export interface BrandVaultWebsiteDraftJobInput {
@@ -262,6 +282,7 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   fetchOptions?: FetchWebsiteBrandSnapshotOptions;
   websiteOcrProvider?: BrandVaultSocialOcrProvider | null;
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
+  visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
   clock?: () => string;
 }
 
@@ -484,7 +505,7 @@ export async function createBrandVaultWebsiteDraftJob(
       actorId: input.actorId,
     });
     const candidates = [...baseCandidates, ...compiled.candidates];
-    const warnings = mergeWarnings(
+    const baseWarnings = mergeWarnings(
       draft.warnings,
       stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),
       websiteOcr.warnings,
@@ -494,23 +515,39 @@ export async function createBrandVaultWebsiteDraftJob(
       shouldWarnForStagedSocialLinks(socialLinks, sourceEvidence) ? [SOCIAL_LINKS_STAGED_WARNING] : [],
       stagedCandidates.length > 0 ? [stagedSourcesWarning(stagedCandidates.length)] : [],
     );
-    const job = createJob({
+    let job = createJob({
       input,
       jobId,
       status: 'needs_review',
       websiteUrl: draft.normalizedUrl,
       socialLinks,
       sourceEvidence,
-      warnings,
+      warnings: baseWarnings,
       createdAt: startedAt,
       updatedAt: snapshot.fetchedAt,
     });
+    const visualAssets = await mirrorBrandVaultVisualIdentityAssets({
+      visualIdentity: createBrandVaultVisualIdentitySummary({
+        profile: savedRecord.profile,
+        candidates,
+        sourceEvidence: job.inputs.sourceEvidence ?? [],
+      }),
+      job,
+      provider: dependencies.visualAssetStorage,
+    });
+    if (visualAssets.warnings.length > 0) {
+      job = {
+        ...job,
+        warnings: mergeWarnings(job.warnings, visualAssets.warnings),
+      };
+    }
     const reviewPayload = createBrandVaultDraftReviewPayload({
       job,
       record: savedRecord,
       candidates,
       normalizedUrl: draft.normalizedUrl,
-      warnings,
+      warnings: job.warnings,
+      visualIdentity: visualAssets.visualIdentity,
     });
 
     return {
@@ -520,7 +557,7 @@ export async function createBrandVaultWebsiteDraftJob(
       profile: savedRecord.profile,
       candidates,
       normalizedUrl: draft.normalizedUrl,
-      warnings,
+      warnings: job.warnings,
       reviewPayload,
     };
   } catch (error) {
@@ -545,6 +582,7 @@ export function createBrandVaultDraftReviewPayload(args: {
   candidates: BrandEvidenceCandidate[];
   normalizedUrl: string;
   warnings?: string[];
+  visualIdentity?: BrandVaultVisualIdentitySummary;
 }): BrandVaultWebsiteDraftReviewPayload {
   return {
     jobId: args.job.id,
@@ -568,6 +606,11 @@ export function createBrandVaultDraftReviewPayload(args: {
       normalizedUrl: args.normalizedUrl,
       warnings: args.warnings ?? [],
       reviewRequired: args.record.review.required,
+    }),
+    visualIdentity: args.visualIdentity ?? createBrandVaultVisualIdentitySummary({
+      profile: args.record.profile,
+      candidates: args.candidates,
+      sourceEvidence: args.job.inputs.sourceEvidence ?? [],
     }),
   };
 }
