@@ -146,6 +146,38 @@ interface UnifiedZoomMotionPlan {
   calibrationStatus: 'invented-needs-calibration';
 }
 
+interface UnifiedCaptionMomentPlan {
+  version: 'caption-moment-plan-v1';
+  family: 'caption';
+  source: 'signal-family-planner';
+  emphasisAllowed: boolean;
+  reasonKeys: string[];
+  atoms: Record<string, string | number | boolean>;
+  evidence: {
+    salience: number;
+    readabilityPressure: number;
+    speechPace: number;
+    hasTextAnchor: boolean;
+  };
+  calibrationStatus: 'invented-needs-calibration';
+}
+
+interface UnifiedSfxSyncPlan {
+  version: 'sfx-sync-plan-v1';
+  family: 'audio';
+  source: 'signal-family-planner';
+  placementAllowed: boolean;
+  reasonKeys: string[];
+  atoms: Record<string, string | number | boolean>;
+  evidence: {
+    syncConfidence: number;
+    impact: number;
+    restraint: number;
+    transitionAnchored: boolean;
+  };
+  calibrationStatus: 'invented-needs-calibration';
+}
+
 export interface UnifiedSignalDecisionAuditBucket {
   count: number;
   confidence: {
@@ -821,8 +853,15 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
 
   if (family === 'audio') {
     setAtom('beatStrength', ['beatStrength', 'music_energy', 'audio.music_energy']);
+    setAtom('beatFrame', ['beatFrame', 'targetBeatFrame', 'audio.beat_frame']);
+    setAtom('anchorFrame', ['anchorFrame', 'targetFrame', 'audio.anchor_frame']);
     setAtom('phraseImpact', ['phraseImpact', 'visceral_impact', 'emotion_intensity', 'speech_energy']);
     setAtom('rhythmRole', ['rhythmRole', 'music_section', 'audio.music_section']);
+    setAtom('syncAnchor', ['sfxAnchor', 'syncAnchor', 'anchor']);
+    setAtom('transitionEnergy', ['transitionEnergy', 'topicDelta', 'topic_shift', 'narrative_pressure', 'motion_intensity']);
+    setAtom('silencePocketMs', ['silencePocketMs', 'speechGapMs', 'silence_duration_ms', 'speech_gap_ms']);
+    setAtom('speechEnergy', ['speechEnergy', 'speech_energy', 'speech.energy']);
+    setAtom('providerQuality', ['providerQuality', 'asset_quality', 'candidateQuality']);
     if (!hasAnyDirectParam(decision, ['beatFrame', 'anchorFrame']) && atoms.beatStrength !== undefined) {
       atoms.beatFrame = decision.frame;
     }
@@ -832,6 +871,14 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('speechRate', ['speechRate', 'speaking_rate_wpm', 'speech.speaking_rate_wpm']);
     setAtom('keyword', ['keyword', 'targetWord', 'word', 'phrase']);
     setAtom('momentId', ['momentId', 'segmentId']);
+    setAtom('speechPeak', ['speechPeak', 'speech_energy', 'speech.energy']);
+    setAtom('wordImportance', ['wordImportance', 'word_importance', 'speech.emphasis_word']);
+    setAtom('phraseImpact', ['phraseImpact', 'visceral_impact', 'claim_strength']);
+    setAtom('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal']);
+    setAtom('beatStrength', ['beatStrength', 'beat_strength', 'audio.music_energy']);
+    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+    setAtom('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom', 'visual.negative_space_bottom']);
   }
 
   if (family === 'timing') {
@@ -1384,6 +1431,325 @@ function zoomSignalAliases(plan: UnifiedZoomMotionPlan): Record<string, unknown>
   return aliases;
 }
 
+function resolveCaptionMomentPlan(decision: ReactiveEditDecision): UnifiedCaptionMomentPlan | null {
+  if (decision.type !== 'caption-emphasis' || familyForSignalDecision(decision) !== 'caption') return null;
+
+  const atoms = captionMomentAtoms(decision);
+  const speechRateWpm = signalAtomRawNumber(atoms, 'speechRate');
+  const speechPace = roundAuditNumber(clamp01(speechRateWpm / 220));
+  const speechPeak = signalAtomNumber(atoms, 'speechPeak');
+  const wordImportance = signalAtomNumber(atoms, 'wordImportance');
+  const phraseImpact = signalAtomNumber(atoms, 'phraseImpact');
+  const emotionIntensity = signalAtomNumber(atoms, 'emotionIntensity');
+  const beatStrength = signalAtomNumber(atoms, 'beatStrength');
+  const visualComplexity = signalAtomNumber(atoms, 'visualComplexity');
+  const textOnScreen = signalAtomNumber(atoms, 'textOnScreen');
+  const hasTextAnchor = captionHasTextAnchor(decision, atoms);
+  const salience = roundAuditNumber(clamp01(Math.max(
+    wordImportance,
+    phraseImpact,
+    speechPeak,
+    emotionIntensity * 0.9,
+    beatStrength * 0.72,
+    hasTextAnchor ? signalExecutionConfidence(decision) * 0.65 : 0,
+  )));
+  const readabilityPressure = roundAuditNumber(clamp01(Math.max(
+    textOnScreen,
+    visualComplexity,
+    speechPace * 0.56,
+  )));
+  const reasonKeys = captionMomentReasonKeys({
+    atoms,
+    decision,
+    hasTextAnchor,
+    salience,
+    speechPace,
+    wordImportance,
+    speechPeak,
+    phraseImpact,
+    emotionIntensity,
+    beatStrength,
+    readabilityPressure,
+  });
+
+  if (!hasTextAnchor && reasonKeys.length === 0) return null;
+
+  const emphasisAllowed = hasTextAnchor && salience >= 0.38 && readabilityPressure < 0.94;
+
+  return {
+    version: 'caption-moment-plan-v1',
+    family: 'caption',
+    source: 'signal-family-planner',
+    emphasisAllowed,
+    reasonKeys,
+    atoms,
+    evidence: {
+      salience,
+      readabilityPressure,
+      speechPace,
+      hasTextAnchor,
+    },
+    calibrationStatus: 'invented-needs-calibration',
+  };
+}
+
+function captionMomentAtoms(decision: ReactiveEditDecision): Record<string, string | number | boolean> {
+  const atoms = { ...projectSignalFamilyAtoms(decision) };
+  const setFallback = (atom: string, aliases: string[]): void => {
+    if (atoms[atom] !== undefined) return;
+    const value = lookupPrimitiveInRecord(decision.params, aliases, 0);
+    if (value !== undefined) atoms[atom] = value;
+  };
+
+  setFallback('text', ['text', 'captionText']);
+  setFallback('keyword', ['keyword', 'targetWord', 'word', 'emphasisWord', 'phrase']);
+  setFallback('phrase', ['phrase', 'captionPhrase']);
+  setFallback('wordRange', ['wordRange']);
+  setFallback('startWordIndex', ['startWordIndex']);
+  setFallback('endWordIndex', ['endWordIndex']);
+  setFallback('semanticRole', ['semanticRole', 'role']);
+  setFallback('speechRate', ['speechRate', 'speaking_rate_wpm']);
+  setFallback('speechPeak', ['speechPeak', 'speech_energy']);
+  setFallback('wordImportance', ['wordImportance', 'word_importance', 'emphasisIntensity']);
+  setFallback('phraseImpact', ['phraseImpact', 'visceral_impact', 'claim_strength']);
+  setFallback('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal']);
+  setFallback('beatStrength', ['beatStrength', 'beat_strength', 'music_energy']);
+  setFallback('visualComplexity', ['visualComplexity', 'visual_complexity']);
+  setFallback('textOnScreen', ['textOnScreen', 'text_on_screen']);
+  setFallback('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom']);
+  return atoms;
+}
+
+function captionHasTextAnchor(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+): boolean {
+  return [
+    'text',
+    'keyword',
+    'phrase',
+    'wordRange',
+    'startWordIndex',
+    'endWordIndex',
+    'semanticRole',
+    'momentId',
+  ].some((key) => hasDirectParamValue(decision.params[key]) || hasDirectParamValue(atoms[key]));
+}
+
+function captionMomentReasonKeys(input: {
+  atoms: Record<string, string | number | boolean>;
+  decision: ReactiveEditDecision;
+  hasTextAnchor: boolean;
+  salience: number;
+  speechPace: number;
+  wordImportance: number;
+  speechPeak: number;
+  phraseImpact: number;
+  emotionIntensity: number;
+  beatStrength: number;
+  readabilityPressure: number;
+}): string[] {
+  const reasonKeys: string[] = [];
+  if (input.hasTextAnchor) reasonKeys.push('text-anchor');
+  if (input.wordImportance >= 0.5) reasonKeys.push('word-importance');
+  if (input.speechPeak >= 0.55) reasonKeys.push('speech-peak');
+  if (input.phraseImpact >= 0.5) reasonKeys.push('phrase-impact');
+  if (input.emotionIntensity >= 0.58) reasonKeys.push('emotion');
+  if (input.beatStrength >= 0.62) reasonKeys.push('beat');
+  if (input.speechPace >= 0.72) reasonKeys.push('fast-speech');
+  if (input.readabilityPressure >= 0.72) reasonKeys.push('readability-pressure');
+  if (hasAnyParam(input.decision, ['momentId', 'segmentId']) || input.atoms.momentId !== undefined) reasonKeys.push('moment-anchor');
+  if (input.salience >= 0.58) reasonKeys.push('salient-caption-moment');
+  return [...new Set(reasonKeys)];
+}
+
+function captionSignalAliases(plan: UnifiedCaptionMomentPlan): Record<string, unknown> {
+  const aliases: Record<string, unknown> = {};
+  const assign = (alias: string, atom: string): void => {
+    const value = plan.atoms[atom];
+    if (value !== undefined) aliases[alias] = value;
+  };
+
+  assign('speaking_rate_wpm', 'speechRate');
+  assign('speech_energy', 'speechPeak');
+  assign('word_importance', 'wordImportance');
+  assign('phrase_impact', 'phraseImpact');
+  assign('emotion_intensity', 'emotionIntensity');
+  assign('beat_strength', 'beatStrength');
+  assign('visual_complexity', 'visualComplexity');
+  assign('text_on_screen', 'textOnScreen');
+  assign('negative_space_bottom', 'negativeSpaceBottom');
+  return aliases;
+}
+
+function resolveSfxSyncPlan(decision: ReactiveEditDecision): UnifiedSfxSyncPlan | null {
+  if ((decision.type !== 'sfx' && decision.type !== 'sfx-trigger') || familyForSignalDecision(decision) !== 'audio') return null;
+
+  const sfxType = normalizeParamString(decision.params.sfxType ?? decision.params.type);
+  if (!sfxType || sfxType === 'none') return null;
+
+  const atoms = sfxSyncAtoms(decision);
+  const transitionAnchored = isTransitionAnchoredSfx(decision);
+  const beatStrength = signalAtomNumber(atoms, 'beatStrength');
+  const phraseImpact = signalAtomNumber(atoms, 'phraseImpact');
+  const transitionEnergy = signalAtomNumber(atoms, 'transitionEnergy');
+  const providerQuality = signalAtomNumber(atoms, 'providerQuality');
+  const speechEnergy = signalAtomNumber(atoms, 'speechEnergy');
+  const silencePocketMs = signalAtomRawNumber(atoms, 'silencePocketMs');
+  const hasBeatAnchor = sfxHasBeatAnchor(decision, atoms);
+  const hasLinkedOverlay = hasAnyParam(decision, ['linkedOverlayId']) || atoms.linkedOverlayId !== undefined;
+  const hasTransitionEvidence = !transitionAnchored || hasTransitionSfxBoundaryEvidence(decision);
+  const hasRealSyncAnchor = hasBeatAnchor || (transitionAnchored && hasTransitionEvidence) || hasLinkedOverlay;
+  const anchoredTokenImpact = hasRealSyncAnchor
+    ? sfxCompatibilityTokenImpact(sfxType)
+    : 0;
+  const impact = roundAuditNumber(clamp01(Math.max(
+    phraseImpact,
+    beatStrength * 0.86,
+    transitionEnergy * 0.82,
+    anchoredTokenImpact,
+    transitionAnchored ? 0.62 : 0,
+  )));
+  const syncConfidence = roundAuditNumber(clamp01(Math.max(
+    beatStrength,
+    phraseImpact,
+    transitionAnchored && hasTransitionEvidence ? 0.74 : 0,
+    hasBeatAnchor ? 0.68 : 0,
+    hasLinkedOverlay ? 0.64 : 0,
+    silencePocketMs >= 140 ? 0.48 : 0,
+  )));
+  const restraint = roundAuditNumber(clamp01(Math.max(
+    speechEnergy * 0.42,
+    providerQuality > 0 ? (1 - providerQuality) * 0.35 : 0,
+  )));
+  const reasonKeys = sfxSyncReasonKeys({
+    beatStrength,
+    phraseImpact,
+    transitionAnchored,
+    hasTransitionEvidence,
+    hasBeatAnchor,
+    hasLinkedOverlay,
+    silencePocketMs,
+    impact,
+    syncConfidence,
+  });
+
+  if (reasonKeys.length === 0) return null;
+
+  const placementAllowed = hasTransitionEvidence && syncConfidence >= 0.45 && impact >= 0.42 && restraint < 0.95;
+
+  return {
+    version: 'sfx-sync-plan-v1',
+    family: 'audio',
+    source: 'signal-family-planner',
+    placementAllowed,
+    reasonKeys,
+    atoms,
+    evidence: {
+      syncConfidence,
+      impact,
+      restraint,
+      transitionAnchored,
+    },
+    calibrationStatus: 'invented-needs-calibration',
+  };
+}
+
+function sfxSyncAtoms(decision: ReactiveEditDecision): Record<string, string | number | boolean> {
+  const atoms = { ...projectSignalFamilyAtoms(decision) };
+  const setFallback = (atom: string, aliases: string[]): void => {
+    if (atoms[atom] !== undefined) return;
+    const value = lookupPrimitiveInRecord(decision.params, aliases, 0);
+    if (value !== undefined) atoms[atom] = value;
+  };
+
+  setFallback('sfxType', ['sfxType', 'type']);
+  setFallback('beatFrame', ['beatFrame', 'targetBeatFrame']);
+  setFallback('anchorFrame', ['anchorFrame', 'targetFrame']);
+  setFallback('linkedOverlayId', ['linkedOverlayId']);
+  setFallback('syncAnchor', ['sfxAnchor', 'syncAnchor', 'anchor']);
+  setFallback('transitionFrame', ['transitionFrame', 'boundaryFrame', 'cutFrame']);
+  setFallback('transitionEnergy', ['transitionEnergy', 'topicDelta', 'topic_shift', 'motion_intensity']);
+  setFallback('beatStrength', ['beatStrength', 'beat_strength', 'music_energy']);
+  setFallback('phraseImpact', ['phraseImpact', 'visceral_impact', 'speech_energy']);
+  setFallback('silencePocketMs', ['silencePocketMs', 'speechGapMs', 'silence_duration_ms']);
+  setFallback('speechEnergy', ['speechEnergy', 'speech_energy']);
+  setFallback('providerQuality', ['providerQuality', 'asset_quality', 'candidateQuality']);
+  return atoms;
+}
+
+function sfxHasBeatAnchor(
+  decision: ReactiveEditDecision,
+  atoms: Record<string, string | number | boolean>,
+): boolean {
+  return ['beatFrame', 'anchorFrame'].some((key) => hasDirectParamValue(decision.params[key]) || hasDirectParamValue(atoms[key]));
+}
+
+function sfxSyncReasonKeys(input: {
+  beatStrength: number;
+  phraseImpact: number;
+  transitionAnchored: boolean;
+  hasTransitionEvidence: boolean;
+  hasBeatAnchor: boolean;
+  hasLinkedOverlay: boolean;
+  silencePocketMs: number;
+  impact: number;
+  syncConfidence: number;
+}): string[] {
+  const reasonKeys: string[] = [];
+  if (input.beatStrength >= 0.5 || input.hasBeatAnchor) reasonKeys.push('beat-anchor');
+  if (input.phraseImpact >= 0.5) reasonKeys.push('phrase-impact');
+  if (input.transitionAnchored && input.hasTransitionEvidence) reasonKeys.push('transition-boundary');
+  if (input.hasLinkedOverlay) reasonKeys.push('linked-overlay');
+  if (input.silencePocketMs >= 140) reasonKeys.push('silence-pocket');
+  if (input.impact >= 0.58) reasonKeys.push('impact');
+  if (input.syncConfidence >= 0.62) reasonKeys.push('sync-confidence');
+  return [...new Set(reasonKeys)];
+}
+
+function sfxCompatibilityTokenImpact(sfxType: string): number {
+  if (!sfxType || sfxType === 'none') return 0;
+  if (sfxType.includes('impact') || sfxType.includes('hit') || sfxType.includes('boom')) return 0.58;
+  if (sfxType.includes('whoosh') || sfxType.includes('swoosh') || sfxType.includes('swish')) return 0.5;
+  if (sfxType.includes('tick') || sfxType.includes('click')) return 0.44;
+  return 0.42;
+}
+
+function sfxSignalAliases(plan: UnifiedSfxSyncPlan): Record<string, unknown> {
+  const aliases: Record<string, unknown> = {};
+  const assign = (alias: string, atom: string): void => {
+    const value = plan.atoms[atom];
+    if (value !== undefined) aliases[alias] = value;
+  };
+
+  assign('beat_strength', 'beatStrength');
+  assign('phrase_impact', 'phraseImpact');
+  assign('sfx_sync_anchor', 'syncAnchor');
+  assign('transition_energy', 'transitionEnergy');
+  assign('silence_duration_ms', 'silencePocketMs');
+  assign('speech_energy', 'speechEnergy');
+  assign('provider_quality', 'providerQuality');
+  return aliases;
+}
+
+function signalAtomNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return clamp01(value);
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return 0;
+}
+
+function signalAtomRawNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 function createMutableAuditBucket(): MutableSignalDecisionAuditBucket {
   return {
     count: 0,
@@ -1533,18 +1899,9 @@ function resolveFamilyExecutionLicense(
     case 'camera':
       return resolveCameraExecutionLicense(decision);
     case 'audio':
-      if (isTransitionAnchoredSfx(decision)) {
-        return hasTransitionSfxBoundaryEvidence(decision)
-          ? { executable: true, reason: 'licensed-by-transition-sfx-boundary-atoms' }
-          : { executable: false, reason: 'missing-transition-sfx-boundary-atoms' };
-      }
-      return hasAudioBeatEvidence(decision)
-        ? { executable: true, reason: 'licensed-by-audio-beat-atoms' }
-        : { executable: false, reason: 'missing-audio-beat-atoms' };
+      return resolveSfxExecutionLicense(decision);
     case 'caption':
-      return hasCaptionMomentEvidence(decision)
-        ? { executable: true, reason: 'licensed-by-caption-moment-atoms' }
-        : { executable: false, reason: 'missing-caption-moment-atoms' };
+      return resolveCaptionExecutionLicense(decision);
     case 'pacing':
       return hasPacingMomentEvidence(decision)
         ? { executable: true, reason: 'licensed-by-pacing-moment-atoms' }
@@ -1599,6 +1956,29 @@ function resolveCameraExecutionLicense(decision: ReactiveEditDecision): { execut
   }
 
   return { executable: true, reason: 'licensed-by-camera-motion-atoms' };
+}
+
+function resolveCaptionExecutionLicense(decision: ReactiveEditDecision): { executable: boolean; reason: string } {
+  const plan = resolveCaptionMomentPlan(decision);
+  if (!plan) return { executable: false, reason: 'missing-caption-moment-atoms' };
+  return plan.emphasisAllowed
+    ? { executable: true, reason: 'licensed-by-caption-family-plan' }
+    : { executable: false, reason: 'caption-family-plan-kept-readable' };
+}
+
+function resolveSfxExecutionLicense(decision: ReactiveEditDecision): { executable: boolean; reason: string } {
+  const plan = resolveSfxSyncPlan(decision);
+  if (!plan) {
+    return isTransitionAnchoredSfx(decision)
+      ? { executable: false, reason: 'missing-transition-sfx-boundary-atoms' }
+      : { executable: false, reason: 'missing-audio-beat-atoms' };
+  }
+  if (!plan.placementAllowed) {
+    return isTransitionAnchoredSfx(decision) && !hasTransitionSfxBoundaryEvidence(decision)
+      ? { executable: false, reason: 'missing-transition-sfx-boundary-atoms' }
+      : { executable: false, reason: 'sfx-family-plan-kept-silent' };
+  }
+  return { executable: true, reason: 'licensed-by-sfx-family-plan' };
 }
 
 function hasTransitionBoundaryEvidence(decision: ReactiveEditDecision): boolean {
@@ -1912,29 +2292,84 @@ function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: 
   }
 
   const zoomPlan = resolveZoomMotionPlan(signalDecision);
-  if (!zoomPlan) return signalDecision;
-  const existingSignals = recordParam(signalDecision.params.signals) ?? {};
-  return {
-    ...signalDecision,
-    params: {
-      ...signalDecision.params,
-      signals: {
-        ...existingSignals,
-        ...zoomSignalAliases(zoomPlan),
-      },
-      zoomMotionPlan: zoomPlan,
-      unifiedDecisionMerge: {
-        ...readMergeMetadata(signalDecision),
-        familyPlanner: {
-          version: 'zoom-family-planner-v1',
-          family: 'zoom',
-          visualMotionAllowed: zoomPlan.visualMotionAllowed,
-          executionLicense: reason,
-          reasonKeys: zoomPlan.reasonKeys,
+  if (zoomPlan) {
+    const existingSignals = recordParam(signalDecision.params.signals) ?? {};
+    return {
+      ...signalDecision,
+      params: {
+        ...signalDecision.params,
+        signals: {
+          ...existingSignals,
+          ...zoomSignalAliases(zoomPlan),
+        },
+        zoomMotionPlan: zoomPlan,
+        unifiedDecisionMerge: {
+          ...readMergeMetadata(signalDecision),
+          familyPlanner: {
+            version: 'zoom-family-planner-v1',
+            family: 'zoom',
+            visualMotionAllowed: zoomPlan.visualMotionAllowed,
+            executionLicense: reason,
+            reasonKeys: zoomPlan.reasonKeys,
+          },
         },
       },
-    },
-  };
+    };
+  }
+
+  const captionPlan = resolveCaptionMomentPlan(signalDecision);
+  if (captionPlan) {
+    const existingSignals = recordParam(signalDecision.params.signals) ?? {};
+    return {
+      ...signalDecision,
+      params: {
+        ...signalDecision.params,
+        signals: {
+          ...existingSignals,
+          ...captionSignalAliases(captionPlan),
+        },
+        captionMomentPlan: captionPlan,
+        unifiedDecisionMerge: {
+          ...readMergeMetadata(signalDecision),
+          familyPlanner: {
+            version: 'caption-family-planner-v1',
+            family: 'caption',
+            emphasisAllowed: captionPlan.emphasisAllowed,
+            executionLicense: reason,
+            reasonKeys: captionPlan.reasonKeys,
+          },
+        },
+      },
+    };
+  }
+
+  const sfxPlan = resolveSfxSyncPlan(signalDecision);
+  if (sfxPlan) {
+    const existingSignals = recordParam(signalDecision.params.signals) ?? {};
+    return {
+      ...signalDecision,
+      params: {
+        ...signalDecision.params,
+        signals: {
+          ...existingSignals,
+          ...sfxSignalAliases(sfxPlan),
+        },
+        sfxSyncPlan: sfxPlan,
+        unifiedDecisionMerge: {
+          ...readMergeMetadata(signalDecision),
+          familyPlanner: {
+            version: 'sfx-family-planner-v1',
+            family: 'audio',
+            placementAllowed: sfxPlan.placementAllowed,
+            executionLicense: reason,
+            reasonKeys: sfxPlan.reasonKeys,
+          },
+        },
+      },
+    };
+  }
+
+  return signalDecision;
 }
 
 function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {

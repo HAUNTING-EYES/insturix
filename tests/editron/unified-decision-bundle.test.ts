@@ -760,7 +760,27 @@ describe('unified decision bundle merge', () => {
     expect(merged.edl.decisions.find((d) => d.type === 'sfx-trigger')?.frame).toBe(420);
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'missing-transition-sfx-boundary-atoms': expect.objectContaining({ count: 1 }),
-      'licensed-by-transition-sfx-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'licensed-by-sfx-family-plan': expect.objectContaining({ count: 1 }),
+    }));
+    const sfx = merged.edl.decisions.find((d) => d.type === 'sfx-trigger');
+    expect(sfx?.params).toEqual(expect.objectContaining({
+      sfxSyncPlan: expect.objectContaining({
+        version: 'sfx-sync-plan-v1',
+        placementAllowed: true,
+        reasonKeys: expect.arrayContaining(['transition-boundary', 'impact', 'sync-confidence']),
+        evidence: expect.objectContaining({
+          transitionAnchored: true,
+        }),
+        calibrationStatus: 'invented-needs-calibration',
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        executionLicense: 'licensed-by-sfx-family-plan',
+        familyPlanner: expect.objectContaining({
+          version: 'sfx-family-planner-v1',
+          family: 'audio',
+          placementAllowed: true,
+        }),
+      }),
     }));
     expect(merged.evidence.signalDecisionAudit.candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -1035,9 +1055,50 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'below-signal-confidence-floor': expect.objectContaining({ count: 1 }),
       'hard-cut-is-boundary-evidence': expect.objectContaining({ count: 1 }),
-      'licensed-by-caption-moment-atoms': expect.objectContaining({ count: 1 }),
-      'licensed-by-audio-beat-atoms': expect.objectContaining({ count: 1 }),
+      'licensed-by-caption-family-plan': expect.objectContaining({ count: 1 }),
+      'licensed-by-sfx-family-plan': expect.objectContaining({ count: 1 }),
     }));
+    const captionDecision = merged.edl.decisions.find((d) => d.type === 'caption-emphasis');
+    expect(captionDecision?.params).toEqual(expect.objectContaining({
+      captionMomentPlan: expect.objectContaining({
+        version: 'caption-moment-plan-v1',
+        emphasisAllowed: true,
+        reasonKeys: expect.arrayContaining(['text-anchor', 'salient-caption-moment']),
+        evidence: expect.objectContaining({
+          hasTextAnchor: true,
+        }),
+        calibrationStatus: 'invented-needs-calibration',
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        executionLicense: 'licensed-by-caption-family-plan',
+        familyPlanner: expect.objectContaining({
+          version: 'caption-family-planner-v1',
+          family: 'caption',
+          emphasisAllowed: true,
+        }),
+      }),
+    }));
+    expect(captionDecision?.params).not.toHaveProperty('captionStyle');
+    expect(captionDecision?.params).not.toHaveProperty('displayMode');
+
+    const sfxDecision = merged.edl.decisions.find((d) => d.type === 'sfx-trigger');
+    expect(sfxDecision?.params).toEqual(expect.objectContaining({
+      sfxSyncPlan: expect.objectContaining({
+        version: 'sfx-sync-plan-v1',
+        placementAllowed: true,
+        reasonKeys: expect.arrayContaining(['beat-anchor', 'impact', 'sync-confidence']),
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        executionLicense: 'licensed-by-sfx-family-plan',
+        familyPlanner: expect.objectContaining({
+          version: 'sfx-family-planner-v1',
+          family: 'audio',
+          placementAllowed: true,
+        }),
+      }),
+    }));
+    expect(sfxDecision?.params).not.toHaveProperty('assetQuery');
+    expect(sfxDecision?.params).not.toHaveProperty('sfxAssetId');
     expect(merged.evidence.signalDecisionAudit.candidates.map((candidate) => ({
       family: candidate.family,
       role: candidate.role,
@@ -1099,7 +1160,7 @@ describe('unified decision bundle merge', () => {
       {
         family: 'caption',
         outcome: 'added-executable',
-        reason: 'licensed-by-caption-moment-atoms',
+        reason: 'licensed-by-caption-family-plan',
         frame: 50,
         source: 'signal-executor:caption',
       },
@@ -1120,7 +1181,7 @@ describe('unified decision bundle merge', () => {
       {
         family: 'audio',
         outcome: 'added-executable',
-        reason: 'licensed-by-audio-beat-atoms',
+        reason: 'licensed-by-sfx-family-plan',
         frame: 360,
         source: 'signal-executor:sfx',
       },
