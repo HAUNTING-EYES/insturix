@@ -337,6 +337,7 @@ describe('Brand Vault draft orchestrator', () => {
         userId: 'user_signal',
         brandId: 'brand_signal',
         websiteUrl: 'signal.example',
+        socialLinks: ['https://www.instagram.com/insturix/'],
         jobId: 'job_text_compiler',
         profileRecordId: 'draft_text_compiler',
         sourceEvidence: [
@@ -414,6 +415,40 @@ describe('Brand Vault draft orchestrator', () => {
     expect(compilerSawSourceCount).toBe(1);
     expect(compilerSawExistingCandidateCount).toBeGreaterThan(0);
     expect(result.warnings).toContain('Text evidence compiler produced review-only inferred candidates.');
+    expect(result.warnings).not.toContain(
+      'Social links without connected post evidence were staged for review; connect read scopes or add pinned posts for richer social language.',
+    );
+    expect(result.reviewPayload.intake.social).toMatchObject({
+      status: 'needs_review',
+      linksProvided: 1,
+      postSourceCount: 1,
+      fetchedPostCount: 0,
+      publicFallbackPostCount: 1,
+      needsAuthCount: 0,
+    });
+    expect(result.reviewPayload.intake.social.notes).toEqual(
+      expect.arrayContaining([
+        '1 public fallback post sample staged for review.',
+        'Connect matching social read access to promote reviewed public evidence into trusted account-matched evidence.',
+      ]),
+    );
+    expect(result.reviewPayload.intake.social.platforms).toEqual([
+      expect.objectContaining({
+        platform: 'instagram',
+        status: 'needs_review',
+        fetchedPostCount: 0,
+        publicFallbackPostCount: 1,
+      }),
+    ]);
+    expect(result.reviewPayload.intake.evidenceLanes.find((lane) => lane.id === 'social')).toMatchObject({
+      status: 'needs_review',
+    });
+    const nextActionIds = result.reviewPayload.intake.nextActions.map((action) => action.id);
+    expect(nextActionIds).toContain('connect_social');
+    expect(nextActionIds).not.toContain('add_pinned_posts');
+    expect(result.reviewPayload.intake.nextActions.find((action) => action.id === 'connect_social')?.reason).toBe(
+      'Public social evidence is staged for review; connected read access would make account-matched posts trusted enough for generation.',
+    );
 
     const compilerCandidates = result.candidates.filter(
       (candidate) => candidate.extractorId === 'brand-vault-text-evidence-compiler.v1',

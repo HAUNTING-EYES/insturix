@@ -676,7 +676,7 @@ function IntakeGuidancePanel({
                       <span>{platform.rawStatus.replace('_', ' ')}</span>
                     </div>
                     <em>
-                      {platform.sourceCount} sources / {platform.postSourceCount} posts / {platform.connectedAccountCount} connected
+                      {platform.sourceCount} sources / {platform.postSourceCount} posts / {platform.connectedAccountCount} connected / {platform.publicFallbackPostCount} public
                     </em>
                     {platform.notes.length > 0 && (
                       <ul>

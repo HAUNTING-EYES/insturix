@@ -85,6 +85,7 @@ export interface BrandVaultSocialPlatformHealth {
   postSourceCount: number;
   connectedAccountCount: number;
   fetchedPostCount: number;
+  publicFallbackPostCount: number;
   notes: string[];
 }
 
@@ -434,6 +435,7 @@ function sourceLaneIdForIntakeLane(id: IntakeLaneId): SourceLane['id'] {
 function buildSocialPlatformHealth(snapshot: BrandVaultSnapshot): BrandVaultSocialPlatformHealth[] {
   const platforms = snapshot.reviewPayload?.intake.social?.platforms ?? [];
   return [...platforms].sort((a, b) => socialPlatformLabel(a.platform).localeCompare(socialPlatformLabel(b.platform))).map((platform) => {
+    const publicFallbackPostCount = platform.publicFallbackPostCount ?? Math.max(0, platform.postSourceCount - platform.fetchedPostCount);
     const liveCount = platform.fetchedPostCount || platform.postSourceCount;
     const stagedCount = platform.sourceCount;
     return {
@@ -450,6 +452,7 @@ function buildSocialPlatformHealth(snapshot: BrandVaultSnapshot): BrandVaultSoci
       postSourceCount: platform.postSourceCount,
       connectedAccountCount: platform.connectedAccountCount,
       fetchedPostCount: platform.fetchedPostCount,
+      publicFallbackPostCount,
       notes: platform.notes.slice(0, 3),
     };
   });

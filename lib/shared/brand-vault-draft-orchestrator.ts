@@ -147,6 +147,7 @@ export interface BrandVaultIntakeSocialSummary extends BrandVaultIntakeStageSumm
   postSourceCount: number;
   connectedAccountCount: number;
   fetchedPostCount: number;
+  publicFallbackPostCount: number;
   needsAuthCount: number;
   skippedCount: number;
   platforms: Array<{
@@ -156,6 +157,7 @@ export interface BrandVaultIntakeSocialSummary extends BrandVaultIntakeStageSumm
     postSourceCount: number;
     connectedAccountCount: number;
     fetchedPostCount: number;
+    publicFallbackPostCount: number;
     notes: string[];
   }>;
 }
@@ -982,6 +984,7 @@ function createSocialIntakeSummary(args: {
   const postSourceCount = args.sources.filter((source) => source.kind === 'social_post').length;
   const connectedAccountCount = args.sources.filter((source) => source.connection?.status === 'connected').length;
   const fetchedPostCount = args.sources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch').length;
+  const publicFallbackPostCount = args.sources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'public_fallback').length;
   const socialWarnings = args.warnings.filter(isSocialWarning);
   const needsAuthCount = args.sources.filter((source) =>
     source.connection?.status === 'scope_missing' || source.connection?.status === 'connected_different_account',
@@ -991,6 +994,7 @@ function createSocialIntakeSummary(args: {
     linksProvided: args.socialLinks.length,
     sourceCount: args.sources.length,
     fetchedPostCount,
+    publicFallbackPostCount,
     connectedAccountCount,
     needsAuthCount,
   });
@@ -998,6 +1002,7 @@ function createSocialIntakeSummary(args: {
     linksProvided: args.socialLinks.length,
     connectedAccountCount,
     fetchedPostCount,
+    publicFallbackPostCount,
     needsAuthCount,
     skippedCount,
   });
@@ -1014,6 +1019,7 @@ function createSocialIntakeSummary(args: {
     postSourceCount,
     connectedAccountCount,
     fetchedPostCount,
+    publicFallbackPostCount,
     needsAuthCount,
     skippedCount,
     platforms: createSocialPlatformSummaries(args.socialLinks, args.sources),
@@ -1069,6 +1075,7 @@ function createSocialPlatformSummaries(
     const platformSources = sources.filter((source) => source.platform === platform);
     const connectedAccountCount = platformSources.filter((source) => source.connection?.status === 'connected').length;
     const fetchedPostCount = platformSources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch').length;
+    const publicFallbackPostCount = platformSources.filter((source) => source.kind === 'social_post' && source.evidenceOrigin === 'public_fallback').length;
     const needsAuthCount = platformSources.filter((source) =>
       source.connection?.status === 'scope_missing' || source.connection?.status === 'connected_different_account',
     ).length;
@@ -1079,6 +1086,7 @@ function createSocialPlatformSummaries(
         linksProvided: socialLinks.some((link) => inferSourcePlatform(link) === platform) ? 1 : 0,
         sourceCount: platformSources.length,
         fetchedPostCount,
+        publicFallbackPostCount,
         connectedAccountCount,
         needsAuthCount,
       }),
@@ -1086,10 +1094,12 @@ function createSocialPlatformSummaries(
       postSourceCount,
       connectedAccountCount,
       fetchedPostCount,
+      publicFallbackPostCount,
       notes: socialNotes({
         linksProvided: socialLinks.some((link) => inferSourcePlatform(link) === platform) ? 1 : 0,
         connectedAccountCount,
         fetchedPostCount,
+        publicFallbackPostCount,
         needsAuthCount,
         skippedCount: 0,
       }),
@@ -1138,10 +1148,12 @@ function createNextActions(args: {
       id: 'connect_social',
       label: 'Connect or refresh social read access',
       priority: 'medium',
-      reason: 'Social links are present, but Brand Vault does not yet have enough connected post evidence from every linked account.',
+      reason: args.social.publicFallbackPostCount > 0
+        ? 'Public social evidence is staged for review; connected read access would make account-matched posts trusted enough for generation.'
+        : 'Social links are present, but Brand Vault does not yet have enough connected post evidence from every linked account.',
     });
   }
-  if (args.social.linksProvided > 0 && args.social.fetchedPostCount === 0) {
+  if (args.social.linksProvided > 0 && args.social.fetchedPostCount === 0 && args.social.publicFallbackPostCount === 0) {
     actions.push({
       id: 'add_pinned_posts',
       label: 'Add pinned posts or examples',
@@ -1178,11 +1190,13 @@ function socialStatus(args: {
   linksProvided: number;
   sourceCount: number;
   fetchedPostCount: number;
+  publicFallbackPostCount: number;
   connectedAccountCount: number;
   needsAuthCount: number;
 }): BrandVaultIntakeStageStatus {
   if (args.linksProvided === 0 && args.sourceCount === 0) return 'not_provided';
   if (args.fetchedPostCount > 0) return 'complete';
+  if (args.publicFallbackPostCount > 0) return 'needs_review';
   if (args.needsAuthCount > 0 || (args.linksProvided > 0 && args.connectedAccountCount === 0)) return 'needs_auth';
   if (args.sourceCount > 0 || args.connectedAccountCount > 0) return 'needs_review';
   return 'skipped';
@@ -1192,6 +1206,7 @@ function socialNotes(args: {
   linksProvided: number;
   connectedAccountCount: number;
   fetchedPostCount: number;
+  publicFallbackPostCount: number;
   needsAuthCount: number;
   skippedCount: number;
 }): string[] {
@@ -1199,6 +1214,12 @@ function socialNotes(args: {
   if (args.linksProvided > 0) notes.push(`${args.linksProvided} social link${args.linksProvided === 1 ? '' : 's'} provided.`);
   if (args.connectedAccountCount > 0) notes.push(`${args.connectedAccountCount} connected social source${args.connectedAccountCount === 1 ? '' : 's'} found.`);
   if (args.fetchedPostCount > 0) notes.push(`${args.fetchedPostCount} connected post sample${args.fetchedPostCount === 1 ? '' : 's'} fetched.`);
+  if (args.publicFallbackPostCount > 0) {
+    notes.push(`${args.publicFallbackPostCount} public fallback post sample${args.publicFallbackPostCount === 1 ? '' : 's'} staged for review.`);
+  }
+  if (args.publicFallbackPostCount > 0 && args.fetchedPostCount === 0) {
+    notes.push('Connect matching social read access to promote reviewed public evidence into trusted account-matched evidence.');
+  }
   if (args.needsAuthCount > 0) notes.push(`${args.needsAuthCount} social source${args.needsAuthCount === 1 ? '' : 's'} need auth, scopes, or account matching.`);
   if (args.skippedCount > 0) notes.push(`${args.skippedCount} social enrichment step${args.skippedCount === 1 ? '' : 's'} skipped.`);
   if (notes.length === 0) notes.push('No social evidence was provided for this draft.');
@@ -1207,7 +1228,9 @@ function socialNotes(args: {
 
 function shouldWarnForStagedSocialLinks(socialLinks: string[], sourceEvidence: BrandVaultSourceInput[]): boolean {
   if (socialLinks.length === 0) return false;
-  return !sourceEvidence.some((source) => source.kind === 'social_post' && source.evidenceOrigin === 'connected_fetch');
+  return !sourceEvidence.some((source) =>
+    source.kind === 'social_post' && (source.evidenceOrigin === 'connected_fetch' || source.evidenceOrigin === 'public_fallback'),
+  );
 }
 
 function isWebsiteCandidate(candidate: BrandEvidenceCandidate): boolean {

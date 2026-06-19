@@ -278,6 +278,7 @@ describe('Brand Vault review data helpers', () => {
         sourceCount: 0,
         postSourceCount: 0,
         connectedAccountCount: 0,
+        publicFallbackPostCount: 0,
       }),
       expect.objectContaining({
         platform: 'linkedin',
@@ -286,6 +287,7 @@ describe('Brand Vault review data helpers', () => {
         rawStatus: 'needs_review',
         sourceCount: 6,
         postSourceCount: 5,
+        publicFallbackPostCount: 5,
       }),
       expect.objectContaining({
         platform: 'youtube',
@@ -294,6 +296,7 @@ describe('Brand Vault review data helpers', () => {
         rawStatus: 'needs_review',
         sourceCount: 1,
         connectedAccountCount: 1,
+        publicFallbackPostCount: 0,
       }),
     ]);
   });
