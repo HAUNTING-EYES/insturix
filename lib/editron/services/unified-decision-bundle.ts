@@ -123,10 +123,47 @@ interface UnifiedTransitionBoundaryPlan {
   visualTransitionAllowed: boolean;
   reasonKeys: string[];
   atoms: Record<string, string | number | boolean>;
+  jobVector: {
+    continuity: number;
+    turn: number;
+    impact: number;
+    motionTransfer: number;
+    jumpHide: number;
+    attentionReset: number;
+    contrastReveal: number;
+    audioBridge: number;
+    silence: number;
+  };
+  physicalFormInputs: {
+    boundaryConfidence: number;
+    rawToCutConfidence: number;
+    directionX: number;
+    directionY: number;
+    directionMagnitude: number;
+    durationPressure: number;
+    opacityPressure: number;
+    motionPressure: number;
+    blurPressure: number;
+    smearPressure: number;
+    exposurePressure: number;
+    sfxEligibility: number;
+    zoomBridgeNeed: number;
+    screenSafetyPressure: number;
+    repetitionPressure: number;
+  };
+  crossFamily: {
+    sfxAllowed: boolean;
+    zoomBridgeAllowed: boolean;
+    captionConflictRisk: number;
+    mgConflictRisk: number;
+  };
   evidence: {
     directionMagnitude: number;
     intensity: number;
     visualPressure: number;
+    boundaryConfidence: number;
+    rawToCutConfidence: number;
+    vjepaCoverageQuality: number;
   };
   calibrationStatus: 'invented-needs-calibration';
 }
@@ -813,6 +850,29 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('emotionJump', ['emotionJump', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
     setAtom('textCoverage', ['textCoverage', 'text_coverage', 'visual.text_coverage']);
     setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+    setAtom('subjectPositionJump', ['subjectPositionJump', 'subject_position_jump', 'eye_trace_jump', 'subjectJump']);
+    setAtom('subjectSizeJump', ['subjectSizeJump', 'subject_size_jump', 'scale_jump', 'subjectScaleJump']);
+    setAtom('shotScaleDelta', ['shotScaleDelta', 'shot_scale_delta', 'shotScaleChange']);
+    setAtom('cameraMotion', ['cameraMotion', 'camera_motion', 'camera.motion']);
+    setAtom('speakerChange', ['speakerChange', 'speaker_change', 'speech.speaker_change']);
+    setAtom('sentenceContinues', ['sentenceContinues', 'sentence_continues', 'speech.continues']);
+    setAtom('semanticContrast', ['semanticContrast', 'semantic_contrast', 'contrast_strength']);
+    setAtom('claimEvidenceRelation', ['claimEvidenceRelation', 'claim_evidence_relation', 'proof_relation']);
+    setAtom('musicHit', ['musicHit', 'music_hit', 'downbeat_strength']);
+    setAtom('audioTailMs', ['audioTailMs', 'audio_tail_ms', 'incoming_audio_lead_ms', 'outgoing_audio_tail_ms']);
+    setAtom('colorDelta', ['colorDelta', 'color_delta', 'color_temperature_delta']);
+    setAtom('brightnessDelta', ['brightnessDelta', 'brightness_delta', 'luma_delta']);
+    setAtom('clutterDelta', ['clutterDelta', 'clutter_delta', 'visual_clutter_delta']);
+    setAtom('tensionRelease', ['tensionRelease', 'tension_release', 'release_pressure']);
+    setAtom('hookPayoff', ['hookPayoff', 'hook_payoff', 'setup_payoff']);
+    setAtom('boundaryConfidence', ['boundaryConfidence', 'boundary_confidence']);
+    setAtom('rawToCutConfidence', ['rawToCutConfidence', 'raw_to_cut_confidence', 'source_map_confidence']);
+    setAtom('vjepaCoverageQuality', ['vjepaCoverageQuality', 'vjepa_coverage_quality', 'visual_coverage_quality']);
+    setAtom('recentTransitionSimilarity', ['recentTransitionSimilarity', 'recent_transition_similarity', 'transition_repetition']);
+    setAtom('recentDirectionSimilarity', ['recentDirectionSimilarity', 'recent_direction_similarity']);
+    setAtom('recentOverlayDensity', ['recentOverlayDensity', 'recent_overlay_density', 'overlay_density']);
+    setAtom('captionPressure', ['captionPressure', 'caption_pressure', 'active_caption_pressure']);
+    setAtom('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
     if (family === 'transition' && !hasAnyDirectParam(decision, ['boundaryFrame', 'boundaryAtom', 'clipAId', 'clipBId'])) {
       const hasProjectedBoundaryReason = [
         'topicDelta',
@@ -1108,6 +1168,29 @@ function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedT
   const textCoverage = transitionAtomNumber(atoms, 'textCoverage');
   const textOnScreen = transitionAtomNumber(atoms, 'textOnScreen');
   const visualContinuity = transitionAtomNumber(atoms, 'visualContinuity');
+  const subjectPositionJump = transitionAtomNumber(atoms, 'subjectPositionJump');
+  const subjectSizeJump = transitionAtomNumber(atoms, 'subjectSizeJump');
+  const shotScaleDelta = transitionAtomNumber(atoms, 'shotScaleDelta');
+  const cameraMotion = transitionAtomNumber(atoms, 'cameraMotion');
+  const speakerChange = transitionAtomNumber(atoms, 'speakerChange');
+  const sentenceContinues = transitionAtomNumber(atoms, 'sentenceContinues');
+  const semanticContrast = transitionAtomNumber(atoms, 'semanticContrast');
+  const claimEvidenceRelation = transitionAtomNumber(atoms, 'claimEvidenceRelation');
+  const musicHit = transitionAtomNumber(atoms, 'musicHit');
+  const audioTailMs = transitionAtomRawNumber(atoms, 'audioTailMs');
+  const colorDelta = transitionAtomNumber(atoms, 'colorDelta');
+  const brightnessDelta = transitionAtomNumber(atoms, 'brightnessDelta');
+  const clutterDelta = transitionAtomNumber(atoms, 'clutterDelta');
+  const tensionRelease = transitionAtomNumber(atoms, 'tensionRelease');
+  const hookPayoff = transitionAtomNumber(atoms, 'hookPayoff');
+  const boundaryConfidence = transitionAtomNumberWithDefault(atoms, 'boundaryConfidence', transitionHasBoundaryAnchor(decision, atoms) ? 0.72 : 0);
+  const rawToCutConfidence = transitionAtomNumberWithDefault(atoms, 'rawToCutConfidence', 0.72);
+  const vjepaCoverageQuality = transitionAtomNumberWithDefault(atoms, 'vjepaCoverageQuality', 0.72);
+  const recentTransitionSimilarity = transitionAtomNumber(atoms, 'recentTransitionSimilarity');
+  const recentDirectionSimilarity = transitionAtomNumber(atoms, 'recentDirectionSimilarity');
+  const recentOverlayDensity = transitionAtomNumber(atoms, 'recentOverlayDensity');
+  const captionPressure = transitionAtomNumber(atoms, 'captionPressure');
+  const mgPressure = transitionAtomNumber(atoms, 'mgPressure');
   const directionX = transitionAtomSignedNumber(atoms, 'motionVectorX');
   const directionY = transitionAtomSignedNumber(atoms, 'motionVectorY');
   const directionMagnitude = roundAuditNumber(clamp01(Math.max(Math.abs(directionX), Math.abs(directionY))));
@@ -1117,6 +1200,9 @@ function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedT
     visualContinuity,
     motionIntensity * 0.48,
     visualChange * 0.36,
+    captionPressure,
+    mgPressure,
+    clutterDelta,
   )));
   const intensity = roundAuditNumber(clamp01(Math.max(
     beatStrength,
@@ -1125,7 +1211,55 @@ function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedT
     motionIntensity * 0.76,
     visualChange * 0.72,
     directionMagnitude * 0.7,
+    semanticContrast * 0.78,
+    musicHit * 0.82,
+    hookPayoff * 0.76,
   )));
+  const jobVector = transitionBoundaryJobVector({
+    topicDelta,
+    speechGapMs,
+    beatStrength,
+    emotionJump,
+    motionIntensity,
+    visualChange,
+    visualContinuity,
+    directionMagnitude,
+    subjectPositionJump,
+    subjectSizeJump,
+    shotScaleDelta,
+    cameraMotion,
+    speakerChange,
+    sentenceContinues,
+    semanticContrast,
+    claimEvidenceRelation,
+    musicHit,
+    audioTailMs,
+    colorDelta,
+    brightnessDelta,
+    clutterDelta,
+    tensionRelease,
+    hookPayoff,
+    recentTransitionSimilarity,
+    recentDirectionSimilarity,
+    recentOverlayDensity,
+    visualPressure,
+  });
+  const physicalFormInputs = transitionPhysicalFormInputs({
+    jobVector,
+    boundaryConfidence,
+    rawToCutConfidence,
+    directionX,
+    directionY,
+    directionMagnitude,
+    visualPressure,
+    captionPressure,
+    mgPressure,
+  });
+  const crossFamily = transitionCrossFamilyPlan({
+    physicalFormInputs,
+    captionPressure,
+    mgPressure,
+  });
   const reasonKeys = transitionBoundaryReasonKeys({
     atoms,
     decision,
@@ -1137,6 +1271,20 @@ function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedT
     visualChange,
     speechGapMs,
     visualPressure,
+    subjectPositionJump,
+    subjectSizeJump,
+    shotScaleDelta,
+    speakerChange,
+    sentenceContinues,
+    semanticContrast,
+    claimEvidenceRelation,
+    musicHit,
+    audioTailMs,
+    colorDelta,
+    brightnessDelta,
+    clutterDelta,
+    recentTransitionSimilarity,
+    recentDirectionSimilarity,
   });
 
   if (!transitionHasBoundaryAnchor(decision, atoms) || reasonKeys.length === 0) return null;
@@ -1151,6 +1299,8 @@ function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedT
     speechGapMs,
     visualPressure,
     textOnScreen,
+    jobVector,
+    physicalFormInputs,
   });
 
   return {
@@ -1160,10 +1310,16 @@ function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedT
     visualTransitionAllowed,
     reasonKeys,
     atoms,
+    jobVector,
+    physicalFormInputs,
+    crossFamily,
     evidence: {
       directionMagnitude,
       intensity,
       visualPressure,
+      boundaryConfidence,
+      rawToCutConfidence,
+      vjepaCoverageQuality,
     },
     calibrationStatus: 'invented-needs-calibration',
   };
@@ -1175,6 +1331,15 @@ function transitionAtomNumber(
 ): number {
   const value = atoms[key];
   return typeof value === 'number' && Number.isFinite(value) ? clamp01(value) : 0;
+}
+
+function transitionAtomNumberWithDefault(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+  fallback: number,
+): number {
+  const value = atoms[key];
+  return typeof value === 'number' && Number.isFinite(value) ? clamp01(value) : clamp01(fallback);
 }
 
 function transitionAtomRawNumber(
@@ -1219,6 +1384,20 @@ function transitionBoundaryReasonKeys(input: {
   visualChange: number;
   speechGapMs: number;
   visualPressure: number;
+  subjectPositionJump: number;
+  subjectSizeJump: number;
+  shotScaleDelta: number;
+  speakerChange: number;
+  sentenceContinues: number;
+  semanticContrast: number;
+  claimEvidenceRelation: number;
+  musicHit: number;
+  audioTailMs: number;
+  colorDelta: number;
+  brightnessDelta: number;
+  clutterDelta: number;
+  recentTransitionSimilarity: number;
+  recentDirectionSimilarity: number;
 }): string[] {
   const reasonKeys: string[] = [];
   if (hasAnyDirectParam(input.decision, ['transitionJob', 'transition_job'])) reasonKeys.push('explicit-job');
@@ -1231,6 +1410,17 @@ function transitionBoundaryReasonKeys(input: {
   if (input.visualChange >= 0.45) reasonKeys.push('visual-change');
   if (input.speechGapMs >= 220) reasonKeys.push('speech-gap');
   if (input.visualPressure >= 0.72) reasonKeys.push('visual-pressure');
+  if (input.subjectPositionJump >= 0.42 || input.subjectSizeJump >= 0.42) reasonKeys.push('subject-jump');
+  if (input.shotScaleDelta >= 0.42) reasonKeys.push('shot-scale-change');
+  if (input.speakerChange >= 0.5) reasonKeys.push('speaker-change');
+  if (input.sentenceContinues >= 0.5) reasonKeys.push('sentence-continues');
+  if (input.semanticContrast >= 0.5) reasonKeys.push('semantic-contrast');
+  if (input.claimEvidenceRelation >= 0.5) reasonKeys.push('claim-evidence-relation');
+  if (input.musicHit >= 0.58) reasonKeys.push('music-hit');
+  if (input.audioTailMs >= 160) reasonKeys.push('audio-tail');
+  if (input.colorDelta >= 0.52 || input.brightnessDelta >= 0.52) reasonKeys.push('visual-delta');
+  if (input.clutterDelta >= 0.5) reasonKeys.push('clutter-delta');
+  if (input.recentTransitionSimilarity >= 0.7 || input.recentDirectionSimilarity >= 0.7) reasonKeys.push('repetition-pressure');
   return [...new Set(reasonKeys)];
 }
 
@@ -1244,7 +1434,11 @@ function transitionBoundaryLicensesVisual(input: {
   speechGapMs: number;
   visualPressure: number;
   textOnScreen: number;
+  jobVector: UnifiedTransitionBoundaryPlan['jobVector'];
+  physicalFormInputs: UnifiedTransitionBoundaryPlan['physicalFormInputs'];
 }): boolean {
+  if (input.physicalFormInputs.repetitionPressure >= 0.86) return false;
+  if (input.physicalFormInputs.screenSafetyPressure >= 0.92) return false;
   if (input.visualPressure >= 0.86 || input.textOnScreen >= 0.72) return false;
   return input.directionMagnitude >= 0.48
     || (input.directionMagnitude >= 0.32 && input.motionIntensity >= 0.48)
@@ -1252,7 +1446,173 @@ function transitionBoundaryLicensesVisual(input: {
     || input.beatStrength >= 0.72
     || (input.speechGapMs >= 450 && input.topicDelta >= 0.38)
     || input.topicDelta >= 0.56
-    || input.emotionJump >= 0.62;
+    || input.emotionJump >= 0.62
+    || input.jobVector.jumpHide >= 0.58
+    || input.jobVector.contrastReveal >= 0.58
+    || input.jobVector.audioBridge >= 0.62;
+}
+
+function transitionBoundaryJobVector(input: {
+  topicDelta: number;
+  speechGapMs: number;
+  beatStrength: number;
+  emotionJump: number;
+  motionIntensity: number;
+  visualChange: number;
+  visualContinuity: number;
+  directionMagnitude: number;
+  subjectPositionJump: number;
+  subjectSizeJump: number;
+  shotScaleDelta: number;
+  cameraMotion: number;
+  speakerChange: number;
+  sentenceContinues: number;
+  semanticContrast: number;
+  claimEvidenceRelation: number;
+  musicHit: number;
+  audioTailMs: number;
+  colorDelta: number;
+  brightnessDelta: number;
+  clutterDelta: number;
+  tensionRelease: number;
+  hookPayoff: number;
+  recentTransitionSimilarity: number;
+  recentDirectionSimilarity: number;
+  recentOverlayDensity: number;
+  visualPressure: number;
+}): UnifiedTransitionBoundaryPlan['jobVector'] {
+  const continuity = roundAuditNumber(clamp01(Math.max(
+    input.visualContinuity * 0.68,
+    input.sentenceContinues * 0.66,
+    input.audioTailMs >= 160 ? 0.56 : 0,
+    (1 - input.topicDelta) * 0.34,
+  )));
+  const turn = roundAuditNumber(clamp01(Math.max(
+    input.topicDelta,
+    input.speakerChange * 0.74,
+    input.semanticContrast * 0.82,
+  )));
+  const impact = roundAuditNumber(clamp01(Math.max(
+    input.beatStrength,
+    input.emotionJump * 0.92,
+    input.musicHit * 0.9,
+    input.hookPayoff * 0.86,
+  )));
+  const motionTransfer = roundAuditNumber(clamp01(Math.max(
+    input.directionMagnitude,
+    input.motionIntensity * 0.84,
+    input.cameraMotion * 0.72,
+  )));
+  const jumpHide = roundAuditNumber(clamp01(Math.max(
+    input.subjectPositionJump,
+    input.subjectSizeJump,
+    input.shotScaleDelta,
+    input.visualChange * 0.54,
+    (1 - input.visualContinuity) * 0.42,
+  )));
+  const attentionReset = roundAuditNumber(clamp01(Math.max(
+    input.recentOverlayDensity,
+    input.clutterDelta,
+    input.tensionRelease,
+    input.topicDelta * 0.6,
+  )));
+  const contrastReveal = roundAuditNumber(clamp01(Math.max(
+    input.semanticContrast,
+    input.claimEvidenceRelation,
+    input.colorDelta * 0.62,
+    input.brightnessDelta * 0.58,
+  )));
+  const audioBridge = roundAuditNumber(clamp01(Math.max(
+    input.audioTailMs >= 160 ? 0.62 : 0,
+    input.sentenceContinues * 0.58,
+    input.speakerChange * 0.5,
+  )));
+  const silence = roundAuditNumber(clamp01(Math.max(
+    input.visualPressure,
+    input.recentTransitionSimilarity,
+    input.recentDirectionSimilarity,
+    input.motionIntensity >= 0.78 && input.topicDelta < 0.32 ? 0.58 : 0,
+  )));
+
+  return {
+    continuity,
+    turn,
+    impact,
+    motionTransfer,
+    jumpHide,
+    attentionReset,
+    contrastReveal,
+    audioBridge,
+    silence,
+  };
+}
+
+function transitionPhysicalFormInputs(input: {
+  jobVector: UnifiedTransitionBoundaryPlan['jobVector'];
+  boundaryConfidence: number;
+  rawToCutConfidence: number;
+  directionX: number;
+  directionY: number;
+  directionMagnitude: number;
+  visualPressure: number;
+  captionPressure: number;
+  mgPressure: number;
+}): UnifiedTransitionBoundaryPlan['physicalFormInputs'] {
+  const screenSafetyPressure = roundAuditNumber(clamp01(Math.max(
+    input.visualPressure,
+    input.captionPressure,
+    input.mgPressure,
+  )));
+  const repetitionPressure = roundAuditNumber(clamp01(Math.max(
+    input.jobVector.silence,
+    input.jobVector.motionTransfer > 0.5 ? 0 : input.jobVector.continuity * 0.18,
+  )));
+  const durationPressure = roundAuditNumber(clamp01(Math.max(
+    input.jobVector.continuity * 0.72,
+    input.jobVector.audioBridge * 0.68,
+    input.jobVector.turn * 0.42,
+  )));
+  const motionPressure = roundAuditNumber(clamp01(Math.max(
+    input.jobVector.motionTransfer,
+    input.jobVector.jumpHide * 0.48,
+  )));
+  const blurPressure = roundAuditNumber(clamp01(Math.max(
+    input.jobVector.motionTransfer * 0.62,
+    input.jobVector.jumpHide * 0.52,
+    screenSafetyPressure * 0.18,
+  )));
+  const exposurePressure = roundAuditNumber(clamp01(input.jobVector.impact * (1 - screenSafetyPressure * 0.42)));
+
+  return {
+    boundaryConfidence: input.boundaryConfidence,
+    rawToCutConfidence: input.rawToCutConfidence,
+    directionX: input.directionX,
+    directionY: input.directionY,
+    directionMagnitude: input.directionMagnitude,
+    durationPressure,
+    opacityPressure: roundAuditNumber(clamp01(Math.max(input.jobVector.continuity, input.jobVector.audioBridge))),
+    motionPressure,
+    blurPressure,
+    smearPressure: roundAuditNumber(clamp01(input.jobVector.motionTransfer * 0.74)),
+    exposurePressure,
+    sfxEligibility: roundAuditNumber(clamp01(Math.max(input.jobVector.impact, input.jobVector.motionTransfer * 0.74, input.jobVector.audioBridge * 0.7) - screenSafetyPressure * 0.18)),
+    zoomBridgeNeed: roundAuditNumber(clamp01(Math.max(input.jobVector.jumpHide, input.jobVector.attentionReset * 0.52))),
+    screenSafetyPressure,
+    repetitionPressure,
+  };
+}
+
+function transitionCrossFamilyPlan(input: {
+  physicalFormInputs: UnifiedTransitionBoundaryPlan['physicalFormInputs'];
+  captionPressure: number;
+  mgPressure: number;
+}): UnifiedTransitionBoundaryPlan['crossFamily'] {
+  return {
+    sfxAllowed: input.physicalFormInputs.sfxEligibility >= 0.52 && input.physicalFormInputs.screenSafetyPressure < 0.82,
+    zoomBridgeAllowed: input.physicalFormInputs.zoomBridgeNeed >= 0.45 && input.physicalFormInputs.screenSafetyPressure < 0.86,
+    captionConflictRisk: roundAuditNumber(clamp01(input.captionPressure)),
+    mgConflictRisk: roundAuditNumber(clamp01(input.mgPressure)),
+  };
 }
 
 function transitionSignalAliases(plan: UnifiedTransitionBoundaryPlan): Record<string, unknown> {
@@ -1274,6 +1634,33 @@ function transitionSignalAliases(plan: UnifiedTransitionBoundaryPlan): Record<st
   assign('emotion_intensity', 'emotionJump');
   assign('text_coverage', 'textCoverage');
   assign('text_on_screen', 'textOnScreen');
+  assign('subject_position_jump', 'subjectPositionJump');
+  assign('subject_size_jump', 'subjectSizeJump');
+  assign('shot_scale_delta', 'shotScaleDelta');
+  assign('speaker_change', 'speakerChange');
+  assign('sentence_continues', 'sentenceContinues');
+  assign('semantic_contrast', 'semanticContrast');
+  assign('claim_evidence_relation', 'claimEvidenceRelation');
+  assign('music_hit', 'musicHit');
+  assign('audio_tail_ms', 'audioTailMs');
+  assign('color_delta', 'colorDelta');
+  assign('brightness_delta', 'brightnessDelta');
+  assign('clutter_delta', 'clutterDelta');
+  aliases.transition_job_continuity = plan.jobVector.continuity;
+  aliases.transition_job_turn = plan.jobVector.turn;
+  aliases.transition_job_impact = plan.jobVector.impact;
+  aliases.transition_job_motion_transfer = plan.jobVector.motionTransfer;
+  aliases.transition_job_jump_hide = plan.jobVector.jumpHide;
+  aliases.transition_job_attention_reset = plan.jobVector.attentionReset;
+  aliases.transition_job_contrast_reveal = plan.jobVector.contrastReveal;
+  aliases.transition_job_audio_bridge = plan.jobVector.audioBridge;
+  aliases.transition_job_silence = plan.jobVector.silence;
+  aliases.transition_duration_pressure = plan.physicalFormInputs.durationPressure;
+  aliases.transition_motion_pressure = plan.physicalFormInputs.motionPressure;
+  aliases.transition_sfx_eligibility = plan.physicalFormInputs.sfxEligibility;
+  aliases.transition_zoom_bridge_need = plan.physicalFormInputs.zoomBridgeNeed;
+  aliases.transition_screen_safety_pressure = plan.physicalFormInputs.screenSafetyPressure;
+  aliases.transition_repetition_pressure = plan.physicalFormInputs.repetitionPressure;
   return aliases;
 }
 
@@ -2005,6 +2392,18 @@ function hasTransitionBoundaryEvidence(decision: ReactiveEditDecision): boolean 
     'relation',
     'motionVectorX',
     'motionVectorY',
+    'subjectPositionJump',
+    'subjectSizeJump',
+    'shotScaleDelta',
+    'speakerChange',
+    'sentenceContinues',
+    'semanticContrast',
+    'claimEvidenceRelation',
+    'musicHit',
+    'audioTailMs',
+    'colorDelta',
+    'brightnessDelta',
+    'clutterDelta',
   ]);
   return hasBoundaryAnchor && hasBoundaryReason;
 }
@@ -2285,6 +2684,9 @@ function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: 
             visualTransitionAllowed: transitionPlan.visualTransitionAllowed,
             executionLicense: reason,
             reasonKeys: transitionPlan.reasonKeys,
+            jobVector: transitionPlan.jobVector,
+            physicalFormInputs: transitionPlan.physicalFormInputs,
+            crossFamily: transitionPlan.crossFamily,
           },
         },
       },
