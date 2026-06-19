@@ -12,6 +12,7 @@ export type BrandVaultUploadedAssetRole =
 export interface BrandVaultUploadSourceEvidence {
   kind: BrandVaultUploadSourceKind;
   name: string;
+  url?: string;
   note: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -160,6 +161,7 @@ function isImageExtension(extension: string): boolean {
 function shouldRequestServerExtraction(file: File, source: BrandVaultUploadSourceEvidence): boolean {
   const extension = fileExtension(file.name);
   if (SERVER_EXTRACTION_EXTENSIONS.has(extension) || file.type === "application/pdf") return true;
+  if (source.kind === "uploaded_asset" && isImageUpload(file) && file.size <= 25_000_000) return true;
   return source.kind === "uploaded_asset" && !source.dominantColors?.length && file.size <= 25_000_000;
 }
 
@@ -198,6 +200,7 @@ function isUploadSourceEvidence(value: unknown): value is BrandVaultUploadSource
     (source.kind === "uploaded_guideline" || source.kind === "uploaded_asset") &&
     typeof source.name === "string" &&
     typeof source.note === "string" &&
+    (source.url === undefined || typeof source.url === "string") &&
     (source.text === undefined || typeof source.text === "string") &&
     (source.dominantColors === undefined || Array.isArray(source.dominantColors))
   );
@@ -220,6 +223,7 @@ function mergeUploadExtractionResults(
   return {
     source: {
       ...source,
+      url: serverResult.source.url ?? localResult.source.url,
       assetRole: serverResult.source.assetRole ?? localResult.source.assetRole ?? source.assetRole,
     },
     warnings: uniqueStrings([...localResult.warnings, ...serverResult.warnings]),

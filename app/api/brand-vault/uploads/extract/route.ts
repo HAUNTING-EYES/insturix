@@ -1,6 +1,10 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { extractBrandVaultUploadEvidenceFromBuffer } from '@/lib/shared/brand-vault-upload-parser';
+import {
+  createBrandVaultUploadAssetStorageFromEnvironment,
+  shouldStoreBrandVaultUploadAsset,
+} from '@/lib/shared/brand-vault-upload-storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,11 +40,38 @@ export async function POST(req: Request) {
     );
   }
 
+  const buffer = Buffer.from(await file.arrayBuffer());
   const result = await extractBrandVaultUploadEvidenceFromBuffer({
     name: file.name,
     mimeType: file.type || undefined,
-    buffer: Buffer.from(await file.arrayBuffer()),
+    buffer,
   });
+
+  if (shouldStoreBrandVaultUploadAsset({
+    kind: result.source.kind,
+    assetRole: result.source.assetRole,
+    name: result.source.name,
+    mimeType: result.source.mimeType,
+  })) {
+    const storage = createBrandVaultUploadAssetStorageFromEnvironment();
+    if (storage) {
+      const stored = await storage.storeUpload({
+        userId,
+        name: result.source.name,
+        mimeType: result.source.mimeType,
+        buffer,
+        kind: result.source.kind,
+        assetRole: result.source.assetRole,
+      });
+      if (stored.ok) {
+        result.source.url = stored.publicUrl;
+      } else {
+        result.warnings.push(`${result.source.name}: visual upload storage skipped: ${stored.reason}.`);
+      }
+    } else {
+      result.warnings.push(`${result.source.name}: visual upload storage skipped because Brand Vault R2 is not configured.`);
+    }
+  }
 
   return NextResponse.json({ ok: true, ...result });
 }

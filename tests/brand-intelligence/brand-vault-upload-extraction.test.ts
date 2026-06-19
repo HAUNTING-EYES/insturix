@@ -1,12 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createBrandVaultUploadSourceFromMetadata,
+  extractBrandVaultUploadEvidence,
   extractHexColorsFromUploadText,
   inferBrandVaultSourceKind,
   inferBrandVaultUploadedAssetRole,
 } from '../../lib/frontend/services/brand-vault-upload-extraction';
+import {
+  normalizeBrandVaultUploadContentType,
+  shouldStoreBrandVaultUploadAsset,
+} from '../../lib/shared/brand-vault-upload-storage';
 
 describe('Brand Vault upload extraction helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('normalizes and deduplicates hex color evidence from uploaded text', () => {
     expect(extractHexColorsFromUploadText('Palette: #ABC, #aabbcc, #102033, #nothex')).toEqual([
       '#aabbcc',
@@ -65,5 +74,55 @@ describe('Brand Vault upload extraction helpers', () => {
     expect(source.text).toBeUndefined();
     expect(source.dominantColors).toBeUndefined();
     expect(source.note).toBe('Uploaded brand guideline; metadata staged for review.');
+  });
+
+  it('round-trips uploaded logo images through server extraction so stored urls survive staging', async () => {
+    const storedUrl = 'https://cdn.example.com/brandvault-uploads/user_1/logo/primary_logo.svg';
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      source: {
+        kind: 'uploaded_asset',
+        name: 'primary-logo.svg',
+        url: storedUrl,
+        note: 'Uploaded brand asset; text extracted; 1 color observed.',
+        mimeType: 'image/svg+xml',
+        sizeBytes: 74,
+        text: '<svg><path fill="#102033"/></svg>',
+        dominantColors: ['#102033'],
+        assetRole: 'logo',
+      },
+      warnings: [],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const file = new File(['<svg><path fill="#102033"/></svg>'], 'primary-logo.svg', { type: 'image/svg+xml' });
+    const result = await extractBrandVaultUploadEvidence(file);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.source).toMatchObject({
+      kind: 'uploaded_asset',
+      assetRole: 'logo',
+      url: storedUrl,
+      dominantColors: ['#102033'],
+    });
+  });
+
+  it('only stores uploaded visual assets, not uploaded brand books', () => {
+    expect(shouldStoreBrandVaultUploadAsset({
+      kind: 'uploaded_asset',
+      assetRole: 'logo',
+      name: 'logo.png',
+      mimeType: 'image/png',
+    })).toBe(true);
+    expect(normalizeBrandVaultUploadContentType(undefined, 'logo.svg')).toBe('image/svg+xml');
+    expect(shouldStoreBrandVaultUploadAsset({
+      kind: 'uploaded_guideline',
+      assetRole: 'brand_book',
+      name: 'brand-book.pdf',
+      mimeType: 'application/pdf',
+    })).toBe(false);
   });
 });
