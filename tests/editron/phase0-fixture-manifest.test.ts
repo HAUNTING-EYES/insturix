@@ -367,6 +367,7 @@ describe('phase0 fixture manifest', () => {
         status: 'not-rendered',
         artifactDir: 'fixtures/proj',
         artifactPackStatus: null,
+        pendingFamilies: ['motion-graphic', 'caption', 'transition', 'sfx', 'zoom'],
         auditedVisualCount: 0,
         auditedMotionCount: 0,
         auditedAudioCount: 0,
