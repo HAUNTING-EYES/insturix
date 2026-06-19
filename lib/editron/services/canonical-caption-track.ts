@@ -93,7 +93,7 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
   const captionBoundaries = captionBoundaryPlanMs(input.editedTimelineContext, words, readability);
   const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundaries.allMs, readability);
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
-  const protectedRegions = collectCaptionProtectedRegions(input.overlays);
+  const protectedRegions = collectCaptionProtectedRegions(input.overlays, input.editedTimelineContext.durationFrames);
   const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
   const styles = stylesForPresentation(input.presentation);
 
@@ -509,21 +509,30 @@ function captionGeometry(
   };
 }
 
-function collectCaptionProtectedRegions(overlays: any[]): CaptionProtectedRegion[] {
-  const regions: CaptionProtectedRegion[] = [];
+function collectCaptionProtectedRegions(overlays: any[], captionDurationFrames: number): CaptionProtectedRegion[] {
+  const regions = new Map<string, CaptionProtectedRegion>();
   for (const overlay of overlays) {
     if (overlay?.type === OverlayType.CAPTION || overlay?.type === 'caption') continue;
     if (overlay?.type === OverlayType.VIDEO || overlay?.type === 'video') continue;
+    const temporalCoverage = overlayTemporalCoverage(overlay, captionDurationFrames);
+    if (temporalCoverage <= 0) continue;
     for (const receipt of overlayReceipts(overlay)) {
       const avoid = receipt?.placementHints?.avoid;
       if (!Array.isArray(avoid)) continue;
       for (const item of avoid) {
-        const region = normalizeProtectedRegion(item);
-        if (region) regions.push(region);
+        const region = normalizeProtectedRegion(item, temporalCoverage);
+        if (!region) continue;
+        const key = protectedRegionKey(region);
+        const existing = regions.get(key);
+        if (existing) {
+          existing.strength = Math.min(1, existing.strength + region.strength);
+        } else {
+          regions.set(key, region);
+        }
       }
     }
   }
-  return regions;
+  return [...regions.values()].filter((region) => region.strength >= 0.3);
 }
 
 function overlayReceipts(overlay: any): any[] {
@@ -534,21 +543,42 @@ function overlayReceipts(overlay: any): any[] {
   ].filter(Boolean);
 }
 
-function normalizeProtectedRegion(value: any): CaptionProtectedRegion | null {
+function normalizeProtectedRegion(value: any, temporalCoverage: number): CaptionProtectedRegion | null {
   const strength = numeric(value?.strength);
   const x = numeric(value?.x);
   const y = numeric(value?.y);
   const width = numeric(value?.width);
   const height = numeric(value?.height);
-  if (strength == null || strength < 0.3 || x == null || y == null || width == null || height == null) return null;
+  if (strength == null || strength < 0.2 || x == null || y == null || width == null || height == null) return null;
+  const effectiveStrength = strength * temporalCoverage;
+  if (effectiveStrength < 0.02) return null;
   return {
     reason: String(value?.reason ?? 'protected-region'),
     x,
     y,
     width,
     height,
-    strength,
+    strength: effectiveStrength,
   };
+}
+
+function overlayTemporalCoverage(overlay: any, captionDurationFrames: number): number {
+  if (!Number.isFinite(captionDurationFrames) || captionDurationFrames <= 0) return 1;
+  const duration = numeric(overlay?.durationInFrames);
+  if (duration == null || duration <= 0) return 0;
+  return Math.max(0, Math.min(1, duration / captionDurationFrames));
+}
+
+function protectedRegionKey(region: CaptionProtectedRegion): string {
+  const precision = 1000;
+  const part = (value: number) => String(Math.round(value * precision) / precision);
+  return [
+    region.reason,
+    part(region.x),
+    part(region.y),
+    part(region.width),
+    part(region.height),
+  ].join(':');
 }
 
 function captionRegionRisk(

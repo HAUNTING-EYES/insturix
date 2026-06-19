@@ -111,8 +111,69 @@ interface AnalyzableOverlay {
   metadata?: any;
 }
 
+interface CaptionVisibleSpan {
+  overlayId: number;
+  startFrame: number;
+  endFrame: number;
+  text: string;
+  source: 'caption-group' | 'overlay';
+}
+
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function captionVisibleSpans(caption: AnalyzableOverlay, fps: number): CaptionVisibleSpan[] {
+  const groups: Record<string, any>[] = Array.isArray((caption as any).captions)
+    ? (caption as any).captions.filter(isPlainRecord)
+    : [];
+  const groupSpans = groups
+    .map((group): CaptionVisibleSpan | null => {
+      const timing = captionGroupTimingMs(group);
+      if (!timing) return null;
+      const startFrame = caption.from + Math.round((timing.startMs / 1000) * fps);
+      const endFrame = caption.from + Math.round((timing.endMs / 1000) * fps);
+      if (endFrame <= startFrame) return null;
+      return {
+        overlayId: caption.id,
+        startFrame,
+        endFrame,
+        text: String(group.text ?? group.content ?? '').trim(),
+        source: 'caption-group',
+      };
+    })
+    .filter((span: CaptionVisibleSpan | null): span is CaptionVisibleSpan => Boolean(span));
+
+  if (groupSpans.length > 0) return groupSpans;
+
+  return [{
+    overlayId: caption.id,
+    startFrame: caption.from,
+    endFrame: caption.from + caption.durationInFrames,
+    text: String(caption.content ?? (caption as any).text ?? '').trim(),
+    source: 'overlay',
+  }];
+}
+
+function captionGroupTimingMs(group: Record<string, any>): { startMs: number; endMs: number } | null {
+  const directStart = finiteNumber(group.startMs);
+  const directEnd = finiteNumber(group.endMs);
+  if (directStart != null && directEnd != null && directEnd > directStart) {
+    return { startMs: directStart, endMs: directEnd };
+  }
+
+  const words = Array.isArray(group.words) ? group.words.filter(isPlainRecord) : [];
+  const wordStarts = words
+    .map((word) => finiteNumber(word.startMs))
+    .filter((value): value is number => value != null);
+  const wordEnds = words
+    .map((word) => finiteNumber(word.endMs))
+    .filter((value): value is number => value != null);
+  if (wordStarts.length === 0 || wordEnds.length === 0) return null;
+
+  const startMs = Math.min(...wordStarts);
+  const endMs = Math.max(...wordEnds);
+  return endMs > startMs ? { startMs, endMs } : null;
 }
 
 function getSfxSyncFrame(overlay: AnalyzableOverlay): number {
@@ -378,11 +439,24 @@ function checkCaptionTiming(overlays: AnalyzableOverlay[], fps: number): Quality
   const issues: QualityIssue[] = [];
   const captions = overlays.filter(o => o.type === 'caption');
   for (const c of captions) {
-    const durSec = c.durationInFrames / fps;
-    if (durSec < 1) {
-      issues.push({ type: 'caption_timing', severity: 'warning', description: `Caption ${c.id} displays for only ${durSec.toFixed(1)}s — too fast to read`, overlayId: c.id, autoFixable: false, suggestedFix: 'Extend caption display time to at least 2 seconds' });
-    } else if (durSec > 8) {
-      issues.push({ type: 'caption_timing', severity: 'info', description: `Caption ${c.id} displays for ${durSec.toFixed(1)}s — consider splitting into shorter segments`, overlayId: c.id, autoFixable: false, suggestedFix: 'Split long caption into 2-4 second segments' });
+    const shortSpans: Array<{ span: CaptionVisibleSpan; durSec: number }> = [];
+    const longSpans: Array<{ span: CaptionVisibleSpan; durSec: number }> = [];
+    for (const span of captionVisibleSpans(c, fps)) {
+      const durSec = (span.endFrame - span.startFrame) / fps;
+      if (durSec < 1) {
+        shortSpans.push({ span, durSec });
+      } else if (durSec > 8) {
+        longSpans.push({ span, durSec });
+      }
+    }
+    const firstShort = shortSpans[0];
+    if (firstShort) {
+      issues.push({ type: 'caption_timing', severity: 'warning', description: `Caption ${c.id} has ${shortSpans.length} visible group(s) under 1.0s; first is ${firstShort.durSec.toFixed(1)}s — too fast to read`, overlayId: c.id, frameRange: { start: firstShort.span.startFrame, end: firstShort.span.endFrame }, autoFixable: false, suggestedFix: 'Increase canonical caption minGroupDurationMs or merge nearby caption words' });
+    }
+    const firstLong = longSpans[0];
+    if (firstLong) {
+      const unit = firstLong.span.source === 'caption-group' ? 'visible group' : 'overlay';
+      issues.push({ type: 'caption_timing', severity: 'info', description: `Caption ${c.id} has ${longSpans.length} ${unit}(s) over 8.0s; first is ${firstLong.durSec.toFixed(1)}s — consider splitting into shorter segments`, overlayId: c.id, frameRange: { start: firstLong.span.startFrame, end: firstLong.span.endFrame }, autoFixable: false, suggestedFix: 'Split long caption into 2-4 second segments' });
     }
   }
   return issues;
@@ -618,14 +692,20 @@ function checkCaptionReadingSpeed(overlays: AnalyzableOverlay[], fps: number): Q
   const issues: QualityIssue[] = [];
   const captions = overlays.filter(o => o.type === 'caption');
   for (const c of captions) {
-    const text = c.content || (c as any).text || '';
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    const durationSec = c.durationInFrames / fps;
-    if (durationSec > 0 && wordCount > 0) {
+    const fastSpans: Array<{ span: CaptionVisibleSpan; wpm: number }> = [];
+    for (const span of captionVisibleSpans(c, fps)) {
+      const wordCount = span.text.split(/\s+/).filter(Boolean).length;
+      const durationSec = (span.endFrame - span.startFrame) / fps;
+      if (durationSec <= 0 || wordCount === 0) continue;
       const wpm = (wordCount / durationSec) * 60;
       if (wpm > 200) {
-        issues.push({ type: 'caption_reading_speed', severity: 'warning', description: `Caption ${c.id} at ${Math.round(wpm)} words/min exceeds readable speed (max ~160 wpm)`, overlayId: c.id, autoFixable: false, suggestedFix: 'Split caption into shorter segments or extend display time' });
+        fastSpans.push({ span, wpm });
       }
+    }
+    const firstFast = fastSpans[0];
+    if (firstFast) {
+      const maxWpm = Math.max(...fastSpans.map((item) => item.wpm));
+      issues.push({ type: 'caption_reading_speed', severity: 'warning', description: `Caption ${c.id} has ${fastSpans.length} visible group(s) above readable speed; max ${Math.round(maxWpm)} words/min (target <=200)`, overlayId: c.id, frameRange: { start: firstFast.span.startFrame, end: firstFast.span.endFrame }, autoFixable: false, suggestedFix: 'Reduce words per group, merge flash groups into longer windows, or extend display time' });
     }
   }
   return issues;
@@ -1016,7 +1096,7 @@ function checkGraphicTooSmall(overlays: AnalyzableOverlay[]): QualityIssue[] {
 // ← constraint:overlay.caption_spans_cut
 // Rule: a single caption starts before a hard cut and continues after it
 // Threshold: caption straddles a hard cut | severity: info | deduction: -1
-function checkCaptionSpansCut(overlays: AnalyzableOverlay[]): QualityIssue[] {
+function checkCaptionSpansCut(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const captions = overlays.filter(o => o.type === 'caption');
   const videos = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
@@ -1033,12 +1113,19 @@ function checkCaptionSpansCut(overlays: AnalyzableOverlay[]): QualityIssue[] {
   }
 
   for (const c of captions) {
-    const cEnd = c.from + c.durationInFrames;
+    const spans = captionVisibleSpans(c, fps);
+    const spanCutHits: Array<{ span: CaptionVisibleSpan; cut: number }> = [];
     for (const cut of hardCutFrames) {
-      if (c.from < cut - 3 && cEnd > cut + 3) { // 3-frame buffer to avoid false positives
-        issues.push({ type: 'caption_spans_cut', severity: 'info', description: `Caption ${c.id} straddles hard cut at frame ${cut} — text persists across visual change`, overlayId: c.id, frameRange: { start: cut - 3, end: cut + 3 }, autoFixable: true, suggestedFix: 'End caption 0.1s before cut, start new caption 0.1s after' });
-        break;
+      for (const span of spans) {
+        if (span.startFrame < cut - 3 && span.endFrame > cut + 3) { // 3-frame buffer to avoid false positives
+          spanCutHits.push({ span, cut });
+          break;
+        }
       }
+    }
+    const firstHit = spanCutHits[0];
+    if (firstHit) {
+      issues.push({ type: 'caption_spans_cut', severity: 'info', description: `Caption ${c.id} has ${spanCutHits.length} visible group(s) straddling hard cuts; first crosses frame ${firstHit.cut}`, overlayId: c.id, frameRange: { start: firstHit.cut - 3, end: firstHit.cut + 3 }, autoFixable: true, suggestedFix: 'End caption 0.1s before cut, start new caption 0.1s after' });
     }
   }
   return issues;
@@ -1290,7 +1377,7 @@ export function runQualityReview(
     // TRIBE Phase 1 CRG additions (5 new checks)
     ...checkPacingMonotony(overlays, fps),
     ...checkGraphicTooSmall(overlays),
-    ...checkCaptionSpansCut(overlays),
+    ...checkCaptionSpansCut(overlays, fps),
     ...checkVisualClutter(overlays, fps),
     ...checkTransitionOveruse(overlays, fps),
   ];

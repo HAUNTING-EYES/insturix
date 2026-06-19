@@ -73,12 +73,20 @@ claiming upload-to-edit quality is production-grade.
    timeline exists. Signals and atoms must be the deciding layer, not metadata
    attached after a brief-led choice.
 
-2. Failed-quality runs can still enter learning.
+2. Failed-quality runs can still enter normal learning.
    The director worker can skip direct bandit updates on critical failures, but
    `director_completed` can still be consumed by brand-learning and recorded as
    a low reward. The fix belongs before calibration: learning consumers must
    reject `needs_review`, zero-quality, or high-critical-count runs unless the
    run is explicitly marked as a diagnostic sample.
+
+   Important: this must not mean "fail the user's edit run." A bad rendered edit
+   should still persist the project, overlays, issue taxonomy, and artifact links,
+   then mark the run `needs_review` / degraded. Normal bandit or brand learning
+   must not train on it as a successful or ordinary low-reward sample. A separate
+   diagnostic-learning lane should learn failure classes such as unreadable
+   captions, weak MG relevance, repeated transition form, late SFX, and poor
+   screen placement so future resolver/calibration work has evidence.
 
 3. Quality details are not persisted deeply enough.
    Persisting only score, issue count, critical count, and timestamp is not
@@ -2093,11 +2101,15 @@ Deliverables:
 - Score legibility, contrast, face overlap, caption overlap, text overflow, blank
   output, timing landing, animation quality, visual density, and repeated forms.
 - Add human/founder review hooks for subjective taste where automation is weak.
-- Prevent calibration/learning writes from failed render-quality runs.
+- Prevent normal calibration/learning writes from failed render-quality runs,
+  while still preserving the run as `needs_review` evidence for a separate
+  diagnostic failure-learning lane.
 
 Acceptance:
 
 - Quality review cannot say "pass" when rendered output is visibly bad.
+- A bad rendered run is not thrown away: it is saved as reviewable evidence with
+  issue taxonomy and artifacts, then excluded from normal success learning.
 - Aesthetic failures produce actionable resolver or atom-library TODOs.
 
 ## Phase 10 - Calibration
@@ -2489,7 +2501,7 @@ and a founder-review loop that can train taste from accepted/rejected outputs.
 - [ ] **T8 (P2, human: ~1h / CC: ~15min)** - Calibration - keep calibration dry-run and blocked until rendered evidence passes.
   - Surfaced by: Phase 10 and CEO amendment 9.
   - Files: calibration runner/docs/tests.
-  - Verify: failed render-quality run cannot write bandit or brand-learning state.
+  - Verify: failed render-quality run cannot write normal bandit or brand-learning state, but is persisted as diagnostic failure evidence.
 
 ### Completion Summary
 
@@ -2715,10 +2727,10 @@ These later lanes can split only after the artifact schema is stable.
   - Files: validation classifier/tests.
   - Verify: blank/missing/unreadable/repeated/spam/timing failures are machine-readable.
 
-- [ ] **E4 (P1, human: ~1h / CC: ~15min)** - Phase 0 - block calibration/learning writes from failed artifact runs.
+- [ ] **E4 (P1, human: ~1h / CC: ~15min)** - Phase 0 - block normal calibration/learning writes from failed artifact runs.
   - Surfaced by: Failure Modes.
   - Files: calibration runner/tests.
-  - Verify: failed render-quality run cannot write bandit or brand-learning state.
+  - Verify: failed render-quality run cannot write normal bandit or brand-learning state, and the failure taxonomy remains available for diagnostic learning.
 
 - [ ] **E5 (P2, human: ~45min / CC: ~10min)** - Phase 0 - cache and cleanup render outputs per project/run.
   - Surfaced by: Performance Review.

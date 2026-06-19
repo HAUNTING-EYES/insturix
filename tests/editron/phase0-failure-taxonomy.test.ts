@@ -766,6 +766,63 @@ describe('phase0 failure taxonomy', () => {
     expect(quality.issues.map((issue) => issue.type)).not.toContain('orphan_sfx');
   });
 
+  it('reviews canonical caption visible groups instead of the full-track container duration', () => {
+    const overlays = [
+      { id: 1, type: 'video', from: 0, durationInFrames: 90, row: 2, sourceStartFrame: 0 },
+      { id: 2, type: 'video', from: 90, durationInFrames: 90, row: 2, sourceStartFrame: 90 },
+      {
+        id: 3,
+        type: 'caption',
+        from: 0,
+        durationInFrames: 180,
+        row: 4,
+        captions: [
+          { text: 'first readable group', startMs: 0, endMs: 1400 },
+          { text: 'second readable group', startMs: 3100, endMs: 4500 },
+        ],
+        metadata: { source: 'canonical-caption-track' },
+      },
+    ];
+
+    const quality = runQualityReview(overlays as any, 30, 180);
+    const types = quality.issues.map((issue) => issue.type);
+
+    expect(types).not.toContain('caption_timing');
+    expect(types).not.toContain('caption_spans_cut');
+  });
+
+  it('still flags canonical caption groups that are too short or actually span a hard cut', () => {
+    const overlays = [
+      { id: 1, type: 'video', from: 0, durationInFrames: 90, row: 2, sourceStartFrame: 0 },
+      { id: 2, type: 'video', from: 90, durationInFrames: 90, row: 2, sourceStartFrame: 90 },
+      {
+        id: 3,
+        type: 'caption',
+        from: 0,
+        durationInFrames: 180,
+        row: 4,
+        captions: [
+          { text: 'too fast', startMs: 1000, endMs: 1400 },
+          { text: 'crosses the cut', startMs: 2800, endMs: 3300 },
+        ],
+        metadata: { source: 'canonical-caption-track' },
+      },
+    ];
+
+    const quality = runQualityReview(overlays as any, 30, 180);
+    const timingIssue = quality.issues.find((issue) => issue.type === 'caption_timing');
+    const spansCutIssue = quality.issues.find((issue) => issue.type === 'caption_spans_cut');
+
+    expect(timingIssue).toMatchObject({
+      overlayId: 3,
+      frameRange: { start: 30, end: 42 },
+    });
+    expect(spansCutIssue).toMatchObject({
+      overlayId: 3,
+      frameRange: { start: 87, end: 93 },
+    });
+  });
+
   it('warns when nearby transition SFX lacks transition provenance', () => {
     const project = cleanProject();
     project.overlays = [

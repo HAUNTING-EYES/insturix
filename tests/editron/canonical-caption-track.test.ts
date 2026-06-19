@@ -553,6 +553,61 @@ describe('canonical caption track', () => {
     });
   });
 
+  it('does not move a full-video caption track to the top because of a short protected event', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 1800, sourceStartFrame: 300 },
+      {
+        id: 11,
+        type: 'motion-graphic',
+        from: 600,
+        durationInFrames: 72,
+        metadata: {
+          atomicOverlayReceipt: {
+            placementHints: {
+              avoid: [{
+                reason: 'text-occupancy',
+                x: 0.12,
+                y: 0.62,
+                width: 0.76,
+                height: 0.28,
+                strength: 0.9,
+              }],
+            },
+          },
+        },
+      },
+    ];
+    const editedContext = context(['Hank', 'is', 'explaining', 'the', 'whole', 'thing']);
+    editedContext.durationFrames = 1800;
+    editedContext.durationMs = 60_000;
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 1800, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.metadata.evidence).toMatchObject({
+      protectedRegionCount: 0,
+      selectedRegion: 'bottom-center',
+    });
+  });
+
   it('replaces old generated per-video captions but keeps manual captions', () => {
     const overlays: any[] = [
       { id: 1, type: 'caption', sourceVideoId: 10, captions: [{ text: 'old' }] },
