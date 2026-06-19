@@ -60,7 +60,7 @@ type ApifySocialSourceResult = {
 
 type ApifySupportedPlatform = 'instagram' | 'facebook' | 'linkedin';
 
-type ApifyRejectionReason = 'identity_mismatch' | 'hollow_item';
+type ApifyRejectionReason = 'actor_error' | 'identity_mismatch' | 'hollow_item' | 'quota_exhausted';
 
 type ApifyRejectedItemDiagnostic = {
   index: number;
@@ -1085,6 +1085,7 @@ async function fetchApifySocialSources(args: {
     const relatedReferenceCount = normalizedItems.filter((item) => item.acceptedRelatedReference).length;
     const rejectionSummary = apifyRejectionSummary(normalizedItems);
     const diagnosticSummary = apifyDiagnosticsSummary(normalizedItems, args.actorId);
+    const actorFailureWarning = apifyActorFailureWarning(normalizedItems, args.parsed.platform, args.actorId);
     if (sources.length === 0) {
       if (items.length === 0) {
         return {
@@ -1096,6 +1097,7 @@ async function fetchApifySocialSources(args: {
         sources: [],
         warnings: [
           `Brand Vault ran ${args.parsed.platform} Apify fallback, but ${expandedItems.length} normalized dataset item${expandedItems.length === 1 ? '' : 's'} from ${items.length} raw item${items.length === 1 ? '' : 's'} produced no readable matched post/profile evidence.`,
+          ...(actorFailureWarning ? [actorFailureWarning] : []),
           ...(rejectionSummary ? [`Brand Vault ${args.parsed.platform} Apify rejection reasons: ${rejectionSummary}.`] : []),
           ...(diagnosticSummary ? [`Brand Vault ${args.parsed.platform} Apify rejected item diagnostics: ${diagnosticSummary}.`] : []),
         ],
@@ -1109,7 +1111,7 @@ async function fetchApifySocialSources(args: {
           ? [`Brand Vault staged ${relatedReferenceCount} ${args.parsed.platform} public Apify item${relatedReferenceCount === 1 ? '' : 's'} from a related identity that mentioned the submitted account; review before accepting.`]
           : []),
         ...(rejectedCount > 0
-          ? [`Brand Vault discarded ${rejectedCount} ${args.parsed.platform} Apify item${rejectedCount === 1 ? '' : 's'} because they were unreadable, hollow, or did not match the submitted account.`]
+          ? [`Brand Vault discarded ${rejectedCount} ${args.parsed.platform} Apify item${rejectedCount === 1 ? '' : 's'} because they were unreadable, actor error rows, hollow, or did not match the submitted account.`]
           : []),
         ...(rejectionSummary ? [`Brand Vault ${args.parsed.platform} Apify rejection reasons: ${rejectionSummary}.`] : []),
         ...(diagnosticSummary ? [`Brand Vault ${args.parsed.platform} Apify rejected item diagnostics: ${diagnosticSummary}.`] : []),
@@ -1229,6 +1231,23 @@ function apifyRejectionSummary(results: ApifySocialSourceResult[]): string | nul
     .map(([reason, count]) => `${reason}=${count}`)
     .join(', ');
   return summary || null;
+}
+
+function apifyActorFailureWarning(
+  results: ApifySocialSourceResult[],
+  platform: BrandVaultSourcePlatform,
+  actorId: string,
+): string | null {
+  const diagnostics = results.map((result) => result.diagnostic).filter((item): item is ApifyRejectedItemDiagnostic => Boolean(item));
+  const quota = diagnostics.find((diagnostic) => diagnostic.reason === 'quota_exhausted');
+  if (quota) {
+    return `Brand Vault ${platform} Apify actor ${actorId} reported quota or capacity exhaustion${quota.actorErrorKind ? ` (${quota.actorErrorKind})` : ''}; retry after quota reset or increase Apify capacity before judging social coverage.`;
+  }
+  const actorError = diagnostics.find((diagnostic) => diagnostic.reason === 'actor_error');
+  if (actorError) {
+    return `Brand Vault ${platform} Apify actor ${actorId} returned provider error rows${actorError.actorErrorKind ? ` (${actorError.actorErrorKind})` : ''}; check the actor run before judging social coverage.`;
+  }
+  return null;
 }
 
 function apifyDiagnosticsSummary(results: ApifySocialSourceResult[], actorId: string): string | null {
@@ -1394,7 +1413,9 @@ function apifyRejectedItemDiagnostic(args: {
     shape: apifyPayloadShape(args.item),
     keys: Object.keys(args.record).sort().slice(0, 12),
     actorErrorKind: sanitizeDiagnosticValue(firstString(args.record.error_kind, args.record.errorKind)),
-    actorReason: args.reason === 'hollow_item' ? sanitizeDiagnosticValue(stringValue(args.record.reason)) : undefined,
+    actorReason: args.reason === 'actor_error' || args.reason === 'hollow_item' || args.reason === 'quota_exhausted'
+      ? sanitizeDiagnosticValue(stringValue(args.record.reason))
+      : undefined,
     identityFields: presentFieldPaths(args.record, APIFY_IDENTITY_FIELD_PATHS),
     identityCandidates,
     urlFields: presentFieldPaths(args.record, APIFY_URL_FIELD_PATHS),
@@ -1603,6 +1624,8 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
       identityUrls,
     }),
   });
+  const actorErrorReason = apifyActorErrorRejectionReason(record);
+  if (actorErrorReason) return rejected(actorErrorReason);
   const identityMatchStatus = apifyIdentityMatchStatus({
     parsed,
     sourceUrl,
@@ -1664,6 +1687,19 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     },
     acceptedRelatedReference,
   };
+}
+
+function apifyActorErrorRejectionReason(record: Record<string, unknown>): ApifyRejectionReason | null {
+  const errorKind = firstString(record.error_kind, record.errorKind);
+  const reason = stringValue(record.reason);
+  const type = stringValue(record.type)?.toLowerCase();
+  if (!errorKind && type !== 'actor_error') return null;
+  return isApifyQuotaExhaustion(errorKind, reason) ? 'quota_exhausted' : 'actor_error';
+}
+
+function isApifyQuotaExhaustion(errorKind: string | undefined, reason: string | undefined): boolean {
+  const text = `${errorKind ?? ''} ${reason ?? ''}`;
+  return /\b(?:free[_ -]?tier|quota|capacity|credit|credits|limit|limited|usage)\b/i.test(text);
 }
 
 function apifyTextReferencesSubmittedHandle(args: {

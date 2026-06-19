@@ -404,6 +404,34 @@ describe('Brand Vault draft orchestrator', () => {
                 observedAt: '2020-01-01T00:00:00.000Z',
                 extractorId: 'unsafe-compiler',
               },
+              {
+                id: 'raw_compiler_product_lower',
+                sourceType: 'website',
+                sourceUrl: 'https://signal.example/',
+                sourceField: 'website.root',
+                signalPath: 'identity.productServices',
+                rawValue: ['automated content production platform'],
+                normalizedValue: ['automated content production platform'],
+                excerpt: 'Automated content production platform from website evidence.',
+                confidence: 0.64,
+                authorityClass: 'owned',
+                observedAt: '2020-01-01T00:00:00.000Z',
+                extractorId: 'unsafe-compiler',
+              },
+              {
+                id: 'raw_compiler_product_title',
+                sourceType: 'website',
+                sourceUrl: 'https://signal.example/features',
+                sourceField: 'compiler.productServices',
+                signalPath: 'identity.productServices',
+                rawValue: ['Automated Content Production Platform'],
+                normalizedValue: ['Automated Content Production Platform'],
+                excerpt: 'Automated Content Production Platform from feature-page evidence.',
+                confidence: 0.66,
+                authorityClass: 'owned',
+                observedAt: '2020-01-01T00:00:00.000Z',
+                extractorId: 'unsafe-compiler',
+              },
             ],
           };
         },
@@ -453,7 +481,7 @@ describe('Brand Vault draft orchestrator', () => {
     const compilerCandidates = result.candidates.filter(
       (candidate) => candidate.extractorId === 'brand-vault-text-evidence-compiler.v1',
     );
-    expect(compilerCandidates).toHaveLength(2);
+    expect(compilerCandidates).toHaveLength(4);
     expect(compilerCandidates[0]).toMatchObject({
       brandId: 'brand_signal',
       jobId: 'job_text_compiler',
@@ -464,6 +492,8 @@ describe('Brand Vault draft orchestrator', () => {
     });
     expect(result.profile.identity.audience.value).toEqual(expect.arrayContaining(['founder-led creative teams', 'creative operators']));
     expect(result.profile.identity.audience.confidence).toBe(0.68);
+    const productServices = result.profile.identity.productServices?.value ?? [];
+    expect(productServices.map((value) => value.toLowerCase()).filter((value) => value === 'automated content production platform')).toHaveLength(1);
     expect(result.profile.evidence).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

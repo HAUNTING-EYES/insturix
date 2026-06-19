@@ -482,7 +482,7 @@ describe('Brand Vault connected social ingestion', () => {
       }),
     });
     expect(result.sourceEvidence.filter((source) => source.url === 'https://www.linkedin.com/company/vaultline')).toHaveLength(1);
-    expect(result.warnings).toContain('Brand Vault discarded 1 linkedin Apify item because they were unreadable, hollow, or did not match the submitted account.');
+    expect(result.warnings).toContain('Brand Vault discarded 1 linkedin Apify item because they were unreadable, actor error rows, hollow, or did not match the submitted account.');
     expect(result.warnings).toContain('Brand Vault linkedin Apify rejection reasons: hollow_item=1.');
   });
 
@@ -700,14 +700,40 @@ describe('Brand Vault connected social ingestion', () => {
     const diagnostic = result.warnings.find((warning) => warning.includes('Apify rejected item diagnostics'));
     expect(diagnostic).toContain('actor=apify/instagram-scraper');
     expect(diagnostic).toContain('identity_mismatch');
-    expect(diagnostic).toContain('hollow_item');
+    expect(diagnostic).toContain('actor_error');
     expect(diagnostic).toContain('identityCandidates=[nimitgotnolimit,Nimit Jain]');
     expect(diagnostic).toContain('actorErrorKind=login_required');
     expect(diagnostic).toContain('actorReason=Actor returned no public posts without a fresh session.');
     expect(diagnostic).toContain('textFields=[caption]');
     expect(diagnostic).toContain('mediaFields=[displayUrl]');
     expect(diagnostic).not.toContain('private wrong-account caption');
-    expect(result.warnings).toContain('Brand Vault instagram Apify rejection reasons: hollow_item=1, identity_mismatch=1.');
+    expect(result.warnings).toContain('Brand Vault instagram Apify actor apify/instagram-scraper returned provider error rows (login_required); check the actor run before judging social coverage.');
+    expect(result.warnings).toContain('Brand Vault instagram Apify rejection reasons: actor_error=1, identity_mismatch=1.');
+  });
+
+  it('classifies Apify quota rows separately from empty social content', async () => {
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.linkedin.com/company/insturix/'],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: { linkedin: BRAND_VAULT_DEFAULT_APIFY_ACTORS.linkedin },
+      fetchFn: async () => jsonResponse([
+        {
+          url: 'https://www.linkedin.com/company/insturix/',
+          type: 'actor_error',
+          error_kind: 'free_tier_limit',
+          reason: 'Actor free tier limit reached before posts could be fetched.',
+        },
+      ]),
+    });
+
+    const diagnostic = result.warnings.find((warning) => warning.includes('Apify rejected item diagnostics'));
+    expect(result.warnings).toContain('Brand Vault linkedin Apify actor atomus/linkedin-posts-scraper-pro reported quota or capacity exhaustion (free_tier_limit); retry after quota reset or increase Apify capacity before judging social coverage.');
+    expect(result.warnings).toContain('Brand Vault linkedin Apify rejection reasons: quota_exhausted=1.');
+    expect(diagnostic).toContain('quota_exhausted');
+    expect(diagnostic).toContain('actorErrorKind=free_tier_limit');
+    expect(diagnostic).toContain('actorReason=Actor free tier limit reached before posts could be fetched.');
   });
 
   it('stages related Apify public posts from a different identity when they mention the submitted account', async () => {

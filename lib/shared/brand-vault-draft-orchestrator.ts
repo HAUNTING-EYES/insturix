@@ -2387,7 +2387,7 @@ function mergeStringArraySignal(
   const candidateFirst = candidate.confidence >= signal.confidence || signal.trustLevel === 'fallback_default';
   const merged = limitPromotedStringArray(
     candidate.signalPath,
-    uniqueStrings(candidateFirst ? [...values, ...existing] : [...existing, ...values]),
+    candidateFirst ? [...values, ...existing] : [...existing, ...values],
   );
   const hasNewValues = merged.length !== signal.value.length || merged.some((value, index) => value !== signal.value[index]);
   const hasStrongerEvidence = candidate.confidence > signal.confidence;
@@ -2594,8 +2594,35 @@ function isPromotableRecurringPhrase(value: string): boolean {
 }
 
 function limitPromotedStringArray(signalPath: string, values: string[]): string[] {
+  const uniqueValues = uniquePromotedStrings(signalPath, values);
   const limit = PROMOTED_STRING_ARRAY_LIMITS[signalPath];
-  return limit ? uniqueStrings(values).slice(0, limit) : uniqueStrings(values);
+  return limit ? uniqueValues.slice(0, limit) : uniqueValues;
+}
+
+function uniquePromotedStrings(signalPath: string, values: string[]): string[] {
+  if (signalPath !== 'identity.productServices') return uniqueStrings(values);
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    const key = productServiceDedupeKey(trimmed);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function productServiceDedupeKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(?:a|an|the)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeProofStyleCandidate(value: unknown): BrandSignalProfile['identity']['proofStyle']['value'] | undefined {
