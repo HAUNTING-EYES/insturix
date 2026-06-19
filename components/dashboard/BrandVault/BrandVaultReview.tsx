@@ -389,6 +389,12 @@ export function BrandVaultReview() {
             disabled={busy}
             className="hidden"
           />
+          {snapshot.reviewPayload && (
+            <BrandVisualBoard
+              visualIdentity={snapshot.reviewPayload.visualIdentity ?? null}
+              brandName={brandName}
+            />
+          )}
           <SourceStrip lanes={sourceLanes} />
           <IntakeGuidancePanel
             guidance={intakeGuidance}
@@ -405,12 +411,6 @@ export function BrandVaultReview() {
             onRescan={() => void createDraftFromCurrentInputs()}
             onClearWorkflow={() => setActiveGuidanceWorkflow(null)}
           />
-          {snapshot.reviewPayload && (
-            <BrandVisualBoard
-              visualIdentity={snapshot.reviewPayload.visualIdentity ?? null}
-              brandName={brandName}
-            />
-          )}
           <BrandVaultStats summary={summary} />
 
           {!snapshot.record && (

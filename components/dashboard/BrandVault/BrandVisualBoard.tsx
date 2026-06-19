@@ -63,7 +63,7 @@ export function BrandVisualBoard({ visualIdentity, brandName }: BrandVisualBoard
     return (
       <section className="border-b border-[#1C1B19] py-6" aria-label="Brand visual evidence">
         <BoardHeader
-          title="Brand visuals"
+          title="Visual identity"
           countLabel="0 stored"
           detail="Refresh scan to store palette, font, logo, and product previews."
         />
@@ -80,7 +80,7 @@ export function BrandVisualBoard({ visualIdentity, brandName }: BrandVisualBoard
   return (
     <section className="border-b border-[#1C1B19] py-6" aria-label="Brand visual evidence">
       <BoardHeader
-        title="Brand visuals"
+        title="Visual identity"
         countLabel={`${visualCount} previews`}
         detail={`${colors.length} colors / ${fonts.length} fonts / ${logos.length + images.length} assets`}
       />
@@ -294,7 +294,7 @@ function VisualAssetTile({ asset, compact = false }: { asset: BrandVaultVisualAs
             alt={asset.label}
             loading="lazy"
             referrerPolicy="no-referrer"
-            className="h-full w-full object-contain transition duration-200 group-hover:scale-[1.02]"
+            className="h-full w-full object-contain transition duration-200 group-hover:scale-[1.02] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
             onError={() => setFailed(true)}
           />
         ) : (
@@ -349,7 +349,7 @@ function EvidenceLine({
   const color = confidence >= 0.65 ? '#5EC97E' : confidence >= 0.5 ? '#D4A652' : '#7A776E';
   return (
     <span className={`grid gap-0.5 font-['JetBrains_Mono'] text-[10px] uppercase ${align === 'right' ? 'justify-items-end text-right' : ''}`}>
-      <span style={{ color }}>{Math.round(confidence * 100)}%</span>
+      <span style={{ color, fontVariantNumeric: 'tabular-nums' }}>{Math.round(confidence * 100)}%</span>
       <span className="max-w-full truncate text-[#5F5E5A]">{source.replace(/_/g, ' ')}</span>
     </span>
   );
