@@ -221,16 +221,24 @@ function VisualAssetTile({ asset, compact = false }: { asset: BrandVaultVisualAs
   const [failed, setFailed] = useState(false);
   const imageUrl = asset.thumbnailUrl ?? asset.url;
   const status = asset.availability?.status ?? 'unknown';
+  const isPlayableVideo = asset.mediaType === 'video' && asset.kind === 'video';
+  const frameUrls = asset.sampledFrameUrls?.filter((url) => url !== imageUrl).slice(0, 3) ?? [];
 
   return (
-    <a
-      href={asset.url}
-      target="_blank"
-      rel="noreferrer"
-      className="group grid min-w-0 gap-2 rounded-[8px] border border-[#1C1B19] bg-[#131312] p-2 no-underline transition hover:border-[#282724]"
-    >
+    <div className="group grid min-w-0 gap-2 rounded-[8px] border border-[#1C1B19] bg-[#131312] p-2 transition hover:border-[#282724]">
       <div className={`relative overflow-hidden rounded-[7px] border border-[#1C1B19] bg-[#0B0B0A] ${compact ? 'aspect-[4/2.6]' : 'aspect-[4/3]'}`}>
-        {!failed ? (
+        {!failed && isPlayableVideo ? (
+          <video
+            src={asset.url}
+            poster={asset.thumbnailUrl}
+            controls
+            muted
+            playsInline
+            preload="metadata"
+            className="h-full w-full object-contain"
+            onError={() => setFailed(true)}
+          />
+        ) : !failed ? (
           <img
             src={imageUrl}
             alt={asset.label}
@@ -246,20 +254,36 @@ function VisualAssetTile({ asset, compact = false }: { asset: BrandVaultVisualAs
           </div>
         )}
         <span className="absolute left-2 top-2 rounded-[5px] border border-black/20 bg-black/45 px-2 py-1 font-['JetBrains_Mono'] text-[10px] uppercase text-white backdrop-blur">
-          {asset.kind.replace(/_/g, ' ')}
+          {(isPlayableVideo ? 'video' : asset.kind).replace(/_/g, ' ')}
         </span>
       </div>
+      {frameUrls.length > 0 && (
+        <div className="grid grid-cols-3 gap-1">
+          {frameUrls.map((url) => (
+            <img
+              key={url}
+              src={url}
+              alt={`${asset.label} frame`}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              className="aspect-video min-w-0 rounded-[5px] border border-[#1C1B19] object-cover"
+            />
+          ))}
+        </div>
+      )}
       <div className="grid min-w-0 gap-1 px-1 pb-1">
         <div className="flex min-w-0 items-center justify-between gap-2">
           <strong className="min-w-0 truncate text-[12px] font-bold text-[#ECE9E1]">{asset.label}</strong>
-          <ExternalLink size={13} className="flex-none text-[#5F5E5A]" />
+          <a href={asset.url} target="_blank" rel="noreferrer" aria-label={`Open ${asset.label}`}>
+            <ExternalLink size={13} className="flex-none text-[#5F5E5A]" />
+          </a>
         </div>
         <EvidenceLine
           confidence={asset.confidence}
           source={asset.platform ?? asset.evidenceOrigin ?? asset.sourceType ?? asset.signalPath ?? status}
         />
       </div>
-    </a>
+    </div>
   );
 }
 

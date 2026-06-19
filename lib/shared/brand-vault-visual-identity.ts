@@ -42,7 +42,7 @@ export interface BrandVaultFontPreview {
   sourceTrust?: BrandSignalTrustLevel;
 }
 
-export type BrandVaultVisualAssetKind = 'logo' | 'product' | 'website_preview' | 'social_media' | 'uploaded_asset';
+export type BrandVaultVisualAssetKind = 'logo' | 'product' | 'video' | 'website_preview' | 'social_media' | 'uploaded_asset';
 
 export interface BrandVaultStoredVisualAssetState {
   status: 'stored' | 'failed' | 'skipped';
@@ -63,6 +63,7 @@ export interface BrandVaultVisualAssetPreview {
   url: string;
   originalUrl?: string;
   thumbnailUrl?: string;
+  sampledFrameUrls?: string[];
   mediaType?: NonNullable<BrandVaultSourceInput['media']>['mediaType'];
   platform?: BrandVaultSourceInput['platform'];
   confidence: number;
@@ -341,13 +342,17 @@ function createVisualAssetPreviews(
       });
     }
     if (mode === 'image' && source.kind === 'social_post' && source.media) {
-      const mediaUrl = source.media.mediaUrl ?? source.media.thumbnailUrl;
+      const sampledFrameUrls = normalizeRenderableAssetUrls(source.media.sampledFrameUrls ?? []);
+      const posterUrl = source.media.thumbnailUrl ?? sampledFrameUrls[0];
+      const isPlayableVideo = source.media.mediaType === 'video' && Boolean(source.media.mediaUrl);
+      const mediaUrl = isPlayableVideo ? source.media.mediaUrl : source.media.mediaUrl ?? posterUrl;
       if (mediaUrl) {
         add({
-          kind: 'social_media',
-          label: `${platformLabel(source.platform)} ${source.media.mediaType ?? 'media'} evidence`,
+          kind: isPlayableVideo ? 'video' : 'social_media',
+          label: `${platformLabel(source.platform)} ${isPlayableVideo ? 'video' : source.media.mediaType ?? 'media'} evidence`,
           url: mediaUrl,
-          thumbnailUrl: source.media.thumbnailUrl,
+          thumbnailUrl: posterUrl,
+          sampledFrameUrls,
           mediaType: source.media.mediaType,
           platform: source.platform,
           confidence: confidenceForSource(source.kind),
@@ -466,6 +471,10 @@ function normalizeRenderableAssetUrl(value: string): string | undefined {
   }
 }
 
+function normalizeRenderableAssetUrls(values: string[]): string[] {
+  return uniqueStrings(values.map(normalizeRenderableAssetUrl).filter((url): url is string => Boolean(url)));
+}
+
 function candidateLogoLabel(candidate: BrandEvidenceCandidate): string {
   const role = candidateLogoRole(candidate);
   if (role === 'icon') return 'Icon candidate';
@@ -510,9 +519,10 @@ function compareVisualAssets(left: BrandVaultVisualAssetPreview, right: BrandVau
 function visualAssetKindRank(kind: BrandVaultVisualAssetKind): number {
   if (kind === 'logo') return 0;
   if (kind === 'product') return 1;
-  if (kind === 'website_preview') return 2;
-  if (kind === 'uploaded_asset') return 3;
-  return 4;
+  if (kind === 'video') return 2;
+  if (kind === 'website_preview') return 3;
+  if (kind === 'uploaded_asset') return 4;
+  return 5;
 }
 
 function isLogoUpload(source: BrandVaultSourceInput): boolean {

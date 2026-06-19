@@ -1362,6 +1362,13 @@ const APIFY_MEDIA_FIELD_PATHS = [
   'images',
   'media',
   'attachments',
+  'sampledFrameUrls',
+  'frameUrls',
+  'videoFrames',
+  'videoThumbnails',
+  'thumbnails',
+  'children',
+  'carousel',
   'document.coverImageUrl',
   'doc.slide_images',
   'doc.pdf_url',
@@ -1515,6 +1522,7 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
   const nestedAttachmentUrl = firstAttachmentMediaUrl(record.attachments);
   const firstSlideImage = firstStringFromArray(doc.slide_images);
   const documentImageUrl = firstString(document.coverImageUrl, document.imageUrl, document.thumbnailUrl, document.url);
+  const sampledFrameUrls = sampledFrameUrlsFromApifyRecord(record, doc, document);
   const sourceUrl = firstString(
     record.url,
     record.postUrl,
@@ -1643,6 +1651,7 @@ function apifySocialSource(item: unknown, parsed: BrandVaultParsedSocialUrl, ind
     mediaType: firstString(record.video_url || record.videoUrl ? 'video' : undefined, firstImage || firstImageObjectUrl || documentImageUrl || nestedAttachmentUrl || record.displayUrl || record.imageUrl || record.full_picture || record.fullPicture || record.picture ? 'image' : undefined, doc.pdf_url ? 'carousel' : undefined, record.mediaType, record.productType, record.post_type, record.type),
     mediaUrl: firstString(record.videoUrl, record.video_url, record.mediaUrl, record.displayUrl, record.imageUrl, record.full_picture, record.fullPicture, record.picture, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, nestedAttachmentUrl, documentImageUrl, doc.pdf_url),
     thumbnailUrl: firstString(record.thumbnailUrl, record.thumbnail, record.displayUrl, record.imageUrl, record.full_picture, record.fullPicture, record.picture, firstImage, firstImageObjectUrl, firstMediaUrl, firstAttachmentUrl, nestedAttachmentUrl, documentImageUrl, firstSlideImage),
+    sampledFrameUrls,
     ocrText: stringValue(record.ocrText),
     transcript: stringValue(record.transcript),
   });
@@ -2216,6 +2225,7 @@ function socialMedia(input: {
   mediaType?: string;
   mediaUrl?: string;
   thumbnailUrl?: string;
+  sampledFrameUrls?: string[];
   ocrText?: string;
   transcript?: string;
   durationSeconds?: number;
@@ -2225,6 +2235,7 @@ function socialMedia(input: {
     mediaType,
     mediaUrl: input.mediaUrl,
     thumbnailUrl: input.thumbnailUrl,
+    sampledFrameUrls: input.sampledFrameUrls,
     ocrText: input.ocrText,
     transcript: input.transcript,
     durationSeconds: input.durationSeconds,
@@ -2411,6 +2422,63 @@ function firstAttachmentMediaUrl(value: unknown): string | undefined {
     if (match) return match;
   }
   return undefined;
+}
+
+function sampledFrameUrlsFromApifyRecord(
+  record: Record<string, unknown>,
+  doc: Record<string, unknown>,
+  document: Record<string, unknown>,
+): string[] | undefined {
+  const urls = uniqueHttpUrls([
+    ...urlsFromUnknown(record.sampledFrameUrls),
+    ...urlsFromUnknown(record.frameUrls),
+    ...urlsFromUnknown(record.frames),
+    ...urlsFromUnknown(record.videoFrames),
+    ...urlsFromUnknown(record.videoThumbnails),
+    ...urlsFromUnknown(record.thumbnails),
+    ...urlsFromUnknown(record.children),
+    ...urlsFromUnknown(record.carousel),
+    ...urlsFromUnknown(record.images),
+    ...urlsFromUnknown(record.media),
+    ...urlsFromUnknown(record.attachments),
+    ...urlsFromUnknown(doc.slide_images),
+    ...urlsFromUnknown(document.images),
+  ]).slice(0, 8);
+  return urls.length > 0 ? urls : undefined;
+}
+
+function urlsFromUnknown(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(urlsFromUnknown);
+  const record = asRecord(value);
+  if (!hasDefinedValue(record)) return [];
+  return [
+    record.url,
+    record.src,
+    record.imageUrl,
+    record.thumbnailUrl,
+    record.thumbnail,
+    record.displayUrl,
+    record.mediaUrl,
+  ].flatMap(urlsFromUnknown);
+}
+
+function uniqueHttpUrls(values: string[]): string[] {
+  const urls: string[] = [];
+  for (const value of values) {
+    const url = normalizeHttpUrl(value);
+    if (url) urls.push(url);
+  }
+  return Array.from(new Set(urls));
+}
+
+function normalizeHttpUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function firstNumber(...values: unknown[]): number | undefined {

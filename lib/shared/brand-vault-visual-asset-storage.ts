@@ -68,7 +68,18 @@ export async function mirrorBrandVaultVisualIdentityAssets(args: {
   const cache = new Map<string, Promise<BrandVaultVisualAssetMirrorResult>>();
   const mirror = async (asset: BrandVaultVisualAssetPreview): Promise<BrandVaultVisualAssetPreview> => {
     if (asset.storage?.status === 'stored') return asset;
-    const targetUrl = asset.thumbnailUrl ?? asset.url;
+    const targetUrl = asset.mediaType === 'video'
+      ? asset.thumbnailUrl ?? asset.sampledFrameUrls?.[0]
+      : asset.thumbnailUrl ?? asset.url;
+    if (!targetUrl) {
+      return {
+        ...asset,
+        storage: {
+          status: 'skipped',
+          reason: 'video asset has no poster frame to mirror',
+        },
+      };
+    }
     const cacheKey = `${asset.kind}:${targetUrl}`;
     const resultPromise = cache.get(cacheKey) ?? args.provider!.mirrorAsset({
       assetId: asset.id,
@@ -110,8 +121,9 @@ export async function mirrorBrandVaultVisualIdentityAssets(args: {
       return {
         ...asset,
         originalUrl: asset.originalUrl ?? asset.url,
-        url: result.publicUrl,
-        thumbnailUrl: asset.thumbnailUrl ? result.publicUrl : undefined,
+        url: asset.mediaType === 'video' ? asset.url : result.publicUrl,
+        thumbnailUrl: asset.mediaType === 'video' || asset.thumbnailUrl ? result.publicUrl : undefined,
+        sampledFrameUrls: replaceMirroredFrameUrl(asset.sampledFrameUrls, targetUrl, result.publicUrl),
         storage: stored,
       };
     } catch (error) {
@@ -141,6 +153,11 @@ export async function mirrorBrandVaultVisualIdentityAssets(args: {
     },
     warnings: uniqueStrings(warnings),
   };
+}
+
+function replaceMirroredFrameUrl(values: string[] | undefined, originalUrl: string, storedUrl: string): string[] | undefined {
+  if (!values?.length) return values;
+  return values.map((value) => value === originalUrl ? storedUrl : value);
 }
 
 export function createBrandVaultVisualAssetStorageFromEnvironment(
