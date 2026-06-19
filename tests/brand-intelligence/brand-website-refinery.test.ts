@@ -582,6 +582,7 @@ describe('Brand website refinery', () => {
   <body>
     <h1>Clean SPF for sensitive skin</h1>
     <p>Made for women with sensitive skin, men building daily grooming routines, and parents shopping for kids.</p>
+    <p>All your Chai Cravings in one place. For any queries or issues, contact customer care.</p>
     <section class="product-grid">
       <a href="/products/valerie">women"> VALERIE SHOULDER BAG No reviews MRP Rs. 22,500 Add to cart Wishlist</a>
     </section>
@@ -598,7 +599,7 @@ describe('Brand website refinery', () => {
 
     const audience = result.profile.identity.audience.value;
     expect(audience).toEqual(expect.arrayContaining(['women']));
-    expect(audience.join(' | ')).not.toMatch(/wishlist|MRP|No reviews|VALERIE|browser|document|raw =|product-card|Shop now/i);
+    expect(audience.join(' | ')).not.toMatch(/wishlist|MRP|No reviews|VALERIE|browser|document|raw =|product-card|Shop now|Chai Cravings|queries or issues|customer care/i);
     expect(result.profile.voice.recurringPhrases.value.join(' | ')).not.toMatch(/Shop now|Add to cart|Wishlist|No reviews/i);
   });
 
@@ -1393,9 +1394,17 @@ describe('Brand website refinery', () => {
     expect(result.profile.identity.proofStyle.value).toBe('testimonial');
     expect(result.candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({
+        sourceField: 'website.productImages',
+        signalPath: 'assets.productImages',
+        normalizedValue: ['https://glowbar.example/cdn/shop/products/daily-serum.png'],
+        sourceType: 'website',
+      }),
+      expect.objectContaining({
         sourceField: 'website.productImage',
         signalPath: 'assets.productImages',
-        normalizedValue: 'https://glowbar.example/cdn/shop/products/daily-serum.png',
+        normalizedValue: expect.objectContaining({
+          url: 'https://glowbar.example/cdn/shop/products/daily-serum.png',
+        }),
         sourceType: 'website_metadata',
       }),
       expect.objectContaining({

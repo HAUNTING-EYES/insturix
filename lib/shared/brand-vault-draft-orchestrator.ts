@@ -506,7 +506,7 @@ export async function createBrandVaultWebsiteDraftJob(
       now: snapshot.fetchedAt,
       actorId: input.actorId,
     });
-    const candidates = [...baseCandidates, ...compiled.candidates];
+    const candidates = withCandidateTrustLevels([...baseCandidates, ...compiled.candidates]);
     const baseWarnings = mergeWarnings(
       draft.warnings,
       stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),
@@ -2454,6 +2454,7 @@ function promotedEvidenceFromCandidate(
 }
 
 function trustLevelForPromotedCandidate(candidate: BrandEvidenceCandidate): BrandSignalTrustLevel | undefined {
+  if (candidate.trustLevel) return candidate.trustLevel;
   if (candidate.sourceType === 'uploaded_guideline') return 'uploaded_brand_guideline';
   if (candidate.extractorId === CRAWL_EXTRACTOR && candidate.sourceType === 'website') return 'first_party_website';
   if (candidate.extractorId === TEXT_EVIDENCE_COMPILER_EXTRACTOR && candidate.sourceType === 'website') return 'first_party_website';
@@ -2461,6 +2462,33 @@ function trustLevelForPromotedCandidate(candidate: BrandEvidenceCandidate): Bran
     return candidateEvidenceOrigin(candidate) === 'connected_fetch' ? 'connected_social_account' : 'public_social_page';
   }
   return undefined;
+}
+
+function withCandidateTrustLevels(candidates: BrandEvidenceCandidate[]): BrandEvidenceCandidate[] {
+  return candidates.map((candidate) => ({
+    ...candidate,
+    trustLevel: candidate.trustLevel ?? trustLevelForReviewCandidate(candidate),
+  }));
+}
+
+function trustLevelForReviewCandidate(candidate: BrandEvidenceCandidate): BrandSignalTrustLevel {
+  const promotedTrustLevel = trustLevelForPromotedCandidate(candidate);
+  if (promotedTrustLevel) return promotedTrustLevel;
+
+  if (candidate.sourceType === 'manual_user') return 'manual_user_entry';
+  if (candidate.sourceType === 'uploaded_guideline' || candidate.sourceType === 'uploaded_asset') return 'uploaded_brand_guideline';
+  if (candidate.sourceType === 'legacy_brand_intelligence') return 'brand_api';
+  if (
+    candidate.sourceType === 'website' ||
+    candidate.sourceType === 'website_metadata' ||
+    candidate.sourceType === 'json_ld' ||
+    candidate.sourceType === 'css' ||
+    candidate.sourceType === 'logo_asset' ||
+    candidate.sourceType === 'crawl_seed'
+  ) {
+    return 'first_party_website';
+  }
+  return 'llm_inference';
 }
 
 function candidateEvidenceOrigin(candidate: BrandEvidenceCandidate): string | undefined {

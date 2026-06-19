@@ -24,18 +24,23 @@ export interface BrandVaultUploaderXTokenSnapshot {
 
 export type BrandVaultSocialFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
+const APIFY_SUPPORTED_PLATFORMS = ['instagram', 'facebook', 'linkedin'] as const;
+type ApifySupportedPlatform = typeof APIFY_SUPPORTED_PLATFORMS[number];
+export type BrandVaultApifyFallbackPlatform = ApifySupportedPlatform;
+
 export const BRAND_VAULT_DEFAULT_APIFY_ACTORS = {
   instagram: 'apify/instagram-scraper',
   facebook: 'apify/facebook-posts-scraper',
   linkedin: 'atomus/linkedin-posts-scraper-pro',
-} as const satisfies Partial<Record<'instagram' | 'facebook' | 'linkedin', string>>;
+} as const satisfies Partial<Record<ApifySupportedPlatform, string>>;
 
 export interface BrandVaultConnectedSocialEvidenceArgs {
   socialLinks: string[];
   uploaderXUser: BrandVaultUploaderXTokenSnapshot | null;
   youtubeConnection: BrandVaultSocialConnectionEvidence | null;
   apifyApiKey?: string;
-  apifyActors?: Partial<Record<'instagram' | 'facebook' | 'linkedin', string>>;
+  apifyActors?: Partial<Record<ApifySupportedPlatform, string>>;
+  apifyEnabledPlatforms?: readonly BrandVaultApifyFallbackPlatform[];
   fetchFn?: BrandVaultSocialFetch;
   now?: string;
   ocrProvider?: BrandVaultSocialOcrProvider | null;
@@ -57,8 +62,6 @@ type ApifySocialSourceResult = {
   diagnostic?: ApifyRejectedItemDiagnostic;
   acceptedRelatedReference?: boolean;
 };
-
-type ApifySupportedPlatform = 'instagram' | 'facebook' | 'linkedin';
 
 type ApifyRejectionReason = 'actor_error' | 'identity_mismatch' | 'hollow_item' | 'quota_exhausted';
 
@@ -105,6 +108,9 @@ export async function createBrandVaultConnectedSocialEvidence(
   const ocrProvider = args.ocrProvider === undefined
     ? createBrandVaultGeminiSocialOcrProvider({ fetchFn })
     : args.ocrProvider;
+  const apifyEnabledPlatforms = new Set<ApifySupportedPlatform>(
+    args.apifyEnabledPlatforms ?? APIFY_SUPPORTED_PLATFORMS,
+  );
 
   for (const link of args.socialLinks) {
     const parsed = parseBrandVaultSocialUrl(link);
@@ -116,7 +122,12 @@ export async function createBrandVaultConnectedSocialEvidence(
       args.uploaderXUser,
       args.youtubeConnection,
     );
-    const evidence = connection ?? publicFallbackEvidenceForPlatform(parsed.platform, args.apifyApiKey, args.apifyActors);
+    const evidence = connection ?? publicFallbackEvidenceForPlatform(
+      parsed.platform,
+      args.apifyApiKey,
+      args.apifyActors,
+      apifyEnabledPlatforms,
+    );
     if (evidence) sources.push(profileSourceForSocialLink(parsed, evidence));
 
     const fetched = await fetchConnectedPostSources({
@@ -134,6 +145,7 @@ export async function createBrandVaultConnectedSocialEvidence(
         parsed,
         apifyApiKey: args.apifyApiKey,
         apifyActors: args.apifyActors,
+        apifyEnabledPlatforms,
         fetchFn,
       });
       sources.push(...fallback.sources);
@@ -933,9 +945,11 @@ function publicFallbackEvidenceForPlatform(
   platform: BrandVaultSourcePlatform,
   apifyApiKey: string | undefined,
   apifyActors: BrandVaultConnectedSocialEvidenceArgs['apifyActors'] | undefined,
+  apifyEnabledPlatforms: ReadonlySet<ApifySupportedPlatform>,
 ): BrandVaultSocialConnectionEvidence | null {
   if (!apifyApiKey?.trim()) return null;
-  if (platform !== 'instagram' && platform !== 'facebook' && platform !== 'linkedin') return null;
+  if (!isApifySupportedPlatform(platform)) return null;
+  if (!apifyEnabledPlatforms.has(platform)) return null;
   if (!apifyActors?.[platform]) return null;
   return {
     provider: 'alyzitron_apify',
@@ -963,46 +977,56 @@ async function fetchPublicSocialSources(args: {
   parsed: BrandVaultParsedSocialUrl;
   apifyApiKey: string | undefined;
   apifyActors: BrandVaultConnectedSocialEvidenceArgs['apifyActors'] | undefined;
+  apifyEnabledPlatforms: ReadonlySet<ApifySupportedPlatform>;
   fetchFn: BrandVaultSocialFetch;
 }): Promise<SocialFetchResult> {
+  const warnings: string[] = [];
   if (isApifySupportedPlatform(args.parsed.platform) && shouldFetchApifyForParsedSocialUrl(args.parsed)) {
-    const apiKey = args.apifyApiKey?.trim();
-    const apifyActorId = args.apifyActors?.[args.parsed.platform];
-    if (!apiKey) {
-      if (!args.parsed.isPostUrl) {
-        return {
-          sources: [],
-          warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: APIFY_API_KEY is not configured.`],
-        };
-      }
-    } else if (!apifyActorId) {
-      if (!args.parsed.isPostUrl) {
-        return {
-          sources: [],
-          warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: no Apify actor is configured for this platform.`],
-        };
-      }
+    if (!args.apifyEnabledPlatforms.has(args.parsed.platform)) {
+      warnings.push(
+        `Brand Vault skipped ${args.parsed.platform} Apify fallback: platform disabled by BRAND_VAULT_APIFY_PUBLIC_FALLBACK_PLATFORMS.`,
+      );
     } else {
-      const apify = await fetchApifySocialSources({
-        parsed: args.parsed,
-        apiKey,
-        actorId: apifyActorId,
-        fetchFn: args.fetchFn,
-      });
-      if (apify.sources.length > 0 || apify.warnings.length > 0) return apify;
+      const apiKey = args.apifyApiKey?.trim();
+      const apifyActorId = args.apifyActors?.[args.parsed.platform];
+      if (!apiKey) {
+        if (!args.parsed.isPostUrl) {
+          return {
+            sources: [],
+            warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: APIFY_API_KEY is not configured.`],
+          };
+        }
+      } else if (!apifyActorId) {
+        if (!args.parsed.isPostUrl) {
+          return {
+            sources: [],
+            warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: no Apify actor is configured for this platform.`],
+          };
+        }
+      } else {
+        const apify = await fetchApifySocialSources({
+          parsed: args.parsed,
+          apiKey,
+          actorId: apifyActorId,
+          fetchFn: args.fetchFn,
+        });
+        if (apify.sources.length > 0 || apify.warnings.length > 0) return apify;
+      }
     }
   }
 
   if (args.parsed.isPostUrl && ['youtube', 'x', 'tiktok'].includes(args.parsed.platform)) {
-    return fetchPublicOEmbedPostSource(args);
+    const fetched = await fetchPublicOEmbedPostSource(args);
+    return { sources: fetched.sources, warnings: [...warnings, ...fetched.warnings] };
   }
 
   if (args.parsed.platform === 'youtube' && !args.parsed.isPostUrl) {
-    return fetchPublicYouTubeChannelSources(args);
+    const fetched = await fetchPublicYouTubeChannelSources(args);
+    return { sources: fetched.sources, warnings: [...warnings, ...fetched.warnings] };
   }
 
-  if (!args.parsed.isPostUrl) return { sources: [], warnings: [] };
-  if (args.parsed.platform !== 'linkedin' && args.parsed.platform !== 'facebook') return { sources: [], warnings: [] };
+  if (!args.parsed.isPostUrl) return { sources: [], warnings };
+  if (args.parsed.platform !== 'linkedin' && args.parsed.platform !== 'facebook') return { sources: [], warnings };
 
   const baseSource: BrandVaultSourceInput = {
     kind: 'social_post',
@@ -1021,7 +1045,7 @@ async function fetchPublicSocialSources(args: {
     if (!response.ok) {
       return {
         sources: [baseSource],
-        warnings: [`Brand Vault staged ${args.parsed.platform} post URL, but public metadata fetch returned ${response.status}.`],
+        warnings: [...warnings, `Brand Vault staged ${args.parsed.platform} post URL, but public metadata fetch returned ${response.status}.`],
       };
     }
     const html = await response.text();
@@ -1029,17 +1053,17 @@ async function fetchPublicSocialSources(args: {
     if (!metadataText) {
       return {
         sources: [baseSource],
-        warnings: [`Brand Vault staged ${args.parsed.platform} post URL, but public metadata did not include readable post text.`],
+        warnings: [...warnings, `Brand Vault staged ${args.parsed.platform} post URL, but public metadata did not include readable post text.`],
       };
     }
     return {
       sources: [{ ...baseSource, text: metadataText }],
-      warnings: [`Brand Vault fetched public metadata for ${args.parsed.platform} post URL as draft-only evidence.`],
+      warnings: [...warnings, `Brand Vault fetched public metadata for ${args.parsed.platform} post URL as draft-only evidence.`],
     };
   } catch {
     return {
       sources: [baseSource],
-      warnings: [`Brand Vault staged ${args.parsed.platform} post URL, but public metadata fetch failed.`],
+      warnings: [...warnings, `Brand Vault staged ${args.parsed.platform} post URL, but public metadata fetch failed.`],
     };
   }
 }
@@ -1131,7 +1155,7 @@ function shouldFetchApifyForParsedSocialUrl(parsed: BrandVaultParsedSocialUrl): 
 }
 
 function isApifySupportedPlatform(platform: BrandVaultSourcePlatform): platform is ApifySupportedPlatform {
-  return platform === 'instagram' || platform === 'facebook' || platform === 'linkedin';
+  return (APIFY_SUPPORTED_PLATFORMS as readonly string[]).includes(platform);
 }
 
 function apifyRunInput(parsed: BrandVaultParsedSocialUrl): Record<string, unknown> {

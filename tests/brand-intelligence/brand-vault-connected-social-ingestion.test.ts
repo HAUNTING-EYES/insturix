@@ -257,6 +257,56 @@ describe('Brand Vault connected social ingestion', () => {
     expect(result.warnings).toContain('Brand Vault skipped instagram Apify fallback: no Apify actor is configured for this platform.');
   });
 
+  it('can disable paid Apify public fallbacks while keeping free YouTube evidence', async () => {
+    const fetchedUrls: string[] = [];
+    const channelHtml = '<html><body><script>var ytInitialData = {"contents":[{"videoId":"tea001"}]};</script></body></html>';
+
+    const fetchFn = async (url: string): Promise<Response> => {
+      fetchedUrls.push(url);
+      if (url.includes('api.apify.com')) throw new Error('Apify should not be called when platform policy disables it');
+      if (url === 'https://www.youtube.com/@chaayos') {
+        return new Response(channelHtml, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      if (url.includes('/oembed')) {
+        return jsonResponse({
+          title: 'Fresh chai stories from Chaayos',
+          author_name: 'Chaayos',
+          thumbnail_url: 'https://img.youtube.com/vi/tea001/hqdefault.jpg',
+        });
+      }
+      return new Response(
+        '<html><body><script>var ytInitialPlayerResponse = {"videoDetails":{"title":"Fresh chai stories from Chaayos","author":"Chaayos","shortDescription":"Behind the scenes of chai, snacks, and cafe moments.","thumbnail":{"thumbnails":[{"url":"https://img.youtube.com/vi/tea001/maxresdefault.jpg"}]}}};</script></body></html>',
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      );
+    };
+
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: [
+        'https://www.instagram.com/chaayos',
+        'https://www.linkedin.com/company/sunshine-teahouse',
+        'https://www.youtube.com/@chaayos',
+      ],
+      uploaderXUser: null,
+      youtubeConnection: null,
+      apifyApiKey: 'apify_key',
+      apifyActors: BRAND_VAULT_DEFAULT_APIFY_ACTORS,
+      apifyEnabledPlatforms: [],
+      fetchFn,
+      ocrProvider: null,
+    });
+
+    expect(fetchedUrls).toEqual([
+      'https://www.youtube.com/@chaayos',
+      expect.stringContaining('https://www.youtube.com/oembed'),
+      'https://www.youtube.com/watch?v=tea001',
+    ]);
+    expect(result.sourceEvidence.filter((source) => source.kind === 'social_post' && source.platform === 'youtube')).toHaveLength(1);
+    expect(result.sourceEvidence.some((source) => source.platform === 'instagram' || source.platform === 'linkedin')).toBe(false);
+    expect(result.warnings).toContain('Brand Vault skipped instagram Apify fallback: platform disabled by BRAND_VAULT_APIFY_PUBLIC_FALLBACK_PLATFORMS.');
+    expect(result.warnings).toContain('Brand Vault skipped linkedin Apify fallback: platform disabled by BRAND_VAULT_APIFY_PUBLIC_FALLBACK_PLATFORMS.');
+    expect(result.warnings).toContain('Brand Vault fetched 1 recent YouTube public video from channel page as review-only social evidence.');
+  });
+
   it('keeps connected Instagram media without captions so OCR can provide brand text', async () => {
     const ocrImageUrls: string[] = [];
     const result = await createBrandVaultConnectedSocialEvidence({

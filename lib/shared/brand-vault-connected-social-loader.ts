@@ -3,6 +3,7 @@ import connectToDatabase from '@/schemas/ConnectToDatabase';
 import {
   BRAND_VAULT_DEFAULT_APIFY_ACTORS,
   createBrandVaultConnectedSocialEvidence,
+  type BrandVaultApifyFallbackPlatform,
   type BrandVaultUploaderXTokenSnapshot,
 } from './brand-vault-connected-social-ingestion';
 import type { BrandVaultSocialConnectionEvidence } from './brand-website-refinery-types';
@@ -27,6 +28,9 @@ export async function loadBrandVaultConnectedSocialEvidence(
       facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || BRAND_VAULT_DEFAULT_APIFY_ACTORS.facebook,
       linkedin: process.env.APIFY_LINKEDIN_ACTOR_ID || BRAND_VAULT_DEFAULT_APIFY_ACTORS.linkedin,
     },
+    apifyEnabledPlatforms: apifyPublicFallbackPlatformsFromEnvironment(
+      process.env.BRAND_VAULT_APIFY_PUBLIC_FALLBACK_PLATFORMS,
+    ),
   });
 
   return {
@@ -97,4 +101,30 @@ function stringList(value: unknown): string[] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const APIFY_PUBLIC_FALLBACK_PLATFORMS: readonly BrandVaultApifyFallbackPlatform[] = [
+  'instagram',
+  'facebook',
+  'linkedin',
+];
+
+function apifyPublicFallbackPlatformsFromEnvironment(
+  value: string | undefined,
+): readonly BrandVaultApifyFallbackPlatform[] | undefined {
+  if (value === undefined) return undefined;
+
+  const tokens = value
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+  if (tokens.length === 0 || tokens.some((token) => ['none', 'off', 'false', '0'].includes(token))) {
+    return [];
+  }
+  if (tokens.includes('all')) return APIFY_PUBLIC_FALLBACK_PLATFORMS;
+
+  const enabled = tokens.filter((token): token is BrandVaultApifyFallbackPlatform =>
+    APIFY_PUBLIC_FALLBACK_PLATFORMS.includes(token as BrandVaultApifyFallbackPlatform),
+  );
+  return Array.from(new Set(enabled));
 }

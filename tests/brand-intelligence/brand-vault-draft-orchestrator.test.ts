@@ -180,6 +180,19 @@ describe('Brand Vault draft orchestrator', () => {
         }),
       ]),
     );
+    expect(result.candidates.every((candidate) => candidate.trustLevel)).toBe(true);
+    expect(result.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalPath: 'assets.logoCandidates',
+          trustLevel: 'first_party_website',
+        }),
+        expect.objectContaining({
+          sourceType: 'social_profile',
+          trustLevel: 'public_social_page',
+        }),
+      ]),
+    );
     expect(repository.getRecord('draft_signal_site')?.status).toBe('draft');
     expect(repository.listEvents('draft_signal_site').map((event) => event.type)).toEqual(['draft_saved']);
   });

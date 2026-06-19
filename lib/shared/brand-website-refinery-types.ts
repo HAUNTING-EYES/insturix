@@ -143,6 +143,7 @@ export interface BrandEvidenceCandidate {
   normalizedValue: unknown;
   excerpt?: string;
   confidence: number;
+  trustLevel?: BrandSignalTrustLevel;
   authorityClass: BrandEvidenceCandidateAuthority;
   observedAt: string;
   extractorId: string;
