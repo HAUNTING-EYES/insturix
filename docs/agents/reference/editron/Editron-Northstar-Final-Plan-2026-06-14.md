@@ -2028,6 +2028,24 @@ Acceptance:
   atoms plus brand taste. If that evidence is weak, the planner should prefer a
   clean editorial cut.
 
+Current execution slice:
+
+- Deepen transition planner into full boundary job plus physical-form inputs:
+  topic/speech/beat/motion/screen/brand atoms, purpose job vector, duration,
+  opacity, motion, blur/smear, landing/settle, SFX eligibility, zoom bridge, and
+  rejection reasons.
+- Deepen zoom planner with subject position, shot scale, visual motion, speech
+  and emotion peaks, crop safety, recent focal-zone memory, recent scale-memory,
+  and motion-on-motion restraint.
+- Deepen caption planner into moment grouping, readability, style intent, active
+  word/phrase windows, line wrapping, safe regions, contrast, and cut-boundary
+  split policy. Global style may exist, but moment readability wins.
+- Deepen SFX planner with exact sync windows, transition/MG/zoom/caption anchors,
+  silence pockets, speech/music conflict checks, provider quality, cache/reuse
+  policy, and explicit skip reasons when no good asset fits.
+- Add cross-overlay timeline memory so captions, zoom, transitions, SFX, and MG
+  coordinate on the same beat instead of repeating, colliding, or competing.
+
 ## Phase 7 - SFX System
 
 Goal: SFX has MG-like intent infrastructure while still using external providers.
