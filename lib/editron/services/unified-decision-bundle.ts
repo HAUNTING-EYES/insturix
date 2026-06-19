@@ -175,10 +175,59 @@ interface UnifiedZoomMotionPlan {
   visualMotionAllowed: boolean;
   reasonKeys: string[];
   atoms: Record<string, string | number | boolean>;
+  jobVector: {
+    emphasis: number;
+    intimacy: number;
+    reveal: number;
+    reset: number;
+    drift: number;
+    motionFollow: number;
+    restraint: number;
+  };
+  subjectGeometry: {
+    hasSubjectAnchor: boolean;
+    anchorX: number | null;
+    anchorY: number | null;
+    subjectSize: number;
+    offCenter: number;
+    shotScale: number;
+    facePresent: number;
+    eyeContact: number;
+    anchorConfidence: number;
+  };
+  motionMemory: {
+    timeSinceLastZoomSec: number | null;
+    recentZoomSimilarity: number;
+    recentMotionSimilarity: number;
+    recentZoomDensity: number;
+    repeatedTargetRisk: number;
+  };
+  physicalFormInputs: {
+    anchorConfidence: number;
+    pushPressure: number;
+    pullBackPressure: number;
+    punchPressure: number;
+    driftPressure: number;
+    motionFollowPressure: number;
+    cropRisk: number;
+    screenSafetyPressure: number;
+    repetitionPressure: number;
+    sfxPairingEligibility: number;
+  };
+  crossFamily: {
+    sfxPairingAllowed: boolean;
+    captionConflictRisk: number;
+    transitionConflictRisk: number;
+    mgConflictRisk: number;
+  };
   evidence: {
     intensity: number;
     visualPressure: number;
     hasSubjectAnchor: boolean;
+    shotScale: number;
+    directionMagnitude: number;
+    repetitionPressure: number;
+    cropRisk: number;
   };
   calibrationStatus: 'invented-needs-calibration';
 }
@@ -897,9 +946,12 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('mainSubjectWidth', ['mainSubjectWidth', 'subjectWidth', 'main_subject_width', 'subject_width']);
     setAtom('mainSubjectHeight', ['mainSubjectHeight', 'subjectHeight', 'main_subject_height', 'subject_height']);
     setAtom('facePresent', ['facePresent', 'face_present', 'visual.face_present']);
+    setAtom('eyeContact', ['eyeContact', 'eye_contact', 'visual.eye_contact']);
     setAtom('motionVectorX', ['motionVectorX', 'motion_vector_x', 'visual_motion_x']);
     setAtom('motionVectorY', ['motionVectorY', 'motion_vector_y', 'visual_motion_y']);
-    setAtom('shotScale', ['shotScale', 'shot_scale']);
+    setAtom('shotScale', ['shotScale', 'shot_scale', 'visual.shot_scale']);
+    setAtom('cameraMotion', ['cameraMotion', 'camera_motion', 'visual.camera_motion']);
+    setAtom('subjectMotion', ['subjectMotion', 'subject_motion', 'visual.subject_motion']);
     setAtom('speechPeak', ['speechPeak', 'speech_energy', 'energy_delta', 'speech.energy']);
     setAtom('wordImportance', ['wordImportance', 'word_importance', 'word.importance']);
     setAtom('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
@@ -909,6 +961,15 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
     setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
     setAtom('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
+    setAtom('currentZoomScale', ['currentZoomScale', 'current_zoom_scale']);
+    setAtom('timeSinceLastZoomSec', ['timeSinceLastZoomSec', 'time_since_last_zoom', 'seconds_since_last_zoom']);
+    setAtom('recentZoomSimilarity', ['recentZoomSimilarity', 'recent_zoom_similarity', 'zoom_repetition']);
+    setAtom('recentMotionSimilarity', ['recentMotionSimilarity', 'recent_motion_similarity']);
+    setAtom('recentZoomDensity', ['recentZoomDensity', 'recent_zoom_density', 'zoom_density']);
+    setAtom('activeOverlayDensity', ['activeOverlayDensity', 'active_overlay_density', 'recent_overlay_density']);
+    setAtom('captionPressure', ['captionPressure', 'caption_pressure', 'active_caption_pressure']);
+    setAtom('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
+    setAtom('transitionPressure', ['transitionPressure', 'transition_pressure', 'active_transition_pressure']);
   }
 
   if (family === 'audio') {
@@ -1668,17 +1729,53 @@ function resolveZoomMotionPlan(decision: ReactiveEditDecision): UnifiedZoomMotio
   if (decision.type !== 'zoom' || familyForSignalDecision(decision) !== 'camera') return null;
 
   const atoms = zoomMotionAtoms(decision);
+  const subjectX = zoomAtomNullableNumber(atoms, 'mainSubjectX');
+  const subjectY = zoomAtomNullableNumber(atoms, 'mainSubjectY');
+  const subjectWidth = zoomAtomNumber(atoms, 'mainSubjectWidth');
+  const subjectHeight = zoomAtomNumber(atoms, 'mainSubjectHeight');
+  const facePresent = zoomAtomNumber(atoms, 'facePresent');
+  const eyeContact = zoomAtomNumber(atoms, 'eyeContact');
   const speechPeak = zoomAtomNumber(atoms, 'speechPeak');
   const wordImportance = zoomAtomNumber(atoms, 'wordImportance');
   const beatStrength = zoomAtomNumber(atoms, 'beatStrength');
   const emotionIntensity = zoomAtomNumber(atoms, 'emotionIntensity');
   const visualSignificance = zoomAtomNumber(atoms, 'visualSignificance');
   const visualMotion = zoomAtomNumber(atoms, 'visualMotion');
-  const shotScale = zoomAtomNumber(atoms, 'shotScale');
+  const shotScale = zoomShotScaleValue(atoms, Math.max(subjectWidth, subjectHeight));
   const textOnScreen = zoomAtomNumber(atoms, 'textOnScreen');
   const visualComplexity = zoomAtomNumber(atoms, 'visualComplexity');
   const topicDelta = zoomAtomNumber(atoms, 'topicDelta');
+  const cameraMotion = zoomAtomNumber(atoms, 'cameraMotion');
+  const subjectMotion = zoomAtomNumber(atoms, 'subjectMotion');
+  const directionX = zoomAtomSignedNumber(atoms, 'motionVectorX');
+  const directionY = zoomAtomSignedNumber(atoms, 'motionVectorY');
+  const directionMagnitude = roundAuditNumber(clamp01(Math.max(Math.abs(directionX), Math.abs(directionY))));
+  const currentZoomScale = zoomAtomRawNumber(atoms, 'currentZoomScale');
+  const timeSinceLastZoomSec = zoomAtomRawNumber(atoms, 'timeSinceLastZoomSec');
+  const recentZoomSimilarity = zoomAtomNumber(atoms, 'recentZoomSimilarity');
+  const recentMotionSimilarity = zoomAtomNumber(atoms, 'recentMotionSimilarity');
+  const recentZoomDensity = zoomAtomNumber(atoms, 'recentZoomDensity');
+  const activeOverlayDensity = zoomAtomNumber(atoms, 'activeOverlayDensity');
+  const captionPressure = zoomAtomNumber(atoms, 'captionPressure');
+  const mgPressure = zoomAtomNumber(atoms, 'mgPressure');
+  const transitionPressure = zoomAtomNumber(atoms, 'transitionPressure');
   const hasSubjectAnchor = zoomHasSubjectAnchor(atoms);
+  const subjectGeometry = zoomSubjectGeometry({
+    subjectX,
+    subjectY,
+    subjectWidth,
+    subjectHeight,
+    shotScale,
+    facePresent,
+    eyeContact,
+    hasSubjectAnchor,
+  });
+  const motionMemory = zoomMotionMemory({
+    timeSinceLastZoomSec,
+    recentZoomSimilarity,
+    recentMotionSimilarity,
+    recentZoomDensity,
+  });
   const intensity = roundAuditNumber(clamp01(Math.max(
     speechPeak,
     wordImportance,
@@ -1686,13 +1783,51 @@ function resolveZoomMotionPlan(decision: ReactiveEditDecision): UnifiedZoomMotio
     emotionIntensity,
     visualSignificance * 0.86,
     visualMotion * 0.72,
+    cameraMotion * 0.62,
+    subjectMotion * 0.66,
   )));
   const visualPressure = roundAuditNumber(clamp01(Math.max(
     textOnScreen,
     visualComplexity,
     visualMotion * 0.66,
     shotScale * 0.18,
+    activeOverlayDensity,
+    captionPressure,
+    mgPressure,
+    transitionPressure,
   )));
+  const jobVector = zoomMotionJobVector({
+    speechPeak,
+    wordImportance,
+    beatStrength,
+    emotionIntensity,
+    visualSignificance,
+    visualMotion,
+    cameraMotion,
+    subjectMotion,
+    topicDelta,
+    shotScale,
+    eyeContact,
+    hasSubjectAnchor,
+    currentZoomScale,
+    directionMagnitude,
+    motionMemory,
+    visualPressure,
+  });
+  const physicalFormInputs = zoomPhysicalFormInputs({
+    jobVector,
+    subjectGeometry,
+    motionMemory,
+    currentZoomScale,
+    visualPressure,
+    activeOverlayDensity,
+  });
+  const crossFamily = zoomCrossFamilyPlan({
+    physicalFormInputs,
+    captionPressure,
+    transitionPressure,
+    mgPressure,
+  });
   const reasonKeys = zoomMotionReasonKeys({
     speechPeak,
     wordImportance,
@@ -1700,14 +1835,24 @@ function resolveZoomMotionPlan(decision: ReactiveEditDecision): UnifiedZoomMotio
     emotionIntensity,
     visualSignificance,
     visualMotion,
+    cameraMotion,
+    subjectMotion,
+    directionMagnitude,
     topicDelta,
+    shotScale,
+    subjectGeometry,
+    motionMemory,
+    physicalFormInputs,
     hasSubjectAnchor,
     visualPressure,
   });
 
   if (reasonKeys.length === 0) return null;
 
-  const visualMotionAllowed = intensity >= 0.45 && visualPressure < 0.9;
+  const visualMotionAllowed = intensity >= 0.45
+    && physicalFormInputs.screenSafetyPressure < 0.9
+    && physicalFormInputs.cropRisk < 0.92
+    && physicalFormInputs.repetitionPressure < 0.86;
 
   return {
     version: 'zoom-motion-plan-v1',
@@ -1716,10 +1861,19 @@ function resolveZoomMotionPlan(decision: ReactiveEditDecision): UnifiedZoomMotio
     visualMotionAllowed,
     reasonKeys,
     atoms,
+    jobVector,
+    subjectGeometry,
+    motionMemory,
+    physicalFormInputs,
+    crossFamily,
     evidence: {
       intensity,
       visualPressure,
       hasSubjectAnchor,
+      shotScale,
+      directionMagnitude,
+      repetitionPressure: physicalFormInputs.repetitionPressure,
+      cropRisk: physicalFormInputs.cropRisk,
     },
     calibrationStatus: 'invented-needs-calibration',
   };
@@ -1738,7 +1892,12 @@ function zoomMotionAtoms(decision: ReactiveEditDecision): Record<string, string 
   setFallback('mainSubjectWidth', ['mainSubjectWidth', 'subjectWidth', 'main_subject_width', 'subject_width']);
   setFallback('mainSubjectHeight', ['mainSubjectHeight', 'subjectHeight', 'main_subject_height', 'subject_height']);
   setFallback('facePresent', ['facePresent', 'face_present', 'visual.face_present']);
-  setFallback('shotScale', ['shotScale', 'shot_scale']);
+  setFallback('eyeContact', ['eyeContact', 'eye_contact', 'visual.eye_contact']);
+  setFallback('shotScale', ['shotScale', 'shot_scale', 'visual.shot_scale']);
+  setFallback('cameraMotion', ['cameraMotion', 'camera_motion', 'visual.camera_motion']);
+  setFallback('subjectMotion', ['subjectMotion', 'subject_motion', 'visual.subject_motion']);
+  setFallback('motionVectorX', ['motionVectorX', 'motion_vector_x', 'visual_motion_x']);
+  setFallback('motionVectorY', ['motionVectorY', 'motion_vector_y', 'visual_motion_y']);
   setFallback('speechPeak', ['speechPeak', 'speech_energy', 'energy_delta', 'speech.energy']);
   setFallback('wordImportance', ['wordImportance', 'word_importance', 'word.importance']);
   setFallback('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
@@ -1748,6 +1907,15 @@ function zoomMotionAtoms(decision: ReactiveEditDecision): Record<string, string 
   setFallback('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
   setFallback('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
   setFallback('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
+  setFallback('currentZoomScale', ['currentZoomScale', 'current_zoom_scale']);
+  setFallback('timeSinceLastZoomSec', ['timeSinceLastZoomSec', 'time_since_last_zoom', 'seconds_since_last_zoom']);
+  setFallback('recentZoomSimilarity', ['recentZoomSimilarity', 'recent_zoom_similarity', 'zoom_repetition']);
+  setFallback('recentMotionSimilarity', ['recentMotionSimilarity', 'recent_motion_similarity']);
+  setFallback('recentZoomDensity', ['recentZoomDensity', 'recent_zoom_density', 'zoom_density']);
+  setFallback('activeOverlayDensity', ['activeOverlayDensity', 'active_overlay_density', 'recent_overlay_density']);
+  setFallback('captionPressure', ['captionPressure', 'caption_pressure', 'active_caption_pressure']);
+  setFallback('mgPressure', ['mgPressure', 'mg_pressure', 'active_mg_pressure']);
+  setFallback('transitionPressure', ['transitionPressure', 'transition_pressure', 'active_transition_pressure']);
   return atoms;
 }
 
@@ -1761,6 +1929,246 @@ function zoomAtomNumber(
   return 0;
 }
 
+function zoomAtomNullableNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number | null {
+  const value = atoms[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return clamp01(value);
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return null;
+}
+
+function zoomAtomRawNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function zoomAtomSignedNumber(
+  atoms: Record<string, string | number | boolean>,
+  key: string,
+): number {
+  const value = atoms[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return roundAuditNumber(Math.max(-1, Math.min(1, value)));
+}
+
+function zoomShotScaleValue(
+  atoms: Record<string, string | number | boolean>,
+  subjectSize: number,
+): number {
+  const value = atoms.shotScale;
+  if (typeof value === 'number' && Number.isFinite(value)) return clamp01(value);
+  if (typeof value === 'string') {
+    const key = value.trim().toLowerCase();
+    const scaleMap: Record<string, number> = {
+      ecu: 1,
+      'extreme-close-up': 1,
+      cu: 0.86,
+      close: 0.82,
+      'close-up': 0.86,
+      mcu: 0.68,
+      mediumclose: 0.68,
+      'medium-close': 0.68,
+      ms: 0.5,
+      medium: 0.5,
+      mws: 0.36,
+      ws: 0.22,
+      wide: 0.22,
+      ews: 0.1,
+      'extreme-wide': 0.1,
+    };
+    if (scaleMap[key] !== undefined) return scaleMap[key];
+  }
+  return roundAuditNumber(clamp01(subjectSize));
+}
+
+function zoomSubjectGeometry(input: {
+  subjectX: number | null;
+  subjectY: number | null;
+  subjectWidth: number;
+  subjectHeight: number;
+  shotScale: number;
+  facePresent: number;
+  eyeContact: number;
+  hasSubjectAnchor: boolean;
+}): UnifiedZoomMotionPlan['subjectGeometry'] {
+  const subjectSize = roundAuditNumber(clamp01(Math.max(input.subjectWidth, input.subjectHeight, input.shotScale)));
+  const hasAnchorPoint = input.subjectX !== null || input.subjectY !== null;
+  const anchorX = input.subjectX ?? null;
+  const anchorY = input.subjectY ?? null;
+  const offCenter = hasAnchorPoint
+    ? roundAuditNumber(clamp01(Math.max(
+        anchorX === null ? 0 : Math.abs(anchorX - 0.5) * 2,
+        anchorY === null ? 0 : Math.abs(anchorY - 0.5) * 2,
+      )))
+    : 0;
+  const anchorConfidence = roundAuditNumber(clamp01(Math.max(
+    input.hasSubjectAnchor ? 0.62 : 0,
+    hasAnchorPoint ? 0.72 : 0,
+    input.facePresent * 0.72,
+    subjectSize * 0.54,
+  )));
+
+  return {
+    hasSubjectAnchor: input.hasSubjectAnchor,
+    anchorX,
+    anchorY,
+    subjectSize,
+    offCenter,
+    shotScale: input.shotScale,
+    facePresent: input.facePresent,
+    eyeContact: input.eyeContact,
+    anchorConfidence,
+  };
+}
+
+function zoomMotionMemory(input: {
+  timeSinceLastZoomSec: number;
+  recentZoomSimilarity: number;
+  recentMotionSimilarity: number;
+  recentZoomDensity: number;
+}): UnifiedZoomMotionPlan['motionMemory'] {
+  const timeRisk = input.timeSinceLastZoomSec > 0 && input.timeSinceLastZoomSec < 2
+    ? clamp01((2 - input.timeSinceLastZoomSec) / 2)
+    : 0;
+  const repeatedTargetRisk = roundAuditNumber(clamp01(Math.max(
+    timeRisk,
+    input.recentZoomSimilarity,
+    input.recentMotionSimilarity * 0.82,
+    input.recentZoomDensity,
+  )));
+
+  return {
+    timeSinceLastZoomSec: input.timeSinceLastZoomSec > 0 ? roundAuditNumber(input.timeSinceLastZoomSec) : null,
+    recentZoomSimilarity: input.recentZoomSimilarity,
+    recentMotionSimilarity: input.recentMotionSimilarity,
+    recentZoomDensity: input.recentZoomDensity,
+    repeatedTargetRisk,
+  };
+}
+
+function zoomMotionJobVector(input: {
+  speechPeak: number;
+  wordImportance: number;
+  beatStrength: number;
+  emotionIntensity: number;
+  visualSignificance: number;
+  visualMotion: number;
+  cameraMotion: number;
+  subjectMotion: number;
+  topicDelta: number;
+  shotScale: number;
+  eyeContact: number;
+  hasSubjectAnchor: boolean;
+  currentZoomScale: number;
+  directionMagnitude: number;
+  motionMemory: UnifiedZoomMotionPlan['motionMemory'];
+  visualPressure: number;
+}): UnifiedZoomMotionPlan['jobVector'] {
+  const emphasis = roundAuditNumber(clamp01(Math.max(
+    input.speechPeak,
+    input.wordImportance,
+    input.beatStrength,
+    input.emotionIntensity,
+    input.visualSignificance * 0.86,
+  )));
+  const intimacy = roundAuditNumber(clamp01(Math.max(
+    input.eyeContact * 0.8,
+    input.shotScale * 0.68,
+    input.hasSubjectAnchor ? 0.48 : 0,
+  )));
+  const reveal = roundAuditNumber(clamp01(Math.max(
+    input.topicDelta,
+    input.visualSignificance,
+    input.shotScale < 0.32 && input.hasSubjectAnchor ? 0.44 : 0,
+  )));
+  const reset = roundAuditNumber(clamp01(Math.max(
+    input.topicDelta * 0.76,
+    input.currentZoomScale >= 1.12 ? 0.66 : 0,
+    input.motionMemory.repeatedTargetRisk * 0.52,
+  )));
+  const drift = roundAuditNumber(clamp01(Math.max(
+    input.hasSubjectAnchor && input.visualMotion < 0.22 && input.visualPressure < 0.48 ? 0.46 : 0,
+    input.speechPeak >= 0.35 && input.speechPeak < 0.58 ? 0.38 : 0,
+  )));
+  const motionFollow = roundAuditNumber(clamp01(Math.max(
+    input.directionMagnitude,
+    input.visualMotion,
+    input.cameraMotion,
+    input.subjectMotion,
+  )));
+  const restraint = roundAuditNumber(clamp01(Math.max(
+    input.visualPressure,
+    input.motionMemory.repeatedTargetRisk,
+    input.currentZoomScale >= 1.18 ? 0.78 : 0,
+  )));
+
+  return {
+    emphasis,
+    intimacy,
+    reveal,
+    reset,
+    drift,
+    motionFollow,
+    restraint,
+  };
+}
+
+function zoomPhysicalFormInputs(input: {
+  jobVector: UnifiedZoomMotionPlan['jobVector'];
+  subjectGeometry: UnifiedZoomMotionPlan['subjectGeometry'];
+  motionMemory: UnifiedZoomMotionPlan['motionMemory'];
+  currentZoomScale: number;
+  visualPressure: number;
+  activeOverlayDensity: number;
+}): UnifiedZoomMotionPlan['physicalFormInputs'] {
+  const cropRisk = roundAuditNumber(clamp01(Math.max(
+    input.subjectGeometry.subjectSize * 0.72,
+    input.currentZoomScale >= 1.18 ? 0.82 : 0,
+    input.subjectGeometry.offCenter * 0.24,
+  )));
+  const screenSafetyPressure = roundAuditNumber(clamp01(Math.max(
+    input.visualPressure,
+    input.activeOverlayDensity,
+    cropRisk * 0.42,
+  )));
+  const repetitionPressure = roundAuditNumber(clamp01(Math.max(
+    input.motionMemory.repeatedTargetRisk,
+    input.jobVector.restraint * 0.58,
+  )));
+
+  return {
+    anchorConfidence: input.subjectGeometry.anchorConfidence,
+    pushPressure: roundAuditNumber(clamp01(Math.max(input.jobVector.emphasis, input.jobVector.intimacy * 0.72))),
+    pullBackPressure: roundAuditNumber(clamp01(input.jobVector.reset)),
+    punchPressure: roundAuditNumber(clamp01(Math.max(input.jobVector.emphasis * 0.82, input.jobVector.motionFollow * 0.62) - screenSafetyPressure * 0.18)),
+    driftPressure: roundAuditNumber(clamp01(input.jobVector.drift * (1 - repetitionPressure * 0.5))),
+    motionFollowPressure: input.jobVector.motionFollow,
+    cropRisk,
+    screenSafetyPressure,
+    repetitionPressure,
+    sfxPairingEligibility: roundAuditNumber(clamp01(Math.max(input.jobVector.emphasis, input.jobVector.motionFollow * 0.74) - screenSafetyPressure * 0.18)),
+  };
+}
+
+function zoomCrossFamilyPlan(input: {
+  physicalFormInputs: UnifiedZoomMotionPlan['physicalFormInputs'];
+  captionPressure: number;
+  transitionPressure: number;
+  mgPressure: number;
+}): UnifiedZoomMotionPlan['crossFamily'] {
+  return {
+    sfxPairingAllowed: input.physicalFormInputs.sfxPairingEligibility >= 0.58 && input.physicalFormInputs.screenSafetyPressure < 0.78,
+    captionConflictRisk: roundAuditNumber(clamp01(input.captionPressure)),
+    transitionConflictRisk: roundAuditNumber(clamp01(input.transitionPressure)),
+    mgConflictRisk: roundAuditNumber(clamp01(input.mgPressure)),
+  };
+}
+
 function zoomMotionReasonKeys(input: {
   speechPeak: number;
   wordImportance: number;
@@ -1768,7 +2176,14 @@ function zoomMotionReasonKeys(input: {
   emotionIntensity: number;
   visualSignificance: number;
   visualMotion: number;
+  cameraMotion: number;
+  subjectMotion: number;
+  directionMagnitude: number;
   topicDelta: number;
+  shotScale: number;
+  subjectGeometry: UnifiedZoomMotionPlan['subjectGeometry'];
+  motionMemory: UnifiedZoomMotionPlan['motionMemory'];
+  physicalFormInputs: UnifiedZoomMotionPlan['physicalFormInputs'];
   hasSubjectAnchor: boolean;
   visualPressure: number;
 }): string[] {
@@ -1779,8 +2194,16 @@ function zoomMotionReasonKeys(input: {
   if (input.emotionIntensity >= 0.58) reasonKeys.push('emotion');
   if (input.visualSignificance >= 0.48) reasonKeys.push('visual-significance');
   if (input.visualMotion >= 0.48) reasonKeys.push('visual-motion');
+  if (input.cameraMotion >= 0.48) reasonKeys.push('camera-motion');
+  if (input.subjectMotion >= 0.48) reasonKeys.push('subject-motion');
+  if (input.directionMagnitude >= 0.32) reasonKeys.push('motion-direction');
   if (input.topicDelta >= 0.62) reasonKeys.push('topic-shift');
+  if (input.shotScale >= 0.42) reasonKeys.push('shot-scale');
   if (input.hasSubjectAnchor) reasonKeys.push('subject-anchor');
+  if (input.subjectGeometry.offCenter >= 0.42) reasonKeys.push('subject-off-center');
+  if (input.motionMemory.timeSinceLastZoomSec !== null && input.motionMemory.timeSinceLastZoomSec < 3) reasonKeys.push('recent-zoom');
+  if (input.physicalFormInputs.repetitionPressure >= 0.58) reasonKeys.push('repetition-pressure');
+  if (input.physicalFormInputs.cropRisk >= 0.72) reasonKeys.push('crop-risk');
   if (input.visualPressure >= 0.72) reasonKeys.push('visual-pressure');
   return reasonKeys;
 }
@@ -1805,7 +2228,12 @@ function zoomSignalAliases(plan: UnifiedZoomMotionPlan): Record<string, unknown>
   assign('main_subject_width', 'mainSubjectWidth');
   assign('main_subject_height', 'mainSubjectHeight');
   assign('face_present', 'facePresent');
+  assign('eye_contact', 'eyeContact');
   assign('shot_scale', 'shotScale');
+  assign('motion_vector_x', 'motionVectorX');
+  assign('motion_vector_y', 'motionVectorY');
+  assign('camera_motion', 'cameraMotion');
+  assign('subject_motion', 'subjectMotion');
   assign('speech_energy', 'speechPeak');
   assign('word_importance', 'wordImportance');
   assign('beat_strength', 'beatStrength');
@@ -1815,6 +2243,27 @@ function zoomSignalAliases(plan: UnifiedZoomMotionPlan): Record<string, unknown>
   assign('text_on_screen', 'textOnScreen');
   assign('visual_complexity', 'visualComplexity');
   assign('topic_shift', 'topicDelta');
+  assign('time_since_last_zoom', 'timeSinceLastZoomSec');
+  assign('recent_zoom_similarity', 'recentZoomSimilarity');
+  assign('recent_motion_similarity', 'recentMotionSimilarity');
+  assign('recent_zoom_density', 'recentZoomDensity');
+  assign('active_overlay_density', 'activeOverlayDensity');
+  aliases.zoom_job_emphasis = plan.jobVector.emphasis;
+  aliases.zoom_job_intimacy = plan.jobVector.intimacy;
+  aliases.zoom_job_reveal = plan.jobVector.reveal;
+  aliases.zoom_job_reset = plan.jobVector.reset;
+  aliases.zoom_job_drift = plan.jobVector.drift;
+  aliases.zoom_job_motion_follow = plan.jobVector.motionFollow;
+  aliases.zoom_job_restraint = plan.jobVector.restraint;
+  aliases.zoom_anchor_confidence = plan.physicalFormInputs.anchorConfidence;
+  aliases.zoom_push_pressure = plan.physicalFormInputs.pushPressure;
+  aliases.zoom_pull_back_pressure = plan.physicalFormInputs.pullBackPressure;
+  aliases.zoom_punch_pressure = plan.physicalFormInputs.punchPressure;
+  aliases.zoom_drift_pressure = plan.physicalFormInputs.driftPressure;
+  aliases.zoom_motion_follow_pressure = plan.physicalFormInputs.motionFollowPressure;
+  aliases.zoom_crop_risk = plan.physicalFormInputs.cropRisk;
+  aliases.zoom_repetition_pressure = plan.physicalFormInputs.repetitionPressure;
+  aliases.zoom_screen_safety_pressure = plan.physicalFormInputs.screenSafetyPressure;
   return aliases;
 }
 
@@ -2337,6 +2786,7 @@ function resolveCameraExecutionLicense(decision: ReactiveEditDecision): { execut
 
   if (decision.type === 'zoom') {
     const zoomPlan = resolveZoomMotionPlan(decision);
+    if (!zoomPlan) return { executable: false, reason: 'missing-camera-motion-atoms' };
     if (zoomPlan && !zoomPlan.visualMotionAllowed) {
       return { executable: false, reason: 'zoom-family-plan-kept-clean-camera' };
     }
@@ -2419,6 +2869,9 @@ function hasCameraMotionEvidence(decision: ReactiveEditDecision): boolean {
     'motionVectorX',
     'motionVectorY',
     'shotScale',
+    'cameraMotion',
+    'subjectMotion',
+    'eyeContact',
     'speechPeak',
     'beatStrength',
     'wordImportance',
@@ -2429,6 +2882,8 @@ function hasCameraMotionEvidence(decision: ReactiveEditDecision): boolean {
     'textOnScreen',
     'visualComplexity',
     'topicDelta',
+    'timeSinceLastZoomSec',
+    'recentZoomSimilarity',
   ]);
 }
 
@@ -2713,6 +3168,11 @@ function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: 
             visualMotionAllowed: zoomPlan.visualMotionAllowed,
             executionLicense: reason,
             reasonKeys: zoomPlan.reasonKeys,
+            jobVector: zoomPlan.jobVector,
+            subjectGeometry: zoomPlan.subjectGeometry,
+            motionMemory: zoomPlan.motionMemory,
+            physicalFormInputs: zoomPlan.physicalFormInputs,
+            crossFamily: zoomPlan.crossFamily,
           },
         },
       },

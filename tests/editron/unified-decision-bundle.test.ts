@@ -320,9 +320,19 @@ describe('unified decision bundle merge', () => {
             music_energy: 0.68,
             mainSubjectX: 0.72,
             mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
             face_present: 1,
+            eye_contact: 0.9,
+            shot_scale: 'CU',
+            motionVectorX: -0.36,
+            cameraMotion: 0.42,
+            subjectMotion: 0.31,
             motion_intensity: 0.28,
             text_on_screen: 0.12,
+            timeSinceLastZoomSec: 6,
+            recentZoomSimilarity: 0.12,
+            activeOverlayDensity: 0.18,
           },
         },
       }),
@@ -336,14 +346,63 @@ describe('unified decision bundle merge', () => {
         beat_strength: 0.68,
         main_subject_x: 0.72,
         main_subject_y: 0.42,
+        shot_scale: 'CU',
+        motion_vector_x: -0.36,
+        time_since_last_zoom: 6,
+        zoom_job_emphasis: expect.any(Number),
+        zoom_push_pressure: expect.any(Number),
+        zoom_repetition_pressure: expect.any(Number),
       }),
       zoomMotionPlan: expect.objectContaining({
         version: 'zoom-motion-plan-v1',
         visualMotionAllowed: true,
-        reasonKeys: expect.arrayContaining(['speech-peak', 'word-importance', 'beat', 'subject-anchor']),
+        reasonKeys: expect.arrayContaining([
+          'speech-peak',
+          'word-importance',
+          'beat',
+          'subject-anchor',
+          'motion-direction',
+          'shot-scale',
+          'subject-off-center',
+        ]),
+        jobVector: expect.objectContaining({
+          emphasis: expect.any(Number),
+          intimacy: expect.any(Number),
+          motionFollow: expect.any(Number),
+          restraint: expect.any(Number),
+        }),
+        subjectGeometry: expect.objectContaining({
+          hasSubjectAnchor: true,
+          anchorX: 0.72,
+          anchorY: 0.42,
+          shotScale: 0.86,
+          offCenter: expect.any(Number),
+          anchorConfidence: expect.any(Number),
+        }),
+        motionMemory: expect.objectContaining({
+          timeSinceLastZoomSec: 6,
+          recentZoomSimilarity: 0.12,
+          repeatedTargetRisk: expect.any(Number),
+        }),
+        physicalFormInputs: expect.objectContaining({
+          anchorConfidence: expect.any(Number),
+          pushPressure: expect.any(Number),
+          punchPressure: expect.any(Number),
+          cropRisk: expect.any(Number),
+          repetitionPressure: expect.any(Number),
+          sfxPairingEligibility: expect.any(Number),
+        }),
+        crossFamily: expect.objectContaining({
+          sfxPairingAllowed: true,
+          captionConflictRisk: expect.any(Number),
+          transitionConflictRisk: expect.any(Number),
+          mgConflictRisk: expect.any(Number),
+        }),
         evidence: expect.objectContaining({
           intensity: 0.84,
           hasSubjectAnchor: true,
+          shotScale: 0.86,
+          directionMagnitude: 0.36,
         }),
         calibrationStatus: 'invented-needs-calibration',
       }),
@@ -353,6 +412,24 @@ describe('unified decision bundle merge', () => {
           version: 'zoom-family-planner-v1',
           family: 'zoom',
           visualMotionAllowed: true,
+          jobVector: expect.objectContaining({
+            emphasis: expect.any(Number),
+            motionFollow: expect.any(Number),
+          }),
+          subjectGeometry: expect.objectContaining({
+            hasSubjectAnchor: true,
+            shotScale: 0.86,
+          }),
+          motionMemory: expect.objectContaining({
+            timeSinceLastZoomSec: 6,
+          }),
+          physicalFormInputs: expect.objectContaining({
+            pushPressure: expect.any(Number),
+            repetitionPressure: expect.any(Number),
+          }),
+          crossFamily: expect.objectContaining({
+            sfxPairingAllowed: true,
+          }),
         }),
       }),
     }));
@@ -401,6 +478,56 @@ describe('unified decision bundle merge', () => {
           speechPeak: 0.22,
           textOnScreen: 0.9,
           visualComplexity: 0.84,
+        }),
+      }),
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'zoom-family-plan-kept-clean-camera': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('keeps recently repeated zoom signals as evidence even when the moment is strong', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'zoom',
+        frame: 420,
+        source: 'signal-executor:repeated-zoom',
+        confidence: 0.9,
+        params: {
+          signals: {
+            speech_energy: 0.88,
+            word_importance: 0.82,
+            mainSubjectX: 0.5,
+            mainSubjectY: 0.46,
+            face_present: 1,
+            timeSinceLastZoomSec: 0.4,
+            recentZoomSimilarity: 0.94,
+            recentZoomDensity: 0.82,
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'zoom',
+      family: 'camera',
+      source: 'signal-executor:repeated-zoom',
+      reason: 'zoom-family-plan-kept-clean-camera',
+      candidate: expect.objectContaining({
+        projectedAtoms: expect.objectContaining({
+          speechPeak: 0.88,
+          wordImportance: 0.82,
+          timeSinceLastZoomSec: 0.4,
+          recentZoomSimilarity: 0.94,
+          recentZoomDensity: 0.82,
         }),
       }),
     }));
