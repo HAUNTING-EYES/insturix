@@ -2,6 +2,7 @@ import type {
   EditDecision as ReactiveEditDecision,
   EditDecisionList as ReactiveEditDecisionList,
 } from './reactive-edit-engine';
+import { enrichDecisionsWithOverlayTimelineMemory } from './overlay-timeline-memory';
 
 type CompatibleEditDecision = Partial<ReactiveEditDecision> & {
   type: ReactiveEditDecision['type'];
@@ -419,17 +420,20 @@ const DEFAULT_MAX_NEAR_FRAME_WINDOW = 24;
 export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundleOptions): UnifiedDecisionBundle {
   const edl = normalizeEdl(options.edl);
   const isSignalSource = options.source === 'signal-driven';
+  const enrichedEdl = isSignalSource
+    ? { ...edl, decisions: enrichDecisionsWithOverlayTimelineMemory(edl.decisions, edl.decisions) }
+    : edl;
   return {
     source: options.source,
     authority: authorityForSingleProducer(options.source),
-    edl,
+    edl: enrichedEdl,
     graphicsDensity: options.graphicsDensity,
-    expectedExecuted: options.expectedExecuted ?? edl.totalDecisions,
+    expectedExecuted: options.expectedExecuted ?? enrichedEdl.totalDecisions,
     expectedSkipped: options.expectedSkipped ?? 0,
     evidence: {
-      primaryDecisionCount: isSignalSource ? 0 : edl.totalDecisions,
-      signalDecisionCount: isSignalSource ? edl.totalDecisions : 0,
-      addedSignalDecisionCount: isSignalSource ? edl.totalDecisions : 0,
+      primaryDecisionCount: isSignalSource ? 0 : enrichedEdl.totalDecisions,
+      signalDecisionCount: isSignalSource ? enrichedEdl.totalDecisions : 0,
+      addedSignalDecisionCount: isSignalSource ? enrichedEdl.totalDecisions : 0,
       validatedDecisionCount: 0,
       suppressedSignalDuplicateCount: 0,
       evidenceOnlySignalDecisionCount: 0,
@@ -489,7 +493,10 @@ export function mergeSignalDrivenBundle(
   }
 
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
-  const signalDecisions = signalEdl.decisions.map(cloneDecision);
+  const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(
+    signalEdl.decisions.map(cloneDecision),
+    primaryBundle.edl.decisions,
+  );
   const resolvedIncomingProducer = incomingProducer
     ?? inferIncomingProducer(signalDecisions, primaryBundle.source);
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
