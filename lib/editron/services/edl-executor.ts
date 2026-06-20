@@ -211,6 +211,25 @@ export interface RejectedDecision {
   params?: Record<string, unknown>;
 }
 
+export type DecisionExecutionTraceOutcome = 'executed' | 'budget-rejected' | 'guard-rejected' | 'error';
+
+export interface DecisionExecutionTraceEntry {
+  decisionIndex: number;
+  type: string;
+  frame: number;
+  source?: string;
+  signal?: string;
+  confidence?: number;
+  outcome: DecisionExecutionTraceOutcome;
+  reason?: string;
+  ruleId?: string;
+  createdOverlayIds: Array<string | number>;
+  modifiedOverlayIds: Array<string | number>;
+  beforeOverlayCount: number;
+  afterOverlayCount: number;
+  paramsPreview?: Record<string, unknown>;
+}
+
 export interface ExecutionResult {
   decisionsExecuted: number;
   decisionsSkipped: number;
@@ -219,6 +238,10 @@ export interface ExecutionResult {
   errors: string[];
   /** Per-decision rejection reasons — surfaces WHY decisions were dropped (A3.5.10 fix) */
   rejectedDecisions: RejectedDecision[];
+  /** Bounded decision-to-overlay trace for Phase 0 debugging. */
+  decisionExecutionTrace: DecisionExecutionTraceEntry[];
+  decisionExecutionTraceTotal: number;
+  decisionExecutionTraceTruncated: boolean;
   /** AssetIds of overlays whose zoom decisions were rejected by budget — drift-zoom should skip these */
   budgetRejectedZoomAssetIds: Set<string>;
   /** AssetIds that already received a zoom from EDL — drift-zoom should skip these too */
@@ -249,6 +272,181 @@ interface SfxCacheEntry {
 
 type SfxAssetCache = Map<string, SfxCacheEntry | null>;
 
+const MAX_DECISION_EXECUTION_TRACE_ENTRIES = 300;
+
+type OverlayTraceSnapshot = {
+  overlayCount: number;
+  signatures: Map<string, { id: string | number; signature: string }>;
+};
+
+type OverlayTraceDiff = {
+  createdOverlayIds: Array<string | number>;
+  modifiedOverlayIds: Array<string | number>;
+  beforeOverlayCount: number;
+  afterOverlayCount: number;
+};
+
+function appendDecisionExecutionTrace(result: ExecutionResult, entry: DecisionExecutionTraceEntry): void {
+  result.decisionExecutionTraceTotal += 1;
+  if (result.decisionExecutionTrace.length < MAX_DECISION_EXECUTION_TRACE_ENTRIES) {
+    result.decisionExecutionTrace.push(entry);
+  } else {
+    result.decisionExecutionTraceTruncated = true;
+  }
+}
+
+function buildDecisionExecutionTraceEntry(
+  decision: EditDecision,
+  decisionIndex: number,
+  outcome: DecisionExecutionTraceOutcome,
+  beforeSnapshot: OverlayTraceSnapshot,
+  overlays: Overlay[],
+  options: { reason?: string; ruleId?: string } = {},
+): DecisionExecutionTraceEntry {
+  const diff = diffOverlayTraceSnapshot(beforeSnapshot, overlays);
+  const entry: DecisionExecutionTraceEntry = {
+    decisionIndex,
+    type: decision.type,
+    frame: decision.frame,
+    source: typeof decision.source === 'string' ? decision.source : undefined,
+    signal: typeof decision.signal === 'string' ? decision.signal : undefined,
+    confidence: typeof decision.confidence === 'number' ? round4(decision.confidence) : undefined,
+    outcome,
+    reason: options.reason,
+    ruleId: options.ruleId,
+    createdOverlayIds: diff.createdOverlayIds,
+    modifiedOverlayIds: diff.modifiedOverlayIds,
+    beforeOverlayCount: diff.beforeOverlayCount,
+    afterOverlayCount: diff.afterOverlayCount,
+  };
+  const paramsPreview = compactDecisionParamsPreview(decision.params);
+  if (paramsPreview) entry.paramsPreview = paramsPreview;
+  return entry;
+}
+
+function captureOverlayTraceSnapshot(overlays: Overlay[]): OverlayTraceSnapshot {
+  const signatures = new Map<string, { id: string | number; signature: string }>();
+  overlays.forEach((overlay, index) => {
+    const key = overlayTraceKey(overlay, index);
+    signatures.set(key, { id: overlayTraceId(overlay, index), signature: overlayTraceSignature(overlay) });
+  });
+  return { overlayCount: overlays.length, signatures };
+}
+
+function diffOverlayTraceSnapshot(before: OverlayTraceSnapshot, overlays: Overlay[]): OverlayTraceDiff {
+  const createdOverlayIds: Array<string | number> = [];
+  const modifiedOverlayIds: Array<string | number> = [];
+  overlays.forEach((overlay, index) => {
+    const key = overlayTraceKey(overlay, index);
+    const previous = before.signatures.get(key);
+    const id = overlayTraceId(overlay, index);
+    if (!previous) {
+      createdOverlayIds.push(id);
+      return;
+    }
+    if (previous.signature !== overlayTraceSignature(overlay)) {
+      modifiedOverlayIds.push(id);
+    }
+  });
+  return {
+    createdOverlayIds,
+    modifiedOverlayIds,
+    beforeOverlayCount: before.overlayCount,
+    afterOverlayCount: overlays.length,
+  };
+}
+
+function overlayTraceKey(overlay: Overlay, index: number): string {
+  const id = (overlay as any).id;
+  if (typeof id === 'string' || typeof id === 'number') return `${typeof id}:${String(id)}`;
+  return `index:${index}`;
+}
+
+function overlayTraceId(overlay: Overlay, index: number): string | number {
+  const id = (overlay as any).id;
+  if (typeof id === 'string' || typeof id === 'number') return id;
+  return `index:${index}`;
+}
+
+function overlayTraceSignature(overlay: Overlay): string {
+  const metadata = isTraceRecord((overlay as any).metadata) ? (overlay as any).metadata : {};
+  const styles = isTraceRecord((overlay as any).styles) ? compactTraceRecord((overlay as any).styles, 24) : null;
+  const keyframeTracks = Array.isArray((overlay as any).keyframeTracks)
+    ? (overlay as any).keyframeTracks.slice(0, 12).map((track: any) => ({
+      property: typeof track?.property === 'string' ? track.property : null,
+      keyframeCount: Array.isArray(track?.keyframes) ? track.keyframes.length : 0,
+      firstFrame: Array.isArray(track?.keyframes) ? track.keyframes[0]?.frame : undefined,
+      lastFrame: Array.isArray(track?.keyframes) ? track.keyframes[track.keyframes.length - 1]?.frame : undefined,
+    }))
+    : [];
+
+  return JSON.stringify({
+    type: (overlay as any).type,
+    from: (overlay as any).from,
+    durationInFrames: (overlay as any).durationInFrames,
+    row: (overlay as any).row,
+    left: (overlay as any).left,
+    top: (overlay as any).top,
+    width: (overlay as any).width,
+    height: (overlay as any).height,
+    transitionStyle: (overlay as any).transitionStyle,
+    styles,
+    keyframeTracks,
+    metadata: {
+      source: traceScalar(metadata.source),
+      placementRegion: traceScalar(metadata.placementRegion),
+      atomicPlanObserveMode: metadata.atomicPlanObserveMode === true,
+      atomicOverlayReceiptCount: Array.isArray(metadata.atomicOverlayReceipts) ? metadata.atomicOverlayReceipts.length : (metadata.atomicOverlayReceipt ? 1 : 0),
+      atomicOverlayFormCount: Array.isArray(metadata.atomicOverlayForms) ? metadata.atomicOverlayForms.length : (metadata.atomicOverlayForm ? 1 : 0),
+      atomicZoomForm: compactTraceRecord(metadata.atomicZoomForm, 16),
+      atomicTransitionForm: compactTraceRecord(metadata.atomicTransitionForm, 16),
+      atomicSfxForm: compactTraceRecord(metadata.atomicSfxForm, 16),
+      transitionSfxPlacement: compactTraceRecord(metadata.transitionSfxPlacement, 12),
+    },
+  });
+}
+
+function compactDecisionParamsPreview(params: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!params) return undefined;
+  const keys = [
+    'graphicType', 'creativeDecisionType', 'text', 'emphasisWord', 'sfxType', 'technique',
+    'zoomType', 'transitionType', 'transitionStyle', 'style', 'role', 'source',
+  ];
+  const preview: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (params[key] !== undefined) preview[key] = traceScalar(params[key]);
+  }
+  if (isTraceRecord(params.unifiedDecisionMerge)) {
+    preview.unifiedDecisionMerge = compactTraceRecord(params.unifiedDecisionMerge, 10);
+  }
+  if (isTraceRecord(params.unifiedDecisionOwner)) {
+    preview.unifiedDecisionOwner = compactTraceRecord(params.unifiedDecisionOwner, 10);
+  }
+  return Object.keys(preview).length > 0 ? preview : undefined;
+}
+
+function compactTraceRecord(value: unknown, maxKeys: number): Record<string, unknown> | null {
+  if (!isTraceRecord(value)) return null;
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort().slice(0, maxKeys)) {
+    output[key] = traceScalar(value[key]);
+  }
+  return output;
+}
+
+function traceScalar(value: unknown): unknown {
+  if (typeof value === 'string') return value.length > 120 ? `${value.slice(0, 117)}...` : value;
+  if (typeof value === 'number') return Number.isFinite(value) ? round4(value) : null;
+  if (typeof value === 'boolean' || value == null) return value;
+  if (Array.isArray(value)) return { length: value.length };
+  if (isTraceRecord(value)) return { keys: Object.keys(value).slice(0, 12) };
+  return String(value).slice(0, 120);
+}
+
+function isTraceRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // ─── Executor ────────────────────────────────────────────────────
 
 /**
@@ -278,6 +476,9 @@ export async function executeEDL(
     overlaysModified: 0,
     errors: [],
     rejectedDecisions: [],
+    decisionExecutionTrace: [],
+    decisionExecutionTraceTotal: 0,
+    decisionExecutionTraceTruncated: false,
     budgetRejectedZoomAssetIds: new Set<string>(),
     zoomedAssetIds: new Set<string>(),
   };
@@ -430,6 +631,7 @@ export async function executeEDL(
       console.warn(`[EDL-Exec] decision enrichment failed for ${decision.type} @${decision.frame} (non-fatal):`, enrichErr instanceof Error ? enrichErr.message : enrichErr);
     }
 
+    const beforeTraceSnapshot = captureOverlayTraceSnapshot(overlays);
     const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
@@ -458,6 +660,15 @@ export async function executeEDL(
         }
       }
 
+      appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+        decision,
+        currentDecisionIndex,
+        'budget-rejected',
+        beforeTraceSnapshot,
+        overlays,
+        { reason: `BUDGET: ${budgetResult.reason}`, ruleId: budgetResult.ruleId },
+      ));
+
       // Budget rejected = skip. No substitution.
       // OLD: budget suggested alternatives (e.g., caption-emphasis when zoom was rejected).
       // This broke the signal→mapping→technique chain — the intelligence chose zoom
@@ -469,6 +680,14 @@ export async function executeEDL(
     try {
       const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity);
       if (applied) {
+        appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+          decision,
+          currentDecisionIndex,
+          'executed',
+          beforeTraceSnapshot,
+          overlays,
+          { reason: 'handler-applied' },
+        ));
         budget.commit(decision as any);
         result.decisionsExecuted++;
         if (decision.type === 'graphic') {
@@ -488,22 +707,40 @@ export async function executeEDL(
         }
       } else {
         result.decisionsSkipped++;
+        const guardReason = `GUARD: ${decision.reason?.substring(0, 80) || 'handler returned null (dedup/validation)'}`;
         result.rejectedDecisions.push({
           type: decision.type,
           frame: decision.frame,
-          reason: `GUARD: ${decision.reason?.substring(0, 80) || 'handler returned null (dedup/validation)'}`,
+          reason: guardReason,
           params: { graphicType: decision.params?.graphicType, text: (decision.params?.text || '').substring(0, 60) },
         });
+        appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+          decision,
+          currentDecisionIndex,
+          'guard-rejected',
+          beforeTraceSnapshot,
+          overlays,
+          { reason: guardReason },
+        ));
         console.log(`[EDL-Exec] SKIPPED (returned null): ${decision.type} at frame ${decision.frame} — ${decision.reason?.substring(0, 80) || 'no reason'}`);
       }
     } catch (err: any) {
       result.decisionsSkipped++;
+      const errorReason = `ERROR: ${err.message}`;
       result.rejectedDecisions.push({
         type: decision.type,
         frame: decision.frame,
-        reason: `ERROR: ${err.message}`,
+        reason: errorReason,
       });
       result.errors.push(`${decision.type} at frame ${decision.frame}: ${err.message}`);
+      appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+        decision,
+        currentDecisionIndex,
+        'error',
+        beforeTraceSnapshot,
+        overlays,
+        { reason: errorReason },
+      ));
       console.error(`[EDL-Exec] ERROR: ${decision.type} at frame ${decision.frame} — ${err.message}`);
     }
   }

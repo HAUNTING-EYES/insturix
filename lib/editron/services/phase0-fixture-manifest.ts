@@ -517,6 +517,7 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
       counts: {},
       evidence: null,
       signalDecisionHealth: summarizeSignalDecisionHealth(null),
+      decisionOutputTrace: summarizeDecisionOutputTrace(null),
     };
   }
 
@@ -535,8 +536,100 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
     counts: (isRecord(bundle.counts) ? bundle.counts : isRecord(bundle.decisionCounts) ? bundle.decisionCounts : countDecisions(decisions)),
     evidence,
     signalDecisionHealth: summarizeSignalDecisionHealth(evidence),
+    decisionOutputTrace: summarizeDecisionOutputTrace(bundle.executionTrace),
   };
 }
+
+function summarizeDecisionOutputTrace(trace: unknown) {
+  if (!isRecord(trace)) {
+    return {
+      version: 'phase0-decision-output-trace-v1' as const,
+      status: 'missing' as const,
+      issue: 'unifiedDecisionBundle.executionTrace is missing',
+      totalObserved: 0,
+      keptEntries: 0,
+      truncated: false,
+      executed: 0,
+      skipped: 0,
+      overlaysCreated: 0,
+      overlaysModified: 0,
+      byOutcome: {},
+      createdOverlayLinkCount: 0,
+      modifiedOverlayLinkCount: 0,
+      executedWithoutOverlayLinkCount: 0,
+      samples: [] as Array<Record<string, unknown>>,
+    };
+  }
+
+  const samples = Array.isArray(trace.samples) ? trace.samples.filter(isRecord) : [];
+  const byOutcome = isRecord(trace.byOutcome) ? normalizeOutcomeCounts(trace.byOutcome) : countTraceOutcomes(samples);
+  const totalObserved = readPositiveNumber(trace.totalObserved, sumPositiveValues(byOutcome));
+  const keptEntries = readPositiveNumber(trace.keptEntries, samples.length);
+  const executed = readPositiveNumber(trace.executed, readPositiveNumber(byOutcome.executed, 0));
+  const skipped = readPositiveNumber(trace.skipped, readPositiveNumber(byOutcome['budget-rejected'], 0) + readPositiveNumber(byOutcome['guard-rejected'], 0) + readPositiveNumber(byOutcome.error, 0));
+  const overlaysCreated = readPositiveNumber(trace.overlaysCreated, 0);
+  const overlaysModified = readPositiveNumber(trace.overlaysModified, 0);
+  const createdOverlayLinkCount = readPositiveNumber(trace.createdOverlayLinkCount, samples.reduce((sum, sample) => sum + readUnknownArrayLength(sample.createdOverlayIds), 0));
+  const modifiedOverlayLinkCount = readPositiveNumber(trace.modifiedOverlayLinkCount, samples.reduce((sum, sample) => sum + readUnknownArrayLength(sample.modifiedOverlayIds), 0));
+  const executedWithoutOverlayLinkCount = readPositiveNumber(
+    trace.executedWithoutOverlayLinkCount,
+    samples.filter((sample) => readString(sample.outcome) === 'executed' && readUnknownArrayLength(sample.createdOverlayIds) === 0 && readUnknownArrayLength(sample.modifiedOverlayIds) === 0).length,
+  );
+  const status = totalObserved === 0
+    ? 'empty' as const
+    : executed > 0 && createdOverlayLinkCount + modifiedOverlayLinkCount === 0
+      ? 'no-output-links' as const
+      : executedWithoutOverlayLinkCount > 0
+        ? 'partial-output-links' as const
+        : 'present' as const;
+
+  return {
+    version: 'phase0-decision-output-trace-v1' as const,
+    status,
+    issue: null,
+    totalObserved,
+    keptEntries,
+    truncated: trace.truncated === true,
+    executed,
+    skipped,
+    overlaysCreated,
+    overlaysModified,
+    byOutcome,
+    createdOverlayLinkCount,
+    modifiedOverlayLinkCount,
+    executedWithoutOverlayLinkCount,
+    samples: samples.slice(0, 25).map(summarizeDecisionOutputTraceSample),
+  };
+}
+
+function summarizeDecisionOutputTraceSample(sample: JsonRecord) {
+  return {
+    decisionIndex: readNullableNumber(sample.decisionIndex),
+    type: readString(sample.type),
+    frame: readNullableNumber(sample.frame),
+    source: readString(sample.source),
+    signal: readString(sample.signal),
+    confidence: readNullableNumber(sample.confidence),
+    outcome: readString(sample.outcome),
+    reason: preview(sample.reason, 180),
+    ruleId: readString(sample.ruleId),
+    createdOverlayIds: readIdArray(sample.createdOverlayIds).slice(0, 10),
+    modifiedOverlayIds: readIdArray(sample.modifiedOverlayIds).slice(0, 10),
+    beforeOverlayCount: readNullableNumber(sample.beforeOverlayCount),
+    afterOverlayCount: readNullableNumber(sample.afterOverlayCount),
+    paramsPreview: isRecord(sample.paramsPreview) ? sample.paramsPreview : null,
+  };
+}
+
+function countTraceOutcomes(samples: JsonRecord[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const sample of samples) {
+    const outcome = readString(sample.outcome) || 'unknown';
+    counts[outcome] = (counts[outcome] ?? 0) + 1;
+  }
+  return sortRecordByKey(counts);
+}
+
 
 function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
   const audit = isRecord(evidence?.signalDecisionAudit) ? evidence.signalDecisionAudit : null;
@@ -1378,6 +1471,10 @@ function readArrayLength(value: unknown, key: string) {
   if (!isRecord(value)) return 0;
   const candidate = value[key];
   return Array.isArray(candidate) ? candidate.length : 0;
+}
+
+function readUnknownArrayLength(value: unknown) {
+  return Array.isArray(value) ? value.length : 0;
 }
 
 function overlayId(overlay: Phase0OverlayLike) {

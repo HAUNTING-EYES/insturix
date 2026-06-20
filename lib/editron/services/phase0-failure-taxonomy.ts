@@ -288,6 +288,42 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
       evidence: compactSignalDecisionHealthEvidence(signalDecisionHealth),
     });
   }
+
+  const decisionOutputTrace = asRecord(manifest.unifiedDecisionBundle.decisionOutputTrace);
+  const outputTraceStatus = readString(decisionOutputTrace.status);
+  if (outputTraceStatus === 'missing') {
+    classes.push({
+      id: 'decision.output_trace_missing',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Unified bundle exists, but decision-to-overlay execution trace is missing.',
+      evidence: { issue: readString(decisionOutputTrace.issue) },
+    });
+  } else if (outputTraceStatus === 'empty') {
+    classes.push({
+      id: 'decision.output_trace_empty',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Decision-to-overlay execution trace exists but contains no observed decisions.',
+      evidence: compactDecisionOutputTraceEvidence(decisionOutputTrace),
+    });
+  } else if (outputTraceStatus === 'no-output-links') {
+    classes.push({
+      id: 'decision.output_trace_no_overlay_links',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Executed decisions were observed, but none linked to created or modified overlays.',
+      evidence: compactDecisionOutputTraceEvidence(decisionOutputTrace),
+    });
+  } else if (outputTraceStatus === 'partial-output-links') {
+    classes.push({
+      id: 'decision.output_trace_partial_overlay_links',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Some executed decisions did not link to a created or modified overlay.',
+      evidence: compactDecisionOutputTraceEvidence(decisionOutputTrace),
+    });
+  }
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -1206,6 +1242,24 @@ function compactSignalDecisionHealthEvidence(signalDecisionHealth: JsonRecord): 
     topReasons: Array.isArray(signalDecisionHealth.topReasons) ? signalDecisionHealth.topReasons.slice(0, 5) : [],
     candidateSamples: Array.isArray(signalDecisionHealth.candidateSamples) ? signalDecisionHealth.candidateSamples.slice(0, 5) : [],
     evidenceSamples: Array.isArray(signalDecisionHealth.evidenceSamples) ? signalDecisionHealth.evidenceSamples.slice(0, 5) : [],
+  };
+}
+
+function compactDecisionOutputTraceEvidence(decisionOutputTrace: JsonRecord): Record<string, unknown> {
+  return {
+    status: readString(decisionOutputTrace.status),
+    totalObserved: readNumber(decisionOutputTrace.totalObserved),
+    keptEntries: readNumber(decisionOutputTrace.keptEntries),
+    truncated: decisionOutputTrace.truncated === true,
+    executed: readNumber(decisionOutputTrace.executed),
+    skipped: readNumber(decisionOutputTrace.skipped),
+    overlaysCreated: readNumber(decisionOutputTrace.overlaysCreated),
+    overlaysModified: readNumber(decisionOutputTrace.overlaysModified),
+    createdOverlayLinkCount: readNumber(decisionOutputTrace.createdOverlayLinkCount),
+    modifiedOverlayLinkCount: readNumber(decisionOutputTrace.modifiedOverlayLinkCount),
+    executedWithoutOverlayLinkCount: readNumber(decisionOutputTrace.executedWithoutOverlayLinkCount),
+    byOutcome: asRecord(decisionOutputTrace.byOutcome),
+    samples: Array.isArray(decisionOutputTrace.samples) ? decisionOutputTrace.samples.slice(0, 5) : [],
   };
 }
 

@@ -23,6 +23,7 @@
 
 import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, ProfileId } from '@/lib/editron/data/edit-profile-types';
 import type { GateResult } from '@/lib/editron/services/quality-gate';
+import type { ExecutionResult } from '@/lib/editron/services/edl-executor';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
 import { projectService } from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -60,7 +61,7 @@ function densityFromGenreParams(graphicDensity: number | undefined): 'heavy' | '
   return 'heavy';
 }
 
-function summarizeUnifiedDecisionBundle(bundle: UnifiedDecisionBundle) {
+function summarizeUnifiedDecisionBundle(bundle: UnifiedDecisionBundle, executionResult?: ExecutionResult) {
   const byType: Record<string, number> = {};
   for (const decision of bundle.edl.decisions) {
     byType[decision.type] = (byType[decision.type] || 0) + 1;
@@ -76,7 +77,56 @@ function summarizeUnifiedDecisionBundle(bundle: UnifiedDecisionBundle) {
     graphicsDensity: bundle.graphicsDensity ?? null,
     byType,
     canonicalTimeline: summarizeCanonicalTimelineFromDecisions(bundle.edl.decisions),
+    executionTrace: summarizeDecisionExecutionTrace(executionResult),
     evidence: bundle.evidence,
+  };
+}
+
+function summarizeDecisionExecutionTrace(executionResult?: ExecutionResult) {
+  if (!executionResult) return null;
+  const entries = executionResult.decisionExecutionTrace ?? [];
+  const byOutcome: Record<string, number> = {};
+  let createdOverlayLinkCount = 0;
+  let modifiedOverlayLinkCount = 0;
+  let executedWithoutOverlayLinkCount = 0;
+  for (const entry of entries) {
+    byOutcome[entry.outcome] = (byOutcome[entry.outcome] ?? 0) + 1;
+    createdOverlayLinkCount += entry.createdOverlayIds.length;
+    modifiedOverlayLinkCount += entry.modifiedOverlayIds.length;
+    if (entry.outcome === 'executed' && entry.createdOverlayIds.length === 0 && entry.modifiedOverlayIds.length === 0) {
+      executedWithoutOverlayLinkCount += 1;
+    }
+  }
+
+  return {
+    version: 'decision-output-trace-v1' as const,
+    totalObserved: executionResult.decisionExecutionTraceTotal,
+    keptEntries: entries.length,
+    truncated: executionResult.decisionExecutionTraceTruncated,
+    executed: executionResult.decisionsExecuted,
+    skipped: executionResult.decisionsSkipped,
+    overlaysCreated: executionResult.overlaysCreated,
+    overlaysModified: executionResult.overlaysModified,
+    byOutcome,
+    createdOverlayLinkCount,
+    modifiedOverlayLinkCount,
+    executedWithoutOverlayLinkCount,
+    samples: entries.slice(0, 75).map((entry) => ({
+      decisionIndex: entry.decisionIndex,
+      type: entry.type,
+      frame: entry.frame,
+      source: entry.source,
+      signal: entry.signal,
+      confidence: entry.confidence,
+      outcome: entry.outcome,
+      reason: entry.reason,
+      ruleId: entry.ruleId,
+      createdOverlayIds: entry.createdOverlayIds.slice(0, 10),
+      modifiedOverlayIds: entry.modifiedOverlayIds.slice(0, 10),
+      beforeOverlayCount: entry.beforeOverlayCount,
+      afterOverlayCount: entry.afterOverlayCount,
+      paramsPreview: entry.paramsPreview,
+    })),
   };
 }
 
@@ -1329,7 +1379,7 @@ export async function executeDirectorPlan(
             );
           }
 
-          await executeEDL(
+          const unifiedExecutionResult = await executeEDL(
             unifiedDecisionBundle.edl,
             projectId,
             userId,
@@ -1340,13 +1390,15 @@ export async function executeDirectorPlan(
           );
 
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
-          edlSummary.executed = unifiedDecisionBundle.expectedExecuted;
-          edlSummary.skipped = unifiedDecisionBundle.expectedSkipped;
+          edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
+          edlSummary.skipped = unifiedExecutionResult.decisionsSkipped;
           for (const d of unifiedDecisionBundle.edl.decisions) {
             edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
           }
 
-          const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle);
+          // Provenance guard: summarizeUnifiedDecisionBundle(unifiedDecisionBundle) remains the persisted summary owner;
+          // the execution result only adds observed decision-to-overlay trace evidence.
+          const unifiedDecisionBundleSummary = summarizeUnifiedDecisionBundle(unifiedDecisionBundle, unifiedExecutionResult);
           (result as any).unifiedDecisionBundle = unifiedDecisionBundleSummary;
           await persistUnifiedDecisionBundleSummary(projectId, unifiedDecisionBundleSummary);
           result.decisionAuthority = {
@@ -1364,7 +1416,7 @@ export async function executeDirectorPlan(
             suppressedSignalDuplicateCount: unifiedDecisionBundle.evidence.suppressedSignalDuplicateCount,
             evidenceOnlySignalDecisionCount: unifiedDecisionBundle.evidence.evidenceOnlySignalDecisionCount,
             totalDecisions: unifiedDecisionBundle.edl.totalDecisions,
-            executedDecisions: unifiedDecisionBundle.expectedExecuted,
+            executedDecisions: unifiedExecutionResult.decisionsExecuted,
             signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
 
