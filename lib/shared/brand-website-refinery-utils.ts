@@ -26,6 +26,8 @@ const AUDIENCE_PRODUCT_UNIT_PATTERN = /\b(?:b\d+p\d+|pack\s+of\s+\d+|\d+(?:\.\d+
 const AUDIENCE_PRODUCT_BENEFIT_PATTERN = /(?:\b(?:gift hampers?|hampers?|combos?|bundles?)\b|^(?:[a-z]+\s+)*(?:clear|bright|glowing|radiant|hydrated|smooth|dark)\s*(?:&|and)\s*(?:clear|bright|glowing|radiant|hydrated|smooth|pigmentation)\s+(?:skin|hair|body)$|\b(?:body|beard|hair|skin)\s+trimming\b|\b(?:control|reduce|remove|fight|prevent|repair|nourish|trim|trimming)\b.*\b(?:oil|skin|hair|beard|body|pigmentation|frizz)\b|\b(?:no\s+sls|parabens?|sulphates?|sulfates?)\b)/i;
 const AUDIENCE_PRODUCT_FEATURE_PATTERN = /\b(?:charging|attachments?|nose\s*&\s*ears?|easy cleaning|cleaning under water|under water|waterproof|washable|u-shape|precision)\b/i;
 const AUDIENCE_CODE_OR_MARKUP_PATTERN = /(?:<\/?[a-z][^>]*>|["']>\s*|raw\s*=|await\s+resp|queryselector|document\.|window\.|function\s*\(|=>|{{|}}|@media|--[a-z0-9-]+:|[{};])/i;
+const AUDIENCE_ENTITY_PHRASE_PATTERN = /\b((?:(?:enterprise|b2b|saas|small business|mid-market|ecommerce|retail|marketing|sales|security|it|data|engineering|developer|design|creative|product|finance|support|operations|ops|agency|brand|content|video|social)\s+){1,3}(?:teams?|leaders|operators|managers?|professionals?|users?|customers?|brands?|businesses|companies|creators?|developers?|marketers?))\b/gi;
+const AUDIENCE_POSSESSIVE_VERTICAL_PATTERN = /\b(women|men|kids|children|babies|parents|mothers|moms|families|students|professionals|runners|athletes|gamers|pet parents|homeowners|coffee lovers|travel(?:ers|lers)|creators|developers|designers|founders|freelancers)'?s?\s+(?:fashion|apparel|skincare|skin care|haircare|beauty|grooming|footwear|shoes|bags|luggage|travel|nutrition|wellness|home|electronics|software|tools?)\b/gi;
 const BODY_NOISE_SELECTOR = 'script,style,noscript,svg,template,iframe,nav,header,footer,aside,form';
 const BODY_NOISE_ATTRIBUTE_PATTERN = /(?:^|[\s_-])(?:cart|wishlist|checkout|currency|country|newsletter|cookie|announcement|toast|modal|drawer|menu|breadcrumb|pagination|product-card|productcard|product-grid|productgrid|price|review|recommendation|recommendations|upsell|cross-sell|recently-viewed|recentlyviewed|search|login|signin|sign-in)(?:$|[\s_-])/i;
 const BODY_APP_CHROME_ATTRIBUTE_PATTERN = /(?:^|[\s_-])(?:app-preview|browser-frame|canvas-preview|control-room|demo-panel|demo-preview|editor-preview|export-panel|filmstrip|film-strip|interface-preview|layer-panel|layers-panel|media-panel|mockup|pipeline-preview|product-demo|product-mockup|studio-preview|timeline-preview|workspace-preview)(?:$|[\s_-])/i;
@@ -480,6 +482,28 @@ function extractLogoCandidates(
     }
   });
 
+  $('a[href] img,header img,nav img,[class*="logo" i] img,[id*="logo" i] img,[class*="brand" i] img,[aria-label*="logo" i] img').each((_, el) => {
+    const node = $(el);
+    const link = node.closest('a');
+    const wrapper = node.closest('a,[class*="logo" i],[id*="logo" i],[class*="brand" i],[aria-label*="logo" i],header,nav');
+    const context = [
+      node.attr('alt'),
+      node.attr('class'),
+      node.attr('id'),
+      node.attr('aria-label'),
+      link.attr('href'),
+      link.attr('aria-label'),
+      link.attr('title'),
+      wrapper.attr('class'),
+      wrapper.attr('id'),
+      wrapper.attr('aria-label'),
+    ].filter(Boolean).join(' ');
+    if (!isLikelyLogoWrapperContext(context)) return;
+    for (const sourceValue of imageSourceCandidates(node)) {
+      add(sourceValue, 'website.logoWrapperImage', 'logo', 74, context);
+    }
+  });
+
   return [...candidates.values()]
     .sort((a, b) => b.score - a.score || a.url.localeCompare(b.url))
     .slice(0, 12)
@@ -641,6 +665,13 @@ function isLogoAssetCandidate(url: string, context = ''): boolean {
   const extension = assetExtension(path);
   if (extension && IMAGE_ASSET_EXTENSIONS.has(extension)) return true;
   return /\b(?:logo|logomark|wordmark|brandmark|brand|mark|icon)\b/i.test(path);
+}
+
+function isLikelyLogoWrapperContext(context: string): boolean {
+  const normalized = cleanText(context) ?? '';
+  if (STRONG_LOGO_CONTEXT_PATTERN.test(normalized)) return true;
+  if (/\b(?:brand|brandmark|wordmark|navbar-brand|site-logo|site-title|home|homepage|main navigation)\b/i.test(normalized)) return true;
+  return /(?:^|\s)\/(?:\s|$)/.test(normalized) && !NON_LOGO_ASSET_CONTEXT_PATTERN.test(normalized);
 }
 
 function imageSourceCandidates(node: { attr(name: string): string | undefined }): string[] {
@@ -806,7 +837,7 @@ function isSpecialtyCoffeeBrand(lower: string): boolean {
 }
 
 export function inferAudience(text: string): string[] {
-  const matches = [
+  const explicitMatches = [
     ...text.matchAll(/\bfor\s+([^.!?\n;:]{4,180})/gi),
     ...text.matchAll(/\b(?:built|made|designed|created|engineered)\s+for\s+([^.!?\n;:]{4,180})/gi),
     ...text.matchAll(/\bhelps?\s+([^.!?\n;:]{4,180})/gi),
@@ -817,7 +848,17 @@ export function inferAudience(text: string): string[] {
     .flatMap((match) => expandAudiencePhrases(match[1]))
     .filter((value): value is string => Boolean(value));
 
-  return rankAudiencePhrases(matches).slice(0, 6);
+  return rankAudiencePhrases([...explicitMatches, ...extractAudienceEntityPhrases(text)]).slice(0, 6);
+}
+
+function extractAudienceEntityPhrases(text: string): string[] {
+  const matches = [
+    ...text.matchAll(AUDIENCE_ENTITY_PHRASE_PATTERN),
+    ...text.matchAll(AUDIENCE_POSSESSIVE_VERTICAL_PATTERN),
+  ]
+    .flatMap((match) => expandAudiencePhrases(match[1]))
+    .filter((value): value is string => Boolean(value));
+  return uniqueText(matches);
 }
 
 function expandAudiencePhrases(value: string | undefined): string[] {

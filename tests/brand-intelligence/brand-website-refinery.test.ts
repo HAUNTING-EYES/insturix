@@ -818,6 +818,31 @@ describe('Brand website refinery', () => {
     expect(result.profile.voice.recurringPhrases.value.join(' | ')).not.toMatch(/Shop now|Add to cart|Wishlist|No reviews/i);
   });
 
+  it('extracts concrete audience entity phrases without using generic defaults', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://edgebrand.example',
+      html: `
+<!doctype html>
+<html>
+  <head><title>EdgeBrand security platform</title></head>
+  <body>
+    <h1>Secure apps and APIs across every edge</h1>
+    <p>Enterprise IT teams protect customer journeys with edge security, bot defense, and API protection.</p>
+    <p>Women's skincare routines need gentle daily care, not noisy product-card copy.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_edgebrand',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_entity_audience',
+    });
+
+    const audience = result.profile.identity.audience.value;
+    expect(audience).toEqual(expect.arrayContaining(['Enterprise IT teams', 'Women']));
+    expect(audience).not.toEqual(expect.arrayContaining(['teams']));
+  });
+
   it('filters broad-scan audience junk without hiding real customer groups', () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://broad-scan.example',
@@ -1165,6 +1190,40 @@ describe('Brand website refinery', () => {
     expect(logoUrls).not.toContain('https://northstar.example/share/brand-card.jpg');
   });
 
+  it('uses header or home-link wrapper context for generic logo filenames', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://edgebrand.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>EdgeBrand</title>
+    <meta property="og:image" content="/share/social-card.jpg">
+  </head>
+  <body>
+    <header>
+      <a href="/" aria-label="EdgeBrand home"><img src="/assets/edgebrand.svg" alt="EdgeBrand"></a>
+    </header>
+    <main><img class="product-card" src="/products/device.svg" alt="Edge appliance"></main>
+  </body>
+</html>
+`,
+      brandId: 'brand_edgebrand',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_logo_wrapper_context',
+    });
+
+    const logoCandidates = result.candidates.filter((candidate) => candidate.signalPath === 'assets.logoCandidates');
+    expect(logoCandidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        normalizedValue: 'https://edgebrand.example/assets/edgebrand.svg',
+        sourceField: 'website.logoWrapperImage',
+      }),
+    ]));
+    expect(logoCandidates.map((candidate) => candidate.normalizedValue)).not.toContain('https://edgebrand.example/products/device.svg');
+  });
+
   it('probes website asset availability and downgrades unreachable candidates', async () => {
     const result = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://northstar.example',
@@ -1506,6 +1565,24 @@ describe('Brand website refinery', () => {
       'browser fallback reason=javascript_shell',
     ]));
     expect(snapshot.browserFallbackRequired).toBe(false);
+  });
+
+  it('rejects browser fallback output that is still a security checkpoint', async () => {
+    await expect(
+      fetchWebsiteBrandSnapshot('blocked.example', {
+        now: NOW,
+        disableBrowserLikeRetry: true,
+        fetchFn: async () => new Response('<html><title>Access Denied</title><body>Access Denied</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        browserFallbackFetchFn: async () => ({
+          normalizedUrl: 'https://blocked.example/',
+          html: '<html><title>Vercel Security Checkpoint</title><body>We are verifying your browser. Website owner? Click here to fix.</body></html>',
+          contentType: 'text/html',
+        }),
+      }),
+    ).rejects.toThrow(/blocked or challenge HTML/);
   });
 
   it('records a warning when configured browser fallback returns no usable HTML', async () => {

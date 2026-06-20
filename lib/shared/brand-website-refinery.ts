@@ -92,7 +92,7 @@ const DEFAULT_WEBSITE_FETCH_MAX_REDIRECTS = 5;
 const DEFAULT_BRAND_VAULT_USER_AGENT = 'InsturixBrandVault/1.0';
 const DEFAULT_BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|attention required|verify you are human|captcha|cloudflare|datadome|akamai|incapsula|perimeterx|pardon our interruption|access denied|request blocked)\b/i;
+const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|verifying your browser|security checkpoint|website owner\?|attention required|verify you are human|captcha|cloudflare|datadome|akamai|incapsula|perimeterx|pardon our interruption|access denied|request blocked)\b/i;
 const JAVASCRIPT_SHELL_PATTERN = /\b(?:please enable javascript|enable javascript|requires javascript|enable cookies|please use a different browser|javascript is disabled)\b/i;
 const HYDRATION_ROOT_MARKER_PATTERN = /\b__NEXT_DATA__\b|<[^>]+\bid=["'](?:__next|root|app)["']|<[^>]+\bdata-reactroot\b/i;
 const SHOPIFY_MARKER_PATTERN = /\b(?:cdn\.shopify\.com|Shopify\.theme|myshopify\.com)\b/i;
@@ -144,6 +144,10 @@ export async function fetchWebsiteBrandSnapshot(
     });
     if (fallback) return fallback;
     fetchWarnings.push(`Brand Vault attempted browser-rendered fallback evidence but the configured renderer returned no usable HTML for ${describeFetchFallbackReason(attempt.reason)}.`);
+  }
+
+  if (attempt.reason && isBlockingFetchFallbackReason(attempt.reason)) {
+    throw new Error(`Website fetch produced only blocked or challenge HTML (${describeFetchFallbackReason(attempt.reason)}). Browser fallback or uploaded brand evidence is required.`);
   }
 
   if (!attempt.ok) {
@@ -328,6 +332,10 @@ function shouldRetryWithBrowserHeaders(reason: BrandWebsiteFetchFallbackReason):
   return reason === 'http_blocked' || reason === 'rate_limited' || reason === 'browser_challenge' || reason === 'javascript_shell';
 }
 
+function isBlockingFetchFallbackReason(reason: BrandWebsiteFetchFallbackReason): boolean {
+  return reason === 'http_blocked' || reason === 'rate_limited' || reason === 'browser_challenge';
+}
+
 function isBetterWebsiteFetchAttempt(candidate: WebsiteFetchAttempt, current: WebsiteFetchAttempt): boolean {
   if (!candidate.reason && current.reason) return true;
   if (candidate.ok && !current.ok) return true;
@@ -350,6 +358,9 @@ async function resolveBrowserFallbackSnapshot(args: {
     userAgent: args.userAgent,
   });
   if (!fallback?.html.trim()) return undefined;
+  const fallbackContentType = fallback.contentType ?? 'text/html';
+  const fallbackReason = detectWebsiteFetchFallbackReason(200, fallbackContentType, fallback.html);
+  if (fallbackReason) return undefined;
   return {
     normalizedUrl: normalizeBrandWebsiteUrl(fallback.normalizedUrl ?? args.attempt.normalizedUrl),
     html: fallback.html,
