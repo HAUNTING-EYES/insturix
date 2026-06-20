@@ -14,7 +14,7 @@
  * productServices/proofStyle or omitted, never faked.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type {
   BrandConstellationFacet,
   BrandVaultFontPreview,
@@ -75,6 +75,29 @@ export function BrandHero({
   const colors = (visualIdentity?.colors ?? []).slice(0, 5);
   const fonts = (visualIdentity?.fonts ?? []).slice(0, 2);
   const facetsForMap = facets.slice(0, RAIL_POSITIONS.length);
+
+  const fontStylesheetUrls = useMemo(
+    () => uniqueRenderableUrls((visualIdentity?.fonts ?? []).slice(0, 2).map((font) => font.stylesheetUrl)),
+    [visualIdentity],
+  );
+  useEffect(() => {
+    if (fontStylesheetUrls.length === 0) return;
+    const created: HTMLLinkElement[] = [];
+    const existing = Array.from(document.querySelectorAll<HTMLLinkElement>('link[data-brand-vault-font-url]'));
+    for (const url of fontStylesheetUrls) {
+      if (existing.some((link) => link.href === url || link.getAttribute('href') === url)) continue;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.setAttribute('data-brand-vault-font-url', url);
+      document.head.appendChild(link);
+      created.push(link);
+    }
+    return () => {
+      for (const link of created) link.parentElement?.removeChild(link);
+    };
+  }, [fontStylesheetUrls]);
+
   const hasContent = signals.length > 0 || colors.length > 0 || fonts.length > 0;
 
   if (!hasContent) {
@@ -341,6 +364,25 @@ function CoverageMap({
 /* ------------------------------------------------------------------ */
 /*  Pure helpers                                                       */
 /* ------------------------------------------------------------------ */
+
+function uniqueRenderableUrls(values: Array<string | undefined>): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:') continue;
+      const normalized = url.toString();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      urls.push(normalized);
+    } catch {
+      continue;
+    }
+  }
+  return urls;
+}
 
 function firstString(value: unknown): string | null {
   if (typeof value === 'string') return value.trim() || null;

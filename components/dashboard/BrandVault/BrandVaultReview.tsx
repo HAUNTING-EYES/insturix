@@ -5,6 +5,8 @@ import type { ChangeEvent, FormEvent } from 'react';
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   FileText,
   Link2,
@@ -96,6 +98,7 @@ export function BrandVaultReview() {
   const [resolvingConflictPath, setResolvingConflictPath] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showSignals, setShowSignals] = useState(false);
 
   const jobQuery = useBrandVaultJob(jobId);
   const profileQuery = useBrandVaultProfile(profileId);
@@ -236,7 +239,8 @@ export function BrandVaultReview() {
     }
 
     if (actionId === 'review_candidates') {
-      signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setShowSignals(true);
+      requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
       return;
     }
 
@@ -390,10 +394,7 @@ export function BrandVaultReview() {
             className="hidden"
           />
           {snapshot.reviewPayload && (
-            <BrandVisualBoard
-              visualIdentity={snapshot.reviewPayload.visualIdentity ?? null}
-              brandName={brandName}
-            />
+            <BrandVisualBoard visualIdentity={snapshot.reviewPayload.visualIdentity ?? null} />
           )}
           <SourceStrip lanes={sourceLanes} />
           <IntakeGuidancePanel
@@ -452,8 +453,32 @@ export function BrandVaultReview() {
             onReject={(path) => resolveConflict(path, 'rejected')}
           />
 
-          <div ref={signalTableRef}>
-            <SignalTable signals={signals} onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')} />
+          <div ref={signalTableRef} className="mt-2">
+            <button
+              type="button"
+              onClick={() => setShowSignals((value) => !value)}
+              aria-expanded={showSignals}
+              className="flex w-full items-center justify-between rounded-[10px] border border-[#1C1B19] bg-[#0F0F0E] px-4 py-3 text-left transition hover:border-[#282724]"
+            >
+              <span>
+                <span className="block font-['JetBrains_Mono'] text-[10px] uppercase tracking-[0.18em] text-[#7A776E]">
+                  All signals &amp; evidence
+                </span>
+                <span className="mt-0.5 block text-[12px] text-[#5F5E5A]">
+                  {signals.length} signals · {summary.reviewOnly} review-only · expand to inspect
+                </span>
+              </span>
+              {showSignals ? (
+                <ChevronUp size={16} className="flex-none text-[#7A776E]" />
+              ) : (
+                <ChevronDown size={16} className="flex-none text-[#7A776E]" />
+              )}
+            </button>
+            {showSignals && (
+              <div className="mt-4">
+                <SignalTable signals={signals} onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')} />
+              </div>
+            )}
           </div>
 
           <footer className="py-10 pb-[72px] text-center">
