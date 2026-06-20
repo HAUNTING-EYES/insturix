@@ -1168,6 +1168,130 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('lets the ranked batch planner choose a stronger signal over a weak near-equivalent brief decision', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'zoom',
+            frame: 120,
+            source: 'creative-brief:weak-zoom',
+            confidence: 0.35,
+            params: { scale: 1.04 },
+          }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({
+            type: 'zoom',
+            frame: 124,
+            source: 'signal-executor:camera-atoms',
+            signal: 'speech.visual_emphasis',
+            confidence: 0.93,
+            params: {
+              signals: {
+                speech_energy: 0.9,
+                word_importance: 0.86,
+                mainSubjectX: 0.54,
+                mainSubjectY: 0.44,
+                mainSubjectWidth: 0.34,
+                mainSubjectHeight: 0.5,
+                face_present: 1,
+                eye_contact: 0.82,
+                shot_scale: 'CU',
+                timeSinceLastZoomSec: 6,
+                recentZoomSimilarity: 0.08,
+              },
+            },
+          }),
+        ]),
+      },
+    ]);
+
+    expect(bundle?.authority).toEqual({
+      version: 'unified-decision-authority-v1',
+      executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
+      advisoryProducers: ['creative-brief', 'signal-driven'],
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
+    });
+    expect(bundle?.edl.decisions.map((decision) => decision.source)).toEqual([
+      'signal-executor:camera-atoms',
+    ]);
+    expect(bundle?.edl.decisions[0].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
+      role: 'signal-selected',
+      executionLicense: 'licensed-by-camera-motion-atoms',
+      familyPlanner: expect.objectContaining({
+        version: 'zoom-family-planner-v1',
+        family: 'zoom',
+        visualMotionAllowed: true,
+      }),
+      plannerOwned: true,
+    }));
+    expect(bundle?.edl.decisions[0].params.unifiedDecisionOwner).toEqual(expect.objectContaining({
+      owner: 'unified-planner',
+      plannerRole: 'signal-selected',
+      producerSource: 'signal-executor:camera-atoms',
+    }));
+    expect(bundle?.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 0,
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 1,
+      suppressedSignalDuplicateCount: 1,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+    expect(bundle?.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'zoom',
+      source: 'creative-brief:weak-zoom',
+      outcome: 'signal-primary',
+      reason: 'shadowed-by-higher-score-candidate',
+    }));
+  });
+
+  it('keeps the batch path unified even when signal candidates are evidence-only', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({ type: 'zoom', frame: 120, source: 'creative-brief:usable-zoom', confidence: 0.82 }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({ type: 'zoom', frame: 124, source: 'signal-executor:label-only-zoom', confidence: 0.94, params: { scale: 1.12 } }),
+        ]),
+      },
+    ]);
+
+    expect(bundle?.authority).toMatchObject({
+      executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
+    });
+    expect(bundle?.edl.decisions.map((decision) => decision.source)).toEqual(['creative-brief:usable-zoom']);
+    expect(bundle?.edl.decisions[0].params.unifiedDecisionOwner).toEqual(expect.objectContaining({
+      owner: 'unified-planner',
+      plannerRole: 'planner-owned-primary',
+    }));
+    expect(bundle?.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 1,
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'zoom-family-plan-kept-clean-camera': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
   it('returns no bundle when no producer candidates exist', () => {
     expect(planUnifiedDecisionBundleFromCandidates([])).toBeNull();
   });

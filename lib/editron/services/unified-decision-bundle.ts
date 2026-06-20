@@ -655,6 +655,13 @@ export function planUnifiedDecisionBundleFromCandidates(
   candidates: UnifiedDecisionProducerCandidate[],
   options: MergeSignalDrivenBundleOptions = {},
 ): UnifiedDecisionBundle | null {
+  if (candidates.length === 0) return null;
+
+  const producerSet = new Set(candidates.map((candidate) => candidate.source));
+  if (producerSet.has('creative-brief') && producerSet.has('signal-driven')) {
+    return planUnifiedDecisionBundleFromRankedCandidates(candidates, options);
+  }
+
   let bundle: UnifiedDecisionBundle | null = null;
   for (const candidate of orderProducerCandidates(candidates)) {
     bundle = planUnifiedDecisionBundle(bundle, candidate, options);
@@ -662,6 +669,121 @@ export function planUnifiedDecisionBundleFromCandidates(
   return bundle;
 }
 
+function planUnifiedDecisionBundleFromRankedCandidates(
+  candidates: UnifiedDecisionProducerCandidate[],
+  options: MergeSignalDrivenBundleOptions = {},
+): UnifiedDecisionBundle {
+  const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
+  const orderedProducerCandidates = orderProducerCandidates(candidates);
+  const creativeDecisions = orderedProducerCandidates
+    .filter((candidate) => candidate.source === 'creative-brief')
+    .flatMap((candidate) => normalizeEdl(candidate.edl).decisions.map(cloneDecision));
+  const rawSignalDecisions = orderedProducerCandidates
+    .filter((candidate) => candidate.source === 'signal-driven')
+    .flatMap((candidate) => normalizeEdl(candidate.edl).decisions.map(cloneDecision));
+  const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(rawSignalDecisions, creativeDecisions);
+  const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
+  const signalDecisionAudit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
+  const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
+  const selectedEntries: PlannedDecision[] = [];
+  let validatedDecisionCount = 0;
+  let suppressedSignalDuplicateCount = 0;
+  let evidenceOnlySignalDecisionCount = 0;
+
+  const plannerEntries = [
+    ...creativeDecisions.map((decision) => toPlannedDecision({ decision, source: 'creative-brief' })),
+    ...signalDecisions.map((decision) => toPlannedDecision({ decision, source: 'signal-driven' })),
+  ].sort((a, b) => (
+    b.score - a.score
+    || b.decision.confidence - a.decision.confidence
+    || a.decision.frame - b.decision.frame
+    || producerRank(a.source) - producerRank(b.source)
+    || a.decision.type.localeCompare(b.decision.type)
+  ));
+
+  const selectedDecisions = () => selectedEntries.map((entry) => entry.decision);
+
+  const keepAsEvidence = (
+    entry: PlannedDecision,
+    outcome: UnifiedSignalDecisionOutcome,
+    reason: string,
+  ): void => {
+    evidenceOnlySignalDecisionCount++;
+    recordSignalDecisionAudit(signalDecisionAudit, entry.decision, outcome, reason);
+    if (evidenceOnlySignalDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
+      evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(
+        entry.decision,
+        normalizeSignalExecutionCandidate(entry.decision),
+        outcome,
+        reason,
+      ));
+    }
+  };
+
+  for (const entry of plannerEntries) {
+    const license = entry.source === 'signal-driven'
+      ? resolveSignalExecutionLicense(selectedDecisions(), entry.decision, signalExecutionBudgets)
+      : resolvePrimaryCreativeDecisionLicense(entry.decision);
+    if (!license.executable) {
+      keepAsEvidence(entry, 'evidence-only', license.reason);
+      continue;
+    }
+
+    const matchIndex = findNearEquivalentDecisionIndex(selectedDecisions(), entry.decision, maxNearFrameWindow);
+    if (matchIndex >= 0) {
+      const selected = selectedEntries[matchIndex];
+      if (entry.source === 'signal-driven' && selected.source === 'creative-brief') {
+        selected.decision = attachSignalValidation(selected.decision, entry.decision);
+        recordSignalDecisionAudit(signalDecisionAudit, entry.decision, 'validated-primary', 'near-equivalent-selected-candidate');
+        validatedDecisionCount++;
+      } else {
+        const outcome: UnifiedSignalDecisionOutcome = entry.source === 'signal-driven' ? 'evidence-only' : 'signal-primary';
+        keepAsEvidence(entry, outcome, 'shadowed-by-higher-score-candidate');
+      }
+      suppressedSignalDuplicateCount++;
+      continue;
+    }
+
+    selectedEntries.push({
+      ...entry,
+      decision: entry.source === 'signal-driven'
+        ? markPlannerSelectedSignal(entry.decision, license.reason)
+        : markPlannerSelectedPrimary(entry.decision, license.reason),
+    });
+    if (entry.source === 'signal-driven') {
+      recordSignalDecisionAudit(signalDecisionAudit, entry.decision, 'added-executable', license.reason);
+    }
+  }
+
+  const authority = authorityForUnifiedCandidatePlanner();
+  const decisions = stampUnifiedPlannerOwnership(
+    selectedEntries
+      .map((entry) => entry.decision)
+      .sort((a, b) => a.frame - b.frame || a.priority - b.priority),
+    authority,
+  );
+  const edl = normalizeEdl({ decisions });
+  const selectedSignalCount = selectedEntries.filter((entry) => entry.source === 'signal-driven').length;
+  const selectedCreativeCount = selectedEntries.filter((entry) => entry.source === 'creative-brief').length;
+
+  return {
+    source: 'creative-brief+signal-driven',
+    authority,
+    edl,
+    expectedExecuted: edl.totalDecisions,
+    expectedSkipped: evidenceOnlySignalDecisionCount,
+    evidence: {
+      primaryDecisionCount: selectedCreativeCount,
+      signalDecisionCount: signalDecisions.length,
+      addedSignalDecisionCount: selectedSignalCount,
+      validatedDecisionCount,
+      suppressedSignalDuplicateCount,
+      evidenceOnlySignalDecisionCount,
+      evidenceOnlySignalDecisions,
+      signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
+    },
+  };
+}
 export function mergeSignalDrivenBundle(
   primaryBundle: UnifiedDecisionBundle,
   signalEdl: CompatibleEditDecisionList,
@@ -879,6 +1001,18 @@ function authorityAfterSignalMerge(
   };
 }
 
+function authorityForUnifiedCandidatePlanner(): UnifiedDecisionBundleAuthority {
+  return {
+    version: 'unified-decision-authority-v1',
+    executableProducer: 'unified-planner',
+    advisoryProducers: ['creative-brief', 'signal-driven'],
+    signalDecisionRole: 'co-owner',
+    signalDecisionsCanAddExecutable: true,
+    decisionMode: 'unified-planner',
+    creativeBriefRole: 'semantic-context',
+    signalRole: 'candidate-source',
+  };
+}
 const SIGNAL_EVIDENCE_DETAIL_LIMIT = 64;
 const SIGNAL_AUDIT_SAMPLE_LIMIT = 128;
 const SIGNAL_AUDIT_FRAME_SAMPLE_LIMIT = 12;
@@ -4181,6 +4315,36 @@ function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: stri
   };
 }
 
+function markPlannerSelectedSignal(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+  const plannedDecision = applySignalFamilyPlanner(signalDecision, reason);
+  return {
+    ...plannedDecision,
+    params: {
+      ...plannedDecision.params,
+      unifiedDecisionMerge: {
+        ...readMergeMetadata(plannedDecision),
+        version: 'unified-decision-bundle-v1',
+        role: 'signal-selected',
+        executionLicense: reason,
+      },
+    },
+  };
+}
+
+function markPlannerSelectedPrimary(decision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+  return {
+    ...decision,
+    params: {
+      ...decision.params,
+      unifiedDecisionMerge: {
+        ...readMergeMetadata(decision),
+        version: 'unified-decision-bundle-v1',
+        role: 'planner-owned-primary',
+        executionLicense: reason,
+      },
+    },
+  };
+}
 function markSignalReplacement(
   signalDecision: ReactiveEditDecision,
   reason: string,
