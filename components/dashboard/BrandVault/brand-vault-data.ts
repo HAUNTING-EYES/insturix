@@ -56,6 +56,17 @@ const WEBSITE_SOURCE_TYPES = new Set([
 const SOCIAL_SOURCE_TYPES = new Set(['social_profile', 'social_post']);
 const UPLOAD_SOURCE_TYPES = new Set(['uploaded_guideline', 'uploaded_asset']);
 const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
+const BLOCKED_WEBSITE_WARNING_PATTERN =
+  /\b(?:blocked or challenge html|browser challenge|access denied|security checkpoint|rate[-\s]?limited|verifying your browser|just a moment|captcha|bot\/permission block|browser fallback or uploaded brand evidence is required)\b/i;
+const VERIFY_DOMAIN_ACCESS_ACTION: BrandVaultGuidanceAction = {
+  id: 'verify_domain_access',
+  label: 'Verify domain access',
+  priority: 'high',
+  reason:
+    'Website scan appears blocked by a browser challenge, WAF rule, or rate limit. Verify domain ownership, then allowlist Brand Vault, publish a brand feed, or add official uploads/social evidence before treating missing signals as true gaps.',
+};
+const BLOCKED_WEBSITE_LANE_NOTE =
+  'Website access appears blocked; verify domain access or add official uploads/social evidence before trusting missing signals.';
 
 type IntakeStageStatus = NonNullable<BrandVaultSnapshot['reviewPayload']>['intake']['evidenceLanes'][number]['status'];
 type IntakeLaneId = NonNullable<BrandVaultSnapshot['reviewPayload']>['intake']['evidenceLanes'][number]['id'];
@@ -410,20 +421,69 @@ export function buildIntakeGuidance(
         label: sourceLane?.label ?? lane.label,
         status,
         count,
-        notes: lane.notes.slice(0, 3),
+        notes: guidanceLaneNotes(lane, snapshot),
         topSignalPaths: lane.topSignalPaths.slice(0, 4),
       };
     })
     .filter((lane) => lane.count > 0 || lane.status === 'live' || lane.status === 'pending' || lane.status === 'failed');
 
-  const actions = intake.nextActions.slice(0, 6).map((action) => ({
+  const actions = guidanceActions(snapshot).slice(0, 6);
+
+  return { lanes, actions, socialPlatforms: buildSocialPlatformHealth(snapshot) };
+}
+
+function guidanceLaneNotes(
+  lane: NonNullable<BrandVaultSnapshot['reviewPayload']>['intake']['evidenceLanes'][number],
+  snapshot: BrandVaultSnapshot,
+): string[] {
+  const notes = [...lane.notes];
+  if (lane.id === 'website' && hasBlockedWebsiteAccess(snapshot)) {
+    notes.unshift(BLOCKED_WEBSITE_LANE_NOTE);
+  }
+  return uniqueStrings(notes).slice(0, 3);
+}
+
+function guidanceActions(snapshot: BrandVaultSnapshot): BrandVaultGuidanceAction[] {
+  const nextActions = snapshot.reviewPayload?.intake.nextActions ?? [];
+  const actions = nextActions.map((action) => ({
     id: action.id,
     label: action.label,
     priority: action.priority,
     reason: action.reason,
   }));
+  if (!hasBlockedWebsiteAccess(snapshot)) return actions;
+  return dedupeGuidanceActions([VERIFY_DOMAIN_ACCESS_ACTION, ...actions]);
+}
 
-  return { lanes, actions, socialPlatforms: buildSocialPlatformHealth(snapshot) };
+function dedupeGuidanceActions(actions: BrandVaultGuidanceAction[]): BrandVaultGuidanceAction[] {
+  const seen = new Set<string>();
+  return actions.filter((action) => {
+    if (seen.has(action.id)) return false;
+    seen.add(action.id);
+    return true;
+  });
+}
+
+function hasBlockedWebsiteAccess(snapshot: BrandVaultSnapshot): boolean {
+  const intake = snapshot.reviewPayload?.intake;
+  const websiteLane = intake?.evidenceLanes.find((lane) => lane.id === 'website');
+  const warningText = [
+    ...(snapshot.job?.warnings ?? []),
+    ...(snapshot.reviewPayload?.warnings ?? []),
+    ...(intake?.website?.notes ?? []),
+    ...(websiteLane?.notes ?? []),
+  ].join('\n');
+  return BLOCKED_WEBSITE_WARNING_PATTERN.test(warningText);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const clean = value.trim();
+    if (!clean || seen.has(clean)) return false;
+    seen.add(clean);
+    return true;
+  });
 }
 
 function sourceLaneIdForIntakeLane(id: IntakeLaneId): SourceLane['id'] {

@@ -301,6 +301,72 @@ describe('Brand Vault review data helpers', () => {
     ]);
   });
 
+  it('surfaces verified-domain guidance when website access is blocked', () => {
+    const snapshot = {
+      job: {
+        id: 'brand_refinery_job_blocked_site',
+        userId: 'user_truth',
+        status: 'needs_review',
+        inputs: {
+          websiteUrl: 'https://blocked.example',
+          socialLinks: [],
+          sourceEvidence: [],
+        },
+        warnings: ['Website fetch produced only blocked or challenge HTML (http 403).'],
+        createdAt: OBSERVED_AT,
+        updatedAt: OBSERVED_AT,
+      },
+      record: null,
+      candidates: [],
+      reviewPayload: {
+        warnings: ['Browser fallback or uploaded brand evidence is required.'],
+        intake: {
+          website: {
+            status: 'failed',
+            sourceCount: 1,
+            candidateCount: 0,
+            evidenceCount: 0,
+            notes: ['Website fetch produced only blocked or challenge HTML (http 403).'],
+          },
+          evidenceLanes: [
+            {
+              id: 'website',
+              label: 'Website',
+              status: 'failed',
+              sourceCount: 1,
+              candidateCount: 0,
+              evidenceCount: 0,
+              topSignalPaths: [],
+              notes: ['Website fetch produced only blocked or challenge HTML (http 403).'],
+            },
+          ],
+          nextActions: [
+            {
+              id: 'add_uploads',
+              label: 'Add brand books, docs, PDFs, or assets',
+              priority: 'low',
+              reason: 'Official uploads improve color, logo, voice, and constraint evidence.',
+            },
+          ],
+        },
+      } as unknown as NonNullable<BrandVaultSnapshot['reviewPayload']>,
+    } satisfies BrandVaultSnapshot;
+
+    const guidance = buildIntakeGuidance(snapshot, buildSourceLanes(snapshot));
+
+    expect(guidance.actions.map((action) => action.id)).toEqual(['verify_domain_access', 'add_uploads']);
+    expect(guidance.actions[0]).toMatchObject({
+      label: 'Verify domain access',
+      priority: 'high',
+    });
+    expect(guidance.actions[0]?.reason).toContain('Verify domain ownership');
+    expect(guidance.lanes[0]).toMatchObject({
+      id: 'website',
+      status: 'failed',
+      count: 1,
+    });
+    expect(guidance.lanes[0]?.notes[0]).toContain('Website access appears blocked');
+  });
   it('keeps social lanes pending when intake still needs connected read access', () => {
     const snapshot = {
       job: {
