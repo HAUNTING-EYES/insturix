@@ -1,7 +1,6 @@
 import type {
   BrandVaultTextEvidenceCompiler,
   BrandVaultTextEvidenceCompilerInput,
-  BrandVaultTextEvidenceCompilerResult,
 } from './brand-vault-draft-orchestrator';
 import type {
   BrandEvidenceCandidate,
@@ -24,6 +23,7 @@ type CompilerSignalPath =
 interface CompilerOptions {
   apiKey: string;
   model?: string;
+  seed?: number;
   fetchFn?: BrandVaultTextCompilerFetch;
 }
 
@@ -49,6 +49,7 @@ interface CompilerCandidateNormalizationResult {
 }
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const DEFAULT_COMPILER_SEED = 11;
 const COMPILER_EXTRACTOR_SOURCE = 'brand-vault-text-evidence-compiler.gemini';
 const MAX_PROMPT_CHARS = 18_000;
 const MAX_REPAIR_PROMPT_CHARS = 6_000;
@@ -82,6 +83,7 @@ export function createBrandVaultTextEvidenceCompilerFromEnvironment(args: {
 export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOptions): BrandVaultTextEvidenceCompiler {
   const fetchFn = options.fetchFn ?? fetch;
   const model = options.model?.trim() || DEFAULT_GEMINI_MODEL;
+  const seed = options.seed ?? DEFAULT_COMPILER_SEED;
 
   return async (input) => {
     if (!hasUsefulTextEvidence(input)) return { candidates: [], warnings: [] };
@@ -93,11 +95,13 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: buildCompilerPrompt(input) }] }],
+        systemInstruction: { parts: [{ text: COMPILER_SYSTEM_INSTRUCTION }] },
+        contents: [{ role: 'user', parts: [{ text: buildCompilerUserContent(input) }] }],
         generationConfig: {
           temperature: 0,
           maxOutputTokens: 1600,
           responseMimeType: 'application/json',
+          seed,
         },
       }),
     });
@@ -124,6 +128,7 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
       text,
       endpointHref: endpoint.href,
       fetchFn,
+      seed,
     });
     if (!parsedResult.parsed) {
       return {
@@ -162,37 +167,49 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
   };
 }
 
-function buildCompilerPrompt(input: BrandVaultTextEvidenceCompilerInput): string {
+const COMPILER_SYSTEM_INSTRUCTION = `<role>
+You are Brand Vault's evidence compiler. From raw evidence gathered across a brand's website, crawled pages, uploads, and social posts (including image OCR and video transcripts), you extract a small set of reusable, evidence-grounded brand SIGNALS.
+The brand can be ANY kind: SaaS, e-commerce/DTC, local service, agency or consultancy, creator/media/publisher, nonprofit, personal brand, or marketplace. Never assume software or B2B; read each brand on its own terms.
+</role>
+
+<signals>
+Emit ONLY these signalPaths, each mapped to the brand's own domain:
+- identity.audience: the specific people or organizations the brand serves, concrete to its category (e.g. "RevOps leaders", "first-time home buyers", "families with toddlers", "indie game studios", "local homeowners"). Reject bare generic words used alone: businesses, customers, users, people, everyone, brands.
+- identity.productServices: what the brand actually offers, in its own terms — software capabilities, product lines or categories, services, programs or causes (nonprofit), shows/channels/newsletters (creator), courses or coaching (personal brand). Concrete offerings or named categories only; never CTAs, audiences, proof claims, page labels, or bare words like "software"/"services"/"products" alone.
+- identity.proofStyle: how the brand earns trust. Exactly ONE of: testimonial, metrics, authority, community, demo, editorial.
+- voice.recurringPhrases: brand language the brand REPEATS as its own — taglines, slogans, signature lines, repeated CTAs. A phrase QUALIFIES ONLY IF it recurs: it appears in 2 or more evidence blocks, OR is clearly a fixed brand line (a site header, navigation, or footer tagline). It does NOT qualify if it appears in only one place — especially a single video transcript or a single post — no matter how catchy or quotable. Never output a full spoken sentence. Prefer short fragments of 6 words or fewer.
+- voice.hookArchetypes: compact labels for how the brand opens or hooks attention: statement-led, question, contrast, metric-led, story-led, demo-led, list-led, how-to.
+- voice.ctaDirectness: a number from 0 to 1 for how blunt the calls-to-action are (0 = soft or none, 1 = direct imperative). Only when CTA language is present.
+</signals>
+
+<rules>
+- Use ONLY the supplied evidence. Never invent facts or infer beyond the text.
+- Ground every candidate: its sourceField MUST exactly match one sourceField from the evidence, and the excerpt must come from that block.
+- OCR and transcripts are valid evidence, but a single transcript or post counts as ONE source; on its own it cannot establish a recurring phrase or a brand-wide claim.
+- confidence is 0.42 to 0.68: use the low end for single-source or weak evidence, the high end only for strong, repeated, owned-site evidence.
+- Precision over recall: if the evidence does not clearly support a signal, OMIT it. Emit at most 12 candidates; prefer a few strong signals over many weak ones.
+- Do not summarize the company. Emit reusable signals only.
+</rules>
+
+<output_format>
+Return a single JSON object, with no Markdown fences and no prose:
+{"candidates":[{"signalPath":"identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short quote or paraphrase from the cited block","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
+</output_format>`;
+
+function buildCompilerUserContent(input: BrandVaultTextEvidenceCompilerInput): string {
   const evidence = collectTextEvidence(input);
-  return truncateText(`You are Brand Vault's evidence compiler.
+  return truncateText(`<brand>
+brandId: ${input.input.brandId ?? 'unknown'}
+companyName: ${input.input.companyName ?? 'unknown'}
+website: ${input.website.normalizedUrl}
+</brand>
 
-Return JSON only:
-{"candidates":[{"signalPath":"identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
-
-Rules:
-- Return the JSON object directly. Do not wrap it in Markdown fences or prose.
-- Use only the evidence supplied below. Do not invent facts.
-- Do not summarize the company. Emit reusable brand signals.
-- Every candidate sourceField must exactly match one sourceField from the Evidence blocks.
-- Prefer precise product/service, audience, proof, and voice evidence over generic descriptions.
-- Treat OCR and transcript text as first-class evidence when present.
-- Audience values must be specific buyer/user groups, not generic words like "businesses" alone.
-- Product/service values must be concrete offerings, product categories, service categories, or named platform capabilities. Do not emit CTAs, audiences, proof claims, page labels, or generic words like "software" alone.
-- Proof style must be one of: testimonial, metrics, authority, community, demo, editorial.
-- Hook archetypes should be compact labels such as statement-led, system, question, contrast, metric-led, demo-led.
-- Recurring phrases should be short exact or near-exact brand-language fragments.
-- CTA directness is a 0..1 number, only when evidence contains CTA language.
-- Confidence cannot exceed 0.68.
-
-Brand:
-- brandId: ${input.input.brandId ?? 'unknown'}
-- userId: ${input.input.userId}
-- companyName: ${input.input.companyName ?? 'unknown'}
-- website: ${input.website.normalizedUrl}
-
-Evidence:
+<evidence>
 ${evidence.map((item, index) => `[${index + 1}] sourceField=${item.sourceField} sourceType=${item.sourceType}${item.sourceUrl ? ` sourceUrl=${item.sourceUrl}` : ''}
-${item.text}`).join('\n\n')}`, MAX_PROMPT_CHARS);
+${item.text}`).join('\n\n')}
+</evidence>
+
+Based only on the evidence above, return the JSON now.`, MAX_PROMPT_CHARS);
 }
 
 function collectTextEvidence(input: BrandVaultTextEvidenceCompilerInput): TextEvidenceItem[] {
@@ -369,7 +386,9 @@ function normalizeCandidateValue(signalPath: CompilerSignalPath, value: unknown)
     .filter((item) => item.length >= 3);
   const filtered = signalPath === 'identity.productServices'
     ? normalized.filter(isCompilerProductServiceValue)
-    : normalized.filter((item) => !/^(?:businesses|users|customers|people|everyone|brands?)$/i.test(item));
+    : signalPath === 'voice.recurringPhrases'
+      ? normalized.filter(isCompilerRecurringPhraseValue)
+      : normalized.filter((item) => !/^(?:businesses|users|customers|people|everyone|brands?)$/i.test(item));
   return filtered.length > 0 ? Array.from(new Set(filtered)).slice(0, 8) : undefined;
 }
 
@@ -383,6 +402,17 @@ function isCompilerProductServiceValue(value: string): boolean {
   }
   if (/^https?:\/\//i.test(value) || /[{}<>]|(?:document\.|window\.|function\s*\(|=>)/.test(value)) return false;
   if (/^(?:agenc(?:y|ies)|creative teams?|founders?|operators?|customers?|users|businesses|brands?)$/i.test(value)) return false;
+  return true;
+}
+
+function isCompilerRecurringPhraseValue(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length < 3 || trimmed.length > 80) return false;
+  // Recurrence itself is enforced in the prompt (the model sees every evidence
+  // block). This backstop only drops gross non-phrases: long narration or full
+  // spoken sentences that are clearly not a reusable brand line.
+  if (trimmed.split(/\s+/).length > 9) return false;
+  if (/^https?:\/\//i.test(trimmed) || /[{}<>]|(?:document\.|window\.|function\s*\(|=>)/.test(trimmed)) return false;
   return true;
 }
 
@@ -410,6 +440,7 @@ async function parseCompilerJsonWithRepair(args: {
   text: string;
   endpointHref: string;
   fetchFn: BrandVaultTextCompilerFetch;
+  seed: number;
 }): Promise<{ parsed: unknown | null; warnings: string[] }> {
   const parsed = parseCompilerJson(args.text);
   if (parsed) return { parsed, warnings: [] };
@@ -427,6 +458,7 @@ async function repairCompilerJsonWithGemini(args: {
   text: string;
   endpointHref: string;
   fetchFn: BrandVaultTextCompilerFetch;
+  seed: number;
 }): Promise<{ parsed: unknown | null; warnings: string[] }> {
   let response: Response;
   try {
@@ -439,6 +471,7 @@ async function repairCompilerJsonWithGemini(args: {
           temperature: 0,
           maxOutputTokens: 1200,
           responseMimeType: 'application/json',
+          seed: args.seed,
         },
       }),
     });
