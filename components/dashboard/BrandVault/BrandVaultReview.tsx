@@ -379,7 +379,7 @@ export function BrandVaultReview() {
           conflict={displayedConflict ? { label: displayedConflict.label } : null}
         />
 
-        <main className="mx-auto max-w-[1180px] px-10">
+        <main className="mx-auto max-w-[1180px] px-5 sm:px-10">
           <input
             ref={guidanceUploadInputRef}
             type="file"

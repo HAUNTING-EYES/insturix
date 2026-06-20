@@ -43,6 +43,12 @@ const RAIL_POSITIONS: ReadonlyArray<{ x: number; y: number }> = [
 const RAIL_CENTER = { x: 156, y: 124 } as const;
 const RAIL_ANOMALY = { x: 30, y: 38 } as const;
 
+const HERO_FIELD =
+  'radial-gradient(ellipse 54% 48% at 24% 26%, rgba(212,166,82,0.07), transparent 60%),' +
+  'radial-gradient(ellipse 46% 44% at 88% 70%, rgba(144,136,212,0.055), transparent 58%),' +
+  'radial-gradient(ellipse 40% 38% at 70% 16%, rgba(92,184,204,0.045), transparent 55%),' +
+  '#08080A';
+
 export function BrandHero({
   brandName,
   signals,
@@ -69,21 +75,36 @@ export function BrandHero({
   const colors = (visualIdentity?.colors ?? []).slice(0, 5);
   const fonts = (visualIdentity?.fonts ?? []).slice(0, 2);
   const facetsForMap = facets.slice(0, RAIL_POSITIONS.length);
+  const hasContent = signals.length > 0 || colors.length > 0 || fonts.length > 0;
+
+  if (!hasContent) {
+    return (
+      <section className="relative overflow-hidden border-b border-[#1C1B19]" aria-label="Brand identity">
+        <div className="pointer-events-none absolute inset-0" aria-hidden="true" style={{ background: HERO_FIELD }} />
+        <div className="relative z-[1] mx-auto max-w-[1180px] px-5 py-12 sm:px-10">
+          <div className="flex items-center gap-2.5 font-['JetBrains_Mono'] text-[10px] font-medium uppercase tracking-[0.18em] text-[#5F5E5A]">
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-[#7A776E]" />
+            <span>Brand memory / not built yet</span>
+          </div>
+          <h1 className="mt-3.5 text-[38px] font-extrabold leading-[0.98] tracking-[-0.03em] text-[#ECE9E1] sm:text-[52px]">
+            Let&rsquo;s read your brand.
+          </h1>
+          <p className="mt-3.5 max-w-[460px] text-[14px] leading-relaxed text-[#7A776E]">
+            Scan a website below and we&rsquo;ll read its palette, type, voice and assets &mdash; every signal kept with its evidence.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="relative overflow-hidden border-b border-[#1C1B19]" aria-label="Brand identity">
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden="true"
-        style={{
-          background:
-            'radial-gradient(ellipse 54% 48% at 24% 26%, rgba(212,166,82,0.07), transparent 60%),' +
-            'radial-gradient(ellipse 46% 44% at 88% 70%, rgba(144,136,212,0.055), transparent 58%),' +
-            'radial-gradient(ellipse 40% 38% at 70% 16%, rgba(92,184,204,0.045), transparent 55%),' +
-            '#08080A',
-        }}
+        style={{ background: HERO_FIELD }}
       />
-      <div className="relative z-[1] mx-auto grid max-w-[1180px] gap-12 px-10 py-12 lg:grid-cols-[minmax(0,1fr)_348px]">
+      <div className="relative z-[1] mx-auto grid max-w-[1180px] gap-8 px-5 py-10 sm:gap-12 sm:px-10 sm:py-12 lg:grid-cols-[minmax(0,1fr)_348px]">
         {/* identity */}
         <div className="min-w-0">
           <div className="flex items-center gap-2.5 font-['JetBrains_Mono'] text-[10px] font-medium uppercase tracking-[0.18em] text-[#5F5E5A]">
@@ -94,7 +115,7 @@ export function BrandHero({
             </span>
           </div>
 
-          <h1 className="mt-3.5 text-[60px] font-extrabold leading-[0.98] tracking-[-0.03em] text-[#ECE9E1]">
+          <h1 className="mt-3.5 text-[40px] font-extrabold leading-[0.98] tracking-[-0.03em] text-[#ECE9E1] sm:text-[52px] lg:text-[60px]">
             {brandName}
           </h1>
 
@@ -118,7 +139,7 @@ export function BrandHero({
           )}
 
           {colors.length > 0 && (
-            <div className="mt-6 flex gap-3">
+            <div className="mt-6 flex flex-wrap gap-3">
               {colors.map((swatch) => (
                 <HeroSwatch key={swatch.id} swatch={swatch} />
               ))}
@@ -181,7 +202,7 @@ export function BrandHero({
 function HeroSwatch({ swatch }: { swatch: BrandVaultVisualSwatch }) {
   const isCandidate = swatch.role === 'candidate';
   return (
-    <div className="min-w-0 flex-1 overflow-hidden rounded-[12px] border border-[#282724] bg-[#0F0F0E]">
+    <div className="min-w-[84px] flex-1 overflow-hidden rounded-[12px] border border-[#282724] bg-[#0F0F0E]">
       <div className="relative h-20" style={{ background: swatch.value }}>
         {isCandidate && (
           <span className="absolute left-2 top-2 rounded-[4px] bg-black/35 px-1.5 py-1 font-['JetBrains_Mono'] text-[8px] uppercase tracking-[0.1em] text-white/85">
