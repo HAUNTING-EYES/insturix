@@ -7,6 +7,147 @@ This document is the **authoritative** operating plan for the next implementatio
 No one-off patches. No â€œPath E vs Path D mergeâ€ claims unless the control flow is
 proven in code for producer â†’ authority â†’ final consumer.
 
+## 0) 2026-06-21 Binding Update From Codex Plan Brief
+
+Source brief: `Editron-Codex-Plan-Brief-2026-06-20.md`.
+Required references read and incorporated:
+
+- `Editron-PathE-PathD-Unification-Audit-2026-06-20.md`
+- `Editron-Confirmed-Defect-Registry-2026-06-20.md`
+- `Editron-Pipeline-Step-Audit-2026-06-20.md`
+- `Editron-Architecture-Verdict-and-Plan-2026-06-20.md`
+
+This update supersedes any stale lower section that implies Path E and Path D are fully merged.
+Current HEAD has two partial fixes:
+
+- Creative Brief semantic MG primaries are now ledger-gated before entering the primary EDL.
+- Signal MG candidates are now licensed through the semantic MG ledger instead of a shallow field-exists check.
+
+These fixes are useful but they are not full Path E/D unification. Full unification still requires:
+
+`Path E facts + Path D signals + canonical timeline + V-JEPA/screen context + brand`
+-> `one normalized candidate pool`
+-> `one symmetric truth/evidence licensing gate`
+-> `family planners`
+-> `one planner-owned EDL`
+-> `executeEDL`
+
+### 0.1 Critical Current Truth
+
+Spot-verified against current code:
+
+- Director still emits two producer candidates: Creative Brief at `director-agent.ts:920-926`
+  and signal-driven at `director-agent.ts:1339-1345`.
+- The bundle planner still processes ordered producer candidates via
+  `planUnifiedDecisionBundleFromCandidates` at `unified-decision-bundle.ts:532-540`.
+- Creative Brief still sorts first via `producerRank` at `unified-decision-bundle.ts:3842-3850`.
+- Merge still starts from an existing primary bundle and then licenses incoming signal decisions
+  at `unified-decision-bundle.ts:543-620`.
+- Authority still becomes `unified-planner` only when executable signal supplements exist,
+  not because a single planner authored all candidates from scratch
+  (`unified-decision-bundle.ts:730-758`).
+- Semantic MG ledger still has a zero-candidate escape hatch at
+  `semantic-mg-candidates.ts:132-142`.
+- MG source spans are still synthesized from content fallbacks in
+  `semantic-mg-candidates.ts:376-412` and `mg-content-atoms.ts:130-178`.
+- Budget still guides MG count at the source: `graphic.max = ceil(graphic_density * durationMin)`
+  in `creative-brief.ts:905-945`.
+- MG form breadth is still narrow: numeric wires require percent-like evidence for sweep/length
+  in `encoding-wires.ts:154-246`, while `detectShapes` remains content-shape based in
+  `content-shape-analyzer.ts:248`.
+- Rendered quality still is not the hard truth loop: `runQualityReview` starts at
+  `quality-review-service.ts:1313`, render controls warn at `render-controls.tsx:81-121`,
+  structural gate warnings are still non-blocking in `edl-executor.ts:3235+`, and
+  `aesthetic-gate.ts` remains dormant.
+
+### 0.2 Final Execution Order
+
+The next implementation order is binding:
+
+1. **Path E/D Authority Recovery First**
+   - Replace "brief primary + signal supplement" with one normalized candidate pool.
+   - Brief emits semantic/factual candidates only.
+   - Signals emit evidence/timing/screen candidates.
+   - Both pass through the same content-truth and family licensing.
+   - `unified-planner` must mean sole author, not a relabel after merge.
+
+2. **Content-Truth Grounding**
+   - Denylist placeholder scrub stays as a cheap prefilter only.
+   - Rendered MG text must resolve to transcript words, verified brief facts, verified visual OCR,
+     or another explicit evidence source.
+   - Close the zero-candidate ledger escape.
+   - Stop accepting synthesized source spans as proof.
+   - Novel placeholders not present in `KG_EXAMPLE_PLACEHOLDERS` must still be rejected.
+
+3. **Rendered Judge / Eyes**
+   - Revive the rendered judge path as feedback, not the primary quality mechanism.
+   - It must inspect rendered pixels/audio timing and persist artifacts, overlay ids,
+     frame ranges, issue classes, and scores.
+   - Do not use the dormant aesthetic gate as reward until its no-key auto-pass and failure
+     behavior are fixed.
+
+4. **MG Form Engine**
+   - Generation-first: the form engine must produce good graphics directly.
+   - Widen faithful candidate sets for numbers, comparisons, identity, quote/proof,
+     refutation, process/list, series, and social proof.
+   - License form by fact, not narrow parse.
+   - Signals choose among faithful forms and choreograph motion; facts define what is honest.
+
+5. **Budget Becomes Guardrail**
+   - MG count comes from warranted moments, not `graphic_density * duration`.
+   - Budget only vetoes runaway density, repeated clutter, or unreadable stacking.
+   - Decision-budget spacing remains a safety guard, not the source of creative count.
+
+6. **Signal Normalization Cleanup**
+   - Keep `momentImportance`, `candidateConfidence`, `executionConfidence`,
+     `evidenceStrength`, and `risk` separate.
+   - Replace first-wins dedupe with per-family best-wins.
+   - Hoist family atoms before culling.
+   - Every invented threshold must be CRG-linked or marked `INVENTED-needs-calibration`.
+
+7. **Visual Perception Layer**
+   - Add per-shot VLM perception after V-JEPA/transcript/audio and before planning.
+   - It outputs structured facts only: subjects, action, OCR, composition, negative space,
+     visible explanation, visual dead air, visual state changes, and protected silent moments.
+   - Native deterministic planners still decide cuts and overlays.
+
+8. **Family Planner Hardening**
+   - Do not rebuild transition/zoom/SFX/caption planners from scratch.
+   - Harden beat-frame sync, timing windows, provider quality, caption readability,
+     repetition memory, and cross-overlay choreography.
+   - Compatibility labels stay at renderer edge only.
+
+9. **Gate Teeth**
+   - Implement CRG-specified checks: overlap, unreadable graphics, caption drift,
+     SFX drift, transition repetition, pacing monotony, shot-scale monotony.
+   - Gates are guardrails and auto-correct where possible; generation remains the main quality path.
+
+10. **Calibration Last**
+    - Freeze/guard live learning until rendered evidence is trustworthy.
+    - Calibrate only after authority, content truth, rendered judge, and form breadth are sane.
+    - Use diverse creators, holdout split, and family-by-family before/after reporting.
+
+### 0.3 Path E/D Acceptance Tests
+
+Before claiming full Path E/D unification, all of these must pass:
+
+- A Creative Brief semantic graphic with ungrounded text is evidence-only, not primary executable.
+- A signal candidate with stronger verified evidence can win without being a supplement to a brief primary.
+- A brief candidate and signal candidate are ranked by evidence/grounding/family readiness, not source.
+- A novel placeholder string not in the denylist is rejected by grounding.
+- `semantic-mg-candidates` returns block reasons for zero recognized candidate facts when output text exists.
+- `planComposition` cannot be called with an unlicensed MG candidate.
+- Mongo/logs report `unified-planner` only when one planner actually owns final decisions.
+- `executeEDL` receives planner-owned decisions only for the unified path.
+
+### 0.4 Non-Negotiable Do-Not-Do Rules
+
+- Do not append future placeholder strings to `KG_EXAMPLE_PLACEHOLDERS` as the fix.
+- Do not make a template/menu/preset selector and call it primitives.
+- Do not let Gemini/VLM choose final overlays. They provide facts/perception only.
+- Do not tune thresholds against one project, one creator, or one screenshot.
+- Do not call shared downstream plumbing "merged."
+
 ---
 
 ## 1) Northstar Contract (non-negotiable)
