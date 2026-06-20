@@ -26,9 +26,17 @@ describe('chat tool registry', () => {
       .filter((metadata) => metadata.mutatesProject && !metadata.requiresProjectReload)
       .map((metadata) => metadata.name);
 
+    const restoreMetadata = getChatToolMetadata('restore_ai_edit_checkpoint');
+
     expect(mutatingWithoutReload).toEqual([]);
     expect(shouldReloadProjectAfterTool('add_overlay')).toBe(true);
+    expect(shouldReloadProjectAfterTool('restore_ai_edit_checkpoint')).toBe(true);
     expect(shouldReloadProjectAfterTool('read_project_file')).toBe(false);
+    expect(restoreMetadata).toMatchObject({
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'high',
+    });
   });
 
   it('has labels and receipt text for registered tools', () => {

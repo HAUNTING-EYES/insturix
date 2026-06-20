@@ -44,6 +44,22 @@ function getCachedProjectContext(project: any): string {
   return contextMessage;
 }
 
+
+function appendCheckpointContextForAgent(content: string, checkpointIds?: string[]): string {
+  if (!checkpointIds?.length) return content;
+
+  const [beforeCheckpointId, afterCheckpointId] = checkpointIds;
+  const parts = [
+    beforeCheckpointId ? `beforeCheckpointId=${beforeCheckpointId}` : null,
+    afterCheckpointId ? `afterCheckpointId=${afterCheckpointId}` : null,
+  ].filter((part): part is string => Boolean(part));
+
+  if (!parts.length) return content;
+
+  const separator = content.trim() ? '\n\n' : '';
+  return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. To undo this assistant edit, call restore_ai_edit_checkpoint with beforeCheckpointId. To redo it, use afterCheckpointId.]`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
@@ -128,9 +144,12 @@ export async function POST(req: NextRequest) {
             }))
           : undefined;
 
-        // Ensure content is never empty/undefined when there are no tool calls
-        // Google Generative AI requires either content or tool_calls
-        const content = msg.content || (toolCalls ? '' : ' ');
+        // Ensure content is never empty/undefined when there are no tool calls.
+        // Google Generative AI requires either content or tool_calls.
+        const content = appendCheckpointContextForAgent(
+          msg.content || (toolCalls ? '' : ' '),
+          msg.checkpointIds,
+        );
 
         langchainHistory.push(new AIMessage({
           content,

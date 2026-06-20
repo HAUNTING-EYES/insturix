@@ -3,6 +3,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { projectService } from "../services/project-service";
+import { checkpointService } from "../services/checkpoint-service";
 import { generateTimelineView } from "../utils/timeline-utils";
 import {
   Overlay,
@@ -349,6 +350,24 @@ export const createTools = (userId: string, projectId: string) => {
       durationInFrames: o.durationInFrames,
       type: o.type as OverlayType
     }));
+  };
+
+  const overlayRestoreFingerprint = (overlays: Overlay[]): string => {
+    const volatileKeys = new Set(['src', 'url', 'assetUrl', 'thumbnailUrl', 'signedUrl']);
+    const stableValue = (value: any): any => {
+      if (Array.isArray(value)) return value.map(stableValue);
+      if (value && typeof value === 'object') {
+        return Object.keys(value)
+          .filter((key) => !volatileKeys.has(key))
+          .sort()
+          .reduce((result: Record<string, any>, key) => {
+            result[key] = stableValue(value[key]);
+            return result;
+          }, {});
+      }
+      return value;
+    };
+    return JSON.stringify((overlays || []).map(stableValue));
   };
 
   type SignalValueMap = Record<string, unknown>;
@@ -5853,9 +5872,71 @@ Example: use_matching_footage({ sceneIndex: 2, assetId: "a_Xk7pqR2m" })`,
     },
   );
 
+
+  const restoreAiEditCheckpointSchema = z.object({
+    checkpointId: z.string().min(1).describe("Checkpoint ID to restore. Use beforeCheckpointId to undo an AI edit; use afterCheckpointId to redo it."),
+  });
+
+  const restoreAiEditCheckpoint = tool(
+    async (rawInput: z.infer<typeof restoreAiEditCheckpointSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const checkpoint = await checkpointService.getCheckpoint(input.checkpointId, userId);
+        if (!checkpoint) {
+          return JSON.stringify({ status: 'error', message: `Checkpoint ${input.checkpointId} was not found or is not accessible.` });
+        }
+        if (checkpoint.projectId !== projectId) {
+          return JSON.stringify({ status: 'error', message: 'Checkpoint belongs to a different project and cannot be restored here.' });
+        }
+
+        const overlaysToRestore = checkpoint.overlays || [];
+        const expectedFingerprint = overlayRestoreFingerprint(overlaysToRestore);
+        await projectService.updateProject(userId, projectId, { overlays: overlaysToRestore });
+
+        const restoredProject = await projectService.loadProject(userId, projectId);
+        if (!restoredProject) {
+          return JSON.stringify({ status: 'error', message: 'Project could not be reloaded after checkpoint restore.' });
+        }
+
+        const actualFingerprint = overlayRestoreFingerprint(restoredProject.overlays || []);
+        if (actualFingerprint !== expectedFingerprint) {
+          return JSON.stringify({
+            status: 'error',
+            message: 'Checkpoint restore did not persist exactly. No inverse edit was attempted.',
+            data: {
+              checkpointId: checkpoint.checkpointId,
+              expectedOverlayCount: overlaysToRestore.length,
+              actualOverlayCount: restoredProject.overlays?.length ?? 0,
+            },
+          });
+        }
+
+        return JSON.stringify({
+          status: 'success',
+          data: {
+            checkpointId: checkpoint.checkpointId,
+            checkpointType: checkpoint.type,
+            description: checkpoint.description,
+            restoredOverlayCount: overlaysToRestore.length,
+            message: `Restored checkpoint ${checkpoint.checkpointId}.`,
+          },
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'restore_ai_edit_checkpoint',
+      description: `Restore the project overlays from a checkpoint created around an AI chat edit.
+Use this for undo/revert requests. Prefer beforeCheckpointId to undo the previous AI edit. Use afterCheckpointId only when the user explicitly asks to redo a restored edit.
+Never manually reverse edits when a checkpoint is available; restore the checkpoint snapshot instead.`,
+      schema: restoreAiEditCheckpointSchema,
+    },
+  );
   return [
     readProjectFile,
     getTimelineView,
+    restoreAiEditCheckpoint, // Restore exact AI edit checkpoints
     addOverlay,           // NEW: Unified add with Physics Engine
     updateOverlay,        // Enhanced with % support
     batchUpdateOverlays,  // NEW: Batch updates
