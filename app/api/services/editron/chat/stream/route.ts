@@ -5,6 +5,7 @@ import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from '@langchain/
 import { chatService } from '@/lib/editron/services/chat-service';
 import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
+import { buildChatEditContextBundle, formatChatEditContextForPrompt } from '@/lib/editron/agent/chat-edit-context';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { message, projectId, sessionId, selectedOverlayId } = await req.json();
+    const { message, projectId, sessionId, selectedOverlayId, clientContext } = await req.json();
 
     if (!message || !projectId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -157,24 +158,8 @@ export async function POST(req: NextRequest) {
     // Generate project summary — cached per projectId:updatedAt (Priyank's perf fix)
     let contextMessage = getCachedProjectContext(project);
 
-    // Inject selected overlay context so AI knows what the user is looking at
-    if (selectedOverlayId && project.overlays) {
-      const selected = project.overlays.find((o: any) => o.id === selectedOverlayId);
-      if (selected) {
-        const videoOverlays = project.overlays.filter((o: any) => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
-        const sceneIndex = videoOverlays.findIndex((o: any) => o.id === selected.id);
-        const sceneLabel = sceneIndex >= 0 ? ` This is SCENE ${sceneIndex + 1} (0-based index: ${sceneIndex}).` : '';
-        contextMessage += `\n\n⚡ CURRENTLY SELECTED OVERLAY: id=${selected.id}, type=${selected.type}, row=${selected.row}, from frame ${selected.from}, duration ${selected.durationInFrames} frames.${sceneLabel}
-CRITICAL: When the user says "this", "the selected", "this clip", "this scene", "regenerate this", "fix this" — they mean overlay id=${selected.id}${sceneIndex >= 0 ? ` (scene ${sceneIndex + 1})` : ''}. ACT IMMEDIATELY with this ID. Do NOT ask which overlay or which scene.
-If user says "regenerate" without specifying target, default to target='all' (regenerate image + video + voiceover).`;
-        if (selected.type === 'video' || selected.type === 'image') {
-          contextMessage += ` Content: ${(selected as any).src?.substring(0, 80) || 'N/A'}`;
-        }
-        if (selected.type === 'text') {
-          contextMessage += ` Text: "${(selected as any).content?.substring(0, 60) || ''}"`;
-        }
-      }
-    }
+    const chatEditContext = buildChatEditContextBundle(project, { clientContext, selectedOverlayId });
+    contextMessage += `\n\n${formatChatEditContextForPrompt(chatEditContext)}`;
 
     // Initialize agent with project context
     const agent = createAgent(userId, contextMessage);

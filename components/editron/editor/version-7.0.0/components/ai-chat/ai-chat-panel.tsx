@@ -110,7 +110,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
 
 export function AIChatPanel() {
   const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject,
-    setIsAIProcessing, selectedOverlayId
+    setIsAIProcessing, selectedOverlayId, currentFrame
   } = useEditorContext();
   const { toast } = useToast();
   const userId = getUserId();
@@ -350,6 +350,14 @@ export function AIChatPanel() {
           projectId,
           sessionId: currentSessionId,
           selectedOverlayId: selectedOverlayId || undefined,
+          clientContext: {
+            currentFrame,
+            selectedOverlayId: selectedOverlayId ?? null,
+            durationInFrames,
+            overlayCount: overlays.length,
+            canvas: getAspectRatioDimensions(),
+            playerDimensions,
+          },
         }),
         signal: controller.signal,
       });
