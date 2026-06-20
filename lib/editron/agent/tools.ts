@@ -46,6 +46,7 @@ import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
 import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
+import { createChatAssetTools } from './chat-asset-tools';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -5896,6 +5897,7 @@ Example: use_matching_footage({ sceneIndex: 2, assetId: "a_Xk7pqR2m" })`,
     replaceSFX,           // NEW: Replace a sound effect with Freesound search
     addSFX,               // NEW: Add SFX from Freesound (search + download + place)
     batchEditCaptions,    // NEW: Edit all captions at once for consistency
+    ...createChatAssetTools({ userId, projectId }),
     searchStockFootage,   // NEW: Search Pixabay for stock videos/images
     useMatchingFootage,   // Mode 3: Swap AI video with user footage per scene
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));

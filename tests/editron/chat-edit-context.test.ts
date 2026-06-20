@@ -1,9 +1,12 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
   buildChatEditContextBundle,
   formatChatEditContextForPrompt,
 } from '@/lib/editron/agent/chat-edit-context';
+import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
 describe('chat edit context bundle', () => {
   const project = {
@@ -102,7 +105,19 @@ describe('chat edit context bundle', () => {
       { assetId: 'asset_video', types: ['video'], overlayIds: [1] },
       { assetId: 'asset_music', types: ['sound'], overlayIds: [3] },
     ]);
-    expect(bundle.resolverStatus.userMediaSearchAvailableToChat).toBe(false);
+    expect(bundle.resolverStatus.userMediaSearchAvailableToChat).toBe(true);
+  });
+
+  it('covers user asset tools with registry metadata without importing Mongo-backed tools', () => {
+    const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-asset-tools.ts'), 'utf8');
+    const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
+
+    expect(toolNames).toEqual(['list_user_assets', 'search_user_assets', 'inspect_user_asset']);
+    expect(toolNames.map((toolName) => getChatToolMetadata(toolName)?.receiptLabel)).toEqual([
+      'Listed uploaded assets',
+      'Searched uploaded assets',
+      'Inspected uploaded asset',
+    ]);
   });
 
   it('clamps playhead and makes missing resolvers explicit in the prompt', () => {
@@ -117,7 +132,8 @@ describe('chat edit context bundle', () => {
     expect(bundle.playhead.frame).toBe(300);
     expect(bundle.project.canvas).toEqual({ width: 1080, height: 1920 });
     expect(prompt).toContain('Reference rule: when the user says "this"');
-    expect(prompt).toContain('Missing semantic resolvers: find_transcript_moment, find_visual_moment, find_audio_moment, search_user_assets');
+    expect(prompt).toContain('User media search: available via list_user_assets, search_user_assets, and inspect_user_asset');
+    expect(prompt).toContain('Missing semantic resolvers: find_transcript_moment, find_visual_moment, find_audio_moment');
     expect(prompt).toContain('Do not ask for a timeframe when this context is enough.');
   });
 });

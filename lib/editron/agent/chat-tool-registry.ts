@@ -88,6 +88,9 @@ export const CHAT_TOOL_REGISTRY = {
   replace_sfx: defineTool({ name: 'replace_sfx', label: 'Replacing sound effect', shortLabel: 'Replace SFX', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Replaced sound effect' }),
   add_sfx: defineTool({ name: 'add_sfx', label: 'Adding sound effect', shortLabel: 'SFX', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sound effect' }),
   batch_edit_captions: defineTool({ name: 'batch_edit_captions', label: 'Editing all captions', shortLabel: 'Caption edit', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Edited captions' }),
+  list_user_assets: defineTool({ name: 'list_user_assets', label: 'Listing uploaded assets', shortLabel: 'Assets', iconCategory: 'file', receiptLabel: 'Listed uploaded assets' }),
+  search_user_assets: defineTool({ name: 'search_user_assets', label: 'Searching uploaded assets', shortLabel: 'Asset search', iconCategory: 'search', executionType: 'generative', receiptLabel: 'Searched uploaded assets', loadingMessages: ['Searching your library', 'Checking asset matches', 'Ranking candidates'] }),
+  inspect_user_asset: defineTool({ name: 'inspect_user_asset', label: 'Inspecting uploaded asset', shortLabel: 'Inspect asset', iconCategory: 'visual', receiptLabel: 'Inspected uploaded asset' }),
   search_stock_footage: defineTool({ name: 'search_stock_footage', label: 'Searching stock footage', shortLabel: 'Stock', iconCategory: 'stock', executionType: 'generative', receiptLabel: 'Searched stock footage', loadingMessages: ['Searching footage', 'Checking matches', 'Collecting results'] }),
   use_matching_footage: defineTool({ name: 'use_matching_footage', label: 'Using matching footage', shortLabel: 'Use footage', iconCategory: 'stock', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Used matching footage' }),
 

@@ -146,12 +146,11 @@ export function buildChatEditContextBundle(
     audio: summarizeAudio(overlays),
     mediaRefs: summarizeMediaRefs(overlays),
     resolverStatus: {
-      userMediaSearchAvailableToChat: false,
+      userMediaSearchAvailableToChat: true,
       missingMomentResolvers: [
         'find_transcript_moment',
         'find_visual_moment',
         'find_audio_moment',
-        'search_user_assets',
       ],
     },
   };
@@ -177,7 +176,8 @@ export function formatChatEditContextForPrompt(bundle: ChatEditContextBundle): s
     `Transcript: captionOverlays=${bundle.transcript.captionOverlayCount}, captionSegments=${bundle.transcript.captionSegmentCount}, captionWords=${bundle.transcript.captionWordCount}, rawSegments=${bundle.transcript.rawSegmentCount}, rawWords=${bundle.transcript.rawWordCount}, hasWordTimestamps=${bundle.transcript.hasWordTimestamps}.`,
     `Audio: soundOverlays=${bundle.audio.soundOverlayCount}, nativeAudioVideoOverlays=${bundle.audio.nativeAudioVideoCount}.`,
     `Media refs: ${bundle.mediaRefs.length ? bundle.mediaRefs.map((ref) => `${ref.assetId}(${ref.types.join('+')}: overlays ${ref.overlayIds.join(',')})`).join('; ') : 'none from timeline overlays'}.`,
-    `Missing semantic resolvers: ${bundle.resolverStatus.missingMomentResolvers.join(', ')}. Until those are built, do not pretend you can search arbitrary transcript, frame, audio, or user-library moments beyond the supplied project state.`,
+    `User media search: ${bundle.resolverStatus.userMediaSearchAvailableToChat ? 'available via list_user_assets, search_user_assets, and inspect_user_asset' : 'unavailable'}.`,
+    `Missing semantic resolvers: ${bundle.resolverStatus.missingMomentResolvers.join(', ')}. Until those are built, do not pretend you can search arbitrary transcript, frame, or audio moments beyond the supplied project state.`,
     'Visible overlays:',
     overlays || '- none',
   ].join('\n');
