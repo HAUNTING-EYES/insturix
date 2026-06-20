@@ -46,6 +46,31 @@ export interface BriefExecutorOutput {
 const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
 
 type BriefSemanticFamily = 'camera' | 'transition' | 'graphic' | 'caption' | 'audio' | 'pacing' | 'unknown';
+type BriefSemanticFactKind =
+  | 'claim'
+  | 'proof'
+  | 'quote'
+  | 'contrast'
+  | 'process'
+  | 'identity'
+  | 'term'
+  | 'topic-shift'
+  | 'emotional-beat'
+  | 'visual-beat'
+  | 'audio-cue'
+  | 'camera-intent'
+  | 'caption-emphasis'
+  | 'pacing-intent'
+  | 'call-to-action';
+
+interface BriefSemanticFact {
+  kind: BriefSemanticFactKind;
+  source: 'semanticAtoms' | 'params' | 'reason' | 'type' | 'transcript';
+  text?: string;
+  value?: unknown;
+  evidence?: string;
+  role?: string;
+}
 
 interface BriefDecisionParamContext {
   reason: string;
@@ -70,6 +95,7 @@ interface BriefSemanticCandidate {
     targetBeatIdx?: number;
   };
   compatibilityHints: Record<string, string>;
+  facts: BriefSemanticFact[];
   semanticFacts: Record<string, unknown>;
 }
 
@@ -378,6 +404,7 @@ function buildBriefSemanticCandidate(
   context?: BriefDecisionParamContext,
 ): BriefSemanticCandidate {
   const transitionAtoms = transitionAtomsFromBriefType(type);
+  const facts = buildBriefSemanticFacts(type, rawParams, normalized, context);
   const timing: BriefSemanticCandidate['timing'] = {
     source: context?.coordinateSource ?? 'word',
   };
@@ -408,7 +435,11 @@ function buildBriefSemanticCandidate(
       sfxToken: type.startsWith('sfx_') ? sfxCompatibilityHint(type, rawParams) : undefined,
       captionKind: type === 'caption_emphasis' ? 'emphasis' : undefined,
     }),
+    facts,
     semanticFacts: compactRecord({
+      primaryFactKind: facts[0]?.kind,
+      factKinds: [...new Set(facts.map((fact) => fact.kind))],
+      semanticJob: briefSemanticJob(type, facts),
       transitionIntent: normalized.transitionIntent,
       transitionRelation: normalized.transitionRelation,
       transitionEnergy: normalized.transitionEnergy,
@@ -428,6 +459,263 @@ function buildBriefSemanticCandidate(
       audioIntent: rawParams.audioDescription ?? rawParams.soundDescription ?? rawParams.intent,
     }),
   };
+}
+
+function buildBriefSemanticFacts(
+  type: BriefDecisionType,
+  rawParams: Record<string, unknown>,
+  normalized: Record<string, unknown>,
+  context?: BriefDecisionParamContext,
+): BriefSemanticFact[] {
+  const facts: BriefSemanticFact[] = [];
+  const atoms = objectParam(rawParams.semanticAtoms);
+  const evidence = (stringParam(atoms?.evidencePhrase)
+    || stringParam(normalized.contextPhrase)
+    || stringParam(normalized.targetWord)) ?? undefined;
+
+  const add = (fact: BriefSemanticFact | null | undefined) => {
+    if (!fact) return;
+    const signature = `${fact.kind}:${fact.source}:${fact.text ?? ''}:${String(fact.value ?? '')}:${fact.role ?? ''}`;
+    const exists = facts.some((existing) => (
+      `${existing.kind}:${existing.source}:${existing.text ?? ''}:${String(existing.value ?? '')}:${existing.role ?? ''}` === signature
+    ));
+    if (exists) return;
+    facts.push(Object.fromEntries(
+      Object.entries(fact).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ) as BriefSemanticFact);
+  };
+
+  if (atoms) {
+    add(stringParam(atoms.claim) ? {
+      kind: 'claim',
+      source: 'semanticAtoms',
+      text: stringParam(atoms.claim) ?? undefined,
+      evidence,
+    } : null);
+    add(stringParam(atoms.concept) ? {
+      kind: 'term',
+      source: 'semanticAtoms',
+      text: stringParam(atoms.concept) ?? undefined,
+      evidence,
+    } : null);
+    add(quantityFact(atoms, normalized, evidence));
+    add(quoteFact(atoms, normalized, evidence));
+    add(identityFact(atoms, normalized, evidence));
+    add(relationFact(atoms, normalized, evidence));
+    add(itemsFact(atoms, evidence));
+    add(truthFact(atoms, evidence));
+  }
+
+  add(paramFallbackFact(type, normalized, evidence));
+  add(reasonFact(context?.reason, evidence));
+  add(typeIntentFact(type, rawParams));
+
+  return facts;
+}
+
+function quantityFact(
+  atoms: Record<string, unknown>,
+  normalized: Record<string, unknown>,
+  evidence?: string,
+): BriefSemanticFact | null {
+  const quantity = objectParam(atoms.quantity);
+  const value = quantity?.displayText ?? normalized.value;
+  if (value === undefined || value === null || value === '') return null;
+  return {
+    kind: 'proof',
+    source: quantity ? 'semanticAtoms' : 'params',
+    value,
+    text: stringParam(quantity?.label) ?? stringParam(normalized.label) ?? undefined,
+    evidence,
+    role: stringParam(quantity?.kind) ?? 'quantity',
+  };
+}
+
+function quoteFact(
+  atoms: Record<string, unknown>,
+  normalized: Record<string, unknown>,
+  evidence?: string,
+): BriefSemanticFact | null {
+  const quote = objectParam(atoms.quote);
+  const text = stringParam(quote?.text) ?? stringParam(normalized.quote);
+  if (!text) return null;
+  return {
+    kind: 'quote',
+    source: quote ? 'semanticAtoms' : 'params',
+    text,
+    evidence,
+    role: stringParam(quote?.author) ?? stringParam(normalized.author) ?? undefined,
+  };
+}
+
+function identityFact(
+  atoms: Record<string, unknown>,
+  normalized: Record<string, unknown>,
+  evidence?: string,
+): BriefSemanticFact | null {
+  const identity = objectParam(atoms.identity);
+  const name = stringParam(identity?.name) ?? stringParam(normalized.name);
+  if (!name) return null;
+  return {
+    kind: 'identity',
+    source: identity ? 'semanticAtoms' : 'params',
+    text: name,
+    evidence,
+    role: stringParam(identity?.role) ?? stringParam(normalized.title) ?? undefined,
+  };
+}
+
+function relationFact(
+  atoms: Record<string, unknown>,
+  normalized: Record<string, unknown>,
+  evidence?: string,
+): BriefSemanticFact | null {
+  const relation = objectParam(atoms.relation);
+  const from = stringParam(relation?.from) ?? stringParam(normalized.from);
+  const to = stringParam(relation?.to) ?? stringParam(normalized.to);
+  if (!from || !to) return null;
+  const relationKind = stringParam(relation?.kind) ?? stringParam(relation?.relation) ?? stringParam(normalized.relation);
+  const kind: BriefSemanticFactKind = relationKind === 'sequence' || relationKind === 'rank' ? 'process' : 'contrast';
+  return {
+    kind,
+    source: relation ? 'semanticAtoms' : 'params',
+    text: `${from} -> ${to}`,
+    evidence,
+    role: relationKind ?? undefined,
+  };
+}
+
+function itemsFact(atoms: Record<string, unknown>, evidence?: string): BriefSemanticFact | null {
+  const items = Array.isArray(atoms.items)
+    ? atoms.items.filter((item) => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  if (items.length === 0) return null;
+  return {
+    kind: 'process',
+    source: 'semanticAtoms',
+    value: items,
+    evidence,
+    role: 'items',
+  };
+}
+
+function truthFact(atoms: Record<string, unknown>, evidence?: string): BriefSemanticFact | null {
+  const truth = objectParam(atoms.truth);
+  if (!truth) return null;
+  const polarity = stringParam(truth.polarity);
+  const hasTruthFlag = polarity || truth.negated === true || truth.refuted === true || truth.warranted === true;
+  if (!hasTruthFlag) return null;
+  return {
+    kind: 'proof',
+    source: 'semanticAtoms',
+    text: polarity ?? undefined,
+    value: {
+      negated: truth.negated === true,
+      refuted: truth.refuted === true,
+      warranted: truth.warranted === true,
+    },
+    evidence,
+    role: 'truth',
+  };
+}
+
+function paramFallbackFact(
+  type: BriefDecisionType,
+  normalized: Record<string, unknown>,
+  evidence?: string,
+): BriefSemanticFact | null {
+  if (type === 'graphic_keyword_highlight') {
+    const text = stringParam(normalized.text) ?? stringParam(normalized.keyword) ?? stringParam(normalized.title);
+    return text ? { kind: 'term', source: 'params', text, evidence } : null;
+  }
+  if (type === 'graphic_quote_card') {
+    const text = stringParam(normalized.quote) ?? stringParam(normalized.text);
+    return text ? { kind: 'quote', source: 'params', text, evidence, role: stringParam(normalized.author) ?? undefined } : null;
+  }
+  if (type === 'graphic_lower_third') {
+    const name = stringParam(normalized.name);
+    return name ? { kind: 'identity', source: 'params', text: name, evidence, role: stringParam(normalized.title) ?? undefined } : null;
+  }
+  if (type === 'graphic_stat_counter') {
+    const value = normalized.value;
+    return value !== undefined && value !== null && value !== ''
+      ? { kind: 'proof', source: 'params', value, text: stringParam(normalized.label) ?? undefined, evidence }
+      : null;
+  }
+  return null;
+}
+
+function reasonFact(reason: string | undefined, evidence?: string): BriefSemanticFact | null {
+  if (!reason) return null;
+  const kindByReason: Partial<Record<string, BriefSemanticFactKind>> = {
+    topic_shift: 'topic-shift',
+    emotional_shift: 'emotional-beat',
+    vocal_peak: 'emotional-beat',
+    vocal_build: 'emotional-beat',
+    vocal_wind_down: 'emotional-beat',
+    energy_peak: 'emotional-beat',
+    energy_build: 'emotional-beat',
+    energy_drop: 'emotional-beat',
+    visual_peak: 'visual-beat',
+    motion_peak: 'visual-beat',
+    scene_boundary: 'topic-shift',
+    number_mentioned: 'proof',
+    name_mentioned: 'identity',
+    emphasis_word: 'caption-emphasis',
+    beat_accent: 'audio-cue',
+    music_beat: 'audio-cue',
+    music_drop: 'audio-cue',
+    music_section_change: 'topic-shift',
+    narrative_resolve: 'topic-shift',
+    opening_hook: 'claim',
+    closing_zone: 'topic-shift',
+    cta: 'call-to-action',
+    visual_monotony: 'camera-intent',
+    rhetorical_pause: 'pacing-intent',
+  };
+  const kind = kindByReason[reason];
+  return kind ? { kind, source: 'reason', text: reason, evidence } : null;
+}
+
+function typeIntentFact(type: BriefDecisionType, rawParams: Record<string, unknown>): BriefSemanticFact | null {
+  if (type.startsWith('zoom_') || type.startsWith('camera_')) {
+    return { kind: 'camera-intent', source: 'type', text: type };
+  }
+  if (type.startsWith('transition_')) {
+    const transitionAtoms = transitionAtomsFromBriefType(type);
+    return transitionAtoms
+      ? { kind: 'topic-shift', source: 'type', text: transitionAtoms.intent, role: transitionAtoms.relation }
+      : null;
+  }
+  if (type.startsWith('sfx_') || type.startsWith('audio_')) {
+    return { kind: 'audio-cue', source: 'type', text: sfxCompatibilityHint(type, rawParams) };
+  }
+  if (type === 'caption_emphasis') {
+    return { kind: 'caption-emphasis', source: 'type', text: type };
+  }
+  if (type === 'hold_longer' || type === 'cut_shorter' || type.startsWith('speed_')) {
+    return { kind: 'pacing-intent', source: 'type', text: type };
+  }
+  return null;
+}
+
+function briefSemanticJob(type: BriefDecisionType, facts: BriefSemanticFact[]): string {
+  if (facts.some((fact) => fact.kind === 'proof')) return 'surface-proof';
+  if (facts.some((fact) => fact.kind === 'contrast')) return 'show-relationship';
+  if (facts.some((fact) => fact.kind === 'process')) return 'show-sequence';
+  if (facts.some((fact) => fact.kind === 'quote')) return 'preserve-voice';
+  if (facts.some((fact) => fact.kind === 'identity')) return 'identify-entity';
+  if (facts.some((fact) => fact.kind === 'term')) return 'name-concept';
+  if (facts.some((fact) => fact.kind === 'topic-shift')) return 'mark-boundary';
+  if (facts.some((fact) => fact.kind === 'emotional-beat')) return 'heighten-beat';
+  if (facts.some((fact) => fact.kind === 'audio-cue')) return 'punctuate-beat';
+  if (facts.some((fact) => fact.kind === 'camera-intent')) return 'shape-attention';
+  if (type === 'caption_emphasis') return 'guide-reading';
+  return 'semantic-context';
+}
+
+function objectParam(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function briefSemanticFamily(type: BriefDecisionType): BriefSemanticFamily {

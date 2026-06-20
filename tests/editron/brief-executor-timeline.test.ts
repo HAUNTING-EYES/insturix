@@ -258,6 +258,142 @@ describe('brief decision conversion', () => {
     expect(params).not.toHaveProperty('audioDescription');
   });
 
+  it('wraps Creative Brief labels into semantic facts without executable form authority', () => {
+    const output = executeBrief({
+      brief: briefWith([
+        {
+          type: 'transition_whip_pan',
+          targetWordIdx: 1,
+          confidence: 0.86,
+          reason: 'topic_shift',
+          params: { transitionType: 'whip-pan', durationMs: 300 },
+        },
+        {
+          type: 'zoom_push',
+          targetWordIdx: 2,
+          confidence: 0.83,
+          reason: 'vocal_peak',
+          params: { zoomType: 'push', scaleFrom: 1, scaleTo: 1.12 },
+        },
+        {
+          type: 'caption_emphasis',
+          targetWordIdx: 2,
+          confidence: 0.78,
+          reason: 'emphasis_word',
+          params: { text: 'fast' },
+        },
+        {
+          type: 'sfx_impact',
+          targetWordIdx: 1,
+          confidence: 0.76,
+          reason: 'beat_accent',
+          params: { sfxType: 'impact', soundDescription: 'tight hit' },
+        },
+      ]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    const byTechnique = new Map(output.edl.decisions.map((decision) => [decision.technique, decision]));
+    const transitionParams = byTechnique.get('transition_whip_pan')?.params as Record<string, unknown>;
+    const zoomParams = byTechnique.get('zoom_push')?.params as Record<string, unknown>;
+    const captionParams = byTechnique.get('caption_emphasis')?.params as Record<string, unknown>;
+    const sfxParams = byTechnique.get('sfx_impact')?.params as Record<string, unknown>;
+
+    expect(transitionParams.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      compatibilityHints: expect.objectContaining({ transitionStyle: 'whip-pan' }),
+      facts: expect.arrayContaining([
+        expect.objectContaining({ kind: 'topic-shift', source: 'reason' }),
+        expect.objectContaining({ kind: 'topic-shift', source: 'type', text: 'motion-transfer' }),
+      ]),
+      semanticFacts: expect.objectContaining({
+        primaryFactKind: 'topic-shift',
+        semanticJob: 'mark-boundary',
+      }),
+    }));
+    expect(transitionParams).not.toHaveProperty('transitionType');
+    expect(transitionParams).not.toHaveProperty('durationMs');
+
+    expect(zoomParams.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      compatibilityHints: expect.objectContaining({ zoomKind: 'push' }),
+      facts: expect.arrayContaining([
+        expect.objectContaining({ kind: 'emotional-beat', source: 'reason' }),
+        expect.objectContaining({ kind: 'camera-intent', source: 'type' }),
+      ]),
+      semanticFacts: expect.objectContaining({ semanticJob: 'heighten-beat' }),
+    }));
+    expect(zoomParams).not.toHaveProperty('zoomType');
+    expect(zoomParams).not.toHaveProperty('scaleFrom');
+    expect(zoomParams).not.toHaveProperty('scaleTo');
+
+    expect(captionParams.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      compatibilityHints: expect.objectContaining({ captionKind: 'emphasis' }),
+      facts: expect.arrayContaining([
+        expect.objectContaining({ kind: 'caption-emphasis', source: 'reason' }),
+      ]),
+      semanticFacts: expect.objectContaining({ semanticJob: 'guide-reading' }),
+    }));
+
+    expect(sfxParams.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      compatibilityHints: expect.objectContaining({ sfxToken: 'impact' }),
+      facts: expect.arrayContaining([
+        expect.objectContaining({ kind: 'audio-cue', source: 'reason' }),
+        expect.objectContaining({ kind: 'audio-cue', source: 'type' }),
+      ]),
+      semanticFacts: expect.objectContaining({ semanticJob: 'punctuate-beat' }),
+    }));
+    expect(sfxParams).not.toHaveProperty('sfxType');
+    expect(sfxParams).not.toHaveProperty('soundDescription');
+  });
+
+  it('classifies MG semantic atoms into fact kinds before form resolving', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: 2,
+        confidence: 0.9,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            concept: 'Selection Bias',
+            claim: 'Comments overrepresent angry people',
+            relation: {
+              from: 'quiet majority',
+              to: 'angry commenters',
+              kind: 'contrast',
+            },
+            items: ['quiet majority', 'angry commenters'],
+            evidencePhrase: 'we grew fast',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    const params = output.edl.decisions[0].params as Record<string, unknown>;
+    expect(params.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      facts: expect.arrayContaining([
+        expect.objectContaining({ kind: 'claim', source: 'semanticAtoms' }),
+        expect.objectContaining({ kind: 'term', source: 'semanticAtoms' }),
+        expect.objectContaining({ kind: 'contrast', source: 'semanticAtoms' }),
+        expect.objectContaining({ kind: 'process', source: 'semanticAtoms' }),
+      ]),
+      semanticFacts: expect.objectContaining({
+        primaryFactKind: 'claim',
+        semanticJob: 'show-relationship',
+      }),
+    }));
+    expect(params).not.toHaveProperty('graphicType');
+  });
+
   it('converts semantic MG facts into structure atoms before executeEDL', () => {
     const output = executeBrief({
       brief: briefWith([{
