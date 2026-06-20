@@ -1728,6 +1728,68 @@ describe('Brand Vault draft orchestrator', () => {
     expect(repository.listRecords()).toHaveLength(0);
   });
 
+  it('creates a source-evidence draft when the website fetch fails but social evidence exists', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_chai',
+        companyName: 'Chaayos',
+        websiteUrl: 'chaayos.example',
+        socialLinks: ['https://www.instagram.com/chaayos'],
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'chaayos.example',
+            platform: 'website',
+            evidenceOrigin: 'user_supplied',
+          },
+          {
+            kind: 'social_post',
+            url: 'https://www.instagram.com/p/chaayos-test/',
+            platform: 'instagram',
+            name: 'Chaayos',
+            text: 'Kadak chai, bun maska, mango matcha, cafe reels, monsoon comfort.',
+            evidenceOrigin: 'public_fallback',
+            connection: {
+              provider: 'alyzitron_apify',
+              status: 'public_fallback_available',
+              accountHandle: 'chaayos',
+              canReadProfile: false,
+              canReadPosts: true,
+              canReadPinned: false,
+              matchStatus: 'matched',
+            },
+          },
+        ],
+        jobId: 'job_fetch_fail_social_fallback',
+        profileRecordId: 'draft_fetch_fail_social_fallback',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: {
+          fetchFn: async () => htmlResponse(500),
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.job.status).toBe('needs_review');
+    expect(result.job.warnings.some((warning) => warning.includes('Website fetch failed'))).toBe(true);
+    expect(result.record.id).toBe('draft_fetch_fail_social_fallback');
+    expect(result.profile.identity.brandName.value).toBe('Chaayos');
+    expect(result.candidates.some((candidate) => candidate.sourceType === 'social_post')).toBe(true);
+    expect(result.reviewPayload.candidateCount).toBeGreaterThan(0);
+    expect(result.reviewPayload.intake.website.status).toBe('failed');
+    expect(result.reviewPayload.intake.website.evidenceCount).toBe(0);
+    expect(result.reviewPayload.intake.social.status).toBe('needs_review');
+    expect(result.reviewPayload.intake.social.publicFallbackPostCount).toBe(1);
+    expect(repository.listRecords()).toHaveLength(1);
+  });
+
   it('keeps accept, reject, and latest profile operations behind the Brand Vault boundary', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const draft = await createBrandVaultWebsiteDraftJob(

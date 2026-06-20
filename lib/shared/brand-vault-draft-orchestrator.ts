@@ -438,6 +438,18 @@ export async function createBrandVaultWebsiteDraftJob(
       now: startedAt,
     });
   } catch (error) {
+    const sourceOnlyResult = await createSourceEvidenceOnlyDraftJob({
+      input,
+      dependencies,
+      jobId,
+      normalizedUrl,
+      socialLinks,
+      sourceEvidence,
+      startedAt,
+      fetchError: error,
+    });
+    if (sourceOnlyResult) return sourceOnlyResult;
+
     return failedResult({
       input,
       jobId,
@@ -593,6 +605,184 @@ export async function createBrandVaultWebsiteDraftJob(
   }
 }
 
+async function createSourceEvidenceOnlyDraftJob(args: {
+  input: BrandVaultWebsiteDraftJobInput;
+  dependencies: BrandVaultWebsiteDraftJobDependencies;
+  jobId: string;
+  normalizedUrl: string;
+  socialLinks: string[];
+  sourceEvidence: BrandVaultSourceInput[];
+  startedAt: string;
+  fetchError: unknown;
+}): Promise<BrandVaultWebsiteDraftJobResult | null> {
+  if (!hasSourceEvidenceDraftMaterial(args.socialLinks, args.sourceEvidence)) return null;
+
+  const observedAt = resolveNow(args.input.now, args.dependencies.clock);
+  const fetchWarning = `Website fetch failed; Brand Vault created a source-evidence draft from supplied socials/uploads instead. ${errorMessage(args.fetchError)}`;
+  const fallbackSnapshot = createSourceEvidenceFallbackSnapshot({
+    input: args.input,
+    normalizedUrl: args.normalizedUrl,
+    observedAt,
+    fetchWarning,
+  });
+
+  try {
+    const draft = createWebsiteBrandSignalProfileDraft(
+      {
+        websiteUrl: fallbackSnapshot.normalizedUrl,
+        html: fallbackSnapshot.html,
+        stylesheets: fallbackSnapshot.stylesheets,
+        supplementalText: fallbackSnapshot.supplementalText,
+        renderedPrimitives: fallbackSnapshot.renderedPrimitives,
+        brandId: args.input.brandId,
+        userId: args.input.userId,
+        companyName: args.input.companyName,
+        fetchedAt: fallbackSnapshot.fetchedAt,
+        jobId: args.jobId,
+      },
+      {
+        id: args.input.profileRecordId ?? `${args.jobId}_profile`,
+        now: fallbackSnapshot.fetchedAt,
+        actorId: args.input.actorId,
+      },
+    );
+    const stagedCandidates = createStagedSourceCandidates({
+      input: args.input,
+      jobId: args.jobId,
+      socialLinks: args.socialLinks,
+      sourceEvidence: args.sourceEvidence,
+      observedAt,
+    });
+    const compiled = await runTextEvidenceCompiler({
+      compiler: args.dependencies.textEvidenceCompiler,
+      jobId: args.jobId,
+      input: args.input,
+      website: fallbackSnapshot,
+      crawlSnapshots: [],
+      sourceEvidence: args.sourceEvidence,
+      existingCandidates: stagedCandidates,
+      observedAt,
+    });
+    const enrichedRecord = applyReviewCandidatesToDraftRecord(
+      draft.record,
+      [...stagedCandidates, ...compiled.candidates],
+      observedAt,
+    );
+    const savedRecord = await args.dependencies.repository.saveRecord(enrichedRecord, {
+      now: observedAt,
+      actorId: args.input.actorId,
+    });
+    const candidates = withCandidateTrustLevels([...stagedCandidates, ...compiled.candidates]);
+    const baseWarnings = mergeWarnings(
+      [fetchWarning],
+      draft.warnings,
+      compiled.warnings ?? [],
+      shouldWarnForStagedSocialLinks(args.socialLinks, args.sourceEvidence) ? [SOCIAL_LINKS_STAGED_WARNING] : [],
+      stagedCandidates.length > 0 ? [stagedSourcesWarning(stagedCandidates.length)] : [],
+    );
+    let job = createJob({
+      input: args.input,
+      jobId: args.jobId,
+      status: 'needs_review',
+      websiteUrl: args.normalizedUrl,
+      socialLinks: args.socialLinks,
+      sourceEvidence: args.sourceEvidence,
+      warnings: baseWarnings,
+      createdAt: args.startedAt,
+      updatedAt: observedAt,
+    });
+    const visualAssets = await mirrorBrandVaultVisualIdentityAssets({
+      visualIdentity: createBrandVaultVisualIdentitySummary({
+        profile: savedRecord.profile,
+        candidates,
+        sourceEvidence: job.inputs.sourceEvidence ?? [],
+      }),
+      job,
+      provider: args.dependencies.visualAssetStorage,
+    });
+    if (visualAssets.warnings.length > 0) {
+      job = {
+        ...job,
+        warnings: mergeWarnings(job.warnings, visualAssets.warnings),
+      };
+    }
+    const reviewPayload = createBrandVaultDraftReviewPayload({
+      job,
+      record: savedRecord,
+      candidates,
+      normalizedUrl: args.normalizedUrl,
+      warnings: job.warnings,
+      visualIdentity: visualAssets.visualIdentity,
+    });
+
+    return {
+      ok: true,
+      job,
+      record: savedRecord,
+      profile: savedRecord.profile,
+      candidates,
+      normalizedUrl: args.normalizedUrl,
+      warnings: job.warnings,
+      reviewPayload,
+    };
+  } catch (error) {
+    return failedResult({
+      input: args.input,
+      jobId: args.jobId,
+      websiteUrl: args.normalizedUrl,
+      socialLinks: args.socialLinks,
+      sourceEvidence: args.sourceEvidence,
+      code: 'draft_creation_failed',
+      message: errorMessage(error),
+      createdAt: args.startedAt,
+      updatedAt: observedAt,
+      warnings: [fetchWarning, 'Source evidence was staged, but Brand Vault could not create a review draft.'],
+    });
+  }
+}
+
+function hasSourceEvidenceDraftMaterial(socialLinks: string[], sourceEvidence: BrandVaultSourceInput[]): boolean {
+  if (socialLinks.length > 0) return true;
+  return sourceEvidence.some((source) => source.kind !== 'crawl_seed');
+}
+
+function createSourceEvidenceFallbackSnapshot(args: {
+  input: BrandVaultWebsiteDraftJobInput;
+  normalizedUrl: string;
+  observedAt: string;
+  fetchWarning: string;
+}): BrandWebsiteSnapshot {
+  const hostname = safeHostname(args.normalizedUrl);
+  const brandName = args.input.companyName ?? hostname.replace(/^www\./i, '');
+  const title = sanitizeEvidenceExcerpt(`${brandName} source-evidence fallback`, 120);
+  return {
+    normalizedUrl: args.normalizedUrl,
+    html: `<!doctype html><html><head><title>${escapeHtml(title)}</title></head><body><h1>${escapeHtml(brandName)}</h1></body></html>`,
+    fetchedAt: args.observedAt,
+    contentType: 'text/html',
+    stylesheets: [],
+    supplementalText: [],
+    fetchWarnings: [args.fetchWarning],
+  };
+}
+
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname || 'brand';
+  } catch {
+    return 'brand';
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    if (char === '&') return '&amp;';
+    if (char === '<') return '&lt;';
+    if (char === '>') return '&gt;';
+    if (char === '"') return '&quot;';
+    return '&#39;';
+  });
+}
 export function createBrandVaultDraftReviewPayload(args: {
   job: BrandRefineryJob;
   record: BrandSignalProfileRecord;
@@ -1062,8 +1252,10 @@ function createIntakeSummary(args: {
   const uploadCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'uploaded_guideline' || candidate.sourceType === 'uploaded_asset');
   const uploadExtractorCandidates = uploadCandidates.filter((candidate) => candidate.extractorId === UPLOAD_EXTRACTOR);
   const legacyCandidates = args.candidates.filter((candidate) => candidate.sourceType === 'legacy_brand_intelligence');
-  const websiteEvidenceCount = args.profile.evidence.filter(isRootWebsiteProfileEvidence).length;
-  const websiteStatus: BrandVaultIntakeStageStatus = args.job.status === 'failed' ? 'failed' : 'complete';
+  const websiteFetchFailed = args.warnings.some(isWebsiteFetchFailureWarning);
+  const websiteEvidenceCount = websiteFetchFailed ? 0 : args.profile.evidence.filter(isRootWebsiteProfileEvidence).length;
+  const websiteNotes = websiteFetchFailed ? [`Website fetch failed for ${args.normalizedUrl}; review the source-evidence draft instead.`] : [`Fetched ${args.normalizedUrl}.`];
+  const websiteStatus: BrandVaultIntakeStageStatus = args.job.status === 'failed' || websiteFetchFailed ? 'failed' : 'complete';
   const social = createSocialIntakeSummary({
     socialLinks: args.job.inputs.socialLinks,
     sources: socialSources,
@@ -1083,7 +1275,7 @@ function createIntakeSummary(args: {
       sourceCount: args.normalizedUrl ? 1 : 0,
       candidates: websiteCandidates,
       evidenceCount: websiteEvidenceCount,
-      notes: [`Fetched ${args.normalizedUrl}.`],
+      notes: websiteNotes,
     }),
     createEvidenceLane({
       id: 'crawl',
@@ -1134,7 +1326,7 @@ function createIntakeSummary(args: {
       candidateCount: websiteCandidates.length,
       evidenceCount: websiteEvidenceCount,
       crawledPageCount: crawlPageCandidates.length,
-      notes: [`Website evidence fetched from ${args.normalizedUrl}.`],
+      notes: websiteNotes,
     },
     social,
     uploads,
@@ -1439,6 +1631,10 @@ function isWebsiteProfileEvidenceSource(sourceType: string): boolean {
 
 function isRootWebsiteProfileEvidence(evidence: BrandSignalEvidence): boolean {
   return isWebsiteProfileEvidenceSource(evidence.sourceType) && !isCrawlProfileEvidence(evidence);
+}
+
+function isWebsiteFetchFailureWarning(warning: string): boolean {
+  return /Website fetch failed/i.test(warning);
 }
 
 function isAuthWarning(warning: string): boolean {
