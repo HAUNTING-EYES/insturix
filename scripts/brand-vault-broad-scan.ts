@@ -63,12 +63,16 @@ type CliOptions = {
   outDir: string;
   limit?: number;
   concurrency: number;
+  targetTimeoutMs: number;
 };
 
 const DEFAULT_INPUTS = [
   'C:\\tmp\\brand-vault-sp500-tech-job-scan-results-complete.json',
   'C:\\tmp\\brand-vault-india-d2c-b2c-200-job-scan-results.json',
 ];
+
+const DEFAULT_TARGET_TIMEOUT_MS = 150_000;
+const TARGET_TIMEOUT_REASON = 'target timeout';
 
 const GENERIC_INDUSTRIES = new Set(['commerce', 'software', 'analytics', 'creative services', 'health']);
 const AUDIENCE_JUNK_PATTERN =
@@ -79,9 +83,9 @@ async function main(): Promise<void> {
   const targets = await loadTargets(options.inputs);
   const selected = typeof options.limit === 'number' ? targets.slice(0, options.limit) : targets;
   const generatedAt = new Date().toISOString();
-  console.log(`[BrandVaultBroadScan] targets=${selected.length} concurrency=${options.concurrency}`);
+  console.log(`[BrandVaultBroadScan] targets=${selected.length} concurrency=${options.concurrency} targetTimeoutMs=${options.targetTimeoutMs}`);
 
-  const results = await runPool(selected, options.concurrency, scanTarget);
+  const results = await runPool(selected, options.concurrency, (target) => scanTargetWithTimeout(target, options.targetTimeoutMs));
   const summary = summarize(results);
   await mkdir(options.outDir, { recursive: true });
 
@@ -101,6 +105,7 @@ function parseArgs(args: string[]): CliOptions {
     inputs: DEFAULT_INPUTS,
     outDir: 'C:\\tmp',
     concurrency: 3,
+    targetTimeoutMs: DEFAULT_TARGET_TIMEOUT_MS,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -117,6 +122,9 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg === '--concurrency' && next) {
       options.concurrency = parsePositiveInteger(next, '--concurrency');
+      index += 1;
+    } else if (arg === '--target-timeout-ms' && next) {
+      options.targetTimeoutMs = parsePositiveInteger(next, '--target-timeout-ms');
       index += 1;
     }
   }
@@ -163,6 +171,32 @@ async function loadTargetsFromFile(filePath: string): Promise<ScanTarget[]> {
       };
     })
     .filter((item): item is ScanTarget => Boolean(item));
+}
+
+async function scanTargetWithTimeout(target: ScanTarget, targetTimeoutMs: number): Promise<ScanResult> {
+  return withTimeout(
+    scanTarget(target),
+    targetTimeoutMs,
+    () => failedTarget(
+      target,
+      'exception',
+      [`Brand Vault broad scan target exceeded ${targetTimeoutMs}ms and was marked failed.`],
+      TARGET_TIMEOUT_REASON,
+    ),
+  );
+}
+
+export async function withTimeout<T>(task: Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutTask = new Promise<T>((resolve) => {
+    timeout = setTimeout(() => resolve(onTimeout()), timeoutMs);
+    timeout.unref?.();
+  });
+  try {
+    return await Promise.race([task, timeoutTask]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function scanTarget(target: ScanTarget): Promise<ScanResult> {
@@ -415,10 +449,14 @@ function errorMessage(error: unknown): string {
 }
 
 if (isDirectCliRun()) {
-  main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+  main()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 }
 
 function isDirectCliRun(): boolean {

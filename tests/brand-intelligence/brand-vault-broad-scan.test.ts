@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBroadScanFetchOptions } from '../../scripts/brand-vault-broad-scan';
+import { createBroadScanFetchOptions, withTimeout } from '../../scripts/brand-vault-broad-scan';
 import type { BrandVaultBrowserRenderFetch } from '../../lib/shared/brand-vault-browser-fallback';
 
 describe('Brand Vault broad scan harness', () => {
@@ -17,6 +17,19 @@ describe('Brand Vault broad scan harness', () => {
     expect(options.browserFallbackFetchFn).toBeUndefined();
   });
 
+  it('returns the timeout result when a broad-scan target exceeds its budget', async () => {
+    const startedAt = Date.now();
+    const result = await withTimeout(
+      new Promise<string>(() => {
+        // Intentionally never resolves: this mirrors a hostile or stuck target.
+      }),
+      20,
+      () => 'timed-out',
+    );
+
+    expect(result).toBe('timed-out');
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
   it('uses the configured self-hosted browser render endpoint for blocked broad-scan targets', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const renderFetchFn: BrandVaultBrowserRenderFetch = async (url, init) => {
