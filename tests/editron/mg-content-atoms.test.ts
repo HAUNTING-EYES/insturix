@@ -81,6 +81,118 @@ describe('MG content atom normalization', () => {
     ]));
   });
 
+  it('removes creative-knowledge-graph schema placeholders before MG planning and rendering', async () => {
+    const placeholderPattern = /person\/brand name from transcript or brief|role\/description \(optional\)|numeric \(300%\)|count-up \| pop \| fade|slide-in from left \| fade-in/i;
+    const normalized = normalizeMotionGraphicContent({
+      name: 'person/brand name from transcript or brief',
+      title: 'role/description (optional)',
+      format: 'numeric (300%) | currency ($49) | count (10x)',
+      animation: 'count-up | pop | fade',
+      text: 'Psychology',
+      semanticAtoms: {
+        identity: {
+          name: 'person/brand name from transcript or brief',
+          role: 'role/description (optional)',
+        },
+        text: {
+          primary: 'Psychology',
+          secondary: 'How attention gets shaped',
+        },
+        claim: 'Psychology changes attention',
+        evidencePhrase: 'psychology changes how attention gets shaped',
+      },
+      contextPhrase: 'psychology changes how attention gets shaped',
+    });
+
+    expect(JSON.stringify(normalized.content)).not.toMatch(placeholderPattern);
+    expect(JSON.stringify(normalized.semanticAtoms)).not.toMatch(placeholderPattern);
+    expect(normalized.content.name).toBeUndefined();
+    expect(normalized.content.title).toBe('Psychology');
+    expect(normalized.content.body).toBe('Psychology changes attention');
+    expect(normalized.structure.primaryChannel).not.toBe('identity');
+
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    if (DEFAULT_CONFIG.features) DEFAULT_CONFIG.features.useCompositionEngine = true;
+
+    const overlays: Overlay[] = [{
+      id: 1,
+      type: OverlayType.VIDEO,
+      from: 0,
+      durationInFrames: 240,
+      row: 0,
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isDragging: false,
+      rotation: 0,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+      styles: { opacity: 1 },
+    } as Overlay];
+
+    const edl: EditDecisionList = {
+      projectId: 'mg-content-atoms-placeholder-scrub',
+      generatedAt: new Date('2026-06-20T00:00:00.000Z'),
+      totalDecisions: 1,
+      decisions: [{
+        type: 'graphic',
+        frame: 60,
+        durationFrames: 90,
+        priority: 3,
+        source: 'creative-brief:test',
+        signal: 'semantic-placeholder-guard',
+        reason: 'KG example defaults must not render as MG content',
+        confidence: 0.95,
+        params: {
+          creativeDecisionType: 'graphic_lower_third',
+          name: 'person/brand name from transcript or brief',
+          title: 'role/description (optional)',
+          animation: 'slide-in from left | fade-in',
+          text: 'Psychology',
+          semanticAtoms: {
+            identity: {
+              name: 'person/brand name from transcript or brief',
+              role: 'role/description (optional)',
+            },
+            text: {
+              primary: 'Psychology',
+              secondary: 'How attention gets shaped',
+            },
+            claim: 'Psychology changes attention',
+            evidencePhrase: 'psychology changes how attention gets shaped',
+          },
+          contextPhrase: 'psychology changes how attention gets shaped',
+          signals: {
+            visual_significance: 0.74,
+            speech_energy: 0.82,
+            emotional_arousal: 0.66,
+            visual_complexity: 0.12,
+            text_on_screen: 0.08,
+          },
+        },
+      }],
+      stats: {
+        cutsPerMinute: 0,
+        transitionCount: 0,
+        graphicCount: 1,
+        zoomCount: 0,
+        speedChangeCount: 0,
+        averageConfidence: 0.95,
+      },
+    };
+
+    await executeEDL(edl, 'mg-content-atoms-placeholder-scrub', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    const motionGraphic = overlays.find((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC) as any;
+    expect(motionGraphic).toBeDefined();
+    expect(JSON.stringify(motionGraphic.content)).not.toMatch(placeholderPattern);
+    expect(JSON.stringify(motionGraphic.metadata.contentStructure)).not.toMatch(placeholderPattern);
+    expect(JSON.stringify(motionGraphic.metadata.semanticAtoms)).not.toMatch(placeholderPattern);
+    expect(motionGraphic.content.title).toBe('Psychology');
+    expect(motionGraphic.content.name).toBeUndefined();
+  });
   it('renders semanticAtoms-only series as data-viz MG and persists the content structure', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);

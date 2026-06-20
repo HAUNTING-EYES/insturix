@@ -16,14 +16,14 @@ export interface NormalizedMotionGraphicContent {
 export function normalizeMotionGraphicContent(
   params: Record<string, unknown>,
 ): NormalizedMotionGraphicContent {
-  const content: Record<string, unknown> = { ...params };
-  const atoms = objectParam(params.semanticAtoms) ?? objectParam(params.contentAtoms) ?? objectParam(params.atoms);
+  const content = sanitizeMotionGraphicContentRecord(params);
+  const atoms = objectParam(content.semanticAtoms) ?? objectParam(content.contentAtoms) ?? objectParam(content.atoms);
 
   if (atoms) {
     content.semanticAtoms = atoms;
     applySemanticAtoms(atoms, content);
   }
-
+  sanitizeMotionGraphicContentInPlace(content);
   const structure = deriveContentStructure(content);
   const sourceSpan = resolveSemanticSourceSpan(content);
   const semanticMgCandidateLedger = buildSemanticMgCandidateLedger({
@@ -48,6 +48,87 @@ export function normalizeMotionGraphicContent(
   };
 }
 
+const KG_EXAMPLE_PLACEHOLDERS = new Set([
+  'person/brand name from transcript or brief',
+  'role/description (optional)',
+  'numeric (300%) | currency ($49) | count (10x)',
+  'count-up | pop | fade',
+  'slide-in from left | fade-in',
+]);
+
+const KG_ENUM_PLACEHOLDER_KEYS = new Set([
+  'animation',
+  'color',
+  'duration',
+  'format',
+  'name',
+  'position',
+  'role',
+  'size',
+  'style',
+  'title',
+]);
+
+function sanitizeMotionGraphicContentRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const next = sanitizeMotionGraphicContentValue(value, key);
+    if (next !== undefined) sanitized[key] = next;
+  }
+  return sanitized;
+}
+
+function sanitizeMotionGraphicContentInPlace(record: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(record)) {
+    const next = sanitizeMotionGraphicContentValue(value, key);
+    if (next === undefined) {
+      delete record[key];
+    } else {
+      record[key] = next;
+    }
+  }
+}
+
+function sanitizeMotionGraphicContentValue(value: unknown, key?: string): unknown {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text || isMotionGraphicPlaceholderText(text, key)) return undefined;
+    return text;
+  }
+
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => sanitizeMotionGraphicContentValue(item, key))
+      .filter((item) => item !== undefined);
+    return items.length > 0 ? items : undefined;
+  }
+
+  if (value && typeof value === 'object') {
+    const nested = sanitizeMotionGraphicContentRecord(value as Record<string, unknown>);
+    return Object.keys(nested).length > 0 ? nested : undefined;
+  }
+
+  return value;
+}
+
+function isMotionGraphicPlaceholderText(value: string, key?: string): boolean {
+  const normalized = normalizePlaceholderText(value);
+  if (KG_EXAMPLE_PLACEHOLDERS.has(normalized)) return true;
+  if (normalized.includes('from transcript or brief')) return true;
+  if (normalized.includes('exact number')) return true;
+  if (normalized.includes('placeholder')) return true;
+  if (normalized.includes('role/description')) return true;
+
+  if (key && KG_ENUM_PLACEHOLDER_KEYS.has(key) && /\s\|\s/.test(value)) {
+    return /\b(default|fade|large|medium|numeric|optional|pop|small|slide|currency|count)\b/i.test(value);
+  }
+
+  return false;
+}
+
+function normalizePlaceholderText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
 function resolveSemanticSourceSpan(content: Record<string, unknown>): SemanticMgSourceSpan | undefined {
   const existing = objectParam(content.sourceSpan);
   const text = stringValue(existing?.text)
