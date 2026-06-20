@@ -6,6 +6,7 @@ import { chatService } from '@/lib/editron/services/chat-service';
 import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 import { buildChatEditContextBundle, formatChatEditContextForPrompt } from '@/lib/editron/agent/chat-edit-context';
+import { beginChatAiEditTransaction, completeChatAiEditTransaction } from '@/lib/editron/agent/chat-ai-edit-transactions';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
@@ -160,6 +161,12 @@ export async function POST(req: NextRequest) {
 
     const chatEditContext = buildChatEditContextBundle(project, { clientContext, selectedOverlayId });
     contextMessage += `\n\n${formatChatEditContextForPrompt(chatEditContext)}`;
+    const editTransaction = beginChatAiEditTransaction({
+      sessionId: actualSessionId,
+      projectId,
+      userId,
+      overlays: project.overlays ?? [],
+    });
 
     // Initialize agent with project context
     const agent = createAgent(userId, contextMessage);
@@ -272,6 +279,13 @@ export async function POST(req: NextRequest) {
         // Convert maps → arrays
         const toolCalls = Array.from(toolCallsMap.values());
         const toolResults = Array.from(toolResultsMap.values());
+        const editTransactionSummary = await completeChatAiEditTransaction({
+          transaction: editTransaction,
+          toolResults,
+        });
+        if (editTransactionSummary.status === 'failed') {
+          console.error('[STREAM-ROUTE] Failed to create AI edit transaction checkpoints:', editTransactionSummary.error);
+        }
 
         // Save assistant response with tool info
         await chatService.saveMessage(actualSessionId, {
@@ -279,6 +293,7 @@ export async function POST(req: NextRequest) {
           content: finalResponse,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           toolResults: toolResults.length > 0 ? toolResults : undefined,
+          checkpointIds: editTransactionSummary.checkpointIds.length > 0 ? editTransactionSummary.checkpointIds : undefined,
         });
 
         // Calculate and deduct actual credits based on token usage (post-hoc billing)
@@ -301,6 +316,7 @@ export async function POST(req: NextRequest) {
         await writer.write(encoder.encode(`data: ${JSON.stringify({ 
           type: 'done', 
           sessionId: actualSessionId,
+          aiEditTransaction: editTransactionSummary,
           creditsConsumed: Math.round(creditsConsumed * 100) / 100,
           tokensUsed,
         })}\n\n`));
