@@ -49,12 +49,27 @@ import type {
   BrandVaultSignalGroup,
   BrandVaultSnapshot,
   BrandVaultSourceInput,
+  SignalRow,
   SourceLane,
 } from './brand-vault-types';
 import { useBrandVaultJob, useBrandVaultMutations, useBrandVaultProfile } from './useBrandVault';
 
 type ToastTone = 'good' | 'warn' | 'risk';
 type UploadStatus = 'idle' | 'extracting';
+type DomainVerificationRequestStatus = 'idle' | 'loading' | 'checking';
+
+interface DomainVerificationState {
+  host: string;
+  recordName: string;
+  recordType: 'TXT';
+  recordValue: string;
+  token: string;
+  status?: 'pending' | 'verified' | 'error';
+  verified?: boolean;
+  checkedAt?: string;
+  observedRecordValues?: string[];
+  error?: string;
+}
 
 const BRAND_GROUPS: BrandVaultSignalGroup[] = [
   'identity',
@@ -93,6 +108,8 @@ export function BrandVaultReview() {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [scanLatchActive, setScanLatchActive] = useState(false);
   const [activeGuidanceWorkflow, setActiveGuidanceWorkflow] = useState<string | null>(null);
+  const [domainVerification, setDomainVerification] = useState<DomainVerificationState | null>(null);
+  const [domainVerificationStatus, setDomainVerificationStatus] = useState<DomainVerificationRequestStatus>('idle');
   const [jobId, setJobId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [resolvedConflicts, setResolvedConflicts] = useState<Set<string>>(() => new Set());
@@ -100,6 +117,7 @@ export function BrandVaultReview() {
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [showSignals, setShowSignals] = useState(false);
+  const [signalEdits, setSignalEdits] = useState<Record<string, unknown>>({});
 
   const jobQuery = useBrandVaultJob(jobId);
   const profileQuery = useBrandVaultProfile(profileId);
@@ -118,7 +136,13 @@ export function BrandVaultReview() {
     setSnapshot((current) => mergeSnapshot(current, profileQuery.data));
   }, [profileQuery.data]);
 
+  useEffect(() => {
+    setSignalEdits({});
+  }, [snapshot.record?.id]);
+
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
+  const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
+  const editedSignalCount = Object.keys(signalEdits).length;
   const allConflicts = useMemo(() => groupConflicts(snapshot.candidates), [snapshot.candidates]);
   const activeConflicts = useMemo(
     () =>
@@ -134,7 +158,7 @@ export function BrandVaultReview() {
         : activeConflicts[0] ?? null,
     [activeConflicts, allConflicts, resolvingConflictPath],
   );
-  const summary = useMemo(() => summarize(signals, activeConflicts, snapshot), [activeConflicts, signals, snapshot]);
+  const summary = useMemo(() => summarize(editedSignals, activeConflicts, snapshot), [activeConflicts, editedSignals, snapshot]);
   const sourceLanes = useMemo(
     () => augmentSourceLanes(buildSourceLanes(snapshot), socialLinksText, uploadedSources, snapshot),
     [snapshot, socialLinksText, uploadedSources],
@@ -144,7 +168,7 @@ export function BrandVaultReview() {
     [snapshot, sourceLanes],
   );
   const brandName = profileBrandName(snapshot);
-  const facets = useMemo(() => buildFacets(snapshot, signals), [signals, snapshot]);
+  const facets = useMemo(() => buildFacets(snapshot, editedSignals), [editedSignals, snapshot]);
   const canReview = Boolean(snapshot.record?.id && snapshot.record.status === 'draft');
   const activeScanStatus = snapshot.job?.status === 'queued' || snapshot.job?.status === 'running';
   const scanBusy = createDraft.isPending || scanLatchActive || activeScanStatus;
@@ -213,6 +237,7 @@ export function BrandVaultReview() {
     setLookupId(nextJobId ?? nextProfileId ?? '');
     setResolvedConflicts(new Set());
     setResolvingConflictPath(null);
+    setSignalEdits({});
     const resultStillScanning = result.job?.status === 'queued' || result.job?.status === 'running';
     setScanLatchActive(resultStillScanning);
     showToast(resultStillScanning ? 'Scan queued. Results will appear here.' : 'Draft ready for review.', 'good');
@@ -220,6 +245,11 @@ export function BrandVaultReview() {
 
   function handleGuidanceAction(actionId: string) {
     setActiveGuidanceWorkflow(actionId);
+
+    if (actionId === 'verify_domain_access') {
+      void requestDomainVerification('instructions');
+      return;
+    }
 
     if (actionId === 'add_pinned_posts') {
       showToast('Social link receiver ready.', 'warn');
@@ -253,6 +283,41 @@ export function BrandVaultReview() {
 
     if (actionId === 'review_crawl') {
       showToast('Crawl evidence notes are visible below.', 'warn');
+    }
+  }
+
+  async function requestDomainVerification(action: 'instructions' | 'verify') {
+    const cleanUrl = scanWebsiteUrl;
+    if (!cleanUrl) {
+      setLocalError('Enter a client website before verifying domain access.');
+      return;
+    }
+
+    setLocalError(null);
+    setDomainVerificationStatus(action === 'verify' ? 'checking' : 'loading');
+    try {
+      const response = await fetch('/api/brand-vault/domain-verification', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ websiteUrl: cleanUrl, action }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok: true; verification: DomainVerificationState }
+        | { ok: false; error?: { message?: string } }
+        | null;
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload && 'error' in payload ? payload.error?.message ?? 'Domain verification failed.' : 'Domain verification failed.');
+      }
+      setDomainVerification(payload.verification);
+      if (action === 'verify') {
+        showToast(payload.verification.verified ? 'Domain TXT record verified.' : 'DNS record not visible yet.', payload.verification.verified ? 'good' : 'warn');
+      } else {
+        showToast('DNS verification record generated.', 'warn');
+      }
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Domain verification failed.');
+    } finally {
+      setDomainVerificationStatus('idle');
     }
   }
 
@@ -320,9 +385,11 @@ export function BrandVaultReview() {
       setLocalError('Create or open a draft before accepting it.');
       return;
     }
-    const result = await acceptDraft.mutateAsync(snapshot.record.id);
+    const edits = Object.entries(signalEdits).map(([path, value]) => ({ path, value }));
+    const result = await acceptDraft.mutateAsync({ recordId: snapshot.record.id, signalEdits: edits });
     setSnapshot((current) => mergeSnapshot(current, result));
-    showToast('Profile accepted as brand truth.', 'good');
+    setSignalEdits({});
+    showToast(edits.length ? `Profile accepted with ${edits.length} user edit${edits.length === 1 ? '' : 's'}.` : 'Profile accepted as brand truth.', 'good');
   }
 
   async function rejectProfile() {
@@ -346,6 +413,11 @@ export function BrandVaultReview() {
       setResolvedConflicts((current) => new Set(current).add(path));
       setResolvingConflictPath(null);
     }, 650);
+  }
+
+  function editSignalValue(path: string, value: unknown) {
+    setSignalEdits((current) => ({ ...current, [path]: value }));
+    showToast(`Edited ${path}. Accept the profile to save it.`, 'good');
   }
 
   function showToast(message: string, tone: ToastTone) {
@@ -373,7 +445,7 @@ export function BrandVaultReview() {
           </span>
           <button type="button" className="bv-c1-primary" disabled={!canReview || busy} onClick={acceptProfile}>
             {acceptDraft.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            Accept profile
+            {editedSignalCount ? `Accept profile (${editedSignalCount})` : 'Accept profile'}
           </button>
         </header>
 
@@ -383,7 +455,7 @@ export function BrandVaultReview() {
           <>
         <BrandHero
           brandName={brandName}
-          signals={signals}
+          signals={editedSignals}
           visualIdentity={snapshot.reviewPayload?.visualIdentity ?? null}
           facets={facets}
           conflict={displayedConflict ? { label: displayedConflict.label } : null}
@@ -412,9 +484,12 @@ export function BrandVaultReview() {
             uploadStatus={uploadStatus}
             uploadedSourceCount={uploadedSources.length}
             canRescan={canRescanWithEvidence}
+            domainVerification={domainVerification}
+            domainVerificationStatus={domainVerificationStatus}
             onAction={handleGuidanceAction}
             onSocialLinksTextChange={setSocialLinksText}
             onUploadClick={() => guidanceUploadInputRef.current?.click()}
+            onVerifyDomain={() => void requestDomainVerification('verify')}
             onRescan={() => void createDraftFromCurrentInputs()}
             onClearWorkflow={() => setActiveGuidanceWorkflow(null)}
           />
@@ -455,7 +530,11 @@ export function BrandVaultReview() {
             conflict={displayedConflict}
             resolved={Boolean(resolvingConflictPath)}
             onAccept={resolveConflict}
-            onEdit={(path) => showToast(`Edit queued for ${path}. Per-signal patch API is pending.`, 'warn')}
+            onEdit={(path) => {
+              setShowSignals(true);
+              showToast(`Open ${path} in the signal table to edit it.`, 'warn');
+              requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+            }}
             onReject={(path) => resolveConflict(path, 'rejected')}
           />
 
@@ -471,7 +550,7 @@ export function BrandVaultReview() {
                   All signals &amp; evidence
                 </span>
                 <span className="mt-0.5 block text-[12px] text-[#5F5E5A]">
-                  {signals.length} signals · {summary.reviewOnly} review-only · expand to inspect
+                  {editedSignals.length} signals · {summary.reviewOnly} review-only · expand to inspect
                 </span>
               </span>
               {showSignals ? (
@@ -482,7 +561,13 @@ export function BrandVaultReview() {
             </button>
             {showSignals && (
               <div className="mt-4">
-                <SignalTable signals={signals} onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')} />
+                <SignalTable
+                  signals={editedSignals}
+                  editedValues={signalEdits}
+                  disabled={!canReview || busy}
+                  onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')}
+                  onEdit={editSignalValue}
+                />
               </div>
             )}
           </div>
@@ -549,9 +634,12 @@ interface IntakeGuidancePanelProps {
   uploadStatus: UploadStatus;
   uploadedSourceCount: number;
   canRescan: boolean;
+  domainVerification: DomainVerificationState | null;
+  domainVerificationStatus: DomainVerificationRequestStatus;
   onAction: (actionId: string) => void;
   onSocialLinksTextChange: (value: string) => void;
   onUploadClick: () => void;
+  onVerifyDomain: () => void;
   onRescan: () => void;
   onClearWorkflow: () => void;
 }
@@ -565,9 +653,12 @@ function IntakeGuidancePanel({
   uploadStatus,
   uploadedSourceCount,
   canRescan,
+  domainVerification,
+  domainVerificationStatus,
   onAction,
   onSocialLinksTextChange,
   onUploadClick,
+  onVerifyDomain,
   onRescan,
   onClearWorkflow,
 }: IntakeGuidancePanelProps) {
@@ -576,7 +667,8 @@ function IntakeGuidancePanel({
   const socialLinkCount = parseSocialLinks(socialLinksText).length;
   const showSocialWorkflow = activeWorkflow === 'add_pinned_posts' || activeWorkflow === 'connect_social';
   const showUploadWorkflow = activeWorkflow === 'add_uploads';
-  const showWorkflow = showSocialWorkflow || showUploadWorkflow;
+  const showDomainWorkflow = activeWorkflow === 'verify_domain_access';
+  const showWorkflow = showSocialWorkflow || showUploadWorkflow || showDomainWorkflow;
 
   return (
     <section className="bv-c1-intake-panel" aria-label="Brand Vault intake guidance">
@@ -614,11 +706,13 @@ function IntakeGuidancePanel({
           <div className="bv-c1-intake-workflow">
             <div className="bv-c1-intake-workflow-head">
               <span>
-                <strong>{showUploadWorkflow ? 'Brand files' : 'Pinned posts and profiles'}</strong>
+                <strong>{workflowTitle(activeWorkflow)}</strong>
                 <em>
-                  {showUploadWorkflow
-                    ? `${uploadedSourceCount} file${uploadedSourceCount === 1 ? '' : 's'} staged`
-                    : `${socialLinkCount}/10 links staged`}
+                  {showDomainWorkflow
+                    ? domainVerification?.host ?? 'DNS proof pending'
+                    : showUploadWorkflow
+                      ? `${uploadedSourceCount} file${uploadedSourceCount === 1 ? '' : 's'} staged`
+                      : `${socialLinkCount}/10 links staged`}
                 </em>
               </span>
               <button type="button" className="bv-c1-icon-button" onClick={onClearWorkflow} aria-label="Close intake workflow">
@@ -626,7 +720,14 @@ function IntakeGuidancePanel({
               </button>
             </div>
 
-            {showUploadWorkflow ? (
+            {showDomainWorkflow ? (
+              <DomainVerificationWorkflow
+                verification={domainVerification}
+                status={domainVerificationStatus}
+                disabled={busy}
+                onVerify={onVerifyDomain}
+              />
+            ) : showUploadWorkflow ? (
               <div className="bv-c1-intake-workflow-body">
                 <div className="bv-c1-intake-staged">
                   <FileText size={15} />
@@ -732,14 +833,77 @@ function guidanceActionButtonLabel(actionId: string): string {
   if (actionId === 'add_pinned_posts') return 'Add links';
   if (actionId === 'add_uploads') return 'Add files';
   if (actionId === 'connect_social') return 'Connect';
+  if (actionId === 'verify_domain_access') return 'Verify';
   if (actionId === 'review_candidates') return 'Review';
   if (actionId === 'accept_or_reject') return 'Decide';
   if (actionId === 'review_crawl') return 'Inspect';
   return 'Open';
 }
 
+function workflowTitle(actionId: string | null): string {
+  if (actionId === 'verify_domain_access') return 'Domain access';
+  if (actionId === 'add_uploads') return 'Brand files';
+  return 'Pinned posts and profiles';
+}
+
+function DomainVerificationWorkflow({
+  verification,
+  status,
+  disabled,
+  onVerify,
+}: {
+  verification: DomainVerificationState | null;
+  status: DomainVerificationRequestStatus;
+  disabled: boolean;
+  onVerify: () => void;
+}) {
+  const busy = status === 'loading' || status === 'checking';
+  return (
+    <div className="bv-c1-intake-workflow-body">
+      <div className="bv-c1-intake-staged">
+        {busy ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
+        <span>{verification ? `Add TXT on ${verification.host}` : 'Generating DNS TXT instructions'}</span>
+      </div>
+      {verification && (
+        <div className="bv-c1-domain-proof-grid">
+          <label>
+            <span>Record name</span>
+            <code>{verification.recordName}</code>
+          </label>
+          <label>
+            <span>Type</span>
+            <code>{verification.recordType}</code>
+          </label>
+          <label className="wide">
+            <span>TXT value</span>
+            <code>{verification.recordValue}</code>
+          </label>
+          {verification.status && (
+            <label>
+              <span>Status</span>
+              <code>{verification.status}{verification.checkedAt ? ` / ${new Date(verification.checkedAt).toLocaleTimeString()}` : ''}</code>
+            </label>
+          )}
+          {verification.error && (
+            <label className="wide">
+              <span>DNS note</span>
+              <code>{verification.error}</code>
+            </label>
+          )}
+        </div>
+      )}
+      <div className="bv-c1-intake-workflow-actions">
+        <button type="button" className="bv-c1-primary" disabled={disabled || busy || !verification} onClick={onVerify}>
+          {status === 'checking' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          {status === 'checking' ? 'Checking DNS' : 'Check DNS'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function isCaptureAction(actionId: string): boolean {
-  return actionId === 'add_pinned_posts' || actionId === 'add_uploads' || actionId === 'connect_social';
+  return actionId === 'add_pinned_posts' || actionId === 'add_uploads' || actionId === 'connect_social' || actionId === 'verify_domain_access';
 }
 
 interface FastSetupPanelProps {
@@ -1121,6 +1285,31 @@ function SocialLinkRow({
       </button>
     </div>
   );
+}
+
+function applySignalEditsToRows(signals: SignalRow[], edits: Record<string, unknown>): SignalRow[] {
+  if (Object.keys(edits).length === 0) return signals;
+  return signals.map((signal) => {
+    if (!Object.prototype.hasOwnProperty.call(edits, signal.path)) return signal;
+    return {
+      ...signal,
+      value: edits[signal.path],
+      confidence: Math.max(signal.confidence, 0.95),
+      trustLevel: 'manual_user_entry',
+      authorityClass: authorityClassForEditedSignal(signal),
+      fallbackReason: undefined,
+    };
+  });
+}
+
+function authorityClassForEditedSignal(signal: SignalRow): string {
+  if (signal.authorityClass === 'brand_fact' || signal.authorityClass === 'brand_constraint' || signal.authorityClass === 'brand_preference' || signal.authorityClass === 'voice_default') {
+    return signal.authorityClass;
+  }
+  if (signal.path === 'voice.killList' || signal.path.startsWith('palette.unsafe')) return 'brand_constraint';
+  if (signal.path.startsWith('identity.') || signal.path.startsWith('assets.')) return 'brand_fact';
+  if (signal.path.startsWith('voice.')) return 'voice_default';
+  return 'brand_preference';
 }
 
 function buildFacets(snapshot: BrandVaultSnapshot, signals: ReturnType<typeof collectSignals>): BrandConstellationFacet[] {
@@ -1635,6 +1824,39 @@ const baseStyles = `
   color: #7A776E;
   padding: 10px 12px;
   font-size: 12px;
+}
+.bv-c1-domain-proof-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 8px;
+}
+.bv-c1-domain-proof-grid label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.bv-c1-domain-proof-grid label.wide {
+  grid-column: 1 / -1;
+}
+.bv-c1-domain-proof-grid span {
+  color: #7A776E;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.bv-c1-domain-proof-grid code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid #282724;
+  border-radius: 7px;
+  background: #050505;
+  color: #ECE9E1;
+  padding: 8px 9px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.45;
 }
 .bv-c1-intake-workflow-actions {
   display: flex;

@@ -10,7 +10,9 @@ import { isBrandSignalActionable, sanitizeEvidenceExcerpt } from './brand-signal
 import {
   collectBrandSignals,
   getReviewReasons,
+  validateBrandSignalProfile,
   type BrandSignalLifecycleOptions,
+  type BrandSignalProfileIssue,
   type BrandSignalProfileRecord,
 } from './brand-signal-lifecycle';
 import type { BrandSignalProfileRepositoryResult } from './brand-signal-profile-repository';
@@ -288,6 +290,15 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   clock?: () => string;
 }
 
+export interface BrandVaultSignalValueEdit {
+  path: string;
+  value: unknown;
+}
+
+export type BrandVaultSignalValueEditResult =
+  | { ok: true; record: BrandSignalProfileRecord }
+  | { ok: false; code: Exclude<BrandSignalProfileRepositoryResult, { ok: true }>['code']; issues: BrandSignalProfileIssue[] };
+
 export type BrandVaultWebsiteDraftJobResult =
   | {
       ok: true;
@@ -316,6 +327,8 @@ const UPLOAD_EXTRACTOR = 'brand-vault-upload-evidence.v1';
 const CRAWL_EXTRACTOR = 'brand-vault-crawler.v1';
 const SOCIAL_EVIDENCE_EXTRACTOR = 'brand-vault-social-evidence.v1';
 const TEXT_EVIDENCE_COMPILER_EXTRACTOR = 'brand-vault-text-evidence-compiler.v1';
+const USER_REVIEW_EDIT_EXTRACTOR = 'brand-vault-user-review.v1';
+const USER_REVIEW_EDIT_CONFIDENCE = 0.95;
 const TEXT_EVIDENCE_COMPILER_CONFIDENCE_MAX = 0.68;
 const PROMOTABLE_REVIEW_EXTRACTORS = new Set([
   UPLOAD_EXTRACTOR,
@@ -622,11 +635,176 @@ export function createBrandVaultDraftReviewPayload(args: {
 export function acceptBrandVaultSignalProfileDraft(
   repository: SynchronousBrandVaultSignalProfileStore,
   recordId: string,
-  options: BrandSignalLifecycleOptions = {},
+  options: BrandSignalLifecycleOptions & { signalEdits?: BrandVaultSignalValueEdit[] } = {},
 ): BrandSignalProfileRepositoryResult {
-  return repository.acceptDraft(recordId, options);
+  const { signalEdits, ...lifecycleOptions } = options;
+  if (!signalEdits?.length) return repository.acceptDraft(recordId, lifecycleOptions);
+
+  const record = repository.getRecord(recordId);
+  if (!record) return signalEditFailure('not_found', 'record', `Brand signal profile record "${recordId}" was not found.`);
+
+  const edited = applyBrandVaultSignalValueEditsToDraftRecord(record, signalEdits, lifecycleOptions);
+  if (!edited.ok) return edited;
+  repository.saveRecord(edited.record, lifecycleOptions);
+  return repository.acceptDraft(recordId, lifecycleOptions);
 }
 
+export function applyBrandVaultSignalValueEditsToDraftRecord(
+  record: BrandSignalProfileRecord,
+  edits: BrandVaultSignalValueEdit[],
+  options: BrandSignalLifecycleOptions = {},
+): BrandVaultSignalValueEditResult {
+  if (record.status !== 'draft') {
+    return signalEditFailure('not_draft', 'status', `Only draft profiles can be edited. Current status: ${record.status}.`);
+  }
+
+  const normalizedEdits = normalizeSignalValueEdits(edits);
+  if (normalizedEdits.length === 0) return { ok: true, record };
+
+  const now = options.now ?? new Date().toISOString();
+  const editedRecord: BrandSignalProfileRecord = {
+    ...record,
+    profile: cloneBrandSignalProfile(record.profile),
+    updatedAt: now,
+    review: { ...record.review },
+  };
+  const signalsByPath = new Map(collectBrandSignals(editedRecord.profile).map((entry) => [entry.path, entry.signal]));
+  const evidenceIds = new Set(editedRecord.profile.evidence.map((item) => item.id));
+
+  for (const [index, edit] of normalizedEdits.entries()) {
+    const signal = signalsByPath.get(edit.path);
+    if (!signal) return signalEditFailure('validation_failed', edit.path, `Unknown brand signal path "${edit.path}".`);
+
+    const normalizedValue = normalizeEditedSignalValue(edit.path, edit.value, signal.value);
+    if (!normalizedValue.ok) return signalEditFailure('validation_failed', edit.path, normalizedValue.message);
+
+    const evidenceId = createUserEditEvidenceId(evidenceIds, edit.path, now, index);
+    evidenceIds.add(evidenceId);
+    const evidence: BrandSignalEvidence = {
+      id: evidenceId,
+      signalPath: edit.path,
+      sourceType: 'manual_user_entry',
+      sourceField: 'brandVault.review.signalEdits',
+      excerpt: sanitizeEvidenceExcerpt(`User edited ${edit.path} to ${signalValuePreview(normalizedValue.value)}.`),
+      confidence: USER_REVIEW_EDIT_CONFIDENCE,
+      trustLevel: 'manual_user_entry',
+      authorityClass: authorityClassForUserEdit(signal, edit.path),
+      observedAt: now,
+      extractor: USER_REVIEW_EDIT_EXTRACTOR,
+    };
+
+    editedRecord.profile.evidence.push(evidence);
+    signal.value = normalizedValue.value;
+    signal.confidence = Math.max(signal.confidence, USER_REVIEW_EDIT_CONFIDENCE);
+    signal.trustLevel = 'manual_user_entry';
+    signal.authorityClass = evidence.authorityClass;
+    signal.evidenceIds = [evidenceId, ...signal.evidenceIds.filter((id) => id !== evidenceId)];
+    delete signal.fallbackReason;
+  }
+
+  const validation = validateBrandSignalProfile(editedRecord.profile);
+  if (!validation.valid) return { ok: false, code: 'validation_failed', issues: validation.errors };
+  editedRecord.review.required = true;
+  editedRecord.review.reasons = getReviewReasons(editedRecord.profile, validation);
+  return { ok: true, record: editedRecord };
+}
+
+function normalizeSignalValueEdits(edits: BrandVaultSignalValueEdit[]): BrandVaultSignalValueEdit[] {
+  const byPath = new Map<string, BrandVaultSignalValueEdit>();
+  for (const edit of edits) {
+    const path = edit.path.trim();
+    if (!path) continue;
+    byPath.set(path, { path, value: edit.value });
+  }
+  return [...byPath.values()].slice(0, 100);
+}
+
+function normalizeEditedSignalValue(
+  path: string,
+  value: unknown,
+  currentValue: unknown,
+): { ok: true; value: unknown } | { ok: false; message: string } {
+  if (Array.isArray(currentValue)) {
+    const values = Array.isArray(value)
+      ? value
+      : typeof value === 'string'
+        ? value.split(/[\n,]+/)
+        : null;
+    if (!values) return { ok: false, message: 'Array signals must be edited as an array or comma/newline separated text.' };
+    const normalized = values
+      .map((item) => (typeof item === 'string' ? item.trim() : item))
+      .filter((item) => item !== '' && item !== null && item !== undefined);
+    if (normalized.some((item) => !isEditablePrimitive(item))) {
+      return { ok: false, message: 'Array signal edits can contain only strings, numbers, or booleans.' };
+    }
+    return { ok: true, value: normalized };
+  }
+
+  if (typeof currentValue === 'number') {
+    const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : Number.NaN;
+    if (!Number.isFinite(numeric)) return { ok: false, message: 'Numeric signal edits must be finite numbers.' };
+    if (numeric < 0 || numeric > 1) return { ok: false, message: 'Numeric brand signal dials must stay between 0 and 1.' };
+    return { ok: true, value: numeric };
+  }
+
+  if (typeof currentValue === 'boolean') {
+    if (typeof value === 'boolean') return { ok: true, value };
+    if (typeof value === 'string' && /^(true|false)$/i.test(value.trim())) return { ok: true, value: value.trim().toLowerCase() === 'true' };
+    return { ok: false, message: 'Boolean signal edits must be true or false.' };
+  }
+
+  if (typeof currentValue === 'string') {
+    if (!isEditablePrimitive(value)) return { ok: false, message: 'Text signal edits must be plain text.' };
+    const text = String(value).trim();
+    if (!text) return { ok: false, message: 'Text signal edits cannot be empty.' };
+    return { ok: true, value: text };
+  }
+
+  if (isEditableJsonValue(value)) return { ok: true, value };
+  return { ok: false, message: `Signal ${path} cannot be edited to this value type.` };
+}
+
+function authorityClassForUserEdit(signal: BrandSignal<unknown>, path: string): BrandSignalEvidence['authorityClass'] {
+  if (signal.authorityClass === 'brand_fact' || signal.authorityClass === 'brand_constraint' || signal.authorityClass === 'brand_preference' || signal.authorityClass === 'voice_default') {
+    return signal.authorityClass;
+  }
+  if (path === 'voice.killList' || path.startsWith('palette.unsafe')) return 'brand_constraint';
+  if (path.startsWith('identity.') || path.startsWith('assets.')) return 'brand_fact';
+  if (path.startsWith('voice.')) return 'voice_default';
+  return 'brand_preference';
+}
+
+function createUserEditEvidenceId(existingIds: Set<string>, path: string, observedAt: string, index: number): string {
+  const stamp = Date.parse(observedAt) || Date.now();
+  const slug = path.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 72) || 'signal';
+  let id = `manual_${stamp}_${index}_${slug}`;
+  let suffix = 1;
+  while (existingIds.has(id)) {
+    id = `manual_${stamp}_${index}_${slug}_${suffix}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+function signalEditFailure(
+  code: Exclude<BrandSignalProfileRepositoryResult, { ok: true }>['code'],
+  path: string,
+  message: string,
+): Exclude<BrandSignalProfileRepositoryResult, { ok: true }> {
+  return { ok: false, code, issues: [{ severity: 'error', code: 'review_required', path, message }] };
+}
+
+function isEditablePrimitive(value: unknown): value is string | number | boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function isEditableJsonValue(value: unknown): boolean {
+  if (value === null) return true;
+  if (isEditablePrimitive(value)) return true;
+  if (Array.isArray(value)) return value.every(isEditableJsonValue);
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value).every(isEditableJsonValue);
+}
 export function rejectBrandVaultSignalProfileDraft(
   repository: SynchronousBrandVaultSignalProfileStore,
   recordId: string,

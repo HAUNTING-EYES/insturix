@@ -51,6 +51,16 @@ async function brandVaultFetch(url: string, init?: RequestInit): Promise<BrandVa
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 
+export interface BrandVaultSignalEditInput {
+  path: string;
+  value: unknown;
+}
+
+export interface AcceptBrandVaultDraftInput {
+  recordId: string;
+  signalEdits?: BrandVaultSignalEditInput[];
+}
+
 async function createDraftRequest(input: CreateBrandVaultDraftInput): Promise<BrandVaultApiSuccess> {
   return brandVaultFetch('/api/brand-vault/refinery/jobs', {
     method: 'POST',
@@ -71,11 +81,12 @@ async function reviewDraftRequest(
   recordId: string,
   action: 'accept' | 'reject',
   reason?: string,
+  signalEdits?: BrandVaultSignalEditInput[],
 ): Promise<BrandVaultApiSuccess> {
   return brandVaultFetch(`/api/brand-vault/signal-profiles/${encodeURIComponent(recordId)}`, {
     method: 'PATCH',
     headers: JSON_HEADERS,
-    body: JSON.stringify(action === 'accept' ? { action } : { action, reason }),
+    body: JSON.stringify(action === 'accept' ? { action, signalEdits: signalEdits ?? [] } : { action, reason }),
   });
 }
 
@@ -123,9 +134,10 @@ export function useBrandVaultMutations() {
   });
 
   const acceptDraft = useMutation({
-    mutationFn: (recordId: string) => reviewDraftRequest(recordId, 'accept'),
-    onSuccess: (_data, recordId) => {
-      queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(recordId) });
+    mutationFn: (input: AcceptBrandVaultDraftInput) =>
+      reviewDraftRequest(input.recordId, 'accept', undefined, input.signalEdits),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(input.recordId) });
     },
   });
 

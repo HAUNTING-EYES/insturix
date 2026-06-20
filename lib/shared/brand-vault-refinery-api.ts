@@ -8,10 +8,12 @@ import {
   type BrandSignalProfileRepositoryResult,
 } from './brand-signal-profile-repository';
 import {
+  applyBrandVaultSignalValueEditsToDraftRecord,
   createBrandVaultDraftReviewPayload,
   createBrandVaultWebsiteDraftJob,
   type BrandVaultSignalProfileStore,
   type BrandVaultStoreResult,
+  type BrandVaultSignalValueEdit,
   type BrandVaultTextEvidenceCompiler,
   type BrandVaultWebsiteDraftJobResult,
   type BrandVaultWebsiteDraftReviewPayload,
@@ -107,6 +109,7 @@ export type CreateBrandVaultRefineryJobBody = {
 export type ReviewBrandVaultSignalProfileBody = {
   action?: unknown;
   reason?: unknown;
+  signalEdits?: unknown;
 };
 
 type ParsedCreateBody =
@@ -742,9 +745,12 @@ export async function reviewBrandVaultSignalProfileDraft(
   const action = typeof body.action === 'string' ? body.action.trim() : '';
   const now = args.now ?? new Date().toISOString();
   const options = { actorId: args.actorId ?? args.userId, now };
+  const parsedSignalEdits = parseSignalValueEdits(body.signalEdits);
+  if (!parsedSignalEdits.ok) return invalidRequest(parsedSignalEdits.message);
+
   const result =
     action === 'accept'
-      ? await dependencies.store.acceptDraft(args.recordId, options)
+      ? await acceptDraft(record, parsedSignalEdits.value, dependencies.store, options)
       : action === 'reject'
         ? await rejectDraft(args.recordId, body, dependencies.store, options)
         : null;
@@ -777,6 +783,20 @@ export async function reviewBrandVaultSignalProfileDraft(
   };
 }
 
+async function acceptDraft(
+  record: BrandSignalProfileRecord,
+  signalEdits: BrandVaultSignalValueEdit[],
+  store: BrandVaultRefineryStore,
+  options: BrandSignalLifecycleOptions,
+): Promise<BrandSignalProfileRepositoryResult> {
+  if (signalEdits.length === 0) return store.acceptDraft(record.id, options);
+
+  const edited = applyBrandVaultSignalValueEditsToDraftRecord(record, signalEdits, options);
+  if (!edited.ok) return edited;
+  await store.saveRecord(edited.record, options);
+  return store.acceptDraft(record.id, options);
+}
+
 function rejectDraft(
   recordId: string,
   body: Record<string, unknown>,
@@ -786,6 +806,26 @@ function rejectDraft(
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
   if (!reason) return null;
   return store.rejectDraft(recordId, reason, options);
+}
+
+type ParsedSignalValueEdits =
+  | { ok: true; value: BrandVaultSignalValueEdit[] }
+  | { ok: false; message: string };
+
+function parseSignalValueEdits(value: unknown): ParsedSignalValueEdits {
+  if (value === undefined) return { ok: true, value: [] };
+  if (!Array.isArray(value)) return { ok: false, message: 'signalEdits must be an array when provided.' };
+  if (value.length > 100) return { ok: false, message: 'signalEdits can include at most 100 edits.' };
+
+  const edits: BrandVaultSignalValueEdit[] = [];
+  for (const item of value) {
+    if (!isObjectRecord(item)) return { ok: false, message: 'Each signal edit must be an object.' };
+    const path = cleanString(item.path);
+    if (!path) return { ok: false, message: 'Each signal edit must include a path.' };
+    if (!('value' in item)) return { ok: false, message: 'Each signal edit must include a value.' };
+    edits.push({ path, value: item.value });
+  }
+  return { ok: true, value: edits };
 }
 
 function parseCreateBody(body: unknown): ParsedCreateBody {
