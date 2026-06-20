@@ -3,6 +3,8 @@ import type {
   EditDecisionList as ReactiveEditDecisionList,
 } from './reactive-edit-engine';
 import { enrichDecisionsWithOverlayTimelineMemory } from './overlay-timeline-memory';
+import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
+import { normalizeMotionGraphicContent } from './mg-content-atoms';
 
 type CompatibleEditDecision = Partial<ReactiveEditDecision> & {
   type: ReactiveEditDecision['type'];
@@ -1363,15 +1365,27 @@ function hasDirectParamValue(value: unknown): boolean {
 }
 
 function hasEvidenceBackedGraphicContent(decision: ReactiveEditDecision): boolean {
-  const params = decision.params ?? {};
-  if (hasAnyParam(decision, ['value', 'name', 'quote', 'semanticAtoms', 'contentStructure'])) return true;
-  if (hasAnyParam(decision, ['title']) && hasAnyParam(decision, ['body'])) return true;
-  if (hasAnyParam(decision, ['from']) && hasAnyParam(decision, ['to', 'relation'])) return true;
+  return resolveGraphicContentEvidenceLicense(decision).executable;
+}
 
-  const items = params.items;
-  if (Array.isArray(items)) return items.length > 0;
+function resolveGraphicContentEvidenceLicense(
+  decision: ReactiveEditDecision,
+): { executable: boolean; reason: string } {
+  const normalized = normalizeMotionGraphicContent(decision.params ?? {});
+  const ledger = normalized.semanticMgCandidateLedger;
+  if (ledger.summary.totalCandidates === 0) {
+    return { executable: false, reason: 'missing-graphic-content-evidence' };
+  }
 
-  return false;
+  const gate = resolveSemanticMgLedgerGate(ledger);
+  if (!gate.allow || ledger.candidates.length === 0) {
+    return {
+      executable: false,
+      reason: gate.reasons[0] ?? 'missing-graphic-content-evidence',
+    };
+  }
+
+  return { executable: true, reason: 'licensed-by-graphic-semantic-ledger' };
 }
 
 function resolveTransitionBoundaryPlan(decision: ReactiveEditDecision): UnifiedTransitionBoundaryPlan | null {
@@ -3371,10 +3385,6 @@ function resolveSignalExecutionLicense(
     }
   }
 
-  if (signalDecision.type === 'graphic' && !hasEvidenceBackedGraphicContent(signalDecision)) {
-    return { executable: false, reason: 'missing-graphic-content-evidence' };
-  }
-
   const familyLicense = resolveFamilyExecutionLicense(signalDecision);
   if (!familyLicense.executable) {
     return familyLicense;
@@ -3421,7 +3431,7 @@ function resolveFamilyExecutionLicense(
         ? { executable: true, reason: 'licensed-by-timing-span-atoms' }
         : { executable: false, reason: 'missing-timing-span-atoms' };
     case 'graphic':
-      return { executable: true, reason: 'licensed-by-graphic-content-atoms' };
+      return resolveGraphicContentEvidenceLicense(decision);
     default:
       return { executable: false, reason: 'unsupported-signal-family' };
   }

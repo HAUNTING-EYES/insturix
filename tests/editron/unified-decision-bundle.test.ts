@@ -189,7 +189,7 @@ describe('unified decision bundle merge', () => {
       label: 'retention lift',
       unifiedDecisionMerge: expect.objectContaining({
         role: 'signal-supplement',
-        executionLicense: 'licensed-by-graphic-content-atoms',
+        executionLicense: 'licensed-by-graphic-semantic-ledger',
       }),
     }));
     expect(merged.evidence).toEqual(expect.objectContaining({
@@ -202,7 +202,7 @@ describe('unified decision bundle merge', () => {
       sources: { 'signal-executor:number': 1 },
     }));
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
-      'licensed-by-graphic-content-atoms': expect.objectContaining({ count: 1 }),
+      'licensed-by-graphic-semantic-ledger': expect.objectContaining({ count: 1 }),
     }));
   });
 
@@ -252,6 +252,50 @@ describe('unified decision bundle merge', () => {
     ]));
   });
 
+  it('keeps Creative Knowledge Graph placeholder graphics as evidence before EDL rendering', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'graphic',
+        frame: 180,
+        source: 'signal-executor:kg-placeholder',
+        signal: 'semantic.placeholder',
+        confidence: 0.95,
+        params: {
+          creativeDecisionType: 'graphic_lower_third',
+          name: 'person/brand name from transcript or brief',
+          title: 'role/description (optional)',
+          animation: 'slide-in from left | fade-in',
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'graphic',
+      family: 'graphic',
+      outcome: 'evidence-only',
+      reason: 'missing-graphic-content-evidence',
+      params: {
+        name: 'person/brand name from transcript or brief',
+        title: 'role/description (optional)',
+      },
+    }));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-graphic-content-evidence': expect.objectContaining({ count: 1 }),
+    }));
+  });
   it('lets a weak creative primary supplement with bounded signal-driven decisions', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
