@@ -1343,6 +1343,25 @@ describe('Brand website refinery', () => {
     expect(snapshot.browserFallbackRequired).toBe(false);
   });
 
+  it('records a warning when configured browser fallback returns no usable HTML', async () => {
+    const snapshot = await fetchWebsiteBrandSnapshot('blocked.example', {
+      now: NOW,
+      disableBrowserLikeRetry: true,
+      fetchFn: async () => new Response('<html><body>Please enable JavaScript to continue.</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+      browserFallbackFetchFn: async () => undefined,
+    });
+
+    expect(snapshot.fetchFallbackReason).toBe('javascript_shell');
+    expect(snapshot.browserFallbackRequired).toBe(true);
+    expect(snapshot.fetchWarnings).toEqual(expect.arrayContaining([
+      expect.stringMatching(/attempted browser-rendered fallback evidence/i),
+      expect.stringMatching(/renderer returned no usable HTML/i),
+      expect.stringMatching(/required JavaScript/i),
+    ]));
+  });
   it('classifies hydration-only app shells by visible body text, not raw HTML size', async () => {
     const shellHtml = `
 <!doctype html>

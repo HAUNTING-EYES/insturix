@@ -662,7 +662,16 @@ function parseProvider(value: string | undefined): BrandVaultBrowserRenderProvid
   const normalized = value?.trim().toLowerCase().replace(/-/g, '_');
   if (!normalized) return undefined;
   if (normalized === 'endpoint' || normalized === 'self_hosted' || normalized === 'custom') return 'endpoint';
-  if (normalized === 'playwright' || normalized === 'local_playwright') return 'local_playwright';
+  if (
+    normalized === 'auto' ||
+    normalized === 'free' ||
+    normalized === 'playwright' ||
+    normalized === 'local' ||
+    normalized === 'local_playwright' ||
+    normalized === 'self_hosted_playwright'
+  ) {
+    return 'local_playwright';
+  }
   if (normalized === 'firecrawl') return 'firecrawl';
   if (normalized === 'off' || normalized === 'disabled' || normalized === 'none') return 'off';
   return undefined;

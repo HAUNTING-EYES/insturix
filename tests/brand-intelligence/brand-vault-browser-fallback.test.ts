@@ -39,6 +39,31 @@ describe('Brand Vault browser fallback providers', () => {
     expect(fallback).toBeUndefined();
   });
 
+  it('treats auto and free provider values as local Playwright without spending Firecrawl credits', () => {
+    const fallback = createBrandVaultBrowserFallbackFetchFromEnvironment(
+      {
+        BRAND_VAULT_BROWSER_RENDER_PROVIDER: 'auto',
+        FIRECRAWL_API_KEY: 'fc_test_key_should_not_be_used',
+      },
+      async () => {
+        throw new Error('fetch should not run for local Playwright provider selection');
+      },
+    );
+
+    expect(fallback).toBeTypeOf('function');
+
+    const freeFallback = createBrandVaultBrowserFallbackFetchFromEnvironment(
+      {
+        BRAND_VAULT_BROWSER_RENDER_PROVIDER: 'free',
+        FIRECRAWL_API_KEY: 'fc_test_key_should_not_be_used',
+      },
+      async () => {
+        throw new Error('fetch should not run for local Playwright provider selection');
+      },
+    );
+
+    expect(freeFallback).toBeTypeOf('function');
+  });
   it('uses Firecrawl only when the paid browser-render provider is explicitly configured', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchFn: BrandVaultBrowserRenderFetch = async (url, init) => {

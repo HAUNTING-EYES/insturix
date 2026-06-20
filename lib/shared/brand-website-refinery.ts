@@ -143,6 +143,7 @@ export async function fetchWebsiteBrandSnapshot(
       fetchFn: options.browserFallbackFetchFn,
     });
     if (fallback) return fallback;
+    fetchWarnings.push(`Brand Vault attempted browser-rendered fallback evidence but the configured renderer returned no usable HTML for ${describeFetchFallbackReason(attempt.reason)}.`);
   }
 
   if (!attempt.ok) {
