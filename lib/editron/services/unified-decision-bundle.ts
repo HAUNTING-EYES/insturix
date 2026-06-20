@@ -420,8 +420,12 @@ interface MergeSignalDrivenBundleOptions {
 const DEFAULT_MAX_NEAR_FRAME_WINDOW = 24;
 
 export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundleOptions): UnifiedDecisionBundle {
-  const edl = normalizeEdl(options.edl);
+  const rawEdl = normalizeEdl(options.edl);
   const isSignalSource = options.source === 'signal-driven';
+  const primaryLicensing = licensePrimaryProducerDecisions(options.source, rawEdl.decisions);
+  const edl = primaryLicensing.rejectedCount > 0
+    ? normalizeEdl({ ...rawEdl, decisions: primaryLicensing.decisions })
+    : rawEdl;
   const enrichedEdl = isSignalSource
     ? { ...edl, decisions: enrichDecisionsWithOverlayTimelineMemory(edl.decisions, edl.decisions) }
     : edl;
@@ -431,20 +435,79 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
     edl: enrichedEdl,
     graphicsDensity: options.graphicsDensity,
     expectedExecuted: options.expectedExecuted ?? enrichedEdl.totalDecisions,
-    expectedSkipped: options.expectedSkipped ?? 0,
+    expectedSkipped: options.expectedSkipped ?? primaryLicensing.rejectedCount,
     evidence: {
       primaryDecisionCount: isSignalSource ? 0 : enrichedEdl.totalDecisions,
       signalDecisionCount: isSignalSource ? enrichedEdl.totalDecisions : 0,
       addedSignalDecisionCount: isSignalSource ? enrichedEdl.totalDecisions : 0,
       validatedDecisionCount: 0,
       suppressedSignalDuplicateCount: 0,
-      evidenceOnlySignalDecisionCount: 0,
-      evidenceOnlySignalDecisions: [],
-      signalDecisionAudit: createEmptySignalDecisionAudit(),
+      evidenceOnlySignalDecisionCount: primaryLicensing.rejectedCount,
+      evidenceOnlySignalDecisions: primaryLicensing.evidenceOnlyDecisions,
+      signalDecisionAudit: primaryLicensing.signalDecisionAudit,
     },
   };
 }
 
+function licensePrimaryProducerDecisions(
+  source: UnifiedDecisionCandidateProducer,
+  decisions: ReactiveEditDecision[],
+): {
+  decisions: ReactiveEditDecision[];
+  rejectedCount: number;
+  evidenceOnlyDecisions: UnifiedSignalDecisionEvidence[];
+  signalDecisionAudit: UnifiedSignalDecisionAuditReport;
+} {
+  if (source !== 'creative-brief') {
+    return {
+      decisions,
+      rejectedCount: 0,
+      evidenceOnlyDecisions: [],
+      signalDecisionAudit: createEmptySignalDecisionAudit(),
+    };
+  }
+
+  const audit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
+  const accepted: ReactiveEditDecision[] = [];
+  const evidenceOnlyDecisions: UnifiedSignalDecisionEvidence[] = [];
+
+  for (const decision of decisions) {
+    const license = resolvePrimaryCreativeDecisionLicense(decision);
+    if (license.executable) {
+      accepted.push(decision);
+      continue;
+    }
+
+    const reason = `primary-graphic-unlicensed:${license.reason}`;
+    recordSignalDecisionAudit(audit, decision, 'evidence-only', reason);
+    if (evidenceOnlyDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
+      evidenceOnlyDecisions.push(summarizeSignalDecisionEvidence(
+        decision,
+        normalizeSignalExecutionCandidate(decision),
+        'evidence-only',
+        reason,
+      ));
+    }
+  }
+
+  return {
+    decisions: accepted,
+    rejectedCount: decisions.length - accepted.length,
+    evidenceOnlyDecisions,
+    signalDecisionAudit: finalizeSignalDecisionAudit(audit),
+  };
+}
+
+function resolvePrimaryCreativeDecisionLicense(
+  decision: ReactiveEditDecision,
+): { executable: boolean; reason: string } {
+  if (decision.type !== 'graphic') return { executable: true, reason: 'not-primary-graphic' };
+  const isSemanticContextGraphic = normalizeParamString(decision.params.creativeDecisionAuthority) === 'semantic-context'
+    || hasAnyDirectParam(decision, ['creativeBriefSemanticCandidate']);
+  if (!isSemanticContextGraphic) return { executable: true, reason: 'legacy-primary-graphic-compatibility' };
+
+  return resolveGraphicContentEvidenceLicense(decision);
+}
 export function planUnifiedDecisionBundle(
   currentBundle: UnifiedDecisionBundle | null,
   candidate: UnifiedDecisionProducerCandidate,

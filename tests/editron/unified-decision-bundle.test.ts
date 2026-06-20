@@ -55,6 +55,78 @@ describe('unified decision bundle merge', () => {
     expect(merged.edl.decisions[0].params.unifiedDecisionOwner).toBeUndefined();
   });
 
+  it('keeps unlicensed Creative Brief semantic MGs out of the primary executable EDL', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 30, source: 'creative-brief:test' }),
+        decision({
+          type: 'graphic',
+          frame: 90,
+          source: 'creative-brief:test',
+          confidence: 0.93,
+          params: {
+            creativeDecisionAuthority: 'semantic-context',
+            creativeDecisionType: 'graphic_lower_third',
+            name: 'person/brand name from transcript or brief',
+            title: 'role/description (optional)',
+          },
+        }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
+    expect(bundle.expectedExecuted).toBe(1);
+    expect(bundle.expectedSkipped).toBe(1);
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 1,
+    }));
+    expect(bundle.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      type: 'graphic',
+      family: 'graphic',
+      outcome: 'evidence-only',
+      source: 'creative-brief:test',
+      reason: 'primary-graphic-unlicensed:missing-graphic-content-evidence',
+    }));
+    expect(bundle.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'primary-graphic-unlicensed:missing-graphic-content-evidence': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('keeps licensed Creative Brief semantic MGs executable in the primary EDL', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({
+          type: 'graphic',
+          frame: 90,
+          source: 'creative-brief:test',
+          confidence: 0.93,
+          params: {
+            creativeDecisionAuthority: 'semantic-context',
+            creativeDecisionType: 'graphic_stat_counter',
+            value: '42%',
+            label: 'retention lift',
+            semanticAtoms: {
+              quantity: {
+                displayText: '42%',
+                kind: 'percentage',
+              },
+            },
+          },
+        }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['graphic']);
+    expect(bundle.expectedExecuted).toBe(1);
+    expect(bundle.expectedSkipped).toBe(0);
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
+    }));
+  });
   it('lets high-confidence non-overlapping signal transitions become executable through the unified planner', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
