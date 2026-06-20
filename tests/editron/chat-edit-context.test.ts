@@ -6,6 +6,10 @@ import {
   buildChatEditContextBundle,
   formatChatEditContextForPrompt,
 } from '@/lib/editron/agent/chat-edit-context';
+import {
+  findTranscriptMomentCandidates,
+  type TranscriptSearchWord,
+} from '@/lib/editron/agent/chat-transcript-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
 describe('chat edit context bundle', () => {
@@ -120,6 +124,55 @@ describe('chat edit context bundle', () => {
     ]);
   });
 
+  it('covers transcript moment search with registry metadata without importing Mongo-backed tools', () => {
+    const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-transcript-tools.ts'), 'utf8');
+    const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
+
+    expect(toolNames).toEqual(['find_transcript_moment']);
+    expect(getChatToolMetadata('find_transcript_moment')).toMatchObject({
+      label: 'Finding transcript moment',
+      shortLabel: 'Find speech',
+      receiptLabel: 'Found transcript moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+  });
+
+  it('finds phrase-level transcript moments with frame hints for edit tools', () => {
+    const words = makeTranscriptWords(
+      ['two', 'human', 'beings', 'in', 'the', 'real', 'world'],
+      90,
+    );
+    const candidates = findTranscriptMomentCandidates(words, 'two human beings', {
+      limit: 3,
+      minConfidence: 0.42,
+    });
+
+    expect(candidates[0]).toMatchObject({
+      text: 'two human beings',
+      startFrame: 90,
+      endFrame: 108,
+      confidenceLabel: 'high',
+      matchType: 'phrase',
+      safeForAutoEdit: true,
+      useWith: {
+        cut_section: {
+          startFrame: 90,
+          endFrame: 108,
+        },
+        add_motion_graphic: {
+          frame: 90,
+          text: 'two human beings',
+        },
+        add_sfx: {
+          frame: 90,
+          sync: 'word-start',
+        },
+      },
+    });
+    expect(candidates[0].surroundingWords).toContain('in the real world');
+  });
+
   it('clamps playhead and makes missing resolvers explicit in the prompt', () => {
     const bundle = buildChatEditContextBundle(project, {
       clientContext: {
@@ -133,7 +186,29 @@ describe('chat edit context bundle', () => {
     expect(bundle.project.canvas).toEqual({ width: 1080, height: 1920 });
     expect(prompt).toContain('Reference rule: when the user says "this"');
     expect(prompt).toContain('User media search: available via list_user_assets, search_user_assets, and inspect_user_asset');
-    expect(prompt).toContain('Missing semantic resolvers: find_transcript_moment, find_visual_moment, find_audio_moment');
+    expect(prompt).toContain('Transcript moment search: available via find_transcript_moment');
+    expect(prompt).toContain('Missing semantic resolvers: find_visual_moment, find_audio_moment');
     expect(prompt).toContain('Do not ask for a timeframe when this context is enough.');
   });
 });
+
+function makeTranscriptWords(words: string[], startFrame: number): TranscriptSearchWord[] {
+  return words.map((word, index) => {
+    const wordStart = startFrame + (index * 6);
+    const wordEnd = wordStart + 6;
+    return {
+      word,
+      startMs: Math.round((wordStart / 30) * 1000),
+      endMs: Math.round((wordEnd / 30) * 1000),
+      startFrame: wordStart,
+      endFrame: wordEnd,
+      confidence: 0.94,
+      source: {
+        type: 'video-transcription',
+        overlayId: 1,
+        assetId: 'asset_video',
+        overlayType: 'video',
+      },
+    };
+  });
+}

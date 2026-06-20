@@ -47,6 +47,7 @@ import { planComposition } from '../motion-graphics/engine/composition-planner';
 import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 import { createChatAssetTools } from './chat-asset-tools';
+import { createChatTranscriptTools } from './chat-transcript-tools';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -5870,6 +5871,7 @@ Example: use_matching_footage({ sceneIndex: 2, assetId: "a_Xk7pqR2m" })`,
     generateHtmlSticker,  // NEW: Animated stickers
     // --- Video Auto-Edit Tools ---
     getVideoTranscription,
+    ...createChatTranscriptTools({ userId, projectId }),
     analyzeVideoContent,
     addCaptions,
     addFancyCaptions,     // NEW: Kinetic typography captions
