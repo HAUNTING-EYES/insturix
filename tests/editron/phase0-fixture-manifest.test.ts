@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPhase0FixtureManifest, withPhase0RenderArtifactPack, withPhase0RenderedAestheticReport } from '../../lib/editron/services/phase0-fixture-manifest';
+import {
+  buildPhase0FixtureManifest,
+  buildPhase0RenderedQualityEvidencePayload,
+  withPhase0RenderArtifactPack,
+  withPhase0RenderedAestheticReport,
+} from '../../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
 
@@ -592,6 +597,14 @@ describe('phase0 fixture manifest', () => {
       pendingFamilies: ['zoom'],
     });
     expect(manifest.renderArtifacts.renderCommand).toContain('scripts/render-editron-aesthetic.ts');
+    expect(buildPhase0RenderedQualityEvidencePayload(manifest)).toMatchObject({
+      qualityEvidenceSource: 'metadata-only',
+      renderedAestheticStatus: 'missing',
+      renderedQualityStatus: 'missing',
+      artifactStatus: 'missing',
+      qualityScore: null,
+      renderedAestheticIssueCount: 0,
+    });
     expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
   });
 
@@ -671,6 +684,20 @@ describe('phase0 fixture manifest', () => {
         fullStill: 'fixtures/proj/rendered-aesthetic/f00030/full.png',
         baselineStill: 'fixtures/proj/rendered-aesthetic/f00030/baseline.png',
       }],
+    });
+    expect(buildPhase0RenderedQualityEvidencePayload(manifest)).toMatchObject({
+      qualityEvidenceSource: 'rendered-aesthetic',
+      renderedAestheticStatus: 'fail',
+      renderedQualityStatus: 'fail',
+      artifactStatus: 'fail',
+      qualityScore: 37,
+      renderedAestheticScore: 0.37,
+      renderedAestheticIssueCount: 2,
+      renderedAestheticFailFrameCount: 2,
+      renderedAestheticWarnFrameCount: 1,
+      renderedAestheticSampledFrames: 4,
+      renderedAestheticJson: 'fixtures/proj/rendered-aesthetic/rendered-aesthetic.json',
+      renderedAestheticHtml: 'fixtures/proj/rendered-aesthetic/report.html',
     });
     expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
   });

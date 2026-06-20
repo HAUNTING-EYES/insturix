@@ -190,6 +190,21 @@ export interface Phase0FixtureManifest {
   };
 }
 
+export interface Phase0RenderedQualityEvidencePayload {
+  qualityEvidenceSource: 'rendered-aesthetic' | 'metadata-only';
+  renderedAestheticStatus: Phase0RenderedAestheticStatus | 'missing';
+  renderedQualityStatus: Phase0RenderedAestheticStatus | 'missing';
+  artifactStatus: Phase0RenderedAestheticStatus | 'missing';
+  qualityScore: number | null;
+  renderedAestheticScore: number | null;
+  renderedAestheticIssueCount: number;
+  renderedAestheticFailFrameCount: number;
+  renderedAestheticWarnFrameCount: number;
+  renderedAestheticSampledFrames: number;
+  renderedAestheticJson: string | null;
+  renderedAestheticHtml: string | null;
+}
+
 export function buildPhase0FixtureManifest(
   project: Phase0FixtureProject,
   options: BuildPhase0FixtureManifestOptions = {},
@@ -305,6 +320,29 @@ export function withPhase0RenderedAestheticReport(
     },
   };
 }
+
+export function buildPhase0RenderedQualityEvidencePayload(
+  manifest: Phase0FixtureManifest,
+): Phase0RenderedQualityEvidencePayload {
+  const summary = manifest.renderArtifacts.renderedSummary;
+  const hasRenderedEvidence = manifest.renderArtifacts.status === 'rendered' && summary != null;
+  const status = hasRenderedEvidence ? summary.status : 'missing';
+  return {
+    qualityEvidenceSource: hasRenderedEvidence ? 'rendered-aesthetic' : 'metadata-only',
+    renderedAestheticStatus: status,
+    renderedQualityStatus: status,
+    artifactStatus: status,
+    qualityScore: hasRenderedEvidence ? normalizeRenderedQualityScore(summary.score) : null,
+    renderedAestheticScore: hasRenderedEvidence ? summary.score : null,
+    renderedAestheticIssueCount: hasRenderedEvidence ? manifest.renderArtifacts.renderedIssueCount : 0,
+    renderedAestheticFailFrameCount: hasRenderedEvidence ? summary.failFrames : 0,
+    renderedAestheticWarnFrameCount: hasRenderedEvidence ? summary.warnFrames : 0,
+    renderedAestheticSampledFrames: hasRenderedEvidence ? summary.sampledFrames : 0,
+    renderedAestheticJson: hasRenderedEvidence ? manifest.renderArtifacts.renderedAestheticJson : null,
+    renderedAestheticHtml: hasRenderedEvidence ? manifest.renderArtifacts.renderedAestheticHtml : null,
+  };
+}
+
 function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: number) {
   const clips = videoClips(overlays);
   const transitions = transitionOverlays(overlays);
@@ -1492,6 +1530,12 @@ function unique(values: string[]) {
 
 function round(value: number) {
   return Math.round(value * 1000) / 1000;
+}
+
+function normalizeRenderedQualityScore(value: number | null): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const normalized = value <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
 }
 
 function isRecord(value: unknown): value is JsonRecord {

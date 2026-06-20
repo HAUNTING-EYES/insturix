@@ -14,6 +14,7 @@ import {
 import { classifyPhase0Fixture } from '../lib/editron/services/phase0-failure-taxonomy';
 import {
   buildPhase0FixtureManifest,
+  buildPhase0RenderedQualityEvidencePayload,
   withPhase0RenderArtifactPack,
   withPhase0RenderedAestheticReport,
 } from '../lib/editron/services/phase0-fixture-manifest';
@@ -111,6 +112,7 @@ async function main() {
       renderArtifactPack: artifactPack.status,
       failureTaxonomy: failureTaxonomy.status,
       renderCommand: artifactPack.renderCommand,
+      renderedQualityEvidence: buildPhase0RenderedQualityEvidencePayload(manifest),
       renderedEvidence: options.render ? {
         requested: true,
         status: manifest.renderArtifacts.renderedSummary?.status ?? null,
