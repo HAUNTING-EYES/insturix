@@ -749,6 +749,66 @@ describe('Brand website refinery', () => {
     );
   });
 
+  it('keeps product-card, payment, and generic page-copy noise out without brand-specific exceptions', () => {
+    const personalCare = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://general-care.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>General Care - Skin and hair routines</title>
+    <meta name="description" content="Dermatologist-tested skincare and haircare for women with sensitive skin and men building grooming routines.">
+  </head>
+  <body>
+    <h1>Personal care for women with sensitive skin and men building grooming routines</h1>
+    <p>For better experience and exclusive features, please open your Gpay app on next step.</p>
+    <p>Trusted by Dark Spots & Pigmentation - 100ml (Pack of 2), SPF 50 sunscreen, and Clear & Bright Skin.</p>
+    <p>Premium Diwali Gift Hamper for Family & Friends. All skin types No SLS and Parabens.</p>
+    <p>Beard precision and U-shape for body trimming. Control oil and keep your skin clear & bright.</p>
+    <p>Made for beard and Women | Scentsutra collection labels.</p>
+    <p>Fast and convenient charging even, for your body and a nose & ears attachment for a neat finish. Easy cleaning under water.</p>
+    <p>Buy 1 Get 1 FREE when you pay online. Add items worth Rs.399 to get FREE DELIVERY.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_general_care',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_generalized_noise',
+    });
+
+    expect(personalCare.profile.identity.industry?.value).toBe('beauty/personal care');
+    expect(personalCare.profile.identity.category.value).toBe('beauty/personal care');
+    expect(personalCare.profile.identity.audience.value).toEqual(expect.arrayContaining(['women']));
+    expect(personalCare.profile.identity.audience.value.join(' | ')).not.toMatch(
+      /better experience|exclusive features|Gpay|Dark Spots|100ml|Pack of 2|SPF 50|gift hamper|No SLS|Parabens|body trimming|control oil|clear & bright|Women \| Scentsutra|\bbeard\b|charging|nose & ears attachment|Easy cleaning under water|pay online|FREE DELIVERY/i,
+    );
+
+    const software = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://design-systems.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Design Systems - Product development software</title>
+    <meta name="description" content="Product development software for product teams and engineering teams.">
+  </head>
+  <body>
+    <h1>Software for product teams and engineering teams</h1>
+    <p>Accessibility resources for children and families are part of our community program.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_design_systems',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_generic_children_noise',
+    });
+
+    expect(software.profile.identity.industry?.value).toBe('product management software');
+    expect(software.profile.identity.category.value).toBe('software');
+    expect(software.profile.identity.category.value).not.toBe('baby/kids');
+  });
   it('keeps multi-site website fixtures free of generic audience, CTA, and font noise', () => {
     const payments = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://stripe.example',

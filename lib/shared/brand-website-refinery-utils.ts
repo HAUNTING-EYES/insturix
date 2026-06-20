@@ -19,9 +19,12 @@ const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn
 const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
 const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|security|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|women|men|kids?|children|babies|parents?|mothers?|moms?|families|students?|professionals?|customers?|shoppers?|enthusiasts?|collectors?|travel(?:ers|lers)|runners?|climbers?|athletes?|gamers?|pet parents?|homeowners?|skin|hair|beard|coffee lovers?)\b/i;
 const AUDIENCE_FRAGMENT_PREFIX_PATTERN = /^(?:and|or|but|by|with|without|from|into|through|via|that|this|these|those|it|its|their|while|when|where|which|building|creating|shipping|scaling|accepting|optimizing|optimising|enabling|embedding|monetizing|monetising)\b/i;
-const AUDIENCE_NON_ENTITY_PATTERN = /\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?|guided recommendations?|first three months|life today|local content|online store members?|nearest .*store|latest .*cpus?|newest .*polling|working of basic functionalities|current product information|tailored new arrivals?|updates? on new arrivals?|selection shop now|today\s*[|/]\s*shop now|all your [a-z\s-]+ cravings?|any queries? or issues?|queries? or issues?|customer care|help center|store locator|nvidia|vera rubin|intel core|keyboard for gameplay)\b/i;
-const AUDIENCE_STANDALONE_DOMAIN_PATTERN = /^(?:video|content|production|social|creative|marketing|sales|revenue|product|engineering|design|finance|support|ops|operations|payments?|billing)$/i;
-const AUDIENCE_PROMO_NOISE_PATTERN = /\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|review attempts?|mrp|price|sale|discount|coupon|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|new arrivals?|best sellers?|view all|quick view|sold out|login|sign in|track order|order status|return policy|refunds?|download app|franchise|country\/region|newsletter|subscribe|cookie|privacy policy|terms of service|please use a different browser|please visit the site|enable javascript|product card|product-grid|productgrid)\b/i;
+const AUDIENCE_NON_ENTITY_PATTERN = /\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?|guided recommendations?|first three months|life today|local content|better experience|exclusive features|open your .*app|online store members?|nearest .*store|latest .*cpus?|newest .*polling|working of basic functionalities|current product information|tailored new arrivals?|updates? on new arrivals?|selection shop now|today\s*[|/]\s*shop now|all your [a-z\s-]+ cravings?|any queries? or issues?|queries? or issues?|customer care|help center|store locator|nvidia|vera rubin|intel core|keyboard for gameplay)\b/i;
+const AUDIENCE_STANDALONE_DOMAIN_PATTERN = /^(?:video|content|production|social|creative|marketing|sales|revenue|product|engineering|design|finance|support|ops|operations|payments?|billing|skin|hair|beard|body)$/i;
+const AUDIENCE_PROMO_NOISE_PATTERN = /\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|review attempts?|mrp|price|sale|discount|coupon|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|new arrivals?|best sellers?|view all|quick view|sold out|login|sign in|track order|order status|return policy|refunds?|download app|franchise|country\/region|newsletter|subscribe|cookie|privacy policy|terms of service|please use a different browser|please visit the site|enable javascript|gpay|pay online|payment app|product card|product-grid|productgrid)\b/i;
+const AUDIENCE_PRODUCT_UNIT_PATTERN = /\b(?:b\d+p\d+|pack\s+of\s+\d+|\d+(?:\.\d+)?\s?(?:ml|g|gm|kg|oz|fl\s?oz|pcs?|pieces|capsules?|tablets?)|spf\s?\d+)\b/i;
+const AUDIENCE_PRODUCT_BENEFIT_PATTERN = /(?:\b(?:gift hampers?|hampers?|combos?|bundles?)\b|^(?:[a-z]+\s+)*(?:clear|bright|glowing|radiant|hydrated|smooth|dark)\s*(?:&|and)\s*(?:clear|bright|glowing|radiant|hydrated|smooth|pigmentation)\s+(?:skin|hair|body)$|\b(?:body|beard|hair|skin)\s+trimming\b|\b(?:control|reduce|remove|fight|prevent|repair|nourish|trim|trimming)\b.*\b(?:oil|skin|hair|beard|body|pigmentation|frizz)\b|\b(?:no\s+sls|parabens?|sulphates?|sulfates?)\b)/i;
+const AUDIENCE_PRODUCT_FEATURE_PATTERN = /\b(?:charging|attachments?|nose\s*&\s*ears?|easy cleaning|cleaning under water|under water|waterproof|washable|u-shape|precision)\b/i;
 const AUDIENCE_CODE_OR_MARKUP_PATTERN = /(?:<\/?[a-z][^>]*>|["']>\s*|raw\s*=|await\s+resp|queryselector|document\.|window\.|function\s*\(|=>|{{|}}|@media|--[a-z0-9-]+:|[{};])/i;
 const BODY_NOISE_SELECTOR = 'script,style,noscript,svg,template,iframe,nav,header,footer,aside,form';
 const BODY_NOISE_ATTRIBUTE_PATTERN = /(?:^|[\s_-])(?:cart|wishlist|checkout|currency|country|newsletter|cookie|announcement|toast|modal|drawer|menu|breadcrumb|pagination|product-card|productcard|product-grid|productgrid|price|review|recommendation|recommendations|upsell|cross-sell|recently-viewed|recentlyviewed|search|login|signin|sign-in)(?:$|[\s_-])/i;
@@ -154,7 +157,7 @@ const CATEGORY_RULES: Array<{
   {
     label: 'baby/kids',
     signals: [
-      [/\b(?:baby care|kidswear|children|babies|toddlers|parenting|maternity|diapers?)\b/g, 2],
+      [/\b(?:baby care|kidswear|children'?s products?|babies|toddlers|parenting|maternity|diapers?)\b/g, 2],
     ],
   },
   {
@@ -188,7 +191,7 @@ const CATEGORY_RULES: Array<{
   {
     label: 'finance',
     signals: [
-      [/\b(?:finance|wealth|bank|investment|portfolio|payments?)\b/g, 1.5],
+      [/\b(?:finance|wealth|bank|investment|portfolio|financial infrastructure|payment processing|payments platform)\b/g, 1.5],
       [/\b(?:revenue|pipeline)\b/g, 0.75],
     ],
   },
@@ -858,6 +861,10 @@ function isNonAudiencePhrase(value: string): boolean {
   if (AUDIENCE_FRAGMENT_PREFIX_PATTERN.test(normalized)) return true;
   if (AUDIENCE_NON_ENTITY_PATTERN.test(normalized)) return true;
   if (AUDIENCE_PROMO_NOISE_PATTERN.test(normalized)) return true;
+  if (AUDIENCE_PRODUCT_UNIT_PATTERN.test(normalized)) return true;
+  if (AUDIENCE_PRODUCT_BENEFIT_PATTERN.test(normalized)) return true;
+  if (AUDIENCE_PRODUCT_FEATURE_PATTERN.test(normalized)) return true;
+  if (/\|/.test(normalized)) return true;
   if (AUDIENCE_CODE_OR_MARKUP_PATTERN.test(normalized)) return true;
   if (/[\u20b9\u20ac\u00a3$]\s?\d|\b(?:rs\.?|inr|usd|eur|gbp)\s?\d/i.test(normalized)) return true;
   if (/^multiple clients\b/i.test(normalized)) return true;
