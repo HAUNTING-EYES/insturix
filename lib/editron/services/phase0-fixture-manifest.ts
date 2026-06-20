@@ -14,6 +14,9 @@ export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
 type JsonRecord = Record<string, unknown>;
 
+type Phase0RenderedAestheticStatus = 'pass' | 'warn' | 'fail';
+type Phase0RenderedIssueSeverity = 'info' | 'warn' | 'fail';
+
 type Phase0UnifiedDecisionAuthoritySummary = {
   version: string;
   executableProducer: string;
@@ -61,6 +64,38 @@ export interface Phase0FixtureProject extends JsonRecord {
   };
 }
 
+export interface Phase0RenderedAestheticReportLike {
+  outputDir?: string;
+  htmlReport?: string;
+  jsonReport?: string;
+  summary?: {
+    status?: Phase0RenderedAestheticStatus;
+    score?: number;
+    passFrames?: number;
+    warnFrames?: number;
+    failFrames?: number;
+    sampledFrames?: number;
+    animationSampleFrames?: number;
+  };
+  frames?: Array<{
+    frame?: number;
+    activeOverlayIds?: Array<string | number>;
+    activeOverlayTypes?: string[];
+    fullStill?: string;
+    baselineStill?: string;
+    report?: {
+      status?: Phase0RenderedAestheticStatus;
+      score?: number;
+      issues?: Array<{
+        dimension?: string;
+        severity?: Phase0RenderedIssueSeverity;
+        overlayId?: string | number;
+        message?: string;
+        evidence?: string;
+      }>;
+    };
+  }>;
+}
 export interface BuildPhase0FixtureManifestOptions {
   capturedAt?: string;
   source?: string;
@@ -103,8 +138,11 @@ export interface Phase0FixtureManifest {
   vjepaCoverage: ReturnType<typeof summarizeVjepaCoverage>;
   overlayFamilies: ReturnType<typeof summarizeOverlayFamilies>;
   renderArtifacts: {
-    status: 'not-rendered';
+    status: 'not-rendered' | 'rendered';
     artifactDir: string | null;
+    renderedAestheticDir: string | null;
+    renderedAestheticJson: string | null;
+    renderedAestheticHtml: string | null;
     pendingFamilies: string[];
     artifactPackStatus: 'ready' | 'not-renderable' | null;
     artifactPackIssues: string[];
@@ -114,6 +152,28 @@ export interface Phase0FixtureManifest {
     auditedAudioCount: number;
     presentRequiredFamilies: string[];
     missingRequiredFamilies: string[];
+    renderedSummary: {
+      status: Phase0RenderedAestheticStatus;
+      score: number | null;
+      passFrames: number;
+      warnFrames: number;
+      failFrames: number;
+      sampledFrames: number;
+      animationSampleFrames: number;
+    } | null;
+    renderedIssueCount: number;
+    renderedIssuesBySeverity: Record<Phase0RenderedIssueSeverity, number>;
+    renderedIssuesByDimension: Record<string, number>;
+    sampledFrames: Array<{
+      frame: number;
+      status: Phase0RenderedAestheticStatus | null;
+      score: number | null;
+      issueCount: number;
+      activeOverlayIds: Array<string | number>;
+      activeOverlayTypes: string[];
+      fullStill: string | null;
+      baselineStill: string | null;
+    }>;
   };
   failureClasses: string[];
   calibrationSafety: {
@@ -159,6 +219,9 @@ export function buildPhase0FixtureManifest(
     renderArtifacts: {
       status: 'not-rendered',
       artifactDir: options.artifactDir ?? null,
+      renderedAestheticDir: null,
+      renderedAestheticJson: null,
+      renderedAestheticHtml: null,
       pendingFamilies: ['motion-graphic', 'caption', 'transition', 'sfx', 'zoom'],
       artifactPackStatus: null,
       artifactPackIssues: [],
@@ -168,6 +231,11 @@ export function buildPhase0FixtureManifest(
       auditedAudioCount: 0,
       presentRequiredFamilies: [],
       missingRequiredFamilies: ['motion-graphic', 'caption', 'transition', 'sfx', 'zoom'],
+      renderedSummary: null,
+      renderedIssueCount: 0,
+      renderedIssuesBySeverity: { fail: 0, warn: 0, info: 0 },
+      renderedIssuesByDimension: {},
+      sampledFrames: [],
     },
     failureClasses: [],
     calibrationSafety: {
@@ -188,6 +256,9 @@ export function withPhase0RenderArtifactPack(
     renderArtifacts: {
       status: 'not-rendered',
       artifactDir: artifactPack.artifactDir || manifest.renderArtifacts.artifactDir,
+      renderedAestheticDir: artifactPack.paths.renderedAestheticDir,
+      renderedAestheticJson: artifactPack.paths.renderedAestheticJson,
+      renderedAestheticHtml: artifactPack.paths.renderedAestheticHtml,
       pendingFamilies: missingRequiredFamilies,
       artifactPackStatus: artifactPack.status,
       artifactPackIssues: artifactPack.issues.slice(0, 20),
@@ -197,10 +268,36 @@ export function withPhase0RenderArtifactPack(
       auditedAudioCount: artifactPack.familyCoverage.auditedAudioCount,
       presentRequiredFamilies: artifactPack.familyCoverage.presentRequiredFamilies.slice(),
       missingRequiredFamilies,
+      renderedSummary: null,
+      renderedIssueCount: 0,
+      renderedIssuesBySeverity: { fail: 0, warn: 0, info: 0 },
+      renderedIssuesByDimension: {},
+      sampledFrames: [],
     },
   };
 }
 
+export function withPhase0RenderedAestheticReport(
+  manifest: Phase0FixtureManifest,
+  report: Phase0RenderedAestheticReportLike,
+): Phase0FixtureManifest {
+  const evidence = summarizeRenderedAestheticReport(report);
+  return {
+    ...manifest,
+    renderArtifacts: {
+      ...manifest.renderArtifacts,
+      status: 'rendered',
+      renderedAestheticDir: readString(report.outputDir) || manifest.renderArtifacts.renderedAestheticDir,
+      renderedAestheticJson: readString(report.jsonReport) || manifest.renderArtifacts.renderedAestheticJson,
+      renderedAestheticHtml: readString(report.htmlReport) || manifest.renderArtifacts.renderedAestheticHtml,
+      renderedSummary: evidence.summary,
+      renderedIssueCount: evidence.issueCount,
+      renderedIssuesBySeverity: evidence.issuesBySeverity,
+      renderedIssuesByDimension: evidence.issuesByDimension,
+      sampledFrames: evidence.sampledFrames,
+    },
+  };
+}
 function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: number) {
   const clips = videoClips(overlays);
   const transitions = transitionOverlays(overlays);
@@ -1029,6 +1126,70 @@ function captionGeometryMismatch(overlay: Phase0OverlayLike, playerDimensions?: 
   };
 }
 
+function summarizeRenderedAestheticReport(report: Phase0RenderedAestheticReportLike) {
+  const summary = report.summary;
+  const frames = Array.isArray(report.frames) ? report.frames : [];
+  const issuesBySeverity: Record<Phase0RenderedIssueSeverity, number> = { fail: 0, warn: 0, info: 0 };
+  const issuesByDimension: Record<string, number> = {};
+  let issueCount = 0;
+
+  for (const frame of frames) {
+    for (const issue of frame.report?.issues ?? []) {
+      const severity = readRenderedIssueSeverity(issue.severity);
+      const dimension = readString(issue.dimension) || 'unknown';
+      issueCount += 1;
+      issuesBySeverity[severity] += 1;
+      issuesByDimension[dimension] = (issuesByDimension[dimension] ?? 0) + 1;
+    }
+  }
+
+  return {
+    summary: summary ? {
+      status: readRenderedStatus(summary.status) ?? 'fail',
+      score: readNullableNumber(summary.score),
+      passFrames: readPositiveNumber(summary.passFrames, 0),
+      warnFrames: readPositiveNumber(summary.warnFrames, 0),
+      failFrames: readPositiveNumber(summary.failFrames, 0),
+      sampledFrames: readPositiveNumber(summary.sampledFrames, frames.length),
+      animationSampleFrames: readPositiveNumber(summary.animationSampleFrames, 0),
+    } : null,
+    issueCount,
+    issuesBySeverity,
+    issuesByDimension: sortRecordByKey(issuesByDimension),
+    sampledFrames: frames.slice(0, 40).map((frame) => ({
+      frame: readPositiveNumber(frame.frame, 0),
+      status: readRenderedStatus(frame.report?.status),
+      score: readNullableNumber(frame.report?.score),
+      issueCount: Array.isArray(frame.report?.issues) ? frame.report.issues.length : 0,
+      activeOverlayIds: readIdArray(frame.activeOverlayIds).slice(0, 12),
+      activeOverlayTypes: readStringArray(frame.activeOverlayTypes).slice(0, 12),
+      fullStill: readString(frame.fullStill) || null,
+      baselineStill: readString(frame.baselineStill) || null,
+    })),
+  };
+}
+
+function readRenderedStatus(value: unknown): Phase0RenderedAestheticStatus | null {
+  return value === 'pass' || value === 'warn' || value === 'fail' ? value : null;
+}
+
+function readRenderedIssueSeverity(value: unknown): Phase0RenderedIssueSeverity {
+  return value === 'fail' || value === 'warn' || value === 'info' ? value : 'warn';
+}
+
+function readIdArray(value: unknown): Array<string | number> {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string | number => typeof item === 'string' || typeof item === 'number');
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(readString).filter(Boolean);
+}
+
+function sortRecordByKey(record: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+}
 function readFrame(value: unknown) {
   return readPositiveNumber(value, 0);
 }

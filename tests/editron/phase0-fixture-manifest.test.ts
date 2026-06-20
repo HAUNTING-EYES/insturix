@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPhase0FixtureManifest, withPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0FixtureManifest, withPhase0RenderArtifactPack, withPhase0RenderedAestheticReport } from '../../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
 
@@ -522,6 +522,85 @@ describe('phase0 fixture manifest', () => {
     expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
   });
 
+  it('attaches rendered aesthetic evidence after pixels are actually judged', () => {
+    const baseManifest = buildPhase0FixtureManifest(baseProject(), {
+      artifactDir: 'fixtures/proj',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(baseProject(), baseManifest, {
+      artifactDir: 'fixtures/proj',
+    });
+    const preparedManifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
+
+    const manifest = withPhase0RenderedAestheticReport(preparedManifest, {
+      outputDir: 'fixtures/proj/rendered-aesthetic',
+      jsonReport: 'fixtures/proj/rendered-aesthetic/rendered-aesthetic.json',
+      htmlReport: 'fixtures/proj/rendered-aesthetic/report.html',
+      summary: {
+        status: 'fail',
+        score: 0.37,
+        passFrames: 1,
+        warnFrames: 1,
+        failFrames: 2,
+        sampledFrames: 4,
+        animationSampleFrames: 3,
+      },
+      frames: [{
+        frame: 30,
+        activeOverlayIds: ['mg-1', 'cap-1'],
+        activeOverlayTypes: ['motion-graphic', 'caption'],
+        fullStill: 'fixtures/proj/rendered-aesthetic/f00030/full.png',
+        baselineStill: 'fixtures/proj/rendered-aesthetic/f00030/baseline.png',
+        report: {
+          status: 'fail',
+          score: 0.37,
+          issues: [{
+            dimension: 'contrast',
+            severity: 'fail',
+            overlayId: 'cap-1',
+            message: 'rendered text contrast is below accessibility floor',
+            evidence: 'contrast=1.3',
+          }, {
+            dimension: 'safe-area',
+            severity: 'warn',
+            overlayId: 'mg-1',
+            message: 'motion graphic leaves title safe bounds',
+            evidence: 'overflow=22px',
+          }],
+        },
+      }],
+    });
+
+    expect(manifest.renderArtifacts).toMatchObject({
+      status: 'rendered',
+      renderedAestheticDir: 'fixtures/proj/rendered-aesthetic',
+      renderedAestheticJson: 'fixtures/proj/rendered-aesthetic/rendered-aesthetic.json',
+      renderedAestheticHtml: 'fixtures/proj/rendered-aesthetic/report.html',
+      pendingFamilies: ['zoom'],
+      renderedSummary: {
+        status: 'fail',
+        score: 0.37,
+        passFrames: 1,
+        warnFrames: 1,
+        failFrames: 2,
+        sampledFrames: 4,
+        animationSampleFrames: 3,
+      },
+      renderedIssueCount: 2,
+      renderedIssuesBySeverity: { fail: 1, warn: 1, info: 0 },
+      renderedIssuesByDimension: { contrast: 1, 'safe-area': 1 },
+      sampledFrames: [{
+        frame: 30,
+        status: 'fail',
+        score: 0.37,
+        issueCount: 2,
+        activeOverlayIds: ['mg-1', 'cap-1'],
+        activeOverlayTypes: ['motion-graphic', 'caption'],
+        fullStill: 'fixtures/proj/rendered-aesthetic/f00030/full.png',
+        baselineStill: 'fixtures/proj/rendered-aesthetic/f00030/baseline.png',
+      }],
+    });
+    expect(manifest.calibrationSafety.learningWritesAllowed).toBe(false);
+  });
   it('records gaps, overlaps, tail gaps, and missing source maps without rewriting them', () => {
     const manifest = buildPhase0FixtureManifest(baseProject({
       durationInFrames: 160,

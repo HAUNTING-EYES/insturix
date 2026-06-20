@@ -1,4 +1,5 @@
-import { mkdir, readdir, rm, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { mkdir, readFile, readdir, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import { config as loadEnv } from 'dotenv';
 import { execFileSync } from 'child_process';
@@ -11,8 +12,12 @@ import {
   selectPhase0RunDirsToPrune,
 } from '../lib/editron/services/phase0-artifact-paths';
 import { classifyPhase0Fixture } from '../lib/editron/services/phase0-failure-taxonomy';
-import { buildPhase0FixtureManifest, withPhase0RenderArtifactPack } from '../lib/editron/services/phase0-fixture-manifest';
-import type { Phase0FixtureProject } from '../lib/editron/services/phase0-fixture-manifest';
+import {
+  buildPhase0FixtureManifest,
+  withPhase0RenderArtifactPack,
+  withPhase0RenderedAestheticReport,
+} from '../lib/editron/services/phase0-fixture-manifest';
+import type { Phase0FixtureProject, Phase0RenderedAestheticReportLike } from '../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
 
 interface Phase0FixtureCliOptions {
@@ -58,8 +63,8 @@ async function main() {
       codeProvenance: readCodeProvenance(),
     });
     const artifactPack = buildPhase0RenderArtifactPack(typedProject, baseManifest, { artifactDir: paths.runDir });
-    const manifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
-    const failureTaxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    let manifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
+    let failureTaxonomy = classifyPhase0Fixture(manifest, artifactPack);
 
     await mkdir(paths.runDir, { recursive: true });
     await writeFile(paths.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -80,7 +85,19 @@ async function main() {
     }
 
     if (options.render) {
-      runRenderedAestheticHarness(paths.renderInputPath, paths.renderedAestheticDir, artifactPack.renderInput.tag);
+      runRenderedAestheticHarness(
+        paths.renderInputPath,
+        paths.renderedAestheticDir,
+        paths.renderedAestheticJson,
+        artifactPack.renderInput.tag,
+      );
+      const renderedReport = await readRenderedAestheticReport(paths.renderedAestheticJson);
+      manifest = withPhase0RenderedAestheticReport(manifest, renderedReport);
+      failureTaxonomy = classifyPhase0Fixture(manifest, artifactPack, renderedReport);
+      await writeFile(paths.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+      await writeFile(paths.failureTaxonomyPath, `${JSON.stringify(failureTaxonomy, null, 2)}\n`, 'utf8');
+      console.log(`Phase 0 rendered evidence attached to manifest: ${paths.manifestPath}`);
+      console.log(`Phase 0 rendered failure taxonomy refreshed: ${paths.failureTaxonomyPath}`);
     }
 
     console.log(JSON.stringify({
@@ -96,6 +113,9 @@ async function main() {
       renderCommand: artifactPack.renderCommand,
       renderedEvidence: options.render ? {
         requested: true,
+        status: manifest.renderArtifacts.renderedSummary?.status ?? null,
+        score: manifest.renderArtifacts.renderedSummary?.score ?? null,
+        issueCount: manifest.renderArtifacts.renderedIssueCount,
         json: paths.renderedAestheticJson,
         html: paths.renderedAestheticHtml,
         taxonomy: paths.failureTaxonomyPath,
@@ -185,7 +205,12 @@ async function pruneOldPhase0Runs(
   return prunedRuns;
 }
 
-function runRenderedAestheticHarness(renderInputPath: string, outDir: string, tag: string): void {
+function runRenderedAestheticHarness(
+  renderInputPath: string,
+  outDir: string,
+  renderedReportPath: string,
+  tag: string,
+): void {
   console.log('Phase 0 rendered aesthetic capture starting...');
   try {
     execFileSync('npx', [
@@ -203,8 +228,25 @@ function runRenderedAestheticHarness(renderInputPath: string, outDir: string, ta
     const status = typeof (error as { status?: unknown }).status === 'number'
       ? (error as { status: number }).status
       : 1;
-    throw new Error(`Phase 0 rendered aesthetic capture failed with exit code ${status}. Check ${outDir}/rendered-aesthetic.json and failure-taxonomy.json.`);
+    if (existsSync(renderedReportPath)) {
+      console.warn(`Phase 0 rendered aesthetic capture exited ${status}, but ${renderedReportPath} exists; preserving it as failure evidence.`);
+      return;
+    }
+    throw new Error(`Phase 0 rendered aesthetic capture failed with exit code ${status} before producing ${renderedReportPath}.`);
   }
+}
+
+async function readRenderedAestheticReport(reportPath: string): Promise<Phase0RenderedAestheticReportLike> {
+  const raw = await readFile(reportPath, 'utf8');
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed)) {
+    throw new Error(`Phase 0 rendered aesthetic report is not an object: ${reportPath}`);
+  }
+  return parsed as Phase0RenderedAestheticReportLike;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function readCodeProvenance() {
