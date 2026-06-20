@@ -186,6 +186,53 @@ describe('Brand Vault browser fallback providers', () => {
     expect(snapshot?.html).toContain('Custom render');
   });
 
+  it('uses Modal endpoint env aliases without falling through to Firecrawl or local Playwright', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fallback = createBrandVaultBrowserFallbackFetchFromEnvironment(
+      {
+        BRAND_VAULT_BROWSER_RENDER_PROVIDER: 'modal',
+        BRAND_VAULT_MODAL_RENDER_ENDPOINT: 'https://insturix--brand-vault-render.modal.run/render',
+        BRAND_VAULT_MODAL_RENDER_TOKEN: 'modal_render_secret',
+        BRAND_VAULT_MODAL_RENDER_TIMEOUT_MS: '2200',
+        FIRECRAWL_API_KEY: 'paid_key_should_not_be_used',
+      },
+      async (url, init) => {
+        calls.push({ url, init });
+        return new Response(
+          JSON.stringify({
+            finalUrl: 'https://vaultline.example/',
+            html: '<html><body><h1>Rendered by Modal</h1></body></html>',
+            contentType: 'text/html',
+            warnings: ['Modal Playwright browser-rendered evidence was used.'],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    );
+
+    expect(fallback).toBeTypeOf('function');
+    if (!fallback) throw new Error('Expected Modal fallback.');
+
+    const snapshot = await fallback(INPUT);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://insturix--brand-vault-render.modal.run/render');
+    expect(calls[0].init?.headers).toEqual(
+      expect.objectContaining({
+        authorization: 'Bearer modal_render_secret',
+        'content-type': 'application/json',
+      }),
+    );
+    expect(JSON.parse(String(calls[0].init?.body))).toMatchObject({
+      url: 'https://vaultline.example/',
+      reason: 'javascript_shell',
+    });
+    expect(snapshot).toMatchObject({
+      normalizedUrl: 'https://vaultline.example/',
+      html: expect.stringContaining('Rendered by Modal'),
+      fetchWarnings: expect.arrayContaining(['Modal Playwright browser-rendered evidence was used.']),
+    });
+  });
   it('can render through a self-hosted local Playwright provider without a paid scraper', async () => {
     const lifecycle: string[] = [];
     const gotoCalls: Array<{ url: string; waitUntil: string; timeout: number }> = [];

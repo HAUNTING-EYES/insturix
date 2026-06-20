@@ -12,6 +12,9 @@ export interface BrandVaultBrowserRenderEnvironment {
   BRAND_VAULT_BROWSER_RENDER_PROVIDER?: string;
   BRAND_VAULT_BROWSER_RENDER_TOKEN?: string;
   BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS?: string;
+  BRAND_VAULT_MODAL_RENDER_ENDPOINT?: string;
+  BRAND_VAULT_MODAL_RENDER_TOKEN?: string;
+  BRAND_VAULT_MODAL_RENDER_TIMEOUT_MS?: string;
   BRAND_VAULT_PLAYWRIGHT_TIMEOUT_MS?: string;
   BRAND_VAULT_PLAYWRIGHT_WAIT_UNTIL?: string;
   BRAND_VAULT_FIRECRAWL_TIMEOUT_MS?: string;
@@ -78,10 +81,10 @@ export function createBrandVaultBrowserFallbackFetchFromEnvironment(
   const provider = parseProvider(env.BRAND_VAULT_BROWSER_RENDER_PROVIDER);
   if (provider === 'off') return undefined;
 
-  const endpoint = env.BRAND_VAULT_BROWSER_RENDER_ENDPOINT?.trim();
+  const endpoint = firstString(env.BRAND_VAULT_BROWSER_RENDER_ENDPOINT, env.BRAND_VAULT_MODAL_RENDER_ENDPOINT);
   if (endpoint) {
-    const token = env.BRAND_VAULT_BROWSER_RENDER_TOKEN?.trim();
-    const timeoutMs = parseTimeoutMs(env.BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS);
+    const token = firstString(env.BRAND_VAULT_BROWSER_RENDER_TOKEN, env.BRAND_VAULT_MODAL_RENDER_TOKEN);
+    const timeoutMs = parseTimeoutMs(firstString(env.BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS, env.BRAND_VAULT_MODAL_RENDER_TIMEOUT_MS));
     return async (input) => fetchBrowserRenderedSnapshot({ endpoint, token, timeoutMs, input, fetchFn });
   }
 
@@ -658,10 +661,27 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function firstString(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
 function parseProvider(value: string | undefined): BrandVaultBrowserRenderProvider | undefined {
   const normalized = value?.trim().toLowerCase().replace(/-/g, '_');
   if (!normalized) return undefined;
-  if (normalized === 'endpoint' || normalized === 'self_hosted' || normalized === 'custom') return 'endpoint';
+  if (
+    normalized === 'endpoint' ||
+    normalized === 'self_hosted' ||
+    normalized === 'custom' ||
+    normalized === 'modal' ||
+    normalized === 'modal_endpoint' ||
+    normalized === 'browser_render_endpoint'
+  ) {
+    return 'endpoint';
+  }
   if (
     normalized === 'auto' ||
     normalized === 'free' ||

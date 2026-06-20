@@ -32,9 +32,10 @@ This keeps Brand Vault setup "free forever" at the software layer. It still need
 
 1. `BRAND_VAULT_BROWSER_RENDER_PROVIDER=off`
    - disables browser fallback.
-2. `BRAND_VAULT_BROWSER_RENDER_ENDPOINT`
+2. `BRAND_VAULT_BROWSER_RENDER_ENDPOINT` or `BRAND_VAULT_MODAL_RENDER_ENDPOINT`
    - preferred production path.
-   - points at our own Playwright/Crawlee/browser worker.
+   - points at our own Playwright/Crawlee/browser worker, including Modal-hosted workers.
+   - `BRAND_VAULT_BROWSER_RENDER_PROVIDER=modal` is an endpoint-backed alias, not a paid scraper.
    - wins even if Firecrawl env is present.
 3. `BRAND_VAULT_BROWSER_RENDER_PROVIDER=local_playwright`
    - uses the shared local Playwright provider.
@@ -56,11 +57,20 @@ BRAND_VAULT_BROWSER_RENDER_TOKEN=<internal shared secret>
 BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS=12000
 ```
 
+Modal-hosted endpoint:
+
+```env
+BRAND_VAULT_BROWSER_RENDER_PROVIDER=modal
+BRAND_VAULT_MODAL_RENDER_ENDPOINT=https://<workspace>--<app-name>-<function-name>.modal.run
+BRAND_VAULT_MODAL_RENDER_TOKEN=<internal shared secret>
+BRAND_VAULT_MODAL_RENDER_TIMEOUT_MS=12000
+```
+
 The repo-owned route is:
 
 - `POST /api/brand-vault/refinery/browser-render`
 
-It requires `Authorization: Bearer <BRAND_VAULT_BROWSER_RENDER_TOKEN>`, blocks private/local render targets by default, and returns only draft evidence snapshots.
+It requires `Authorization: Bearer <BRAND_VAULT_BROWSER_RENDER_TOKEN>` or `Authorization: Bearer <BRAND_VAULT_MODAL_RENDER_TOKEN>`, blocks private/local render targets by default, and returns only draft evidence snapshots.
 
 Local Playwright worker:
 

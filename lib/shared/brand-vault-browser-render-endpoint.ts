@@ -16,6 +16,7 @@ import { normalizeBrandWebsiteUrl } from './brand-website-refinery-utils';
 export interface BrandVaultBrowserRenderEndpointEnvironment {
   [key: string]: string | undefined;
   BRAND_VAULT_BROWSER_RENDER_TOKEN?: string;
+  BRAND_VAULT_MODAL_RENDER_TOKEN?: string;
   BRAND_VAULT_BROWSER_RENDER_ALLOW_PRIVATE_HOSTS?: string;
   BRAND_VAULT_PLAYWRIGHT_TIMEOUT_MS?: string;
   BRAND_VAULT_PLAYWRIGHT_WAIT_UNTIL?: string;
@@ -57,7 +58,7 @@ export async function handleBrandVaultBrowserRenderRequest(
   env: BrandVaultBrowserRenderEndpointEnvironment = process.env,
   options: BrandVaultBrowserRenderEndpointOptions = {},
 ): Promise<BrandVaultBrowserRenderEndpointResult> {
-  const token = env.BRAND_VAULT_BROWSER_RENDER_TOKEN?.trim();
+  const token = firstString(env.BRAND_VAULT_BROWSER_RENDER_TOKEN, env.BRAND_VAULT_MODAL_RENDER_TOKEN);
   if (!token) {
     return errorResult(503, 'render_token_not_configured', 'Brand Vault browser render token is not configured.');
   }
@@ -240,6 +241,14 @@ function objectRecord(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function firstString(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
 }
 
 function numberValue(value: unknown): number | undefined {

@@ -36,6 +36,28 @@ describe('Brand Vault browser render endpoint handler', () => {
     });
   });
 
+  it('accepts the Modal render token alias for Modal-hosted render workers', async () => {
+    const result = await handleBrandVaultBrowserRenderRequest(
+      request({ url: 'https://vaultline.example/' }, 'modal_render_secret'),
+      {
+        BRAND_VAULT_MODAL_RENDER_TOKEN: 'modal_render_secret',
+      },
+      {
+        resolveHostname: async () => ['93.184.216.34'],
+        loadPlaywright: async () => {
+          throw new Error('Modal token auth passed; render dependency intentionally unavailable.');
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 502,
+      body: {
+        ok: false,
+        error: { code: 'render_failed' },
+      },
+    });
+  });
   it('rejects invalid JSON bodies before rendering', async () => {
     const result = await handleBrandVaultBrowserRenderRequest(
       new Request('https://render.example/', {
