@@ -1,4 +1,4 @@
-﻿# Editron Master Production Plan (Consolidated, 2026-06-20)
+# Editron Master Production Plan (Consolidated, 2026-06-20)
 
 Purpose: one durable, production-level plan that combines the Northstar plan, MG plan,
 pipeline audit, and confirmed defect registry into a single source of truth.
@@ -62,7 +62,7 @@ This status uses live audit documents and code-backed evidence:
 | MG form origin | Content-shape controls base composer; signals fine-tune within current candidate set | **Partially true (this is why outputs feel repetitive)** |
 | Rendered truth gate | Some artifact capture exists, but no full hard blocker for bad visuals | **P0 blocker** |
 | Visual cut intelligence | V-JEPA primitives exist, but visual perception is not yet a first-class cut-planning input | **Required next layer** |
-| Calibration | Gate exists but blocked from full truth-loop use; bandit/bandit-like reward can still learn on weak metrics | **Not production-ready** |
+| Calibration | Live bandit writes are now quarantined behind rendered/pass or explicit publish evidence (`4b48c8c3`); full rendered truth-loop calibration is still blocked | **Partially fixed / not production-ready** |
 
 ### Confirmed P0/P1/P2 findings (short)
 
@@ -267,7 +267,7 @@ If any prior doc says â€œfully doneâ€, it should be treated as *histori
 2. MG form is shape-fact-only + narrow candidate breadth.
 3. Signal candidates drop via thresholds and first-wins dedupe before form can be considered.
 4. Merge still under-advances Path D candidates.
-5. Live reward/learning still tied to weak scores.
+5. Live reward/learning weak-score writes are gated at `recordProjectOutcome`; remaining risk is calibration quality because rendered evidence is not yet the hard truth loop.
 
 ### P2/P3 (stability and polish)
 6. Full-frame contract can downgrade into corner treatment via caption coordination.
