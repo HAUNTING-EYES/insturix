@@ -569,6 +569,109 @@ describe('Brand website refinery', () => {
     expect(consumerElectronics.profile.identity.category.value).toBe('electronics/appliances');
   });
 
+  it('keeps specific vertical taxonomy when broad pages contain generic navigation noise', () => {
+    const electronics = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://devices.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Devices Store - Consumer electronics</title>
+    <meta name="description" content="Phones, laptops, tablets, watches, earbuds, personal computers, and consumer electronics for work, school, and creative pros.">
+  </head>
+  <body>
+    <h1>Shop latest devices</h1>
+    <p>Store checkout catalog retail shop shop shop.</p>
+    <p>Hardware devices for students, families, and creative professionals.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_devices',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_noisy_hardware_taxonomy',
+    });
+
+    expect(electronics.profile.identity.industry?.value).toBe('hardware/electronics');
+    expect(electronics.profile.identity.category.value).toBe('hardware/electronics');
+    expect(electronics.profile.identity.audience.value).toEqual(expect.arrayContaining(['creative professionals', 'families', 'students']));
+
+    const creativeSoftware = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://creative-suite.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Creative Suite - Creative software</title>
+    <meta name="description" content="Creative software apps for designers, marketers, video editors, photographers, and creative teams.">
+  </head>
+  <body>
+    <h1>Design, video, PDF, and marketing software</h1>
+    <p>Apps and cloud platform for creative teams and businesses.</p>
+    <p>Creative campaign content studio production creative campaign content studio production.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_creative_suite',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_noisy_creative_software_taxonomy',
+    });
+
+    expect(creativeSoftware.profile.identity.industry?.value).toBe('creative software');
+    expect(creativeSoftware.profile.identity.category.value).toBe('software');
+    expect(creativeSoftware.profile.identity.audience.value).toEqual(expect.arrayContaining(['creative teams', 'video editors']));
+    const framework = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://open-ui-framework.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Open UI Framework - JavaScript library</title>
+    <meta name="description" content="A JavaScript library for web and native user interfaces, reusable components, developer tools, and app frameworks.">
+  </head>
+  <body>
+    <h1>Build web and native user interfaces out of components</h1>
+    <p>Creative content examples and studio docs should not make this a creative services company.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_open_ui_framework',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_noisy_framework_taxonomy',
+    });
+
+    expect(framework.profile.identity.industry?.value).toBe('software');
+    expect(framework.profile.identity.category.value).toBe('software');
+    expect(framework.profile.identity.industry?.value).not.toBe('creative software');
+    const reactFramework = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://react-framework.example',
+      html: `
+<!doctype html>
+<html>
+  <head>
+    <title>Next.js by Vercel - The React Framework</title>
+    <meta name="description" content="A full-stack React framework for the web, high-quality web applications, React components, server and client data fetching, route handlers, and developer tools.">
+  </head>
+  <body>
+    <h1>The React Framework for the Web</h1>
+    <p>Build web applications with reusable React components, advanced routing patterns, and UI layouts.</p>
+    <p>Customer testimonials mention consistent 60fps UI animations, but this is still software, not hardware electronics.</p>
+  </body>
+</html>
+`,
+      brandId: 'brand_react_framework',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_noisy_react_framework_taxonomy',
+    });
+
+    expect(reactFramework.profile.identity.industry?.value).toBe('software');
+    expect(reactFramework.profile.identity.category.value).toBe('software');
+    expect(reactFramework.profile.identity.category.value).not.toBe('hardware/electronics');
+  });
+
   it('classifies broad-scan thin-page verticals without brand-name special cases', () => {
     const industrial = createWebsiteBrandSignalProfile({
       websiteUrl: 'https://industrial.example',
@@ -732,6 +835,7 @@ describe('Brand website refinery', () => {
     <p>Trusted by You at Your Nearest HP World Store, latest Intel Core CPUs, and newest 8K polling rate keyboard for gameplay.</p>
     <p>Made for working of basic functionalities of the website and life today - and tomorrow.</p>
     <p>Created for first three months and please visit the site.</p>
+    <p>Created for climate goals isn't a 30-year goal - it is now.</p>
     <p>Designed for early Sale access plus tailored new arrivals and updates on new arrivals.</p>
   </body>
 </html>
@@ -745,7 +849,7 @@ describe('Brand website refinery', () => {
     const audience = result.profile.identity.audience.value;
     expect(audience).toEqual(expect.arrayContaining(['enterprise IT teams', 'security leaders', 'ecommerce operators']));
     expect(audience.join(' | ')).not.toMatch(
-      /AI guided recommendations|online store members|NVIDIA Vera Rubin|local content|Nearest HP World Store|Intel Core|8K polling|basic functionalities|life today|first three months|please visit|tailored new arrivals|updates on new arrivals/i,
+      /AI guided recommendations|online store members|NVIDIA Vera Rubin|local content|Nearest HP World Store|Intel Core|8K polling|basic functionalities|life today|first three months|please visit|tailored new arrivals|updates on new arrivals|climate goals|30-year goal/i,
     );
   });
 
@@ -859,7 +963,8 @@ describe('Brand website refinery', () => {
       jobId: 'job_design_fixture',
     });
 
-    expect(design.profile.identity.industry?.value).toBe('software');
+    expect(design.profile.identity.industry?.value).toBe('creative software');
+    expect(design.profile.identity.category.value).toBe('software');
     expect(design.profile.identity.industry?.value).not.toBe('Organization');
     expect(design.profile.identity.audience.value.some((value) => /devs and designers/i.test(value))).toBe(true);
     expect(design.profile.identity.audience.value).not.toContain('video');

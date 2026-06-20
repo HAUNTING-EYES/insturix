@@ -19,7 +19,7 @@ const CTA_PATTERN = /\b(start|get|book|join|try|buy|shop|contact|talk|demo|learn
 const GENERIC_AUDIENCE_PATTERN = /^(?:teams?|businesses|companies|people|users|customers|clients|leaders|operators|creators|agents?|ai era|modern era)$/i;
 const SPECIFIC_AUDIENCE_MODIFIER_PATTERN = /\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|security|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|women|men|kids?|children|babies|parents?|mothers?|moms?|families|students?|professionals?|customers?|shoppers?|enthusiasts?|collectors?|travel(?:ers|lers)|runners?|climbers?|athletes?|gamers?|pet parents?|homeowners?|skin|hair|beard|coffee lovers?)\b/i;
 const AUDIENCE_FRAGMENT_PREFIX_PATTERN = /^(?:and|or|but|by|with|without|from|into|through|via|that|this|these|those|it|its|their|while|when|where|which|building|creating|shipping|scaling|accepting|optimizing|optimising|enabling|embedding|monetizing|monetising)\b/i;
-const AUDIENCE_NON_ENTITY_PATTERN = /\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?|guided recommendations?|first three months|life today|local content|better experience|exclusive features|open your .*app|online store members?|nearest .*store|latest .*cpus?|newest .*polling|working of basic functionalities|current product information|tailored new arrivals?|updates? on new arrivals?|selection shop now|today\s*[|/]\s*shop now|all your [a-z\s-]+ cravings?|any queries? or issues?|queries? or issues?|customer care|help center|store locator|nvidia|vera rubin|intel core|keyboard for gameplay)\b/i;
+const AUDIENCE_NON_ENTITY_PATTERN = /\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?|guided recommendations?|first three months|life today|local content|better experience|exclusive features|open your .*app|online store members?|nearest .*store|latest .*cpus?|newest .*polling|working of basic functionalities|current product information|tailored new arrivals?|updates? on new arrivals?|selection shop now|today\s*[|/]\s*shop now|all your [a-z\s-]+ cravings?|any queries? or issues?|queries? or issues?|customer care|help center|store locator|nvidia|vera rubin|intel core|keyboard for gameplay|climate goals?|emissions goals?|sustainability goals?|\d{2,3}-year goal)\b/i;
 const AUDIENCE_STANDALONE_DOMAIN_PATTERN = /^(?:video|content|production|social|creative|marketing|sales|revenue|product|engineering|design|finance|support|ops|operations|payments?|billing|skin|hair|beard|body)$/i;
 const AUDIENCE_PROMO_NOISE_PATTERN = /\b(?:shop now|add to cart|buy now|wishlist|no reviews?|customer reviews?|review attempts?|mrp|price|sale|discount|coupon|free shipping|cash on delivery|cod|checkout|cart|sku|variant|select size|select colour|select color|new arrivals?|best sellers?|view all|quick view|sold out|login|sign in|track order|order status|return policy|refunds?|download app|franchise|country\/region|newsletter|subscribe|cookie|privacy policy|terms of service|please use a different browser|please visit the site|enable javascript|gpay|pay online|payment app|product card|product-grid|productgrid)\b/i;
 const AUDIENCE_PRODUCT_UNIT_PATTERN = /\b(?:b\d+p\d+|pack\s+of\s+\d+|\d+(?:\.\d+)?\s?(?:ml|g|gm|kg|oz|fl\s?oz|pcs?|pieces|capsules?|tablets?)|spf\s?\d+)\b/i;
@@ -50,6 +50,7 @@ const DEFAULT_UTILITY_COLOR_TOKEN_CONTEXT =
   /(?:--(?:color-)?(?:slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b|--(?:background|foreground|card|popover|muted|border|input|ring|destructive|chart-\d)\b|\b(?:text|bg|border|ring|from|via|to)-(?:slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b)/i;
 const NON_LOGO_ASSET_CONTEXT_PATTERN = /\b(?:product|products|collection|catalog|hero|banner|cover|thumbnail|thumb|preview|share|social|og-image|avatar|team|photo|gallery|sprite|payment|badge)\b/i;
 const STRONG_LOGO_CONTEXT_PATTERN = /\b(?:logo|logomark|wordmark|brandmark|brand logo|site logo|navbar-brand)\b/i;
+const GENERIC_CATEGORY_LABELS = new Set(['analytics', 'commerce', 'creative services', 'health', 'software']);
 
 const CATEGORY_RULES: Array<{
   label: string;
@@ -66,9 +67,9 @@ const CATEGORY_RULES: Array<{
   {
     label: 'hardware/electronics',
     signals: [
-      [/\b(?:technology hardware|computer hardware|electronic components?|electronic equipment|electronic instruments?|hardware platforms?|data storage|storage systems?|peripherals?|servers?|workstations?|printers?|pcs?|personal computers?|industrial technolog(?:y|ies)|engineered products?|diversified technology)\b/g, 2],
-      [/\b(?:memory|drives?|ssd|hdd|connectors?|sensors?|test and measurement|industrial instruments?|instrumentation|manufacturing services|electronics manufacturing|imaging systems?|aerospace and defense|industrial growth markets?)\b/g, 1.75],
-      [/\b(?:hardware|devices?|components?)\b/g, 1],
+      [/\b(?:technology hardware|computer hardware|consumer electronics|electronic components?|electronic equipment|electronic instruments?|hardware platforms?|data storage|storage systems?|peripherals?|servers?|workstations?|printers?|pcs?|personal computers?|industrial technolog(?:y|ies)|engineered products?|diversified technology)\b/g, 2],
+      [/\b(?:memory|drives?|ssd|hdd|connectors?|sensors?|test and measurement|industrial instruments?|instrumentation|manufacturing services|electronics manufacturing|imaging systems?|aerospace and defense|industrial growth markets?|phones?|smartphones?|laptops?|notebooks?|tablets?|wearables?|earbuds?|headphones?|monitors?|device fleets?)\b/g, 1.75],
+      [/\b(?:hardware|devices?|hardware components?|device components?)\b/g, 1],
     ],
   },
   {
@@ -214,6 +215,7 @@ const CATEGORY_RULES: Array<{
       [/\b(?:software|platform|automation|workflow|saas|workspace|tooling|infrastructure)\b/g, 1.5],
       [/\b(?:roadmaps?|issues?|sprints?|backlog|project management|product development|product teams?)\b/g, 1.5],
       [/\b(?:planning and building products?|building products?|shipping products?)\b/g, 2],
+      [/\b(?:creative software|design software|editing software|pdf software|creative apps?|design apps?|desktop apps?|cloud apps?|app suite|software suite|3d design|cad|computer-aided design|architecture engineering construction|manufacturing software|media encoder|document cloud|creative cloud|javascript librar(?:y|ies)|typescript librar(?:y|ies)|ui librar(?:y|ies)|react frameworks?|full-stack frameworks?|javascript frameworks?|web frameworks?|native frameworks?|component frameworks?|app frameworks?|web applications?|react components?|web and native user interfaces|developer tools?)\b/g, 2],
       [/\b(?:api|developer|engineering|agents?|ai)\b/g, 0.75],
     ],
   },
@@ -751,14 +753,30 @@ export function candidateOnly(
 
 export function inferCategory(text: string): string {
   const lower = text.toLowerCase();
+  if (/\b(?:creative software|design software|editing software|creative apps?|design apps?|document cloud|creative cloud|pdf software|3d design|cad|computer-aided design|architecture engineering construction|manufacturing software|javascript librar(?:y|ies)|typescript librar(?:y|ies)|ui librar(?:y|ies)|react frameworks?|full-stack frameworks?|javascript frameworks?|web frameworks?|native frameworks?|component frameworks?|app frameworks?|web applications?|react components?|web and native user interfaces|developer tools?)\b/.test(lower)) return 'software';
   const ranked = CATEGORY_RULES
     .map(({ label, signals }) => ({
       label,
       score: signals.reduce((sum, [pattern, weight]) => sum + countMatches(lower, pattern) * weight, 0),
     }))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || categorySpecificityRank(b.label) - categorySpecificityRank(a.label));
   const best = ranked[0];
-  return best && best.score >= 1.5 ? best.label : 'unknown';
+  if (!best || best.score < 1.5) return 'unknown';
+  const specific = ranked.find((item) => !GENERIC_CATEGORY_LABELS.has(item.label) && item.score >= 1.5);
+  if (specific && GENERIC_CATEGORY_LABELS.has(best.label) && best.score - specific.score <= genericCategoryDominanceMargin(best.label)) {
+    return specific.label;
+  }
+  return best.label;
+}
+
+function categorySpecificityRank(label: string): number {
+  return GENERIC_CATEGORY_LABELS.has(label) ? 0 : 1;
+}
+
+function genericCategoryDominanceMargin(label: string): number {
+  if (label === 'commerce') return 4;
+  if (label === 'software' || label === 'creative services') return 3;
+  return 2;
 }
 
 export function inferIndustry(text: string, schemaTypes: string[] = []): string | undefined {
@@ -770,6 +788,9 @@ export function inferIndustry(text: string, schemaTypes: string[] = []): string 
   if (/\b(?:issue tracking|project management|roadmaps?|cycles|product development)\b/.test(lower)) {
     return 'product management software';
   }
+  if (/\b(?:javascript librar(?:y|ies)|typescript librar(?:y|ies)|ui librar(?:y|ies)|react frameworks?|full-stack frameworks?|javascript frameworks?|web frameworks?|native frameworks?|component frameworks?|app frameworks?|web applications?|react components?|web and native user interfaces|developer tools?)\b/.test(lower)) return 'software';
+  if (/\b(?:creative software|design software|editing software|creative apps?|design apps?|document cloud|creative cloud|pdf software)\b/.test(lower)) return 'creative software';
+  if (/\b(?:3d design|cad|computer-aided design|architecture engineering construction|manufacturing software)\b/.test(lower)) return 'design software';
   if (isSpecialtyCoffeeBrand(lower)) return 'specialty coffee';
 
   const category = inferCategory(text);
