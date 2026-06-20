@@ -39,6 +39,7 @@ import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling"
 import html2canvas from "html2canvas";
 import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
 import { useCredits } from "@/hooks/useCredits";
+import { getChatToolLabel, shouldReloadProjectAfterTool } from "@/lib/editron/agent/chat-tool-registry";
 
 interface ContentSegment {
   type: 'text' | 'tool';
@@ -76,37 +77,6 @@ interface ChatSession {
   createdAt: Date;
   updatedAt: Date;
 }
-
-const TOOL_FRIENDLY_NAMES: Record<string, string> = {
-  // Legacy tools
-  read_project_file: "Reading project file",
-  list_project_files: "Listing project files",
-  apply_project_patch: "Applying changes",
-  add_text_overlay: "Adding text",
-  add_image_overlay: "Adding image",
-  add_video_overlay: "Adding video",
-  add_audio_overlay: "Adding audio",
-  update_overlay: "Updating element",
-  delete_overlay: "Removing element",
-  visual_inspect_frame: "Inspecting video frame",
-  get_video_duration: "Checking duration",
-  search_web: "Searching web",
-  generate_image: "Generating image",
-  // New unified tools
-  add_overlay: "Adding element",
-  batch_update_overlays: "Batch updating",
-  split_overlay: "Splitting clip",
-  trim_overlay: "Trimming clip",
-  sync_style: "Syncing styles",
-  get_timeline_view: "Getting timeline",
-  generate_html_scene: "Creating custom scene",
-  generate_html_sticker: "Creating custom sticker",
-  add_captions: "Adding captions",
-  add_fancy_captions: "Adding fancy captions",
-  refresh_fancy_captions: "Refreshing fancy captions",
-  refresh_captions: "Refreshing captions",
-  close_gaps: "Closing gaps",
-};
 
 export function AIChatPanel() {
   const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject,
@@ -423,7 +393,7 @@ export function AIChatPanel() {
                     : msg
                 ));
               } else if (data.type === 'tool_start') {
-                addLog('tool_start', `Tool started: ${data.tool}`, { args: data.args });
+                addLog('tool_start', `Tool started: ${getChatToolLabel(data.tool)}`, { tool: data.tool, args: data.args });
                 // Use server-provided ID for reliable matching
                 const toolCall = { name: data.tool, id: data.id || `tool_${Date.now()}`, args: data.args };
                 currentToolCalls.push(toolCall);
@@ -438,7 +408,7 @@ export function AIChatPanel() {
                     : msg
                 ));
               } else if (data.type === 'tool_end') {
-                addLog('tool_end', `Tool finished: ${data.tool}`, data);
+                addLog('tool_end', `Tool finished: ${getChatToolLabel(data.tool)}`, data);
                 // Match by ID (reliable) or fallback to name without output
                 const toolCallIndex = data.id 
                   ? currentToolCalls.findIndex(tc => tc.id === data.id)
@@ -490,43 +460,8 @@ export function AIChatPanel() {
                     } catch {} // Non-critical
                   }
                 }
-
-                // Reload project data immediately after a modifying tool finishes
-                const modifyingTools = [
-                  // Core overlay CRUD
-                  'add_overlay', 'update_overlay', 'delete_overlay',
-                  'batch_update_overlays', 'split_overlay', 'trim_overlay',
-                  'sync_style', 'close_gaps', 'cut_section',
-                  // HTML generation
-                  'generate_html_scene', 'generate_html_sticker',
-                  'add_motion_graphic',
-                  // Caption tools
-                  'add_captions', 'add_fancy_captions',
-                  'refresh_captions', 'refresh_fancy_captions',
-                  'batch_edit_captions', 'batchEditCaptions',
-                  // Transition tools
-                  'add_transition', 'addTransition',
-                  // SFX tools
-                  'add_sfx', 'addSFX', 'replace_sfx', 'replaceSFX',
-                  // Sticker/lottie tools
-                  'add_sticker', 'addSticker',
-                  // Advanced editing
-                  'sync_cuts_to_beats', 'set_keyframes',
-                  'auto_edit_from_script', 'apply_style',
-                  // Scene regeneration (updates storyboard + project)
-                  'regenerate_scene',
-                  // Filter tools
-                  'apply_filter', 'applyFilter',
-                  // Delete/modify tools
-                  'delete_overlay', 'deleteOverlay',
-                  'update_overlay', 'updateOverlay',
-                  // Legacy tools
-                  'apply_project_patch',
-                  'add_text_overlay', 'add_image_overlay',
-                  'add_video_overlay', 'add_audio_overlay',
-                ];
-                
-                if (modifyingTools.includes(data.tool)) {
+                // Reload project data immediately after a mutating registry tool finishes
+                if (shouldReloadProjectAfterTool(data.tool)) {
                    try {
                      const projectRes = await fetch(`/api/services/editron/projects/${projectId}`);
                      if (projectRes.ok) {
