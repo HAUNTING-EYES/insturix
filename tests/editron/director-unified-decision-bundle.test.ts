@@ -59,6 +59,16 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain("'intelligence.unifiedDecisionBundle'");
   });
 
+  it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {
+    const source = directorSource();
+    const fallbackAuthorityStart = source.indexOf("source: 'fallback-reactive'");
+    expect(fallbackAuthorityStart).toBeGreaterThan(0);
+    const fallbackAuthorityBlock = source.slice(fallbackAuthorityStart, fallbackAuthorityStart + 420);
+
+    expect(fallbackAuthorityBlock).toContain("decisionMode: 'signal-primary'");
+    expect(fallbackAuthorityBlock).toContain("executableProducer: 'signal-driven'");
+    expect(fallbackAuthorityBlock).toContain("signalDecisionRole: 'primary'");
+  });
   it('does not let post-EDL utility scoring override a handled unified bundle', () => {
     expect(shouldRunPostEdlUtilityScoring({
       unifiedDecisionBundleExecuted: true,

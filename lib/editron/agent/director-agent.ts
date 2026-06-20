@@ -1567,6 +1567,7 @@ export async function executeDirectorPlan(
           result.decisionAuthority = {
             version: 'decision-authority-v1',
             source: 'fallback-reactive',
+            decisionMode: 'signal-primary',
             executableProducer: 'signal-driven',
             advisoryProducers: [],
             signalDecisionRole: 'primary',
