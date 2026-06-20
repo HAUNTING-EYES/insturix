@@ -2,8 +2,8 @@
  * Creative Brief Service — Director's Cut Architecture Core
  *
  * Generates a structured Creative Brief from Gemini using context-cached creative
- * knowledge + video analysis + user preferences. The Brief contains ALL editing
- * decisions for the video (transitions, zooms, captions, audio, graphics).
+ * knowledge + video analysis + user preferences. The Brief contains semantic
+ * facts, story beats, and compatibility hints for the native planner.
  *
  * Architecture:
  *   1. Get cached Gemini model (creative doc as context)
@@ -16,6 +16,7 @@
  * Depends: gemini-context-cache.ts, asset-briefing.ts
  */
 
+import { SchemaType, type ResponseSchema } from '@google/generative-ai';
 import { getCreativeDocCachedModel } from './gemini-context-cache';
 import type { PipelineWarningCollector } from './pipeline-warnings';
 import {
@@ -25,6 +26,187 @@ import {
 } from '../data/decision-registry';
 import type { GenreParameters } from './graph-query';
 
+export const CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT = `<authority_contract>
+You are the narrative/fact interpreter, not the final overlay planner or renderer.
+Your job is to identify moments, semantic facts, evidence phrases, story beats, and useful family hints.
+The native Editron planner decides exact overlay family, timing, placement, motion, SFX assets, density, and render form.
+
+Rules:
+- Treat decision.type as a compatibility family tag only. It is NOT permission to force a visual form.
+- Put the real meaning in params.semanticAtoms. Every non-trivial decision must include evidencePhrase or another transcript/video-supported atom.
+- Do not output exact render form, placement, animation, duration, keyframes, SFX asset names, or graphic component names.
+- Do not output placeholder copy. Text must be grounded in transcript words, verified visual text, or explicitly provided context.
+- If a moment is important but the exact overlay form is unclear, still emit the semantic fact; the native planner will decide whether it becomes caption, MG, zoom, transition, SFX, or evidence only.
+</authority_contract>`;
+
+const STRING_SCHEMA = { type: SchemaType.STRING } as const;
+const NUMBER_SCHEMA = { type: SchemaType.NUMBER } as const;
+const BOOLEAN_SCHEMA = { type: SchemaType.BOOLEAN } as const;
+const STRING_ARRAY_SCHEMA = { type: SchemaType.ARRAY, items: STRING_SCHEMA } as const;
+const NUMBER_ARRAY_SCHEMA = { type: SchemaType.ARRAY, items: NUMBER_SCHEMA } as const;
+
+const SEMANTIC_ATOMS_RESPONSE_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    concept: STRING_SCHEMA,
+    claim: STRING_SCHEMA,
+    evidencePhrase: STRING_SCHEMA,
+    keyword: STRING_SCHEMA,
+    text: {
+      type: SchemaType.OBJECT,
+      properties: {
+        primary: STRING_SCHEMA,
+        secondary: STRING_SCHEMA,
+        keyword: STRING_SCHEMA,
+        phrase: STRING_SCHEMA,
+      },
+    },
+    quantity: {
+      type: SchemaType.OBJECT,
+      properties: {
+        displayText: STRING_SCHEMA,
+        label: STRING_SCHEMA,
+        kind: STRING_SCHEMA,
+        unit: STRING_SCHEMA,
+        denominator: NUMBER_SCHEMA,
+        bounded: BOOLEAN_SCHEMA,
+      },
+    },
+    series: {
+      type: SchemaType.OBJECT,
+      properties: {
+        values: NUMBER_ARRAY_SCHEMA,
+        labels: STRING_ARRAY_SCHEMA,
+      },
+    },
+    identity: {
+      type: SchemaType.OBJECT,
+      properties: {
+        name: STRING_SCHEMA,
+        role: STRING_SCHEMA,
+        avatar: STRING_SCHEMA,
+      },
+    },
+    media: {
+      type: SchemaType.OBJECT,
+      properties: {
+        role: STRING_SCHEMA,
+        url: STRING_SCHEMA,
+      },
+    },
+    quote: {
+      type: SchemaType.OBJECT,
+      properties: {
+        text: STRING_SCHEMA,
+        author: STRING_SCHEMA,
+      },
+    },
+    truth: {
+      type: SchemaType.OBJECT,
+      properties: {
+        polarity: STRING_SCHEMA,
+        negated: BOOLEAN_SCHEMA,
+        refuted: BOOLEAN_SCHEMA,
+        warranted: BOOLEAN_SCHEMA,
+      },
+    },
+    relation: {
+      type: SchemaType.OBJECT,
+      properties: {
+        from: STRING_SCHEMA,
+        to: STRING_SCHEMA,
+        relation: STRING_SCHEMA,
+        kind: STRING_SCHEMA,
+      },
+    },
+    items: STRING_ARRAY_SCHEMA,
+    annotation: STRING_SCHEMA,
+    badge: STRING_SCHEMA,
+    kicker: STRING_SCHEMA,
+  },
+};
+
+export const CREATIVE_BRIEF_RESPONSE_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    video_understanding: {
+      type: SchemaType.OBJECT,
+      properties: {
+        primary_content: STRING_SCHEMA,
+        shot_scale: STRING_SCHEMA,
+        lighting: STRING_SCHEMA,
+        production_quality: NUMBER_SCHEMA,
+        environment: STRING_SCHEMA,
+        speaker_count: NUMBER_SCHEMA,
+        has_b_roll: BOOLEAN_SCHEMA,
+      },
+      required: ['primary_content', 'shot_scale', 'lighting', 'production_quality', 'environment', 'speaker_count', 'has_b_roll'],
+    },
+    narrative_arc: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          section_id: NUMBER_SCHEMA,
+          start_word_idx: NUMBER_SCHEMA,
+          end_word_idx: NUMBER_SCHEMA,
+          start_timestamp_ms: NUMBER_SCHEMA,
+          end_timestamp_ms: NUMBER_SCHEMA,
+          label: STRING_SCHEMA,
+          energy_level: STRING_SCHEMA,
+          mood: STRING_SCHEMA,
+          pacing_feel: STRING_SCHEMA,
+        },
+        required: ['section_id', 'label', 'energy_level', 'mood', 'pacing_feel'],
+      },
+    },
+    decisions: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          type: STRING_SCHEMA,
+          target_word_idx: NUMBER_SCHEMA,
+          target_timestamp_ms: NUMBER_SCHEMA,
+          target_beat_idx: NUMBER_SCHEMA,
+          confidence: NUMBER_SCHEMA,
+          reason: STRING_SCHEMA,
+          params: {
+            type: SchemaType.OBJECT,
+            properties: {
+              text: STRING_SCHEMA,
+              title: STRING_SCHEMA,
+              body: STRING_SCHEMA,
+              value: STRING_SCHEMA,
+              label: STRING_SCHEMA,
+              name: STRING_SCHEMA,
+              author: STRING_SCHEMA,
+              quote: STRING_SCHEMA,
+              from: STRING_SCHEMA,
+              to: STRING_SCHEMA,
+              relation: STRING_SCHEMA,
+              items: STRING_ARRAY_SCHEMA,
+              intent: STRING_SCHEMA,
+              semanticAtoms: SEMANTIC_ATOMS_RESPONSE_SCHEMA,
+            },
+          },
+        },
+        required: ['type', 'confidence', 'reason', 'params'],
+      },
+    },
+    audio_design: {
+      type: SchemaType.OBJECT,
+      properties: {
+        ambient_bed: STRING_SCHEMA,
+        ducking_profile: STRING_SCHEMA,
+      },
+      required: ['ambient_bed', 'ducking_profile'],
+    },
+    caption_style: STRING_SCHEMA,
+    overall_pacing: STRING_SCHEMA,
+  },
+  required: ['video_understanding', 'narrative_arc', 'decisions', 'audio_design', 'caption_style', 'overall_pacing'],
+};
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type ContentMode = 'speech' | 'music' | 'visual' | 'hybrid';
@@ -213,6 +395,7 @@ export async function generateCreativeBrief(
 
     const generationConfig = {
       responseMimeType: 'application/json',
+      responseSchema: CREATIVE_BRIEF_RESPONSE_SCHEMA,
       temperature: 0.3,
       seed: 42,
       maxOutputTokens: 65536,
@@ -318,9 +501,11 @@ You do NOT handle: silence removal, filler cuts, retake selection, segment order
 ${genreBlock}
 ${budgetBlock}
 ${signalMapBlock}
+${CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT}
 
 <valid_types>
 Use ONLY these exact type strings. Any other type will be silently dropped.
+These are compatibility family tags for validation only, not final visual/audio form instructions.
 ${validTypesBlock}
 </valid_types>
 
@@ -494,9 +679,11 @@ Do NOT use target_word_idx — this content has no speech transcript.
 ${rhythmAdaptation}${genreBlock}
 ${budgetBlock}
 ${signalMapBlock}
+${CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT}
 
 <valid_types>
 Use ONLY these exact type strings. Any other type will be silently dropped.
+These are compatibility family tags for validation only, not final visual/audio form instructions.
 ${validTypesBlock}
 </valid_types>
 
@@ -630,9 +817,11 @@ Do NOT use target_word_idx — this content has no speech transcript.
 ${visualAdaptation}${genreBlock}
 ${budgetBlock}
 ${signalMapBlock}
+${CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT}
 
 <valid_types>
 Use ONLY these exact type strings. Any other type will be silently dropped.
+These are compatibility family tags for validation only, not final visual/audio form instructions.
 ${validTypesBlock}
 </valid_types>
 
@@ -742,7 +931,7 @@ function buildSignalDecisionMap(ctx: VideoContext, genreParams?: GenreParameters
 
   return `
 <signal_decision_map>
-These signals were DETECTED in this video. Use these as your primary editing toolkit:
+These signals were DETECTED in this video. Use them as evidence for semantic candidates. Do not treat the mapped type names as final overlay commands:
 
 ${activeLines.join('\n')}
 ${availableStr}
@@ -942,6 +1131,8 @@ export function computeDecisionBudget(
 
 // ─── Validation + Confidence Gating + Budget Enforcement ────────────────────
 
+const CREATIVE_BRIEF_FACT_CONTRACT_VERSION = 'creative-brief-fact-contract-v1';
+
 export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap | null, mode: ContentMode = 'speech'): CreativeBrief | null {
   if (!raw || typeof raw !== 'object') return null;
 
@@ -977,6 +1168,7 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
   let droppedType = 0;
   let droppedReason = 0;
   let droppedConfidence = 0;
+  let missingSemanticAtoms = 0;
 
   // Pass 1: Parse, validate types/reasons, confidence gate
   const parsed: BriefDecision[] = [];
@@ -1010,6 +1202,18 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
       }
     }
 
+    const semanticAtomsPresent = hasUsefulSemanticAtoms(params.semanticAtoms);
+    if (!semanticAtomsPresent && (type.startsWith('graphic_') || type === 'caption_emphasis')) {
+      missingSemanticAtoms++;
+    }
+    params.creativeBriefFactContract = {
+      version: CREATIVE_BRIEF_FACT_CONTRACT_VERSION,
+      role: 'semantic-context',
+      executableAuthority: false,
+      finalAuthority: 'native-planner',
+      semanticAtomsPresent,
+      groundingRequired: true,
+    };
     parsed.push({
       type: type as BriefDecisionType,
       targetWordIdx: d.target_word_idx ?? -1,
@@ -1025,6 +1229,7 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
   if (droppedType > 0) console.warn(`[CreativeBrief] Dropped ${droppedType} decisions with invalid types`);
   if (droppedReason > 0) console.warn(`[CreativeBrief] Dropped ${droppedReason} decisions with invalid reasons`);
   if (droppedConfidence > 0) console.log(`[CreativeBrief] Gated ${droppedConfidence} low-confidence decisions (< ${CONFIDENCE_THRESHOLD})`);
+  if (missingSemanticAtoms > 0) console.warn(`[CreativeBrief] ${missingSemanticAtoms} semantic-context decisions missing useful semanticAtoms; native planner must treat them as weak evidence`);
 
   // Pass 2: Per-type cap enforcement (maxPerVideo from registry)
   let allDecisions = [...parsed];
@@ -1129,6 +1334,22 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
 function validateEnum<T extends string>(value: any, valid: T[], fallback: T): T {
   if (valid.includes(value)) return value;
   return fallback;
+}
+
+function hasUsefulSemanticAtoms(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value as Record<string, unknown>).some(hasMeaningfulAtomValue);
+}
+
+function hasMeaningfulAtomValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulAtomValue);
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).some(hasMeaningfulAtomValue);
+  }
+  return false;
 }
 
 function clamp(value: number, min: number, max: number): number {

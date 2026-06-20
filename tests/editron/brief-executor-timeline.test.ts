@@ -4,7 +4,14 @@ import {
   mapOriginalFrameToCutTimeline,
   mapCutFrameToOriginalFrame,
 } from '../../lib/editron/services/brief-executor';
-import { computeDecisionBudget, type BriefDecision, type CreativeBrief } from '../../lib/editron/services/creative-brief';
+import {
+  CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT,
+  CREATIVE_BRIEF_RESPONSE_SCHEMA,
+  computeDecisionBudget,
+  validateAndGate,
+  type BriefDecision,
+  type CreativeBrief,
+} from '../../lib/editron/services/creative-brief';
 import type { GenreParameters } from '../../lib/editron/services/graph-query';
 
 const transcription = [
@@ -53,6 +60,56 @@ function genre(overrides: Partial<GenreParameters>): GenreParameters {
   };
 }
 
+describe('Creative Brief fact authority contract', () => {
+  it('keeps Gemini in semantic-context mode, not final overlay authority', () => {
+    expect(CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT).toContain('not the final overlay planner or renderer');
+    expect(CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT).toContain('decision.type as a compatibility family tag only');
+    expect(JSON.stringify(CREATIVE_BRIEF_RESPONSE_SCHEMA)).toContain('semanticAtoms');
+  });
+
+  it('marks executable-looking brief labels as semantic-context evidence during validation', () => {
+    const brief = validateAndGate({
+      video_understanding: {},
+      narrative_arc: [],
+      decisions: [
+        {
+          type: 'graphic_keyword_highlight',
+          target_word_idx: 1,
+          confidence: 0.82,
+          reason: 'emphasis_word',
+          params: { text: 'Psychology.' },
+        },
+        {
+          type: 'graphic_callout',
+          target_word_idx: 2,
+          confidence: 0.88,
+          reason: 'emphasis_word',
+          params: {
+            semanticAtoms: {
+              concept: 'psychology',
+              evidencePhrase: 'grew fast',
+            },
+          },
+        },
+      ],
+      audio_design: {},
+      caption_style: 'key_phrases',
+      overall_pacing: 'balanced',
+    }, 0, null, 'speech');
+
+    expect(brief?.decisions).toHaveLength(2);
+    expect(brief?.decisions[0].params.creativeBriefFactContract).toEqual(expect.objectContaining({
+      role: 'semantic-context',
+      executableAuthority: false,
+      finalAuthority: 'native-planner',
+      semanticAtomsPresent: false,
+      groundingRequired: true,
+    }));
+    expect(brief?.decisions[1].params.creativeBriefFactContract).toEqual(expect.objectContaining({
+      semanticAtomsPresent: true,
+    }));
+  });
+});
 // Timeline-coordinate fix (2026-06-03): MG decision frames are on the CUT timeline; V-JEPA /
 // Wav2Vec segments are on the ORIGINAL timeline. signalsAtFrame must map cut→original before the
 // lookup, or later decisions land in removed-silence gaps and starve (the 6/13 missing-signal bug).
