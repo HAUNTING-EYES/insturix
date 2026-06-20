@@ -295,16 +295,17 @@ function detectWebsiteFetchFallbackReason(
   contentType: string | undefined,
   html: string,
 ): BrandWebsiteFetchFallbackReason | undefined {
+  const compact = html.replace(/\s+/g, ' ').trim();
+  const visibleText = isHtmlPayload(contentType, html) ? visibleBodyTextFromHtml(html) : '';
+  const challengeText = visibleText || compact;
   if (httpStatus === 429) return 'rate_limited';
   if (httpStatus === 401 || httpStatus === 403 || httpStatus === 406 || httpStatus === 409 || httpStatus === 418 || httpStatus === 451) {
     return 'http_blocked';
   }
-  if (httpStatus >= 500 && BROWSER_CHALLENGE_PATTERN.test(html)) return 'browser_challenge';
+  if (httpStatus >= 500 && BROWSER_CHALLENGE_PATTERN.test(challengeText)) return 'browser_challenge';
   if (httpStatus >= 500) return 'server_error';
   if (!isHtmlPayload(contentType, html)) return undefined;
-  const compact = html.replace(/\s+/g, ' ').trim();
-  const visibleText = visibleBodyTextFromHtml(html);
-  if (BROWSER_CHALLENGE_PATTERN.test(compact)) return 'browser_challenge';
+  if (BROWSER_CHALLENGE_PATTERN.test(challengeText)) return 'browser_challenge';
   if (JAVASCRIPT_SHELL_PATTERN.test(compact)) return 'javascript_shell';
   if (visibleText.length < 40 && extractNextDataTextEvidenceFromHtml(html).length > 0) return undefined;
   if (visibleText.length < 40 && HYDRATION_ROOT_MARKER_PATTERN.test(html)) return 'javascript_shell';

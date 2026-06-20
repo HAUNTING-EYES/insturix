@@ -1543,6 +1543,39 @@ describe('Brand website refinery', () => {
     expect(snapshot.browserFallbackRequired).toBe(false);
   });
 
+  it('does not treat Shopify recaptcha helper scripts as browser challenges when visible brand copy exists', async () => {
+    const shopifyHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>Chaayos Bazaar</title>
+    <script>window.Shopify = { theme: { name: 'bazaar' } };</script>
+  </head>
+  <body>
+    <main>
+      <h1>Chaayos Bazaar</h1>
+      <nav>Make your own chai Instant Tea Best Sellers New Arrivals Cafe Locator</nav>
+      <p>Shop chai time snacks, gifting, herbal tea, natural chai spices, and pyramid whole leaf tea.</p>
+    </main>
+    <script id="form-persister">
+      const c = ['recaptcha-v3-token', 'g-recaptcha-response', 'h-captcha-response'];
+    </script>
+  </body>
+</html>`;
+
+    const snapshot = await fetchWebsiteBrandSnapshot('chaayos.example', {
+      now: NOW,
+      fetchFn: async () => new Response(shopifyHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+    });
+
+    expect(snapshot.fetchFallbackReason).toBeUndefined();
+    expect(snapshot.browserFallbackRequired).toBe(false);
+    expect(snapshot.html).toContain('Chaayos Bazaar');
+  });
+
   it('uses explicit browser-rendered fallback evidence for JavaScript-only shells', async () => {
     const snapshot = await fetchWebsiteBrandSnapshot('blocked.example', {
       now: NOW,
