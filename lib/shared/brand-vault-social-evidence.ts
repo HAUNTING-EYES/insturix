@@ -452,10 +452,14 @@ function socialInferenceTextParts(source: BrandVaultSourceInput): SocialInferenc
   const bio = boundedSocialText(source.profile?.bio);
   const postTitle = socialPostTitleText(source);
   const languageSources = uniqueStrings([caption, ocrText, transcript, bio]);
+  // A single video transcript is one-off spoken content, not repeated brand
+  // language, so it must NOT feed voice.recurringPhrases (it produced false
+  // "recurring phrases" from one-off video lines). Captions/bio/OCR still may.
+  const voiceSources = uniqueStrings([caption, ocrText, bio]);
   const hookSources = uniqueStrings([postTitle, caption, ocrText, transcript]);
   const proofSources = uniqueStrings([caption, ocrText, transcript, bio]);
   return {
-    voiceText: socialTextForIntent(languageSources, 'voice'),
+    voiceText: socialTextForIntent(voiceSources, 'voice'),
     hookText: socialTextForIntent(hookSources, 'hook'),
     proofText: socialTextForIntent(proofSources, 'proof'),
     ctaText: socialTextForIntent(languageSources, 'cta'),
@@ -494,6 +498,7 @@ function extractSocialVoicePhrases(text: string): string[] {
   const sentences = meaningfulSentences(text)
     .filter((sentence) => !/^https?:\/\//i.test(sentence))
     .filter((sentence) => sentence.length >= 14 && sentence.length <= 140)
+    .filter((sentence) => sentence.trim().split(/\s+/).length <= 9)
     .filter((sentence) => isUsableSocialSignalSentence(sentence, 'voice'))
     .slice(0, 5);
   return uniqueStrings([...sentences, ...hashtags]).slice(0, 8);

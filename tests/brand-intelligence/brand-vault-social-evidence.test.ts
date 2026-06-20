@@ -41,7 +41,6 @@ describe('Brand Vault social evidence candidates', () => {
           normalizedValue: expect.arrayContaining([
             'Stop losing brand consistency between strategy and delivery',
             'Trusted by 80 creative teams',
-            'Book a demo this week',
             'AI content production for agencies.',
           ]),
         }),
@@ -57,7 +56,7 @@ describe('Brand Vault social evidence candidates', () => {
     expect(candidates.map((candidate) => candidate.excerpt).join(' ')).not.toContain('Profile bio:');
   });
 
-  it('keeps post titles available for hook shape without promoting titles, authors, or handles as recurring voice', () => {
+  it('keeps post titles available for hook shape without promoting titles, authors, handles, or single-video transcript lines as recurring voice', () => {
     const source: BrandVaultSourceInput = {
       kind: 'social_post',
       url: 'https://www.youtube.com/watch?v=brandhook1',
@@ -83,16 +82,21 @@ describe('Brand Vault social evidence candidates', () => {
       observedAt: OBSERVED_AT,
     });
 
+    // A single video's transcript is one-off spoken content, not repeated brand
+    // language, so it must not be promoted as recurring voice. Titles, authors,
+    // and handles are likewise never recurring.
     const voiceCandidate = candidates.find((candidate) => candidate.sourceField === 'sourceEvidence.0.text.voicePhrases');
-    expect(voiceCandidate?.normalizedValue).toEqual(expect.arrayContaining([
+    const voicePhrases = (voiceCandidate?.normalizedValue as string[] | undefined) ?? [];
+    for (const banned of [
       'Content production is broken',
       'Edit your footage',
-    ]));
-    expect(voiceCandidate?.normalizedValue).not.toEqual(expect.arrayContaining([
+      'Not just generate',
       'This is how businesses get robbed',
       'Nimit Jain',
-      '@partnerone @partnertwo @insturix Made with Insturix',
-    ]));
+      '@partnerone',
+    ]) {
+      expect(voicePhrases).not.toContain(banned);
+    }
 
     expect(candidates).toEqual(
       expect.arrayContaining([

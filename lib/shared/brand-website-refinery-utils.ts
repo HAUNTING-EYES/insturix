@@ -919,6 +919,7 @@ function isMeaningfulBrandPhrase(value: string): boolean {
   if (isGenericRecurringPhrase(phrase)) return false;
   if (phrase.length > 120) return false;
   const words = phrase.split(/\s+/).length;
+  if (words > 9) return false;
   return phrase.length >= 10 && (words >= 3 || /\d/.test(phrase));
 }
 
