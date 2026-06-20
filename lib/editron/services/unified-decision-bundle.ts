@@ -119,6 +119,42 @@ export interface UnifiedSignalExecutionCandidate {
   calibrationStatus: 'invented-needs-calibration';
 }
 
+export type UnifiedPlannerCandidateAuthority =
+  | 'legacy-compatibility'
+  | 'semantic-context'
+  | 'signal-evidence';
+
+export interface UnifiedPlannerCandidateLicense {
+  executable: boolean;
+  reason: string;
+  stage: 'primary-license' | 'signal-preflight-license';
+  preliminary: boolean;
+}
+
+export interface UnifiedPlannerCandidate {
+  version: 'unified-planner-candidate-v1';
+  producer: UnifiedDecisionCandidateProducer;
+  sourceAuthority: UnifiedPlannerCandidateAuthority;
+  type: ReactiveEditDecision['type'];
+  family: UnifiedSignalDecisionFamily;
+  role: UnifiedSignalDecisionRole;
+  frame: number;
+  durationFrames: number;
+  source: string;
+  signal: string;
+  confidence: number;
+  momentImportance: number;
+  evidenceStrength: number;
+  completeness: number;
+  physicalFormReadiness: number;
+  risk: number;
+  riskFlags: string[];
+  score: number;
+  outcome: 'executable-candidate' | 'evidence-only-candidate';
+  license: UnifiedPlannerCandidateLicense;
+  normalizedSignal: UnifiedSignalExecutionCandidate;
+}
+
 interface UnifiedTransitionBoundaryPlan {
   version: 'transition-boundary-plan-v1';
   family: 'transition';
@@ -447,6 +483,92 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
       signalDecisionAudit: primaryLicensing.signalDecisionAudit,
     },
   };
+}
+
+export function normalizeUnifiedPlannerCandidates(
+  candidates: UnifiedDecisionProducerCandidate[],
+): UnifiedPlannerCandidate[] {
+  const normalized: UnifiedPlannerCandidate[] = [];
+
+  for (const producerCandidate of orderProducerCandidates(candidates)) {
+    const rawEdl = normalizeEdl(producerCandidate.edl);
+    const decisions = rawEdl.decisions.map(cloneDecision);
+    const signalBudgets = producerCandidate.source === 'signal-driven'
+      ? buildSignalExecutionBudgets(decisions)
+      : {};
+
+    for (const decision of decisions) {
+      const normalizedSignal = normalizeSignalExecutionCandidate(decision);
+      const license = resolveUnifiedPlannerCandidateLicense(
+        producerCandidate.source,
+        decision,
+        signalBudgets,
+      );
+      normalized.push({
+        version: 'unified-planner-candidate-v1',
+        producer: producerCandidate.source,
+        sourceAuthority: sourceAuthorityForPlannerCandidate(producerCandidate.source, decision),
+        type: decision.type,
+        family: normalizedSignal.family,
+        role: normalizedSignal.role,
+        frame: decision.frame,
+        durationFrames: Math.max(1, decision.durationFrames ?? 1),
+        source: decision.source,
+        signal: decision.signal,
+        confidence: normalizedSignal.confidence,
+        momentImportance: normalizedSignal.momentImportance,
+        evidenceStrength: normalizedSignal.evidenceStrength,
+        completeness: normalizedSignal.completeness,
+        physicalFormReadiness: normalizedSignal.physicalFormReadiness,
+        risk: normalizedSignal.risk,
+        riskFlags: normalizedSignal.riskFlags,
+        score: scoreUnifiedDecision(decision, producerCandidate.source),
+        outcome: license.executable ? 'executable-candidate' : 'evidence-only-candidate',
+        license,
+        normalizedSignal,
+      });
+    }
+  }
+
+  return normalized.sort((a, b) => (
+    a.frame - b.frame
+    || b.score - a.score
+    || a.producer.localeCompare(b.producer)
+    || a.type.localeCompare(b.type)
+  ));
+}
+
+function resolveUnifiedPlannerCandidateLicense(
+  source: UnifiedDecisionCandidateProducer,
+  decision: ReactiveEditDecision,
+  signalBudgets: Partial<Record<ReactiveEditDecision['type'], number>>,
+): UnifiedPlannerCandidateLicense {
+  if (source === 'creative-brief') {
+    const license = resolvePrimaryCreativeDecisionLicense(decision);
+    return {
+      ...license,
+      stage: 'primary-license',
+      preliminary: false,
+    };
+  }
+
+  const license = resolveSignalExecutionLicense([], decision, signalBudgets);
+  return {
+    ...license,
+    stage: 'signal-preflight-license',
+    preliminary: true,
+  };
+}
+
+function sourceAuthorityForPlannerCandidate(
+  source: UnifiedDecisionCandidateProducer,
+  decision: ReactiveEditDecision,
+): UnifiedPlannerCandidateAuthority {
+  if (source === 'signal-driven') return 'signal-evidence';
+  const isSemanticContextGraphic = decision.type === 'graphic'
+    && (normalizeParamString(decision.params.creativeDecisionAuthority) === 'semantic-context'
+      || hasAnyDirectParam(decision, ['creativeBriefSemanticCandidate']));
+  return isSemanticContextGraphic ? 'semantic-context' : 'legacy-compatibility';
 }
 
 function licensePrimaryProducerDecisions(
@@ -1247,6 +1369,7 @@ function summarizeSignalSourcePacket(decision: ReactiveEditDecision): UnifiedSig
 
 function lookupSourcePrimitive(decision: ReactiveEditDecision, aliases: string[]): string | number | boolean | undefined {
   const sources = [
+    recordParam(decision.params),
     recordParam(decision.params.signals),
     recordParam(decision.params.atomicMomentBundle),
     recordParam(decision.params.unifiedMomentEvidence),

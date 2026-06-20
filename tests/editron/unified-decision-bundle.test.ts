@@ -3,6 +3,7 @@ import type { EditDecision, EditDecisionList } from '../../lib/editron/services/
 import {
   createUnifiedDecisionBundle,
   mergeSignalDrivenBundle,
+  normalizeUnifiedPlannerCandidates,
   planUnifiedDecisionBundle,
   planUnifiedDecisionBundleFromCandidates,
 } from '../../lib/editron/services/unified-decision-bundle';
@@ -127,6 +128,133 @@ describe('unified decision bundle merge', () => {
       evidenceOnlySignalDecisionCount: 0,
     }));
   });
+  it('normalizes Creative Brief and signal EDLs into one comparable planner candidate pool', () => {
+    const candidates = normalizeUnifiedPlannerCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'graphic',
+            frame: 90,
+            source: 'creative-brief:test',
+            confidence: 0.93,
+            params: {
+              creativeDecisionAuthority: 'semantic-context',
+              creativeDecisionType: 'graphic_stat_counter',
+              value: '42%',
+              label: 'retention lift',
+              semanticAtoms: {
+                quantity: {
+                  displayText: '42%',
+                  kind: 'percentage',
+                },
+              },
+            },
+          }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({
+            type: 'transition',
+            frame: 92,
+            source: 'signal-executor:boundary',
+            signal: 'boundary.topic_shift',
+            confidence: 0.86,
+            params: {
+              transitionType: 'whip-pan',
+              boundaryFrame: 92,
+              topicDelta: 0.8,
+              motionVectorX: 0.6,
+            },
+          }),
+        ]),
+      },
+    ]);
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toEqual(expect.objectContaining({
+      version: 'unified-planner-candidate-v1',
+      producer: 'creative-brief',
+      sourceAuthority: 'semantic-context',
+      type: 'graphic',
+      family: 'graphic',
+      role: 'graphic-expression',
+      frame: 90,
+      outcome: 'executable-candidate',
+      license: {
+        executable: true,
+        reason: 'licensed-by-graphic-semantic-ledger',
+        stage: 'primary-license',
+        preliminary: false,
+      },
+      normalizedSignal: expect.objectContaining({
+        family: 'graphic',
+        calibrationStatus: 'invented-needs-calibration',
+      }),
+    }));
+    expect(candidates[1]).toEqual(expect.objectContaining({
+      producer: 'signal-driven',
+      sourceAuthority: 'signal-evidence',
+      type: 'transition',
+      family: 'transition',
+      role: 'transition-boundary',
+      frame: 92,
+      outcome: 'executable-candidate',
+      license: {
+        executable: true,
+        reason: 'licensed-by-transition-boundary-atoms',
+        stage: 'signal-preflight-license',
+        preliminary: true,
+      },
+      normalizedSignal: expect.objectContaining({
+        projectedAtoms: expect.objectContaining({
+          topicDelta: 0.8,
+          motionVectorX: 0.6,
+        }),
+      }),
+    }));
+    expect(candidates[1].score).toBeGreaterThan(0);
+  });
+
+  it('normalizes Creative Brief placeholder MGs as evidence-only semantic candidates', () => {
+    const candidates = normalizeUnifiedPlannerCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'graphic',
+            frame: 90,
+            source: 'creative-brief:test',
+            confidence: 0.93,
+            params: {
+              creativeDecisionAuthority: 'semantic-context',
+              creativeDecisionType: 'graphic_lower_third',
+              name: 'person/brand name from transcript or brief',
+              title: 'role/description (optional)',
+            },
+          }),
+        ]),
+      },
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toEqual(expect.objectContaining({
+      producer: 'creative-brief',
+      sourceAuthority: 'semantic-context',
+      type: 'graphic',
+      outcome: 'evidence-only-candidate',
+      license: {
+        executable: false,
+        reason: 'missing-graphic-content-evidence',
+        stage: 'primary-license',
+        preliminary: false,
+      },
+      riskFlags: expect.arrayContaining(['missing-graphic-content-evidence']),
+    }));
+  });
+
   it('lets high-confidence non-overlapping signal transitions become executable through the unified planner', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
