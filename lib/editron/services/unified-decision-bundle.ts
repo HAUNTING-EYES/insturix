@@ -523,6 +523,24 @@ export function mergeSignalDrivenBundle(
     if (matchIndex >= 0) {
       const existingPlan = mergedDecisionEntries[matchIndex];
       const existingDecision = existingPlan.decision;
+      const replacementLicense = resolveSignalExecutionLicense(
+        allDecisions().filter((_, index) => index !== matchIndex),
+        decision,
+        signalExecutionBudgets,
+      );
+      if (shouldSignalReplacePrimary(existingPlan, candidate, replacementLicense, resolvedIncomingProducer)) {
+        const replacementReason = `signal-replaced-primary:${replacementLicense.reason}`;
+        mergedDecisionEntries[matchIndex] = {
+          ...candidate,
+          decision: markSignalReplacement(decision, replacementLicense.reason, existingDecision),
+        };
+        recordSignalDecisionAudit(signalDecisionAudit, decision, 'added-executable', replacementReason);
+        if (resolvedIncomingProducer === 'signal-driven') {
+          addedSignalDecisionCount++;
+        }
+        suppressedSignalDuplicateCount++;
+        continue;
+      }
       existingPlan.decision = attachSignalValidation(existingDecision, decision);
       recordSignalDecisionAudit(signalDecisionAudit, decision, 'validated-primary', 'near-equivalent-primary');
       validatedDecisionCount++;
@@ -3808,6 +3826,23 @@ function attachSignalValidation(primary: ReactiveEditDecision, signalDecision: R
   };
 }
 
+function shouldSignalReplacePrimary(
+  existingPlan: PlannedDecision,
+  signalPlan: PlannedDecision,
+  license: { executable: boolean; reason: string },
+  incomingProducer: UnifiedDecisionCandidateProducer,
+): boolean {
+  if (incomingProducer !== 'signal-driven' || !license.executable) return false;
+  if (existingPlan.source !== 'creative-brief') return false;
+
+  const candidate = normalizeSignalExecutionCandidate(signalPlan.decision);
+  if (candidate.evidenceStrength < 0.72) return false;
+  if (candidate.completeness < 0.4) return false;
+  if (candidate.physicalFormReadiness < 0.4) return false;
+
+  return signalPlan.score >= existingPlan.score + 0.035;
+}
+
 function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
   const transitionPlan = resolveTransitionBoundaryPlan(signalDecision);
   if (transitionPlan) {
@@ -3947,6 +3982,39 @@ function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: stri
         executionLicense: reason,
       },
     },
+  };
+}
+
+function markSignalReplacement(
+  signalDecision: ReactiveEditDecision,
+  reason: string,
+  replacedDecision: ReactiveEditDecision,
+): ReactiveEditDecision {
+  const plannedDecision = applySignalFamilyPlanner(signalDecision, reason);
+  return {
+    ...plannedDecision,
+    params: {
+      ...plannedDecision.params,
+      unifiedDecisionMerge: {
+        ...readMergeMetadata(plannedDecision),
+        version: 'unified-decision-bundle-v1',
+        role: 'signal-replaced-primary',
+        executionLicense: reason,
+        replacedPrimary: summarizeReplacedPrimaryDecision(replacedDecision),
+      },
+    },
+  };
+}
+
+function summarizeReplacedPrimaryDecision(decision: ReactiveEditDecision): Record<string, unknown> {
+  return {
+    type: decision.type,
+    frame: decision.frame,
+    durationFrames: decision.durationFrames,
+    source: decision.source,
+    signal: decision.signal,
+    confidence: decision.confidence,
+    reason: decision.reason,
   };
 }
 

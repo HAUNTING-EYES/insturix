@@ -772,6 +772,112 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('lets a stronger licensed signal replace a weak near-equivalent creative hint', () => {
+    let bundle = planUnifiedDecisionBundle(null, {
+      source: 'creative-brief',
+      edl: edl([
+        decision({
+          type: 'zoom',
+          frame: 60,
+          source: 'creative-brief:weak-zoom',
+          confidence: 0.32,
+          params: { scale: 1.04 },
+        }),
+      ]),
+    });
+
+    bundle = planUnifiedDecisionBundle(bundle, {
+      source: 'signal-driven',
+      edl: edl([
+        decision({
+          type: 'zoom',
+          frame: 66,
+          source: 'signal-executor:strong-zoom',
+          signal: 'speech.emphasis_word',
+          confidence: 0.94,
+          params: {
+            targetScale: 1.11,
+            mainSubjectX: 0.48,
+            mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
+            facePresent: 1,
+            eyeContact: 0.8,
+            speechPeak: 0.91,
+            wordImportance: 0.88,
+            visualMotion: 0.36,
+            timeSinceLastZoomSec: 12,
+            recentZoomSimilarity: 0.08,
+          },
+        }),
+      ]),
+    });
+
+    expect(bundle.authority).toEqual({
+      version: 'unified-decision-authority-v1',
+      executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
+      advisoryProducers: ['creative-brief', 'signal-driven'],
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
+      creativeBriefRole: 'semantic-context',
+      signalRole: 'candidate-source',
+    });
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0].source).toBe('signal-executor:strong-zoom');
+    expect(bundle.edl.decisions[0].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
+      role: 'signal-replaced-primary',
+      executionLicense: 'licensed-by-camera-motion-atoms',
+      replacedPrimary: expect.objectContaining({
+        type: 'zoom',
+        frame: 60,
+        source: 'creative-brief:weak-zoom',
+      }),
+    }));
+    expect(bundle.edl.decisions[0].params.unifiedDecisionOwner).toEqual(expect.objectContaining({
+      owner: 'unified-planner',
+      plannerRole: 'signal-replaced-primary',
+      producerSource: 'signal-executor:strong-zoom',
+    }));
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 1,
+      validatedDecisionCount: 0,
+      suppressedSignalDuplicateCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
+    }));
+    expect(bundle.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'signal-replaced-primary:licensed-by-camera-motion-atoms': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('does not let an unlicensed near-equivalent signal replace a creative decision', () => {
+    let bundle = planUnifiedDecisionBundle(null, {
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 60, source: 'creative-brief:zoom', confidence: 0.82, params: { scale: 1.04 } }),
+      ]),
+    });
+
+    bundle = planUnifiedDecisionBundle(bundle, {
+      source: 'signal-driven',
+      edl: edl([
+        decision({ type: 'zoom', frame: 66, source: 'signal-executor:label-only-zoom', confidence: 0.94, params: { scale: 1.12 } }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0].source).toBe('creative-brief:zoom');
+    expect(bundle.edl.decisions[0].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
+      role: 'primary-validated',
+    }));
+    expect(bundle.edl.decisions[0].params.unifiedDecisionOwner).toBeUndefined();
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      addedSignalDecisionCount: 0,
+      validatedDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 0,
+    }));
+  });
+
   it('fails loud when a second creative primary tries to overwrite the planner', () => {
     const bundle = planUnifiedDecisionBundle(null, {
       source: 'creative-brief',
