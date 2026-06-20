@@ -88,6 +88,7 @@ export interface ChatEditContextBundle {
   }>;
   resolverStatus: {
     userMediaSearchAvailableToChat: boolean;
+    visualMomentSearchAvailableToChat: boolean;
     missingMomentResolvers: string[];
   };
 }
@@ -147,8 +148,8 @@ export function buildChatEditContextBundle(
     mediaRefs: summarizeMediaRefs(overlays),
     resolverStatus: {
       userMediaSearchAvailableToChat: true,
+      visualMomentSearchAvailableToChat: true,
       missingMomentResolvers: [
-        'find_visual_moment',
         'find_audio_moment',
       ],
     },
@@ -177,7 +178,8 @@ export function formatChatEditContextForPrompt(bundle: ChatEditContextBundle): s
     `Media refs: ${bundle.mediaRefs.length ? bundle.mediaRefs.map((ref) => `${ref.assetId}(${ref.types.join('+')}: overlays ${ref.overlayIds.join(',')})`).join('; ') : 'none from timeline overlays'}.`,
     `User media search: ${bundle.resolverStatus.userMediaSearchAvailableToChat ? 'available via list_user_assets, search_user_assets, and inspect_user_asset' : 'unavailable'}.`,
     'Transcript moment search: available via find_transcript_moment for spoken phrase, word-range, and frame candidates.',
-    `Missing semantic resolvers: ${bundle.resolverStatus.missingMomentResolvers.join(', ')}. Until those are built, do not pretend you can search arbitrary frame or audio moments beyond the supplied project state.`,
+    `Visual moment search: ${bundle.resolverStatus.visualMomentSearchAvailableToChat ? 'available via find_visual_moment for stored visual analysis, overlay metadata, object/action/scene text, OCR text, and frame candidates' : 'unavailable'}.`,
+    `Missing semantic resolvers: ${bundle.resolverStatus.missingMomentResolvers.join(', ') || 'none'}. Until those are built, do not pretend you can search arbitrary audio moments beyond the supplied project state.`,
     'Visible overlays:',
     overlays || '- none',
   ].join('\n');

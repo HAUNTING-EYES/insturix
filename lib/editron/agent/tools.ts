@@ -49,6 +49,7 @@ import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../d
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 import { createChatAssetTools } from './chat-asset-tools';
 import { createChatTranscriptTools } from './chat-transcript-tools';
+import { createChatVisualTools } from './chat-visual-tools';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -5953,6 +5954,7 @@ Never manually reverse edits when a checkpoint is available; restore the checkpo
     // --- Video Auto-Edit Tools ---
     getVideoTranscription,
     ...createChatTranscriptTools({ userId, projectId }),
+    ...createChatVisualTools({ userId, projectId }),
     analyzeVideoContent,
     addCaptions,
     addFancyCaptions,     // NEW: Kinetic typography captions

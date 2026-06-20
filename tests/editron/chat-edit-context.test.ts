@@ -10,6 +10,7 @@ import {
   findTranscriptMomentCandidates,
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
+import { findVisualMomentCandidates } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
 describe('chat edit context bundle', () => {
@@ -66,6 +67,24 @@ describe('chat edit context bundle', () => {
           { word: 'source', start: 0.3 },
         ],
       },
+    },
+    analysis: {
+      keyframeAnalyses: [
+        {
+          frame: 96,
+          description: 'Logo appears on laptop while a person points at the screen',
+          objects: ['person', 'laptop', 'logo'],
+          action: 'pointing',
+        },
+      ],
+      shots: [
+        {
+          startFrame: 90,
+          endFrame: 135,
+          shotType: 'talking-head',
+          sceneDescription: 'Company mark is visible on the laptop screen',
+        },
+      ],
     },
   };
 
@@ -138,6 +157,20 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('covers visual moment search with registry metadata without importing Mongo-backed tools', () => {
+    const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
+    const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
+
+    expect(toolNames).toEqual(['find_visual_moment']);
+    expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
+      label: 'Finding visual moment',
+      shortLabel: 'Find visual',
+      receiptLabel: 'Found visual moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+  });
+
   it('finds phrase-level transcript moments with frame hints for edit tools', () => {
     const words = makeTranscriptWords(
       ['two', 'human', 'beings', 'in', 'the', 'real', 'world'],
@@ -173,6 +206,35 @@ describe('chat edit context bundle', () => {
     expect(candidates[0].surroundingWords).toContain('in the real world');
   });
 
+  it('finds visual moments from stored visual analysis with frame hints for edit tools', () => {
+    const candidates = findVisualMomentCandidates(project, 'logo appears on laptop', {
+      limit: 3,
+      minConfidence: 0.3,
+    });
+
+    expect(candidates[0]).toMatchObject({
+      frame: 96,
+      startFrame: 96,
+      endFrame: 97,
+      confidenceLabel: 'high',
+      matchType: 'exact-phrase',
+      safeForAutoEdit: true,
+      source: {
+        type: 'analysis',
+        path: 'analysis.keyframeAnalyses.0.description',
+      },
+      useWith: {
+        visual_inspect_frame: {
+          frame: 96,
+        },
+        add_motion_graphic: {
+          frame: 96,
+          text: 'logo appears on laptop',
+        },
+      },
+    });
+  });
+
   it('clamps playhead and makes missing resolvers explicit in the prompt', () => {
     const bundle = buildChatEditContextBundle(project, {
       clientContext: {
@@ -187,7 +249,8 @@ describe('chat edit context bundle', () => {
     expect(prompt).toContain('Reference rule: when the user says "this"');
     expect(prompt).toContain('User media search: available via list_user_assets, search_user_assets, and inspect_user_asset');
     expect(prompt).toContain('Transcript moment search: available via find_transcript_moment');
-    expect(prompt).toContain('Missing semantic resolvers: find_visual_moment, find_audio_moment');
+    expect(prompt).toContain('Visual moment search: available via find_visual_moment');
+    expect(prompt).toContain('Missing semantic resolvers: find_audio_moment');
     expect(prompt).toContain('Do not ask for a timeframe when this context is enough.');
   });
 });
