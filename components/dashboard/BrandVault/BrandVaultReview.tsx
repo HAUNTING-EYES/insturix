@@ -28,6 +28,7 @@ import { BrandVaultStats } from './BrandVaultStats';
 import { ConflictCard } from './ConflictCard';
 import { SignalTable } from './SignalTable';
 import { BrandVisualBoard } from './BrandVisualBoard';
+import { BrandScanReveal } from './BrandScanReveal';
 import {
   buildIntakeGuidance,
   buildSourceLanes,
@@ -147,6 +148,7 @@ export function BrandVaultReview() {
   const canReview = Boolean(snapshot.record?.id && snapshot.record.status === 'draft');
   const activeScanStatus = snapshot.job?.status === 'queued' || snapshot.job?.status === 'running';
   const scanBusy = createDraft.isPending || scanLatchActive || activeScanStatus;
+  const isScanning = scanBusy && !snapshot.record;
   const busy =
     scanBusy ||
     acceptDraft.isPending ||
@@ -375,6 +377,10 @@ export function BrandVaultReview() {
           </button>
         </header>
 
+        {isScanning ? (
+          <BrandScanReveal label={scanWebsiteUrl || brandName} />
+        ) : (
+          <>
         <BrandHero
           brandName={brandName}
           signals={signals}
@@ -522,6 +528,8 @@ export function BrandVaultReview() {
             )}
           </footer>
         </main>
+          </>
+        )}
 
         <div className={`bv-c1-toast ${toast ? 'show' : ''} ${toast?.tone ?? 'good'}`}>
           <Check size={15} />
