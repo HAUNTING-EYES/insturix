@@ -346,7 +346,10 @@ export function classifyFailureBucket(args: {
   candidateCount?: number;
 }): FailureBucket {
   if (args.status === 'pass') return 'none';
-  const text = [...args.reasons, ...(args.warnings ?? [])].join(' ').toLowerCase();
+  const text = [
+    ...args.reasons,
+    ...(args.scanStatus === 'ok' ? [] : (args.warnings ?? [])),
+  ].join(' ').toLowerCase();
 
   if (text.includes(TARGET_TIMEOUT_REASON) || /\b(?:timed out|timeout|exceeded \d+ms)\b/.test(text)) return 'timeout';
   if (/\b(?:enotfound|eai_again|getaddrinfo|dns)\b/.test(text)) return 'dns';

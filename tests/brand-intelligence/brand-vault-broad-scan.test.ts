@@ -86,6 +86,16 @@ describe('Brand Vault broad scan harness', () => {
     ).toBe('extraction');
     expect(
       classifyFailureBucket({
+        status: 'warn',
+        scanStatus: 'ok',
+        reasons: ['missing audience'],
+        warnings: ['Brand Vault crawler skipped https://example.com/about: Website fetch failed with HTTP 404.'],
+        crawledPageCount: 4,
+        candidateCount: 60,
+      }),
+    ).toBe('extraction');
+    expect(
+      classifyFailureBucket({
         status: 'pass',
         scanStatus: 'ok',
         reasons: [],

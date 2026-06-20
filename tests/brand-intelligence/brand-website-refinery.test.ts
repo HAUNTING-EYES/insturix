@@ -1576,6 +1576,35 @@ describe('Brand website refinery', () => {
     expect(snapshot.html).toContain('Chaayos Bazaar');
   });
 
+  it('does not mark rich visible pages as JavaScript shells because scripts mention JavaScript requirements', async () => {
+    const richHtml = `
+<!doctype html>
+<html>
+  <head>
+    <title>World Leader in Artificial Intelligence Computing</title>
+    <script>window.help = 'Please enable JavaScript for the full app experience.';</script>
+  </head>
+  <body>
+    <main>
+      <h1>World leader in accelerated computing</h1>
+      <p>${'AI computing platforms, developer tools, data center systems, robotics, simulation, and enterprise software. '.repeat(12)}</p>
+    </main>
+  </body>
+</html>`;
+
+    const snapshot = await fetchWebsiteBrandSnapshot('nvidiaish.example', {
+      now: NOW,
+      fetchFn: async () => new Response(richHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+    });
+
+    expect(snapshot.fetchFallbackReason).toBeUndefined();
+    expect(snapshot.browserFallbackRequired).toBe(false);
+    expect(snapshot.html).toContain('accelerated computing');
+  });
+
   it('uses explicit browser-rendered fallback evidence for JavaScript-only shells', async () => {
     const snapshot = await fetchWebsiteBrandSnapshot('blocked.example', {
       now: NOW,

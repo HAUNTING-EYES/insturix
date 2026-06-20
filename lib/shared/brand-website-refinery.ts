@@ -306,7 +306,7 @@ function detectWebsiteFetchFallbackReason(
   if (httpStatus >= 500) return 'server_error';
   if (!isHtmlPayload(contentType, html)) return undefined;
   if (BROWSER_CHALLENGE_PATTERN.test(challengeText)) return 'browser_challenge';
-  if (JAVASCRIPT_SHELL_PATTERN.test(compact)) return 'javascript_shell';
+  if (visibleText.length < 300 && JAVASCRIPT_SHELL_PATTERN.test(compact)) return 'javascript_shell';
   if (visibleText.length < 40 && extractNextDataTextEvidenceFromHtml(html).length > 0) return undefined;
   if (visibleText.length < 40 && HYDRATION_ROOT_MARKER_PATTERN.test(html)) return 'javascript_shell';
   if (!visibleText || visibleText.length < 40) return 'empty_html';
