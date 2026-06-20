@@ -79,6 +79,17 @@ interface BudgetState {
   captionEmphasisBudget: number;
 }
 
+interface SignalCandidateScore {
+  momentImportance: number;
+  candidateConfidence: number;
+  executionConfidence: number;
+  evidenceStrength: number;
+  triggerSignalCount: number;
+  strongestSignal?: string;
+  strongestSignalValue?: number | boolean | string;
+  calibrationStatus: 'invented-needs-calibration';
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const MIN_ZOOM_GAP_FRAMES = 90;        // 3s at 30fps between zooms
@@ -591,15 +602,136 @@ function buildDecision(
     }
   }
 
+  const score = computeSignalCandidateScore(mapping, momentWeight, graphIndex, signals);
+  params.momentImportance = score.momentImportance;
+  params.candidateConfidence = score.candidateConfidence;
+  params.executionConfidence = score.executionConfidence;
+  params.evidenceStrength = score.evidenceStrength;
+  params.signalNormalization = {
+    version: 'signal-candidate-normalization-v1',
+    triggerSignalCount: score.triggerSignalCount,
+    strongestSignal: score.strongestSignal,
+    strongestSignalValue: score.strongestSignalValue,
+    calibrationStatus: score.calibrationStatus,
+  };
+
   return {
     type: edlType as EditDecision['type'],
     frame,
-    confidence: momentWeight,
+    confidence: score.executionConfidence,
     source: mapping.id,
     technique: techniqueId,
     params,
     reason: mapping.details.why,
   };
+}
+
+function computeSignalCandidateScore(
+  mapping: MappingNode,
+  momentWeight: number,
+  graphIndex: GraphIndex,
+  signals?: Record<string, unknown>,
+): SignalCandidateScore {
+  const momentImportance = roundSignalScore(clampSignal01(momentWeight));
+  const evidence = collectMappingSignalEvidence(mapping, graphIndex, signals);
+  const evidenceStrength = roundSignalScore(evidence.strength ?? 0.55);
+  const candidateConfidence = roundSignalScore(clampSignal01(0.45 + evidenceStrength * 0.45 + momentImportance * 0.1));
+  const executionConfidence = roundSignalScore(clampSignal01(candidateConfidence * 0.78 + momentImportance * 0.22));
+
+  return {
+    momentImportance,
+    candidateConfidence,
+    executionConfidence,
+    evidenceStrength,
+    triggerSignalCount: evidence.count,
+    strongestSignal: evidence.strongestSignal,
+    strongestSignalValue: evidence.strongestSignalValue,
+    calibrationStatus: 'invented-needs-calibration',
+  };
+}
+
+function collectMappingSignalEvidence(
+  mapping: MappingNode,
+  graphIndex: GraphIndex,
+  signals?: Record<string, unknown>,
+): { strength?: number; count: number; strongestSignal?: string; strongestSignalValue?: number | boolean | string } {
+  if (!signals) return { count: 0 };
+
+  const triggerEdges = graphIndex.edgesFrom.get(mapping.id)?.filter((edge) => edge.type === 'triggered_by') ?? [];
+  let strongestScore = -1;
+  let strongestSignal: string | undefined;
+  let strongestSignalValue: number | boolean | string | undefined;
+  let count = 0;
+
+  for (const edge of triggerEdges) {
+    const signalId = edge.to;
+    const value = lookupSignalEvidenceValue(signals, signalId);
+    if (value === undefined) continue;
+    const score = signalValueEvidenceScore(value);
+    count++;
+    if (score > strongestScore) {
+      strongestScore = score;
+      strongestSignal = signalId;
+      strongestSignalValue = typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string'
+        ? value
+        : String(value);
+    }
+  }
+
+  return strongestScore >= 0
+    ? { strength: strongestScore, count, strongestSignal, strongestSignalValue }
+    : { count };
+}
+
+function lookupSignalEvidenceValue(signals: Record<string, unknown>, signalId: string): unknown {
+  const bare = signalId.startsWith('signal:') ? signalId.slice('signal:'.length) : signalId;
+  const candidates = [
+    signalId,
+    bare,
+    bare.replace(/_/g, '.'),
+    bare.replace(/\./g, '_'),
+    bare.split('.').slice(-1)[0],
+  ];
+
+  for (const key of candidates) {
+    if (key && signals[key] !== undefined && signals[key] !== null) return signals[key];
+  }
+  return undefined;
+}
+
+function signalValueEvidenceScore(value: unknown): number {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return 0;
+    if (value >= 0 && value <= 1) return roundSignalScore(value);
+    return roundSignalScore(clampSignal01(Math.abs(value)));
+  }
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized && normalized !== 'none' && normalized !== 'unknown' ? 0.85 : 0;
+  }
+  return 0;
+}
+
+function decisionCandidateRank(decision: EditDecision): number {
+  const execution = numericParam(decision.params.executionConfidence) ?? decision.confidence;
+  const candidate = numericParam(decision.params.candidateConfidence) ?? execution;
+  const evidence = numericParam(decision.params.evidenceStrength) ?? candidate;
+  const moment = numericParam(decision.params.momentImportance) ?? decision.confidence;
+  return roundSignalScore(clampSignal01(execution * 0.55 + candidate * 0.2 + evidence * 0.15 + moment * 0.1));
+}
+
+function numericParam(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function clampSignal01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function roundSignalScore(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function buildComplements(
@@ -748,20 +880,29 @@ function updateBudget(decision: EditDecision, frame: number, budget: BudgetState
 }
 
 function deduplicateDecisions(decisions: EditDecision[]): EditDecision[] {
-  const result: EditDecision[] = [];
-  const seen = new Set<string>();
+  const bestByWindow = new Map<string, EditDecision>();
+  const insertionOrder: string[] = [];
 
   for (const d of decisions) {
     // Key: type + frame window (within 10 frames = same moment)
     const frameWindow = Math.floor(d.frame / 10) * 10;
     const key = `${d.type}:${frameWindow}`;
 
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(d);
+    const current = bestByWindow.get(key);
+    if (!current) {
+      insertionOrder.push(key);
+      bestByWindow.set(key, d);
+      continue;
+    }
+
+    if (decisionCandidateRank(d) > decisionCandidateRank(current)) {
+      bestByWindow.set(key, d);
+    }
   }
 
-  return result;
+  return insertionOrder
+    .map((key) => bestByWindow.get(key))
+    .filter((decision): decision is EditDecision => Boolean(decision));
 }
 
 function getNearestGridSnapshot(timeline: SignalTimeline, frame: number): SignalSnapshot | null {

@@ -5,6 +5,8 @@
  * Run: npx vitest run lib/editron/services/__tests__/signal-driven-edge-cases.test.ts
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 // ─── humanize-pass.ts edge cases ────────────────────────────────────────────
@@ -295,6 +297,64 @@ describe('signal-executor', () => {
       quantityKind: 'rate',
     }));
     expect(params.graphicType).toBeUndefined();
+  });
+
+  it('separates execution confidence from moment importance on real signal decisions', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[30, {
+        frame: 30,
+        timestampMs: 1000,
+        'speech.energy': 0.4,
+        'speech.energy_delta': 0,
+        'visual.motion_intensity': 0.1,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [{
+        timestampMs: 1000,
+        frame: 30,
+        signal: 'entity.number',
+        value: true,
+        context: '42 percent retention lift',
+      }],
+      globalSignals: { 'content.formality': 0.4, formality: 0.4 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex!, [{ id: 'video', type: 'video', from: 0, durationInFrames: 180 }]);
+
+    const graphic = result.decisions.find((d) => d.type === 'graphic');
+    expect(graphic).toBeDefined();
+    const params = graphic!.params as Record<string, any>;
+    expect(params.momentImportance).toBe(0.55);
+    expect(params.evidenceStrength).toBe(1);
+    expect(params.candidateConfidence).toBeGreaterThan(params.momentImportance);
+    expect(params.executionConfidence).toBeGreaterThan(params.momentImportance);
+    expect(graphic!.confidence).toBe(params.executionConfidence);
+    expect(params.signalNormalization).toEqual(expect.objectContaining({
+      version: 'signal-candidate-normalization-v1',
+      triggerSignalCount: expect.any(Number),
+      strongestSignal: 'signal:entity.number',
+      strongestSignalValue: true,
+      calibrationStatus: 'invented-needs-calibration',
+    }));
+  });
+
+  it('keeps signal dedupe best-wins instead of first-wins', () => {
+    const source = readFileSync(join(process.cwd(), 'lib/editron/services/signal-executor.ts'), 'utf8');
+
+    expect(source).toContain('decisionCandidateRank(d) > decisionCandidateRank(current)');
+    expect(source).not.toContain('if (seen.has(key)) continue;');
   });
 
   it('does not license hedged numeric claims as executable MGs', async () => {
