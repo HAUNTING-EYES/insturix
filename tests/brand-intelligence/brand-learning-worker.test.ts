@@ -74,6 +74,7 @@ describe('brand-learning worker', () => {
     mocks.invalidateCache.mockReset();
     mocks.markEventConsumed.mockReset();
     mocks.recordProjectOutcome.mockReset();
+    mocks.recordProjectOutcome.mockResolvedValue({ recorded: true, reward: 0.82 });
     mocks.releaseEventClaim.mockReset();
     mocks.runPostMortemAgent.mockReset();
   });
@@ -165,10 +166,11 @@ describe('brand-learning worker', () => {
           sessionId: 'tf_session_1',
           projectName: 'Launch Cut',
           qualityScore: 88,
+          qualityEvidenceSource: 'rendered-aesthetic',
+          renderedAestheticStatus: 'pass',
         },
       }),
     });
-    mocks.recordProjectOutcome.mockResolvedValue(undefined);
     mocks.runPostMortemAgent.mockResolvedValue({
       summaryEntryId: 'summary_1',
       lessonsExtracted: 2,
@@ -190,6 +192,11 @@ describe('brand-learning worker', () => {
       'project_1',
       88,
       true,
+      false,
+      {
+        evidenceSource: 'rendered-aesthetic',
+        renderedAestheticStatus: 'pass',
+      },
     );
     expect(mocks.runPostMortemAgent).toHaveBeenCalledWith({
       userId: 'user_1',
@@ -199,6 +206,45 @@ describe('brand-learning worker', () => {
       qualityScore: 88,
       projectTitle: 'Launch Cut',
     });
+    expect(mocks.markEventConsumed).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
+  });
+
+  it('reports skipped learning when a rendered event has only metadata quality', async () => {
+    mocks.claimEventForConsumer.mockResolvedValue({
+      status: 'claimed',
+      event: brandEvent({
+        projectId: 'project_1',
+        type: 'video_rendered',
+        payload: {
+          qualityScore: 88,
+        },
+      }),
+    });
+    mocks.recordProjectOutcome.mockResolvedValue({
+      recorded: false,
+      reason: 'missing_rendered_quality_evidence',
+    });
+
+    const response = await POST(request({ eventId: 'event_1' }) as any);
+
+    expect(response.status).toBe(200);
+    await expect(json(response)).resolves.toMatchObject({
+      success: true,
+      eventId: 'event_1',
+      type: 'video_rendered',
+      action: 'bandit_skipped(missing_rendered_quality_evidence)',
+    });
+    expect(mocks.recordProjectOutcome).toHaveBeenCalledWith(
+      'user_1',
+      'project_1',
+      88,
+      true,
+      false,
+      {
+        evidenceSource: undefined,
+        renderedAestheticStatus: undefined,
+      },
+    );
     expect(mocks.markEventConsumed).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
   });
 

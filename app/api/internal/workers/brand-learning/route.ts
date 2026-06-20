@@ -197,7 +197,20 @@ async function handleDirectorCompleted(
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, learningDecision.qualityScore);
+    const outcome = await recordProjectOutcome(
+      userId,
+      projectId,
+      learningDecision.qualityScore,
+      false,
+      false,
+      banditEvidenceOptions(payload),
+    );
+    if (!outcome.recorded) {
+      return {
+        action: 'bandit_skipped',
+        detail: `learning_gate=${outcome.reason ?? 'not_recorded'}`,
+      };
+    }
     return {
       action: 'bandit_updated',
       detail: `qualityScore=${learningDecision.qualityScore}`,
@@ -233,8 +246,17 @@ async function handleVideoRendered(
       const { recordProjectOutcome } = await import(
         '@/lib/editron/services/genre-parameter-bandit'
       );
-      await recordProjectOutcome(userId, projectId, qualityScore, true);
-      actions.push('bandit_updated(rendered)');
+      const outcome = await recordProjectOutcome(
+        userId,
+        projectId,
+        qualityScore,
+        true,
+        false,
+        banditEvidenceOptions(payload),
+      );
+      actions.push(outcome.recorded
+        ? 'bandit_updated(rendered)'
+        : `bandit_skipped(${outcome.reason ?? 'not_recorded'})`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[BrandLearning] Bandit update on render failed: ${msg}`);
@@ -320,7 +342,20 @@ async function handleQualityReviewed(
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, learningDecision.qualityScore);
+    const outcome = await recordProjectOutcome(
+      userId,
+      projectId,
+      learningDecision.qualityScore,
+      false,
+      false,
+      banditEvidenceOptions(payload),
+    );
+    if (!outcome.recorded) {
+      return {
+        action: 'bandit_skipped',
+        detail: `learning_gate=${outcome.reason ?? 'not_recorded'}`,
+      };
+    }
     return {
       action: 'bandit_updated',
       detail: `qualityScore=${learningDecision.qualityScore}`,
@@ -377,7 +412,20 @@ async function handleVideoPublished(
     const { recordProjectOutcome } = await import(
       '@/lib/editron/services/genre-parameter-bandit'
     );
-    await recordProjectOutcome(userId, projectId, qualityScore, true, true);
+    const outcome = await recordProjectOutcome(
+      userId,
+      projectId,
+      qualityScore,
+      true,
+      true,
+      banditEvidenceOptions(payload),
+    );
+    if (!outcome.recorded) {
+      return {
+        action: 'bandit_skipped',
+        detail: `learning_gate=${outcome.reason ?? 'not_recorded'}`,
+      };
+    }
     return {
       action: 'bandit_updated',
       detail: 'userRendered=true, userPublished=true',
@@ -475,6 +523,20 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+function banditEvidenceOptions(payload: Record<string, unknown>) {
+  return {
+    evidenceSource:
+      nonEmptyString(payload.qualityEvidenceSource) ||
+      nonEmptyString(payload.renderedQualitySource) ||
+      nonEmptyString(payload.renderedAestheticSource) ||
+      nonEmptyString(payload.evidenceSource),
+    renderedAestheticStatus:
+      nonEmptyString(payload.renderedAestheticStatus) ||
+      nonEmptyString(payload.renderedQualityStatus) ||
+      nonEmptyString(payload.artifactStatus),
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

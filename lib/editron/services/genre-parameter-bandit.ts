@@ -59,6 +59,37 @@ export interface ProjectOutcome {
   userPublished: boolean;
 }
 
+export type BanditOutcomeEvidenceSource =
+  | 'rendered-aesthetic'
+  | 'rendered-artifact'
+  | 'manual-review'
+  | 'user-published'
+  | 'metadata-only'
+  | 'unknown';
+
+export interface BanditOutcomeWriteOptions {
+  evidenceSource?: unknown;
+  renderedAestheticStatus?: unknown;
+}
+
+export interface BanditOutcomeWritePolicyInput extends BanditOutcomeWriteOptions {
+  userRendered?: boolean;
+  userPublished?: boolean;
+}
+
+export interface BanditOutcomeWritePolicyDecision {
+  allowed: boolean;
+  reason: 'rendered_evidence_passed' | 'user_published' | 'missing_rendered_quality_evidence' | 'rendered_evidence_not_pass';
+  evidenceSource: BanditOutcomeEvidenceSource;
+  renderedAestheticStatus: string | null;
+}
+
+export interface BanditOutcomeRecordResult {
+  recorded: boolean;
+  reason?: BanditOutcomeWritePolicyDecision['reason'] | 'missing_genre_parameters' | 'error';
+  reward?: number;
+}
+
 export interface BanditAdjustments {
   adjustments: Partial<GenreParameters>;
   confidence: 'high' | 'medium' | 'low';
@@ -145,8 +176,79 @@ export function computeReward(outcome: ProjectOutcome): number {
   );
 }
 
-// ─── Bandit State Management ────────────────────────────────────────────────
+// Live learning write policy: bandit writes require rendered evidence or explicit publish acceptance.
 
+export function resolveBanditOutcomeWritePolicy(
+  input: BanditOutcomeWritePolicyInput,
+): BanditOutcomeWritePolicyDecision {
+  const evidenceSource = normalizeBanditOutcomeEvidenceSource(input.evidenceSource);
+  const renderedAestheticStatus = normalizeRenderedAestheticStatus(input.renderedAestheticStatus);
+
+  if (input.userPublished === true) {
+    return {
+      allowed: true,
+      reason: 'user_published',
+      evidenceSource: 'user-published',
+      renderedAestheticStatus,
+    };
+  }
+
+  if (isRenderedEvidenceSource(evidenceSource) && renderedAestheticStatus === 'pass') {
+    return {
+      allowed: true,
+      reason: 'rendered_evidence_passed',
+      evidenceSource,
+      renderedAestheticStatus,
+    };
+  }
+
+  if (isRenderedEvidenceSource(evidenceSource)) {
+    return {
+      allowed: false,
+      reason: 'rendered_evidence_not_pass',
+      evidenceSource,
+      renderedAestheticStatus,
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: 'missing_rendered_quality_evidence',
+    evidenceSource,
+    renderedAestheticStatus,
+  };
+}
+
+function normalizeBanditOutcomeEvidenceSource(value: unknown): BanditOutcomeEvidenceSource {
+  if (typeof value !== 'string') return 'unknown';
+  const normalized = value.trim().toLowerCase().replace(/_/g, '-');
+  if (
+    normalized === 'rendered-aesthetic' ||
+    normalized === 'phase0-rendered-aesthetic' ||
+    normalized === 'rendered-quality' ||
+    normalized === 'rendered-quality-review' ||
+    normalized === 'visual-quality-review'
+  ) {
+    return 'rendered-aesthetic';
+  }
+  if (normalized === 'rendered-artifact' || normalized === 'render-artifact') return 'rendered-artifact';
+  if (normalized === 'manual-review' || normalized === 'human-review') return 'manual-review';
+  if (normalized === 'user-published' || normalized === 'published') return 'user-published';
+  if (normalized === 'metadata-only' || normalized === 'metadata') return 'metadata-only';
+  return 'unknown';
+}
+
+function normalizeRenderedAestheticStatus(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function isRenderedEvidenceSource(source: BanditOutcomeEvidenceSource): boolean {
+  return source === 'rendered-aesthetic' || source === 'rendered-artifact' || source === 'manual-review';
+}
+
+// Bandit state management.
 export function createBanditState(userId: string): BanditState {
   return {
     userId,
@@ -435,7 +537,21 @@ export async function recordProjectOutcome(
   qualityScore: number,
   userRendered: boolean = false,
   userPublished: boolean = false,
-): Promise<void> {
+  options: BanditOutcomeWriteOptions = {},
+): Promise<BanditOutcomeRecordResult> {
+  const writePolicy = resolveBanditOutcomeWritePolicy({
+    ...options,
+    userRendered,
+    userPublished,
+  });
+
+  if (!writePolicy.allowed) {
+    console.log(
+      `[Bandit] Skipping outcome for ${projectId}: ${writePolicy.reason} ` +
+      `(source=${writePolicy.evidenceSource}, renderedStatus=${writePolicy.renderedAestheticStatus ?? 'none'}, userRendered=${userRendered}, userPublished=${userPublished})`,
+    );
+    return { recorded: false, reason: writePolicy.reason };
+  }
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
@@ -444,7 +560,7 @@ export async function recordProjectOutcome(
     const projectDoc = await db.collection('projects').findOne({ projectId });
     if (!projectDoc?.genreParameters) {
       console.warn(`[Bandit] No genreParameters on project ${projectId} — skipping outcome recording`);
-      return;
+      return { recorded: false, reason: 'missing_genre_parameters' };
     }
 
     // Load or create bandit state
@@ -494,10 +610,12 @@ export async function recordProjectOutcome(
       `reward=${reward.toFixed(2)}, totalProjects=${state.totalProjects}, ` +
       `active=${state.totalProjects >= MIN_PROJECTS_FOR_BANDIT}`,
     );
+    return { recorded: true, reward };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[Bandit] recordProjectOutcome failed for ${projectId}: ${msg}`);
     // Non-fatal — never blocks pipeline
+    return { recorded: false, reason: 'error' };
   }
 }
 
