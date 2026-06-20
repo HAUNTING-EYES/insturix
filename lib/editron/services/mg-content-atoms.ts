@@ -129,52 +129,33 @@ function isMotionGraphicPlaceholderText(value: string, key?: string): boolean {
 function normalizePlaceholderText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
+
 function resolveSemanticSourceSpan(content: Record<string, unknown>): SemanticMgSourceSpan | undefined {
   const existing = objectParam(content.sourceSpan);
-  const text = stringValue(existing?.text)
-    ?? stringValue(content.contextPhrase)
-    ?? stringValue(content.text)
-    ?? stringValue(content.quote)
-    ?? stringValue(content.evidencePhrase)
-    ?? fallbackSemanticSourceText(content);
+  const explicitText = stringValue(existing?.text)?.trim();
+  if (explicitText) {
+    return {
+      text: explicitText,
+      ...(numberValue(existing?.startMs) != null ? { startMs: numberValue(existing?.startMs) } : {}),
+      ...(numberValue(existing?.endMs) != null ? { endMs: numberValue(existing?.endMs) } : {}),
+      ...(numberValue(existing?.wordStart) != null ? { wordStart: numberValue(existing?.wordStart) } : {}),
+      ...(numberValue(existing?.wordEnd) != null ? { wordEnd: numberValue(existing?.wordEnd) } : {}),
+      source: stringValue(existing?.source) ?? 'explicit-source-span',
+    };
+  }
+
+  const text = stringValue(content.contextPhrase)?.trim();
   if (!text) return undefined;
-  const startMs = numberValue(existing?.startMs) ?? numberValue(content.contextStartMs) ?? numberValue(content.targetWordStartMs);
-  const endMs = numberValue(existing?.endMs) ?? numberValue(content.contextEndMs) ?? numberValue(content.targetWordEndMs);
-  const wordStart = numberValue(existing?.wordStart);
-  const wordEnd = numberValue(existing?.wordEnd);
+  const startMs = numberValue(content.contextStartMs) ?? numberValue(content.targetWordStartMs);
+  const endMs = numberValue(content.contextEndMs) ?? numberValue(content.targetWordEndMs);
+  if (startMs == null && endMs == null) return undefined;
 
   return {
     text,
     ...(startMs != null ? { startMs } : {}),
     ...(endMs != null ? { endMs } : {}),
-    ...(wordStart != null ? { wordStart } : {}),
-    ...(wordEnd != null ? { wordEnd } : {}),
-    source: stringValue(existing?.source) ?? stringValue(content.text_source) ?? 'mg-content-normalization',
+    source: 'transcript-context',
   };
-}
-
-function fallbackSemanticSourceText(content: Record<string, unknown>): string | undefined {
-  const from = stringValue(content.from);
-  const to = stringValue(content.to);
-  if (from && to) return `${from} to ${to}`;
-
-  const value = stringValue(content.value) ?? stringValue(content.number);
-  const label = stringValue(content.label) ?? stringValue(content.quantityKind) ?? stringValue(content.unit);
-  if (value && label) return `${value} ${label}`;
-  if (value) return value;
-
-  const title = stringValue(content.title);
-  const body = stringValue(content.body);
-  if (title && body) return `${title} ${body}`;
-
-  const keyword = stringValue(content.keyword);
-  if (keyword && body) return `${keyword} ${body}`;
-
-  const name = stringValue(content.name);
-  const role = stringValue(content.role) ?? stringValue(content.subtitle);
-  if (name && role) return `${name} ${role}`;
-
-  return title ?? keyword ?? name;
 }
 
 function applySemanticAtoms(atoms: Record<string, unknown>, content: Record<string, unknown>): void {

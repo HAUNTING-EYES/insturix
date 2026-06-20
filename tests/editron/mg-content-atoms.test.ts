@@ -25,6 +25,7 @@ import type { Overlay } from '../../components/editron/editor/version-7.0.0/type
 import { OverlayType } from '../../components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '../../lib/editron/config/editron-config';
 import { executeEDL } from '../../lib/editron/services/edl-executor';
+import { resolveSemanticMgLedgerGate } from '../../lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { normalizeMotionGraphicContent } from '../../lib/editron/services/mg-content-atoms';
 import type { EditDecisionList } from '../../lib/editron/services/reactive-edit-engine';
 
@@ -102,6 +103,8 @@ describe('MG content atom normalization', () => {
         evidencePhrase: 'psychology changes how attention gets shaped',
       },
       contextPhrase: 'psychology changes how attention gets shaped',
+      contextStartMs: 1200,
+      contextEndMs: 2400,
     });
 
     expect(JSON.stringify(normalized.content)).not.toMatch(placeholderPattern);
@@ -164,6 +167,8 @@ describe('MG content atom normalization', () => {
             evidencePhrase: 'psychology changes how attention gets shaped',
           },
           contextPhrase: 'psychology changes how attention gets shaped',
+          contextStartMs: 1200,
+          contextEndMs: 2400,
           signals: {
             visual_significance: 0.74,
             speech_energy: 0.82,
@@ -193,6 +198,39 @@ describe('MG content atom normalization', () => {
     expect(motionGraphic.content.title).toBe('Psychology');
     expect(motionGraphic.content.name).toBeUndefined();
   });
+
+  it('does not license semanticAtoms-only display facts without timed transcript evidence', () => {
+    const normalized = normalizeMotionGraphicContent({
+      semanticAtoms: {
+        quantity: {
+          displayText: '700%',
+          label: 'synthetic lift from generated card',
+          kind: 'percentage',
+          denominator: 100,
+          bounded: true,
+        },
+        salience: 0.9,
+      },
+    });
+
+    expect(normalized.semanticMgCandidateLedger.candidates).toHaveLength(0);
+    expect(resolveSemanticMgLedgerGate(normalized.semanticMgCandidateLedger)).toEqual(expect.objectContaining({
+      allow: false,
+      reasons: expect.arrayContaining([
+        'semantic-ledger:no-licensed-candidate',
+        'semantic-ledger:missing-source-span',
+      ]),
+    }));
+    expect(normalized.semanticMgCandidateLedger.suppressed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        factKind: 'bounded-stat',
+        hardGate: expect.objectContaining({
+          blockedBy: expect.arrayContaining(['missing-source-span']),
+        }),
+      }),
+    ]));
+  });
+
   it('renders semanticAtoms-only series as data-viz MG and persists the content structure', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -239,6 +277,8 @@ describe('MG content atom normalization', () => {
             evidencePhrase: 'growth keeps compounding across five cohorts',
           },
           contextPhrase: 'growth keeps compounding across five cohorts',
+          contextStartMs: 3200,
+          contextEndMs: 4600,
           signals: {
             visual_significance: 0.72,
             speech_energy: 0.8,

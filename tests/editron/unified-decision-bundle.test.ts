@@ -109,6 +109,7 @@ describe('unified decision bundle merge', () => {
             creativeDecisionType: 'graphic_stat_counter',
             value: '42%',
             label: 'retention lift',
+            sourceSpan: { text: '42% retention lift', startMs: 900, endMs: 1800 },
             semanticAtoms: {
               quantity: {
                 displayText: '42%',
@@ -143,6 +144,7 @@ describe('unified decision bundle merge', () => {
               creativeDecisionType: 'graphic_stat_counter',
               value: '42%',
               label: 'retention lift',
+          sourceSpan: { text: '42% retention lift', startMs: 900, endMs: 1800 },
               semanticAtoms: {
                 quantity: {
                   displayText: '42%',
@@ -367,6 +369,7 @@ describe('unified decision bundle merge', () => {
         params: {
           value: '42%',
           label: 'retention lift',
+          sourceSpan: { text: '42% retention lift', startMs: 900, endMs: 1800 },
           semanticAtoms: {
             quantity: {
               displayText: '42%',

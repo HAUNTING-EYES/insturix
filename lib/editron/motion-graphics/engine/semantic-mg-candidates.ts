@@ -134,7 +134,7 @@ export function resolveSemanticMgLedgerGate(ledger: SemanticMgCandidateLedger): 
   const suppressedCandidateIds = ledger.suppressed.map((candidate) => candidate.id);
   if (ledger.summary.totalCandidates === 0) {
     return {
-      allow: true,
+      allow: false,
       reasons: ['semantic-ledger:no-candidate-facts'],
       readyCandidateIds,
       suppressedCandidateIds,
@@ -376,41 +376,51 @@ function gateBlocks(
 function resolveSourceSpan(
   input: BuildSemanticMgCandidateLedgerInput,
   content: Record<string, unknown>,
-  atoms: Record<string, unknown> | null,
+  _atoms: Record<string, unknown> | null,
 ): SemanticMgSourceSpan {
   const contentSpan = objectValue(content.sourceSpan);
   const explicitSpan = input.sourceSpan ?? contentSpan ?? undefined;
-  const explicitText = typeof explicitSpan?.text === 'string'
-    ? explicitSpan.text.trim()
-    : stringValue(explicitSpan?.text)
-    ?? stringValue(input.sourceText)
-    ?? stringValue(content.text)
-    ?? stringValue(content.contextPhrase)
-    ?? stringValue(content.quote)
-    ?? stringValue(content.evidencePhrase)
-    ?? stringValue(atoms?.evidencePhrase)
-    ?? fallbackSourceText(content);
+  const explicitText = stringValue(explicitSpan?.text)?.trim();
+  if (explicitText) return sourceSpanFrom(explicitText, explicitSpan, stringValue(explicitSpan?.source));
 
+  const sourceText = stringValue(input.sourceText)?.trim();
+  if (sourceText) return sourceSpanFrom(sourceText, undefined, 'source-text');
+
+  const transcriptContext = verifiedTranscriptContext(content);
+  if (transcriptContext) return transcriptContext;
+
+  return { text: '' };
+}
+
+function sourceSpanFrom(
+  text: string,
+  span?: Record<string, unknown>,
+  source?: string,
+): SemanticMgSourceSpan {
   return {
-    text: explicitText ?? '',
-    ...(numberValue(explicitSpan?.startMs) != null ? { startMs: numberValue(explicitSpan?.startMs) } : {}),
-    ...(numberValue(explicitSpan?.endMs) != null ? { endMs: numberValue(explicitSpan?.endMs) } : {}),
-    ...(numberValue(explicitSpan?.wordStart) != null ? { wordStart: numberValue(explicitSpan?.wordStart) } : {}),
-    ...(numberValue(explicitSpan?.wordEnd) != null ? { wordEnd: numberValue(explicitSpan?.wordEnd) } : {}),
-    ...(stringValue(explicitSpan?.source) ? { source: stringValue(explicitSpan?.source) } : {}),
+    text,
+    ...(numberValue(span?.startMs) != null ? { startMs: numberValue(span?.startMs) } : {}),
+    ...(numberValue(span?.endMs) != null ? { endMs: numberValue(span?.endMs) } : {}),
+    ...(numberValue(span?.wordStart) != null ? { wordStart: numberValue(span?.wordStart) } : {}),
+    ...(numberValue(span?.wordEnd) != null ? { wordEnd: numberValue(span?.wordEnd) } : {}),
+    ...(source ? { source } : {}),
   };
 }
 
-function fallbackSourceText(content: Record<string, unknown>): string | undefined {
-  const parts = [
-    stringValue(content.value) ?? stringValue(content.number),
-    stringValue(content.label),
-    stringValue(content.name),
-    stringValue(content.title),
-    stringValue(content.keyword),
-    stringValue(content.body),
-  ].filter(Boolean);
-  return parts.length ? parts.join(' ') : undefined;
+function verifiedTranscriptContext(content: Record<string, unknown>): SemanticMgSourceSpan | null {
+  const text = stringValue(content.contextPhrase)?.trim();
+  if (!text) return null;
+
+  const startMs = numberValue(content.contextStartMs) ?? numberValue(content.targetWordStartMs);
+  const endMs = numberValue(content.contextEndMs) ?? numberValue(content.targetWordEndMs);
+  if (startMs == null && endMs == null) return null;
+
+  return {
+    text,
+    ...(startMs != null ? { startMs } : {}),
+    ...(endMs != null ? { endMs } : {}),
+    source: 'transcript-context',
+  };
 }
 
 function statLicenses(factKind: SemanticMgFactKind, salience: number): SemanticMgLicense[] {

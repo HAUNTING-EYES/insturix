@@ -154,7 +154,7 @@ describe('semantic MG candidate ledger', () => {
     expect(resolveSemanticMgLedgerGate(ledger).allow).toBe(false);
   });
 
-  it('lets non-candidate content continue to the existing authority path', () => {
+  it('blocks non-candidate content instead of falling through to legacy graphic authority', () => {
     const ledger = buildSemanticMgCandidateLedger({
       content: { text: 'plain caption emphasis' },
       sourceSpan: { text: 'plain caption emphasis' },
@@ -162,10 +162,38 @@ describe('semantic MG candidate ledger', () => {
 
     expect(ledger.summary.totalCandidates).toBe(0);
     expect(resolveSemanticMgLedgerGate(ledger)).toEqual({
-      allow: true,
+      allow: false,
       reasons: ['semantic-ledger:no-candidate-facts'],
       readyCandidateIds: [],
       suppressedCandidateIds: [],
     });
+  });
+
+  it('does not license novel generated display text without source evidence', () => {
+    const ledger = buildSemanticMgCandidateLedger({
+      content: {
+        value: '700%',
+        label: 'synthetic lift from generated card',
+        quantityKind: 'percentage',
+        denominator: 100,
+        bounded: true,
+        salience: 0.9,
+      },
+    });
+
+    expect(ledger.candidates).toHaveLength(0);
+    expect(ledger.suppressed[0]).toEqual(expect.objectContaining({
+      factKind: 'bounded-stat',
+      hardGate: expect.objectContaining({
+        blockedBy: ['missing-source-span'],
+      }),
+    }));
+    expect(resolveSemanticMgLedgerGate(ledger)).toEqual(expect.objectContaining({
+      allow: false,
+      reasons: expect.arrayContaining([
+        'semantic-ledger:no-licensed-candidate',
+        'semantic-ledger:missing-source-span',
+      ]),
+    }));
   });
 });
