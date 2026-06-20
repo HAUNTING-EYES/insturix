@@ -27,6 +27,13 @@ type Phase0UnifiedDecisionAuthoritySummary = {
   legacyAuthority?: string;
 };
 
+type Phase0SignalDecisionHealthStatus =
+  | 'missing'
+  | 'empty'
+  | 'no-executable-signals'
+  | 'normalization-incomplete'
+  | 'present';
+
 export interface Phase0OverlayLike extends JsonRecord {
   id?: string | number;
   type?: string;
@@ -509,6 +516,7 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
       totalDecisions: 0,
       counts: {},
       evidence: null,
+      signalDecisionHealth: summarizeSignalDecisionHealth(null),
     };
   }
 
@@ -517,6 +525,7 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
     : Array.isArray((bundle.edl as JsonRecord | undefined)?.decisions)
       ? ((bundle.edl as JsonRecord).decisions as unknown[])
       : [];
+  const evidence = isRecord(bundle.evidence) ? bundle.evidence : null;
 
   return {
     status: 'present' as const,
@@ -524,8 +533,155 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
     authority: normalizeUnifiedDecisionAuthority(bundle.authority),
     totalDecisions: readPositiveNumber(bundle.totalDecisions, decisions.length),
     counts: (isRecord(bundle.counts) ? bundle.counts : isRecord(bundle.decisionCounts) ? bundle.decisionCounts : countDecisions(decisions)),
-    evidence: isRecord(bundle.evidence) ? bundle.evidence : null,
+    evidence,
+    signalDecisionHealth: summarizeSignalDecisionHealth(evidence),
   };
+}
+
+function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
+  const audit = isRecord(evidence?.signalDecisionAudit) ? evidence.signalDecisionAudit : null;
+  if (!audit) {
+    return {
+      version: 'phase0-signal-decision-health-v1' as const,
+      status: 'missing' as Phase0SignalDecisionHealthStatus,
+      issue: 'unifiedDecisionBundle.evidence.signalDecisionAudit is missing',
+      totalCount: 0,
+      candidateCount: 0,
+      sampleCount: 0,
+      addedExecutableCount: 0,
+      signalPrimaryCount: 0,
+      validatedPrimaryCount: 0,
+      evidenceOnlyCount: 0,
+      executableSignalOutcomeCount: 0,
+      normalizedCandidateCount: 0,
+      unnormalizedCandidateCount: 0,
+      promotionRate: null,
+      outcomes: {},
+      topReasons: [],
+      candidateSamples: [],
+      evidenceSamples: [],
+    };
+  }
+
+  const outcomes = isRecord(audit.outcomes) ? audit.outcomes : {};
+  const candidates = Array.isArray(audit.candidates) ? audit.candidates.filter(isRecord) : [];
+  const samples = Array.isArray(audit.samples) ? audit.samples.filter(isRecord) : [];
+  const totalCount = readPositiveNumber(audit.totalCount, sumPositiveValues(outcomes));
+  const addedExecutableCount = readPositiveNumber(outcomes['added-executable'], 0);
+  const signalPrimaryCount = readPositiveNumber(outcomes['signal-primary'], 0);
+  const validatedPrimaryCount = readPositiveNumber(outcomes['validated-primary'], 0);
+  const evidenceOnlyCount = readPositiveNumber(outcomes['evidence-only'], 0);
+  const executableSignalOutcomeCount = addedExecutableCount + signalPrimaryCount + validatedPrimaryCount;
+  const normalizedCandidateCount = candidates.filter(hasSignalCandidateScoreFields).length;
+  const unnormalizedCandidateCount = Math.max(0, candidates.length - normalizedCandidateCount);
+  const status: Phase0SignalDecisionHealthStatus = totalCount === 0
+    ? 'empty'
+    : executableSignalOutcomeCount === 0
+      ? 'no-executable-signals'
+      : unnormalizedCandidateCount > 0
+        ? 'normalization-incomplete'
+        : 'present';
+
+  return {
+    version: 'phase0-signal-decision-health-v1' as const,
+    status,
+    issue: null,
+    totalCount,
+    candidateCount: candidates.length,
+    sampleCount: samples.length,
+    addedExecutableCount,
+    signalPrimaryCount,
+    validatedPrimaryCount,
+    evidenceOnlyCount,
+    executableSignalOutcomeCount,
+    normalizedCandidateCount,
+    unnormalizedCandidateCount,
+    promotionRate: totalCount > 0 ? round(executableSignalOutcomeCount / totalCount) : null,
+    outcomes: normalizeOutcomeCounts(outcomes),
+    topReasons: summarizeAuditBuckets(audit.byReason).slice(0, 10),
+    candidateSamples: candidates.slice(0, 20).map(summarizeSignalCandidateSample),
+    evidenceSamples: samples.slice(0, 20).map(summarizeSignalEvidenceSample),
+  };
+}
+
+function hasSignalCandidateScoreFields(candidate: JsonRecord): boolean {
+  return readNullableNumber(candidate.confidence) != null
+    && readNullableNumber(candidate.momentImportance) != null
+    && readNullableNumber(candidate.evidenceStrength) != null
+    && readNullableNumber(candidate.completeness) != null
+    && readNullableNumber(candidate.physicalFormReadiness) != null
+    && readNullableNumber(candidate.risk) != null;
+}
+
+function summarizeSignalCandidateSample(candidate: JsonRecord) {
+  const sourcePacket = isRecord(candidate.sourcePacket) ? candidate.sourcePacket : {};
+  return {
+    family: readString(candidate.family),
+    role: readString(candidate.role ?? candidate.job),
+    source: readString(candidate.source),
+    signal: readString(candidate.signal),
+    confidence: readNullableNumber(candidate.confidence),
+    momentImportance: readNullableNumber(candidate.momentImportance),
+    evidenceStrength: readNullableNumber(candidate.evidenceStrength),
+    completeness: readNullableNumber(candidate.completeness),
+    physicalFormReadiness: readNullableNumber(candidate.physicalFormReadiness),
+    risk: readNullableNumber(candidate.risk),
+    riskFlags: readStringArray(candidate.riskFlags).slice(0, 6),
+    hasSignals: sourcePacket.hasSignals === true,
+    signalKeyCount: Array.isArray(sourcePacket.signalKeys) ? sourcePacket.signalKeys.length : 0,
+    hasAtomicMomentBundle: sourcePacket.hasAtomicMomentBundle === true,
+    hasUnifiedMomentEvidence: sourcePacket.hasUnifiedMomentEvidence === true,
+    calibrationStatus: readString(candidate.calibrationStatus),
+  };
+}
+
+function summarizeSignalEvidenceSample(sample: JsonRecord) {
+  const candidate = isRecord(sample.candidate) ? sample.candidate : {};
+  return {
+    type: readString(sample.type),
+    family: readString(sample.family),
+    outcome: readString(sample.outcome),
+    frame: readNullableNumber(sample.frame),
+    confidence: readNullableNumber(sample.confidence),
+    reason: preview(sample.reason, 160),
+    source: readString(sample.source),
+    signal: readString(sample.signal),
+    candidateConfidence: readNullableNumber(candidate.confidence),
+    evidenceStrength: readNullableNumber(candidate.evidenceStrength),
+    completeness: readNullableNumber(candidate.completeness),
+    physicalFormReadiness: readNullableNumber(candidate.physicalFormReadiness),
+    risk: readNullableNumber(candidate.risk),
+  };
+}
+
+function summarizeAuditBuckets(value: unknown) {
+  if (!isRecord(value)) return [];
+  return Object.entries(value)
+    .map(([reason, bucket]) => {
+      const record = isRecord(bucket) ? bucket : {};
+      const confidence = isRecord(record.confidence) ? record.confidence : {};
+      return {
+        reason,
+        count: readPositiveNumber(record.count, 0),
+        averageConfidence: readNullableNumber(confidence.average),
+        minConfidence: readNullableNumber(confidence.min),
+        maxConfidence: readNullableNumber(confidence.max),
+      };
+    })
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+}
+
+function normalizeOutcomeCounts(value: JsonRecord): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const [key, count] of Object.entries(value)) {
+    result[key] = readPositiveNumber(count, 0);
+  }
+  return sortRecordByKey(result);
+}
+
+function sumPositiveValues(value: JsonRecord): number {
+  return Object.values(value).reduce<number>((sum, count) => sum + readPositiveNumber(count, 0), 0);
 }
 
 function normalizeUnifiedDecisionAuthority(authority: unknown): Phase0UnifiedDecisionAuthoritySummary | null {

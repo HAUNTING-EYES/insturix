@@ -25,6 +25,60 @@ function transitionSfxReceipt(transitionId = 'tr-1') {
   };
 }
 
+function signalAudit(overrides: Record<string, unknown> = {}) {
+  const candidate = {
+    version: 'signal-execution-candidate-v1',
+    family: 'graphic',
+    job: 'graphic-expression',
+    role: 'graphic-expression',
+    source: 'signal-driven',
+    signal: 'signal:entity.number',
+    confidence: 0.88,
+    momentImportance: 0.55,
+    timingAnchor: { kind: 'moment', frame: 30, durationFrames: 30 },
+    evidenceStrength: 1,
+    completeness: 0.82,
+    physicalFormReadiness: 0.76,
+    risk: 0.09,
+    riskFlags: [],
+    projectedAtoms: { family: 'graphic', role: 'graphic-expression' },
+    sourcePacket: {
+      hasSignals: true,
+      signalKeys: ['signal:entity.number'],
+      hasAtomicMomentBundle: true,
+      hasUnifiedMomentEvidence: true,
+    },
+    calibrationStatus: 'invented-needs-calibration',
+  };
+  const bucket = {
+    count: 1,
+    confidence: { min: 0.88, max: 0.88, average: 0.88 },
+    frames: { first: 30, last: 30, samples: [30] },
+    sources: { 'signal-driven': 1 },
+  };
+  return {
+    version: 'signal-decision-audit-v1',
+    totalCount: 1,
+    outcomes: { 'added-executable': 1, 'evidence-only': 0, 'signal-primary': 0, 'validated-primary': 0 },
+    byType: { graphic: bucket },
+    byFamily: { graphic: bucket },
+    byReason: { 'licensed-signal-candidate': bucket },
+    candidates: [candidate],
+    samples: [{
+      type: 'graphic',
+      family: 'graphic',
+      outcome: 'added-executable',
+      candidate,
+      frame: 30,
+      confidence: 0.88,
+      source: 'signal-driven',
+      signal: 'signal:entity.number',
+      reason: 'licensed-signal-candidate',
+    }],
+    ...overrides,
+  };
+}
+
 function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0FixtureProject {
   return {
     projectId: 'proj_phase0_fixture',
@@ -176,7 +230,7 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         },
         totalDecisions: 3,
         counts: { graphic: 1, transition: 1, sound: 1 },
-        evidence: { canonicalTimeline: true },
+        evidence: { canonicalTimeline: true, signalDecisionAudit: signalAudit() },
       },
       postBundleProfileActionPolicy: {
         version: 'post-bundle-profile-action-policy-v1',
@@ -324,6 +378,25 @@ describe('phase0 fixture manifest', () => {
           decisionMode: 'creative-brief-primary',
         },
         totalDecisions: 3,
+        signalDecisionHealth: {
+          status: 'present',
+          totalCount: 1,
+          addedExecutableCount: 1,
+          executableSignalOutcomeCount: 1,
+          promotionRate: 1,
+          candidateSamples: [expect.objectContaining({
+            family: 'graphic',
+            confidence: 0.88,
+            evidenceStrength: 1,
+            hasSignals: true,
+            hasAtomicMomentBundle: true,
+          })],
+          evidenceSamples: [expect.objectContaining({
+            family: 'graphic',
+            outcome: 'added-executable',
+            reason: 'licensed-signal-candidate',
+          })],
+        },
       },
       oldProducerGating: {
         status: 'present',

@@ -250,6 +250,44 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
       },
     });
   }
+
+  const signalDecisionHealth = asRecord(manifest.unifiedDecisionBundle.signalDecisionHealth);
+  const signalHealthStatus = readString(signalDecisionHealth.status);
+  if (signalHealthStatus === 'missing') {
+    classes.push({
+      id: 'decision.signal_audit_missing',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Unified bundle exists, but signal-decision audit evidence is missing.',
+      evidence: {
+        issue: readString(signalDecisionHealth.issue),
+      },
+    });
+  } else if (signalHealthStatus === 'empty') {
+    classes.push({
+      id: 'decision.signal_candidates_empty',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Signal-decision audit exists, but it contains zero signal candidates.',
+      evidence: compactSignalDecisionHealthEvidence(signalDecisionHealth),
+    });
+  } else if (signalHealthStatus === 'no-executable-signals') {
+    classes.push({
+      id: 'decision.signal_candidates_not_promoted',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Signal candidates were observed, but none became executable or validated a primary decision.',
+      evidence: compactSignalDecisionHealthEvidence(signalDecisionHealth),
+    });
+  } else if (signalHealthStatus === 'normalization-incomplete') {
+    classes.push({
+      id: 'decision.signal_normalization_incomplete',
+      severity: 'warn',
+      source: 'decision',
+      message: 'One or more signal candidates are missing normalized score fields used for planner authority.',
+      evidence: compactSignalDecisionHealthEvidence(signalDecisionHealth),
+    });
+  }
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -1148,6 +1186,27 @@ function hasScalarEvidence(value: unknown): boolean {
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function compactSignalDecisionHealthEvidence(signalDecisionHealth: JsonRecord): Record<string, unknown> {
+  return {
+    status: readString(signalDecisionHealth.status),
+    totalCount: readNumber(signalDecisionHealth.totalCount),
+    candidateCount: readNumber(signalDecisionHealth.candidateCount),
+    sampleCount: readNumber(signalDecisionHealth.sampleCount),
+    addedExecutableCount: readNumber(signalDecisionHealth.addedExecutableCount),
+    signalPrimaryCount: readNumber(signalDecisionHealth.signalPrimaryCount),
+    validatedPrimaryCount: readNumber(signalDecisionHealth.validatedPrimaryCount),
+    evidenceOnlyCount: readNumber(signalDecisionHealth.evidenceOnlyCount),
+    executableSignalOutcomeCount: readNumber(signalDecisionHealth.executableSignalOutcomeCount),
+    promotionRate: readNumber(signalDecisionHealth.promotionRate),
+    normalizedCandidateCount: readNumber(signalDecisionHealth.normalizedCandidateCount),
+    unnormalizedCandidateCount: readNumber(signalDecisionHealth.unnormalizedCandidateCount),
+    outcomes: asRecord(signalDecisionHealth.outcomes),
+    topReasons: Array.isArray(signalDecisionHealth.topReasons) ? signalDecisionHealth.topReasons.slice(0, 5) : [],
+    candidateSamples: Array.isArray(signalDecisionHealth.candidateSamples) ? signalDecisionHealth.candidateSamples.slice(0, 5) : [],
+    evidenceSamples: Array.isArray(signalDecisionHealth.evidenceSamples) ? signalDecisionHealth.evidenceSamples.slice(0, 5) : [],
+  };
 }
 
 function normalizeStyle(value: string): string {
