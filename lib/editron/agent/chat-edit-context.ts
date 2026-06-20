@@ -89,6 +89,7 @@ export interface ChatEditContextBundle {
   resolverStatus: {
     userMediaSearchAvailableToChat: boolean;
     visualMomentSearchAvailableToChat: boolean;
+    audioMomentSearchAvailableToChat: boolean;
     missingMomentResolvers: string[];
   };
 }
@@ -149,9 +150,8 @@ export function buildChatEditContextBundle(
     resolverStatus: {
       userMediaSearchAvailableToChat: true,
       visualMomentSearchAvailableToChat: true,
-      missingMomentResolvers: [
-        'find_audio_moment',
-      ],
+      audioMomentSearchAvailableToChat: true,
+      missingMomentResolvers: [],
     },
   };
 }
@@ -179,7 +179,8 @@ export function formatChatEditContextForPrompt(bundle: ChatEditContextBundle): s
     `User media search: ${bundle.resolverStatus.userMediaSearchAvailableToChat ? 'available via list_user_assets, search_user_assets, and inspect_user_asset' : 'unavailable'}.`,
     'Transcript moment search: available via find_transcript_moment for spoken phrase, word-range, and frame candidates.',
     `Visual moment search: ${bundle.resolverStatus.visualMomentSearchAvailableToChat ? 'available via find_visual_moment for stored visual analysis, overlay metadata, object/action/scene text, OCR text, and frame candidates' : 'unavailable'}.`,
-    `Missing semantic resolvers: ${bundle.resolverStatus.missingMomentResolvers.join(', ') || 'none'}. Until those are built, do not pretend you can search arbitrary audio moments beyond the supplied project state.`,
+    `Audio moment search: ${bundle.resolverStatus.audioMomentSearchAvailableToChat ? 'available via find_audio_moment for stored beat, silence, filler, music-section, energy, and sound-overlay frame candidates' : 'unavailable'}.`,
+    `Missing semantic resolvers: ${bundle.resolverStatus.missingMomentResolvers.join(', ') || 'none'}. Do not pretend you can search moments beyond the supplied project state.`,
     'Visible overlays:',
     overlays || '- none',
   ].join('\n');

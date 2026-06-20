@@ -48,6 +48,7 @@ import { planComposition } from '../motion-graphics/engine/composition-planner';
 import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 import { createChatAssetTools } from './chat-asset-tools';
+import { createChatAudioTools } from './chat-audio-tools';
 import { createChatTranscriptTools } from './chat-transcript-tools';
 import { createChatVisualTools } from './chat-visual-tools';
 
@@ -5955,6 +5956,7 @@ Never manually reverse edits when a checkpoint is available; restore the checkpo
     getVideoTranscription,
     ...createChatTranscriptTools({ userId, projectId }),
     ...createChatVisualTools({ userId, projectId }),
+    ...createChatAudioTools({ userId, projectId }),
     analyzeVideoContent,
     addCaptions,
     addFancyCaptions,     // NEW: Kinetic typography captions

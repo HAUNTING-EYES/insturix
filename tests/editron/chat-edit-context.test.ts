@@ -6,6 +6,7 @@ import {
   buildChatEditContextBundle,
   formatChatEditContextForPrompt,
 } from '@/lib/editron/agent/chat-edit-context';
+import { findAudioMomentCandidates } from '@/lib/editron/agent/chat-audio-tools';
 import {
   findTranscriptMomentCandidates,
   type TranscriptSearchWord,
@@ -69,6 +70,15 @@ describe('chat edit context bundle', () => {
       },
     },
     analysis: {
+      audio: {
+        beats: [{ timestampMs: 3000, strength: 0.91, beatType: 'downbeat' }],
+        silences: [{ startMs: 1200, endMs: 2200, durationMs: 1000 }],
+        energyCurve: [
+          { timestampMs: 2600, energy: 0.24 },
+          { timestampMs: 3000, energy: 0.94 },
+          { timestampMs: 3400, energy: 0.38 },
+        ],
+      },
       keyframeAnalyses: [
         {
           frame: 96,
@@ -85,6 +95,16 @@ describe('chat edit context bundle', () => {
           sceneDescription: 'Company mark is visible on the laptop screen',
         },
       ],
+    },
+    musicStructure: {
+      bpm: 120,
+      sections: [{ startFrame: 84, endFrame: 126, startMs: 2800, endMs: 4200, type: 'drop', energyLevel: 'peak' }],
+      energyCurve: [{ timestampMs: 2600, energy: 0.2 }, { timestampMs: 3000, energy: 0.95 }, { timestampMs: 3400, energy: 0.3 }],
+      tensionCurve: [],
+      drops: [90],
+      builds: [72],
+      breakdowns: [],
+      stingers: [90],
     },
   };
 
@@ -171,6 +191,20 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('covers audio moment search with registry metadata without importing Mongo-backed tools', () => {
+    const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-audio-tools.ts'), 'utf8');
+    const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
+
+    expect(toolNames).toEqual(['find_audio_moment']);
+    expect(getChatToolMetadata('find_audio_moment')).toMatchObject({
+      label: 'Finding audio moment',
+      shortLabel: 'Find audio',
+      receiptLabel: 'Found audio moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+  });
+
   it('finds phrase-level transcript moments with frame hints for edit tools', () => {
     const words = makeTranscriptWords(
       ['two', 'human', 'beings', 'in', 'the', 'real', 'world'],
@@ -235,6 +269,50 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {
+    const silenceCandidates = findAudioMomentCandidates(project, 'cut the long silence', {
+      limit: 3,
+      minConfidence: 0.3,
+    });
+    const dropCandidates = findAudioMomentCandidates(project, 'add impact on the beat drop', {
+      limit: 3,
+      minConfidence: 0.3,
+    });
+
+    expect(silenceCandidates[0]).toMatchObject({
+      audioKind: 'silence',
+      startFrame: 36,
+      endFrame: 66,
+      confidenceLabel: 'high',
+      safeForAutoEdit: true,
+      useWith: {
+        cut_section: {
+          startFrame: 36,
+          endFrame: 66,
+        },
+        add_sfx: {
+          frame: 36,
+          sync: 'audio-anchor',
+        },
+      },
+    });
+    expect(dropCandidates[0]).toMatchObject({
+      audioKind: 'beat-drop',
+      frame: 90,
+      confidenceLabel: 'high',
+      safeForAutoEdit: true,
+      useWith: {
+        sync_cuts_to_beats: {
+          frame: 90,
+        },
+        add_sfx: {
+          frame: 90,
+          sync: 'audio-anchor',
+        },
+      },
+    });
+  });
+
   it('clamps playhead and makes missing resolvers explicit in the prompt', () => {
     const bundle = buildChatEditContextBundle(project, {
       clientContext: {
@@ -250,7 +328,8 @@ describe('chat edit context bundle', () => {
     expect(prompt).toContain('User media search: available via list_user_assets, search_user_assets, and inspect_user_asset');
     expect(prompt).toContain('Transcript moment search: available via find_transcript_moment');
     expect(prompt).toContain('Visual moment search: available via find_visual_moment');
-    expect(prompt).toContain('Missing semantic resolvers: find_audio_moment');
+    expect(prompt).toContain('Audio moment search: available via find_audio_moment');
+    expect(prompt).toContain('Missing semantic resolvers: none');
     expect(prompt).toContain('Do not ask for a timeframe when this context is enough.');
   });
 });

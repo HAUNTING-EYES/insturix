@@ -1,0 +1,894 @@
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
+
+type OverlayId = string | number;
+
+export type AudioMomentKind =
+  | "silence"
+  | "filler"
+  | "beat"
+  | "downbeat"
+  | "beat-drop"
+  | "transient"
+  | "energy-peak"
+  | "music-section"
+  | "speech"
+  | "sound-overlay"
+  | "problem";
+
+export interface AudioMomentCandidate {
+  text: string;
+  audioKind: AudioMomentKind;
+  frame: number;
+  startFrame: number;
+  endFrame: number;
+  startMs: number;
+  endMs: number;
+  durationFrames: number;
+  confidence: number;
+  confidenceLabel: "high" | "medium" | "low";
+  matchType: "exact-phrase" | "audio-kind" | "token-overlap" | "character-vector";
+  matchReasons: string[];
+  evidenceText: string;
+  source: {
+    type: "overlay" | "analysis";
+    overlayId?: OverlayId;
+    assetId?: string;
+    overlayType?: string;
+    path: string;
+  };
+  safeForAutoEdit: boolean;
+  useWith: {
+    cut_section: { startFrame: number; endFrame: number; note: string };
+    add_sfx: { frame: number; sync: "audio-anchor"; note: string };
+    set_keyframes: { frame: number; note: string };
+    sync_cuts_to_beats: { frame: number; note: string };
+    add_motion_graphic: { frame: number; text: string };
+  };
+}
+
+interface CreateChatAudioToolsOptions {
+  userId: string;
+  projectId: string;
+}
+
+interface AudioMomentOptions {
+  audioOverlayId?: OverlayId;
+  limit?: number;
+  minConfidence?: number;
+  includeOverlayMetadata?: boolean;
+}
+
+interface FrameRange {
+  startFrame: number;
+  endFrame: number;
+}
+
+interface AudioEvidence {
+  audioKind: AudioMomentKind;
+  evidenceText: string;
+  frame: number;
+  startFrame: number;
+  endFrame: number;
+  durationFrames: number;
+  fps: number;
+  strength?: number;
+  source: AudioMomentCandidate["source"];
+}
+
+interface CollectContext {
+  path: string;
+  fps: number;
+  range: FrameRange;
+  sourceBase: Omit<AudioMomentCandidate["source"], "path">;
+  output: AudioEvidence[];
+  totalDurationFrames: number;
+}
+
+const DEFAULT_FPS = 30;
+const DEFAULT_CLIP_DURATION_FRAMES = 30;
+
+const audioMomentSchema = z.object({
+  query: z.string().min(1).describe("Natural-language audio event, beat, drop, silence, filler, music section, or sound cue to locate."),
+  audioOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline audio/video overlay id to constrain the search."),
+  limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum audio moment candidates to return."),
+  minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
+  includeOverlayMetadata: z.boolean().default(true).describe("Also search audio/sound overlay metadata and labels."),
+});
+
+const PROJECT_AUDIO_ROOT_KEYS = [
+  "analysis",
+  "rawFootageAnalysis",
+  "audio",
+  "audioAnalysis",
+  "audioFeatures",
+  "musicAnalysis",
+  "musicStructure",
+  "fiveTrackAnalysis",
+  "essentiaAnalysis",
+  "analysisResult",
+  "analysisResults",
+  "mediaAnalysis",
+];
+
+const OVERLAY_AUDIO_ROOT_KEYS = [
+  "analysis",
+  "audio",
+  "audioAnalysis",
+  "audioFeatures",
+  "musicAnalysis",
+  "musicStructure",
+  "beatGrid",
+  "metadata",
+];
+
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "before",
+  "for",
+  "from",
+  "in",
+  "into",
+  "of",
+  "on",
+  "the",
+  "this",
+  "to",
+  "when",
+  "where",
+  "with",
+]);
+
+const KIND_TERMS: Record<AudioMomentKind, string[]> = {
+  silence: ["silence", "silent", "pause", "quiet", "gap", "dead", "air", "room", "tone"],
+  filler: ["filler", "um", "uh", "erm", "like", "stutter", "hesitation"],
+  beat: ["beat", "pulse", "rhythm", "sync"],
+  downbeat: ["downbeat", "beat", "one", "measure"],
+  "beat-drop": ["drop", "beat", "hit", "impact", "climax", "chorus", "peak"],
+  transient: ["transient", "hit", "impact", "accent", "stinger", "snap"],
+  "energy-peak": ["energy", "loud", "peak", "swell", "climax", "rise"],
+  "music-section": ["music", "section", "chorus", "verse", "intro", "outro", "build", "breakdown", "bridge", "drop"],
+  speech: ["speech", "voice", "talking", "narration", "spoken"],
+  "sound-overlay": ["sound", "audio", "music", "sfx", "song", "track", "voiceover"],
+  problem: ["problem", "remove", "cleanup", "awkward", "bad"],
+};
+
+export function createChatAudioTools({ userId, projectId }: CreateChatAudioToolsOptions) {
+  const findAudioMoment = tool(
+    async (input: z.infer<typeof audioMomentSchema>) => {
+      const { projectService } = await import("../services/project-service");
+      const project = await projectService.loadProject(userId, projectId);
+      const evidence = buildAudioEvidence(project, {
+        audioOverlayId: input.audioOverlayId,
+        includeOverlayMetadata: input.includeOverlayMetadata,
+      });
+      const candidates = findAudioMomentCandidates(project, input.query, {
+        audioOverlayId: input.audioOverlayId,
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+        includeOverlayMetadata: input.includeOverlayMetadata,
+      });
+
+      return JSON.stringify({
+        status: "success",
+        data: {
+          query: input.query,
+          searchedEvidenceCount: evidence.length,
+          returned: candidates.length,
+          candidates,
+          message: candidates.length
+            ? `Found ${candidates.length} audio moment candidate(s). Use frame/startFrame/endFrame directly when confidence is high.`
+            : `No stored audio evidence matched "${input.query}". Use analyze_clip_audio first, or ask once for a clearer audio phrase.`,
+        },
+      });
+    },
+    {
+      name: "find_audio_moment",
+      description: `Find when a stored audio event, silence, filler, beat, downbeat, music drop, energy peak, music section, or sound overlay appears in the edited timeline.
+Use before edit requests such as "cut the long pause", "add impact on the beat drop", "sync this cut to the downbeat", or "put SFX on the loud hit".
+Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_sfx, set_keyframes, sync_cuts_to_beats, and add_motion_graphic.
+Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
+      schema: audioMomentSchema,
+    },
+  );
+
+  return [findAudioMoment];
+}
+
+export function findAudioMomentCandidates(
+  project: any,
+  query: string,
+  options: AudioMomentOptions = {},
+): AudioMomentCandidate[] {
+  const limit = clampInt(options.limit ?? 5, 1, 12);
+  const minConfidence = clamp(options.minConfidence ?? 0.35, 0, 1);
+  const queryTokens = tokenize(query);
+  const normalizedQuery = normalizeText(query);
+  if (!queryTokens.length || !normalizedQuery) return [];
+
+  const requestedKinds = inferRequestedKinds(queryTokens, normalizedQuery);
+  const candidateMap = new Map<string, AudioMomentCandidate>();
+  for (const evidence of buildAudioEvidence(project, options)) {
+    const candidate = scoreEvidence(evidence, query, queryTokens, normalizedQuery, requestedKinds);
+    if (!candidate || candidate.confidence < minConfidence) continue;
+    const key = candidateKey(candidate);
+    const existing = candidateMap.get(key);
+    if (!existing || candidate.confidence > existing.confidence) {
+      candidateMap.set(key, candidate);
+    }
+  }
+
+  const candidates = Array.from(candidateMap.values())
+    .sort((a, b) => b.confidence - a.confidence || a.startFrame - b.startFrame || a.text.localeCompare(b.text))
+    .slice(0, limit);
+
+  if (!candidates.length) return candidates;
+
+  const ambiguous = candidates.slice(1).some((candidate) => (
+    Math.abs(candidates[0].confidence - candidate.confidence) < 0.08
+    && !overlapsCandidate(candidates[0], candidate)
+  ));
+
+  return candidates.map((candidate, index) => ({
+    ...candidate,
+    safeForAutoEdit: index === 0
+      && !ambiguous
+      && candidate.confidence >= 0.78
+      && (requestedKinds.size === 0 || requestedKinds.has(candidate.audioKind) || candidate.matchType === "exact-phrase"),
+  }));
+}
+
+function buildAudioEvidence(project: any, options: AudioMomentOptions = {}): AudioEvidence[] {
+  const fps = positiveNumber(project?.fps) ?? DEFAULT_FPS;
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  const totalDurationFrames = Math.max(1, Math.round(positiveNumber(project?.durationInFrames) ?? DEFAULT_CLIP_DURATION_FRAMES));
+  const projectRange = { startFrame: 0, endFrame: totalDurationFrames };
+  const evidence: AudioEvidence[] = [];
+
+  for (const overlay of overlays) {
+    if (options.audioOverlayId != null && String(overlay?.id) !== String(options.audioOverlayId)) continue;
+    const overlayRange = resolveFrameRange(overlay, fps, {
+      startFrame: frame(overlay?.from),
+      endFrame: frame(overlay?.from) + duration(overlay?.durationInFrames),
+    });
+    const sourceBase = {
+      type: "overlay" as const,
+      overlayId: overlay?.id,
+      assetId: stringValue(overlay?.assetId ?? overlay?.sourceAssetId ?? overlay?.mediaId ?? overlay?.metadata?.assetId),
+      overlayType: stringValue(overlay?.type),
+    };
+
+    if (options.includeOverlayMetadata ?? true) {
+      for (const text of overlayAudioTextFacts(overlay)) {
+        addEvidence(evidence, {
+          audioKind: "sound-overlay",
+          evidenceText: text,
+          range: overlayRange,
+          fps,
+          source: { ...sourceBase, path: `overlays.${String(overlay?.id ?? "unknown")}.audioText` },
+        });
+      }
+    }
+
+    for (const key of OVERLAY_AUDIO_ROOT_KEYS) {
+      const value = overlay?.[key];
+      if (value == null) continue;
+      collectAudioEvidence(value, {
+        path: `overlays.${String(overlay?.id ?? "unknown")}.${key}`,
+        fps,
+        range: overlayRange,
+        sourceBase,
+        output: evidence,
+        totalDurationFrames,
+      });
+    }
+  }
+
+  for (const key of PROJECT_AUDIO_ROOT_KEYS) {
+    const value = project?.[key];
+    if (value == null) continue;
+    collectAudioEvidence(value, {
+      path: key,
+      fps,
+      range: projectRange,
+      sourceBase: {
+        type: "analysis",
+        assetId: stringValue(project?.assetId ?? project?.sourceAssetId ?? project?.mediaId),
+      },
+      output: evidence,
+      totalDurationFrames,
+    });
+  }
+
+  return dedupeEvidence(evidence).sort((a, b) => a.startFrame - b.startFrame || a.audioKind.localeCompare(b.audioKind));
+}
+
+function collectAudioEvidence(value: unknown, context: CollectContext): void {
+  if (value == null) return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectAudioEvidence(item, {
+      ...context,
+      path: `${context.path}.${index}`,
+    }));
+    return;
+  }
+  if (!isRecord(value)) return;
+
+  for (const [key, child] of Object.entries(value)) {
+    const normalizedKey = normalizeKey(key);
+    const childPath = `${context.path}.${key}`;
+
+    if (Array.isArray(child)) {
+      collectKnownAudioArray(normalizedKey, child, { ...context, path: childPath });
+    }
+
+    if (isRecord(child) && normalizedKey === "beatgrid") {
+      collectAudioEvidence(child, { ...context, path: childPath });
+      continue;
+    }
+
+    if (isRecord(child) || Array.isArray(child)) {
+      collectAudioEvidence(child, { ...context, path: childPath });
+    }
+  }
+}
+
+function collectKnownAudioArray(key: string, items: unknown[], context: CollectContext): void {
+  if (!items.length) return;
+
+  if (key === "beats") {
+    items.forEach((item, index) => addPointEvidence(context, item, index, items.length, "beat", "music beat"));
+    return;
+  }
+  if (key === "downbeats") {
+    items.forEach((item, index) => addPointEvidence(context, item, index, items.length, "downbeat", "music downbeat"));
+    return;
+  }
+  if (key === "transients" || key === "stingers") {
+    items.forEach((item, index) => addPointEvidence(context, item, index, items.length, "transient", key === "stingers" ? "music stinger" : "audio transient"));
+    return;
+  }
+  if (key === "drops") {
+    items.forEach((item, index) => addPointEvidence(context, item, index, items.length, "beat-drop", "music drop impact"));
+    return;
+  }
+  if (key === "builds") {
+    items.forEach((item, index) => addPointEvidence(context, item, index, items.length, "music-section", "music build"));
+    return;
+  }
+  if (key === "breakdowns") {
+    items.forEach((item, index) => addPointEvidence(context, item, index, items.length, "music-section", "music breakdown"));
+    return;
+  }
+  if (key === "silences" || key === "silencegaps" || key === "silencegapsframes") {
+    items.forEach((item) => addRangeEvidence(context, item, "silence", silenceText(item)));
+    return;
+  }
+  if (key === "fillers") {
+    items.forEach((item) => addPointEvidence(context, item, 0, items.length, "filler", fillerText(item)));
+    return;
+  }
+  if (key === "problematicframes" || key === "problematicsegments") {
+    items.forEach((item) => addRangeEvidence(context, item, inferProblemKind(item), problemText(item)));
+    return;
+  }
+  if (key === "energycurve" || key === "rmsenergycurve" || key === "loudnesscurve") {
+    collectEnergyPeaks(items, context);
+    return;
+  }
+  if (key === "sections") {
+    items.forEach((item) => addRangeEvidence(context, item, inferSectionKind(item), sectionText(item)));
+    return;
+  }
+  if (key === "speechsegments" || (key === "segments" && context.path.toLowerCase().includes("audio"))) {
+    items.forEach((item) => addRangeEvidence(context, item, "speech", speechText(item)));
+  }
+}
+
+function addPointEvidence(
+  context: CollectContext,
+  item: unknown,
+  index: number,
+  total: number,
+  audioKind: AudioMomentKind,
+  fallbackText: string,
+): void {
+  const range = resolvePointRange(item, context.fps, context.range, index, total, context.totalDurationFrames);
+  const strength = strengthValue(item);
+  const extra = describePoint(item);
+  addEvidence(context.output, {
+    audioKind: refinePointKind(audioKind, item, fallbackText),
+    evidenceText: [fallbackText, extra, strength != null ? `strength ${round3(strength)}` : undefined].filter(Boolean).join(" "),
+    range,
+    fps: context.fps,
+    source: { ...context.sourceBase, path: context.path },
+    strength,
+  });
+}
+
+function addRangeEvidence(
+  context: CollectContext,
+  item: unknown,
+  audioKind: AudioMomentKind,
+  fallbackText: string,
+): void {
+  const range = resolveFrameRange(item, context.fps, context.range);
+  addEvidence(context.output, {
+    audioKind,
+    evidenceText: fallbackText,
+    range,
+    fps: context.fps,
+    source: { ...context.sourceBase, path: context.path },
+    strength: strengthValue(item),
+  });
+}
+
+function collectEnergyPeaks(items: unknown[], context: CollectContext): void {
+  const samples = items
+    .map((item, index) => {
+      const energy = energyValue(item);
+      if (energy == null) return null;
+      const range = resolvePointRange(item, context.fps, context.range, index, items.length, context.totalDurationFrames);
+      return { energy, range, item };
+    })
+    .filter((sample): sample is { energy: number; range: FrameRange; item: unknown } => Boolean(sample));
+
+  if (!samples.length) return;
+  const maxEnergy = Math.max(...samples.map((sample) => sample.energy));
+  samples.forEach((sample, index) => {
+    const prev = samples[index - 1]?.energy ?? 0;
+    const next = samples[index + 1]?.energy ?? 0;
+    const isPeak = sample.energy >= Math.max(prev, next) && sample.energy >= Math.max(0.55, maxEnergy * 0.75);
+    if (!isPeak) return;
+    addEvidence(context.output, {
+      audioKind: "energy-peak",
+      evidenceText: `audio energy peak ${round3(sample.energy)}`,
+      range: sample.range,
+      fps: context.fps,
+      source: { ...context.sourceBase, path: context.path },
+      strength: sample.energy,
+    });
+  });
+}
+
+function addEvidence(
+  output: AudioEvidence[],
+  input: {
+    audioKind: AudioMomentKind;
+    evidenceText: string;
+    range: FrameRange;
+    fps: number;
+    source: AudioMomentCandidate["source"];
+    strength?: number;
+  },
+): void {
+  const evidenceText = cleanText(input.evidenceText);
+  if (!evidenceText) return;
+  const startFrame = Math.max(0, Math.round(input.range.startFrame));
+  const endFrame = Math.max(startFrame + 1, Math.round(input.range.endFrame));
+  output.push({
+    audioKind: input.audioKind,
+    evidenceText,
+    frame: startFrame,
+    startFrame,
+    endFrame,
+    durationFrames: endFrame - startFrame,
+    fps: input.fps,
+    strength: input.strength,
+    source: input.source,
+  });
+}
+
+function scoreEvidence(
+  evidence: AudioEvidence,
+  query: string,
+  queryTokens: string[],
+  normalizedQuery: string,
+  requestedKinds: Set<AudioMomentKind>,
+): AudioMomentCandidate | null {
+  const normalizedEvidence = normalizeText(evidence.evidenceText);
+  const evidenceTokens = tokenize(evidence.evidenceText);
+  if (!normalizedEvidence || !evidenceTokens.length) return null;
+
+  const exactPhrase = normalizedEvidence.includes(normalizedQuery);
+  const kindScore = scoreKindMatch(evidence, queryTokens, requestedKinds);
+  const overlap = tokenOverlap(queryTokens, evidenceTokens);
+  const coverage = overlap / queryTokens.length;
+  const evidenceFocus = overlap / evidenceTokens.length;
+  const vectorScore = scoreCharacterVector(normalizedQuery, normalizedEvidence);
+  const tokenScore = clamp((coverage * 0.58) + (evidenceFocus * 0.16) + (vectorScore * 0.18) + ((evidence.strength ?? 0) * 0.08), 0, 0.92);
+  const vectorOnlyScore = clamp(vectorScore * 0.7, 0, 0.86);
+  const confidence = exactPhrase ? 0.95 : Math.max(kindScore, tokenScore, vectorOnlyScore);
+  if (confidence <= 0) return null;
+
+  const matchType: AudioMomentCandidate["matchType"] = exactPhrase
+    ? "exact-phrase"
+    : kindScore >= Math.max(tokenScore, vectorOnlyScore)
+      ? "audio-kind"
+      : coverage >= 0.42
+        ? "token-overlap"
+        : "character-vector";
+
+  const startMs = Math.round((evidence.startFrame / evidence.fps) * 1000);
+  const endMs = Math.round((evidence.endFrame / evidence.fps) * 1000);
+
+  return {
+    text: truncate(evidence.evidenceText, 140),
+    audioKind: evidence.audioKind,
+    frame: evidence.frame,
+    startFrame: evidence.startFrame,
+    endFrame: evidence.endFrame,
+    startMs,
+    endMs,
+    durationFrames: evidence.durationFrames,
+    confidence: round3(confidence),
+    confidenceLabel: confidenceLabel(confidence),
+    matchType,
+    matchReasons: exactPhrase
+      ? ["exact-phrase"]
+      : [
+          `kind=${round3(kindScore)}`,
+          `coverage=${round3(coverage)}`,
+          `focus=${round3(evidenceFocus)}`,
+          `vector=${round3(vectorScore)}`,
+        ],
+    evidenceText: evidence.evidenceText,
+    source: evidence.source,
+    safeForAutoEdit: false,
+    useWith: {
+      cut_section: {
+        startFrame: evidence.startFrame,
+        endFrame: evidence.endFrame,
+        note: evidence.audioKind === "silence" || evidence.audioKind === "filler"
+          ? "Use only when the user asked to remove this audio moment and confidence is high."
+          : "Use only when the user explicitly asked to cut around this audio anchor.",
+      },
+      add_sfx: {
+        frame: evidence.frame,
+        sync: "audio-anchor",
+        note: "Use as the anchor frame for impact/spot SFX.",
+      },
+      set_keyframes: {
+        frame: evidence.frame,
+        note: "Use as the anchor frame for audio-synced visual emphasis.",
+      },
+      sync_cuts_to_beats: {
+        frame: evidence.frame,
+        note: "Use as the beat/audio sync anchor when adjusting cuts.",
+      },
+      add_motion_graphic: {
+        frame: evidence.frame,
+        text: truncate(query, 80),
+      },
+    },
+  };
+}
+
+function scoreKindMatch(
+  evidence: AudioEvidence,
+  queryTokens: string[],
+  requestedKinds: Set<AudioMomentKind>,
+): number {
+  const direct = requestedKinds.has(evidence.audioKind);
+  const related = Array.from(requestedKinds).some((kind) => areRelatedKinds(kind, evidence.audioKind));
+  if (!direct && !related) return 0;
+
+  let score = direct ? 0.82 : 0.7;
+  if (evidence.audioKind === "silence" && queryTokens.some((token) => token === "long" || token === "awkward")) {
+    score += evidence.durationFrames >= 18 ? 0.1 : 0;
+  }
+  const wantsPointAnchor = queryTokens.some((token) => token === "impact" || token === "hit" || token === "sync" || token === "beat" || token === "drop");
+  if ((evidence.audioKind === "beat-drop" || evidence.audioKind === "energy-peak") && queryTokens.some((token) => token === "impact" || token === "hit")) {
+    score += 0.08;
+  }
+  if (direct && evidence.audioKind === "beat-drop" && evidence.durationFrames <= 2 && wantsPointAnchor) {
+    score += 0.04;
+  }
+  if (evidence.strength != null) score += clamp(evidence.strength, 0, 1) * 0.06;
+  return clamp(score, 0, 0.94);
+}
+
+function inferRequestedKinds(queryTokens: string[], normalizedQuery: string): Set<AudioMomentKind> {
+  const explicitBeatDrop = normalizedQuery.includes("beat drop") || normalizedQuery.includes("music drop");
+  if (explicitBeatDrop) return new Set<AudioMomentKind>(["beat-drop"]);
+
+  const kinds = new Set<AudioMomentKind>();
+  for (const [kind, terms] of Object.entries(KIND_TERMS) as Array<[AudioMomentKind, string[]]>) {
+    if (terms.some((term) => queryTokens.includes(term) || normalizedQuery.includes(term))) {
+      kinds.add(kind);
+    }
+  }
+  if (normalizedQuery.includes("dead air")) kinds.add("silence");
+  if (normalizedQuery.includes("loud hit") || normalizedQuery.includes("impact hit")) kinds.add("transient");
+  if (kinds.has("downbeat")) kinds.add("beat");
+  return kinds;
+}
+
+function areRelatedKinds(a: AudioMomentKind, b: AudioMomentKind): boolean {
+  if (a === b) return true;
+  const beatKinds = new Set<AudioMomentKind>(["beat", "downbeat", "beat-drop", "transient", "energy-peak"]);
+  if (beatKinds.has(a) && beatKinds.has(b)) return true;
+  if ((a === "problem" && (b === "silence" || b === "filler")) || (b === "problem" && (a === "silence" || a === "filler"))) return true;
+  if ((a === "music-section" && b === "beat-drop") || (a === "beat-drop" && b === "music-section")) return true;
+  return false;
+}
+
+function resolvePointRange(
+  value: unknown,
+  fps: number,
+  fallback: FrameRange,
+  index: number,
+  total: number,
+  totalDurationFrames: number,
+): FrameRange {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const frameValue = Math.max(0, Math.round(value));
+    return { startFrame: frameValue, endFrame: frameValue + 1 };
+  }
+
+  const range = resolveFrameRange(value, fps, fallback);
+  if (range.startFrame !== fallback.startFrame || range.endFrame !== fallback.endFrame) return range;
+
+  const ratio = total > 1 ? index / (total - 1) : 0;
+  const frameValue = Math.round(ratio * totalDurationFrames);
+  return { startFrame: frameValue, endFrame: frameValue + 1 };
+}
+
+function resolveFrameRange(value: unknown, fps: number, fallback: FrameRange): FrameRange {
+  if (!isRecord(value)) return fallback;
+  const frameValue = firstNumber(value, ["frame", "frameNumber", "timestampFrame", "timeFrame", "beatFrame"]);
+  const explicitStart = firstNumber(value, ["startFrame", "frameStart", "from"]);
+  const explicitEnd = firstNumber(value, ["endFrame", "frameEnd", "to"]);
+  const durationFrames = firstNumber(value, ["durationFrames", "durationInFrames"]);
+  const startMs = firstNumber(value, ["startMs", "timestampMs", "timeMs", "startMillis", "timestampMillis"]);
+  const endMs = firstNumber(value, ["endMs", "endMillis"]);
+  const startSec = firstNumber(value, ["startSec", "startSeconds", "timestampSec", "timestampSeconds", "timeSec", "timeSeconds", "time"]);
+  const endSec = firstNumber(value, ["endSec", "endSeconds"]);
+  const genericStart = firstNumber(value, ["start", "timestamp"]);
+  const genericEnd = firstNumber(value, ["end"]);
+
+  let startFrame = explicitStart
+    ?? (typeof frameValue === "number" ? frameValue : undefined)
+    ?? (typeof startMs === "number" ? Math.round((startMs / 1000) * fps) : undefined)
+    ?? (typeof startSec === "number" ? Math.round(startSec * fps) : undefined)
+    ?? genericTimeToFrame(genericStart, fps)
+    ?? fallback.startFrame;
+
+  let endFrame = explicitEnd
+    ?? (typeof durationFrames === "number" ? startFrame + durationFrames : undefined)
+    ?? (typeof endMs === "number" ? Math.round((endMs / 1000) * fps) : undefined)
+    ?? (typeof endSec === "number" ? Math.round(endSec * fps) : undefined)
+    ?? genericTimeToFrame(genericEnd, fps)
+    ?? (typeof frameValue === "number" || startMs != null || startSec != null || genericStart != null ? startFrame + 1 : undefined)
+    ?? fallback.endFrame;
+
+  startFrame = Math.max(0, Math.round(startFrame));
+  endFrame = Math.max(startFrame + 1, Math.round(endFrame));
+  return { startFrame, endFrame };
+}
+
+function genericTimeToFrame(value: number | undefined, fps: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  if (Math.abs(value) <= 180) return Math.round(value * fps);
+  return Math.round(value);
+}
+
+function firstNumber(value: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const numeric = positiveOrZeroNumber(value[key]);
+    if (typeof numeric === "number") return numeric;
+  }
+  return undefined;
+}
+
+function overlayAudioTextFacts(overlay: any): string[] {
+  const type = stringValue(overlay?.type);
+  const isAudioLike = type === "sound" || type === "audio" || type === "video";
+  if (!isAudioLike) return [];
+  return [
+    overlay?.content,
+    overlay?.text,
+    overlay?.title,
+    overlay?.name,
+    overlay?.label,
+    overlay?.metadata?.title,
+    overlay?.metadata?.label,
+    overlay?.metadata?.description,
+    overlay?.metadata?.audioDescription,
+  ]
+    .map((value) => stringValue(value))
+    .filter((value): value is string => Boolean(value));
+}
+
+function refinePointKind(kind: AudioMomentKind, item: unknown, fallbackText: string): AudioMomentKind {
+  const text = normalizeText([fallbackText, describePoint(item)].join(" "));
+  if (kind === "beat" && text.includes("downbeat")) return "downbeat";
+  if ((kind === "beat" || kind === "music-section") && text.includes("drop")) return "beat-drop";
+  return kind;
+}
+
+function inferSectionKind(item: unknown): AudioMomentKind {
+  const text = normalizeText(sectionText(item));
+  return text.includes("drop") || text.includes("chorus") || text.includes("peak") ? "beat-drop" : "music-section";
+}
+
+function inferProblemKind(item: unknown): AudioMomentKind {
+  const text = normalizeText(problemText(item));
+  if (text.includes("silence") || text.includes("pause")) return "silence";
+  if (text.includes("filler") || text.includes("um") || text.includes("uh")) return "filler";
+  return "problem";
+}
+
+function describePoint(item: unknown): string {
+  if (!isRecord(item)) return "";
+  return [
+    stringValue(item.type),
+    stringValue(item.beatType),
+    stringValue(item.label),
+    stringValue(item.description),
+    stringValue(item.section),
+  ].filter(Boolean).join(" ");
+}
+
+function silenceText(item: unknown): string {
+  const durationMs = isRecord(item) ? firstNumber(item, ["durationMs", "durationMillis"]) : undefined;
+  return durationMs ? `audio silence ${Math.round(durationMs)}ms` : "audio silence";
+}
+
+function fillerText(item: unknown): string {
+  if (!isRecord(item)) return "filler word";
+  const word = stringValue(item.word ?? item.text);
+  return word ? `filler word ${word}` : "filler word";
+}
+
+function problemText(item: unknown): string {
+  if (!isRecord(item)) return "audio problem";
+  return stringValue(item.description ?? item.reason ?? item.type ?? item.label) ?? "audio problem";
+}
+
+function sectionText(item: unknown): string {
+  if (!isRecord(item)) return "music section";
+  const label = stringValue(item.type ?? item.label ?? item.section ?? item.name) ?? "section";
+  const energy = stringValue(item.energyLevel ?? item.energy ?? item.intensity);
+  return `music ${label}${energy ? ` ${energy}` : ""}`;
+}
+
+function speechText(item: unknown): string {
+  if (!isRecord(item)) return "speech segment";
+  return stringValue(item.text ?? item.transcript ?? item.content) ?? "speech segment";
+}
+
+function strengthValue(item: unknown): number | undefined {
+  if (!isRecord(item)) return undefined;
+  return clampNumber(firstNumber(item, ["strength", "confidence", "magnitude", "energy", "score"]));
+}
+
+function energyValue(item: unknown): number | undefined {
+  if (typeof item === "number" && Number.isFinite(item)) return clamp(item, 0, 1);
+  if (!isRecord(item)) return undefined;
+  return clampNumber(firstNumber(item, ["energy", "value", "rms", "loudness", "strength", "magnitude"]));
+}
+
+function dedupeEvidence(evidence: AudioEvidence[]): AudioEvidence[] {
+  const seen = new Set<string>();
+  const result: AudioEvidence[] = [];
+  for (const item of evidence) {
+    const key = `${item.source.type}:${item.source.overlayId ?? ""}:${item.source.path}:${item.audioKind}:${item.startFrame}:${item.endFrame}:${normalizeText(item.evidenceText)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function candidateKey(candidate: AudioMomentCandidate): string {
+  return `${candidate.source.type}:${candidate.source.overlayId ?? ""}:${candidate.source.path}:${candidate.audioKind}:${candidate.startFrame}:${candidate.endFrame}:${normalizeText(candidate.text)}`;
+}
+
+function overlapsCandidate(a: AudioMomentCandidate, b: AudioMomentCandidate): boolean {
+  return a.startFrame < b.endFrame && b.startFrame < a.endFrame;
+}
+
+function tokenOverlap(a: string[], b: string[]): number {
+  const bSet = new Set(b);
+  return Array.from(new Set(a)).filter((token) => bSet.has(token)).length;
+}
+
+function scoreCharacterVector(a: string, b: string): number {
+  const aBigrams = bigrams(a);
+  const bBigrams = bigrams(b);
+  if (!aBigrams.size || !bBigrams.size) return 0;
+  let intersection = 0;
+  for (const item of aBigrams) {
+    if (bBigrams.has(item)) intersection += 1;
+  }
+  return clamp((2 * intersection) / (aBigrams.size + bBigrams.size), 0, 1);
+}
+
+function bigrams(value: string): Set<string> {
+  const normalized = normalizeText(value).replace(/\s+/g, "");
+  const result = new Set<string>();
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    result.add(normalized.slice(index, index + 2));
+  }
+  return result;
+}
+
+function confidenceLabel(confidence: number): AudioMomentCandidate["confidenceLabel"] {
+  if (confidence >= 0.78) return "high";
+  if (confidence >= 0.55) return "medium";
+  return "low";
+}
+
+function tokenize(value: string): string[] {
+  return normalizeText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+}
+
+function normalizeText(value: string): string {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function cleanText(value: string | undefined): string {
+  if (!value) return "";
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function frame(value: unknown): number {
+  return Math.max(0, Math.round(positiveOrZeroNumber(value) ?? 0));
+}
+
+function duration(value: unknown): number {
+  return Math.max(1, Math.round(positiveNumber(value) ?? DEFAULT_CLIP_DURATION_FRAMES));
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+}
+
+function positiveOrZeroNumber(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
+function clampNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" ? clamp(value, 0, 1) : undefined;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.round(clamp(value, min, max));
+}
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1)).trim()}...`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
