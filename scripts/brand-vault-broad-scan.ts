@@ -37,13 +37,18 @@ type ScanTarget = {
   crawlMaxPages: number;
 };
 
+type ScanStatus = 'ok' | 'job_failed' | 'exception';
+type ScanQualityStatus = 'pass' | 'warn' | 'fail';
+type FailureBucket = 'none' | 'blocked' | 'timeout' | 'dns' | 'fetch' | 'server' | 'empty' | 'extraction';
+
 type ScanResult = {
   id: string;
   name: string;
   website: string;
   expectedBucket: string;
-  status: 'pass' | 'warn' | 'fail';
-  scanStatus: 'ok' | 'job_failed' | 'exception';
+  status: ScanQualityStatus;
+  scanStatus: ScanStatus;
+  failureBucket: FailureBucket;
   industry?: string;
   category?: string;
   audience: string[];
@@ -249,13 +254,24 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
       crawledPageCount,
     });
 
+    const status: ScanQualityStatus =
+      reasons.length === 0 ? 'pass' : reasons.some((reason) => reason.includes('junk') || reason.includes('missing industry')) ? 'fail' : 'warn';
+
     return {
       id: target.id,
       name: target.name,
       website: target.website,
       expectedBucket: target.expectedBucket,
-      status: reasons.length === 0 ? 'pass' : reasons.some((reason) => reason.includes('junk') || reason.includes('missing industry')) ? 'fail' : 'warn',
+      status,
       scanStatus: 'ok',
+      failureBucket: classifyFailureBucket({
+        status,
+        scanStatus: 'ok',
+        reasons,
+        warnings,
+        crawledPageCount,
+        candidateCount: candidates.length,
+      }),
       industry,
       category,
       audience,
@@ -290,10 +306,11 @@ export function createBroadScanFetchOptions(
 
 function failedTarget(
   target: ScanTarget,
-  scanStatus: 'job_failed' | 'exception',
+  scanStatus: Exclude<ScanStatus, 'ok'>,
   warnings: string[],
   reason: string,
 ): ScanResult {
+  const reasons = [reason, 'missing industry', 'missing audience', 'missing palette', 'missing logo candidates', 'no crawled pages'];
   return {
     id: target.id,
     name: target.name,
@@ -301,6 +318,14 @@ function failedTarget(
     expectedBucket: target.expectedBucket,
     status: 'fail',
     scanStatus,
+    failureBucket: classifyFailureBucket({
+      status: 'fail',
+      scanStatus,
+      reasons,
+      warnings,
+      crawledPageCount: 0,
+      candidateCount: 0,
+    }),
     audience: [],
     recurringPhrases: [],
     logoCandidateCount: 0,
@@ -308,8 +333,36 @@ function failedTarget(
     candidateCount: 0,
     evidenceCount: 0,
     warnings,
-    reasons: [reason, 'missing industry', 'missing audience', 'missing palette', 'missing logo candidates', 'no crawled pages'],
+    reasons,
   };
+}
+
+export function classifyFailureBucket(args: {
+  status: ScanQualityStatus;
+  scanStatus: ScanStatus;
+  reasons: string[];
+  warnings?: string[];
+  crawledPageCount?: number;
+  candidateCount?: number;
+}): FailureBucket {
+  if (args.status === 'pass') return 'none';
+  const text = [...args.reasons, ...(args.warnings ?? [])].join(' ').toLowerCase();
+
+  if (text.includes(TARGET_TIMEOUT_REASON) || /\b(?:timed out|timeout|exceeded \d+ms)\b/.test(text)) return 'timeout';
+  if (/\b(?:enotfound|eai_again|getaddrinfo|dns)\b/.test(text)) return 'dns';
+  if (/\b(?:http 5\d\d|server error|internal server error|bad gateway|service unavailable|gateway timeout)\b/.test(text)) return 'server';
+  if (
+    /\b(?:blocked|challenge|captcha|access denied|forbidden|rate limit|rate-limited|security checkpoint|verifying your browser|bot protection|http_blocked)\b/.test(
+      text,
+    ) ||
+    /\bhttp (?:401|402|403|406|409|418|429|451)\b/.test(text)
+  ) {
+    return 'blocked';
+  }
+  if (/\b(?:fetch failed|aborted|network error|connection refused|econnreset|etimedout)\b/.test(text)) return 'fetch';
+  if (args.scanStatus !== 'ok') return 'fetch';
+  if ((args.candidateCount ?? 0) === 0 || ((args.crawledPageCount ?? 0) === 0 && text.includes('no crawled pages'))) return 'empty';
+  return 'extraction';
 }
 
 function qualityReasons(args: {
@@ -369,6 +422,9 @@ function summarize(results: ScanResult[]): Record<string, number> {
   const summary: Record<string, number> = { pass: 0, warn: 0, fail: 0 };
   for (const result of results) {
     summary[result.status] += 1;
+    if (result.failureBucket !== 'none') {
+      summary[`bucket:${result.failureBucket}`] = (summary[`bucket:${result.failureBucket}`] ?? 0) + 1;
+    }
     for (const reason of result.reasons) {
       summary[`reason:${reason}`] = (summary[`reason:${reason}`] ?? 0) + 1;
     }
@@ -377,6 +433,11 @@ function summarize(results: ScanResult[]): Record<string, number> {
 }
 
 function renderMarkdown(generatedAt: string, summary: Record<string, number>, results: ScanResult[]): string {
+  const bucketRows = Object.entries(summary)
+    .filter(([key]) => key.startsWith('bucket:'))
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, value]) => `- ${key.replace(/^bucket:/, '')}: ${value}`)
+    .join('\n');
   const reasonRows = Object.entries(summary)
     .filter(([key]) => key.startsWith('reason:'))
     .sort((a, b) => b[1] - a[1])
@@ -386,7 +447,7 @@ function renderMarkdown(generatedAt: string, summary: Record<string, number>, re
 
   const rows = results
     .map((result) =>
-      `| ${escapeMd(result.name)} | ${escapeMd(result.expectedBucket)} | ${escapeMd(result.website)} | ${result.status} | ${escapeMd(result.industry ?? '')} | ${escapeMd(result.category ?? '')} | ${result.crawledPageCount} | ${result.logoCandidateCount} | ${escapeMd(result.audience.slice(0, 3).join(', '))} | ${escapeMd(result.reasons.join('; ') || 'none')} |`,
+      `| ${escapeMd(result.name)} | ${escapeMd(result.expectedBucket)} | ${escapeMd(result.website)} | ${result.status} | ${result.failureBucket} | ${escapeMd(result.industry ?? '')} | ${escapeMd(result.category ?? '')} | ${result.crawledPageCount} | ${result.logoCandidateCount} | ${escapeMd(result.audience.slice(0, 3).join(', '))} | ${escapeMd(result.reasons.join('; ') || 'none')} |`,
     )
     .join('\n');
 
@@ -399,12 +460,15 @@ function renderMarkdown(generatedAt: string, summary: Record<string, number>, re
     `Warn: ${summary.warn}`,
     `Fail: ${summary.fail}`,
     '',
+    '## Failure Buckets',
+    bucketRows || 'none',
+    '',
     '## Failure Points',
     reasonRows || 'none',
     '',
     '## Results',
-    '| Brand | Expected bucket | Website | Status | Industry | Category | Crawled pages | Logo candidates | Audience sample | Reasons |',
-    '|---|---|---|---|---|---|---:|---:|---|---|',
+    '| Brand | Expected bucket | Website | Status | Bucket | Industry | Category | Crawled pages | Logo candidates | Audience sample | Reasons |',
+    '|---|---|---|---|---|---|---|---:|---:|---|---|',
     rows,
     '',
   ].join('\n');

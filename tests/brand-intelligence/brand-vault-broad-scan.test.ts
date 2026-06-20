@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBroadScanFetchOptions, withTimeout } from '../../scripts/brand-vault-broad-scan';
+import { classifyFailureBucket, createBroadScanFetchOptions, withTimeout } from '../../scripts/brand-vault-broad-scan';
 import type { BrandVaultBrowserRenderFetch } from '../../lib/shared/brand-vault-browser-fallback';
 
 describe('Brand Vault broad scan harness', () => {
@@ -30,6 +30,69 @@ describe('Brand Vault broad scan harness', () => {
     expect(result).toBe('timed-out');
     expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
+  it('classifies infrastructure failures separately from extraction-quality gaps', () => {
+    expect(
+      classifyFailureBucket({
+        status: 'fail',
+        scanStatus: 'exception',
+        reasons: ['target timeout', 'missing industry'],
+      }),
+    ).toBe('timeout');
+    expect(
+      classifyFailureBucket({
+        status: 'fail',
+        scanStatus: 'job_failed',
+        reasons: ['Website fetch produced only blocked or challenge HTML (http 403).'],
+      }),
+    ).toBe('blocked');
+    expect(
+      classifyFailureBucket({
+        status: 'fail',
+        scanStatus: 'exception',
+        reasons: ['getaddrinfo ENOTFOUND example.test'],
+      }),
+    ).toBe('dns');
+    expect(
+      classifyFailureBucket({
+        status: 'fail',
+        scanStatus: 'job_failed',
+        reasons: ['HTTP 503 service unavailable'],
+      }),
+    ).toBe('server');
+    expect(
+      classifyFailureBucket({
+        status: 'fail',
+        scanStatus: 'exception',
+        reasons: ['fetch failed'],
+      }),
+    ).toBe('fetch');
+    expect(
+      classifyFailureBucket({
+        status: 'warn',
+        scanStatus: 'ok',
+        reasons: ['missing palette', 'no crawled pages'],
+        crawledPageCount: 0,
+        candidateCount: 0,
+      }),
+    ).toBe('empty');
+    expect(
+      classifyFailureBucket({
+        status: 'warn',
+        scanStatus: 'ok',
+        reasons: ['missing palette'],
+        crawledPageCount: 2,
+        candidateCount: 8,
+      }),
+    ).toBe('extraction');
+    expect(
+      classifyFailureBucket({
+        status: 'pass',
+        scanStatus: 'ok',
+        reasons: [],
+      }),
+    ).toBe('none');
+  });
+
   it('uses the configured self-hosted browser render endpoint for blocked broad-scan targets', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const renderFetchFn: BrandVaultBrowserRenderFetch = async (url, init) => {
