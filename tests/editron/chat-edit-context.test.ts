@@ -17,6 +17,7 @@ import {
 } from '@/lib/editron/agent/chat-asset-tools';
 import {
   findTranscriptMomentCandidates,
+  resolveStickerOverlayTiming,
   resolveTranscriptEditRange,
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
@@ -259,7 +260,7 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-transcript-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_transcript_moment', 'resolve_transcript_edit']);
+    expect(toolNames).toEqual(['find_transcript_moment', 'resolve_transcript_edit', 'resolve_sticker_overlay']);
     expect(getChatToolMetadata('find_transcript_moment')).toMatchObject({
       label: 'Finding transcript moment',
       shortLabel: 'Find speech',
@@ -271,6 +272,13 @@ describe('chat edit context bundle', () => {
       label: 'Resolving transcript edit',
       shortLabel: 'Speech edit',
       receiptLabel: 'Resolved transcript edit',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_sticker_overlay')).toMatchObject({
+      label: 'Resolving sticker timing',
+      shortLabel: 'Sticker timing',
+      receiptLabel: 'Resolved sticker timing',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -469,6 +477,44 @@ describe('chat edit context bundle', () => {
       },
     });
     expect(candidates[0].surroundingWords).toContain('in the real world');
+  });
+
+  it('resolves transcript-anchored sticker timing into generate_html_sticker params without mutating', () => {
+    const words = makeTranscriptWords(['we', 'win', 'today'], 30);
+    const plan = resolveStickerOverlayTiming(words, 'win', {
+      description: 'small animated sparkle sticker',
+      durationFrames: 60,
+      width: 128,
+      height: 128,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      candidate: { text: 'win', startFrame: 36 },
+      useWith: {
+        generate_html_sticker: {
+          start: 36,
+          duration: 60,
+          description: 'small animated sparkle sticker',
+          x: '78%',
+          y: '14%',
+          width: 128,
+          height: 128,
+          enterAnimation: 'pop',
+          exitAnimation: 'fade',
+        },
+      },
+    });
+    expect(plan.warnings).toContain('Using upper-right safe placement because transcript words do not provide screen coordinates.');
+
+    const ambiguous = resolveStickerOverlayTiming(makeTimedTranscriptWords([
+      ['win', 30, 36],
+      ['again', 42, 48],
+      ['win', 60, 66],
+    ]), 'win');
+
+    expect(ambiguous.status).toBe('ambiguous');
+    expect(ambiguous.useWith).toBeUndefined();
   });
 
   it('resolves post-phrase transcript cut range without cutting the phrase', () => {

@@ -72,6 +72,7 @@ export const CHAT_TOOL_REGISTRY = {
   get_video_transcription: defineTool({ name: 'get_video_transcription', label: 'Reading transcript', shortLabel: 'Transcript', iconCategory: 'file', receiptLabel: 'Read transcript' }),
   find_transcript_moment: defineTool({ name: 'find_transcript_moment', label: 'Finding transcript moment', shortLabel: 'Find speech', iconCategory: 'caption', receiptLabel: 'Found transcript moment' }),
   resolve_transcript_edit: defineTool({ name: 'resolve_transcript_edit', label: 'Resolving transcript edit', shortLabel: 'Speech edit', iconCategory: 'caption', receiptLabel: 'Resolved transcript edit' }),
+  resolve_sticker_overlay: defineTool({ name: 'resolve_sticker_overlay', label: 'Resolving sticker timing', shortLabel: 'Sticker timing', iconCategory: 'sparkles', receiptLabel: 'Resolved sticker timing' }),
   find_visual_moment: defineTool({ name: 'find_visual_moment', label: 'Finding visual moment', shortLabel: 'Find visual', iconCategory: 'visual', receiptLabel: 'Found visual moment' }),
   resolve_visual_edit: defineTool({ name: 'resolve_visual_edit', label: 'Resolving visual edit', shortLabel: 'Visual edit', iconCategory: 'visual', receiptLabel: 'Resolved visual edit' }),
   resolve_keyframe_edit: defineTool({ name: 'resolve_keyframe_edit', label: 'Resolving keyframes', shortLabel: 'Keyframes', iconCategory: 'keyframe', receiptLabel: 'Resolved keyframes' }),

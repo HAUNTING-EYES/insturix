@@ -47,6 +47,8 @@ export interface TranscriptMomentCandidate {
 
 export type TranscriptEditAction = "cut_phrase" | "cut_after_phrase";
 export type TranscriptEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "no-range";
+export type StickerOverlayResolutionStatus = "ready" | "no-match" | "ambiguous";
+export type StickerOverlayPlacement = "upper-right" | "upper-left" | "lower-right" | "lower-left";
 
 export interface TranscriptEditResolveOptions extends TranscriptMomentOptions {
   action?: TranscriptEditAction;
@@ -65,6 +67,37 @@ export interface TranscriptEditResolution {
   message: string;
   useWith?: {
     cut_section: { startFrame: number; endFrame: number; note: string };
+  };
+}
+
+export interface StickerOverlayResolveOptions extends TranscriptMomentOptions {
+  description?: string;
+  durationFrames?: number;
+  offsetFrames?: number;
+  placement?: StickerOverlayPlacement;
+  width?: number;
+  height?: number;
+}
+
+export interface StickerOverlayResolution {
+  status: StickerOverlayResolutionStatus;
+  query: string;
+  candidates: TranscriptMomentCandidate[];
+  candidate?: TranscriptMomentCandidate;
+  warnings: string[];
+  message: string;
+  useWith?: {
+    generate_html_sticker: {
+      start: number;
+      duration: number;
+      description: string;
+      x: string;
+      y: string;
+      width: number;
+      height: number;
+      enterAnimation: "fade" | "pop" | "bounce" | "slideUp" | "slideDown" | "slideLeft" | "slideRight" | "scale" | "spin" | "elastic";
+      exitAnimation: "fade" | "pop" | "shrink" | "slideUp" | "slideDown" | "slideLeft" | "slideRight" | "scale" | "spin";
+    };
   };
 }
 
@@ -104,6 +137,21 @@ const transcriptEditSchema = z.object({
   forceRefresh: z.boolean().default(false).describe("Refresh cached transcription before searching media assets."),
   minGapFrames: z.coerce.number().int().min(1).max(120).default(6).describe("Minimum silence/dead-air gap after the phrase before cut_after_phrase is allowed."),
   maxCutFrames: z.coerce.number().int().min(1).max(300).default(90).describe("Maximum frames to remove after the phrase without asking for confirmation."),
+});
+
+const stickerOverlaySchema = z.object({
+  query: z.string().min(1).describe("Spoken word or phrase that anchors the sticker timing."),
+  description: z.string().min(1).optional().describe("Sticker description to pass to generate_html_sticker, such as 'small animated sparkle sticker'."),
+  videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline overlay id to constrain transcript search."),
+  limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum transcript candidates to inspect before resolving ambiguity."),
+  minConfidence: z.coerce.number().min(0).max(1).default(0.42).describe("Minimum candidate confidence."),
+  includeCaptions: z.boolean().default(true).describe("Also search caption overlays already present on the timeline."),
+  forceRefresh: z.boolean().default(false).describe("Refresh cached transcription before searching media assets."),
+  durationFrames: z.coerce.number().int().min(12).max(180).default(60).describe("Sticker duration in frames. 60 frames is two seconds at 30fps."),
+  offsetFrames: z.coerce.number().int().min(-30).max(30).default(0).describe("Optional timing offset from the matched word start."),
+  placement: z.enum(["upper-right", "upper-left", "lower-right", "lower-left"]).default("upper-right").describe("Safe frame zone for the sticker. Defaults away from the usual speaker center."),
+  width: z.coerce.number().int().min(64).max(260).default(140).describe("Sticker width in pixels."),
+  height: z.coerce.number().int().min(64).max(260).default(140).describe("Sticker height in pixels."),
 });
 
 export function createChatTranscriptTools({ userId, projectId }: CreateChatTranscriptToolsOptions) {
@@ -193,7 +241,51 @@ Returns cut_section-ready startFrame/endFrame only when the phrase match is exac
     },
   );
 
-  return [findTranscriptMoment, resolveTranscriptEdit];
+  const resolveStickerOverlay = tool(
+    async (input: z.infer<typeof stickerOverlaySchema>) => {
+      const [{ projectService }, media] = await Promise.all([
+        import("../services/project-service"),
+        import("../services/media"),
+      ]);
+      const project = await projectService.loadProject(userId, projectId);
+      const fps = positiveNumber(project?.fps) ?? DEFAULT_FPS;
+      const words = await buildTranscriptWordsFromProject(project, {
+        fps,
+        userId,
+        forceRefresh: input.forceRefresh,
+        includeCaptions: input.includeCaptions,
+        videoOverlayId: input.videoOverlayId,
+        getTranscription: media.getTranscription,
+      });
+      const plan = resolveStickerOverlayTiming(words, input.query, {
+        description: input.description,
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+        durationFrames: input.durationFrames,
+        offsetFrames: input.offsetFrames,
+        placement: input.placement,
+        width: input.width,
+        height: input.height,
+      });
+
+      return JSON.stringify({
+        status: plan.status === "ready" ? "success" : "error",
+        data: {
+          ...plan,
+          searchedWordCount: words.length,
+        },
+        message: plan.message,
+      });
+    },
+    {
+      name: "resolve_sticker_overlay",
+      description: `Resolve a spoken word/phrase into generate_html_sticker-ready timing and safe placement params.
+Use before transcript-anchored sticker requests like "add a sparkle sticker near the word win". This tool never generates HTML and never mutates the project; it only returns params for generate_html_sticker when the transcript match is exact and unambiguous.`,
+      schema: stickerOverlaySchema,
+    },
+  );
+
+  return [findTranscriptMoment, resolveTranscriptEdit, resolveStickerOverlay];
 }
 
 export function findTranscriptMomentCandidates(
@@ -367,6 +459,91 @@ export function resolveTranscriptEditRange(
   };
 }
 
+export function resolveStickerOverlayTiming(
+  words: TranscriptSearchWord[],
+  query: string,
+  options: StickerOverlayResolveOptions = {},
+): StickerOverlayResolution {
+  const candidates = findTranscriptMomentCandidates(words, query, {
+    limit: options.limit ?? 5,
+    minConfidence: options.minConfidence ?? 0.42,
+  });
+  const warnings: string[] = [];
+
+  if (!candidates.length) {
+    return {
+      status: "no-match",
+      query,
+      candidates,
+      warnings,
+      message: `No transcript word or phrase matched "${query}" for sticker placement.`,
+    };
+  }
+
+  const candidate = candidates[0];
+  if (!candidate || !candidate.safeForAutoEdit) {
+    const second = candidates[1];
+    return {
+      status: "ambiguous",
+      query,
+      candidates,
+      candidate,
+      warnings,
+      message: second
+        ? `Sticker anchor "${query}" is ambiguous between frames ${candidate?.startFrame}-${candidate?.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before generating a sticker.`
+        : `Sticker anchor "${query}" was not exact/confident enough for automatic sticker placement.`,
+    };
+  }
+
+  const duration = clampInt(options.durationFrames ?? 60, 12, 180);
+  const offset = clampInt(options.offsetFrames ?? 0, -30, 30);
+  const width = clampInt(options.width ?? 140, 64, 260);
+  const height = clampInt(options.height ?? 140, 64, 260);
+  const placement = options.placement ?? "upper-right";
+  const position = stickerSafePosition(placement);
+  const start = Math.max(0, candidate.startFrame + offset);
+  const description = options.description?.trim() || `Small animated sticker accent for "${candidate.text}"`;
+
+  if (placement === "upper-right") {
+    warnings.push("Using upper-right safe placement because transcript words do not provide screen coordinates.");
+  }
+
+  return {
+    status: "ready",
+    query,
+    candidates,
+    candidate,
+    warnings,
+    useWith: {
+      generate_html_sticker: {
+        start,
+        duration,
+        description,
+        x: position.x,
+        y: position.y,
+        width,
+        height,
+        enterAnimation: "pop",
+        exitAnimation: "fade",
+      },
+    },
+    message: `Resolved sticker anchor "${candidate.text}" to frame ${start} for generate_html_sticker.`,
+  };
+}
+
+function stickerSafePosition(placement: StickerOverlayPlacement): { x: string; y: string } {
+  switch (placement) {
+    case "upper-left":
+      return { x: "8%", y: "14%" };
+    case "lower-left":
+      return { x: "8%", y: "74%" };
+    case "lower-right":
+      return { x: "78%", y: "74%" };
+    case "upper-right":
+    default:
+      return { x: "78%", y: "14%" };
+  }
+}
 function resolvePostPhraseGap(
   words: TranscriptSearchWord[],
   candidate: TranscriptMomentCandidate,
