@@ -2946,7 +2946,7 @@ async function executeAction(
       try {
         const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
         const fps = 30; // Standard
-        const report = runQualityReview(overlays, fps, undefined, undefined, constraintViolations, genreParams);
+        const report = runQualityReview(overlays, fps, undefined, undefined, constraintViolations, undefined, genreParams);
         console.log(`[Director] Quality review: score=${report.overallScore}/100, issues=${report.issues.length}`);
         if (report.issues.length > 0) {
           const criticalCount = report.issues.filter(i => i.severity === 'critical').length;
