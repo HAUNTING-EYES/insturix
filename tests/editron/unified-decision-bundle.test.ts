@@ -1337,6 +1337,61 @@ describe('unified decision bundle merge', () => {
     expect(merged.expectedSkipped).toBe(0);
   });
 
+  it('routes signal-only SFX through planner licensing instead of raw execution', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({ type: 'sfx-trigger', frame: 100, source: 'signal-executor:sfx-1', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 100 } }),
+          decision({ type: 'sfx-trigger', frame: 220, source: 'signal-executor:sfx-2', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 220 } }),
+          decision({ type: 'sfx-trigger', frame: 340, source: 'signal-executor:sfx-3', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 340 } }),
+          decision({ type: 'sfx-trigger', frame: 460, source: 'signal-executor:sfx-4', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 460 } }),
+          decision({ type: 'sfx-trigger', frame: 580, source: 'signal-executor:sfx-5', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 580 } }),
+          decision({ type: 'sfx-trigger', frame: 700, source: 'signal-executor:sfx-6', confidence: 0.9, params: { sfxType: 'impact', beatFrame: 700 } }),
+        ]),
+      },
+    ]);
+
+    expect(bundle?.source).toBe('signal-driven');
+    expect(bundle?.authority).toMatchObject({
+      executableProducer: 'unified-planner',
+      decisionMode: 'unified-planner',
+      signalDecisionRole: 'co-owner',
+      signalDecisionsCanAddExecutable: true,
+    });
+    expect(bundle?.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(1);
+    expect(bundle?.edl.decisions[0].params.unifiedDecisionMerge).toEqual(expect.objectContaining({
+      role: 'signal-selected',
+      executionLicense: 'licensed-by-sfx-family-plan',
+      familyPlanner: expect.objectContaining({
+        version: 'sfx-family-planner-v1',
+        family: 'audio',
+        placementAllowed: true,
+      }),
+    }));
+    expect(bundle?.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 0,
+      signalDecisionCount: 6,
+      addedSignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 5,
+    }));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'licensed-by-sfx-family-plan': expect.objectContaining({ count: 1 }),
+      'signal-rhythm-budget-exhausted': expect.objectContaining({ count: 5 }),
+    }));
+  });
+
+  it('keeps signal-only SFX labels evidence-only until sync atoms exist', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      { source: 'signal-driven', edl: edl([decision({ type: 'sfx-trigger', frame: 100, source: 'signal-executor:sfx-label', confidence: 0.9, params: { sfxType: 'impact' } })]) },
+    ]);
+
+    expect(bundle?.edl.decisions.filter((d) => d.type === 'sfx-trigger')).toHaveLength(0);
+    expect(bundle?.evidence).toEqual(expect.objectContaining({ addedSignalDecisionCount: 0, evidenceOnlySignalDecisionCount: 1 }));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-audio-beat-atoms': expect.objectContaining({ count: 1 }),
+    }));
+  });
   it('keeps unified-planner authority after later signal batches add only evidence', () => {
     let bundle = planUnifiedDecisionBundle(null, {
       source: 'creative-brief',

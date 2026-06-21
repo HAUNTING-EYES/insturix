@@ -658,7 +658,7 @@ export function planUnifiedDecisionBundleFromCandidates(
   if (candidates.length === 0) return null;
 
   const producerSet = new Set(candidates.map((candidate) => candidate.source));
-  if (producerSet.has('creative-brief') && producerSet.has('signal-driven')) {
+  if (producerSet.has('signal-driven')) {
     return planUnifiedDecisionBundleFromRankedCandidates(candidates, options);
   }
 
@@ -766,10 +766,14 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   const selectedSignalCount = selectedEntries.filter((entry) => entry.source === 'signal-driven').length;
   const selectedCreativeCount = selectedEntries.filter((entry) => entry.source === 'creative-brief').length;
 
+  const source: UnifiedDecisionBundleSource = selectedCreativeCount > 0
+    ? 'creative-brief+signal-driven'
+    : 'signal-driven';
   return {
-    source: 'creative-brief+signal-driven',
+    source,
     authority,
     edl,
+    graphicsDensity: orderedProducerCandidates.find((candidate) => candidate.graphicsDensity)?.graphicsDensity,
     expectedExecuted: edl.totalDecisions,
     expectedSkipped: evidenceOnlySignalDecisionCount,
     evidence: {

@@ -84,4 +84,17 @@ describe('director worker completion health', () => {
       expect(source).not.toContain('?? 50');
     }
   });
+
+  it('propagates fatal Director errors after lock cleanup instead of returning fake completion', () => {
+    const directorAgentSource = readFileSync(join(process.cwd(), 'lib/editron/agent/director-agent.ts'), 'utf8');
+
+    expect(directorAgentSource).toContain('let fatalDirectorError: Error | null = null');
+    expect(directorAgentSource).toContain('fatalDirectorError = err instanceof Error ? err : new Error(String(err));');
+    expect(directorAgentSource).toContain("await unlockDb.collection('projects').updateOne(");
+    expect(directorAgentSource).toContain('if (fatalDirectorError) {');
+    expect(directorAgentSource).toContain('throw fatalDirectorError;');
+    expect(directorAgentSource.indexOf('throw fatalDirectorError;')).toBeGreaterThan(
+      directorAgentSource.indexOf("await unlockDb.collection('projects').updateOne(")
+    );
+  });
 });

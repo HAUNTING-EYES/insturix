@@ -297,6 +297,7 @@ export async function executeDirectorPlan(
     executionMs: 0,
     warnings: [],
   };
+  let fatalDirectorError: Error | null = null;
 
   try {
     // E2 FIX: Lock project during Director execution.
@@ -2395,14 +2396,16 @@ export async function executeDirectorPlan(
       console.warn(`[Director] Graph sync dispatch failed: ${graphErr.message}`);
     }
   } catch (err: any) {
-    result.warnings.push(`Director Agent failed: ${err.message}`);
-    console.error('[Director] Execution failed:', err.message);
+    fatalDirectorError = err instanceof Error ? err : new Error(String(err));
+    result.success = false;
+    result.warnings.push(`Director Agent failed: ${fatalDirectorError.message}`);
+    console.error('[Director] Execution failed:', fatalDirectorError.message);
 
     try {
       const { transitionProjectStatus } = await import('@/lib/shared/project-status');
       await transitionProjectStatus(
         projectId, userId, 'failed', 'director_error',
-        { message: err.message, service: 'editron' },
+        { message: fatalDirectorError.message, service: 'editron' },
       );
     } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
   }
@@ -2423,6 +2426,11 @@ export async function executeDirectorPlan(
     result.pipelineWarnings = pwAll;
     console.log(`[Director] ${pipelineWarnings.getSummary()}`);
   }
+  if (fatalDirectorError) {
+    console.error(`[Director] Failed after ${result.executionMs}ms; propagating fatal error to caller`);
+    throw fatalDirectorError;
+  }
+
   console.log(`[Director] Complete: ${result.actionsExecuted} actions, ${result.actionsSkipped.length} skipped, ${result.executionMs}ms`);
 
   return result;
