@@ -88,7 +88,7 @@ Your task is to write a highly engaging, platform-native post for ${platformConf
 
 ## Generation Requirements
 1. **Content:** Write the FINAL, publishable text. No meta-commentary. Do not wrap in markdown code blocks.
-d2. **Factual Density & Completeness:**
+2. **Factual Density & Completeness:**
    - Treat the original user brief as the source of truth. If an idea/angle is present, use it only as creative framing.
    - DO NOT write vague or generic fluff. You MUST explicitly include all details from the prompt/context: exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
    - If the intent is promotional or event-based, you MUST include a clear Call-To-Action (CTA) and relevant signup/participation details.
