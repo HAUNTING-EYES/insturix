@@ -54,6 +54,7 @@ export default function TrackLane({ track, zoom, isSelected, timelineWidth }: Tr
     origStartTime: number,
     origSourceOffset: number,
     origDuration: number,
+    origSourceDuration: number,
   ) => {
     e.stopPropagation();
     e.preventDefault();
@@ -87,7 +88,9 @@ export default function TrackLane({ track, zoom, isSelected, timelineWidth }: Tr
         });
       } else if (d.mode === "trim-left") {
         const maxTrim = d.origDuration - 0.01;
-        const clampedDt = Math.max(-d.origSourceOffset, Math.min(maxTrim, dt));
+        // Also prevent startTime from going negative
+        const minDt = Math.max(-d.origSourceOffset, -d.origStartTime);
+        const clampedDt = Math.max(minDt, Math.min(maxTrim, dt));
         dispatch({
           type: "TRIM_REGION",
           trackId: track.id,
@@ -97,7 +100,9 @@ export default function TrackLane({ track, zoom, isSelected, timelineWidth }: Tr
           duration: d.origDuration - clampedDt,
         });
       } else {
-        const newDur = Math.max(0.01, d.origDuration + dt);
+        // Clamp: duration must stay within [0.01, remaining source audio]
+        const maxDur = origSourceDuration - d.origSourceOffset;
+        const newDur = Math.min(maxDur, Math.max(0.01, d.origDuration + dt));
         dispatch({
           type: "TRIM_REGION",
           trackId: track.id,
@@ -117,7 +122,7 @@ export default function TrackLane({ track, zoom, isSelected, timelineWidth }: Tr
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [zoom, track.id, dispatch, getDragMode]);
+  }, [zoom, track.id, dispatch, getDragMode, state.snapEnabled, state.project?.bpm]);
 
   const gainLane = track.automationLanes.find((l) => l.param === "gain");
   const visibleLane = track.automationLanes.find((l) => l.visible);
@@ -214,7 +219,7 @@ export default function TrackLane({ track, zoom, isSelected, timelineWidth }: Tr
               key={region.id}
               title={region.name}
               onMouseDown={(e) =>
-                handleRegionMouseDown(e, region.id, left, width, region.startTime, region.sourceOffset, region.duration)
+                handleRegionMouseDown(e, region.id, left, width, region.startTime, region.sourceOffset, region.duration, region.sourceDuration)
               }
               onMouseMove={(e) => {
                 if (!dragRef.current) {

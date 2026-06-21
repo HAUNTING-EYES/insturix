@@ -15,6 +15,10 @@ export async function GET(req: Request) {
   try {
     const { musitronProjects } = await getMusitronCollections();
 
+    const url = new URL(req.url);
+    const limitParam = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const limit = Math.max(1, Math.min(100, Number.isFinite(limitParam) ? limitParam : 50));
+
     const filter = orgId
       ? { clerkUserId: userId, orgId }
       : { clerkUserId: userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };
@@ -23,7 +27,7 @@ export async function GET(req: Request) {
       .aggregate([
         { $match: filter },
         { $sort: { updatedAt: -1 } },
-        { $limit: 50 },
+        { $limit: limit },
         {
           $project: {
             name: 1,

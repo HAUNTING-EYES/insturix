@@ -47,6 +47,11 @@ async function renderOffline(
       const end = region.startTime + region.duration;
       if (end > totalDuration) totalDuration = end;
     }
+    for (const midiRegion of (track.midiRegions ?? [])) {
+      if (midiRegion.muted) continue;
+      const end = midiRegion.startTime + midiRegion.duration;
+      if (end > totalDuration) totalDuration = end;
+    }
   }
   totalDuration += 0.5;
 
@@ -63,7 +68,9 @@ async function renderOffline(
 
   let totalRegions = 0;
   for (const track of project.tracks) {
-    const isMuted = track.mixer.mute || (hasSolo && !soloedIds.has(track.id));
+    const isMuted = hasSolo
+      ? !soloedIds.has(track.id)
+      : track.mixer.mute;
     if (isMuted) continue;
     for (const region of track.regions) {
       if (!region.muted) totalRegions++;
@@ -73,7 +80,9 @@ async function renderOffline(
   let loaded = 0;
 
   for (const track of project.tracks) {
-    const isMuted = track.mixer.mute || (hasSolo && !soloedIds.has(track.id));
+    const isMuted = hasSolo
+      ? !soloedIds.has(track.id)
+      : track.mixer.mute;
     if (isMuted) continue;
 
     const trackGain = ctx.createGain();

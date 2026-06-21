@@ -61,10 +61,11 @@ export default function WaveformCanvas({
     const amp = midY * 0.9;
 
     const totalPeaks = peaks.length;
-    const startFrac = sourceDuration > 0 ? sourceOffset / sourceDuration : 0;
+    const totalDur = peaks.duration > 0 ? peaks.duration : sourceOffset + sourceDuration;
+    const startFrac = totalDur > 0 ? sourceOffset / totalDur : 0;
+    const endFrac = totalDur > 0 ? Math.min(1, (sourceOffset + sourceDuration) / totalDur) : 1;
     const peakStart = Math.floor(startFrac * totalPeaks);
-    const visiblePeaks = Math.max(1, Math.floor((sourceOffset > 0 ? sourceDuration / (sourceDuration + sourceOffset) : 1) * totalPeaks));
-    const peakEnd = Math.min(peakStart + visiblePeaks, totalPeaks);
+    const peakEnd = Math.min(Math.ceil(endFrac * totalPeaks), totalPeaks);
     const peakCount = peakEnd - peakStart;
 
     if (peakCount <= 0) return;

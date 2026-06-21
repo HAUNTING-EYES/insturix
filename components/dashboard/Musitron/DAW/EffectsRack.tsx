@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useDAW } from "./DAWContext";
 import {
   type EffectType,
@@ -63,6 +63,19 @@ interface EffectsRackProps {
 export default function EffectsRack({ trackId }: EffectsRackProps) {
   const { state, dispatch } = useDAW();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [addMenuOpen]);
 
   const track = state.project?.tracks.find((t) => t.id === trackId);
   if (!track) return null;
@@ -90,7 +103,7 @@ export default function EffectsRack({ trackId }: EffectsRackProps) {
     <div style={rackStyle}>
       <div style={headerStyle}>
         <span style={headerLabelStyle}>FX — {track.name}</span>
-        <div style={{ position: "relative" }}>
+        <div ref={addMenuRef} style={{ position: "relative" }}>
           <button onClick={() => setAddMenuOpen(!addMenuOpen)} style={addBtnStyle}>
             + Add
           </button>

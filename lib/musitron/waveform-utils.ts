@@ -1,6 +1,7 @@
 export interface WaveformPeaks {
   peaks: Float32Array;
   length: number;
+  duration: number;
 }
 
 const peakCache = new Map<string, WaveformPeaks>();
@@ -51,7 +52,7 @@ export async function extractPeaks(
     peaks[i * 2 + 1] = max;
   }
 
-  const result: WaveformPeaks = { peaks, length: actualPeaks };
+  const result: WaveformPeaks = { peaks, length: actualPeaks, duration: audioBuffer.duration };
   peakCache.set(url, result);
   return result;
 }

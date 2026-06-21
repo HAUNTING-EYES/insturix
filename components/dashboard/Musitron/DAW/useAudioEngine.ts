@@ -10,6 +10,7 @@ export function useAudioEngine(): React.RefObject<AudioEngine | null> {
   const { state, positionRef } = useDAW();
   const engineRef = useRef<AudioEngine | null>(null);
   const synthsRef = useRef<Map<string, SynthEngine>>(new Map());
+  const prevEffectsRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     engineRef.current = new AudioEngine();
@@ -34,6 +35,9 @@ export function useAudioEngine(): React.RefObject<AudioEngine | null> {
 
       const projectTrackIds = new Set(state.project!.tracks.map((t) => t.id));
       engine.pruneRemovedTracks(projectTrackIds);
+      for (const id of prevEffectsRef.current.keys()) {
+        if (!projectTrackIds.has(id)) prevEffectsRef.current.delete(id);
+      }
 
       for (const track of state.project!.tracks) {
         engine.ensureTrack(track.id);
@@ -57,7 +61,11 @@ export function useAudioEngine(): React.RefObject<AudioEngine | null> {
       engine.setMasterGain(state.project!.masterBus.gain);
 
       for (const track of state.project!.tracks) {
-        engine.updateTrackEffects(track.id, track.effects);
+        const effectsKey = JSON.stringify(track.effects);
+        if (prevEffectsRef.current.get(track.id) !== effectsKey) {
+          engine.updateTrackEffects(track.id, track.effects);
+          prevEffectsRef.current.set(track.id, effectsKey);
+        }
       }
 
       const ctx = engine.getContext();
@@ -69,10 +77,10 @@ export function useAudioEngine(): React.RefObject<AudioEngine | null> {
           let synth = synthsRef.current.get(track.id);
           if (!synth) {
             synth = new SynthEngine();
-            const nodes = engine.getTrackInput(track.id);
-            if (nodes) synth.connect(ctx, nodes);
             synthsRef.current.set(track.id, synth);
           }
+          const nodes = engine.getTrackInput(track.id);
+          if (nodes) synth.connect(ctx, nodes);
           synth.setPatch(track.synthPatch);
         }
         for (const [id, synth] of synthsRef.current) {
@@ -92,6 +100,8 @@ export function useAudioEngine(): React.RefObject<AudioEngine | null> {
     if (!engine || !state.project) return;
 
     if (state.transport.playing) {
+      const ctx = engine.getContext();
+      if (ctx?.state === "suspended") ctx.resume();
       engine.schedulePlayback(state.project.tracks, state.transport.position);
       const bpm = state.project.bpm ?? 120;
       for (const track of state.project.tracks) {

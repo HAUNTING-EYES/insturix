@@ -30,9 +30,9 @@ export class AudioEngine {
   private trackEffectNodes = new Map<string, EffectNodeSet[]>();
   private reverbIRCache = new Map<number, AudioBuffer>();
 
-  async init(): Promise<void> {
+  async init(sampleRate?: number): Promise<void> {
     if (this.ctx) return;
-    this.ctx = new AudioContext({ sampleRate: 44100 });
+    this.ctx = new AudioContext(sampleRate ? { sampleRate } : undefined);
     this.masterGain = this.ctx.createGain();
     this.masterAnalyser = this.ctx.createAnalyser();
     this.masterAnalyser.fftSize = 256;
@@ -207,9 +207,13 @@ export class AudioEngine {
           }
         }
 
+        const capturedSource = source;
         source.onended = () => {
-          const idx = this.activeSources.indexOf(source);
-          if (idx >= 0) this.activeSources.splice(idx, 1);
+          const idx = this.activeSources.indexOf(capturedSource);
+          if (idx >= 0) {
+            this.activeSources.splice(idx, 1);
+          }
+          try { regionGain.disconnect(); } catch {}
         };
 
         this.activeSources.push(source);
@@ -391,6 +395,10 @@ export class AudioEngine {
     this.stopPlayback();
     for (const [, nodes] of this.trackNodes) {
       try { nodes.input.disconnect(); } catch {}
+      try { nodes.gain.disconnect(); } catch {}
+      try { nodes.pan.disconnect(); } catch {}
+      try { nodes.muteGain.disconnect(); } catch {}
+      try { nodes.analyser.disconnect(); } catch {}
     }
     for (const fxSets of this.trackEffectNodes.values()) {
       for (const ens of fxSets) {
@@ -398,6 +406,12 @@ export class AudioEngine {
           try { node.disconnect(); } catch {}
         }
       }
+    }
+    if (this.masterGain) {
+      try { this.masterGain.disconnect(); } catch {}
+    }
+    if (this.masterAnalyser) {
+      try { this.masterAnalyser.disconnect(); } catch {}
     }
     this.trackEffectNodes.clear();
     this.reverbIRCache.clear();

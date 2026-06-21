@@ -25,7 +25,7 @@ export async function GET(req: Request, context: RouteContext) {
 
     const filter = orgId
       ? { _id: ObjectId.createFromHexString(id), clerkUserId: userId, orgId }
-      : { _id: ObjectId.createFromHexString(id), clerkUserId: userId };
+      : { _id: ObjectId.createFromHexString(id), clerkUserId: userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };
 
     const project = await musitronProjects.findOne(filter);
     if (!project) {
@@ -81,7 +81,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const filter = orgId
       ? { _id: ObjectId.createFromHexString(id), clerkUserId: userId, orgId }
-      : { _id: ObjectId.createFromHexString(id), clerkUserId: userId };
+      : { _id: ObjectId.createFromHexString(id), clerkUserId: userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };
 
     const result = await musitronProjects.updateOne(filter, {
       $set: {
@@ -126,7 +126,7 @@ export async function DELETE(req: Request, context: RouteContext) {
 
     const filter = orgId
       ? { _id: ObjectId.createFromHexString(id), clerkUserId: userId, orgId }
-      : { _id: ObjectId.createFromHexString(id), clerkUserId: userId };
+      : { _id: ObjectId.createFromHexString(id), clerkUserId: userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };
 
     const result = await musitronProjects.deleteOne(filter);
     if (result.deletedCount === 0) {
