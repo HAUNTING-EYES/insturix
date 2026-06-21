@@ -30,7 +30,7 @@ export async function getMusitronCollections() {
   
   return {
     musicGenerations: db.collection('musitron_tasks'),
-    // Add other collections if needed
+    musitronProjects: db.collection('musitron_projects'),
   };
 }
 
