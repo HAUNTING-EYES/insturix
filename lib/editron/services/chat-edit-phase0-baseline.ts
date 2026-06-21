@@ -262,12 +262,12 @@ export const CHAT_EDIT_PHASE0_BASELINE_CASES: readonly ChatEditBaselineCase[] = 
     id: 'operation-layer-reorder',
     category: 'operation-gap',
     prompt: 'Move the logo behind the title but keep both visible.',
-    currentStatus: 'partial-now',
-    currentEvidence: 'update_overlay can mutate row/z-style fields, but chat lacks a semantic reorder tool with collision and visibility guardrails.',
+    currentStatus: 'supported-now',
+    currentEvidence: 'reorder_layer is exposed to chat, resolves target/reference overlays, writes only row changes, and refuses sound, caption, transition, video, non-overlap, or row-collision cases unless safe/explicit.',
     successCriteria: ['identifies both overlays', 'changes stacking without breaking timing', 'preserves visibility and avoids accidental track moves'],
     targetPhases: [2, 6, 9, 10],
     requiredContext: ['overlay inventory', 'stacking/row model', 'visibility constraints'],
-    requiredTools: ['update_overlay'],
+    requiredTools: ['reorder_layer'],
   },
 ] as const;
 

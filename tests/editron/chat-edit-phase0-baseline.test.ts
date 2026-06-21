@@ -57,6 +57,7 @@ describe('chat edit Phase 0 baseline', () => {
     expect(findChatEditPhase0BaselineCase('operation-camera-shake')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-speed-ramp')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-fade')?.currentStatus).toBe('supported-now');
+    expect(findChatEditPhase0BaselineCase('operation-layer-reorder')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-filter-owner')?.currentStatus).toBe('expected-failure');
   });
 
@@ -67,8 +68,8 @@ describe('chat edit Phase 0 baseline', () => {
       version: 'chat-edit-phase0-baseline-v1',
       total: CHAT_EDIT_PHASE0_BASELINE_CASES.length,
       byStatus: {
-        'supported-now': 12,
-        'partial-now': 8,
+        'supported-now': 13,
+        'partial-now': 7,
         'expected-failure': 1,
       },
     });

@@ -17,6 +17,7 @@ import {
 import {
   applyCameraShakeToProject,
   applyFadeToProject,
+  applyLayerReorderToProject,
   applySpeedRampToProject,
   findVisualMomentCandidates,
 } from '@/lib/editron/agent/chat-visual-tools';
@@ -185,11 +186,11 @@ describe('chat edit context bundle', () => {
     });
   });
 
-  it('covers visual moment search, camera shake, speed ramp, and fade with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search, camera shake, speed ramp, fade, and layer reorder with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade']);
+    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -217,6 +218,14 @@ describe('chat edit context bundle', () => {
       label: 'Applying fade',
       shortLabel: 'Fade',
       receiptLabel: 'Applied fade',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('reorder_layer')).toMatchObject({
+      label: 'Reordering layer',
+      shortLabel: 'Layer',
+      receiptLabel: 'Reordered layer',
       mutatesProject: true,
       requiresProjectReload: true,
       riskLevel: 'medium',
@@ -576,6 +585,73 @@ describe('chat edit context bundle', () => {
       updates: [],
     });
     expect(plan.message).toContain('already has opacity keyframes');
+  });
+
+  it('plans layer reorder as a row-only move behind a reference overlay', () => {
+    const plan = applyLayerReorderToProject({
+      overlays: [
+        { id: 30, type: 'image', from: 90, durationInFrames: 60, row: 4, content: 'Logo mark' },
+        { id: 31, type: 'text', from: 90, durationInFrames: 60, row: 1, content: 'Main title' },
+        { id: 32, type: 'shape', from: 180, durationInFrames: 30, row: 2, content: 'Later card' },
+      ],
+    }, {
+      targetQuery: 'logo',
+      referenceQuery: 'title',
+      relation: 'behind',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 30,
+      referenceOverlayId: 31,
+      updates: [{
+        overlayId: 30,
+        previousRow: 4,
+        nextRow: 2,
+        referenceOverlayId: 31,
+        relation: 'behind',
+        reason: 'semantic-layer-reorder',
+      }],
+    });
+    expect(plan.message).toContain('Moved overlay 30 from row 4 to row 2');
+  });
+
+  it('refuses layer reorder into an occupied overlapping row unless explicitly allowed', () => {
+    const plan = applyLayerReorderToProject({
+      overlays: [
+        { id: 30, type: 'image', from: 90, durationInFrames: 70, row: 4, content: 'Logo mark' },
+        { id: 31, type: 'text', from: 90, durationInFrames: 70, row: 1, content: 'Main title' },
+        { id: 32, type: 'shape', from: 120, durationInFrames: 20, row: 2, content: 'Badge' },
+      ],
+    }, {
+      overlayId: 30,
+      referenceOverlayId: 31,
+      relation: 'behind',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 30,
+      referenceOverlayId: 31,
+      updates: [],
+    });
+    expect(plan.message).toContain('Row 2 already has overlapping ordinary visual overlay(s): 32');
+  });
+
+  it('refuses layer reorder against caption render priority', () => {
+    const plan = applyLayerReorderToProject(project, {
+      overlayId: 4,
+      referenceOverlayId: 2,
+      relation: 'behind',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 4,
+      referenceOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions use fixed render priority');
   });
 
   it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {

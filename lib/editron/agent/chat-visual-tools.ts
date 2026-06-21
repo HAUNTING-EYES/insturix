@@ -149,6 +149,38 @@ export interface FadePlan {
   message: string;
 }
 
+export type LayerReorderRelation = "behind" | "in-front-of" | "front" | "back";
+
+export interface LayerReorderOptions {
+  overlayId?: OverlayId;
+  targetQuery?: string;
+  referenceOverlayId?: OverlayId;
+  referenceQuery?: string;
+  relation?: LayerReorderRelation;
+  targetRow?: number;
+  allowVideoLayerMove?: boolean;
+  allowRowCollision?: boolean;
+  allowNonOverlappingReference?: boolean;
+}
+
+export interface LayerReorderOverlayUpdate {
+  overlayId: OverlayId;
+  previousRow: number;
+  nextRow: number;
+  referenceOverlayId?: OverlayId;
+  relation: LayerReorderRelation | "target-row";
+  reason: string;
+}
+
+export interface LayerReorderPlan {
+  status: "changed" | "no-target" | "conflict";
+  targetOverlayId?: OverlayId;
+  referenceOverlayId?: OverlayId;
+  updates: LayerReorderOverlayUpdate[];
+  warnings: string[];
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -209,6 +241,18 @@ const fadeSchema = z.object({
   replaceExistingOpacityKeyframes: z.boolean().default(false).describe("Allow replacing existing opacity keyframes. Keep false unless the user explicitly wants to overwrite opacity animation."),
   allowCaptionFade: z.boolean().default(false).describe("Allow fading caption/subtitle overlays. Keep false unless captions were explicitly targeted."),
   allowBrandFade: z.boolean().default(false).describe("Allow fading likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
+});
+
+const layerReorderSchema = z.object({
+  overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id to move in layer order. Prefer selectedOverlayId when the user says this overlay."),
+  targetQuery: z.string().min(1).optional().describe("Natural-language target overlay reference such as logo, title, lower third, or asset label when overlayId is unavailable."),
+  referenceOverlayId: z.union([z.string(), z.number()]).optional().describe("Reference overlay id for behind/in-front-of moves."),
+  referenceQuery: z.string().min(1).optional().describe("Natural-language reference overlay such as title or background when referenceOverlayId is unavailable."),
+  relation: z.enum(["behind", "in-front-of", "front", "back"]).default("in-front-of").describe("Desired stacking relation. In Editron lower row renders in front for ordinary visual overlays."),
+  targetRow: z.coerce.number().int().min(0).optional().describe("Explicit target row. Use only when the user asks for a specific layer/row."),
+  allowVideoLayerMove: z.boolean().default(false).describe("Allow moving a video overlay row. Keep false unless the user explicitly asks to layer the source clip."),
+  allowRowCollision: z.boolean().default(false).describe("Allow moving into a row that already has an overlapping ordinary visual overlay."),
+  allowNonOverlappingReference: z.boolean().default(false).describe("Allow reference-based reorder when target and reference overlays do not overlap in time."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -532,7 +576,45 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
     },
   );
 
-  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade];
+  const reorderLayer = tool(
+    async (input: z.infer<typeof layerReorderSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applyLayerReorderToProject(project, input);
+        if (plan.status !== "changed") {
+          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        }
+
+        for (const update of plan.updates) {
+          const numericOverlayId = Number(update.overlayId);
+          if (!Number.isFinite(numericOverlayId)) {
+            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
+          }
+          await projectService.updateOverlay(userId, projectId, numericOverlayId, {
+            row: update.nextRow,
+          } as any);
+        }
+
+        return JSON.stringify({ status: "success", data: plan });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to reorder layer." });
+      }
+    },
+    {
+      name: "reorder_layer",
+      description: `Move one ordinary visual overlay in front of or behind another overlay by changing the existing row field.
+Use for "move the logo behind the title", "bring this sticker forward", "send this background back", or explicit layer/row requests.
+Lower rows render in front for ordinary overlays. This refuses sound, captions, transitions, protected video moves, non-overlapping references, and row collisions unless explicitly allowed.`,
+      schema: layerReorderSchema,
+    },
+  );
+
+  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade, reorderLayer];
 }
 
 export function applyCameraShakeToProject(
@@ -875,6 +957,167 @@ export function applyFadeToProject(
   };
 }
 
+export function applyLayerReorderToProject(
+  project: any,
+  options: LayerReorderOptions,
+): LayerReorderPlan {
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const targetResult = resolveLayerReorderOverlay(project, options.overlayId, options.targetQuery, "target");
+  if (!targetResult.ok) {
+    return {
+      status: "no-target",
+      updates: [],
+      warnings: targetResult.warnings,
+      message: targetResult.message,
+    };
+  }
+
+  const target = targetResult.overlay;
+  const warnings = [...targetResult.warnings];
+  const targetBlock = layerReorderBlockReason(target, "target", Boolean(options.allowVideoLayerMove));
+  if (targetBlock) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: targetBlock,
+    };
+  }
+
+  const previousRow = currentOverlayRow(target);
+  let reference: any | undefined;
+  let relation: LayerReorderRelation | "target-row" = options.relation ?? "in-front-of";
+  let nextRow = positiveOrZeroNumber(options.targetRow);
+
+  if (nextRow != null) {
+    nextRow = Math.round(nextRow);
+    relation = "target-row";
+    if (options.referenceOverlayId != null || options.referenceQuery) {
+      warnings.push("Explicit targetRow was supplied, so reference overlay relation was not used.");
+    }
+  } else if (relation === "front") {
+    nextRow = 0;
+  } else if (relation === "back") {
+    nextRow = overlays.reduce((maxRow: number, overlay: any) => Math.max(maxRow, currentOverlayRow(overlay)), 0) + 1;
+  } else {
+    const referenceResult = resolveLayerReorderOverlay(project, options.referenceOverlayId, options.referenceQuery, "reference");
+    if (!referenceResult.ok) {
+      return {
+        status: "no-target",
+        targetOverlayId: target.id,
+        updates: [],
+        warnings: [...warnings, ...referenceResult.warnings],
+        message: referenceResult.message,
+      };
+    }
+
+    reference = referenceResult.overlay;
+    warnings.push(...referenceResult.warnings);
+    if (String(reference.id) === String(target.id)) {
+      return {
+        status: "conflict",
+        targetOverlayId: target.id,
+        referenceOverlayId: reference.id,
+        updates: [],
+        warnings,
+        message: "Layer reorder target and reference resolved to the same overlay.",
+      };
+    }
+
+    const referenceBlock = layerReorderBlockReason(reference, "reference", true);
+    if (referenceBlock) {
+      return {
+        status: "conflict",
+        targetOverlayId: target.id,
+        referenceOverlayId: reference.id,
+        updates: [],
+        warnings,
+        message: referenceBlock,
+      };
+    }
+
+    if (!options.allowNonOverlappingReference && !rangesOverlap(overlayFrameRange(target), overlayFrameRange(reference))) {
+      return {
+        status: "conflict",
+        targetOverlayId: target.id,
+        referenceOverlayId: reference.id,
+        updates: [],
+        warnings,
+        message: `Overlay ${String(target.id)} and reference overlay ${String(reference.id)} do not overlap in time, so changing layer order would not have a visible effect.`,
+      };
+    }
+
+    const referenceRow = currentOverlayRow(reference);
+    if (relation === "behind") {
+      nextRow = referenceRow + 1;
+    } else {
+      if (referenceRow <= 0) {
+        return {
+          status: "conflict",
+          targetOverlayId: target.id,
+          referenceOverlayId: reference.id,
+          updates: [],
+          warnings,
+          message: `Reference overlay ${String(reference.id)} is already on the frontmost ordinary row (0); moving another overlay in front requires an explicit targetRow or a manual row shift.`,
+        };
+      }
+      nextRow = referenceRow - 1;
+    }
+  }
+
+  if (nextRow == null || nextRow < 0) {
+    return {
+      status: "no-target",
+      targetOverlayId: target.id,
+      referenceOverlayId: reference?.id,
+      updates: [],
+      warnings,
+      message: "Layer reorder needs a reference relation, targetRow, front, or back destination.",
+    };
+  }
+
+  const roundedNextRow = Math.round(nextRow);
+  if (roundedNextRow === previousRow) {
+    return {
+      status: "no-target",
+      targetOverlayId: target.id,
+      referenceOverlayId: reference?.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(target.id)} is already on row ${roundedNextRow}.`,
+    };
+  }
+
+  const collisions = findLayerRowCollisions(overlays, target, roundedNextRow);
+  if (collisions.length && !options.allowRowCollision) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      referenceOverlayId: reference?.id,
+      updates: [],
+      warnings,
+      message: `Row ${roundedNextRow} already has overlapping ordinary visual overlay(s): ${collisions.map((overlay) => String(overlay.id)).join(", ")}. Ask to allow row collision only if this stacking ambiguity is intentional.`,
+    };
+  }
+
+  return {
+    status: "changed",
+    targetOverlayId: target.id,
+    referenceOverlayId: reference?.id,
+    updates: [{
+      overlayId: target.id,
+      previousRow,
+      nextRow: roundedNextRow,
+      referenceOverlayId: reference?.id,
+      relation,
+      reason: "semantic-layer-reorder",
+    }],
+    warnings,
+    message: `Moved overlay ${String(target.id)} from row ${previousRow} to row ${roundedNextRow}.`,
+  };
+}
+
 function resolveSpeedRampFrameRange(
   project: any,
   options: SpeedRampOptions,
@@ -1197,6 +1440,160 @@ function isFadeTrack(track: any): boolean {
     || track?.source === "apply_fade"
     || metadata?.family === "fade"
     || metadata?.source === "apply_fade";
+}
+
+function resolveLayerReorderOverlay(
+  project: any,
+  overlayId: OverlayId | undefined,
+  query: string | undefined,
+  role: "target" | "reference",
+): { ok: true; overlay: any; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+
+  if (overlayId != null) {
+    const overlay = overlays.find((candidate) => String(candidate?.id) === String(overlayId));
+    if (!overlay) {
+      return {
+        ok: false,
+        warnings,
+        message: `${role === "target" ? "Target" : "Reference"} overlay ${String(overlayId)} was not found in the project.`,
+      };
+    }
+    return { ok: true, overlay, warnings };
+  }
+
+  if (!query?.trim()) {
+    return {
+      ok: false,
+      warnings,
+      message: role === "target"
+        ? "Layer reorder needs overlayId or targetQuery for the overlay to move."
+        : "Reference-based layer reorder needs referenceOverlayId or referenceQuery.",
+    };
+  }
+
+  const normalizedQuery = normalizeText(query);
+  const queryTokens = tokenize(query);
+  const scored = overlays
+    .map((overlay) => ({ overlay, score: scoreLayerOverlayQuery(overlay, normalizedQuery, queryTokens) }))
+    .filter((candidate) => candidate.score >= 0.35)
+    .sort((a, b) => b.score - a.score || currentOverlayRow(a.overlay) - currentOverlayRow(b.overlay));
+
+  const best = scored[0];
+  if (!best) {
+    return {
+      ok: false,
+      warnings,
+      message: `No ${role} overlay matched "${query}". Use an explicit overlay id or inspect the timeline first.`,
+    };
+  }
+
+  const second = scored[1];
+  if (second && Math.abs(best.score - second.score) < 0.08) {
+    return {
+      ok: false,
+      warnings,
+      message: `${role === "target" ? "Target" : "Reference"} overlay query "${query}" is ambiguous between overlays ${String(best.overlay.id)} and ${String(second.overlay.id)}. Use overlay ids before reordering layers.`,
+    };
+  }
+
+  warnings.push(`Resolved ${role} overlay ${String(best.overlay.id)} from query "${query}".`);
+  return { ok: true, overlay: best.overlay, warnings };
+}
+
+function scoreLayerOverlayQuery(overlay: any, normalizedQuery: string, queryTokens: string[]): number {
+  if (!normalizedQuery || !queryTokens.length) return 0;
+  if (normalizeText(String(overlay?.id ?? "")) === normalizedQuery) return 1;
+
+  const evidenceText = layerOverlaySearchText(overlay);
+  const normalizedEvidence = normalizeText(evidenceText);
+  if (!normalizedEvidence) return 0;
+  if (normalizedEvidence.includes(normalizedQuery)) return 0.94;
+
+  const evidenceTokens = tokenize(evidenceText);
+  if (!evidenceTokens.length) return 0;
+
+  const overlap = tokenOverlap(queryTokens, evidenceTokens);
+  const coverage = overlap / queryTokens.length;
+  const focus = overlap / evidenceTokens.length;
+  const vector = scoreCharacterVector(normalizedQuery, normalizedEvidence);
+  return clamp((coverage * 0.6) + (focus * 0.2) + (vector * 0.2), 0, 0.9);
+}
+
+function layerOverlaySearchText(overlay: any): string {
+  const metadata = isRecord(overlay?.metadata) ? overlay.metadata : undefined;
+  return [
+    overlay?.id,
+    overlay?.type,
+    overlay?.content,
+    overlay?.text,
+    overlay?.title,
+    overlay?.name,
+    overlay?.label,
+    overlay?.assetId,
+    overlay?.sourceAssetId,
+    overlay?.mediaId,
+    overlay?.src,
+    metadata?.title,
+    metadata?.label,
+    metadata?.description,
+    metadata?.assetId,
+    ...overlayTextFacts(overlay),
+  ]
+    .map((value) => (typeof value === "number" ? String(value) : stringValue(value)))
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}
+
+function layerReorderBlockReason(overlay: any, role: "target" | "reference", allowVideoLayerMove: boolean): string | undefined {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  const label = role === "target" ? "Target" : "Reference";
+  if (type === "sound" || type === "audio") {
+    return `${label} overlay ${String(overlay?.id)} is ${type}; audio overlays do not have visual layer order.`;
+  }
+  if (type === "caption" || type === "subtitle") {
+    return `${label} overlay ${String(overlay?.id)} is ${type}; captions use fixed render priority for readability, so row changes would not truthfully control stacking.`;
+  }
+  if (type === "transition") {
+    return `${label} overlay ${String(overlay?.id)} is a transition; transitions use fixed render priority and should not be reordered by row.`;
+  }
+  if (role === "target" && type === "video" && !allowVideoLayerMove) {
+    return `Target overlay ${String(overlay?.id)} is a video clip. Ask to allow video layer move if changing source-clip stacking is intentional.`;
+  }
+  return undefined;
+}
+
+function currentOverlayRow(overlay: any): number {
+  return Math.round(positiveOrZeroNumber(overlay?.row) ?? 0);
+}
+
+function overlayFrameRange(overlay: any): FrameRange {
+  const startFrame = frame(overlay?.from);
+  return {
+    startFrame,
+    endFrame: startFrame + duration(overlay?.durationInFrames),
+  };
+}
+
+function findLayerRowCollisions(overlays: any[], target: any, nextRow: number): any[] {
+  const targetRange = overlayFrameRange(target);
+  return overlays.filter((overlay) => {
+    if (String(overlay?.id) === String(target?.id)) return false;
+    if (currentOverlayRow(overlay) !== nextRow) return false;
+    if (!isOrdinaryLayerOverlay(overlay)) return false;
+    return rangesOverlap(targetRange, overlayFrameRange(overlay));
+  });
+}
+
+function isOrdinaryLayerOverlay(overlay: any): boolean {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  return Boolean(overlay)
+    && type !== "sound"
+    && type !== "audio"
+    && type !== "caption"
+    && type !== "subtitle"
+    && type !== "transition";
 }
 
 function resolveCameraShakeTargetFrame(
