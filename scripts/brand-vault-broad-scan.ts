@@ -80,6 +80,12 @@ const DEFAULT_INPUTS = [
 const DEFAULT_TARGET_TIMEOUT_MS = 150_000;
 const TARGET_TIMEOUT_REASON = 'target timeout';
 
+// Pages to crawl per target. Production default is 24; the scan uses a smaller
+// representative budget to stay fast across hundreds of targets. Raised from the
+// old 2 (D2C) / 4 (tech) so the re-scan reflects real multi-page crawl depth now
+// that discovered storefront links are prioritized. Lower it to speed up scans.
+const BROAD_SCAN_CRAWL_MAX_PAGES = 8;
+
 const GENERIC_INDUSTRIES = new Set(['commerce', 'software', 'analytics', 'creative services', 'health']);
 const AUDIENCE_JUNK_PATTERN =
   /\b(?:shop now|add to cart|wishlist|no reviews?|mrp|sale|discount|first three months|local content|online store members?|please use a different browser|please visit the site|working of basic functionalities|nvidia|vera rubin|intel core|new arrivals?|best sellers?|current product information)\b/i;
@@ -160,7 +166,7 @@ async function loadTargetsFromFile(filePath: string): Promise<ScanTarget[]> {
   const parsed = JSON.parse(raw) as OldScanFile;
   const results = Array.isArray(parsed.results) ? parsed.results : [];
   const sourceFile = path.basename(filePath);
-  const crawlMaxPages = sourceFile.includes('india-d2c') ? 2 : 4;
+  const crawlMaxPages = BROAD_SCAN_CRAWL_MAX_PAGES;
 
   return results
     .map((item, index): ScanTarget | null => {
@@ -400,20 +406,48 @@ function qualityReasons(args: {
   return reasons;
 }
 
-function bucketMatches(expected: string, industry?: string, category?: string): boolean {
+// Consumer-vertical vocabulary keyed by canonical expected bucket. The text
+// evidence compiler puts the business model (e.g. "e-commerce/DTC") in `industry`
+// and the real vertical in free-text `category` ("personal care products",
+// "online grocery delivery"), so the evaluator matches the EXPECTED bucket's own
+// vocabulary against both fields. Testing only the expected bucket's words avoids
+// cross-vertical false positives: "children's food" counts as food for a food
+// brand and as baby for a baby brand, never both.
+const CONSUMER_BUCKET_VOCABULARY: Record<string, RegExp> = {
+  'beauty/personal care': /\b(beauty|cosmetics?|makeup|make-up|skin\s?care|skincare|hair\s?care|haircare|personal care|grooming|fragrances?|perfumes?|deodorants?|toiletr\w*|lipstick|moisturiz\w*)\b/i,
+  'food/beverage': /\b(foods?|beverages?|snacks?|coffee|teas?|drinks?|grocer\w*|dairy|confection\w*|chocolate|bakery|biscuits?|juice|cocktails?|mixers?|condiments?|nut butter|breakfast|cereals?|gourmet)\b/i,
+  'health/wellness': /\b(wellness|supplements?|nutraceutical|vitamins?|proteins?|sports nutrition|ayurved\w*|herbal|immunity|probiotic|telehealth)\b/i,
+  'fashion/apparel': /\b(apparel|clothing|fashion|garments?|lingerie|innerwear|ethnic wear|denim|loungewear)\b/i,
+  footwear: /\b(footwear|shoes?|sneakers?|sandals?|loafers?|slippers?)\b/i,
+  'jewelry/accessories': /\b(jewel\w*|bracelets?|necklaces?|earrings?|accessor\w*)\b/i,
+  eyewear: /\b(eyewear|eyeglass\w*|sunglass\w*|spectacles?)\b/i,
+  'luggage/travel': /\b(luggage|travel bags?|backpacks?|suitcases?|trolley|duffels?)\b/i,
+  'baby/kids': /\b(baby|babies|infants?|toddlers?|diaper\w*|nappy|nappies|newborns?|kids?|children|maternity)\b/i,
+  'home/living': /\b(home|living|furniture|decor|kitchenware|homeware|bedding|mattress|cookware|utensils?)\b/i,
+  'marketplace/retail': /\b(marketplace|multi-?brand|online retailer|department store)\b/i,
+};
+
+export function bucketMatches(expected: string, industry?: string, category?: string): boolean {
   if (expected === 'unknown') return true;
   const values = [industry, category].map((value) => normalizeExpectedBucket(value)).filter(Boolean);
-  return values.some((value) => {
-    if (value === expected) return true;
-    if (expected === 'software' && ['product management software', 'content production software', 'b2b analytics', 'cloud/data infrastructure', 'cybersecurity'].includes(value)) return true;
-    if (expected === 'it services' && ['cloud/data infrastructure', 'cybersecurity'].includes(value)) return true;
-    if (expected === 'semiconductor' && value === 'semiconductors') return true;
-    if (expected === 'hardware/electronics' && ['electronics/appliances', 'networking/communications equipment'].includes(value)) return true;
-    if (expected === 'beauty/personal care' && value === 'health') return true;
-    if (expected === 'marketplace/retail' && value === 'commerce') return true;
-    if (expected === 'food/beverage' && value === 'specialty coffee') return true;
-    return false;
-  });
+  if (values.some((value) => bucketValueMatches(expected, value))) return true;
+  // The real consumer vertical often lives in free-text category while industry
+  // holds the business model, so match the expected bucket's vocabulary against
+  // the combined extracted text.
+  const vocabulary = CONSUMER_BUCKET_VOCABULARY[expected];
+  return Boolean(vocabulary && vocabulary.test(`${industry ?? ''} ${category ?? ''}`));
+}
+
+function bucketValueMatches(expected: string, value: string): boolean {
+  if (value === expected) return true;
+  if (expected === 'software' && ['product management software', 'content production software', 'b2b analytics', 'cloud/data infrastructure', 'cybersecurity'].includes(value)) return true;
+  if (expected === 'it services' && ['cloud/data infrastructure', 'cybersecurity'].includes(value)) return true;
+  if (expected === 'semiconductor' && value === 'semiconductors') return true;
+  if (expected === 'hardware/electronics' && ['electronics/appliances', 'networking/communications equipment'].includes(value)) return true;
+  if (expected === 'beauty/personal care' && value === 'health') return true;
+  if (expected === 'marketplace/retail' && value === 'commerce') return true;
+  if (expected === 'food/beverage' && value === 'specialty coffee') return true;
+  return false;
 }
 
 function normalizeExpectedBucket(value: unknown): string {

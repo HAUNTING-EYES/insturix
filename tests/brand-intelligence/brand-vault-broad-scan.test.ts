@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bucketMatches,
   classifyFailureBucket,
   createBroadScanFetchOptions,
   createBroadScanTextEvidenceCompiler,
@@ -179,5 +180,40 @@ describe('Brand Vault broad scan harness', () => {
       html: expect.stringContaining('Fresh chai'),
       fetchWarnings: expect.arrayContaining(['Render endpoint returned browser-executed HTML.']),
     });
+  });
+});
+
+describe('Brand Vault broad scan taxonomy matching', () => {
+  it('matches D2C verticals from free-text category labels (real scan examples)', () => {
+    // The compiler puts the business model in industry and the vertical in category.
+    expect(bucketMatches('beauty/personal care', 'e-commerce/DTC', 'personal care products')).toBe(true);
+    expect(bucketMatches('beauty/personal care', 'e-commerce/DTC', 'skincare brand')).toBe(true);
+    expect(bucketMatches('beauty/personal care', 'e-commerce/DTC', "men's grooming and fragrance")).toBe(true);
+    expect(bucketMatches('food/beverage', 'e-commerce/DTC', 'online grocery delivery')).toBe(true);
+    expect(bucketMatches('food/beverage', 'food and beverage', 'coffee roasters and retailer')).toBe(true);
+    expect(bucketMatches('food/beverage', 'food and beverage', "children's food and snacks")).toBe(true);
+    expect(bucketMatches('food/beverage', 'beverages', 'cocktail mixers and non-alcoholic beverages')).toBe(true);
+    expect(bucketMatches('health/wellness', 'food/beverage', 'sports nutrition and supplements')).toBe(true);
+    expect(bucketMatches('baby/kids', 'e-commerce/DTC', 'cloth diapering and baby care products')).toBe(true);
+    expect(bucketMatches('baby/kids', 'e-commerce/DTC', 'baby products online store')).toBe(true);
+  });
+
+  it('does not match across unrelated verticals (guards against false positives)', () => {
+    // "operations team" must not register as "tea" for a food bucket.
+    expect(bucketMatches('food/beverage', 'SaaS/software', 'operations team')).toBe(false);
+    // A generic e-commerce label with no vertical signal stays a real miss.
+    expect(bucketMatches('beauty/personal care', 'e-commerce/DTC', 'online store platform')).toBe(false);
+    // A beauty extraction must not satisfy a baby/kids expectation.
+    expect(bucketMatches('baby/kids', 'e-commerce/DTC', 'cosmetics and beauty products')).toBe(false);
+    // Unrelated tech extraction never matches a consumer bucket.
+    expect(bucketMatches('food/beverage', 'SaaS/software', 'observability platform')).toBe(false);
+    expect(bucketMatches('beauty/personal care', 'semiconductor/hardware', 'semiconductor manufacturer')).toBe(false);
+  });
+
+  it('preserves the existing tech-bucket matching', () => {
+    expect(bucketMatches('semiconductor', 'semiconductor/hardware', 'semiconductor manufacturer')).toBe(true);
+    expect(bucketMatches('software', 'SaaS/software', 'CRM platform')).toBe(true);
+    expect(bucketMatches('it services', 'technology services', 'IT consulting and services')).toBe(true);
+    expect(bucketMatches('unknown', undefined, undefined)).toBe(true);
   });
 });
