@@ -50,6 +50,30 @@ export interface AudioMomentCandidate {
   };
 }
 
+export type AudioEditAction = "add_sfx" | "cut_section" | "sync_cuts_to_beats";
+export type AudioEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "unsupported";
+
+export interface AudioEditResolveOptions extends AudioMomentOptions {
+  action?: AudioEditAction;
+  sfxQuery?: string;
+}
+
+export interface AudioEditResolution {
+  status: AudioEditResolutionStatus;
+  action: AudioEditAction;
+  query: string;
+  searchedCandidateCount: number;
+  candidates: AudioMomentCandidate[];
+  candidate?: AudioMomentCandidate;
+  useWith?: {
+    add_sfx?: { query: string; frame: number; sync: "audio-anchor"; note: string };
+    cut_section?: AudioMomentCandidate["useWith"]["cut_section"];
+    sync_cuts_to_beats?: AudioMomentCandidate["useWith"]["sync_cuts_to_beats"];
+  };
+  warnings: string[];
+  message: string;
+}
+
 interface CreateChatAudioToolsOptions {
   userId: string;
   projectId: string;
@@ -127,6 +151,11 @@ const audioMomentSchema = z.object({
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum audio moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayMetadata: z.boolean().default(true).describe("Also search audio/sound overlay metadata and labels."),
+});
+
+const audioEditSchema = audioMomentSchema.extend({
+  action: z.enum(["add_sfx", "cut_section", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing."),
+  sfxQuery: z.string().trim().min(1).optional().describe("Optional SFX search query to pass to add_sfx. If omitted, the resolver derives a conservative query from the request words."),
 });
 
 const audioDuckingSchema = z.object({
@@ -236,6 +265,34 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     },
   );
 
+  const resolveAudioEdit = tool(
+    async (input: z.infer<typeof audioEditSchema>) => {
+      const { projectService } = await import("../services/project-service");
+      const project = await projectService.loadProject(userId, projectId);
+      const resolution = resolveAudioEditTiming(project, input.query, {
+        action: input.action,
+        audioOverlayId: input.audioOverlayId,
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+        includeOverlayMetadata: input.includeOverlayMetadata,
+        sfxQuery: input.sfxQuery,
+      });
+
+      return JSON.stringify({
+        status: resolution.status === "ready" ? "success" : "error",
+        data: resolution,
+        message: resolution.message,
+      });
+    },
+    {
+      name: "resolve_audio_edit",
+      description: `Resolve an audio-referenced edit into operation-ready timing.
+Use after or instead of find_audio_moment for requests like "add impact on the first beat drop", "cut the long silence", or "sync the cut to the downbeat".
+This is read-only: it returns safe frame params for add_sfx, cut_section, or sync_cuts_to_beats, and refuses no-match, ambiguous, low-confidence, or unsupported audio references.`,
+      schema: audioEditSchema,
+    },
+  );
+
   const applyAudioDucking = tool(
     async (input: z.infer<typeof audioDuckingSchema>) => {
       try {
@@ -280,7 +337,94 @@ This only updates BGM sound overlays. It must not modify SFX, captions, video ti
     },
   );
 
-  return [findAudioMoment, applyAudioDucking];
+  return [findAudioMoment, resolveAudioEdit, applyAudioDucking];
+}
+
+export function resolveAudioEditTiming(
+  project: any,
+  query: string,
+  options: AudioEditResolveOptions = {},
+): AudioEditResolution {
+  const action = options.action ?? "add_sfx";
+  const candidates = findAudioMomentCandidates(project, query, {
+    audioOverlayId: options.audioOverlayId,
+    limit: options.limit ?? 8,
+    minConfidence: options.minConfidence ?? 0.35,
+    includeOverlayMetadata: options.includeOverlayMetadata,
+  });
+  const warnings: string[] = [];
+
+  if (!candidates.length) {
+    return {
+      status: "no-match",
+      action,
+      query,
+      searchedCandidateCount: 0,
+      candidates,
+      warnings: ["No stored beat, silence, energy, section, or audio-overlay evidence matched the request."],
+      message: `No stored audio evidence matched "${query}". Analyze the clip audio first or ask for a clearer audio moment.`,
+    };
+  }
+
+  const selection = selectAudioEditCandidate(candidates, query);
+  warnings.push(...selection.warnings);
+  const candidate = selection.candidate ?? candidates[0];
+
+  if (!selection.safe) {
+    return {
+      status: "ambiguous",
+      action,
+      query,
+      searchedCandidateCount: candidates.length,
+      candidates,
+      candidate,
+      warnings: [
+        ...warnings,
+        "The top audio candidate is not safe for automatic editing. Ask once or show candidates before mutating the project.",
+      ],
+      message: `Audio reference "${query}" was ambiguous or too low-confidence for an automatic ${action} edit.`,
+    };
+  }
+
+  if (action === "sync_cuts_to_beats" && !isBeatSyncKind(candidate.audioKind)) {
+    return {
+      status: "unsupported",
+      action,
+      query,
+      searchedCandidateCount: candidates.length,
+      candidates,
+      candidate,
+      warnings: [
+        ...warnings,
+        `Audio kind "${candidate.audioKind}" is not a beat-like anchor for sync_cuts_to_beats.`,
+      ],
+      message: `Resolved "${query}" to ${candidate.audioKind}, which is not valid for beat-sync edits.`,
+    };
+  }
+
+  const useWith: AudioEditResolution["useWith"] = {};
+  if (action === "add_sfx") {
+    useWith.add_sfx = {
+      ...candidate.useWith.add_sfx,
+      query: options.sfxQuery ?? inferAudioSfxQuery(query, candidate.audioKind),
+    };
+  } else if (action === "cut_section") {
+    useWith.cut_section = candidate.useWith.cut_section;
+  } else {
+    useWith.sync_cuts_to_beats = candidate.useWith.sync_cuts_to_beats;
+  }
+
+  return {
+    status: "ready",
+    action,
+    query,
+    searchedCandidateCount: candidates.length,
+    candidates,
+    candidate,
+    useWith,
+    warnings,
+    message: `Resolved "${query}" to ${candidate.audioKind} at frame ${candidate.frame} for ${action}.`,
+  };
 }
 
 export function applyAudioDuckingToProject(
@@ -414,6 +558,67 @@ export function findAudioMomentCandidates(
       && candidate.confidence >= 0.78
       && (requestedKinds.size === 0 || requestedKinds.has(candidate.audioKind) || candidate.matchType === "exact-phrase"),
   }));
+}
+
+function selectAudioEditCandidate(
+  candidates: AudioMomentCandidate[],
+  query: string,
+): { candidate?: AudioMomentCandidate; safe: boolean; warnings: string[] } {
+  const candidate = candidates[0];
+  if (!candidate) return { safe: false, warnings: [] };
+
+  const normalizedQuery = normalizeText(query);
+  const queryTokens = new Set(tokenize(query));
+  const wantsFirst = normalizedQuery.includes("first") || normalizedQuery.includes("earliest");
+  const wantsLast = normalizedQuery.includes("last") || normalizedQuery.includes("final") || normalizedQuery.includes("latest");
+  if (wantsFirst || wantsLast) {
+    const topConfidence = candidate.confidence;
+    let eligible = candidates
+      .filter((item) => item.audioKind === candidate.audioKind && item.confidence >= 0.78 && topConfidence - item.confidence <= 0.08);
+    const wantsPointAnchor = queryTokens.has("impact")
+      || queryTokens.has("hit")
+      || queryTokens.has("sync")
+      || queryTokens.has("exactly")
+      || queryTokens.has("beat")
+      || queryTokens.has("drop");
+    const pointEligible = wantsPointAnchor ? eligible.filter((item) => item.durationFrames <= 2) : [];
+    if (pointEligible.length) eligible = pointEligible;
+    eligible = eligible.sort((a, b) => wantsLast ? b.startFrame - a.startFrame : a.startFrame - b.startFrame);
+    if (eligible[0]) {
+      return {
+        candidate: eligible[0],
+        safe: true,
+        warnings: [`Resolved ${wantsLast ? "last" : "first"} audio reference by selecting the ${wantsLast ? "latest" : "earliest"} high-confidence ${eligible[0].audioKind} ${pointEligible.length ? "point anchor" : "candidate"}.`],
+      };
+    }
+  }
+
+  return { candidate, safe: candidate.safeForAutoEdit, warnings: [] };
+}
+
+function isBeatSyncKind(kind: AudioMomentKind): boolean {
+  return kind === "beat"
+    || kind === "downbeat"
+    || kind === "beat-drop"
+    || kind === "transient"
+    || kind === "energy-peak"
+    || kind === "music-section";
+}
+
+function inferAudioSfxQuery(query: string, kind: AudioMomentKind): string {
+  const tokens = new Set(tokenize(query));
+  if (tokens.has("impact")) return "impact hit";
+  if (tokens.has("whoosh") || tokens.has("swoosh")) return "whoosh";
+  if (tokens.has("pop")) return "pop";
+  if (tokens.has("ding")) return "ding";
+  if (tokens.has("snap")) return "snap";
+  if (tokens.has("stinger")) return "stinger";
+  if (tokens.has("glitch")) return "glitch";
+  if (tokens.has("boom")) return "boom";
+
+  if (kind === "beat-drop" || kind === "transient" || kind === "energy-peak") return "impact hit";
+  if (kind === "silence" || kind === "music-section") return "soft whoosh";
+  return "subtle audio accent";
 }
 
 function buildAudioEvidence(project: any, options: AudioMomentOptions = {}): AudioEvidence[] {

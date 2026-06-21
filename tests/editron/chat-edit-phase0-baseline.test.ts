@@ -51,7 +51,7 @@ describe('chat edit Phase 0 baseline', () => {
     expect(findChatEditPhase0BaselineCase('cut-transcript-phrase')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('asset-logo-by-description')?.currentStatus).toBe('partial-now');
     expect(findChatEditPhase0BaselineCase('visual-reference-logo-appears')?.currentStatus).toBe('supported-now');
-    expect(findChatEditPhase0BaselineCase('sound-reference-beat-drop')?.currentStatus).toBe('partial-now');
+    expect(findChatEditPhase0BaselineCase('sound-reference-beat-drop')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('undo-ai-edit')?.currentStatus).toBe('partial-now');
     expect(findChatEditPhase0BaselineCase('operation-audio-ducking')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-camera-shake')?.currentStatus).toBe('supported-now');
@@ -69,8 +69,8 @@ describe('chat edit Phase 0 baseline', () => {
       version: 'chat-edit-phase0-baseline-v1',
       total: CHAT_EDIT_PHASE0_BASELINE_CASES.length,
       byStatus: {
-        'supported-now': 17,
-        'partial-now': 5,
+        'supported-now': 18,
+        'partial-now': 4,
         'expected-failure': 0,
       },
     });

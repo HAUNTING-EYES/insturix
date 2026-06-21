@@ -9,6 +9,7 @@ import {
 import {
   applyAudioDuckingToProject,
   findAudioMomentCandidates,
+  resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
 import {
   findTranscriptMomentCandidates,
@@ -270,11 +271,18 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-audio-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_audio_moment', 'apply_audio_ducking']);
+    expect(toolNames).toEqual(['find_audio_moment', 'resolve_audio_edit', 'apply_audio_ducking']);
     expect(getChatToolMetadata('find_audio_moment')).toMatchObject({
       label: 'Finding audio moment',
       shortLabel: 'Find audio',
       receiptLabel: 'Found audio moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_audio_edit')).toMatchObject({
+      label: 'Resolving audio edit',
+      shortLabel: 'Audio edit',
+      receiptLabel: 'Resolved audio edit',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -1077,6 +1085,64 @@ describe('chat edit context bundle', () => {
           sync: 'audio-anchor',
         },
       },
+    });
+  });
+
+  it('resolves audio references into safe edit operation params', () => {
+    const impact = resolveAudioEditTiming(project, 'add impact on the first beat drop', {
+      action: 'add_sfx',
+    });
+    const silenceCut = resolveAudioEditTiming(project, 'cut the long silence', {
+      action: 'cut_section',
+    });
+    const invalidBeatSync = resolveAudioEditTiming(project, 'sync cuts to the long silence', {
+      action: 'sync_cuts_to_beats',
+    });
+    const missing = resolveAudioEditTiming(project, 'add impact on the air horn', {
+      action: 'add_sfx',
+      minConfidence: 0.99,
+    });
+
+    expect(impact).toMatchObject({
+      status: 'ready',
+      action: 'add_sfx',
+      candidate: {
+        audioKind: 'beat-drop',
+        frame: 90,
+      },
+      useWith: {
+        add_sfx: {
+          query: 'impact hit',
+          frame: 90,
+          sync: 'audio-anchor',
+        },
+      },
+    });
+    expect(impact.warnings[0]).toContain('first audio reference');
+    expect(silenceCut).toMatchObject({
+      status: 'ready',
+      action: 'cut_section',
+      candidate: {
+        audioKind: 'silence',
+      },
+      useWith: {
+        cut_section: {
+          startFrame: 36,
+          endFrame: 66,
+        },
+      },
+    });
+    expect(invalidBeatSync).toMatchObject({
+      status: 'unsupported',
+      action: 'sync_cuts_to_beats',
+      candidate: {
+        audioKind: 'silence',
+      },
+    });
+    expect(missing).toMatchObject({
+      status: 'no-match',
+      action: 'add_sfx',
+      searchedCandidateCount: 0,
     });
   });
 
