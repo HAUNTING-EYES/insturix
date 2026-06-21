@@ -1,11 +1,12 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
-import { assetResolver, type MediaAsset } from "../services/asset-resolver";
-import { searchUserAssets, type AssetSearchResult } from "../services/asset-search-service";
-import { projectService } from "../services/project-service";
+import type { MediaAsset } from "../services/asset-resolver";
+import type { AssetSearchResult } from "../services/asset-search-service";
 
-type UserAssetType = "video" | "audio" | "image";
+
+export type UserAssetType = "video" | "audio" | "image";
+type AddOverlayAssetType = "image" | "video" | "sound";
 
 interface CreateChatAssetToolsOptions {
   userId: string;
@@ -18,7 +19,7 @@ interface TimelineAssetUsage {
   sceneIndexes: number[];
 }
 
-interface NormalizedAssetCandidate {
+export interface NormalizedAssetCandidate {
   assetId: string;
   type: UserAssetType;
   name: string;
@@ -40,6 +41,42 @@ interface NormalizedAssetCandidate {
   };
 }
 
+export type UserAssetOverlayPlacement = "corner" | "center" | "full-frame";
+export type UserAssetOverlayStatus = "ready" | "no-candidate" | "ambiguous" | "low-confidence" | "unsupported-type";
+
+export interface UserAssetOverlayOptions {
+  query: string;
+  placement?: UserAssetOverlayPlacement;
+  startFrame?: number;
+  durationFrames?: number;
+  minConfidence?: number;
+  allowLowConfidence?: boolean;
+}
+
+export interface UserAssetOverlayResolution {
+  status: UserAssetOverlayStatus;
+  query: string;
+  inferredType?: UserAssetType;
+  placement: UserAssetOverlayPlacement;
+  candidates: NormalizedAssetCandidate[];
+  candidate?: NormalizedAssetCandidate;
+  warnings: string[];
+  message: string;
+  useWith?: {
+    add_overlay: {
+      type: AddOverlayAssetType;
+      assetId: string;
+      start: number;
+      duration: number;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      styles?: Record<string, unknown>;
+    };
+  };
+}
+
 const assetTypeSchema = z.enum(["video", "audio", "image"]);
 
 const listUserAssetsSchema = z.object({
@@ -58,9 +95,20 @@ const inspectUserAssetSchema = z.object({
   assetId: z.string().min(1).describe("Asset ID returned by list_user_assets or search_user_assets."),
 });
 
+const resolveUserAssetOverlaySchema = z.object({
+  query: z.string().min(1).describe("Natural-language description of the uploaded asset to place, such as 'my logo' or 'intro image'."),
+  type: assetTypeSchema.optional().describe("Optional asset type filter. Infer logo/image/photo as image, clip/footage as video, and music/audio as audio."),
+  placement: z.enum(["corner", "center", "full-frame"]).default("corner").describe("Requested frame placement. Corner is appropriate for logo bugs; center/full-frame need explicit user intent."),
+  startFrame: z.coerce.number().int().min(0).optional().describe("Timeline frame where the asset overlay should start. Defaults to the intro or outro position inferred from the query."),
+  durationFrames: z.coerce.number().int().min(1).max(7200).optional().describe("Overlay duration in frames. Defaults to a short intro/logo dwell for images."),
+  minConfidence: z.coerce.number().min(0).max(1).default(0.65).describe("Minimum confidence required to auto-select one asset."),
+  allowLowConfidence: z.boolean().default(false).describe("Allow returning add_overlay params even when the best asset candidate is below minConfidence."),
+});
+
 export function createChatAssetTools({ userId, projectId }: CreateChatAssetToolsOptions) {
   const listUserAssets = tool(
     async (input: z.infer<typeof listUserAssetsSchema>) => {
+      const { assetResolver } = await import("../services/asset-resolver");
       const usage = await getTimelineAssetUsage(userId, projectId);
       const page = await assetResolver.getUserAssets(userId, 1, input.limit);
       const assets = page.assets
@@ -92,6 +140,7 @@ Use before asking for asset IDs. Returns assetId, type, name, duration, dimensio
 
   const searchUserAssetsTool = tool(
     async (input: z.infer<typeof searchUserAssetsSchema>) => {
+      const { searchUserAssets } = await import("../services/asset-search-service");
       const effectiveType = input.type ?? inferAssetType(input.query);
       const usage = await getTimelineAssetUsage(userId, projectId);
       const semanticResults = await searchUserAssets(userId, input.query, {
@@ -133,6 +182,7 @@ For video scene replacement, use the returned assetId with use_matching_footage.
 
   const inspectUserAsset = tool(
     async (input: z.infer<typeof inspectUserAssetSchema>) => {
+      const { assetResolver } = await import("../services/asset-resolver");
       const asset = await assetResolver.getAsset(input.assetId, userId);
       if (!asset) {
         return JSON.stringify({ status: "error", message: `Asset not found: ${input.assetId}` });
@@ -167,12 +217,173 @@ Use this to check duration, dimensions, tags, transcription summary, and whether
     },
   );
 
-  return [listUserAssets, searchUserAssetsTool, inspectUserAsset];
+  const resolveUserAssetOverlay = tool(
+    async (input: z.infer<typeof resolveUserAssetOverlaySchema>) => {
+      const { searchUserAssets } = await import("../services/asset-search-service");
+      const { projectService } = await import("../services/project-service");
+      const effectiveType = input.type ?? inferAssetType(input.query);
+      const usage = await getTimelineAssetUsage(userId, projectId);
+      const project = await projectService.loadProject(userId, projectId);
+      const semanticResults = await searchUserAssets(userId, input.query, {
+        type: effectiveType,
+        minScore: 0.2,
+        limit: 8,
+      });
+      const lexicalResults = await searchUserAssetsLexically(userId, input.query, {
+        type: effectiveType,
+        minScore: 0.2,
+        limit: 8,
+      });
+      const candidates = mergeAssetResults(semanticResults, lexicalResults)
+        .slice(0, 8)
+        .map((result) => normalizeSearchResult(result, usage.get(result.assetId)));
+      const plan = resolveUserAssetOverlayPlacement(project, candidates, {
+        query: input.query,
+        placement: input.placement,
+        startFrame: input.startFrame,
+        durationFrames: input.durationFrames,
+        minConfidence: input.minConfidence,
+        allowLowConfidence: input.allowLowConfidence,
+      });
+
+      return JSON.stringify({
+        status: plan.status === "ready" ? "success" : "error",
+        data: {
+          ...plan,
+          searchedAssetCount: candidates.length,
+        },
+        message: plan.message,
+      });
+    },
+    {
+      name: "resolve_user_asset_overlay",
+      description: `Resolve a natural-language uploaded-asset request into add_overlay-ready parameters.
+Use for requests like "use my logo in the corner during the intro" after or instead of search_user_assets. This tool never creates or edits assets and never mutates the project; it only selects a confident uploaded asset candidate and returns add_overlay params.
+If the best uploaded asset is low-confidence or ambiguous, ask the user to choose from returned candidates instead of guessing.`,
+      schema: resolveUserAssetOverlaySchema,
+    },
+  );
+
+  return [listUserAssets, searchUserAssetsTool, inspectUserAsset, resolveUserAssetOverlay];
 }
 
+export function resolveUserAssetOverlayPlacement(
+  project: any,
+  candidates: NormalizedAssetCandidate[],
+  options: UserAssetOverlayOptions,
+): UserAssetOverlayResolution {
+  const placement = options.placement ?? inferPlacement(options.query);
+  const minConfidence = clamp01(options.minConfidence ?? 0.65);
+  const sorted = [...candidates]
+    .filter((candidate) => candidate.assetId && candidate.type)
+    .sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name));
+  const warnings: string[] = [];
+
+  if (!sorted.length) {
+    return {
+      status: "no-candidate",
+      query: options.query,
+      inferredType: inferAssetType(options.query),
+      placement,
+      candidates: sorted,
+      warnings,
+      message: `No uploaded asset candidate matched "${options.query}".`,
+    };
+  }
+
+  const candidate = sorted[0];
+  const second = sorted[1];
+  if (!candidate) {
+    return {
+      status: "no-candidate",
+      query: options.query,
+      inferredType: inferAssetType(options.query),
+      placement,
+      candidates: sorted,
+      warnings,
+      message: `No uploaded asset candidate matched "${options.query}".`,
+    };
+  }
+
+  if (second && candidate.confidence - second.confidence < 0.08) {
+    return {
+      status: "ambiguous",
+      query: options.query,
+      inferredType: candidate.type,
+      placement,
+      candidates: sorted,
+      candidate,
+      warnings,
+      message: `Uploaded asset request "${options.query}" is ambiguous between ${candidate.name} and ${second.name}. Ask the user to choose before placing an overlay.`,
+    };
+  }
+
+  if (candidate.confidence < minConfidence && !options.allowLowConfidence) {
+    return {
+      status: "low-confidence",
+      query: options.query,
+      inferredType: candidate.type,
+      placement,
+      candidates: sorted,
+      candidate,
+      warnings,
+      message: `Best uploaded asset candidate "${candidate.name}" has confidence ${candidate.confidence}, below the ${minConfidence} auto-placement floor.`,
+    };
+  }
+
+  const overlayType = assetTypeToAddOverlayType(candidate.type);
+  if (!overlayType) {
+    return {
+      status: "unsupported-type",
+      query: options.query,
+      inferredType: candidate.type,
+      placement,
+      candidates: sorted,
+      candidate,
+      warnings,
+      message: `Uploaded asset type "${candidate.type}" cannot be placed with add_overlay.`,
+    };
+  }
+
+  const range = resolveAssetOverlayRange(project, candidate, options);
+  const geometry = overlayType === "sound"
+    ? {}
+    : resolveAssetOverlayGeometry(project, candidate, placement, options.query);
+  const styles = overlayType === "image"
+    ? { objectFit: "contain", opacity: 1, animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } }
+    : overlayType === "video"
+      ? { objectFit: placement === "full-frame" ? "cover" : "contain", opacity: 1 }
+      : { volume: 0.75 };
+
+  if (candidate.confidence < minConfidence) {
+    warnings.push(`Selected below confidence floor because allowLowConfidence=true (${candidate.confidence} < ${minConfidence}).`);
+  }
+
+  return {
+    status: "ready",
+    query: options.query,
+    inferredType: candidate.type,
+    placement,
+    candidates: sorted,
+    candidate,
+    warnings,
+    useWith: {
+      add_overlay: {
+        type: overlayType,
+        assetId: candidate.assetId,
+        start: range.start,
+        duration: range.duration,
+        ...geometry,
+        styles,
+      },
+    },
+    message: `Resolved "${options.query}" to uploaded asset "${candidate.name}" for add_overlay.`,
+  };
+}
 async function getTimelineAssetUsage(userId: string, projectId: string): Promise<Map<string, TimelineAssetUsage>> {
   const usage = new Map<string, TimelineAssetUsage>();
   try {
+    const { projectService } = await import("../services/project-service");
     const project = await projectService.loadProject(userId, projectId);
     for (const overlay of project?.overlays ?? []) {
       const assetId = stringValue(
@@ -202,6 +413,7 @@ async function searchUserAssetsLexically(
   query: string,
   options: { type?: UserAssetType; minScore: number; limit: number },
 ): Promise<Array<AssetSearchResult & { matchReasons: string[] }>> {
+  const { assetResolver } = await import("../services/asset-resolver");
   const page = await assetResolver.getUserAssets(userId, 1, 100);
   return page.assets
     .filter((asset) => !options.type || asset.type === options.type)
@@ -310,6 +522,97 @@ function scoreAssetLexically(asset: MediaAsset, query: string): { score: number;
   return { score: Math.min(score, 0.95), matchReasons };
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function assetTypeToAddOverlayType(type: UserAssetType): AddOverlayAssetType | undefined {
+  if (type === "image") return "image";
+  if (type === "video") return "video";
+  if (type === "audio") return "sound";
+  return undefined;
+}
+
+function inferPlacement(query: string): UserAssetOverlayPlacement {
+  const lower = query.toLowerCase();
+  if (/\b(full[- ]?frame|cover|background|entire screen)\b/.test(lower)) return "full-frame";
+  if (/\b(center|middle|logo reveal|end card)\b/.test(lower)) return "center";
+  return "corner";
+}
+
+function resolveAssetOverlayRange(
+  project: any,
+  candidate: NormalizedAssetCandidate,
+  options: UserAssetOverlayOptions,
+): { start: number; duration: number } {
+  const fps = positiveNumber(project?.fps) ?? 30;
+  const projectDuration = positiveNumber(project?.durationInFrames) ?? Math.round(fps * 10);
+  const defaultDuration = candidate.type === "audio"
+    ? Math.min(projectDuration, Math.max(1, Math.round((candidate.duration ?? 3) * fps)))
+    : Math.min(projectDuration, Math.round(fps * 3));
+  const duration = clampInt(options.durationFrames ?? defaultDuration, 1, Math.max(1, projectDuration));
+  const lower = options.query.toLowerCase();
+  const inferredStart = /\b(outro|ending|closing|end card|final)\b/.test(lower)
+    ? Math.max(0, projectDuration - duration)
+    : 0;
+  const start = clampInt(options.startFrame ?? inferredStart, 0, Math.max(0, projectDuration - duration));
+  return { start, duration };
+}
+
+function resolveAssetOverlayGeometry(
+  project: any,
+  candidate: NormalizedAssetCandidate,
+  placement: UserAssetOverlayPlacement,
+  query: string,
+): { x: number; y: number; width: number; height: number } {
+  const canvas = canvasDimensions(project);
+  if (placement === "full-frame") {
+    return { x: 0, y: 0, width: canvas.width, height: canvas.height };
+  }
+
+  const aspect = positiveNumber(candidate.dimensions?.width) && positiveNumber(candidate.dimensions?.height)
+    ? candidate.dimensions!.width / candidate.dimensions!.height
+    : 2.4;
+  const width = placement === "center"
+    ? clampInt(Math.round(canvas.width * 0.28), 180, Math.round(canvas.width * 0.5))
+    : clampInt(Math.round(canvas.width * 0.14), 96, 260);
+  const height = clampInt(Math.round(width / Math.max(0.5, aspect)), 36, Math.round(canvas.height * 0.24));
+
+  if (placement === "center") {
+    return {
+      x: Math.round((canvas.width - width) / 2),
+      y: Math.round((canvas.height - height) / 2),
+      width,
+      height,
+    };
+  }
+
+  const marginX = Math.round(canvas.width * 0.04);
+  const marginY = Math.round(canvas.height * 0.05);
+  const lower = query.toLowerCase();
+  const left = /\b(left)\b/.test(lower);
+  const top = /\b(top|upper)\b/.test(lower);
+  return {
+    x: left ? marginX : Math.max(0, canvas.width - width - marginX),
+    y: top ? marginY : Math.max(0, canvas.height - height - marginY),
+    width,
+    height,
+  };
+}
+
+function canvasDimensions(project: any): { width: number; height: number } {
+  const width = positiveNumber(project?.dimensions?.width ?? project?.width ?? project?.canvas?.width) ?? 1920;
+  const height = positiveNumber(project?.dimensions?.height ?? project?.height ?? project?.canvas?.height) ?? 1080;
+  return { width, height };
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
 function inferAssetType(query: string): UserAssetType | undefined {
   const lower = query.toLowerCase();
   if (/\b(logo|image|photo|picture|thumbnail|sticker|poster|graphic)\b/.test(lower)) return "image";

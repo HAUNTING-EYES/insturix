@@ -105,6 +105,7 @@ export const CHAT_TOOL_REGISTRY = {
   list_user_assets: defineTool({ name: 'list_user_assets', label: 'Listing uploaded assets', shortLabel: 'Assets', iconCategory: 'file', receiptLabel: 'Listed uploaded assets' }),
   search_user_assets: defineTool({ name: 'search_user_assets', label: 'Searching uploaded assets', shortLabel: 'Asset search', iconCategory: 'search', executionType: 'generative', receiptLabel: 'Searched uploaded assets', loadingMessages: ['Searching your library', 'Checking asset matches', 'Ranking candidates'] }),
   inspect_user_asset: defineTool({ name: 'inspect_user_asset', label: 'Inspecting uploaded asset', shortLabel: 'Inspect asset', iconCategory: 'visual', receiptLabel: 'Inspected uploaded asset' }),
+  resolve_user_asset_overlay: defineTool({ name: 'resolve_user_asset_overlay', label: 'Resolving uploaded asset', shortLabel: 'Asset edit', iconCategory: 'search', receiptLabel: 'Resolved uploaded asset' }),
   search_stock_footage: defineTool({ name: 'search_stock_footage', label: 'Searching stock footage', shortLabel: 'Stock', iconCategory: 'stock', executionType: 'generative', receiptLabel: 'Searched stock footage', loadingMessages: ['Searching footage', 'Checking matches', 'Collecting results'] }),
   use_matching_footage: defineTool({ name: 'use_matching_footage', label: 'Using matching footage', shortLabel: 'Use footage', iconCategory: 'stock', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Used matching footage' }),
 

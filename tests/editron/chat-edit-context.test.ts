@@ -12,6 +12,10 @@ import {
   resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
 import {
+  resolveUserAssetOverlayPlacement,
+  type NormalizedAssetCandidate,
+} from '@/lib/editron/agent/chat-asset-tools';
+import {
   findTranscriptMomentCandidates,
   resolveTranscriptEditRange,
   type TranscriptSearchWord,
@@ -170,12 +174,85 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-asset-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['list_user_assets', 'search_user_assets', 'inspect_user_asset']);
+    expect(toolNames).toEqual(['list_user_assets', 'search_user_assets', 'inspect_user_asset', 'resolve_user_asset_overlay']);
     expect(toolNames.map((toolName) => getChatToolMetadata(toolName)?.receiptLabel)).toEqual([
       'Listed uploaded assets',
       'Searched uploaded assets',
       'Inspected uploaded asset',
+      'Resolved uploaded asset',
     ]);
+    expect(getChatToolMetadata('resolve_user_asset_overlay')).toMatchObject({
+      label: 'Resolving uploaded asset',
+      shortLabel: 'Asset edit',
+      receiptLabel: 'Resolved uploaded asset',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+  });
+
+  it('resolves uploaded logo asset placement into add_overlay params without mutating', () => {
+    const logoCandidate: NormalizedAssetCandidate = {
+      assetId: 'asset_logo',
+      type: 'image',
+      name: 'brand-logo-transparent.png',
+      duration: undefined,
+      dimensions: { width: 800, height: 240 },
+      thumbnailHint: 'available',
+      tags: ['logo', 'brand'],
+      score: 0.92,
+      confidence: 0.92,
+      confidenceLabel: 'high',
+      matchReasons: ['tag'],
+      usedInProject: false,
+      overlayIds: [],
+      sceneIndexes: [],
+      useWith: {
+        tool: 'add_overlay',
+        assetId: 'asset_logo',
+        note: 'Use add_overlay with this assetId when placing this uploaded asset on the timeline.',
+      },
+    };
+
+    const plan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'Use my logo in the corner during the intro',
+      minConfidence: 0.65,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      inferredType: 'image',
+      placement: 'corner',
+      candidate: { assetId: 'asset_logo' },
+      useWith: {
+        add_overlay: {
+          type: 'image',
+          assetId: 'asset_logo',
+          start: 0,
+          duration: 90,
+          styles: {
+            objectFit: 'contain',
+            opacity: 1,
+          },
+        },
+      },
+    });
+    expect(plan.useWith?.add_overlay.x).toBeGreaterThan(900);
+    expect(plan.useWith?.add_overlay.y).toBeGreaterThan(500);
+    expect(plan.useWith?.add_overlay.width).toBeGreaterThanOrEqual(96);
+    expect(plan.useWith?.add_overlay.height).toBeGreaterThanOrEqual(36);
+
+    const ambiguous = resolveUserAssetOverlayPlacement(project, [
+      logoCandidate,
+      { ...logoCandidate, assetId: 'asset_logo_alt', name: 'second-logo.png', confidence: 0.88, score: 0.88 },
+    ], { query: 'Use my logo in the corner during the intro' });
+    expect(ambiguous.status).toBe('ambiguous');
+    expect(ambiguous.useWith).toBeUndefined();
+
+    const lowConfidence = resolveUserAssetOverlayPlacement(project, [
+      { ...logoCandidate, confidence: 0.4, score: 0.4, confidenceLabel: 'low' },
+    ], { query: 'Use my logo in the corner during the intro' });
+    expect(lowConfidence.status).toBe('low-confidence');
+    expect(lowConfidence.useWith).toBeUndefined();
   });
 
   it('covers transcript moment search and transcript edit resolution with registry metadata without importing Mongo-backed tools', () => {
