@@ -189,6 +189,33 @@ describe('EDL param contract normalization', () => {
     expect(result.rejectedDecisions).toEqual([]);
   });
 
+  it('executes fade decisions with opacity keyframes and atomic receipt', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'fade',
+      frame: 45,
+      durationFrames: 20,
+      confidence: 0.95,
+      params: { fromOpacity: 1, toOpacity: 0.25 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-fade-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const opacityTrack = ((overlays[0] as any).keyframeTracks ?? [])
+      .find((track: any) => track.property === 'opacity');
+    const receipt = ((overlays[0] as any).metadata?.atomicOverlayReceipts ?? [])
+      .find((item: any) => item.family === 'fade');
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(opacityTrack?.keyframes).toEqual([
+      { frame: 45, value: 1, easing: 'ease-in-out' },
+      { frame: 65, value: 0.25, easing: 'linear' },
+    ]);
+    expect(receipt?.payload).toEqual(expect.objectContaining({
+      fromOpacity: 1,
+      toOpacity: 0.25,
+    }));
+  });
   it('applies audio-duck when a BGM overlay exists', async () => {
     const overlays = [
       videoOverlay(),
