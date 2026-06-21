@@ -399,6 +399,12 @@ interface CrawlQueueItem {
   discoveredFrom: string;
 }
 
+// How a crawl URL entered the queue. 'seed' = explicit sitemap/seed (always tried
+// first); 'discovered' = a real link found in the page or sitemap (proven to exist);
+// 'speculative' = a default-path guess that may 404. Drives crawl priority so the
+// bounded fetch budget reaches real content links before speculative guesses.
+type CrawlUrlKind = 'seed' | 'discovered' | 'speculative';
+
 interface WebsiteOcrTarget {
   imageUrl: string;
   sourceField: string;
@@ -1758,7 +1764,7 @@ async function fetchCrawlSnapshots(args: {
 
   enqueueDefaultBrandPages(queue, rootUrl, policy, args.root.normalizedUrl);
   for (const seed of crawlSeeds) {
-    if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, true);
+    if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, 'seed');
   }
   enqueueSitemapUrls(queue, args.root.html, rootUrl, policy, args.root.normalizedUrl);
   if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
@@ -1842,7 +1848,7 @@ function enqueueDefaultBrandPages(
     '/press',
     '/media-kit',
     '/resources',
-  ].forEach((path) => enqueueCrawlUrl(queue, path, rootUrl, policy, 1, discoveredFrom, false));
+  ].forEach((path) => enqueueCrawlUrl(queue, path, rootUrl, policy, 1, discoveredFrom, 'speculative'));
 }
 
 function enqueueCrawlLinks(
@@ -1856,7 +1862,7 @@ function enqueueCrawlLinks(
   const $ = load(html);
   $('a[href]').each((_, element) => {
     const href = $(element).attr('href');
-    if (href) enqueueCrawlUrl(queue, href, baseUrl, policy, depth, discoveredFrom, false);
+    if (href) enqueueCrawlUrl(queue, href, baseUrl, policy, depth, discoveredFrom, 'discovered');
   });
 }
 
@@ -1873,7 +1879,7 @@ function enqueueSitemapUrls(
     const href = $(element).attr('href');
     if (href) candidates.add(href);
   });
-  for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, true);
+  for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, 'seed');
 }
 
 function enqueueCrawlUrl(
@@ -1883,10 +1889,11 @@ function enqueueCrawlUrl(
   policy: CrawlPolicy,
   depth: number,
   discoveredFrom: string,
-  explicitSeed: boolean,
+  kind: CrawlUrlKind,
 ): void {
   try {
-    const normalizedHref = explicitSeed ? normalizeExplicitCrawlSeedHref(href, baseUrl) : href;
+    const isSeed = kind === 'seed';
+    const normalizedHref = isSeed ? normalizeExplicitCrawlSeedHref(href, baseUrl) : href;
     const url = new URL(normalizedHref, baseUrl);
     url.hash = '';
     url.search = '';
@@ -1895,8 +1902,8 @@ function enqueueCrawlUrl(
     if (isBlockedCrawlAsset(url.pathname) && !isSitemapPath(url.pathname)) return;
     const path = normalizeCrawlPath(url.pathname);
     if (pathMatches(path, policy.excludePaths)) return;
-    if (!explicitSeed && policy.includePaths.length > 0 && !pathMatches(path, policy.includePaths)) return;
-    const priority = crawlPriority(url.href, explicitSeed);
+    if (!isSeed && policy.includePaths.length > 0 && !pathMatches(path, policy.includePaths)) return;
+    const priority = crawlPriority(url.href, kind);
     const existing = queue.get(url.href);
     if (!existing || priority > existing.priority || depth < existing.depth) {
       queue.set(url.href, { url: url.href, depth, priority, discoveredFrom });
@@ -1953,15 +1960,32 @@ function nextCrawlQueueItem(queue: Map<string, CrawlQueueItem>, visited: Set<str
   return next;
 }
 
-function crawlPriority(url: string, explicitSeed: boolean): number {
-  if (explicitSeed) return 20;
+// Content value of a crawl path, independent of how the URL was discovered.
+// Recognizes corporate IA (/about, /services) AND e-commerce IA (/collections,
+// /products, /pages/*) so D2C storefront links are not dumped at the floor.
+function crawlPathValue(url: string): number {
   if (isSitemapPath(url)) return 12;
-  if (/\/(about|company|story|brand|mission|team)\b/i.test(url)) return 9;
-  if (/\/(case-studies|customers|work|portfolio|results)\b/i.test(url)) return 8;
-  if (/\/(services|features|product|solutions|platform)\b/i.test(url)) return 7;
-  if (/\/(pricing|plans)\b/i.test(url)) return 5;
-  if (/\/(press|media-kit|resources|blog|guides)\b/i.test(url)) return 4;
+  if (/\/(about|about-us|company|story|our-story|mission|team|brand|who-we-are)\b/i.test(url)) return 9;
+  if (/\/(collections?|shop|store|catalog|products?|range|menu)\b/i.test(url)) return 8;
+  if (/\/(case-studies|customers|work|portfolio|results|reviews|testimonials)\b/i.test(url)) return 7;
+  if (/\/(services|features|solutions|platform|ingredients|how-it-works|technology)\b/i.test(url)) return 6;
+  if (/\/(pages|blogs?|journal|learn)\b/i.test(url)) return 5;
+  if (/\/(pricing|plans)\b/i.test(url)) return 4;
+  if (/\/(press|media-kit|resources|guides)\b/i.test(url)) return 3;
   return 1;
+}
+
+// Discovered links are proven to exist in the page or sitemap, so they outrank
+// speculative default-path guesses (which 404 on storefronts like Shopify and
+// otherwise burn the bounded crawl budget before real content is reached).
+const DISCOVERED_PRIORITY_BONUS = 2;
+const SPECULATIVE_PRIORITY_PENALTY = 4;
+
+function crawlPriority(url: string, kind: CrawlUrlKind): number {
+  if (kind === 'seed') return 20;
+  const base = crawlPathValue(url);
+  if (kind === 'discovered') return base + DISCOVERED_PRIORITY_BONUS;
+  return Math.max(1, base - SPECULATIVE_PRIORITY_PENALTY);
 }
 
 function isHtmlSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
@@ -1993,7 +2017,7 @@ function enqueueUrlsFromSitemap(
     .map((match) => decodeHtmlEntities(match[1] ?? '').trim())
     .filter(Boolean);
   for (const url of urls) {
-    enqueueCrawlUrl(queue, url, rootUrl, policy, 1, snapshot.normalizedUrl, false);
+    enqueueCrawlUrl(queue, url, rootUrl, policy, 1, snapshot.normalizedUrl, 'discovered');
   }
 }
 
