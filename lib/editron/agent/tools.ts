@@ -5948,7 +5948,7 @@ Never manually reverse edits when a checkpoint is available; restore the checkpo
     syncStyle,            // NEW: Style sync
     closeGaps,            // NEW: Close timeline gaps
     cutSection,           // NEW: Compound cut-and-delete
-    // visualInspectFrame,  // DISABLED: Decoy tool, not implemented
+    visualInspectFrame,   // Inspect a frame for visual/layout follow-up
     addMotionGraphic,     // NEW: Template-based motion graphics (FAST)
     generateHtmlScene,
     generateHtmlSticker,  // NEW: Animated stickers

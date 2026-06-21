@@ -110,25 +110,7 @@ export const CHAT_TOOL_REGISTRY = {
   search_stock_footage: defineTool({ name: 'search_stock_footage', label: 'Searching stock footage', shortLabel: 'Stock', iconCategory: 'stock', executionType: 'generative', receiptLabel: 'Searched stock footage', loadingMessages: ['Searching footage', 'Checking matches', 'Collecting results'] }),
   use_matching_footage: defineTool({ name: 'use_matching_footage', label: 'Using matching footage', shortLabel: 'Use footage', iconCategory: 'stock', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Used matching footage' }),
 
-  list_project_files: defineTool({ name: 'list_project_files', label: 'Listing project files', shortLabel: 'List', iconCategory: 'file', receiptLabel: 'Listed project files' }),
-  apply_project_patch: defineTool({ name: 'apply_project_patch', label: 'Applying project patch', shortLabel: 'Patch', iconCategory: 'update', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied patch' }),
-  add_text_overlay: defineTool({ name: 'add_text_overlay', label: 'Adding text', shortLabel: 'Text', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added text' }),
-  add_image_overlay: defineTool({ name: 'add_image_overlay', label: 'Adding image', shortLabel: 'Image', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added image' }),
-  add_video_overlay: defineTool({ name: 'add_video_overlay', label: 'Adding video', shortLabel: 'Video', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added video' }),
-  add_audio_overlay: defineTool({ name: 'add_audio_overlay', label: 'Adding audio', shortLabel: 'Audio', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added audio' }),
-  get_video_duration: defineTool({ name: 'get_video_duration', label: 'Checking video duration', shortLabel: 'Duration', iconCategory: 'visual', receiptLabel: 'Checked duration' }),
-  search_web: defineTool({ name: 'search_web', label: 'Searching web', shortLabel: 'Search', iconCategory: 'search', executionType: 'generative', receiptLabel: 'Searched web' }),
-  generate_image: defineTool({ name: 'generate_image', label: 'Generating image', shortLabel: 'Image', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Generated image', loadingMessages: ['Imagining visuals', 'Rendering image', 'Finishing up'] }),
-  batchEditCaptions: defineTool({ name: 'batchEditCaptions', label: 'Editing all captions', shortLabel: 'Caption edit', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Edited captions' }),
-  addTransition: defineTool({ name: 'addTransition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
-  addSFX: defineTool({ name: 'addSFX', label: 'Adding sound effect', shortLabel: 'SFX', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sound effect' }),
-  replaceSFX: defineTool({ name: 'replaceSFX', label: 'Replacing sound effect', shortLabel: 'Replace SFX', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Replaced sound effect' }),
-  add_sticker: defineTool({ name: 'add_sticker', label: 'Adding sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sticker' }),
-  addSticker: defineTool({ name: 'addSticker', label: 'Adding sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sticker' }),
   apply_filter: defineTool({ name: 'apply_filter', label: 'Applying filter', shortLabel: 'Filter', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied filter' }),
-  applyFilter: defineTool({ name: 'applyFilter', label: 'Applying filter', shortLabel: 'Filter', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied filter' }),
-  deleteOverlay: defineTool({ name: 'deleteOverlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element' }),
-  updateOverlay: defineTool({ name: 'updateOverlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element' }),
 } satisfies Record<string, ChatToolMetadata>;
 
 export type ChatToolName = keyof typeof CHAT_TOOL_REGISTRY;
