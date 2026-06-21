@@ -181,6 +181,40 @@ export interface LayerReorderPlan {
   message: string;
 }
 
+export interface MoveRetimeOptions {
+  overlayId?: OverlayId;
+  targetQuery?: string;
+  startFrame?: number;
+  endFrame?: number;
+  durationFrames?: number;
+  shiftFrames?: number;
+  allowSourceTrim?: boolean;
+  allowCaptionRetime?: boolean;
+  allowTimelineCollision?: boolean;
+  allowProjectExtension?: boolean;
+}
+
+export interface MoveRetimeOverlayUpdate {
+  overlayId: OverlayId;
+  previousStartFrame: number;
+  previousEndFrame: number;
+  previousDurationFrames: number;
+  nextStartFrame: number;
+  nextEndFrame: number;
+  nextDurationFrames: number;
+  nextUpdates: Record<string, number>;
+  sourceTrimFrames: number;
+  reason: "semantic-overlay-move" | "semantic-overlay-retime" | "semantic-overlay-source-trim";
+}
+
+export interface MoveRetimePlan {
+  status: "changed" | "no-target" | "conflict";
+  targetOverlayId?: OverlayId;
+  updates: MoveRetimeOverlayUpdate[];
+  warnings: string[];
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -253,6 +287,19 @@ const layerReorderSchema = z.object({
   allowVideoLayerMove: z.boolean().default(false).describe("Allow moving a video overlay row. Keep false unless the user explicitly asks to layer the source clip."),
   allowRowCollision: z.boolean().default(false).describe("Allow moving into a row that already has an overlapping ordinary visual overlay."),
   allowNonOverlappingReference: z.boolean().default(false).describe("Allow reference-based reorder when target and reference overlays do not overlap in time."),
+});
+
+const moveRetimeSchema = z.object({
+  overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id to move or retime. Prefer selectedOverlayId when the user says this overlay."),
+  targetQuery: z.string().min(1).optional().describe("Natural-language overlay reference such as logo, title, music, sticker, or asset label when overlayId is unavailable."),
+  startFrame: z.coerce.number().int().min(0).optional().describe("New global timeline start frame. If supplied alone, the overlay moves while preserving duration."),
+  endFrame: z.coerce.number().int().min(0).optional().describe("New global timeline end frame. Combine with startFrame or durationFrames for an exact range."),
+  durationFrames: z.coerce.number().int().min(1).optional().describe("New overlay duration in frames. Combine with startFrame, endFrame, or shiftFrames."),
+  shiftFrames: z.coerce.number().int().optional().describe("Move the overlay by this many frames while preserving duration unless durationFrames is supplied."),
+  allowSourceTrim: z.boolean().default(false).describe("Allow changing videoStartTime/startFromSound when trimming the start of video or sound media."),
+  allowCaptionRetime: z.boolean().default(false).describe("Reserved for explicit caption retime requests. Captions still need a caption-specific retime path in this slice."),
+  allowTimelineCollision: z.boolean().default(false).describe("Allow the target overlay to overlap another overlay on the same row after the move."),
+  allowProjectExtension: z.boolean().default(false).describe("Allow the overlay to extend beyond the current project duration."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -614,7 +661,43 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
     },
   );
 
-  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade, reorderLayer];
+  const moveRetimeOverlay = tool(
+    async (input: z.infer<typeof moveRetimeSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applyMoveRetimeToProject(project, input);
+        if (plan.status !== "changed") {
+          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        }
+
+        for (const update of plan.updates) {
+          const numericOverlayId = Number(update.overlayId);
+          if (!Number.isFinite(numericOverlayId)) {
+            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
+          }
+          await projectService.updateOverlay(userId, projectId, numericOverlayId, update.nextUpdates as any);
+        }
+
+        return JSON.stringify({ status: "success", data: plan });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to move or retime overlay." });
+      }
+    },
+    {
+      name: "move_retime_overlay",
+      description: `Move or retime one existing overlay by writing the existing from/durationInFrames timing fields.
+Use for "move this later", "make this shorter", "extend this title", or "fit this sticker to these frames" after a selected overlay, explicit overlay id, or high-confidence overlay query.
+Refuses caption/subtitle retiming, transitions, same-row timeline collisions, project overflow, and video/audio source-start trims unless explicitly allowed. This is not a renderer, template, or animation picker.`,
+      schema: moveRetimeSchema,
+    },
+  );
+
+  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay];
 }
 
 export function applyCameraShakeToProject(
@@ -1116,6 +1199,340 @@ export function applyLayerReorderToProject(
     warnings,
     message: `Moved overlay ${String(target.id)} from row ${previousRow} to row ${roundedNextRow}.`,
   };
+}
+
+export function applyMoveRetimeToProject(
+  project: any,
+  options: MoveRetimeOptions,
+): MoveRetimePlan {
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const targetResult = resolveMoveRetimeOverlay(project, options.overlayId, options.targetQuery);
+  if (!targetResult.ok) {
+    return {
+      status: "no-target",
+      updates: [],
+      warnings: targetResult.warnings,
+      message: targetResult.message,
+    };
+  }
+
+  const target = targetResult.overlay;
+  const warnings = [...targetResult.warnings];
+  const targetBlock = moveRetimeBlockReason(target, Boolean(options.allowCaptionRetime));
+  if (targetBlock) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: targetBlock,
+    };
+  }
+
+  const previousRange = overlayFrameRange(target);
+  const previousDurationFrames = previousRange.endFrame - previousRange.startFrame;
+  const rangeResult = resolveMoveRetimeFrameRange(previousRange, options);
+  if (!rangeResult.ok) {
+    return {
+      status: "no-target",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: rangeResult.message,
+    };
+  }
+
+  warnings.push(...rangeResult.warnings);
+  const nextRange = rangeResult.range;
+  const nextDurationFrames = nextRange.endFrame - nextRange.startFrame;
+  if (nextRange.startFrame === previousRange.startFrame && nextDurationFrames === previousDurationFrames) {
+    return {
+      status: "no-target",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(target.id)} already has timing ${previousRange.startFrame}-${previousRange.endFrame}.`,
+    };
+  }
+
+  const totalFrames = resolveProjectDurationFrames(project);
+  if (totalFrames > 0 && nextRange.endFrame > totalFrames && !options.allowProjectExtension) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: `Move/retime would end at frame ${nextRange.endFrame}, beyond the project duration (${totalFrames} frames). Ask to allow project extension if that is intentional.`,
+    };
+  }
+
+  const sourceUpdateResult = resolveMoveRetimeSourceUpdates(target, previousRange, nextRange, options);
+  if (!sourceUpdateResult.ok) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings: [...warnings, ...sourceUpdateResult.warnings],
+      message: sourceUpdateResult.message,
+    };
+  }
+
+  warnings.push(...sourceUpdateResult.warnings);
+  const nextRow = currentOverlayRow(target);
+  const collisions = findTimelineRowCollisions(overlays, target, nextRange, nextRow);
+  if (collisions.length && !options.allowTimelineCollision) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: `Frames ${nextRange.startFrame}-${nextRange.endFrame} on row ${nextRow} already overlap overlay(s): ${collisions.map((overlay) => String(overlay.id)).join(", ")}. Ask to allow timeline collision only if this overlap is intentional.`,
+    };
+  }
+
+  const nextUpdates: Record<string, number> = {
+    from: nextRange.startFrame,
+    durationInFrames: nextDurationFrames,
+    ...sourceUpdateResult.updates,
+  };
+  const reason = sourceUpdateResult.sourceTrimFrames > 0
+    ? "semantic-overlay-source-trim"
+    : previousDurationFrames === nextDurationFrames
+      ? "semantic-overlay-move"
+      : "semantic-overlay-retime";
+
+  return {
+    status: "changed",
+    targetOverlayId: target.id,
+    updates: [{
+      overlayId: target.id,
+      previousStartFrame: previousRange.startFrame,
+      previousEndFrame: previousRange.endFrame,
+      previousDurationFrames,
+      nextStartFrame: nextRange.startFrame,
+      nextEndFrame: nextRange.endFrame,
+      nextDurationFrames,
+      nextUpdates,
+      sourceTrimFrames: sourceUpdateResult.sourceTrimFrames,
+      reason,
+    }],
+    warnings,
+    message: `Moved/retimed overlay ${String(target.id)} from frames ${previousRange.startFrame}-${previousRange.endFrame} to ${nextRange.startFrame}-${nextRange.endFrame}.`,
+  };
+}
+
+function resolveMoveRetimeOverlay(
+  project: any,
+  overlayId: OverlayId | undefined,
+  query: string | undefined,
+): { ok: true; overlay: any; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+
+  if (overlayId != null) {
+    const overlay = overlays.find((candidate) => String(candidate?.id) === String(overlayId));
+    if (!overlay) {
+      return {
+        ok: false,
+        warnings,
+        message: `Overlay ${String(overlayId)} was not found in the project.`,
+      };
+    }
+    return { ok: true, overlay, warnings };
+  }
+
+  if (!query?.trim()) {
+    return {
+      ok: false,
+      warnings,
+      message: "Move/retime needs overlayId or targetQuery for the overlay to edit. Use selectedOverlayId from chat context when the user says this overlay.",
+    };
+  }
+
+  const normalizedQuery = normalizeText(query);
+  const queryTokens = tokenize(query);
+  const scored = overlays
+    .map((overlay) => ({ overlay, score: scoreLayerOverlayQuery(overlay, normalizedQuery, queryTokens) }))
+    .filter((candidate) => candidate.score >= 0.35)
+    .sort((a, b) => b.score - a.score || frame(a.overlay?.from) - frame(b.overlay?.from) || currentOverlayRow(a.overlay) - currentOverlayRow(b.overlay));
+
+  const best = scored[0];
+  if (!best) {
+    return {
+      ok: false,
+      warnings,
+      message: `No overlay matched "${query}". Use an explicit overlay id or inspect the timeline first.`,
+    };
+  }
+
+  const second = scored[1];
+  if (second && Math.abs(best.score - second.score) < 0.08) {
+    return {
+      ok: false,
+      warnings,
+      message: `Overlay query "${query}" is ambiguous between overlays ${String(best.overlay.id)} and ${String(second.overlay.id)}. Use overlay ids before moving or retiming.`,
+    };
+  }
+
+  warnings.push(`Resolved overlay ${String(best.overlay.id)} from query "${query}".`);
+  return { ok: true, overlay: best.overlay, warnings };
+}
+
+function resolveMoveRetimeFrameRange(
+  previousRange: FrameRange,
+  options: MoveRetimeOptions,
+): { ok: true; range: FrameRange; warnings: string[] } | { ok: false; message: string } {
+  const previousDurationFrames = previousRange.endFrame - previousRange.startFrame;
+  const warnings: string[] = [];
+  const shiftFrames = finiteInteger(options.shiftFrames);
+  const startFrame = positiveOrZeroNumber(options.startFrame);
+  const endFrame = positiveOrZeroNumber(options.endFrame);
+  const durationFrames = positiveNumber(options.durationFrames);
+
+  if (shiftFrames != null && (startFrame != null || endFrame != null)) {
+    return { ok: false, message: "Move/retime needs either shiftFrames or explicit start/end frames, not both in one request." };
+  }
+
+  let nextStartFrame: number | undefined;
+  let nextEndFrame: number | undefined;
+
+  if (shiftFrames != null) {
+    nextStartFrame = previousRange.startFrame + shiftFrames;
+    const nextDurationFrames = Math.round(durationFrames ?? previousDurationFrames);
+    nextEndFrame = nextStartFrame + nextDurationFrames;
+  } else if (startFrame != null && endFrame != null) {
+    nextStartFrame = Math.round(startFrame);
+    nextEndFrame = Math.round(endFrame);
+    if (durationFrames != null && Math.round(durationFrames) !== nextEndFrame - nextStartFrame) {
+      return { ok: false, message: `durationFrames (${Math.round(durationFrames)}) does not match startFrame/endFrame range (${nextEndFrame - nextStartFrame}).` };
+    }
+  } else if (startFrame != null && durationFrames != null) {
+    nextStartFrame = Math.round(startFrame);
+    nextEndFrame = nextStartFrame + Math.round(durationFrames);
+  } else if (endFrame != null && durationFrames != null) {
+    nextEndFrame = Math.round(endFrame);
+    nextStartFrame = nextEndFrame - Math.round(durationFrames);
+  } else if (startFrame != null) {
+    nextStartFrame = Math.round(startFrame);
+    nextEndFrame = nextStartFrame + previousDurationFrames;
+  } else if (endFrame != null) {
+    nextStartFrame = previousRange.startFrame;
+    nextEndFrame = Math.round(endFrame);
+  } else if (durationFrames != null) {
+    nextStartFrame = previousRange.startFrame;
+    nextEndFrame = nextStartFrame + Math.round(durationFrames);
+  } else {
+    return { ok: false, message: "Move/retime needs shiftFrames, startFrame, endFrame, or durationFrames." };
+  }
+
+  if (nextStartFrame == null || nextEndFrame == null) {
+    return { ok: false, message: "Move/retime could not resolve a target frame range." };
+  }
+  if (nextStartFrame < 0) {
+    return { ok: false, message: `Move/retime would start before frame 0 (${nextStartFrame}).` };
+  }
+  if (nextEndFrame <= nextStartFrame) {
+    return { ok: false, message: `Move/retime end frame (${nextEndFrame}) must be after start frame (${nextStartFrame}).` };
+  }
+
+  const roundedRange = {
+    startFrame: Math.round(nextStartFrame),
+    endFrame: Math.round(nextEndFrame),
+  };
+  if (shiftFrames != null) {
+    warnings.push(`Resolved move by ${shiftFrames} frame(s) from ${previousRange.startFrame}-${previousRange.endFrame} to ${roundedRange.startFrame}-${roundedRange.endFrame}.`);
+  }
+
+  return { ok: true, range: roundedRange, warnings };
+}
+
+function resolveMoveRetimeSourceUpdates(
+  overlay: any,
+  previousRange: FrameRange,
+  nextRange: FrameRange,
+  options: MoveRetimeOptions,
+): { ok: true; updates: Record<string, number>; sourceTrimFrames: number; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const type = String(overlay?.type ?? "").toLowerCase();
+  const isVideo = type === "video";
+  const isSound = type === "sound" || type === "audio";
+  if (!isVideo && !isSound) {
+    return { ok: true, updates: {}, sourceTrimFrames: 0, warnings };
+  }
+
+  const previousDurationFrames = previousRange.endFrame - previousRange.startFrame;
+  const nextDurationFrames = nextRange.endFrame - nextRange.startFrame;
+  const durationChanged = nextDurationFrames !== previousDurationFrames;
+  if (!durationChanged) {
+    return { ok: true, updates: {}, sourceTrimFrames: 0, warnings };
+  }
+
+  if (nextDurationFrames > previousDurationFrames) {
+    return {
+      ok: false,
+      warnings,
+      message: `Overlay ${String(overlay?.id)} is ${type}; extending media duration from ${previousDurationFrames} to ${nextDurationFrames} frames needs source-duration verification before it can be automatic.`,
+    };
+  }
+
+  const shiftFrames = finiteInteger(options.shiftFrames);
+  const explicitStart = positiveOrZeroNumber(options.startFrame);
+  const explicitEnd = positiveOrZeroNumber(options.endFrame);
+  const looksLikeStartTrim = shiftFrames == null
+    && explicitStart != null
+    && explicitEnd != null
+    && nextRange.startFrame > previousRange.startFrame
+    && nextRange.endFrame === previousRange.endFrame;
+
+  if (looksLikeStartTrim && !options.allowSourceTrim) {
+    return {
+      ok: false,
+      warnings,
+      message: `Moving the ${type} overlay start from ${previousRange.startFrame} to ${nextRange.startFrame} while keeping the same end looks like a source-start trim. Ask to allowSourceTrim so videoStartTime/startFromSound can be updated truthfully.`,
+    };
+  }
+
+  const sourceTrimFrames = options.allowSourceTrim && nextRange.startFrame > previousRange.startFrame
+    ? nextRange.startFrame - previousRange.startFrame
+    : 0;
+  if (sourceTrimFrames <= 0) {
+    return { ok: true, updates: {}, sourceTrimFrames: 0, warnings };
+  }
+
+  const updates: Record<string, number> = {};
+  if (isVideo) {
+    updates.videoStartTime = frame(overlay?.videoStartTime) + sourceTrimFrames;
+  } else {
+    updates.startFromSound = frame(overlay?.startFromSound) + sourceTrimFrames;
+  }
+  warnings.push(`Adjusted ${isVideo ? "videoStartTime" : "startFromSound"} by ${sourceTrimFrames} frame(s) for source-start trim.`);
+  return { ok: true, updates, sourceTrimFrames, warnings };
+}
+
+function moveRetimeBlockReason(overlay: any, allowCaptionRetime: boolean): string | undefined {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  if (type === "caption" || type === "subtitle") {
+    return allowCaptionRetime
+      ? `Overlay ${String(overlay?.id)} is ${type}; caption retime needs the caption-specific word timing path, so this generic move/retime tool will not alter it.`
+      : `Overlay ${String(overlay?.id)} is ${type}; captions are protected from generic retime because word-level timing can desync.`;
+  }
+  if (type === "transition") {
+    return `Overlay ${String(overlay?.id)} is a transition; use transition-specific editing so transition anchors stay attached to adjacent clips.`;
+  }
+  return undefined;
+}
+
+function findTimelineRowCollisions(overlays: any[], target: any, nextRange: FrameRange, nextRow: number): any[] {
+  return overlays.filter((overlay) => {
+    if (String(overlay?.id) === String(target?.id)) return false;
+    if (currentOverlayRow(overlay) !== nextRow) return false;
+    return rangesOverlap(nextRange, overlayFrameRange(overlay));
+  });
+}
+
+function finiteInteger(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
 }
 
 function resolveSpeedRampFrameRange(

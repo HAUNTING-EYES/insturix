@@ -18,6 +18,7 @@ import {
   applyCameraShakeToProject,
   applyFadeToProject,
   applyLayerReorderToProject,
+  applyMoveRetimeToProject,
   applySpeedRampToProject,
   findVisualMomentCandidates,
 } from '@/lib/editron/agent/chat-visual-tools';
@@ -186,11 +187,11 @@ describe('chat edit context bundle', () => {
     });
   });
 
-  it('covers visual moment search, camera shake, speed ramp, fade, and layer reorder with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search, camera shake, speed ramp, fade, layer reorder, and move/retime with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer']);
+    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -226,6 +227,14 @@ describe('chat edit context bundle', () => {
       label: 'Reordering layer',
       shortLabel: 'Layer',
       receiptLabel: 'Reordered layer',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('move_retime_overlay')).toMatchObject({
+      label: 'Moving/retiming element',
+      shortLabel: 'Timing',
+      receiptLabel: 'Moved/retimed element',
       mutatesProject: true,
       requiresProjectReload: true,
       riskLevel: 'medium',
@@ -652,6 +661,111 @@ describe('chat edit context bundle', () => {
       updates: [],
     });
     expect(plan.message).toContain('captions use fixed render priority');
+  });
+
+  it('plans move/retime as existing timing field updates only', () => {
+    const plan = applyMoveRetimeToProject(project, {
+      overlayId: 4,
+      startFrame: 120,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 4,
+      updates: [{
+        overlayId: 4,
+        previousStartFrame: 90,
+        previousEndFrame: 135,
+        previousDurationFrames: 45,
+        nextStartFrame: 120,
+        nextEndFrame: 165,
+        nextDurationFrames: 45,
+        nextUpdates: {
+          from: 120,
+          durationInFrames: 45,
+        },
+        sourceTrimFrames: 0,
+        reason: 'semantic-overlay-move',
+      }],
+    });
+  });
+
+  it('refuses move/retime into a same-row timeline collision unless explicitly allowed', () => {
+    const plan = applyMoveRetimeToProject({
+      durationInFrames: 120,
+      overlays: [
+        { id: 40, type: 'image', from: 10, durationInFrames: 30, row: 2, content: 'Badge' },
+        { id: 41, type: 'text', from: 35, durationInFrames: 25, row: 2, content: 'Title' },
+      ],
+    }, {
+      overlayId: 40,
+      startFrame: 30,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 40,
+      updates: [],
+    });
+    expect(plan.message).toContain('already overlap overlay(s): 41');
+  });
+
+  it('refuses generic move/retime on captions to protect word timing sync', () => {
+    const plan = applyMoveRetimeToProject(project, {
+      overlayId: 2,
+      startFrame: 70,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions are protected from generic retime');
+  });
+
+  it('requires explicit source trim permission before changing media source offsets', () => {
+    const mediaProject = {
+      durationInFrames: 120,
+      overlays: [
+        { id: 50, type: 'video', from: 10, durationInFrames: 60, row: 0, videoStartTime: 5 },
+      ],
+    };
+    const blocked = applyMoveRetimeToProject(mediaProject, {
+      overlayId: 50,
+      startFrame: 20,
+      endFrame: 70,
+    });
+    const allowed = applyMoveRetimeToProject(mediaProject, {
+      overlayId: 50,
+      startFrame: 20,
+      endFrame: 70,
+      allowSourceTrim: true,
+    });
+
+    expect(blocked).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 50,
+      updates: [],
+    });
+    expect(blocked.message).toContain('source-start trim');
+    expect(allowed).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 50,
+      updates: [{
+        overlayId: 50,
+        nextStartFrame: 20,
+        nextEndFrame: 70,
+        nextDurationFrames: 50,
+        nextUpdates: {
+          from: 20,
+          durationInFrames: 50,
+          videoStartTime: 15,
+        },
+        sourceTrimFrames: 10,
+        reason: 'semantic-overlay-source-trim',
+      }],
+    });
   });
 
   it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {

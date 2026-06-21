@@ -269,6 +269,17 @@ export const CHAT_EDIT_PHASE0_BASELINE_CASES: readonly ChatEditBaselineCase[] = 
     requiredContext: ['overlay inventory', 'stacking/row model', 'visibility constraints'],
     requiredTools: ['reorder_layer'],
   },
+  {
+    id: 'operation-move-retime',
+    category: 'operation-gap',
+    prompt: 'Move this sticker two seconds later and make it last one second longer.',
+    currentStatus: 'supported-now',
+    currentEvidence: 'move_retime_overlay is exposed to chat, resolves target overlays, writes only existing timing fields, and refuses captions, transitions, source-start trims, project overflow, or same-row collisions unless safe/explicit.',
+    successCriteria: ['targets the intended overlay', 'changes timing without changing renderer form', 'does not desync captions or media source offsets silently'],
+    targetPhases: [2, 6, 9, 10],
+    requiredContext: ['selected or inferred overlay', 'timeline range', 'collision and sync constraints'],
+    requiredTools: ['move_retime_overlay'],
+  },
 ] as const;
 
 export function getChatEditPhase0BaselineCases(): readonly ChatEditBaselineCase[] {
