@@ -12,6 +12,7 @@ import {
 } from '@/lib/editron/agent/chat-audio-tools';
 import {
   findTranscriptMomentCandidates,
+  resolveTranscriptEditRange,
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
 import {
@@ -174,15 +175,22 @@ describe('chat edit context bundle', () => {
     ]);
   });
 
-  it('covers transcript moment search with registry metadata without importing Mongo-backed tools', () => {
+  it('covers transcript moment search and transcript edit resolution with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-transcript-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_transcript_moment']);
+    expect(toolNames).toEqual(['find_transcript_moment', 'resolve_transcript_edit']);
     expect(getChatToolMetadata('find_transcript_moment')).toMatchObject({
       label: 'Finding transcript moment',
       shortLabel: 'Find speech',
       receiptLabel: 'Found transcript moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_transcript_edit')).toMatchObject({
+      label: 'Resolving transcript edit',
+      shortLabel: 'Speech edit',
+      receiptLabel: 'Resolved transcript edit',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -360,6 +368,85 @@ describe('chat edit context bundle', () => {
       },
     });
     expect(candidates[0].surroundingWords).toContain('in the real world');
+  });
+
+  it('resolves post-phrase transcript cut range without cutting the phrase', () => {
+    const words = makeTimedTranscriptWords([
+      ['pricing', 42, 48],
+      ['is', 48, 54],
+      ['simple', 54, 60],
+      ['next', 90, 96],
+    ]);
+    const plan = resolveTranscriptEditRange(words, 'pricing is simple', {
+      action: 'cut_after_phrase',
+      minGapFrames: 6,
+      maxCutFrames: 90,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      action: 'cut_after_phrase',
+      candidate: {
+        text: 'pricing is simple',
+        startFrame: 42,
+        endFrame: 60,
+      },
+      cutSection: {
+        startFrame: 60,
+        endFrame: 90,
+      },
+      useWith: {
+        cut_section: {
+          startFrame: 60,
+          endFrame: 90,
+        },
+      },
+    });
+    expect(plan.message).toContain('frames 60-90');
+  });
+
+  it('blocks ambiguous repeated transcript phrase before cut resolution', () => {
+    const words = makeTimedTranscriptWords([
+      ['pricing', 42, 48],
+      ['is', 48, 54],
+      ['simple', 54, 60],
+      ['again', 84, 90],
+      ['pricing', 120, 126],
+      ['is', 126, 132],
+      ['simple', 132, 138],
+      ['next', 168, 174],
+    ]);
+    const plan = resolveTranscriptEditRange(words, 'pricing is simple', {
+      action: 'cut_after_phrase',
+      minGapFrames: 6,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ambiguous',
+      action: 'cut_after_phrase',
+    });
+    expect(plan.cutSection).toBeUndefined();
+    expect(plan.message).toContain('ambiguous');
+  });
+
+  it('refuses post-phrase cut when the following word is too close', () => {
+    const words = makeTimedTranscriptWords([
+      ['pricing', 42, 48],
+      ['is', 48, 54],
+      ['simple', 54, 60],
+      ['next', 63, 69],
+    ]);
+    const plan = resolveTranscriptEditRange(words, 'pricing is simple', {
+      action: 'cut_after_phrase',
+      minGapFrames: 6,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'no-range',
+      action: 'cut_after_phrase',
+    });
+    expect(plan.cutSection).toBeUndefined();
+    expect(plan.message).toContain('minimum is 6');
   });
 
   it('finds visual moments from stored visual analysis with frame hints for edit tools', () => {
@@ -926,6 +1013,23 @@ describe('chat edit context bundle', () => {
     expect(prompt).toContain('Do not ask for a timeframe when this context is enough.');
   });
 });
+
+function makeTimedTranscriptWords(items: Array<[string, number, number]>): TranscriptSearchWord[] {
+  return items.map(([word, startFrame, endFrame]) => ({
+    word,
+    startMs: Math.round((startFrame / 30) * 1000),
+    endMs: Math.round((endFrame / 30) * 1000),
+    startFrame,
+    endFrame,
+    confidence: 0.94,
+    source: {
+      type: 'video-transcription',
+      overlayId: 1,
+      assetId: 'asset_video',
+      overlayType: 'video',
+    },
+  }));
+}
 
 function makeTranscriptWords(words: string[], startFrame: number): TranscriptSearchWord[] {
   return words.map((word, index) => {

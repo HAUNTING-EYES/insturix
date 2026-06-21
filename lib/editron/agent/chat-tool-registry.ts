@@ -71,6 +71,7 @@ export const CHAT_TOOL_REGISTRY = {
   generate_html_sticker: defineTool({ name: 'generate_html_sticker', label: 'Creating custom sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created sticker', loadingMessages: ['Creating sticker', 'Adding motion', 'Finishing up'] }),
   get_video_transcription: defineTool({ name: 'get_video_transcription', label: 'Reading transcript', shortLabel: 'Transcript', iconCategory: 'file', receiptLabel: 'Read transcript' }),
   find_transcript_moment: defineTool({ name: 'find_transcript_moment', label: 'Finding transcript moment', shortLabel: 'Find speech', iconCategory: 'caption', receiptLabel: 'Found transcript moment' }),
+  resolve_transcript_edit: defineTool({ name: 'resolve_transcript_edit', label: 'Resolving transcript edit', shortLabel: 'Speech edit', iconCategory: 'caption', receiptLabel: 'Resolved transcript edit' }),
   find_visual_moment: defineTool({ name: 'find_visual_moment', label: 'Finding visual moment', shortLabel: 'Find visual', iconCategory: 'visual', receiptLabel: 'Found visual moment' }),
   find_audio_moment: defineTool({ name: 'find_audio_moment', label: 'Finding audio moment', shortLabel: 'Find audio', iconCategory: 'audio', receiptLabel: 'Found audio moment' }),
   apply_audio_ducking: defineTool({ name: 'apply_audio_ducking', label: 'Applying audio ducking', shortLabel: 'Ducking', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied audio ducking' }),
