@@ -92,7 +92,7 @@ const DEFAULT_WEBSITE_FETCH_MAX_REDIRECTS = 5;
 const DEFAULT_BRAND_VAULT_USER_AGENT = 'InsturixBrandVault/1.0';
 const DEFAULT_BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|verifying your browser|security checkpoint|website owner\?|attention required|verify you are human|captcha|cloudflare|datadome|akamai|incapsula|perimeterx|pardon our interruption|access denied|request blocked)\b/i;
+const BROWSER_CHALLENGE_PATTERN = /\b(?:just a moment|checking your browser|verifying your browser|security checkpoint|website owner\?|attention required|verify you are human|captcha|pardon our interruption|access denied|request blocked)\b/i;
 const JAVASCRIPT_SHELL_PATTERN = /\b(?:please enable javascript|enable javascript|requires javascript|enable cookies|please use a different browser|javascript is disabled)\b/i;
 const HYDRATION_ROOT_MARKER_PATTERN = /\b__NEXT_DATA__\b|<[^>]+\bid=["'](?:__next|root|app)["']|<[^>]+\bdata-reactroot\b/i;
 const SHOPIFY_MARKER_PATTERN = /\b(?:cdn\.shopify\.com|Shopify\.theme|myshopify\.com)\b/i;

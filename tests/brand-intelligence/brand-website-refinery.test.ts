@@ -1576,6 +1576,32 @@ describe('Brand website refinery', () => {
     expect(snapshot.html).toContain('Chaayos Bazaar');
   });
 
+  it('does not treat security vendor brand names as browser challenges without challenge copy', async () => {
+    const vendorHtml = `
+<!doctype html>
+<html>
+  <head><title>Cloudflare: Build for the agent era</title></head>
+  <body>
+    <main>
+      <h1>Cloudflare helps teams build, secure, and accelerate applications</h1>
+      <p>${'Cloudflare products include CDN, security, developer platform, zero trust, and network services for enterprises. '.repeat(10)}</p>
+    </main>
+  </body>
+</html>`;
+
+    const snapshot = await fetchWebsiteBrandSnapshot('cloudflare.example', {
+      now: NOW,
+      fetchFn: async () => new Response(vendorHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+    });
+
+    expect(snapshot.fetchFallbackReason).toBeUndefined();
+    expect(snapshot.browserFallbackRequired).toBe(false);
+    expect(snapshot.html).toContain('Cloudflare helps teams');
+  });
+
   it('does not mark rich visible pages as JavaScript shells because scripts mention JavaScript requirements', async () => {
     const richHtml = `
 <!doctype html>
