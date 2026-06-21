@@ -6,7 +6,10 @@ import {
   buildChatEditContextBundle,
   formatChatEditContextForPrompt,
 } from '@/lib/editron/agent/chat-edit-context';
-import { findAudioMomentCandidates } from '@/lib/editron/agent/chat-audio-tools';
+import {
+  applyAudioDuckingToProject,
+  findAudioMomentCandidates,
+} from '@/lib/editron/agent/chat-audio-tools';
 import {
   findTranscriptMomentCandidates,
   type TranscriptSearchWord,
@@ -195,7 +198,7 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-audio-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_audio_moment']);
+    expect(toolNames).toEqual(['find_audio_moment', 'apply_audio_ducking']);
     expect(getChatToolMetadata('find_audio_moment')).toMatchObject({
       label: 'Finding audio moment',
       shortLabel: 'Find audio',
@@ -203,6 +206,69 @@ describe('chat edit context bundle', () => {
       mutatesProject: false,
       riskLevel: 'read',
     });
+    expect(getChatToolMetadata('apply_audio_ducking')).toMatchObject({
+      label: 'Applying audio ducking',
+      shortLabel: 'Ducking',
+      receiptLabel: 'Applied audio ducking',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+  });
+
+  it('plans audio ducking for BGM only and leaves SFX/voice tracks untouched', () => {
+    const plan = applyAudioDuckingToProject({
+      overlays: [
+        { id: 10, type: 'sound', row: 1, assetId: 'bgm_main', styles: {} },
+        { id: 11, type: 'sound', row: 0, assetId: 'sfx_whoosh', styles: { volume: 0.6 } },
+        { id: 12, type: 'sound', row: 3, assetId: 'narration_track', styles: { volume: 1 } },
+        { id: 13, type: 'caption', row: 4, content: 'spoken words' },
+      ],
+    }, { duckLevel: 0.18 });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      bgmOverlayIds: [10],
+      voiceSourceOverlayIds: [12],
+      speechEvidenceCount: 2,
+      skippedOverlayIds: [11, 12],
+      config: {
+        enabled: true,
+        duckLevel: 0.18,
+        rampDownMs: 300,
+        rampUpMs: 600,
+        lookAheadMs: 200,
+      },
+    });
+    expect(plan.updates).toHaveLength(1);
+    expect(plan.updates[0]).toMatchObject({
+      overlayId: 10,
+      nextStyles: {
+        volume: 0.75,
+        duckingConfig: {
+          enabled: true,
+          duckLevel: 0.18,
+        },
+      },
+    });
+  });
+
+  it('fails loudly when audio ducking is requested without BGM', () => {
+    const plan = applyAudioDuckingToProject({
+      overlays: [
+        { id: 11, type: 'sound', row: 0, assetId: 'sfx_whoosh', styles: { volume: 0.6 } },
+        { id: 12, type: 'sound', row: 3, assetId: 'narration_track', styles: { volume: 1 } },
+      ],
+    });
+
+    expect(plan).toMatchObject({
+      status: 'no-bgm',
+      bgmOverlayIds: [],
+      voiceSourceOverlayIds: [12],
+      updates: [],
+      skippedOverlayIds: [11, 12],
+    });
+    expect(plan.message).toContain('No background music overlay was found');
   });
 
   it('finds phrase-level transcript moments with frame hints for edit tools', () => {

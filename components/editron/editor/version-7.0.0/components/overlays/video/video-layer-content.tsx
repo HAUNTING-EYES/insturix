@@ -7,6 +7,9 @@ import { toAbsoluteUrl } from "../../../utils/url-helper";
 import { useIsRendering, useAllOverlays } from "../../../contexts/rendering-context";
 import { createDuckingVolume } from "../../../utils/audio-ducking";
 
+const CANONICAL_VOICEOVER_ROW = 3;
+const LEGACY_VOICEOVER_ROW = 4;
+
 /**
  * Interface defining the props for the VideoLayerContent component
  */
@@ -41,13 +44,13 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   const allOverlays = useAllOverlays();
   const fps = 30; // Matches sound-layer-content.tsx
 
-  // ─── Native Audio Ducking ──────────────────────────────────────
+  // Native Audio Ducking
   // When a video has native audio (Seedance 1.5/2.0) AND voiceover overlaps,
   // duck the video's embedded audio under the voiceover. This preserves
   // ambient/foley sounds at a low level while keeping narration clear.
   //
   // OLD approach (f31e4d55, reverted): disabled generate_audio entirely when
-  // voiceover was present — killed all ambient/foley, left dead silence.
+  // voiceover was present - killed all ambient/foley, left dead silence.
   // NEW approach: keep native audio, duck it under VO using the same
   // professional ducking system BGM already uses.
   const nativeAudioVolume = useMemo(() => {
@@ -60,13 +63,13 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
       if (o.type === 'sound') {
         const aid = (o as any).assetId || '';
         if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
-        if (o.row === 4) return true;
+        if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return true;
       }
       return false;
     });
 
     if (voiceoverOverlays.length === 0) {
-      // No voiceover — play native audio at configured volume
+      // No voiceover - play native audio at configured volume
       return undefined;
     }
 
@@ -80,7 +83,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     const baseVolume = overlay.styles.volume ?? 1;
     return createDuckingVolume(baseVolume, relativeVoOverlays, fps, {
       enabled: true,
-      duckLevel: 0.12,    // ~-18 dB — ambient bed level, audible but not competing
+      duckLevel: 0.12,    // ~-18 dB - ambient bed level, audible but not competing
       rampDownMs: 250,     // Slightly faster than BGM ducking (video ambient is less noticeable)
       rampUpMs: 500,       // Smooth return after VO ends
       lookAheadMs: 150,    // Start ducking just before VO begins
@@ -126,7 +129,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   };
 
   // Create a container style that includes padding and background color.
-  // posterUrl (storyboard image) as CSS background — shows through if video fails to load.
+  // posterUrl (storyboard image) as CSS background - shows through if video fails to load.
   const posterUrl = (overlay as any).posterUrl;
   const containerStyle: React.CSSProperties = {
     width: "100%",
@@ -174,7 +177,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // headers unless the bucket has CORS configured. For editor preview, we
   // skip crossOrigin to allow playback. For server rendering, OffthreadVideo
   // uses ffmpeg (not browser) so CORS doesn't apply.
-  // ─── Speed Ramping ──────────────────────────────────────────────
+  // Speed Ramping
   // If speedCurve is present, split into segments with different playback rates.
   // Each segment is a separate <Video> in a <Sequence> with correct source offset.
   const hasSpeedCurve = (overlay as any).speedCurve && (overlay as any).speedCurve.length > 1;
@@ -209,7 +212,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     );
   }
 
-  // ─── Constant Speed (default) ──────────────────────────────────
+  // Constant Speed (default)
   if (isRendering) {
     return (
       <div style={containerStyle}>

@@ -73,6 +73,7 @@ export const CHAT_TOOL_REGISTRY = {
   find_transcript_moment: defineTool({ name: 'find_transcript_moment', label: 'Finding transcript moment', shortLabel: 'Find speech', iconCategory: 'caption', receiptLabel: 'Found transcript moment' }),
   find_visual_moment: defineTool({ name: 'find_visual_moment', label: 'Finding visual moment', shortLabel: 'Find visual', iconCategory: 'visual', receiptLabel: 'Found visual moment' }),
   find_audio_moment: defineTool({ name: 'find_audio_moment', label: 'Finding audio moment', shortLabel: 'Find audio', iconCategory: 'audio', receiptLabel: 'Found audio moment' }),
+  apply_audio_ducking: defineTool({ name: 'apply_audio_ducking', label: 'Applying audio ducking', shortLabel: 'Ducking', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied audio ducking' }),
   analyze_video_content: defineTool({ name: 'analyze_video_content', label: 'Analyzing video content', shortLabel: 'Analyze', iconCategory: 'visual', receiptLabel: 'Analyzed video' }),
   add_captions: defineTool({ name: 'add_captions', label: 'Adding captions', shortLabel: 'Captions', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added captions' }),
   add_fancy_captions: defineTool({ name: 'add_fancy_captions', label: 'Adding animated captions', shortLabel: 'Fancy', iconCategory: 'caption', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added animated captions', loadingMessages: ['Designing captions', 'Timing words', 'Finishing typography'] }),

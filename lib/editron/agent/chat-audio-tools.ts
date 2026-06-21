@@ -1,6 +1,9 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
+import { AUDIO_LEVELS, DEFAULT_DUCKING_CONFIG } from "../constants/audio-standards";
+import { ROW } from "@/lib/pipeline/scene-to-editron";
+
 type OverlayId = string | number;
 
 export type AudioMomentKind =
@@ -59,6 +62,36 @@ interface AudioMomentOptions {
   includeOverlayMetadata?: boolean;
 }
 
+export interface AudioDuckingConfig {
+  enabled: boolean;
+  duckLevel: number;
+  rampDownMs: number;
+  rampUpMs: number;
+  lookAheadMs: number;
+}
+
+export interface AudioDuckingOverlayUpdate {
+  overlayId: OverlayId;
+  row: number | undefined;
+  previousConfig: AudioDuckingConfig | undefined;
+  nextConfig: AudioDuckingConfig;
+  nextStyles: Record<string, unknown>;
+  reason: string;
+}
+
+export interface AudioDuckingPlan {
+  status: "changed" | "unchanged" | "no-bgm";
+  bgmOverlayIds: OverlayId[];
+  voiceSourceOverlayIds: OverlayId[];
+  speechEvidenceCount: number;
+  updates: AudioDuckingOverlayUpdate[];
+  unchangedOverlayIds: OverlayId[];
+  skippedOverlayIds: OverlayId[];
+  warnings: string[];
+  config: AudioDuckingConfig;
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -94,6 +127,14 @@ const audioMomentSchema = z.object({
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum audio moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayMetadata: z.boolean().default(true).describe("Also search audio/sound overlay metadata and labels."),
+});
+
+const audioDuckingSchema = z.object({
+  enabled: z.boolean().default(true).describe("Whether BGM ducking should be enabled. Use false only when the user asks to remove/disable ducking."),
+  duckLevel: z.coerce.number().min(0.02).max(0.8).default(DEFAULT_DUCKING_CONFIG.duckLevel).describe("BGM volume while speech/voiceover is active, 0-1."),
+  rampDownMs: z.coerce.number().int().min(50).max(2000).default(DEFAULT_DUCKING_CONFIG.rampDownMs).describe("How quickly BGM lowers when speech starts."),
+  rampUpMs: z.coerce.number().int().min(50).max(3000).default(DEFAULT_DUCKING_CONFIG.rampUpMs).describe("How quickly BGM returns after speech ends."),
+  lookAheadMs: z.coerce.number().int().min(0).max(1000).default(DEFAULT_DUCKING_CONFIG.lookAheadMs).describe("Start lowering BGM this many milliseconds before speech starts."),
 });
 
 const PROJECT_AUDIO_ROOT_KEYS = [
@@ -195,7 +236,141 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     },
   );
 
-  return [findAudioMoment];
+  const applyAudioDucking = tool(
+    async (input: z.infer<typeof audioDuckingSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applyAudioDuckingToProject(project, input);
+        if (plan.status === "no-bgm") {
+          return JSON.stringify({
+            status: "error",
+            message: plan.message,
+            data: plan,
+          });
+        }
+
+        for (const update of plan.updates) {
+          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
+            styles: update.nextStyles,
+          } as any);
+        }
+
+        return JSON.stringify({
+          status: "success",
+          data: {
+            ...plan,
+            message: plan.message,
+          },
+        });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply audio ducking." });
+      }
+    },
+    {
+      name: "apply_audio_ducking",
+      description: `Enable professional BGM ducking under speech/voiceover.
+Use when the user asks to lower music under speech, make dialogue clearer, stop music competing with voice, or remove/disable ducking.
+This only updates BGM sound overlays. It must not modify SFX, captions, video timing, or generate new audio.`,
+      schema: audioDuckingSchema,
+    },
+  );
+
+  return [findAudioMoment, applyAudioDucking];
+}
+
+export function applyAudioDuckingToProject(
+  project: any,
+  options: Partial<AudioDuckingConfig> = {},
+): AudioDuckingPlan {
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const bgmOverlays: any[] = overlays.filter(isBgmSoundOverlay);
+  const voiceSources: any[] = overlays.filter(isRenderVoiceSourceOverlay);
+  const speechEvidenceCount = overlays.filter(isSpeechEvidenceOverlay).length;
+  const enabled = options.enabled ?? true;
+  const config: AudioDuckingConfig = {
+    enabled,
+    duckLevel: clamp(options.duckLevel ?? DEFAULT_DUCKING_CONFIG.duckLevel, 0.02, 0.8),
+    rampDownMs: clampInt(options.rampDownMs ?? DEFAULT_DUCKING_CONFIG.rampDownMs, 50, 2000),
+    rampUpMs: clampInt(options.rampUpMs ?? DEFAULT_DUCKING_CONFIG.rampUpMs, 50, 3000),
+    lookAheadMs: clampInt(options.lookAheadMs ?? DEFAULT_DUCKING_CONFIG.lookAheadMs, 0, 1000),
+  };
+  const warnings: string[] = [];
+
+  if (!bgmOverlays.length) {
+    return {
+      status: "no-bgm",
+      bgmOverlayIds: [],
+      voiceSourceOverlayIds: voiceSources.map((overlay: any) => overlay.id),
+      speechEvidenceCount,
+      updates: [],
+      unchangedOverlayIds: [],
+      skippedOverlayIds: overlays.filter((overlay: any) => overlay?.type === "sound").map((overlay: any) => overlay.id),
+      warnings: ["No BGM sound overlay was found; SFX and voiceover tracks were not modified."],
+      config,
+      message: "No background music overlay was found, so audio ducking was not applied.",
+    };
+  }
+
+  if (!voiceSources.length) {
+    warnings.push("No renderable voiceover/native-audio source was found. Ducking config was applied, but playback will only lower music when a voice source exists.");
+  }
+  if (!speechEvidenceCount) {
+    warnings.push("No transcript/caption/speech evidence was found. This was treated as an explicit user-requested audio mix change.");
+  }
+
+  const updates: AudioDuckingOverlayUpdate[] = [];
+  const unchangedOverlayIds: OverlayId[] = [];
+  const bgmIds = new Set(bgmOverlays.map((overlay: any) => overlay.id));
+  const skippedOverlayIds = overlays
+    .filter((overlay: any) => overlay?.type === "sound" && !bgmIds.has(overlay.id))
+    .map((overlay: any) => overlay.id);
+
+  for (const overlay of bgmOverlays) {
+    const styles = isRecord(overlay.styles) ? { ...overlay.styles } : {};
+    const previousConfig = normalizeDuckingConfig(styles.duckingConfig);
+    const nextStyles: Record<string, unknown> = {
+      ...styles,
+      duckingConfig: config,
+    };
+    if (enabled && typeof nextStyles.volume !== "number") {
+      nextStyles.volume = AUDIO_LEVELS.BGM_WITHOUT_VO;
+    }
+
+    if (previousConfig && sameDuckingConfig(previousConfig, config) && styles.volume === nextStyles.volume) {
+      unchangedOverlayIds.push(overlay.id);
+      continue;
+    }
+
+    updates.push({
+      overlayId: overlay.id,
+      row: typeof overlay.row === "number" ? overlay.row : undefined,
+      previousConfig,
+      nextConfig: config,
+      nextStyles,
+      reason: enabled ? "bgm-duck-under-speech" : "bgm-ducking-disabled",
+    });
+  }
+
+  const status = updates.length ? "changed" : "unchanged";
+  return {
+    status,
+    bgmOverlayIds: bgmOverlays.map((overlay: any) => overlay.id),
+    voiceSourceOverlayIds: voiceSources.map((overlay: any) => overlay.id),
+    speechEvidenceCount,
+    updates,
+    unchangedOverlayIds,
+    skippedOverlayIds,
+    warnings,
+    config,
+    message: status === "changed"
+      ? `${enabled ? "Enabled" : "Disabled"} audio ducking on ${updates.length} BGM overlay(s); skipped ${skippedOverlayIds.length} non-BGM sound overlay(s).`
+      : `Audio ducking was already ${enabled ? "enabled" : "disabled"} on all BGM overlay(s); skipped ${skippedOverlayIds.length} non-BGM sound overlay(s).`,
+  };
 }
 
 export function findAudioMomentCandidates(
@@ -243,7 +418,7 @@ export function findAudioMomentCandidates(
 
 function buildAudioEvidence(project: any, options: AudioMomentOptions = {}): AudioEvidence[] {
   const fps = positiveNumber(project?.fps) ?? DEFAULT_FPS;
-  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
   const totalDurationFrames = Math.max(1, Math.round(positiveNumber(project?.durationInFrames) ?? DEFAULT_CLIP_DURATION_FRAMES));
   const projectRange = { startFrame: 0, endFrame: totalDurationFrames };
   const evidence: AudioEvidence[] = [];
@@ -759,6 +934,70 @@ function sectionText(item: unknown): string {
 function speechText(item: unknown): string {
   if (!isRecord(item)) return "speech segment";
   return stringValue(item.text ?? item.transcript ?? item.content) ?? "speech segment";
+}
+
+function isBgmSoundOverlay(overlay: any): boolean {
+  if (overlay?.type !== "sound") return false;
+  if (overlay.row === ROW.SFX || overlay.row === ROW.VOICEOVER) return false;
+  if (overlay.row === ROW.BGM) return true;
+  const identity = audioOverlayIdentity(overlay);
+  return /\bbgm\b/.test(identity)
+    || identity.includes("background music")
+    || identity.includes("background_music")
+    || identity.includes("music bed")
+    || identity.includes("music-bed");
+}
+
+function isRenderVoiceSourceOverlay(overlay: any): boolean {
+  if (overlay?.type === "video" && overlay.hasNativeAudio === true) return true;
+  if (overlay?.type !== "sound") return false;
+  if (overlay.row === ROW.VOICEOVER || overlay.row === 4) return true;
+  const identity = audioOverlayIdentity(overlay);
+  return identity.includes("voiceover")
+    || /\bvo\b/.test(identity)
+    || identity.includes("narration")
+    || identity.includes("dialogue")
+    || identity.includes("speech");
+}
+
+function isSpeechEvidenceOverlay(overlay: any): boolean {
+  if (isRenderVoiceSourceOverlay(overlay)) return true;
+  if (overlay?.type === "caption") return true;
+  return Boolean(overlay?.words?.length || overlay?.captions?.length || overlay?.transcription);
+}
+
+function audioOverlayIdentity(overlay: any): string {
+  return normalizeText([
+    stringValue(overlay?.assetId),
+    stringValue(overlay?.sourceAssetId),
+    stringValue(overlay?.mediaId),
+    stringValue(overlay?.content),
+    stringValue(overlay?.name),
+    stringValue(overlay?.label),
+    stringValue(overlay?.metadata?.role),
+    stringValue(overlay?.metadata?.audioRole),
+    stringValue(overlay?.metadata?.source),
+    stringValue(overlay?.metadata?.family),
+  ].filter(Boolean).join(" "));
+}
+
+function normalizeDuckingConfig(value: unknown): AudioDuckingConfig | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    enabled: Boolean(value.enabled),
+    duckLevel: clampNumber(firstNumber(value, ["duckLevel"])) ?? DEFAULT_DUCKING_CONFIG.duckLevel,
+    rampDownMs: clampInt(firstNumber(value, ["rampDownMs"]) ?? DEFAULT_DUCKING_CONFIG.rampDownMs, 50, 2000),
+    rampUpMs: clampInt(firstNumber(value, ["rampUpMs"]) ?? DEFAULT_DUCKING_CONFIG.rampUpMs, 50, 3000),
+    lookAheadMs: clampInt(firstNumber(value, ["lookAheadMs"]) ?? DEFAULT_DUCKING_CONFIG.lookAheadMs, 0, 1000),
+  };
+}
+
+function sameDuckingConfig(a: AudioDuckingConfig, b: AudioDuckingConfig): boolean {
+  return a.enabled === b.enabled
+    && a.duckLevel === b.duckLevel
+    && a.rampDownMs === b.rampDownMs
+    && a.rampUpMs === b.rampUpMs
+    && a.lookAheadMs === b.lookAheadMs;
 }
 
 function strengthValue(item: unknown): number | undefined {

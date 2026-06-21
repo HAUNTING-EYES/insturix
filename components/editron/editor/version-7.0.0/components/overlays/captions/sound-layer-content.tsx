@@ -5,6 +5,9 @@ import { toAbsoluteUrl } from "../../../utils/url-helper";
 import { useAllOverlays } from "../../../contexts/rendering-context";
 import { createDuckingVolume, type DuckingConfig } from "../../../utils/audio-ducking";
 
+const CANONICAL_VOICEOVER_ROW = 3;
+const LEGACY_VOICEOVER_ROW = 4;
+
 interface SoundLayerContentProps {
   overlay: SoundOverlay;
   baseUrl?: string;
@@ -38,7 +41,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
 
     // Find all overlays that produce audio the BGM should duck under.
     // Two sources:
-    //   1. Separate voiceover sound overlays (assetId prefix 'voiceover_'/'vo_' or row 4)
+    //   1. Separate voiceover sound overlays (assetId prefix 'voiceover_'/'vo_' or voiceover row)
     //   2. Video overlays with hasNativeAudio:true (Seedance 1.5/2.0 embedded audio)
     //      These play audio from the <Video> element directly, not as sound overlays.
     //      Without including them, BGM plays at full volume alongside Seedance audio.
@@ -49,7 +52,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
       if (o.type === 'sound') {
         const aid = (o as any).assetId || '';
         if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
-        if (o.row === 4) return true;
+        if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return true;
       }
 
       // Source 2: video overlays with native audio (Seedance)
@@ -65,8 +68,8 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   }, [duckingConfig, allOverlays, overlay.id, overlay.styles?.volume, overlay.row, fps]);
 
   // L-cut/J-cut: audio boundaries can be decoupled from the visual overlay.
-  // audioStartFrame < overlay.from → J-cut (audio starts before video)
-  // audioEndFrame > overlay.from + durationInFrames → L-cut (audio extends after video)
+  // audioStartFrame < overlay.from -> J-cut (audio starts before video)
+  // audioEndFrame > overlay.from + durationInFrames -> L-cut (audio extends after video)
   // Migration: startFromSound is the old audio in-point trim (source offset)
   const audioSourceOffset = overlay.startFromSound || 0;
   const hasDecoupledAudio = overlay.audioStartFrame !== undefined || overlay.audioEndFrame !== undefined;
