@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -203,5 +205,20 @@ describe('chat AI edit transactions', () => {
       afterCheckpointId: 'ckpt_after_only',
     });
     expect(missingTarget.useWith).toBeUndefined();
+  });
+  it('keeps the live chat stream route wired to the restore resolver context', () => {
+    const source = readFileSync(join(process.cwd(), 'app/api/services/editron/chat/stream/route.ts'), 'utf8');
+
+    expect(source).toContain('resolveChatAiEditRestoreTarget');
+    expect(source).toContain('formatChatAiEditRestoreTargetForPrompt');
+    expect(source).toContain('const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });');
+    expect(source).toContain('const restoreTargetPrompt = formatChatAiEditRestoreTargetForPrompt(restoreTarget);');
+    expect(source).toContain('contextMessage += `\\n\\n${restoreTargetPrompt}`;');
+    expect(source.indexOf('formatChatEditContextForPrompt(chatEditContext)')).toBeLessThan(
+      source.indexOf('resolveChatAiEditRestoreTarget(history, { userMessage: message })'),
+    );
+    expect(source.indexOf('resolveChatAiEditRestoreTarget(history, { userMessage: message })')).toBeLessThan(
+      source.indexOf('contextMessage += `\\n\\n${restoreTargetPrompt}`;'),
+    );
   });
 });
