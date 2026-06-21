@@ -16,6 +16,7 @@ import {
 } from '@/lib/editron/agent/chat-transcript-tools';
 import {
   applyCameraShakeToProject,
+  applySpeedRampToProject,
   findVisualMomentCandidates,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
@@ -183,11 +184,11 @@ describe('chat edit context bundle', () => {
     });
   });
 
-  it('covers visual moment search and camera shake with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search, camera shake, and speed ramp with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake']);
+    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -199,6 +200,14 @@ describe('chat edit context bundle', () => {
       label: 'Applying camera shake',
       shortLabel: 'Shake',
       receiptLabel: 'Applied camera shake',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('apply_speed_ramp')).toMatchObject({
+      label: 'Applying speed ramp',
+      shortLabel: 'Speed',
+      receiptLabel: 'Applied speed ramp',
       mutatesProject: true,
       requiresProjectReload: true,
       riskLevel: 'medium',
@@ -404,6 +413,83 @@ describe('chat edit context bundle', () => {
       updates: [],
     });
     expect(plan.message).toContain('already has x/y position keyframes');
+  });
+
+  it('plans speed ramp as bounded speedCurve and matching speed keyframes', () => {
+    const plan = applySpeedRampToProject(project, {
+      startFrame: 150,
+      endFrame: 175,
+      targetSpeed: 0.1,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 150,
+      endFrame: 175,
+      targetOverlayId: 1,
+      updates: [{
+        overlayId: 1,
+        localStartFrame: 150,
+        localMidFrame: 163,
+        localEndFrame: 175,
+        targetSpeed: 0.25,
+        reason: 'bounded-semantic-speed-ramp',
+      }],
+    });
+
+    expect(plan.updates[0].nextSpeedCurve).toEqual([
+      { frame: 150, value: 1, easing: 'ease-in-out' },
+      { frame: 163, value: 0.25, easing: 'ease-in-out' },
+      { frame: 175, value: 1, easing: 'ease-out' },
+    ]);
+    const speedTrack = plan.updates[0].nextKeyframeTracks.find((track: any) => track.property === 'speed');
+    expect(speedTrack).toMatchObject({
+      property: 'speed',
+      metadata: { family: 'speed-ramp', source: 'apply_speed_ramp' },
+    });
+    expect(speedTrack.keyframes).toEqual(plan.updates[0].nextSpeedCurve);
+  });
+
+  it('refuses speed ramp across caption dialogue unless explicitly allowed', () => {
+    const plan = applySpeedRampToProject(project, {
+      startFrame: 90,
+      endFrame: 120,
+      targetSpeed: 0.5,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 90,
+      endFrame: 120,
+      targetOverlayId: 1,
+      updates: [],
+    });
+    expect(plan.message).toContain('overlap captions/dialogue');
+  });
+
+  it('refuses speed ramp when existing speed motion would be overwritten', () => {
+    const plan = applySpeedRampToProject({
+      durationInFrames: 60,
+      overlays: [{
+        id: 10,
+        type: 'video',
+        from: 0,
+        durationInFrames: 60,
+        speedCurve: [
+          { frame: 0, value: 1, easing: 'linear' },
+          { frame: 30, value: 0.5, easing: 'ease-in-out' },
+        ],
+      }],
+    }, { startFrame: 10, endFrame: 40 });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 10,
+      endFrame: 40,
+      targetOverlayId: 10,
+      updates: [],
+    });
+    expect(plan.message).toContain('already has speed keyframes');
   });
 
   it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {

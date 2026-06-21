@@ -75,6 +75,42 @@ export interface CameraShakePlan {
   message: string;
 }
 
+export interface SpeedRampOptions {
+  startFrame?: number;
+  endFrame?: number;
+  targetFrame?: number;
+  durationFrames?: number;
+  videoOverlayId?: OverlayId;
+  targetQuery?: string;
+  targetSpeed?: number;
+  replaceExistingSpeedCurve?: boolean;
+  allowDialogueSpeedRamp?: boolean;
+}
+
+export interface SpeedRampOverlayUpdate {
+  overlayId: OverlayId;
+  startFrame: number;
+  endFrame: number;
+  localStartFrame: number;
+  localMidFrame: number;
+  localEndFrame: number;
+  previousSpeedCurve?: any[];
+  nextSpeedCurve: any[];
+  nextKeyframeTracks: any[];
+  targetSpeed: number;
+  reason: string;
+}
+
+export interface SpeedRampPlan {
+  status: "changed" | "no-target" | "conflict";
+  startFrame?: number;
+  endFrame?: number;
+  targetOverlayId?: OverlayId;
+  updates: SpeedRampOverlayUpdate[];
+  warnings: string[];
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -108,6 +144,18 @@ const cameraShakeSchema = z.object({
   durationFrames: z.coerce.number().int().min(2).max(30).default(10).describe("Requested shake duration in frames before config clamping. 10 matches the existing EDL default."),
   canvasWidth: z.coerce.number().int().min(1).optional().describe("Canvas width for offset scaling. Defaults to project dimensions or 1920."),
   replacePositionKeyframes: z.boolean().default(false).describe("Allow replacing existing x/y position keyframes. Keep false unless the user explicitly wants to overwrite position motion."),
+});
+
+const speedRampSchema = z.object({
+  startFrame: z.coerce.number().int().min(0).optional().describe("Global timeline start frame for the speed ramp."),
+  endFrame: z.coerce.number().int().min(0).optional().describe("Global timeline end frame for the speed ramp. Must be after startFrame."),
+  targetFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame to anchor the ramp when startFrame/endFrame are not supplied."),
+  durationFrames: z.coerce.number().int().min(3).default(30).describe("Ramp window when only targetFrame is supplied. 30 frames matches the existing speed-change default."),
+  videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional video overlay id. If omitted, the active video overlay at the ramp start is used."),
+  targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the ramp range when explicit frames are not supplied."),
+  targetSpeed: z.coerce.number().min(0.01).max(4).default(0.5).describe("Middle speed multiplier before config clamping. 0.5 matches the existing EDL default."),
+  replaceExistingSpeedCurve: z.boolean().default(false).describe("Allow replacing an existing speed curve or speed keyframe track."),
+  allowDialogueSpeedRamp: z.boolean().default(false).describe("Allow retiming over caption/dialogue evidence. Keep false unless the user explicitly accepts speech sync risk."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -362,7 +410,42 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
     },
   );
 
-  return [findVisualMoment, applyCameraShake];
+  const applySpeedRamp = tool(
+    async (input: z.infer<typeof speedRampSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applySpeedRampToProject(project, input);
+        if (plan.status !== "changed") {
+          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        }
+
+        for (const update of plan.updates) {
+          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
+            speedCurve: update.nextSpeedCurve,
+            keyframeTracks: update.nextKeyframeTracks,
+          } as any);
+        }
+
+        return JSON.stringify({ status: "success", data: plan });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply speed ramp." });
+      }
+    },
+    {
+      name: "apply_speed_ramp",
+      description: `Apply a bounded speed ramp to the active video overlay over a resolved frame range.
+Use for "slow this moment down", "speed ramp on this action", or "return to normal speed after emphasis" after a selected range, target frame, find_audio_moment, or find_visual_moment.
+Writes speedCurve plus matching speed keyframes into the existing video speed path. Refuses dialogue/caption overlap and existing speed curves unless explicitly allowed.`,
+      schema: speedRampSchema,
+    },
+  );
+
+  return [findVisualMoment, applyCameraShake, applySpeedRamp];
 }
 
 export function applyCameraShakeToProject(
@@ -462,6 +545,254 @@ export function applyCameraShakeToProject(
     warnings,
     message: `Applied bounded camera shake to video overlay ${String(video.id)} at frame ${targetFrame}.`,
   };
+}
+
+export function applySpeedRampToProject(
+  project: any,
+  options: SpeedRampOptions,
+): SpeedRampPlan {
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const warnings: string[] = [];
+  const rangeResult = resolveSpeedRampFrameRange(project, options);
+  if (!rangeResult.ok) {
+    return {
+      status: "no-target",
+      updates: [],
+      warnings: rangeResult.warnings,
+      message: rangeResult.message,
+    };
+  }
+
+  const { startFrame, endFrame } = rangeResult.range;
+  warnings.push(...rangeResult.warnings);
+  const video = resolveSpeedRampVideoOverlay(overlays, rangeResult.range, options.videoOverlayId);
+  if (!video) {
+    return {
+      status: "no-target",
+      startFrame,
+      endFrame,
+      updates: [],
+      warnings,
+      message: options.videoOverlayId != null
+        ? `Video overlay ${String(options.videoOverlayId)} does not fully cover frames ${startFrame}-${endFrame}.`
+        : `No single video overlay fully covers frames ${startFrame}-${endFrame}.`,
+    };
+  }
+
+  if (!options.allowDialogueSpeedRamp && hasCaptionDialogueInRange(overlays, rangeResult.range)) {
+    return {
+      status: "conflict",
+      startFrame,
+      endFrame,
+      targetOverlayId: video.id,
+      updates: [],
+      warnings: ["Caption/dialogue evidence overlaps the requested range; speed ramp was not applied because it can desync or distort speech."],
+      message: `Frames ${startFrame}-${endFrame} overlap captions/dialogue. Ask to allow dialogue speed ramp only if speech sync risk is intentional.`,
+    };
+  }
+
+  const videoStartFrame = frame(video.from);
+  const videoDurationFrames = duration(video.durationInFrames);
+  const localStartFrame = startFrame - videoStartFrame;
+  const localEndFrame = Math.min(endFrame - videoStartFrame, videoDurationFrames - 1);
+  if (localStartFrame < 0 || localEndFrame >= videoDurationFrames || localEndFrame - localStartFrame < 3) {
+    return {
+      status: "no-target",
+      startFrame,
+      endFrame,
+      targetOverlayId: video.id,
+      updates: [],
+      warnings,
+      message: `Video overlay ${String(video.id)} does not have enough frames for a clean speed ramp over ${startFrame}-${endFrame}.`,
+    };
+  }
+
+  const existingSpeedCurve = Array.isArray(video.speedCurve) ? video.speedCurve : undefined;
+  const existingTracks = Array.isArray(video.keyframeTracks) ? video.keyframeTracks : [];
+  const nonRampSpeedTracks = existingTracks.filter((track: any) => track?.property === "speed" && !isSpeedRampTrack(track));
+  if (((existingSpeedCurve?.length ?? 0) > 0 || nonRampSpeedTracks.length > 0) && !options.replaceExistingSpeedCurve) {
+    return {
+      status: "conflict",
+      startFrame,
+      endFrame,
+      targetOverlayId: video.id,
+      updates: [],
+      warnings: ["Existing speed curve/keyframes were found; speed ramp was not applied because it would overwrite retiming."],
+      message: `Overlay ${String(video.id)} already has speed keyframes. Ask to replace existing speed motion if that is intentional.`,
+    };
+  }
+
+  const config = DEFAULT_CONFIG.editing;
+  const targetSpeed = round3(clamp(options.targetSpeed ?? 0.5, config.speedRange[0], config.speedRange[1]));
+  const nextSpeedCurve = buildSpeedRampCurve(localStartFrame, localEndFrame, targetSpeed);
+  const keptTracks = existingTracks.filter((track: any) => {
+    if (options.replaceExistingSpeedCurve && track?.property === "speed") return false;
+    return !isSpeedRampTrack(track);
+  });
+  const nextKeyframeTracks = [...keptTracks, speedRampTrack(nextSpeedCurve)];
+
+  return {
+    status: "changed",
+    startFrame,
+    endFrame,
+    targetOverlayId: video.id,
+    updates: [{
+      overlayId: video.id,
+      startFrame,
+      endFrame,
+      localStartFrame,
+      localMidFrame: nextSpeedCurve[1].frame,
+      localEndFrame,
+      previousSpeedCurve: existingSpeedCurve,
+      nextSpeedCurve,
+      nextKeyframeTracks,
+      targetSpeed,
+      reason: "bounded-semantic-speed-ramp",
+    }],
+    warnings,
+    message: `Applied bounded speed ramp to video overlay ${String(video.id)} over frames ${startFrame}-${endFrame}.`,
+  };
+}
+
+function resolveSpeedRampFrameRange(
+  project: any,
+  options: SpeedRampOptions,
+): { ok: true; range: FrameRange; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const durationFrames = Math.max(3, Math.round(positiveNumber(options.durationFrames) ?? 30));
+  let startFrame = positiveOrZeroNumber(options.startFrame);
+  let endFrame = positiveOrZeroNumber(options.endFrame);
+
+  if (startFrame == null && endFrame == null && options.targetQuery) {
+    const candidates = findVisualMomentCandidates(project, options.targetQuery, {
+      videoOverlayId: options.videoOverlayId,
+      limit: 3,
+      minConfidence: 0.35,
+    });
+    const best = candidates[0];
+    if (!best) {
+      return {
+        ok: false,
+        warnings,
+        message: `No stored visual evidence matched "${options.targetQuery}". Use find_visual_moment or provide startFrame/endFrame first.`,
+      };
+    }
+    if (!best.safeForAutoEdit) {
+      return {
+        ok: false,
+        warnings,
+        message: `Visual target "${options.targetQuery}" was not high-confidence enough for automatic speed ramp. Provide explicit frames or inspect candidates first.`,
+      };
+    }
+    startFrame = best.startFrame;
+    endFrame = best.endFrame - best.startFrame >= 3 ? best.endFrame : best.startFrame + durationFrames;
+    warnings.push(`Resolved speed ramp frames ${startFrame}-${endFrame} from visual evidence: ${best.source.path}.`);
+  }
+
+  if (startFrame == null) {
+    const targetFrame = positiveOrZeroNumber(options.targetFrame);
+    if (targetFrame != null) {
+      startFrame = targetFrame;
+      endFrame = targetFrame + durationFrames;
+    }
+  } else if (endFrame == null) {
+    endFrame = startFrame + durationFrames;
+  }
+
+  if (startFrame == null || endFrame == null) {
+    return {
+      ok: false,
+      warnings,
+      message: "Speed ramp needs startFrame/endFrame, targetFrame, or a high-confidence targetQuery.",
+    };
+  }
+
+  const roundedStart = Math.round(startFrame);
+  const roundedEnd = Math.round(endFrame);
+  if (roundedEnd <= roundedStart) {
+    return {
+      ok: false,
+      warnings,
+      message: `Speed ramp endFrame (${roundedEnd}) must be after startFrame (${roundedStart}).`,
+    };
+  }
+  if (roundedEnd - roundedStart < 3) {
+    return {
+      ok: false,
+      warnings,
+      message: `Speed ramp range ${roundedStart}-${roundedEnd} is too short for a stable curve.`,
+    };
+  }
+
+  const totalFrames = resolveProjectDurationFrames(project);
+  if (totalFrames > 0 && (roundedStart >= totalFrames || roundedEnd > totalFrames)) {
+    return {
+      ok: false,
+      warnings,
+      message: `Speed ramp range ${roundedStart}-${roundedEnd} is outside the project duration (${totalFrames} frames).`,
+    };
+  }
+
+  return { ok: true, range: { startFrame: roundedStart, endFrame: roundedEnd }, warnings };
+}
+
+function resolveSpeedRampVideoOverlay(overlays: any[], range: FrameRange, videoOverlayId?: OverlayId): any | undefined {
+  const videoOverlays = overlays.filter((overlay) => overlay?.type === "video");
+  if (videoOverlayId != null) {
+    const explicit = videoOverlays.find((overlay) => String(overlay?.id) === String(videoOverlayId));
+    return explicit && overlayCoversRange(explicit, range) ? explicit : undefined;
+  }
+  return videoOverlays.find((overlay) => overlayCoversRange(overlay, range));
+}
+
+function overlayCoversRange(overlay: any, range: FrameRange): boolean {
+  const startFrame = frame(overlay?.from);
+  const endFrame = startFrame + duration(overlay?.durationInFrames);
+  return startFrame <= range.startFrame && endFrame >= range.endFrame;
+}
+
+function hasCaptionDialogueInRange(overlays: any[], range: FrameRange): boolean {
+  return overlays.some((overlay) => {
+    const type = String(overlay?.type ?? "").toLowerCase();
+    if (type !== "caption" && type !== "subtitle") return false;
+    const overlayRange = {
+      startFrame: frame(overlay?.from),
+      endFrame: frame(overlay?.from) + duration(overlay?.durationInFrames),
+    };
+    return rangesOverlap(range, overlayRange);
+  });
+}
+
+function rangesOverlap(a: FrameRange, b: FrameRange): boolean {
+  return a.startFrame < b.endFrame && b.startFrame < a.endFrame;
+}
+
+function buildSpeedRampCurve(localStartFrame: number, localEndFrame: number, targetSpeed: number): any[] {
+  const localMidFrame = Math.round(localStartFrame + ((localEndFrame - localStartFrame) / 2));
+  return [
+    { frame: localStartFrame, value: 1, easing: "ease-in-out" },
+    { frame: localMidFrame, value: targetSpeed, easing: "ease-in-out" },
+    { frame: localEndFrame, value: 1, easing: "ease-out" },
+  ];
+}
+
+function speedRampTrack(keyframes: any[]): any {
+  return {
+    property: "speed",
+    keyframes,
+    metadata: {
+      family: "speed-ramp",
+      source: "apply_speed_ramp",
+    },
+  };
+}
+
+function isSpeedRampTrack(track: any): boolean {
+  const metadata = isRecord(track?.metadata) ? track.metadata : undefined;
+  return track?.family === "speed-ramp"
+    || track?.source === "apply_speed_ramp"
+    || metadata?.family === "speed-ramp"
+    || metadata?.source === "apply_speed_ramp";
 }
 
 function resolveCameraShakeTargetFrame(
