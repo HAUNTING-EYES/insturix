@@ -59,7 +59,7 @@ describe('chat edit Phase 0 baseline', () => {
     expect(findChatEditPhase0BaselineCase('operation-fade')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-layer-reorder')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-move-retime')?.currentStatus).toBe('supported-now');
-    expect(findChatEditPhase0BaselineCase('operation-filter-owner')?.currentStatus).toBe('expected-failure');
+    expect(findChatEditPhase0BaselineCase('operation-filter-owner')?.currentStatus).toBe('supported-now');
   });
 
   it('summarizes baseline status for Phase 1 planning', () => {
@@ -69,12 +69,12 @@ describe('chat edit Phase 0 baseline', () => {
       version: 'chat-edit-phase0-baseline-v1',
       total: CHAT_EDIT_PHASE0_BASELINE_CASES.length,
       byStatus: {
-        'supported-now': 14,
+        'supported-now': 15,
         'partial-now': 7,
-        'expected-failure': 1,
+        'expected-failure': 0,
       },
     });
-    expect(summary.expectedFailureIds).toEqual(['operation-filter-owner']);
+    expect(summary.expectedFailureIds).toEqual([]);
     expect(summary.targetPhases).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });

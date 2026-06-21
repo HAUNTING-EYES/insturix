@@ -215,6 +215,35 @@ export interface MoveRetimePlan {
   message: string;
 }
 
+export type FilterIntent = "warmer" | "cooler" | "brighter" | "higher-contrast" | "black-and-white" | "muted" | "clear";
+
+export interface FilterOptions {
+  overlayId?: OverlayId;
+  targetQuery?: string;
+  targetFrame?: number;
+  filterCss?: string;
+  filterIntent?: FilterIntent;
+  replaceExistingFilter?: boolean;
+  allowCaptionFilter?: boolean;
+  allowBrandFilter?: boolean;
+}
+
+export interface FilterOverlayUpdate {
+  overlayId: OverlayId;
+  previousFilter: string;
+  nextFilter: string;
+  nextStyles: Record<string, unknown>;
+  reason: "manual-overlay-filter-override" | "manual-overlay-filter-clear";
+}
+
+export interface FilterPlan {
+  status: "changed" | "no-target" | "conflict";
+  targetOverlayId?: OverlayId;
+  updates: FilterOverlayUpdate[];
+  warnings: string[];
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -300,6 +329,17 @@ const moveRetimeSchema = z.object({
   allowCaptionRetime: z.boolean().default(false).describe("Reserved for explicit caption retime requests. Captions still need a caption-specific retime path in this slice."),
   allowTimelineCollision: z.boolean().default(false).describe("Allow the target overlay to overlap another overlay on the same row after the move."),
   allowProjectExtension: z.boolean().default(false).describe("Allow the overlay to extend beyond the current project duration."),
+});
+
+const filterSchema = z.object({
+  overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id. Prefer selectedOverlayId when the user says this clip or this overlay."),
+  targetQuery: z.string().min(1).optional().describe("Natural-language target overlay reference such as clip, image, logo, title, or asset label when overlayId is unavailable."),
+  targetFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame used to resolve the active visual clip when overlayId is omitted."),
+  filterCss: z.string().min(1).max(160).optional().describe("Explicit safe CSS filter string. Only simple brightness/contrast/saturate/grayscale/sepia/invert/blur/hue-rotate/opacity functions are accepted."),
+  filterIntent: z.enum(["warmer", "cooler", "brighter", "higher-contrast", "black-and-white", "muted", "clear"]).optional().describe("Manual overlay filter intent when filterCss is not supplied."),
+  replaceExistingFilter: z.boolean().default(false).describe("Allow replacing an existing overlay-level filter. Keep false unless the user explicitly wants to override a current manual filter."),
+  allowCaptionFilter: z.boolean().default(false).describe("Allow filtering captions/subtitles. Keep false unless captions were explicitly targeted."),
+  allowBrandFilter: z.boolean().default(false).describe("Allow filtering likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -697,7 +737,45 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
     },
   );
 
-  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay];
+  const applyFilter = tool(
+    async (input: z.infer<typeof filterSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applyFilterToProject(project, input);
+        if (plan.status !== "changed") {
+          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        }
+
+        for (const update of plan.updates) {
+          const numericOverlayId = Number(update.overlayId);
+          if (!Number.isFinite(numericOverlayId)) {
+            return JSON.stringify({ status: "error", message: `Overlay ${String(update.overlayId)} cannot be updated because its id is not numeric.`, data: plan });
+          }
+          await projectService.updateOverlay(userId, projectId, numericOverlayId, {
+            styles: update.nextStyles,
+          } as any);
+        }
+
+        return JSON.stringify({ status: "success", data: plan });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply filter." });
+      }
+    },
+    {
+      name: "apply_filter",
+      description: `Apply a safe manual CSS filter override to one explicitly resolved visual overlay.
+Use for selected-overlay requests such as "make this clip warmer", "make this image black and white", or "clear the filter".
+Writes only overlay.styles.filter, which is already consumed by the renderer. It does not revive EDL filter-change, does not pick project-wide color grade, and refuses captions, audio, unsafe CSS, ambiguous targets, and existing filters unless explicitly allowed.`,
+      schema: filterSchema,
+    },
+  );
+
+  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
 }
 
 export function applyCameraShakeToProject(
@@ -1319,6 +1397,306 @@ export function applyMoveRetimeToProject(
     warnings,
     message: `Moved/retimed overlay ${String(target.id)} from frames ${previousRange.startFrame}-${previousRange.endFrame} to ${nextRange.startFrame}-${nextRange.endFrame}.`,
   };
+}
+
+export function applyFilterToProject(
+  project: any,
+  options: FilterOptions,
+): FilterPlan {
+  const targetResult = resolveFilterTargetOverlay(project, options);
+  if (!targetResult.ok) {
+    return {
+      status: "no-target",
+      updates: [],
+      warnings: targetResult.warnings,
+      message: targetResult.message,
+    };
+  }
+
+  const target = targetResult.overlay;
+  const warnings = [...targetResult.warnings];
+  const targetBlock = filterBlockReason(target, Boolean(options.allowCaptionFilter), Boolean(options.allowBrandFilter));
+  if (targetBlock) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: targetBlock,
+    };
+  }
+
+  const filterResult = resolveManualFilterCss(options);
+  if (!filterResult.ok) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: filterResult.message,
+    };
+  }
+  warnings.push(...filterResult.warnings);
+
+  const previousStyles = isRecord(target?.styles) ? { ...target.styles } : {};
+  const previousFilter = (stringValue(previousStyles.filter) ?? "none").trim() || "none";
+  const nextFilter = filterResult.filter;
+
+  if (previousFilter !== "none" && previousFilter !== nextFilter && nextFilter !== "none" && !options.replaceExistingFilter) {
+    return {
+      status: "conflict",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(target.id)} already has filter "${previousFilter}". Ask to replace the existing filter if overriding it is intentional.`,
+    };
+  }
+
+  if (previousFilter === nextFilter) {
+    return {
+      status: "no-target",
+      targetOverlayId: target.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(target.id)} already has filter "${nextFilter}".`,
+    };
+  }
+
+  return {
+    status: "changed",
+    targetOverlayId: target.id,
+    updates: [{
+      overlayId: target.id,
+      previousFilter,
+      nextFilter,
+      nextStyles: { ...previousStyles, filter: nextFilter },
+      reason: nextFilter === "none" ? "manual-overlay-filter-clear" : "manual-overlay-filter-override",
+    }],
+    warnings,
+    message: nextFilter === "none"
+      ? `Cleared manual filter on overlay ${String(target.id)}.`
+      : `Applied manual filter "${nextFilter}" to overlay ${String(target.id)}.`,
+  };
+}
+
+function resolveFilterTargetOverlay(
+  project: any,
+  options: FilterOptions,
+): { ok: true; overlay: any; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+
+  if (options.overlayId != null) {
+    const overlay = overlays.find((candidate) => String(candidate?.id) === String(options.overlayId));
+    if (!overlay) {
+      return {
+        ok: false,
+        warnings,
+        message: `Overlay ${String(options.overlayId)} was not found in the project.`,
+      };
+    }
+    return { ok: true, overlay, warnings };
+  }
+
+  if (options.targetQuery?.trim()) {
+    const normalizedQuery = normalizeText(options.targetQuery);
+    const queryTokens = tokenize(options.targetQuery);
+    const scored = overlays
+      .map((overlay) => ({ overlay, score: scoreLayerOverlayQuery(overlay, normalizedQuery, queryTokens) }))
+      .filter((candidate) => candidate.score >= 0.35)
+      .sort((a, b) => b.score - a.score || frame(a.overlay?.from) - frame(b.overlay?.from) || currentOverlayRow(a.overlay) - currentOverlayRow(b.overlay));
+
+    const best = scored[0];
+    if (!best) {
+      return {
+        ok: false,
+        warnings,
+        message: `No overlay matched "${options.targetQuery}". Use an explicit overlay id or inspect the timeline first.`,
+      };
+    }
+
+    const second = scored[1];
+    if (second && Math.abs(best.score - second.score) < 0.08) {
+      return {
+        ok: false,
+        warnings,
+        message: `Overlay query "${options.targetQuery}" is ambiguous between overlays ${String(best.overlay.id)} and ${String(second.overlay.id)}. Use overlay ids before applying a filter.`,
+      };
+    }
+
+    warnings.push(`Resolved overlay ${String(best.overlay.id)} from query "${options.targetQuery}".`);
+    return { ok: true, overlay: best.overlay, warnings };
+  }
+
+  const targetFrame = positiveOrZeroNumber(options.targetFrame);
+  if (targetFrame != null) {
+    const roundedFrame = Math.round(targetFrame);
+    const activeMedia = overlays
+      .filter((overlay) => isMediaFilterTargetOverlay(overlay) && overlayContainsFrame(overlay, roundedFrame))
+      .sort((a, b) => currentOverlayRow(a) - currentOverlayRow(b) || String(a?.id).localeCompare(String(b?.id)));
+    if (activeMedia.length === 1) {
+      return { ok: true, overlay: activeMedia[0], warnings };
+    }
+    if (activeMedia.length > 1) {
+      return {
+        ok: false,
+        warnings,
+        message: `Frame ${roundedFrame} has multiple active media overlays (${activeMedia.map((overlay) => String(overlay.id)).join(", ")}). Use overlay id before applying a filter.`,
+      };
+    }
+
+    const activeVisual = overlays
+      .filter((overlay) => isPotentialFilterTargetOverlay(overlay) && !isCaptionLikeOverlay(overlay) && overlayContainsFrame(overlay, roundedFrame))
+      .sort((a, b) => currentOverlayRow(a) - currentOverlayRow(b) || String(a?.id).localeCompare(String(b?.id)));
+    if (activeVisual.length === 1) {
+      return { ok: true, overlay: activeVisual[0], warnings };
+    }
+    if (activeVisual.length > 1) {
+      return {
+        ok: false,
+        warnings,
+        message: `Frame ${roundedFrame} has multiple active visual overlays (${activeVisual.map((overlay) => String(overlay.id)).join(", ")}). Use overlay id before applying a filter.`,
+      };
+    }
+
+    return {
+      ok: false,
+      warnings,
+      message: `No filterable visual overlay is active at frame ${roundedFrame}.`,
+    };
+  }
+
+  return {
+    ok: false,
+    warnings,
+    message: "Filter needs overlayId, targetQuery, or targetFrame. Use selectedOverlayId from chat context when the user says this clip or this overlay.",
+  };
+}
+
+function resolveManualFilterCss(
+  options: FilterOptions,
+): { ok: true; filter: string; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const explicitFilter = stringValue(options.filterCss)?.trim();
+  if (explicitFilter && options.filterIntent) {
+    warnings.push("filterCss was supplied, so filterIntent was ignored.");
+  }
+
+  if (explicitFilter) {
+    const safeFilter = normalizeSafeFilterCss(explicitFilter);
+    if (!safeFilter) {
+      return {
+        ok: false,
+        warnings,
+        message: "Filter CSS was rejected. Use only safe brightness/contrast/saturate/grayscale/sepia/invert/blur/hue-rotate/opacity functions or none.",
+      };
+    }
+    return { ok: true, filter: safeFilter, warnings };
+  }
+
+  if (!options.filterIntent) {
+    return {
+      ok: false,
+      warnings,
+      message: "Filter needs filterIntent or filterCss. Broad project color grading stays with the profile/color owner.",
+    };
+  }
+
+  return { ok: true, filter: filterCssForIntent(options.filterIntent), warnings };
+}
+
+function normalizeSafeFilterCss(value: string): string | undefined {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  const lower = trimmed.toLowerCase();
+  if (lower === "none") return "none";
+  if (!trimmed || /[;{}]/.test(trimmed) || lower.includes("url(") || lower.includes("var(") || lower.includes("expression")) {
+    return undefined;
+  }
+
+  const filterFunctionPattern = /(brightness|contrast|saturate|grayscale|sepia|invert|blur|hue-rotate|opacity)\((-?\d*\.?\d+)(%|px|deg)?\)/g;
+  let consumed = "";
+  let match: RegExpExecArray | null;
+  while ((match = filterFunctionPattern.exec(trimmed)) !== null) {
+    const fullMatch = match[0];
+    const name = match[1] ?? "";
+    const rawAmount = match[2] ?? "";
+    const unit = match[3] ?? "";
+    const amount = Number(rawAmount);
+    if (!isSafeFilterFunction(name, amount, unit)) return undefined;
+    consumed += fullMatch;
+  }
+
+  return consumed && consumed === trimmed.replace(/\s+/g, "") ? trimmed : undefined;
+}
+
+function isSafeFilterFunction(name: string, amount: number, unit: string): boolean {
+  if (!Number.isFinite(amount)) return false;
+  switch (name) {
+    case "hue-rotate":
+      return unit === "deg" && amount >= -180 && amount <= 180;
+    case "blur":
+      return unit === "px" && amount >= 0 && amount <= 32;
+    case "grayscale":
+    case "sepia":
+    case "invert":
+    case "opacity":
+      return unit === "%" ? amount >= 0 && amount <= 100 : unit === "" && amount >= 0 && amount <= 1;
+    case "brightness":
+    case "contrast":
+    case "saturate":
+      return unit === "%" ? amount >= 0 && amount <= 300 : unit === "" && amount >= 0 && amount <= 3;
+    default:
+      return false;
+  }
+}
+
+function filterCssForIntent(intent: FilterIntent): string {
+  switch (intent) {
+    case "warmer":
+      return "sepia(0.18) saturate(1.12) hue-rotate(-6deg) brightness(1.03)";
+    case "cooler":
+      return "saturate(0.95) hue-rotate(6deg) brightness(1.01)";
+    case "brighter":
+      return "brightness(1.12) contrast(1.04)";
+    case "higher-contrast":
+      return "contrast(1.16) saturate(1.05)";
+    case "black-and-white":
+      return "grayscale(1) contrast(1.05)";
+    case "muted":
+      return "saturate(0.72) contrast(0.96)";
+    case "clear":
+      return "none";
+  }
+}
+
+function filterBlockReason(overlay: any, allowCaptionFilter: boolean, allowBrandFilter: boolean): string | undefined {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  if (type === "sound" || type === "audio") {
+    return `Overlay ${String(overlay?.id)} is ${type}; filters only apply to visual overlays.`;
+  }
+  if (type === "transition") {
+    return `Overlay ${String(overlay?.id)} is a transition; use transition controls instead of overlay filters.`;
+  }
+  if (isCaptionLikeOverlay(overlay) && !allowCaptionFilter) {
+    return `Overlay ${String(overlay?.id)} is captions/subtitles; captions are protected from generic filter changes unless explicitly allowed.`;
+  }
+  if (isLikelyBrandOverlay(overlay) && !allowBrandFilter) {
+    return `Overlay ${String(overlay?.id)} looks like a logo/brand/watermark; brand elements are protected from generic filter changes unless explicitly allowed.`;
+  }
+  if (!isPotentialFilterTargetOverlay(overlay)) {
+    return `Overlay ${String(overlay?.id)} is not a filterable visual overlay.`;
+  }
+  return undefined;
+}
+
+function isMediaFilterTargetOverlay(overlay: any): boolean {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  return type === "video" || type === "image";
+}
+
+function isPotentialFilterTargetOverlay(overlay: any): boolean {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  return Boolean(overlay) && type !== "sound" && type !== "audio" && type !== "transition";
 }
 
 function resolveMoveRetimeOverlay(

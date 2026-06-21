@@ -17,6 +17,7 @@ import {
 import {
   applyCameraShakeToProject,
   applyFadeToProject,
+  applyFilterToProject,
   applyLayerReorderToProject,
   applyMoveRetimeToProject,
   applySpeedRampToProject,
@@ -187,11 +188,11 @@ describe('chat edit context bundle', () => {
     });
   });
 
-  it('covers visual moment search, camera shake, speed ramp, fade, layer reorder, and move/retime with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search, camera shake, speed ramp, fade, layer reorder, move/retime, and filter with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay']);
+    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -235,6 +236,14 @@ describe('chat edit context bundle', () => {
       label: 'Moving/retiming element',
       shortLabel: 'Timing',
       receiptLabel: 'Moved/retimed element',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('apply_filter')).toMatchObject({
+      label: 'Applying filter',
+      shortLabel: 'Filter',
+      receiptLabel: 'Applied filter',
       mutatesProject: true,
       requiresProjectReload: true,
       riskLevel: 'medium',
@@ -764,6 +773,91 @@ describe('chat edit context bundle', () => {
         },
         sourceTrimFrames: 10,
         reason: 'semantic-overlay-source-trim',
+      }],
+    });
+  });
+
+  it('plans filter as a manual overlay style override only', () => {
+    const plan = applyFilterToProject(project, {
+      overlayId: 1,
+      filterIntent: 'warmer',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 1,
+      updates: [{
+        overlayId: 1,
+        previousFilter: 'none',
+        nextFilter: 'sepia(0.18) saturate(1.12) hue-rotate(-6deg) brightness(1.03)',
+        nextStyles: {
+          filter: 'sepia(0.18) saturate(1.12) hue-rotate(-6deg) brightness(1.03)',
+        },
+        reason: 'manual-overlay-filter-override',
+      }],
+    });
+    expect(plan.message).toContain('Applied manual filter');
+  });
+
+  it('refuses filter on captions unless explicitly allowed', () => {
+    const plan = applyFilterToProject(project, {
+      overlayId: 2,
+      filterIntent: 'brighter',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions/subtitles');
+  });
+
+  it('refuses unsafe filter CSS and blocks accidental existing-filter overwrite', () => {
+    const unsafe = applyFilterToProject(project, {
+      overlayId: 1,
+      filterCss: 'url(https://example.com/filter.svg#x)',
+    });
+    const blocked = applyFilterToProject({
+      overlays: [
+        { id: 60, type: 'video', from: 0, durationInFrames: 60, styles: { filter: 'contrast(1.1)' } },
+      ],
+    }, {
+      overlayId: 60,
+      filterIntent: 'cooler',
+    });
+    const allowed = applyFilterToProject({
+      overlays: [
+        { id: 60, type: 'video', from: 0, durationInFrames: 60, styles: { filter: 'contrast(1.1)' } },
+      ],
+    }, {
+      overlayId: 60,
+      filterIntent: 'cooler',
+      replaceExistingFilter: true,
+    });
+
+    expect(unsafe).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 1,
+      updates: [],
+    });
+    expect(unsafe.message).toContain('Filter CSS was rejected');
+    expect(blocked).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 60,
+      updates: [],
+    });
+    expect(blocked.message).toContain('already has filter');
+    expect(allowed).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 60,
+      updates: [{
+        overlayId: 60,
+        previousFilter: 'contrast(1.1)',
+        nextFilter: 'saturate(0.95) hue-rotate(6deg) brightness(1.01)',
+        nextStyles: {
+          filter: 'saturate(0.95) hue-rotate(6deg) brightness(1.01)',
+        },
       }],
     });
   });
