@@ -13,6 +13,8 @@ import { sanitizeEvidenceExcerpt } from './brand-signal-profile';
 type BrandVaultTextCompilerFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 type CompilerSignalPath =
+  | 'identity.industry'
+  | 'identity.category'
   | 'identity.audience'
   | 'identity.productServices'
   | 'identity.proofStyle'
@@ -56,6 +58,8 @@ const MAX_REPAIR_PROMPT_CHARS = 6_000;
 const MAX_TEXT_BLOCK_CHARS = 1_600;
 const MAX_CANDIDATES = 12;
 const SIGNAL_PATHS = new Set<CompilerSignalPath>([
+  'identity.industry',
+  'identity.category',
   'identity.audience',
   'identity.productServices',
   'identity.proofStyle',
@@ -174,6 +178,8 @@ The brand can be ANY kind: SaaS, e-commerce/DTC, local service, agency or consul
 
 <signals>
 Emit ONLY these signalPaths, each mapped to the brand's own domain:
+- identity.industry: the broad sector the brand itself operates in, based on owned-site/meta/schema/repeated brand evidence, not a random article/help-page topic. Use concrete labels such as "government/public services", "media/publishing", "semiconductor/hardware", "food delivery/restaurant marketplace", "e-commerce/DTC", "SaaS/software", "agency/creative services", "financial services", or another concise evidence-backed sector. Reject bare generic labels when the evidence supports a more specific sector: software, commerce, services, platform, app.
+- identity.category: the more specific brand category/business model within the industry, again based on brand-level evidence rather than one page topic. Examples: "public information portal", "technology news publisher", "GPU and semiconductor company", "food delivery marketplace", "online store platform", "content production software".
 - identity.audience: the specific people or organizations the brand serves, concrete to its category (e.g. "RevOps leaders", "first-time home buyers", "families with toddlers", "indie game studios", "local homeowners"). Reject bare generic words used alone: businesses, customers, users, people, everyone, brands.
 - identity.productServices: what the brand actually offers, in its own terms — software capabilities, product lines or categories, services, programs or causes (nonprofit), shows/channels/newsletters (creator), courses or coaching (personal brand). Concrete offerings or named categories only; never CTAs, audiences, proof claims, page labels, or bare words like "software"/"services"/"products" alone.
 - identity.proofStyle: how the brand earns trust. Exactly ONE of: testimonial, metrics, authority, community, demo, editorial.
@@ -193,7 +199,7 @@ Emit ONLY these signalPaths, each mapped to the brand's own domain:
 
 <output_format>
 Return a single JSON object, with no Markdown fences and no prose:
-{"candidates":[{"signalPath":"identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short quote or paraphrase from the cited block","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
+{"candidates":[{"signalPath":"identity.industry|identity.category|identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short quote or paraphrase from the cited block","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
 </output_format>`;
 
 function buildCompilerUserContent(input: BrandVaultTextEvidenceCompilerInput): string {
@@ -380,6 +386,10 @@ function normalizeCandidateValue(signalPath: CompilerSignalPath, value: unknown)
     const proofStyle = typeof value === 'string' ? value.trim().toLowerCase() : '';
     return PROOF_STYLES.has(proofStyle) ? proofStyle : undefined;
   }
+  if (signalPath === 'identity.industry' || signalPath === 'identity.category') {
+    const taxonomy = typeof value === 'string' ? sanitizeEvidenceExcerpt(value, 90).trim() : '';
+    return isCompilerTaxonomyValue(taxonomy) ? taxonomy : undefined;
+  }
   const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
   const normalized = values
     .map((item) => typeof item === 'string' ? sanitizeEvidenceExcerpt(item, 90) : '')
@@ -390,6 +400,13 @@ function normalizeCandidateValue(signalPath: CompilerSignalPath, value: unknown)
       ? normalized.filter(isCompilerRecurringPhraseValue)
       : normalized.filter((item) => !/^(?:businesses|users|customers|people|everyone|brands?)$/i.test(item));
   return filtered.length > 0 ? Array.from(new Set(filtered)).slice(0, 8) : undefined;
+}
+
+function isCompilerTaxonomyValue(value: string): boolean {
+  if (value.length < 4 || value.length > 90) return false;
+  if (/^(?:software|commerce|services?|platform|app|tool|tools|business|brand|company|website|technology)$/i.test(value)) return false;
+  if (/^https?:\/\//i.test(value) || /[{}<>]|(?:document\.|window\.|function\s*\(|=>)/.test(value)) return false;
+  return true;
 }
 
 function isCompilerProductServiceValue(value: string): boolean {
@@ -512,7 +529,7 @@ function buildCompilerJsonRepairPrompt(rawText: string): string {
   return truncateText(`Repair the following Brand Vault model output into strict JSON.
 
 Return only this JSON shape:
-{"candidates":[{"signalPath":"identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
+{"candidates":[{"signalPath":"identity.industry|identity.category|identity.audience|identity.productServices|identity.proofStyle|voice.recurringPhrases|voice.hookArchetypes|voice.ctaDirectness","normalizedValue":string|string[]|number,"excerpt":"short evidence quote/paraphrase","sourceField":"exact supplied sourceField","sourceUrl":"optional supplied source URL","confidence":0.42-0.68}]}
 
 Rules:
 - Preserve only candidate fields already present in the malformed output.

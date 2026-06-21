@@ -201,6 +201,68 @@ describe('Brand Vault text evidence compiler', () => {
     expect(result.candidates.some((candidate) => candidate.signalPath === 'motion.motionEnergy')).toBe(false);
   });
 
+  it('accepts grounded industry and category adjudication while rejecting generic taxonomy labels', async () => {
+    const compiler = createBrandVaultGeminiTextEvidenceCompiler({
+      apiKey: 'gemini_key',
+      fetchFn: async () => jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    candidates: [
+                      {
+                        signalPath: 'identity.industry',
+                        normalizedValue: 'content production software',
+                        excerpt: 'Video systems for founder-led creative teams.',
+                        sourceField: 'website.root',
+                        confidence: 0.66,
+                      },
+                      {
+                        signalPath: 'identity.category',
+                        normalizedValue: 'automated video production platform',
+                        excerpt: 'Video systems for founder-led creative teams.',
+                        sourceField: 'website.root',
+                        confidence: 0.65,
+                      },
+                      {
+                        signalPath: 'identity.industry',
+                        normalizedValue: 'software',
+                        excerpt: 'Generic taxonomy should be rejected.',
+                        sourceField: 'website.root',
+                        confidence: 0.68,
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    const result = await compiler(COMPILER_INPUT);
+
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0]).toMatchObject({
+      sourceField: 'website.root',
+      signalPath: 'identity.industry',
+      normalizedValue: 'content production software',
+      confidence: 0.66,
+    });
+    expect(result.candidates[1]).toMatchObject({
+      sourceField: 'website.root',
+      signalPath: 'identity.category',
+      normalizedValue: 'automated video production platform',
+      confidence: 0.65,
+    });
+    expect(result.warnings).toContain(
+      'Brand Vault text evidence compiler discarded 1 unsupported, duplicate, or ungrounded candidate.',
+    );
+  });
+
   it('requires candidates to cite supplied evidence and ignores model-provided source URLs', async () => {
     const compiler = createBrandVaultGeminiTextEvidenceCompiler({
       apiKey: 'gemini_key',
