@@ -16,6 +16,7 @@ import {
 } from '@/lib/editron/agent/chat-transcript-tools';
 import {
   applyCameraShakeToProject,
+  applyFadeToProject,
   applySpeedRampToProject,
   findVisualMomentCandidates,
 } from '@/lib/editron/agent/chat-visual-tools';
@@ -184,11 +185,11 @@ describe('chat edit context bundle', () => {
     });
   });
 
-  it('covers visual moment search, camera shake, and speed ramp with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search, camera shake, speed ramp, and fade with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp']);
+    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -208,6 +209,14 @@ describe('chat edit context bundle', () => {
       label: 'Applying speed ramp',
       shortLabel: 'Speed',
       receiptLabel: 'Applied speed ramp',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('apply_fade')).toMatchObject({
+      label: 'Applying fade',
+      shortLabel: 'Fade',
+      receiptLabel: 'Applied fade',
       mutatesProject: true,
       requiresProjectReload: true,
       riskLevel: 'medium',
@@ -490,6 +499,83 @@ describe('chat edit context bundle', () => {
       updates: [],
     });
     expect(plan.message).toContain('already has speed keyframes');
+  });
+
+  it('plans fade out as bounded opacity keyframes at the overlay end', () => {
+    const plan = applyFadeToProject(project, {
+      overlayId: 4,
+      direction: 'out',
+      durationFrames: 12,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 123,
+      endFrame: 135,
+      targetOverlayId: 4,
+      updates: [{
+        overlayId: 4,
+        localStartFrame: 33,
+        localEndFrame: 45,
+        previousKeyframeTrackCount: 0,
+        fromOpacity: 1,
+        toOpacity: 0,
+        reason: 'semantic-fade-out',
+      }],
+    });
+
+    const opacityTrack = plan.updates[0].nextKeyframeTracks.find((track: any) => track.property === 'opacity');
+    expect(opacityTrack).toEqual({
+      property: 'opacity',
+      keyframes: [
+        { frame: 33, value: 1, easing: 'ease-in' },
+        { frame: 45, value: 0, easing: 'linear' },
+      ],
+      metadata: { family: 'fade', source: 'apply_fade', direction: 'out' },
+    });
+  });
+
+  it('refuses fade on caption overlays unless explicitly allowed', () => {
+    const plan = applyFadeToProject(project, {
+      overlayId: 2,
+      direction: 'out',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions/subtitles');
+  });
+
+  it('refuses fade when existing opacity motion would be overwritten', () => {
+    const plan = applyFadeToProject({
+      durationInFrames: 80,
+      overlays: [{
+        id: 20,
+        type: 'text',
+        from: 10,
+        durationInFrames: 40,
+        content: 'CTA',
+        keyframeTracks: [{
+          property: 'opacity',
+          keyframes: [
+            { frame: 0, value: 0, easing: 'linear' },
+            { frame: 10, value: 1, easing: 'ease-out' },
+          ],
+        }],
+      }],
+    }, { overlayId: 20, direction: 'out' });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 30,
+      endFrame: 50,
+      targetOverlayId: 20,
+      updates: [],
+    });
+    expect(plan.message).toContain('already has opacity keyframes');
   });
 
   it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {

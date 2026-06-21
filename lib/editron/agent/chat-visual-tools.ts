@@ -111,6 +111,44 @@ export interface SpeedRampPlan {
   message: string;
 }
 
+export interface FadeOptions {
+  overlayId?: OverlayId;
+  startFrame?: number;
+  endFrame?: number;
+  targetFrame?: number;
+  targetQuery?: string;
+  direction?: "in" | "out";
+  durationFrames?: number;
+  fromOpacity?: number;
+  toOpacity?: number;
+  replaceExistingOpacityKeyframes?: boolean;
+  allowCaptionFade?: boolean;
+  allowBrandFade?: boolean;
+}
+
+export interface FadeOverlayUpdate {
+  overlayId: OverlayId;
+  startFrame: number;
+  endFrame: number;
+  localStartFrame: number;
+  localEndFrame: number;
+  previousKeyframeTrackCount: number;
+  nextKeyframeTracks: any[];
+  fromOpacity: number;
+  toOpacity: number;
+  reason: string;
+}
+
+export interface FadePlan {
+  status: "changed" | "no-target" | "conflict";
+  startFrame?: number;
+  endFrame?: number;
+  targetOverlayId?: OverlayId;
+  updates: FadeOverlayUpdate[];
+  warnings: string[];
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -156,6 +194,21 @@ const speedRampSchema = z.object({
   targetSpeed: z.coerce.number().min(0.01).max(4).default(0.5).describe("Middle speed multiplier before config clamping. 0.5 matches the existing EDL default."),
   replaceExistingSpeedCurve: z.boolean().default(false).describe("Allow replacing an existing speed curve or speed keyframe track."),
   allowDialogueSpeedRamp: z.boolean().default(false).describe("Allow retiming over caption/dialogue evidence. Keep false unless the user explicitly accepts speech sync risk."),
+});
+
+const fadeSchema = z.object({
+  overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id. Prefer selectedOverlayId from chat context when the user says this overlay."),
+  startFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame where the fade starts."),
+  endFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame where the fade ends."),
+  targetFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame used to resolve the target overlay when overlayId is omitted."),
+  targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the target overlay/frame when explicit ids are unavailable."),
+  direction: z.enum(["in", "out"]).default("out").describe("Fade direction. Use out for fade away/end, in for reveal/start."),
+  durationFrames: z.coerce.number().int().min(1).default(20).describe("Fade duration in frames. 20 frames matches the existing EDL/keyframe fade default."),
+  fromOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional starting opacity. Defaults to 1 for fade out, 0 for fade in."),
+  toOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional ending opacity. Defaults to 0 for fade out, 1 for fade in."),
+  replaceExistingOpacityKeyframes: z.boolean().default(false).describe("Allow replacing existing opacity keyframes. Keep false unless the user explicitly wants to overwrite opacity animation."),
+  allowCaptionFade: z.boolean().default(false).describe("Allow fading caption/subtitle overlays. Keep false unless captions were explicitly targeted."),
+  allowBrandFade: z.boolean().default(false).describe("Allow fading likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -445,7 +498,41 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
     },
   );
 
-  return [findVisualMoment, applyCameraShake, applySpeedRamp];
+  const applyFade = tool(
+    async (input: z.infer<typeof fadeSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applyFadeToProject(project, input);
+        if (plan.status !== "changed") {
+          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        }
+
+        for (const update of plan.updates) {
+          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
+            keyframeTracks: update.nextKeyframeTracks,
+          } as any);
+        }
+
+        return JSON.stringify({ status: "success", data: plan });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply fade." });
+      }
+    },
+    {
+      name: "apply_fade",
+      description: `Apply bounded opacity fade keyframes to one visual overlay.
+Use for "fade this out", "fade this overlay in", or "fade it at the end" after a selected overlay, explicit overlay id, target frame, or high-confidence visual target.
+Writes opacity keyframes into the existing keyframeTracks path. Refuses sound overlays, protected captions/brand elements, and existing opacity motion unless explicitly allowed.`,
+      schema: fadeSchema,
+    },
+  );
+
+  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade];
 }
 
 export function applyCameraShakeToProject(
@@ -654,6 +741,140 @@ export function applySpeedRampToProject(
   };
 }
 
+export function applyFadeToProject(
+  project: any,
+  options: FadeOptions,
+): FadePlan {
+  const targetResult = resolveFadeTargetOverlay(project, options);
+  if (!targetResult.ok) {
+    return {
+      status: "no-target",
+      updates: [],
+      warnings: targetResult.warnings,
+      message: targetResult.message,
+    };
+  }
+
+  const { overlay } = targetResult;
+  const warnings = [...targetResult.warnings];
+  const overlayType = String(overlay?.type ?? "").toLowerCase();
+  if (overlayType === "sound" || overlayType === "audio") {
+    return {
+      status: "no-target",
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(overlay.id)} is ${overlayType || "non-visual"}; opacity fade only applies to visual overlays.`,
+    };
+  }
+
+  if (isCaptionLikeOverlay(overlay) && !options.allowCaptionFade) {
+    return {
+      status: "conflict",
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings: ["Caption/subtitle overlay was protected from fade because fading captions can harm readability."],
+      message: `Overlay ${String(overlay.id)} looks like captions/subtitles. Ask to allow caption fade if hiding captions is intentional.`,
+    };
+  }
+
+  if (isLikelyBrandOverlay(overlay) && !options.allowBrandFade) {
+    return {
+      status: "conflict",
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings: ["Likely brand/logo/watermark overlay was protected from fade."],
+      message: `Overlay ${String(overlay.id)} looks like a brand/logo/watermark element. Ask to allow brand fade if hiding it is intentional.`,
+    };
+  }
+
+  const rangeResult = resolveFadeFrameRange(project, overlay, options);
+  if (!rangeResult.ok) {
+    return {
+      status: "no-target",
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings,
+      message: rangeResult.message,
+    };
+  }
+
+  const { startFrame, endFrame } = rangeResult.range;
+  const overlayStartFrame = frame(overlay.from);
+  const overlayDurationFrames = duration(overlay.durationInFrames);
+  const localStartFrame = startFrame - overlayStartFrame;
+  const localEndFrame = endFrame - overlayStartFrame;
+  if (localStartFrame < 0 || localEndFrame > overlayDurationFrames || localEndFrame - localStartFrame < 1) {
+    return {
+      status: "no-target",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(overlay.id)} does not have enough frames for a clean fade over ${startFrame}-${endFrame}.`,
+    };
+  }
+
+  const existingTracks = Array.isArray(overlay.keyframeTracks) ? overlay.keyframeTracks : [];
+  const existingOpacityTracks = existingTracks.filter((track: any) => track?.property === "opacity");
+  const nonFadeOpacityTracks = existingOpacityTracks.filter((track: any) => !isFadeTrack(track));
+  if (nonFadeOpacityTracks.length && !options.replaceExistingOpacityKeyframes) {
+    return {
+      status: "conflict",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings: ["Existing opacity keyframes were found; fade was not applied because it would overwrite opacity motion."],
+      message: `Overlay ${String(overlay.id)} already has opacity keyframes. Ask to replace existing opacity motion if that is intentional.`,
+    };
+  }
+
+  const direction = options.direction ?? "out";
+  const fromOpacity = round3(clamp(options.fromOpacity ?? (direction === "in" ? 0 : 1), 0, 1));
+  const toOpacity = round3(clamp(options.toOpacity ?? (direction === "in" ? 1 : 0), 0, 1));
+  if (fromOpacity === toOpacity) {
+    return {
+      status: "no-target",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings,
+      message: `Fade opacity values are identical (${fromOpacity}); no opacity change would be visible.`,
+    };
+  }
+
+  const fadeTrack = buildFadeTrack(localStartFrame, localEndFrame, fromOpacity, toOpacity, direction);
+  const keptTracks = existingTracks.filter((track: any) => {
+    if (options.replaceExistingOpacityKeyframes && track?.property === "opacity") return false;
+    return !isFadeTrack(track);
+  });
+  const nextKeyframeTracks = [...keptTracks, fadeTrack];
+
+  return {
+    status: "changed",
+    startFrame,
+    endFrame,
+    targetOverlayId: overlay.id,
+    updates: [{
+      overlayId: overlay.id,
+      startFrame,
+      endFrame,
+      localStartFrame,
+      localEndFrame,
+      previousKeyframeTrackCount: existingTracks.length,
+      nextKeyframeTracks,
+      fromOpacity,
+      toOpacity,
+      reason: `semantic-fade-${direction}`,
+    }],
+    warnings,
+    message: `Applied ${direction === "in" ? "fade in" : "fade out"} to overlay ${String(overlay.id)} over frames ${startFrame}-${endFrame}.`,
+  };
+}
+
 function resolveSpeedRampFrameRange(
   project: any,
   options: SpeedRampOptions,
@@ -793,6 +1014,189 @@ function isSpeedRampTrack(track: any): boolean {
     || track?.source === "apply_speed_ramp"
     || metadata?.family === "speed-ramp"
     || metadata?.source === "apply_speed_ramp";
+}
+
+function resolveFadeTargetOverlay(
+  project: any,
+  options: FadeOptions,
+): { ok: true; overlay: any; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+
+  if (options.overlayId != null) {
+    const overlay = overlays.find((candidate) => String(candidate?.id) === String(options.overlayId));
+    if (!overlay) {
+      return {
+        ok: false,
+        warnings,
+        message: `Overlay ${String(options.overlayId)} was not found in the project.`,
+      };
+    }
+    return { ok: true, overlay, warnings };
+  }
+
+  let targetFrame = positiveOrZeroNumber(options.targetFrame);
+  if (targetFrame == null && options.targetQuery) {
+    const candidates = findVisualMomentCandidates(project, options.targetQuery, {
+      limit: 3,
+      minConfidence: 0.35,
+    });
+    const best = candidates[0];
+    if (!best) {
+      return {
+        ok: false,
+        warnings,
+        message: `No stored visual evidence matched "${options.targetQuery}". Use find_visual_moment or provide overlayId first.`,
+      };
+    }
+    if (!best.safeForAutoEdit) {
+      return {
+        ok: false,
+        warnings,
+        message: `Visual target "${options.targetQuery}" was not high-confidence enough for automatic fade. Provide overlayId or inspect candidates first.`,
+      };
+    }
+    targetFrame = best.frame;
+    warnings.push(`Resolved fade target frame ${targetFrame} from visual evidence: ${best.source.path}.`);
+    if (best.source.overlayId != null) {
+      const overlay = overlays.find((candidate) => String(candidate?.id) === String(best.source.overlayId));
+      if (overlay) return { ok: true, overlay, warnings };
+    }
+  }
+
+  if (targetFrame != null) {
+    const roundedFrame = Math.round(targetFrame);
+    const overlay = overlays.find((candidate) => isFadeTargetOverlay(candidate) && overlayContainsFrame(candidate, roundedFrame));
+    if (!overlay) {
+      return {
+        ok: false,
+        warnings,
+        message: `No visual overlay is active at frame ${roundedFrame}.`,
+      };
+    }
+    return { ok: true, overlay, warnings };
+  }
+
+  return {
+    ok: false,
+    warnings,
+    message: "Fade needs overlayId, targetFrame, or a high-confidence targetQuery. Use selectedOverlayId from chat context when the user says this overlay.",
+  };
+}
+
+function resolveFadeFrameRange(
+  project: any,
+  overlay: any,
+  options: FadeOptions,
+): { ok: true; range: FrameRange } | { ok: false; message: string } {
+  const direction = options.direction ?? "out";
+  const durationFrames = Math.max(1, Math.round(positiveNumber(options.durationFrames) ?? 20));
+  const overlayStartFrame = frame(overlay.from);
+  const overlayEndFrame = overlayStartFrame + duration(overlay.durationInFrames);
+  let startFrame = positiveOrZeroNumber(options.startFrame);
+  let endFrame = positiveOrZeroNumber(options.endFrame);
+  const targetFrame = positiveOrZeroNumber(options.targetFrame);
+
+  if (startFrame == null && endFrame == null && targetFrame != null) {
+    startFrame = targetFrame;
+    endFrame = targetFrame + durationFrames;
+  } else if (startFrame == null && endFrame == null) {
+    if (direction === "in") {
+      startFrame = overlayStartFrame;
+      endFrame = overlayStartFrame + durationFrames;
+    } else {
+      endFrame = overlayEndFrame;
+      startFrame = overlayEndFrame - durationFrames;
+    }
+  } else if (startFrame == null && endFrame != null) {
+    startFrame = Math.max(0, endFrame - durationFrames);
+  } else if (endFrame == null && startFrame != null) {
+    endFrame = startFrame + durationFrames;
+  }
+
+  if (startFrame == null || endFrame == null) {
+    return { ok: false, message: "Fade needs a resolvable frame range." };
+  }
+
+  const roundedStart = Math.round(startFrame);
+  const roundedEnd = Math.round(endFrame);
+  if (roundedEnd <= roundedStart) {
+    return { ok: false, message: `Fade endFrame (${roundedEnd}) must be after startFrame (${roundedStart}).` };
+  }
+  if (roundedStart < overlayStartFrame || roundedEnd > overlayEndFrame) {
+    return { ok: false, message: `Fade range ${roundedStart}-${roundedEnd} must stay inside overlay ${String(overlay.id)} frames ${overlayStartFrame}-${overlayEndFrame}.` };
+  }
+
+  const totalFrames = resolveProjectDurationFrames(project);
+  if (totalFrames > 0 && (roundedStart >= totalFrames || roundedEnd > totalFrames)) {
+    return { ok: false, message: `Fade range ${roundedStart}-${roundedEnd} is outside the project duration (${totalFrames} frames).` };
+  }
+
+  return { ok: true, range: { startFrame: roundedStart, endFrame: roundedEnd } };
+}
+
+function isFadeTargetOverlay(overlay: any): boolean {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  return Boolean(overlay) && type !== "sound" && type !== "audio";
+}
+
+function isCaptionLikeOverlay(overlay: any): boolean {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  return type === "caption" || type === "subtitle";
+}
+
+function isLikelyBrandOverlay(overlay: any): boolean {
+  const metadata = isRecord(overlay?.metadata) ? overlay.metadata : undefined;
+  const text = [
+    overlay?.type,
+    overlay?.content,
+    overlay?.text,
+    overlay?.title,
+    overlay?.name,
+    overlay?.label,
+    overlay?.assetId,
+    overlay?.sourceAssetId,
+    overlay?.mediaId,
+    overlay?.src,
+    metadata?.title,
+    metadata?.label,
+    metadata?.description,
+    metadata?.assetId,
+  ]
+    .map((value) => stringValue(value))
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+  return /\b(brand|logo|watermark|bug|sponsor)\b/.test(text);
+}
+
+function buildFadeTrack(
+  localStartFrame: number,
+  localEndFrame: number,
+  fromOpacity: number,
+  toOpacity: number,
+  direction: "in" | "out",
+): any {
+  return {
+    property: "opacity",
+    keyframes: [
+      { frame: localStartFrame, value: fromOpacity, easing: direction === "in" ? "ease-out" : "ease-in" },
+      { frame: localEndFrame, value: toOpacity, easing: "linear" },
+    ],
+    metadata: {
+      family: "fade",
+      source: "apply_fade",
+      direction,
+    },
+  };
+}
+
+function isFadeTrack(track: any): boolean {
+  const metadata = isRecord(track?.metadata) ? track.metadata : undefined;
+  return track?.family === "fade"
+    || track?.source === "apply_fade"
+    || metadata?.family === "fade"
+    || metadata?.source === "apply_fade";
 }
 
 function resolveCameraShakeTargetFrame(
