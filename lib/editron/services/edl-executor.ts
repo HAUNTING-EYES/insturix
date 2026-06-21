@@ -1865,18 +1865,16 @@ async function applyDecision(
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
 
+    case 'pacing':
+      return applyPacingNoop(decision);
+
     case 'cut':
       // Cuts are informational — they indicate where scene boundaries SHOULD be
       // but don't create new overlays (the scenes already exist from ThinkForge)
       return null;
 
     case 'filter-change':
-      // DISABLED: Profile filter (Director step 3) is the single source of truth
-      // for color grading. EDL per-frame filter-change caused "filter schizophrenia"
-      // — different CSS filters per clip based on local mood inference (e.g.,
-      // hue-rotate(160deg) turning skin blue on some clips). Profile applies ONE
-      // consistent grade to ALL clips, matching professional colorist workflow.
-      return null;
+      return applyFilterChange(decision, overlays);
 
     case 'caption-emphasis': {
       // Caption emphasis belongs in the caption layer. Only fall back to MG if
@@ -3739,11 +3737,22 @@ function applyAudioDuck(
   return { created: 0, modified: 1 };
 }
 
-function _applyFilterChange(
+function applyPacingNoop(
+  decision: EditDecision,
+): { created: number; modified: number } {
+  console.log('[EDL-Exec] Pacing at frame ' + decision.frame + ': accepted as informational no-op');
+  return { created: 0, modified: 0 };
+}
+
+function applyFilterChange(
   decision: EditDecision,
   overlays: Overlay[],
 ): { created: number; modified: number } | null {
-  let { filterId, filterCss } = decision.params;
+  let { filterId, filterCss, filterPreset } = decision.params;
+
+  if (!filterId && typeof filterPreset === 'string') {
+    filterId = filterPreset;
+  }
 
   // Phase A3.5.4 fix: previously `filterId` was read but never resolved to CSS — only
   // `filterCss` was applied. Now if filterId is set, resolve it via getFilterPresetById
@@ -3755,31 +3764,8 @@ function _applyFilterChange(
     }
   }
 
-  // If Unified Intelligence didn't specify which filter, try to infer from the decision reason.
-  // Reasons often contain filter keywords like "vintage-film", "warm", "golden-hour", "crisp-vibrant".
-  if (!filterId && !filterCss && decision.reason) {
-    const reason = decision.reason.toLowerCase();
-    const filterKeywords: Record<string, string> = {
-      'vintage': 'sepia(30%) contrast(110%) brightness(95%)',
-      'golden-hour': 'contrast(108%) brightness(108%) saturate(140%) sepia(18%) hue-rotate(348deg)',
-      'warm': 'contrast(108%) brightness(105%) saturate(120%) sepia(10%)',
-      'cool': 'contrast(110%) brightness(100%) saturate(90%) hue-rotate(180deg)',
-      'cinematic': 'contrast(115%) brightness(95%) saturate(110%)',
-      'crisp': 'contrast(120%) brightness(105%) saturate(130%)',
-      'noir': 'grayscale(100%) contrast(130%) brightness(90%)',
-      'vibrant': 'contrast(110%) brightness(105%) saturate(150%)',
-    };
-    for (const [keyword, css] of Object.entries(filterKeywords)) {
-      if (reason.includes(keyword)) {
-        filterCss = css;
-        console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: inferred "${keyword}" from reason`);
-        break;
-      }
-    }
-  }
-
   if (!filterId && !filterCss) {
-    console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: SKIPPED — no filterId, filterCss, or inferable keyword in reason`);
+    console.log('[EDL-Exec] Filter-change at frame ' + decision.frame + ': SKIPPED - no explicit filterId/filterCss');
     return null;
   }
 

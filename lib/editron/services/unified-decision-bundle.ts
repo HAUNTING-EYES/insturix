@@ -6,8 +6,10 @@ import { enrichDecisionsWithOverlayTimelineMemory } from './overlay-timeline-mem
 import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { normalizeMotionGraphicContent } from './mg-content-atoms';
 
-type CompatibleEditDecision = Partial<ReactiveEditDecision> & {
-  type: ReactiveEditDecision['type'];
+type LegacyCompatibleDecisionType = ReactiveEditDecision['type'] | 'slow-motion' | 'filter';
+
+type CompatibleEditDecision = Omit<Partial<ReactiveEditDecision>, 'type' | 'params'> & {
+  type: LegacyCompatibleDecisionType;
   frame: number;
   confidence?: number;
   source?: string;
@@ -1028,7 +1030,6 @@ const SIGNAL_EXECUTION_MIN_CONFIDENCE: Partial<Record<ReactiveEditDecision['type
   zoom: 0.72,
   'speed-change': 0.72,
   fade: 0.74,
-  'slow-motion': 0.76,
   'camera-shake': 0.8,
   sfx: 0.78,
   'sfx-trigger': 0.78,
@@ -1042,7 +1043,6 @@ const SIGNAL_EXECUTION_MIN_SPACING_FRAMES: Partial<Record<ReactiveEditDecision['
   zoom: 90,
   'speed-change': 120,
   fade: 90,
-  'slow-motion': 120,
   'camera-shake': 120,
   sfx: 90,
   'sfx-trigger': 90,
@@ -1056,7 +1056,6 @@ const SIGNAL_EXECUTION_MAX_PER_MINUTE: Partial<Record<ReactiveEditDecision['type
   zoom: 8,
   'speed-change': 3,
   fade: 3,
-  'slow-motion': 2,
   'camera-shake': 2,
   sfx: 4,
   'sfx-trigger': 4,
@@ -1225,7 +1224,6 @@ function familyForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalD
     case 'sfx-trigger':
       return 'audio';
     case 'speed-change':
-    case 'slow-motion':
     case 'fade':
       return 'timing';
     case 'pacing':
@@ -1584,7 +1582,6 @@ function roleForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalDec
     case 'sfx-trigger':
       return 'audio-emphasis';
     case 'speed-change':
-    case 'slow-motion':
     case 'fade':
       return 'timing-modulation';
     case 'pacing':
@@ -1597,7 +1594,7 @@ function roleForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalDec
 function timingAnchorKindForSignalDecision(decision: ReactiveEditDecision): UnifiedSignalTimingAnchorKind {
   if (decision.type === 'transition') return 'boundary';
   if (isTransitionAnchoredSfx(decision)) return 'boundary';
-  if (decision.type === 'speed-change' || decision.type === 'slow-motion' || decision.type === 'fade') return 'span';
+  if (decision.type === 'speed-change' || decision.type === 'fade') return 'span';
   return 'moment';
 }
 
@@ -1630,7 +1627,6 @@ function completenessForSignalDecision(decision: ReactiveEditDecision): number {
     case 'zoom':
     case 'camera-shake':
     case 'speed-change':
-    case 'slow-motion':
     case 'fade':
     case 'pacing':
       if (hasAnyParam(decision, ['intensity', 'targetScale', 'scale', 'type'])) score += 0.25;
@@ -4448,19 +4444,60 @@ function normalizeEdl(edl: CompatibleEditDecisionList): ReactiveEditDecisionList
 }
 
 function cloneDecision(decision: CompatibleEditDecision): ReactiveEditDecision {
-  const confidence = clamp01(decision.confidence ?? 0);
+  const normalizedDecision = normalizeLegacyDecisionType(decision);
+  const confidence = clamp01(normalizedDecision.confidence ?? 0);
   return {
-    ...decision,
-    type: decision.type,
-    frame: decision.frame,
-    durationFrames: decision.durationFrames,
-    priority: decision.priority ?? priorityFromConfidence(confidence),
-    source: decision.source ?? 'unknown-source',
-    signal: decision.signal ?? decision.technique ?? decision.type,
-    reason: decision.reason ?? '',
-    params: { ...(decision.params ?? {}) },
+    ...normalizedDecision,
+    type: normalizedDecision.type,
+    frame: normalizedDecision.frame,
+    durationFrames: normalizedDecision.durationFrames,
+    priority: normalizedDecision.priority ?? priorityFromConfidence(confidence),
+    source: normalizedDecision.source ?? 'unknown-source',
+    signal: normalizedDecision.signal ?? normalizedDecision.technique ?? normalizedDecision.type,
+    reason: normalizedDecision.reason ?? '',
+    params: { ...(normalizedDecision.params ?? {}) },
     confidence,
   } as ReactiveEditDecision;
+}
+
+function normalizeLegacyDecisionType(decision: CompatibleEditDecision): CompatibleEditDecision {
+  const params = { ...(decision.params ?? {}) };
+
+  if (decision.type === 'slow-motion') {
+    const speedMultiplier = numberParam(params.speedMultiplier) ?? numberParam(params.speed) ?? 0.3;
+    return {
+      ...decision,
+      type: 'speed-change',
+      params: {
+        ...params,
+        speedMultiplier,
+        legacyDecisionType: 'slow-motion',
+      },
+    };
+  }
+
+  if (decision.type === 'filter') {
+    const filterId = legacyStringParam(params.filterId)
+      ?? legacyStringParam(params.filterPresetId)
+      ?? legacyStringParam(params.filterPreset);
+    return {
+      ...decision,
+      type: 'filter-change',
+      params: {
+        ...params,
+        ...(filterId ? { filterId } : {}),
+        legacyDecisionType: 'filter',
+      },
+    };
+  }
+
+  return decision;
+}
+
+function legacyStringParam(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function priorityFromConfidence(confidence: number): number {

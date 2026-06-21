@@ -2191,6 +2191,60 @@ describe('unified decision bundle merge', () => {
       },
     ]));
   });
+  it('normalizes legacy slow-motion decisions to speed-change at the bundle boundary', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'signal-driven',
+      edl: edl([
+        decision({
+          type: 'slow-motion' as any,
+          frame: 180,
+          durationFrames: 60,
+          source: 'signal-executor:legacy',
+          signal: 'legacy_slow_motion',
+          params: { speed: 0.3 },
+          confidence: 0.95,
+        }),
+      ] as any),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0]).toEqual(expect.objectContaining({
+      type: 'speed-change',
+      frame: 180,
+    }));
+    expect(bundle.edl.decisions[0].params).toEqual(expect.objectContaining({
+      speedMultiplier: 0.3,
+      legacyDecisionType: 'slow-motion',
+    }));
+    expect(bundle.edl.stats.speedChangeCount).toBe(1);
+  });
+
+  it('normalizes legacy filter decisions to filter-change at the bundle boundary', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({
+          type: 'filter' as any,
+          frame: 90,
+          durationFrames: 30,
+          source: 'creative-brief:legacy',
+          signal: 'legacy_filter',
+          params: { filterPresetId: 'warm-neutral' },
+          confidence: 0.95,
+        }),
+      ] as any),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0]).toEqual(expect.objectContaining({
+      type: 'filter-change',
+      frame: 90,
+    }));
+    expect(bundle.edl.decisions[0].params).toEqual(expect.objectContaining({
+      filterId: 'warm-neutral',
+      legacyDecisionType: 'filter',
+    }));
+  });
 });
 
 function edl(decisions: EditDecision[]): EditDecisionList {

@@ -136,6 +136,84 @@ describe('EDL param contract normalization', () => {
     );
   });
 
+  it('executes explicit filter-change decisions with live dispatch', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'filter-change',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: { filterCss: 'brightness(1.08) contrast(1.04)' },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-filter-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect((overlays[0] as any).styles.filter).toBe('brightness(1.08) contrast(1.04)');
+  });
+
+  it('skips filter-change decisions without explicit filter params', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'filter-change',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      reason: 'make this warmer from prose only',
+      params: {},
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-filter-prose-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(0);
+    expect(result.decisionsSkipped).toBe(1);
+    expect((overlays[0] as any).styles.filter).toBeUndefined();
+  });
+
+  it('accepts pacing as an informational no-op rather than dead dispatch', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'pacing',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: { pacingMultiplier: 0.85 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-pacing-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(0);
+    expect(result.overlaysModified).toBe(0);
+    expect(result.rejectedDecisions).toEqual([]);
+  });
+
+  it('applies audio-duck when a BGM overlay exists', async () => {
+    const overlays = [
+      videoOverlay(),
+      soundOverlay(),
+    ];
+    const edl = decisionList([{
+      type: 'audio-duck',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: { duckLevel: 0.18, rampDownMs: 120, rampUpMs: 240 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-audio-duck-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const bgm = overlays.find((overlay) => overlay.type === OverlayType.SOUND) as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(bgm.styles.duckingConfig).toEqual(expect.objectContaining({
+      enabled: true,
+      duckLevel: 0.18,
+      rampDownMs: 120,
+      rampUpMs: 240,
+    }));
+  });
   it('normalizes producer aliases without inventing unsupported values', () => {
     expect(normalizeEdlDecisionParams('speed-change', { speed: '180%' })).toEqual(expect.objectContaining({
       speedFrom: 1,
@@ -196,6 +274,25 @@ function videoOverlay(overrides: Partial<Overlay> = {}): Overlay {
   } as Overlay;
 }
 
+function soundOverlay(): Overlay {
+  return {
+    id: 601,
+    type: OverlayType.SOUND,
+    from: 0,
+    durationInFrames: 180,
+    row: 1,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    isDragging: false,
+    rotation: 0,
+    assetId: 'bgm_param_contract_test',
+    content: 'https://example.com/bgm.mp3',
+    src: 'https://example.com/bgm.mp3',
+    styles: { opacity: 1 },
+  } as any;
+}
 function captionOverlay(): Overlay {
   const words = [
     { word: 'trust', startMs: 0, endMs: 350, confidence: 1 },
