@@ -1517,6 +1517,43 @@ describe('Brand website refinery', () => {
     ]));
   });
 
+  it('fetches linked stylesheets concurrently within the configured cap', async () => {
+    let activeStylesheetFetches = 0;
+    let maxConcurrentStylesheetFetches = 0;
+    const html = `
+<!doctype html>
+<html>
+  <head>
+    <title>Northstar</title>
+    <link rel="stylesheet" href="/one.css">
+    <link rel="stylesheet" href="/two.css">
+    <link rel="stylesheet" href="/three.css">
+  </head>
+  <body><h1>Northstar analytics for revenue teams</h1></body>
+</html>`;
+
+    const snapshot = await fetchWebsiteBrandSnapshot('northstar.example', {
+      now: NOW,
+      stylesheetTimeoutMs: 1_000,
+      fetchFn: async (url) => {
+        if (String(url).endsWith('.css')) {
+          activeStylesheetFetches += 1;
+          maxConcurrentStylesheetFetches = Math.max(maxConcurrentStylesheetFetches, activeStylesheetFetches);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          activeStylesheetFetches -= 1;
+          return new Response(':root { --brand: #102033; }', {
+            status: 200,
+            headers: { 'content-type': 'text/css' },
+          });
+        }
+        return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+      },
+    });
+
+    expect(snapshot.stylesheets).toHaveLength(3);
+    expect(maxConcurrentStylesheetFetches).toBeGreaterThan(1);
+  });
+
   it('retries blocked website fetches with browser-like headers and records fetch warnings', async () => {
     const calls: string[] = [];
     const snapshot = await fetchWebsiteBrandSnapshot('northstar.example', {

@@ -360,6 +360,7 @@ const DEFAULT_CRAWL_MAX_PAGES = 24;
 const HARD_CRAWL_MAX_PAGES = 60;
 const DEFAULT_CRAWL_MAX_DEPTH = 3;
 const HARD_CRAWL_MAX_DEPTH = 3;
+const HARD_CRAWL_MAX_ATTEMPTS = 90;
 const SIGNAL_ACTION_CONFIDENCE = BRAND_CONFIDENCE.ACTIONABLE_SIGNAL;
 const MAX_SIGNAL_DIAGNOSTIC_PRIORITY_ITEMS = 12;
 const DEFAULT_CRAWL_EXCLUDE_PATHS = [
@@ -385,6 +386,7 @@ const DEFAULT_CRAWL_EXCLUDE_PATHS = [
 
 interface CrawlPolicy {
   maxPages: number;
+  maxAttempts: number;
   maxDepth: number;
   includePaths: string[];
   excludePaths: string[];
@@ -1761,10 +1763,12 @@ async function fetchCrawlSnapshots(args: {
   enqueueSitemapUrls(queue, args.root.html, rootUrl, policy, args.root.normalizedUrl);
   if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
 
-  while (snapshots.length < policy.maxPages) {
+  let attempts = 0;
+  while (snapshots.length < policy.maxPages && attempts < policy.maxAttempts) {
     const next = nextCrawlQueueItem(queue, visited);
     if (!next) break;
     visited.add(next.url);
+    attempts += 1;
 
     try {
       const snapshot = await args.fetchSnapshot(next.url, { ...args.fetchOptions, now: args.now });
@@ -1791,6 +1795,10 @@ async function fetchCrawlSnapshots(args: {
     }
   }
 
+  if (snapshots.length < policy.maxPages && attempts >= policy.maxAttempts && hasPendingCrawlQueueItems(queue, visited)) {
+    warnings.push(`Brand Vault crawler stopped after ${attempts} crawl fetch attempts with ${snapshots.length} usable page${snapshots.length === 1 ? '' : 's'}; remaining queued links were skipped to keep the scan bounded.`);
+  }
+
   if (snapshots.length > 0) {
     warnings.push(`Crawled ${snapshots.length} additional brand page${snapshots.length === 1 ? '' : 's'} for draft evidence.`);
   }
@@ -1801,8 +1809,10 @@ function resolveCrawlPolicy(seeds: BrandVaultSourceInput[]): CrawlPolicy {
   const options = seeds.map((seed) => seed.crawl).filter((value): value is BrandVaultCrawlOptions => Boolean(value));
   const maxPageOptions = options.map((option) => option.maxPages).filter((value): value is number => value !== undefined);
   const maxDepthOptions = options.map((option) => option.maxDepth).filter((value): value is number => value !== undefined);
+  const maxPages = clampInteger(maxPageOptions.length > 0 ? Math.max(...maxPageOptions) : DEFAULT_CRAWL_MAX_PAGES, 1, HARD_CRAWL_MAX_PAGES);
   return {
-    maxPages: clampInteger(maxPageOptions.length > 0 ? Math.max(...maxPageOptions) : DEFAULT_CRAWL_MAX_PAGES, 1, HARD_CRAWL_MAX_PAGES),
+    maxPages,
+    maxAttempts: resolveCrawlMaxAttempts(maxPages),
     maxDepth: clampInteger(maxDepthOptions.length > 0 ? Math.max(...maxDepthOptions) : DEFAULT_CRAWL_MAX_DEPTH, 0, HARD_CRAWL_MAX_DEPTH),
     includePaths: uniquePaths(options.flatMap((option) => option.includePaths ?? [])),
     excludePaths: uniquePaths([...DEFAULT_CRAWL_EXCLUDE_PATHS, ...options.flatMap((option) => option.excludePaths ?? [])]),
@@ -1925,6 +1935,14 @@ function sameCrawlHost(left: string, right: string): boolean {
 
 function stripWww(hostname: string): string {
   return hostname.toLowerCase().replace(/^www\./, '');
+}
+
+function resolveCrawlMaxAttempts(maxPages: number): number {
+  return clampInteger(Math.max(maxPages + 2, Math.ceil(maxPages * 1.5)), 1, HARD_CRAWL_MAX_ATTEMPTS);
+}
+
+function hasPendingCrawlQueueItems(queue: Map<string, CrawlQueueItem>, visited: Set<string>): boolean {
+  return [...queue.values()].some((item) => !visited.has(item.url));
 }
 
 function nextCrawlQueueItem(queue: Map<string, CrawlQueueItem>, visited: Set<string>): CrawlQueueItem | undefined {

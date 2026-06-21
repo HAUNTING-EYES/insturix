@@ -579,14 +579,17 @@ async function fetchLinkedWebsiteStylesheets(args: {
   const stylesheets: BrandWebsiteStylesheetSnapshot[] = [];
   const warnings: string[] = [];
 
-  for (const url of urls) {
+  const results = await Promise.all(urls.map(async (url) => {
     try {
-      const result = await fetchLinkedWebsiteStylesheet(url, args.fetchFn, args.options);
-      if (result.stylesheet) stylesheets.push(result.stylesheet);
-      if (result.warning) warnings.push(result.warning);
+      return fetchLinkedWebsiteStylesheet(url, args.fetchFn, args.options);
     } catch (error) {
-      warnings.push(`Brand Vault skipped stylesheet ${url}: ${formatUnknownError(error)}`);
+      return { warning: `Brand Vault skipped stylesheet ${url}: ${formatUnknownError(error)}` };
     }
+  }));
+
+  for (const result of results) {
+    if (result.stylesheet) stylesheets.push(result.stylesheet);
+    if (result.warning) warnings.push(result.warning);
   }
 
   return { stylesheets, warnings };

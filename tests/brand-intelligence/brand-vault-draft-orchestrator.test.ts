@@ -1550,6 +1550,59 @@ describe('Brand Vault draft orchestrator', () => {
     expect(proofEvidenceText).not.toMatch(/__next_f|\$|application-name|manifest|fake customers/i);
   });
 
+  it('bounds crawler attempts when queued brand links keep failing', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const crawlRequests: string[] = [];
+    const rootHtml = pageHtml(
+      'Signal House',
+      [
+        '<h1>Signal House</h1>',
+        ...Array.from({ length: 20 }, (_, index) => `<a href="/brand-${index}">Brand ${index}</a>`),
+      ].join(''),
+    );
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_signal',
+        brandId: 'brand_signal',
+        websiteUrl: 'signal.example',
+        jobId: 'job_crawl_attempt_budget',
+        profileRecordId: 'draft_crawl_attempt_budget',
+        now: NOW,
+        sourceEvidence: [
+          {
+            kind: 'crawl_seed',
+            url: 'https://signal.example/',
+            platform: 'website',
+            crawl: { maxPages: 1, maxDepth: 1 },
+          },
+        ],
+      },
+      {
+        repository,
+        fetchSnapshot: async (url) => {
+          if (url === 'https://signal.example/') {
+            return {
+              normalizedUrl: url,
+              html: rootHtml,
+              contentType: 'text/html',
+              fetchedAt: NOW,
+            };
+          }
+          crawlRequests.push(url);
+          throw new Error('simulated crawl failure');
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(crawlRequests.length).toBeLessThanOrEqual(3);
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining('Brand Vault crawler stopped after 3 crawl fetch attempts'),
+    ]));
+  });
+
   it('turns uploaded brand books and assets into reviewable draft signal evidence', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
 
