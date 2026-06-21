@@ -504,6 +504,13 @@ export async function createBrandVaultWebsiteDraftJob(
         actorId: input.actorId,
       },
     );
+    // Gate the heuristic draft audience through the same quality filter as promoted
+    // candidates so product-copy junk ("apply the perfume over a body lotion") never
+    // lands. The LLM compiler's audience is then unioned in via promotion, but it is
+    // never trusted blind: it passes the same audience-word filter as everything else.
+    draft.record.profile.identity.audience.value = draft.record.profile.identity.audience.value
+      .map(cleanPromotedAudiencePhrase)
+      .filter((item): item is string => Boolean(item));
     const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {
       ...dependencies.fetchOptions,
       allowDefaultFetch: !dependencies.fetchSnapshot,
@@ -3094,7 +3101,7 @@ function cleanPromotedProductServicePhrase(value: string): string | undefined {
   return phrase;
 }
 
-function cleanPromotedAudiencePhrase(value: string): string | undefined {
+export function cleanPromotedAudiencePhrase(value: string): string | undefined {
   let phrase = value
     .replace(/^(?:the|a|an|our|your)\s+/i, '')
     .replace(/^[\d,.]+\+?\s+/, '')
@@ -3102,7 +3109,7 @@ function cleanPromotedAudiencePhrase(value: string): string | undefined {
   phrase = phrase.split(/\s+(?:to|who|that|with|without|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
   phrase = phrase.replace(/\s+(?:turn|build|launch|run|improve|ship|create|grow|manage|make|cut|drive|unlock|accept|optimise|optimize|enable|embed|monetise|monetize)\b.*$/i, '');
   phrase = cleanPromotedPhrase(phrase) ?? '';
-  if (!phrase || phrase.length < 4 || phrase.length > 72) return undefined;
+  if (!phrase || phrase.length < 3 || phrase.length > 72) return undefined;
   if (/\b(?:and|or|to|for|with|without|by|from|into|through|via)$/i.test(phrase)) return undefined;
   if (/^(?:and|or|but|by|with|without|from|into|through|via|that|this|these|those|it|its|their|while|when|where|which|building|creating|shipping|scaling|accepting|optimizing|optimising|enabling|embedding|monetizing|monetising)\b/i.test(phrase)) return undefined;
   if (/\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?)\b/i.test(phrase)) return undefined;
@@ -3112,7 +3119,11 @@ function cleanPromotedAudiencePhrase(value: string): string | undefined {
   if (/\bbrand$/i.test(phrase) && !/\b(?:brands|brand\s+(?:teams?|leaders?|managers?|owners?|marketers?|builders?|operators?))\b/i.test(phrase)) {
     return undefined;
   }
-  if (!/\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|teams?)\b/i.test(phrase)) {
+  // Allow-list of audience vocabulary. The first group is the original B2B/creative
+  // ICP; the second group covers D2C/consumer audiences the LLM compiler infers
+  // (e.g. "parents", "families with toddlers", "men", "women") that the B2B-only
+  // list previously dropped, leaving consumer brands with an empty audience.
+  if (!/\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|teams?|parents?|famil(?:y|ies)|mothers?|moms?|fathers?|dads?|women|men|kids?|child(?:ren)?|babies|baby|infants?|toddlers?|teen(?:s|agers?)?|adults?|seniors?|consumers?|shoppers?|households?|homeowners?|gamers?|athletes?|travel(?:l?ers?)|students?|patients?|pet owners?|cyclists?|runners?|foodies?|enthusiasts?|professionals?)\b/i.test(phrase)) {
     return undefined;
   }
   return phrase;
