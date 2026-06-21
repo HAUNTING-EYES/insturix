@@ -12,15 +12,14 @@ const ClientWrapper = lazy(() =>
   }))
 );
 
-type MusitronTab = "studio" | "jukebox";
+type MusitronTab = "studio" | "daw" | "jukebox";
 
 export function MusitronLayout() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const initialTab =
-    (searchParams.get("tab") as MusitronTab) === "jukebox"
-      ? "jukebox"
-      : "studio";
+  const rawTab = searchParams.get("tab") as MusitronTab;
+  const initialTab: MusitronTab =
+    rawTab === "jukebox" ? "jukebox" : rawTab === "daw" ? "daw" : "studio";
   const [activeTab, setActiveTab] = useState<MusitronTab>(initialTab);
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -81,7 +80,7 @@ export function MusitronLayout() {
           &#8250;
         </span>
         <span style={{ fontSize: 13, color: "#D4A652" }}>
-          {activeTab === "studio" ? "Studio" : "Jukebox"}
+          {activeTab === "studio" ? "Studio" : activeTab === "daw" ? "DAW" : "Jukebox"}
         </span>
 
         {/* Tab buttons pushed to right */}
@@ -93,6 +92,12 @@ export function MusitronLayout() {
             isActive={activeTab === "studio"}
             onClick={() => switchTab("studio")}
             position="left"
+          />
+          <TabButton
+            label="DAW"
+            isActive={activeTab === "daw"}
+            onClick={() => switchTab("daw")}
+            position="center"
           />
           <TabButton
             label="JUKEBOX"
@@ -122,7 +127,7 @@ export function MusitronLayout() {
           </div>
         }
       >
-        <ClientWrapper activeTab={activeTab} />
+        <ClientWrapper activeTab={activeTab} onSwitchTab={switchTab} />
       </Suspense>
       </div>
     </div>
@@ -138,7 +143,7 @@ function TabButton({
   label: string;
   isActive: boolean;
   onClick: () => void;
-  position: "left" | "right";
+  position: "left" | "center" | "right";
 }) {
   return (
     <button
@@ -154,7 +159,7 @@ function TabButton({
         background: isActive ? "rgba(212,166,82,0.06)" : "transparent",
         border: `1px solid ${isActive ? "#D4A652" : "#1C1B19"}`,
         borderRadius:
-          position === "left" ? "6px 0 0 6px" : "0 6px 6px 0",
+          position === "left" ? "6px 0 0 6px" : position === "right" ? "0 6px 6px 0" : "0",
         cursor: "pointer",
         transition: "all .2s cubic-bezier(.16,1,.3,1)",
         fontFamily: "'JetBrains Mono', monospace",
