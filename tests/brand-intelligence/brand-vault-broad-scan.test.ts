@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFailureBucket, createBroadScanFetchOptions, withTimeout } from '../../scripts/brand-vault-broad-scan';
+import {
+  classifyFailureBucket,
+  createBroadScanFetchOptions,
+  createBroadScanTextEvidenceCompiler,
+  withTimeout,
+} from '../../scripts/brand-vault-broad-scan';
 import type { BrandVaultBrowserRenderFetch } from '../../lib/shared/brand-vault-browser-fallback';
 
 describe('Brand Vault broad scan harness', () => {
@@ -15,6 +20,24 @@ describe('Brand Vault broad scan harness', () => {
       maxLinkedStylesheets: 8,
     });
     expect(options.browserFallbackFetchFn).toBeUndefined();
+  });
+
+  it('uses the same env-gated text evidence compiler as production scans', () => {
+    const emptyEnv = {} as NodeJS.ProcessEnv;
+    const disabledEnv = {
+      NODE_ENV: 'test',
+      BRAND_VAULT_TEXT_COMPILER_ENABLED: 'false',
+      GEMINI_API_KEY: 'gemini_key',
+    } as NodeJS.ProcessEnv;
+    const enabledEnv = {
+      NODE_ENV: 'test',
+      BRAND_VAULT_TEXT_COMPILER_ENABLED: 'true',
+      GEMINI_API_KEY: 'gemini_key',
+    } as NodeJS.ProcessEnv;
+
+    expect(createBroadScanTextEvidenceCompiler(emptyEnv)).toBeUndefined();
+    expect(createBroadScanTextEvidenceCompiler(disabledEnv)).toBeUndefined();
+    expect(createBroadScanTextEvidenceCompiler(enabledEnv)).toBeTypeOf('function');
   });
 
   it('returns the timeout result when a broad-scan target exceeds its budget', async () => {

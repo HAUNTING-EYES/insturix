@@ -10,6 +10,7 @@ import {
   createBrandVaultRefineryJobFromWebsite,
   createInMemoryBrandVaultRefineryStore,
 } from '../lib/shared/brand-vault-refinery-api';
+import { createBrandVaultTextEvidenceCompilerFromEnvironment } from '../lib/shared/brand-vault-text-evidence-compiler';
 import type { FetchWebsiteBrandSnapshotOptions } from '../lib/shared/brand-website-refinery-types';
 
 type OldScanFile = {
@@ -228,6 +229,7 @@ async function scanTarget(target: ScanTarget): Promise<ScanResult> {
         store,
         clock: () => new Date().toISOString(),
         fetchOptions: createBroadScanFetchOptions(),
+        textEvidenceCompiler: createBroadScanTextEvidenceCompiler(),
       },
     );
 
@@ -302,6 +304,10 @@ export function createBroadScanFetchOptions(
     maxLinkedStylesheets: 8,
     ...(browserFallbackFetchFn ? { browserFallbackFetchFn } : {}),
   };
+}
+
+export function createBroadScanTextEvidenceCompiler(env: NodeJS.ProcessEnv = process.env) {
+  return createBrandVaultTextEvidenceCompilerFromEnvironment({ env });
 }
 
 function failedTarget(
