@@ -47,12 +47,15 @@ describe('chat edit Phase 0 baseline', () => {
     }
   });
 
-  it('keeps current known gaps as expected failures instead of silently passing them', () => {
-    expect(findChatEditPhase0BaselineCase('cut-transcript-phrase')?.currentStatus).toBe('expected-failure');
-    expect(findChatEditPhase0BaselineCase('asset-logo-by-description')?.currentStatus).toBe('expected-failure');
-    expect(findChatEditPhase0BaselineCase('visual-reference-logo-appears')?.currentStatus).toBe('expected-failure');
-    expect(findChatEditPhase0BaselineCase('sound-reference-beat-drop')?.currentStatus).toBe('expected-failure');
-    expect(findChatEditPhase0BaselineCase('undo-ai-edit')?.currentStatus).toBe('expected-failure');
+  it('keeps only still-missing semantic operation wrappers as expected failures', () => {
+    expect(findChatEditPhase0BaselineCase('cut-transcript-phrase')?.currentStatus).toBe('partial-now');
+    expect(findChatEditPhase0BaselineCase('asset-logo-by-description')?.currentStatus).toBe('partial-now');
+    expect(findChatEditPhase0BaselineCase('visual-reference-logo-appears')?.currentStatus).toBe('partial-now');
+    expect(findChatEditPhase0BaselineCase('sound-reference-beat-drop')?.currentStatus).toBe('partial-now');
+    expect(findChatEditPhase0BaselineCase('undo-ai-edit')?.currentStatus).toBe('partial-now');
+    expect(findChatEditPhase0BaselineCase('operation-audio-ducking')?.currentStatus).toBe('supported-now');
+    expect(findChatEditPhase0BaselineCase('operation-camera-shake')?.currentStatus).toBe('expected-failure');
+    expect(findChatEditPhase0BaselineCase('operation-filter-owner')?.currentStatus).toBe('expected-failure');
   });
 
   it('summarizes baseline status for Phase 1 planning', () => {
@@ -62,12 +65,12 @@ describe('chat edit Phase 0 baseline', () => {
       version: 'chat-edit-phase0-baseline-v1',
       total: CHAT_EDIT_PHASE0_BASELINE_CASES.length,
       byStatus: {
-        'supported-now': 8,
-        'partial-now': 2,
-        'expected-failure': 6,
+        'supported-now': 9,
+        'partial-now': 10,
+        'expected-failure': 2,
       },
     });
-    expect(summary.expectedFailureIds).toContain('cut-transcript-phrase');
+    expect(summary.expectedFailureIds).toEqual(['operation-camera-shake', 'operation-filter-owner']);
     expect(summary.targetPhases).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });

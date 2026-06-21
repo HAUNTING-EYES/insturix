@@ -28,17 +28,17 @@ Chat is no longer missing the major retrieval layer. The live callable surface n
 - `search_user_assets`
 - `inspect_user_asset`
 - `restore_ai_edit_checkpoint`
+- `apply_audio_ducking`
 
-The old docs and Phase 0 baseline are now stale in several places. They still mark transcript, asset, visual, audio, and undo cases as expected failures even though those tools exist and are wired into `createTools()`.
+The original audit found stale docs and Phase 0 baseline entries. This Phase 2B refresh now marks transcript, asset, visual, audio, and undo retrieval as partial-now, and marks audio ducking as supported-now.
 
-The real remaining operation gap is not retrieval. It is first-class semantic operation exposure, especially:
+The real remaining operation gap is no longer retrieval or BGM ducking. It is first-class semantic operation exposure, especially:
 
-1. `apply_audio_ducking` - missing callable chat tool despite renderer/director/quality/CRG support.
-2. `apply_camera_shake` - EDL can do it, chat cannot ask for it directly.
-3. semantic `apply_speed_ramp` - possible through `set_keyframes`, but weak and local-frame-heavy.
-4. semantic `apply_fade` - possible through opacity keyframes, but weak and local-frame-heavy.
-5. `apply_filter` - registry metadata exists, but no callable chat tool; must respect profile/color-grade ownership.
-6. explicit layer reorder / move-retime - partially possible through `update_overlay`, but no dedicated semantic tool or guard.
+1. `apply_camera_shake` - EDL can do it, chat cannot ask for it directly.
+2. semantic `apply_speed_ramp` - possible through `set_keyframes`, but weak and local-frame-heavy.
+3. semantic `apply_fade` - possible through opacity keyframes, but weak and local-frame-heavy.
+4. `apply_filter` - registry metadata exists, but no callable chat tool; must respect profile/color-grade ownership.
+5. explicit layer reorder / move-retime - partially possible through `update_overlay`, but no dedicated semantic tool or guard.
 
 ## Verified Callable Surface
 
@@ -119,7 +119,7 @@ Evidence:
 - `chat-edit-context.ts` now tells the agent these resolvers are available.
 - `chat-edit-context.test.ts` checks module tool names and prompt availability for these resolvers.
 
-Baseline stale items:
+Baseline refresh result:
 
 - `cut-transcript-phrase`
 - `asset-logo-by-description`
@@ -127,7 +127,7 @@ Baseline stale items:
 - `sound-reference-beat-drop`
 - `undo-ai-edit`
 
-These should no longer be tracked as pure expected failures. They should become "partial-now / needs real-project proof" unless a fresh run proves failure.
+These are now tracked as "partial-now / needs real-project proof" instead of pure expected failures.
 
 ### Captions
 
@@ -156,23 +156,26 @@ Callable now:
 - `replace_sfx`
 - `regenerate_bgm`
 - `sync_cuts_to_beats`
+- `apply_audio_ducking`
 
 Missing:
 
-- `apply_audio_ducking`
+- none for the shipped BGM ducking operation
 
-Status: partial.
+Status: supported for BGM ducking; broader semantic audio cleanup still needs real-project coverage proof.
 
-Why `apply_audio_ducking` is the first real missing operation:
+Why `apply_audio_ducking` is now closed:
 
+- Chat tool support exists: `chat-audio-tools.ts` exposes `apply_audio_ducking`.
+- Registry support exists: `chat-tool-registry.ts` marks it mutating and audio-scoped.
 - Renderer support exists: sound/video render paths consume `duckingConfig`.
 - Director support exists: `director-agent.ts` has `audio_ducking` action handling.
 - EDL support exists: `edl-executor.ts` handles `audio-duck` and applies `styles.duckingConfig`.
 - Quality support exists: `quality-review-service.ts` and `quality-gate.ts` flag BGM that is not ducking under speech.
 - CRG support exists: `mapping:audio.audio_ducking_under_speech`, `intent:authority.audio_ducking`, `constraint:audio.music_speech_competition`, and audio duck constants all exist.
-- Phase 0 baseline already has `operation-audio-ducking` requiring `apply_audio_ducking`.
+- Focused tests prove BGM-only mutation, SFX/voice skipping, and clear no-BGM failure.
 
-Next implementation should expose this existing capability to chat without inventing a parallel audio mixer.
+Next implementation should move to the still-missing semantic motion wrappers without inventing a parallel audio mixer.
 
 ### Video Motion / Keyframes / Speed / Fade / Shake
 
@@ -197,11 +200,11 @@ Why weak:
 - The user says "slow this bit down" or "fade this out"; chat has to infer overlay id, local frame coordinates, duration, and curve values manually.
 - That is possible, but not a polished semantic operation.
 
-Next after ducking:
+Next semantic motion wrappers:
 
+- `apply_camera_shake`
 - `apply_speed_ramp`
 - `apply_fade`
-- `apply_camera_shake`
 
 These should be thin semantic wrappers over existing overlay/keyframe state, not new motion engines.
 
@@ -272,84 +275,82 @@ Recommended fix:
 
 ## Phase 0 Baseline Staleness
 
-`chat-edit-phase0-baseline.ts` still describes the old state.
+`chat-edit-phase0-baseline.ts` has now been refreshed after the retrieval, undo, and audio-ducking slices.
 
-Stale expected failures:
+Moved from stale expected-failure to partial-now:
 
-- `cut-transcript-phrase`: `find_transcript_moment` now exists.
-- `asset-logo-by-description`: `search_user_assets` now exists.
-- `visual-reference-logo-appears`: `find_visual_moment` now exists.
-- `sound-reference-beat-drop`: `find_audio_moment` now exists.
-- `undo-ai-edit`: `restore_ai_edit_checkpoint` now exists.
+- `cut-transcript-phrase`: `find_transcript_moment` now exists, but real-project cut precision and ambiguity handling still need proof.
+- `asset-logo-by-description`: `search_user_assets` now exists, but real-project asset-choice quality still needs proof.
+- `visual-reference-logo-appears`: `find_visual_moment` now exists, but object/OCR coverage still needs proof.
+- `sound-reference-beat-drop`: `find_audio_moment` now exists, but musical-event recall still needs proof.
+- `undo-ai-edit`: `restore_ai_edit_checkpoint` now exists, but transaction UX proof is still needed.
 
-Still valid expected failure:
+Moved from expected-failure to supported-now:
 
-- `operation-audio-ducking`: `apply_audio_ducking` still does not exist as a callable chat tool.
+- `operation-audio-ducking`: `apply_audio_ducking` now exists and has focused BGM-only tests.
 
-Recommended Phase 1.1:
+Still valid expected failures:
 
-- Update baseline status counts and wording from expected-failure to partial-now for the five landed retrieval/undo cases.
-- Keep audio ducking expected-failure.
-- Add cases for camera shake, semantic speed ramp, semantic fade, semantic filter/manual color, and layer reorder.
+- `operation-camera-shake`: no semantic chat tool exists yet.
+- `operation-filter-owner`: registry metadata exists, but no callable chat tool should be exposed until the color/profile owner decision is made.
+
+Added operation-gap probes:
+
+- `operation-camera-shake`
+- `operation-speed-ramp`
+- `operation-fade`
+- `operation-filter-owner`
+- `operation-layer-reorder`
 
 ## Next Implementation Slice
 
-### Phase 2A - `apply_audio_ducking`
+### Phase 3A - `apply_camera_shake`
 
-Why first:
+Why first now:
 
-- It is the only remaining Phase 0 expected-failure with a named required tool.
-- It is a real professional quality requirement, not cosmetic.
-- The render model already supports it.
-- The director path already applies it.
-- CRG calls it a deterministic mapping and quality constraint.
+- It is one of the only remaining Phase 0 expected failures with a named required tool.
+- EDL already has camera-shake behavior, so chat should expose a semantic wrapper instead of asking the LLM to hand-author keyframes.
+- The wrapper can reuse `find_audio_moment` for beat/impact targets and timeline context for visual overlay targeting.
 
 Proposed <=5 files:
 
-1. `lib/editron/agent/chat-audio-edit-tools.ts` - new tool module with `apply_audio_ducking`.
-2. `lib/editron/agent/tools.ts` - import/spread the new module.
-3. `lib/editron/agent/chat-tool-registry.ts` - add metadata for `apply_audio_ducking`.
-4. `lib/editron/services/chat-edit-phase0-baseline.ts` - keep audio ducking case, update stale statuses if included in same phase.
-5. `tests/editron/chat-audio-edit-tools.test.ts` or `tests/editron/chat-edit-phase0-baseline.test.ts` - prove behavior and metadata.
+1. `lib/editron/agent/chat-motion-tools.ts` or the existing motion-capable chat module - add `apply_camera_shake`.
+2. `lib/editron/agent/tools.ts` - expose the tool if a new module is needed.
+3. `lib/editron/agent/chat-tool-registry.ts` - add/confirm metadata for `apply_camera_shake`.
+4. `lib/editron/services/chat-edit-phase0-baseline.ts` - move camera shake once implementation lands.
+5. Focused chat-operation test - prove target resolution, bounded intensity, and no-op behavior.
 
 Tool behavior:
 
-- Load project.
-- Identify BGM sound overlays by canonical row / BGM asset hints.
-- Identify speech/voiceover sources from video/sound/caption/transcript facts where available.
-- Apply `styles.duckingConfig` to BGM overlays only.
-- Use existing constants/defaults from `audio-standards.ts` or `editron-config.ts`.
-- Return changed overlay ids, skipped reasons, and config.
-- If no BGM exists, fail with a clear no-op message.
-- If no speech/voiceover evidence exists, either apply user-explicit ducking to BGM or return a guarded warning depending on request wording.
+- Resolve a target frame from explicit time, selected range, or `find_audio_moment`/visual context.
+- Resolve the intended visual overlay from selection or timeline inventory.
+- Apply bounded shake using the existing motion/EDL representation, not a parallel animation engine.
+- Return changed overlay ids, resolved target evidence, and skipped/no-op reasons.
 
 Do not:
 
-- Generate new audio.
-- Modify SFX overlays.
-- Rebuild audio mixing.
-- Route through disabled EDL filter/change plumbing.
-- Guess if the project has no BGM and no speech context.
+- Generate new visuals.
+- Mutate unrelated overlays.
+- Encode final visual style in a planner shadow field.
+- Bypass profile motion/intensity budgets.
 
 Suggested tests:
 
-- applies ducking to BGM overlay only
-- leaves SFX overlay unchanged
-- no-ops clearly when BGM is missing
-- registry marks `apply_audio_ducking` as mutating/reload/high or medium risk
-- Phase 0 baseline keeps audio ducking as the remaining expected failure until the tool lands
+- applies shake to one intended visual overlay at a resolved beat/frame
+- refuses or asks for clarification when no target overlay/frame can be resolved
+- keeps intensity within the configured budget
+- leaves audio/SFX overlays unchanged
 
 ## Remaining Roadmap After Audio Ducking
 
-1. Baseline refresh and callable-surface test hardening.
-2. `apply_audio_ducking`.
-3. `apply_camera_shake`.
-4. semantic `apply_speed_ramp`.
-5. semantic `apply_fade`.
-6. filter/color owner decision and tool if approved.
-7. explicit layer reorder/move-retime tool.
-8. chat UX receipts/candidate picker/highlight.
-9. real-project proof runs for retrieval + operations.
+1. Callable-surface snapshot hardening for registry-vs-live-tool drift.
+2. `apply_camera_shake`.
+3. semantic `apply_speed_ramp`.
+4. semantic `apply_fade`.
+5. filter/color owner decision and tool if approved.
+6. explicit layer reorder/move-retime tool.
+7. chat UX receipts/candidate picker/highlight.
+8. real-project proof runs for retrieval + operations.
 
 ## Verification Performed In This Audit
 
@@ -374,4 +375,4 @@ Read/grep evidence from:
 - `lib/editron/services/quality-gate.ts`
 - `lib/editron/data/creative-knowledge-graph.json`
 
-No runtime behavior was changed in this phase.
+No chat/runtime behavior was changed in this audit refresh phase.
