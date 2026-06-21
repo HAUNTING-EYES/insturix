@@ -54,7 +54,7 @@ describe('chat edit Phase 0 baseline', () => {
     expect(findChatEditPhase0BaselineCase('sound-reference-beat-drop')?.currentStatus).toBe('partial-now');
     expect(findChatEditPhase0BaselineCase('undo-ai-edit')?.currentStatus).toBe('partial-now');
     expect(findChatEditPhase0BaselineCase('operation-audio-ducking')?.currentStatus).toBe('supported-now');
-    expect(findChatEditPhase0BaselineCase('operation-camera-shake')?.currentStatus).toBe('expected-failure');
+    expect(findChatEditPhase0BaselineCase('operation-camera-shake')?.currentStatus).toBe('supported-now');
     expect(findChatEditPhase0BaselineCase('operation-filter-owner')?.currentStatus).toBe('expected-failure');
   });
 
@@ -65,12 +65,12 @@ describe('chat edit Phase 0 baseline', () => {
       version: 'chat-edit-phase0-baseline-v1',
       total: CHAT_EDIT_PHASE0_BASELINE_CASES.length,
       byStatus: {
-        'supported-now': 9,
+        'supported-now': 10,
         'partial-now': 10,
-        'expected-failure': 2,
+        'expected-failure': 1,
       },
     });
-    expect(summary.expectedFailureIds).toEqual(['operation-camera-shake', 'operation-filter-owner']);
+    expect(summary.expectedFailureIds).toEqual(['operation-filter-owner']);
     expect(summary.targetPhases).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });

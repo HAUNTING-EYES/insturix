@@ -1,6 +1,8 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
+import { DEFAULT_CONFIG } from "../config/editron-config";
+
 type OverlayId = string | number;
 
 export interface VisualMomentCandidate {
@@ -42,6 +44,37 @@ interface VisualMomentOptions {
   includeOverlayText?: boolean;
 }
 
+export interface CameraShakeOptions {
+  targetFrame?: number;
+  videoOverlayId?: OverlayId;
+  targetQuery?: string;
+  intensity?: number;
+  durationFrames?: number;
+  canvasWidth?: number;
+  replacePositionKeyframes?: boolean;
+}
+
+export interface CameraShakeOverlayUpdate {
+  overlayId: OverlayId;
+  targetFrame: number;
+  localFrame: number;
+  previousKeyframeTrackCount: number;
+  nextKeyframeTracks: any[];
+  intensity: number;
+  durationFrames: number;
+  maxOffset: number;
+  reason: string;
+}
+
+export interface CameraShakePlan {
+  status: "changed" | "no-target" | "conflict";
+  targetFrame?: number;
+  targetOverlayId?: OverlayId;
+  updates: CameraShakeOverlayUpdate[];
+  warnings: string[];
+  message: string;
+}
+
 interface FrameRange {
   startFrame: number;
   endFrame: number;
@@ -65,6 +98,16 @@ const visualMomentSchema = z.object({
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum visual moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayText: z.boolean().default(true).describe("Also search text already attached to timeline overlays."),
+});
+
+const cameraShakeSchema = z.object({
+  targetFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame to shake on. Use frame from find_audio_moment or find_visual_moment when available."),
+  videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional video overlay id. If omitted, the active video overlay at targetFrame is used."),
+  targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the target frame when targetFrame is not supplied."),
+  intensity: z.coerce.number().min(0).max(1).default(0.3).describe("Shake intensity before config clamping. 0.3 matches the existing EDL default."),
+  durationFrames: z.coerce.number().int().min(2).max(30).default(10).describe("Requested shake duration in frames before config clamping. 10 matches the existing EDL default."),
+  canvasWidth: z.coerce.number().int().min(1).optional().describe("Canvas width for offset scaling. Defaults to project dimensions or 1920."),
+  replacePositionKeyframes: z.boolean().default(false).describe("Allow replacing existing x/y position keyframes. Keep false unless the user explicitly wants to overwrite position motion."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -285,7 +328,270 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     },
   );
 
-  return [findVisualMoment];
+  const applyCameraShake = tool(
+    async (input: z.infer<typeof cameraShakeSchema>) => {
+      try {
+        const { projectService } = await import("../services/project-service");
+        const project = await projectService.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const plan = applyCameraShakeToProject(project, input);
+        if (plan.status !== "changed") {
+          return JSON.stringify({ status: "error", message: plan.message, data: plan });
+        }
+
+        for (const update of plan.updates) {
+          await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
+            keyframeTracks: update.nextKeyframeTracks,
+          } as any);
+        }
+
+        return JSON.stringify({ status: "success", data: plan });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply camera shake." });
+      }
+    },
+    {
+      name: "apply_camera_shake",
+      description: `Apply a brief, bounded camera shake to the active video overlay at a resolved impact frame.
+Use after find_audio_moment or find_visual_moment when the user asks for shake, impact, hit, punch, or beat/drop emphasis.
+Requires a target frame or high-confidence visual target. Refuses to overwrite existing position keyframes unless replacePositionKeyframes is true.`,
+      schema: cameraShakeSchema,
+    },
+  );
+
+  return [findVisualMoment, applyCameraShake];
+}
+
+export function applyCameraShakeToProject(
+  project: any,
+  options: CameraShakeOptions,
+): CameraShakePlan {
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const warnings: string[] = [];
+  const targetFrameResult = resolveCameraShakeTargetFrame(project, options);
+  if (!targetFrameResult.ok) {
+    return {
+      status: "no-target",
+      updates: [],
+      warnings: targetFrameResult.warnings,
+      message: targetFrameResult.message,
+    };
+  }
+
+  const targetFrame = targetFrameResult.frame;
+  const video = resolveCameraShakeVideoOverlay(overlays, targetFrame, options.videoOverlayId);
+  if (!video) {
+    return {
+      status: "no-target",
+      targetFrame,
+      updates: [],
+      warnings,
+      message: options.videoOverlayId != null
+        ? `Video overlay ${String(options.videoOverlayId)} is not active at frame ${targetFrame}.`
+        : `No video overlay is active at frame ${targetFrame}.`,
+    };
+  }
+
+  const videoDurationFrames = duration(video.durationInFrames);
+  const localFrame = targetFrame - frame(video.from);
+  if (localFrame < 0 || localFrame > videoDurationFrames - 3) {
+    return {
+      status: "no-target",
+      targetFrame,
+      targetOverlayId: video.id,
+      updates: [],
+      warnings,
+      message: `Video overlay ${String(video.id)} does not have enough remaining frames for a clean shake at frame ${targetFrame}.`,
+    };
+  }
+
+  const existingTracks = Array.isArray(video.keyframeTracks) ? video.keyframeTracks : [];
+  const existingPositionTracks = existingTracks.filter((track: any) => track?.property === "x" || track?.property === "y");
+  const nonShakePositionTracks = existingPositionTracks.filter((track: any) => !isCameraShakeTrack(track));
+  if (nonShakePositionTracks.length && !options.replacePositionKeyframes) {
+    return {
+      status: "conflict",
+      targetFrame,
+      targetOverlayId: video.id,
+      updates: [],
+      warnings: ["Existing x/y position keyframes were found; camera shake was not applied because it would override position motion."],
+      message: `Overlay ${String(video.id)} already has x/y position keyframes. Ask to replace position motion if that is intentional.`,
+    };
+  }
+
+  const config = DEFAULT_CONFIG.editing;
+  const canvasWidth = positiveNumber(options.canvasWidth)
+    ?? positiveNumber(project?.playerDimensions?.width)
+    ?? positiveNumber(project?.dimensions?.width)
+    ?? 1920;
+  const intensity = round3(clamp(options.intensity ?? 0.3, config.shakeIntensityRange[0], config.shakeIntensityRange[1]));
+  const durationFrames = clampInt(options.durationFrames ?? 10, 2, config.shakeMaxDurationFrames);
+  const maxOffset = round3(intensity * canvasWidth * config.shakeCanvasOffsetFraction);
+  const shakeTracks = buildCameraShakeTracks({
+    localFrame,
+    targetFrame,
+    videoFrom: frame(video.from),
+    videoDurationFrames,
+    durationFrames,
+    maxOffset,
+  });
+  const keptTracks = existingTracks.filter((track: any) => {
+    if (options.replacePositionKeyframes && (track?.property === "x" || track?.property === "y")) return false;
+    return !isCameraShakeTrack(track);
+  });
+  const nextKeyframeTracks = [...keptTracks, ...shakeTracks];
+
+  return {
+    status: "changed",
+    targetFrame,
+    targetOverlayId: video.id,
+    updates: [{
+      overlayId: video.id,
+      targetFrame,
+      localFrame,
+      previousKeyframeTrackCount: existingTracks.length,
+      nextKeyframeTracks,
+      intensity,
+      durationFrames,
+      maxOffset,
+      reason: "brief-impact-camera-shake",
+    }],
+    warnings,
+    message: `Applied bounded camera shake to video overlay ${String(video.id)} at frame ${targetFrame}.`,
+  };
+}
+
+function resolveCameraShakeTargetFrame(
+  project: any,
+  options: CameraShakeOptions,
+): { ok: true; frame: number; warnings: string[] } | { ok: false; message: string; warnings: string[] } {
+  const warnings: string[] = [];
+  let targetFrame = positiveOrZeroNumber(options.targetFrame);
+
+  if (targetFrame == null && options.targetQuery) {
+    const candidates = findVisualMomentCandidates(project, options.targetQuery, {
+      videoOverlayId: options.videoOverlayId,
+      limit: 3,
+      minConfidence: 0.35,
+    });
+    const best = candidates[0];
+    if (!best) {
+      return {
+        ok: false,
+        warnings,
+        message: `No stored visual evidence matched "${options.targetQuery}". Use find_visual_moment or provide targetFrame first.`,
+      };
+    }
+    if (!best.safeForAutoEdit) {
+      return {
+        ok: false,
+        warnings,
+        message: `Visual target "${options.targetQuery}" was not high-confidence enough for automatic shake. Provide targetFrame or inspect candidates first.`,
+      };
+    }
+    targetFrame = best.frame;
+    warnings.push(`Resolved targetFrame ${targetFrame} from visual evidence: ${best.source.path}.`);
+  }
+
+  if (targetFrame == null) {
+    return {
+      ok: false,
+      warnings,
+      message: "Camera shake needs a targetFrame, or a high-confidence targetQuery that resolves to one visual moment.",
+    };
+  }
+
+  const roundedFrame = Math.round(targetFrame);
+  const totalFrames = resolveProjectDurationFrames(project);
+  if (totalFrames > 0 && roundedFrame >= totalFrames) {
+    return {
+      ok: false,
+      warnings,
+      message: `Target frame ${roundedFrame} is outside the project duration (${totalFrames} frames).`,
+    };
+  }
+
+  return { ok: true, frame: roundedFrame, warnings };
+}
+
+function resolveProjectDurationFrames(project: any): number {
+  const explicit = positiveNumber(project?.durationInFrames);
+  if (explicit) return Math.round(explicit);
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return overlays.reduce((maxFrame: number, overlay: any) => Math.max(maxFrame, frame(overlay?.from) + duration(overlay?.durationInFrames)), 0);
+}
+
+function resolveCameraShakeVideoOverlay(overlays: any[], targetFrame: number, videoOverlayId?: OverlayId): any | undefined {
+  const videoOverlays = overlays.filter((overlay) => overlay?.type === "video");
+  if (videoOverlayId != null) {
+    const explicit = videoOverlays.find((overlay) => String(overlay?.id) === String(videoOverlayId));
+    return explicit && overlayContainsFrame(explicit, targetFrame) ? explicit : undefined;
+  }
+  return videoOverlays.find((overlay) => overlayContainsFrame(overlay, targetFrame));
+}
+
+function overlayContainsFrame(overlay: any, targetFrame: number): boolean {
+  const startFrame = frame(overlay?.from);
+  return startFrame <= targetFrame && startFrame + duration(overlay?.durationInFrames) > targetFrame;
+}
+
+function buildCameraShakeTracks(input: {
+  localFrame: number;
+  targetFrame: number;
+  videoFrom: number;
+  videoDurationFrames: number;
+  durationFrames: number;
+  maxOffset: number;
+}): any[] {
+  const shakeFrames = Math.min(input.durationFrames, Math.max(1, input.videoDurationFrames - input.localFrame - 2));
+  const xKeyframes: any[] = [{ frame: input.localFrame, value: 0, easing: "linear" }];
+  const yKeyframes: any[] = [{ frame: input.localFrame, value: 0, easing: "linear" }];
+  const rand = mulberry32((input.targetFrame * 31) + (input.videoFrom * 17) + (input.videoDurationFrames * 7));
+
+  for (let index = 1; index <= shakeFrames; index += 1) {
+    const decay = 1 - (index / shakeFrames);
+    xKeyframes.push({ frame: input.localFrame + index, value: round3((rand() - 0.5) * 2 * input.maxOffset * decay), easing: "linear" });
+    yKeyframes.push({ frame: input.localFrame + index, value: round3((rand() - 0.5) * 2 * input.maxOffset * decay), easing: "linear" });
+  }
+
+  xKeyframes.push({ frame: input.localFrame + shakeFrames + 1, value: 0, easing: "ease-out" });
+  yKeyframes.push({ frame: input.localFrame + shakeFrames + 1, value: 0, easing: "ease-out" });
+
+  return [
+    cameraShakeTrack("x", xKeyframes),
+    cameraShakeTrack("y", yKeyframes),
+  ];
+}
+
+function cameraShakeTrack(property: "x" | "y", keyframes: any[]): any {
+  return {
+    property,
+    keyframes,
+    metadata: {
+      family: "camera-shake",
+      source: "apply_camera_shake",
+    },
+  };
+}
+
+function isCameraShakeTrack(track: any): boolean {
+  const metadata = isRecord(track?.metadata) ? track.metadata : undefined;
+  return track?.family === "camera-shake"
+    || track?.source === "apply_camera_shake"
+    || metadata?.family === "camera-shake"
+    || metadata?.source === "apply_camera_shake";
+}
+
+function mulberry32(seed: number): () => number {
+  return () => {
+    let value = seed += 0x6d2b79f5;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export function findVisualMomentCandidates(

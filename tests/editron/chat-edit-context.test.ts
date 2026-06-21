@@ -14,7 +14,10 @@ import {
   findTranscriptMomentCandidates,
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
-import { findVisualMomentCandidates } from '@/lib/editron/agent/chat-visual-tools';
+import {
+  applyCameraShakeToProject,
+  findVisualMomentCandidates,
+} from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
 describe('chat edit context bundle', () => {
@@ -180,17 +183,25 @@ describe('chat edit context bundle', () => {
     });
   });
 
-  it('covers visual moment search with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search and camera shake with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment']);
+    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
       receiptLabel: 'Found visual moment',
       mutatesProject: false,
       riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('apply_camera_shake')).toMatchObject({
+      label: 'Applying camera shake',
+      shortLabel: 'Shake',
+      receiptLabel: 'Applied camera shake',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
     });
   });
 
@@ -333,6 +344,66 @@ describe('chat edit context bundle', () => {
         },
       },
     });
+  });
+
+  it('plans camera shake as bounded x/y tracks on the active video overlay', () => {
+    const plan = applyCameraShakeToProject(project, {
+      targetFrame: 90,
+      intensity: 1,
+      durationFrames: 30,
+      canvasWidth: 1000,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetFrame: 90,
+      targetOverlayId: 1,
+      updates: [{
+        overlayId: 1,
+        localFrame: 90,
+        intensity: 0.8,
+        durationFrames: 15,
+        maxOffset: 8,
+        reason: 'brief-impact-camera-shake',
+      }],
+    });
+
+    const tracks = plan.updates[0].nextKeyframeTracks.filter((track: any) => track.property === 'x' || track.property === 'y');
+    expect(tracks.map((track: any) => track.property)).toEqual(['x', 'y']);
+    for (const track of tracks) {
+      expect(track.metadata).toEqual({ family: 'camera-shake', source: 'apply_camera_shake' });
+      expect(track.keyframes[0]).toEqual({ frame: 90, value: 0, easing: 'linear' });
+      expect(track.keyframes[track.keyframes.length - 1]).toEqual({ frame: 106, value: 0, easing: 'ease-out' });
+      const maxAbsOffset = Math.max(...track.keyframes.map((keyframe: any) => Math.abs(keyframe.value)));
+      expect(maxAbsOffset).toBeLessThanOrEqual(8);
+    }
+  });
+
+  it('refuses camera shake when existing position motion would be overwritten', () => {
+    const plan = applyCameraShakeToProject({
+      durationInFrames: 60,
+      overlays: [{
+        id: 10,
+        type: 'video',
+        from: 0,
+        durationInFrames: 60,
+        keyframeTracks: [{
+          property: 'x',
+          keyframes: [
+            { frame: 0, value: 0, easing: 'linear' },
+            { frame: 30, value: 24, easing: 'ease-in-out' },
+          ],
+        }],
+      }],
+    }, { targetFrame: 12 });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetFrame: 12,
+      targetOverlayId: 10,
+      updates: [],
+    });
+    expect(plan.message).toContain('already has x/y position keyframes');
   });
 
   it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {
