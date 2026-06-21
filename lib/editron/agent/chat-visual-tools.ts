@@ -199,6 +199,40 @@ export interface FadePlan {
   message: string;
 }
 
+export type KeyframeEditDirection = "in" | "out";
+
+export interface KeyframeEditOptions {
+  overlayId?: OverlayId;
+  targetQuery?: string;
+  direction?: KeyframeEditDirection;
+  startFrame?: number;
+  endFrame?: number;
+  durationFrames?: number;
+  scaleDelta?: number;
+  replaceExistingScaleKeyframes?: boolean;
+  allowCaptionKeyframes?: boolean;
+}
+
+export interface KeyframeEditPlan {
+  status: "ready" | "no-target" | "conflict";
+  targetOverlayId?: OverlayId;
+  startFrame?: number;
+  endFrame?: number;
+  localStartFrame?: number;
+  localEndFrame?: number;
+  direction: KeyframeEditDirection;
+  scaleDelta?: number;
+  useWith?: {
+    set_keyframes: {
+      overlayId: number;
+      property: "scale";
+      keyframes: Array<{ frame: number; value: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" }>;
+    };
+  };
+  warnings: string[];
+  message: string;
+}
+
 export type LayerReorderRelation = "behind" | "in-front-of" | "front" | "back";
 
 export interface LayerReorderOptions {
@@ -366,6 +400,18 @@ const fadeSchema = z.object({
   replaceExistingOpacityKeyframes: z.boolean().default(false).describe("Allow replacing existing opacity keyframes. Keep false unless the user explicitly wants to overwrite opacity animation."),
   allowCaptionFade: z.boolean().default(false).describe("Allow fading caption/subtitle overlays. Keep false unless captions were explicitly targeted."),
   allowBrandFade: z.boolean().default(false).describe("Allow fading likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
+});
+
+const keyframeEditSchema = z.object({
+  overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id. Prefer selectedOverlayId from chat context when the user says this clip, selected clip, or this overlay."),
+  targetQuery: z.string().min(1).optional().describe("Natural-language overlay reference when overlayId is unavailable. Use explicit selectedOverlayId when available."),
+  direction: z.enum(["in", "out"]).default("in").describe("Scale direction: in means 1.0 to larger, out means larger to 1.0."),
+  startFrame: z.coerce.number().int().min(0).optional().describe("Optional global timeline frame where the scale keyframes should start. Defaults to the overlay start."),
+  endFrame: z.coerce.number().int().min(0).optional().describe("Optional global timeline frame where the scale keyframes should end. Defaults to the overlay end."),
+  durationFrames: z.coerce.number().int().min(2).max(7200).optional().describe("Optional duration in frames when only one edge is supplied. Defaults to the full target overlay duration."),
+  scaleDelta: z.coerce.number().min(0.01).max(0.5).default(0.12).describe("Requested scale delta before safety clamping. 0.12 is a restrained manual zoom."),
+  replaceExistingScaleKeyframes: z.boolean().default(false).describe("Allow replacing existing scale keyframes. Keep false unless the user explicitly wants to overwrite zoom/scale motion."),
+  allowCaptionKeyframes: z.boolean().default(false).describe("Allow scale keyframes on captions/subtitles. Keep false unless captions were explicitly targeted."),
 });
 
 const layerReorderSchema = z.object({
@@ -657,6 +703,27 @@ Returns add_overlay placement only when the matched visual fact has a bounding b
     },
   );
 
+  const resolveKeyframeEdit = tool(
+    async (input: z.infer<typeof keyframeEditSchema>) => {
+      const { projectService } = await import("../services/project-service");
+      const project = await projectService.loadProject(userId, projectId);
+      const plan = resolveKeyframeEditParams(project, input);
+
+      return JSON.stringify({
+        status: plan.status === "ready" ? "success" : "error",
+        data: plan,
+        message: plan.message,
+      });
+    },
+    {
+      name: "resolve_keyframe_edit",
+      description: `Resolve a selected/target overlay into safe set_keyframes params for manual scale zooms.
+Use for chat requests like "slowly zoom in on the selected clip" after selectedOverlayId is present in chat context, or after a precise overlay query.
+This is read-only: it returns local-frame scale keyframes for set_keyframes and refuses missing targets, captions, sound overlays, too-short clips, or existing scale motion unless replacement is explicit.`,
+      schema: keyframeEditSchema,
+    },
+  );
+
   const applyCameraShake = tool(
     async (input: z.infer<typeof cameraShakeSchema>) => {
       try {
@@ -872,7 +939,178 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     },
   );
 
-  return [findVisualMoment, resolveVisualEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
+  return [findVisualMoment, resolveVisualEdit, resolveKeyframeEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
+}
+
+export function resolveKeyframeEditParams(
+  project: any,
+  options: KeyframeEditOptions,
+): KeyframeEditPlan {
+  const direction = options.direction ?? "in";
+  const warnings: string[] = [];
+
+  if (options.overlayId == null && !options.targetQuery?.trim()) {
+    return {
+      status: "no-target",
+      direction,
+      warnings,
+      message: "Keyframe edit needs overlayId from selectedOverlayId or an unambiguous targetQuery.",
+    };
+  }
+
+  const targetResult = resolveMoveRetimeOverlay(project, options.overlayId, options.targetQuery);
+  if (!targetResult.ok) {
+    return {
+      status: "no-target",
+      direction,
+      warnings: targetResult.warnings,
+      message: targetResult.message.replace("Move/retime", "Keyframe edit"),
+    };
+  }
+
+  const { overlay } = targetResult;
+  warnings.push(...targetResult.warnings);
+  const blockReason = keyframeEditBlockReason(overlay, options.allowCaptionKeyframes ?? false);
+  if (blockReason) {
+    return {
+      status: "conflict",
+      targetOverlayId: overlay.id,
+      direction,
+      warnings,
+      message: blockReason,
+    };
+  }
+
+  const numericOverlayId = Number(overlay.id);
+  if (!Number.isFinite(numericOverlayId)) {
+    return {
+      status: "no-target",
+      targetOverlayId: overlay.id,
+      direction,
+      warnings,
+      message: `Overlay ${String(overlay.id)} cannot be used with set_keyframes because its id is not numeric.`,
+    };
+  }
+
+  const rangeResult = resolveKeyframeEditFrameRange(overlay, options);
+  if (!rangeResult.ok) {
+    return {
+      status: "no-target",
+      targetOverlayId: overlay.id,
+      direction,
+      warnings,
+      message: rangeResult.message,
+    };
+  }
+
+  const existingTracks = Array.isArray(overlay.keyframeTracks) ? overlay.keyframeTracks : [];
+  const existingScaleTracks = existingTracks.filter(isScaleKeyframeTrack);
+  if (existingScaleTracks.length && !options.replaceExistingScaleKeyframes) {
+    return {
+      status: "conflict",
+      targetOverlayId: overlay.id,
+      startFrame: rangeResult.range.startFrame,
+      endFrame: rangeResult.range.endFrame,
+      localStartFrame: rangeResult.localStartFrame,
+      localEndFrame: rangeResult.localEndFrame,
+      direction,
+      warnings: [
+        ...warnings,
+        "Existing scale keyframes were found; keyframe edit was not resolved because set_keyframes would overwrite scale motion.",
+      ],
+      message: `Overlay ${String(overlay.id)} already has scale keyframes. Ask to replace existing scale motion if that is intentional.`,
+    };
+  }
+
+  const scaleDelta = round3(clamp(options.scaleDelta ?? 0.12, 0.02, 0.35));
+  const keyframes = buildScaleKeyframes(rangeResult.localStartFrame, rangeResult.localEndFrame, direction, scaleDelta);
+
+  return {
+    status: "ready",
+    targetOverlayId: overlay.id,
+    startFrame: rangeResult.range.startFrame,
+    endFrame: rangeResult.range.endFrame,
+    localStartFrame: rangeResult.localStartFrame,
+    localEndFrame: rangeResult.localEndFrame,
+    direction,
+    scaleDelta,
+    useWith: {
+      set_keyframes: {
+        overlayId: numericOverlayId,
+        property: "scale",
+        keyframes,
+      },
+    },
+    warnings,
+    message: `Resolved ${direction === "in" ? "zoom in" : "zoom out"} scale keyframes for overlay ${String(overlay.id)} over frames ${rangeResult.range.startFrame}-${rangeResult.range.endFrame}.`,
+  };
+}
+
+function resolveKeyframeEditFrameRange(
+  overlay: any,
+  options: KeyframeEditOptions,
+): { ok: true; range: FrameRange; localStartFrame: number; localEndFrame: number } | { ok: false; message: string } {
+  const overlayStartFrame = frame(overlay?.from);
+  const overlayDurationFrames = duration(overlay?.durationInFrames);
+  const overlayEndFrame = overlayStartFrame + overlayDurationFrames;
+  if (overlayDurationFrames < 2) {
+    return { ok: false, message: `Overlay ${String(overlay?.id)} is too short for visible scale keyframes.` };
+  }
+
+  const requestedStartFrame = positiveOrZeroNumber(options.startFrame);
+  const requestedEndFrame = positiveOrZeroNumber(options.endFrame);
+  const requestedDurationFrames = positiveNumber(options.durationFrames);
+  let startFrame = requestedStartFrame ?? overlayStartFrame;
+  let endFrame = requestedEndFrame;
+
+  if (endFrame == null && requestedDurationFrames != null) {
+    endFrame = startFrame + Math.round(requestedDurationFrames);
+  } else if (endFrame == null) {
+    endFrame = overlayEndFrame;
+  }
+
+  startFrame = Math.round(startFrame);
+  endFrame = Math.round(endFrame);
+  if (startFrame < overlayStartFrame || endFrame > overlayEndFrame) {
+    return { ok: false, message: `Requested keyframe range ${startFrame}-${endFrame} is outside overlay ${String(overlay?.id)} frames ${overlayStartFrame}-${overlayEndFrame}.` };
+  }
+  if (endFrame - startFrame < 2) {
+    return { ok: false, message: `Requested keyframe range ${startFrame}-${endFrame} is too short for a visible zoom.` };
+  }
+
+  return {
+    ok: true,
+    range: { startFrame, endFrame },
+    localStartFrame: startFrame - overlayStartFrame,
+    localEndFrame: endFrame - overlayStartFrame,
+  };
+}
+
+function keyframeEditBlockReason(overlay: any, allowCaptionKeyframes: boolean): string | undefined {
+  const type = String(overlay?.type ?? "").toLowerCase();
+  if (type === "sound" || type === "audio") return `Overlay ${String(overlay?.id)} is ${type}; scale keyframes only apply to visual overlays.`;
+  if (type === "transition") return `Overlay ${String(overlay?.id)} is a transition; use transition controls instead of overlay scale keyframes.`;
+  if (isCaptionLikeOverlay(overlay) && !allowCaptionKeyframes) return `Overlay ${String(overlay?.id)} is captions/subtitles. Ask to allow caption keyframes if scaling captions is intentional.`;
+  return undefined;
+}
+
+function buildScaleKeyframes(
+  localStartFrame: number,
+  localEndFrame: number,
+  direction: KeyframeEditDirection,
+  scaleDelta: number,
+): Array<{ frame: number; value: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" }> {
+  const highScale = round3(1 + scaleDelta);
+  const startValue = direction === "in" ? 1 : highScale;
+  const endValue = direction === "in" ? highScale : 1;
+  return [
+    { frame: localStartFrame, value: startValue, easing: "ease-in-out" },
+    { frame: localEndFrame, value: endValue, easing: "ease-out" },
+  ];
+}
+
+function isScaleKeyframeTrack(track: any): boolean {
+  return track?.property === "scale";
 }
 
 export function applyCameraShakeToProject(

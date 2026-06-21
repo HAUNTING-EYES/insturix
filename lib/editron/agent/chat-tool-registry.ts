@@ -74,6 +74,7 @@ export const CHAT_TOOL_REGISTRY = {
   resolve_transcript_edit: defineTool({ name: 'resolve_transcript_edit', label: 'Resolving transcript edit', shortLabel: 'Speech edit', iconCategory: 'caption', receiptLabel: 'Resolved transcript edit' }),
   find_visual_moment: defineTool({ name: 'find_visual_moment', label: 'Finding visual moment', shortLabel: 'Find visual', iconCategory: 'visual', receiptLabel: 'Found visual moment' }),
   resolve_visual_edit: defineTool({ name: 'resolve_visual_edit', label: 'Resolving visual edit', shortLabel: 'Visual edit', iconCategory: 'visual', receiptLabel: 'Resolved visual edit' }),
+  resolve_keyframe_edit: defineTool({ name: 'resolve_keyframe_edit', label: 'Resolving keyframes', shortLabel: 'Keyframes', iconCategory: 'keyframe', receiptLabel: 'Resolved keyframes' }),
   find_audio_moment: defineTool({ name: 'find_audio_moment', label: 'Finding audio moment', shortLabel: 'Find audio', iconCategory: 'audio', receiptLabel: 'Found audio moment' }),
   resolve_audio_edit: defineTool({ name: 'resolve_audio_edit', label: 'Resolving audio edit', shortLabel: 'Audio edit', iconCategory: 'audio', receiptLabel: 'Resolved audio edit' }),
   apply_audio_ducking: defineTool({ name: 'apply_audio_ducking', label: 'Applying audio ducking', shortLabel: 'Ducking', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied audio ducking' }),

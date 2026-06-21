@@ -24,6 +24,7 @@ import {
   applyMoveRetimeToProject,
   applySpeedRampToProject,
   findVisualMomentCandidates,
+  resolveKeyframeEditParams,
   resolveVisualEditPlacement,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
@@ -202,7 +203,7 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
+    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -214,6 +215,13 @@ describe('chat edit context bundle', () => {
       label: 'Resolving visual edit',
       shortLabel: 'Visual edit',
       receiptLabel: 'Resolved visual edit',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_keyframe_edit')).toMatchObject({
+      label: 'Resolving keyframes',
+      shortLabel: 'Keyframes',
+      receiptLabel: 'Resolved keyframes',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -571,6 +579,65 @@ describe('chat edit context bundle', () => {
     });
     expect(plan.useWith?.add_overlay).toBeUndefined();
     expect(plan.message).toContain('no bounding box');
+  });
+
+  it('resolves selected clip zoom into set_keyframes params without mutating', () => {
+    const plan = resolveKeyframeEditParams(project, {
+      overlayId: 1,
+      direction: 'in',
+      startFrame: 90,
+      endFrame: 120,
+      scaleDelta: 0.5,
+    });
+    const conflict = resolveKeyframeEditParams({
+      overlays: [{
+        id: 10,
+        type: 'video',
+        from: 0,
+        durationInFrames: 60,
+        keyframeTracks: [{
+          property: 'scale',
+          keyframes: [
+            { frame: 0, value: 1, easing: 'linear' },
+            { frame: 30, value: 1.1, easing: 'ease-out' },
+          ],
+        }],
+      }],
+    }, { overlayId: 10 });
+    const captionBlocked = resolveKeyframeEditParams(project, { overlayId: 2 });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      targetOverlayId: 1,
+      startFrame: 90,
+      endFrame: 120,
+      localStartFrame: 90,
+      localEndFrame: 120,
+      direction: 'in',
+      scaleDelta: 0.35,
+      useWith: {
+        set_keyframes: {
+          overlayId: 1,
+          property: 'scale',
+          keyframes: [
+            { frame: 90, value: 1, easing: 'ease-in-out' },
+            { frame: 120, value: 1.35, easing: 'ease-out' },
+          ],
+        },
+      },
+    });
+    expect(conflict).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 10,
+    });
+    expect(conflict.useWith).toBeUndefined();
+    expect(conflict.message).toContain('already has scale keyframes');
+    expect(captionBlocked).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+    });
+    expect(captionBlocked.useWith).toBeUndefined();
+    expect(captionBlocked.message).toContain('captions/subtitles');
   });
 
   it('plans camera shake as bounded x/y tracks on the active video overlay', () => {
