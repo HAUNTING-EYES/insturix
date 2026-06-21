@@ -386,6 +386,103 @@ describe('signal-executor', () => {
     expect(result.decisions.some((d) => d.type === 'graphic')).toBe(false);
   });
 
+  it('does not convert diagnostic prose into a transition even when it mentions flash or cut', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[60, {
+        frame: 60,
+        timestampMs: 2000,
+        'structural.time_since_last_cut': 1,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: {},
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex!, [
+      { id: 'clip-a', type: 'video', from: 0, durationInFrames: 90 },
+      { id: 'clip-b', type: 'video', from: 90, durationInFrames: 90 },
+    ]);
+
+    expect(result.decisions.some((d) => d.source === 'mapping:cross_domain.eye_trace_continuity_across_cuts')).toBe(false);
+    expect(result.decisions.some((d) => d.type === 'transition' && d.params.transitionType === 'flash')).toBe(false);
+  });
+
+  it('does not emit EDL decisions for mappings that produce non-render technique families', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph()!;
+    const weightMap = buildMomentWeightMap(null, null);
+    const nonExecutablePrefixes = [
+      'technique:composition.',
+      'technique:flag.',
+      'technique:pacing.',
+      'technique:cut.',
+      'technique:hold.',
+      'technique:layout.',
+      'technique:silence.',
+      'technique:shot-type.',
+    ];
+    const nonExecutableMappingIds = new Set(
+      Array.from(graphIndex.producesTechnique.entries())
+        .filter(([, techniqueId]) => nonExecutablePrefixes.some((prefix) =>
+          techniqueId.toLowerCase().startsWith(prefix)
+        ))
+        .map(([mappingId]) => mappingId)
+    );
+    expect([...nonExecutableMappingIds]).toEqual(expect.arrayContaining([
+      'mapping:visual.shot_scale_monotony_break',
+      'mapping:structural.hook_zone_treatment',
+      'mapping:cross_domain.eye_trace_continuity_across_cuts',
+    ]));
+
+    const allActiveSignals = Object.fromEntries(
+      Array.from(graphIndex.signals.keys()).flatMap((signalId) => {
+        const bareId = signalId.replace(/^signal:/, '');
+        return [[signalId, 1], [bareId, 1]];
+      })
+    );
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[60, {
+        frame: 60,
+        timestampMs: 2000,
+        ...allActiveSignals,
+        'structural.time_since_last_cut': 1,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: {},
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex, [
+      { id: 'clip-a', type: 'video', from: 0, durationInFrames: 90 },
+      { id: 'clip-b', type: 'video', from: 90, durationInFrames: 90 },
+    ]);
+
+    expect(result.decisions
+      .filter((decision) => nonExecutableMappingIds.has(decision.source))
+      .map((decision) => decision.source)
+    ).toEqual([]);
+  });
   it('uses transcript phrase context for numeric events so MG labels have evidence', async () => {
     const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
     const timeline = buildSignalTimeline([], {
@@ -421,6 +518,16 @@ describe('graph-query', () => {
     expect(index!.mappings.size).toBe(95);
     expect(index!.techniques.size).toBe(115);
     expect(index!.constraints.size).toBe(50);
+  });
+
+  it('indexes mapping produces edges as the authored technique route', async () => {
+    const { loadGraph, getTechniqueForMapping } = await import('@/lib/editron/services/graph-query');
+    const index = loadGraph()!;
+
+    const technique = getTechniqueForMapping(index, 'mapping:cross_domain.eye_trace_continuity_across_cuts');
+
+    expect(technique?.id).toBe('technique:shot-type.center_framing');
+    expect(technique?.id).not.toBe('technique:transition.flash');
   });
 
   it('resolves aliases correctly', async () => {

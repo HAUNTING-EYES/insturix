@@ -174,6 +174,7 @@ export interface GraphIndex {
 
   // Relational indexes
   mappingsBySignal: Map<string, MappingNode[]>;        // signal_id → mappings triggered by it
+  producesTechnique: Map<string, string>;              // mapping_id -> technique_id from graph produces edge
   mappingsByCategory: Map<string, MappingNode[]>;      // category → mappings in that domain
   constraintsByCategory: Map<string, ConstraintNode[]>;
   constraintsByAppliesTo: Map<string, ConstraintNode[]>; // technique/edit type → constraints
@@ -246,6 +247,7 @@ export function loadGraph(): GraphIndex | null {
       constraints: new Map(),
       constants: new Map(),
       mappingsBySignal: new Map(),
+      producesTechnique: new Map(),
       mappingsByCategory: new Map(),
       constraintsByCategory: new Map(),
       constraintsByAppliesTo: new Map(),
@@ -298,6 +300,10 @@ export function loadGraph(): GraphIndex | null {
           if (!index.mappingsBySignal.has(edge.to)) index.mappingsBySignal.set(edge.to, []);
           index.mappingsBySignal.get(edge.to)!.push(mappingNode);
         }
+      }
+
+      if (edge.type === 'produces' && edge.from?.startsWith('mapping:') && edge.to?.startsWith('technique:')) {
+        index.producesTechnique.set(edge.from, edge.to);
       }
     }
 
@@ -355,6 +361,12 @@ export function getMappingsForSignal(index: GraphIndex, signalId: string): Mappi
 export function getTechnique(index: GraphIndex, techniqueId: string): TechniqueNode | null {
   const resolved = resolveAlias(index, techniqueId);
   return index.techniques.get(resolved) ?? null;
+}
+
+/** Get the technique authored by a mapping's graph produces edge. */
+export function getTechniqueForMapping(index: GraphIndex, mappingId: string): TechniqueNode | null {
+  const producedTechniqueId = index.producesTechnique.get(mappingId);
+  return producedTechniqueId ? getTechnique(index, producedTechniqueId) : null;
 }
 
 /** Get all constraints that apply to a given edit type (e.g., "cut_point", "zoom", "transition"). */

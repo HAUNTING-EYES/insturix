@@ -32,6 +32,7 @@ import {
 import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
 import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
+import { normalizeEdlDecisionParams } from '@/lib/editron/services/edl-param-contract';
 import {
   resolveVjepaScreenContextPolicy,
   type VjepaScreenContextPolicy,
@@ -540,6 +541,12 @@ export async function executeEDL(
   // budget consumption should be linear. Confidence is for tie-breaking within the
   // same frame window, which the signal executor already handles (deduplicateDecisions).
   actionable.sort((a, b) => a.frame - b.frame || b.confidence - a.confidence);
+  for (const decision of actionable) {
+    decision.params = normalizeEdlDecisionParams(decision.type, decision.params, {
+      canvasWidth: canvasDimensions.width,
+      technique: (decision as any).technique,
+    });
+  }
 
   console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by frame`);
 
@@ -1872,12 +1879,14 @@ async function applyDecision(
       return null;
 
     case 'caption-emphasis': {
-      // Caption emphasis stays in the caption layer unless it carries enough
-      // structure to become a real atomic MG.
+      // Caption emphasis belongs in the caption layer. Only fall back to MG if
+      // there is no caption word to mark and the decision carries real standalone structure.
       const emphasisWord = (decision as any).params?.emphasisWord;
       if (!emphasisWord) return null;
+      const captionApplied = applyCaptionLayerEmphasis(decision, overlays);
+      if (captionApplied) return captionApplied;
       if (!hasStandaloneGraphicStructure((decision as any).params ?? {})) {
-        console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: kept in caption layer, not promoted to standalone MG`);
+        console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: no matching caption word; not promoted to standalone MG`);
         return null;
       }
       const emphasisDecision = {
@@ -1887,7 +1896,6 @@ async function applyDecision(
       };
       return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity);
     }
-
     case 'sfx':
     case 'sfx-trigger': {
       // 'sfx-trigger' from signal executor (Path D) has params.sfxType
@@ -2006,6 +2014,128 @@ async function applyDecision(
   }
 }
 
+function applyCaptionLayerEmphasis(
+  decision: EditDecision,
+  overlays: Overlay[],
+): { created: number; modified: number } | null {
+  const params = decision.params ?? {};
+  const emphasisWord = typeof params.emphasisWord === 'string' ? params.emphasisWord.trim() : '';
+  if (!emphasisWord) return null;
+
+  const targetTokens = tokenizeCaptionEmphasis(emphasisWord);
+  if (targetTokens.length === 0) return null;
+
+  const fps = DEFAULT_CONFIG.timing.fps || 30;
+  const targetMs = Math.round((decision.frame / fps) * 1000);
+  let best: { overlay: any; words: any[]; start: number; distanceMs: number } | null = null;
+
+  for (const overlay of overlays as any[]) {
+    if (overlay?.type !== 'caption' || !Array.isArray(overlay.captions)) continue;
+    for (const caption of overlay.captions) {
+      const words = Array.isArray(caption?.words) ? caption.words : [];
+      const match = findCaptionWordSequence(words, targetTokens, targetMs);
+      if (!match) continue;
+      if (!best || match.distanceMs < best.distanceMs) {
+        best = { overlay, words, start: match.start, distanceMs: match.distanceMs };
+      }
+    }
+  }
+
+  if (!best || best.distanceMs > 1200) return null;
+
+  const emphasisType = captionEmphasisType(params.emphasisType);
+  const markedWords = best.words.slice(best.start, best.start + targetTokens.length);
+  for (const word of markedWords) {
+    word.emphasis = { type: emphasisType, source: decision.source || 'edl-caption-emphasis' };
+  }
+  markOverlayWordList(best.overlay.words, targetTokens, targetMs, emphasisType, decision.source || 'edl-caption-emphasis');
+
+  best.overlay.metadata = {
+    ...(best.overlay.metadata ?? {}),
+    captionEmphasisDecisions: [
+      ...((best.overlay.metadata?.captionEmphasisDecisions as unknown[]) ?? []),
+      {
+        word: emphasisWord,
+        frame: decision.frame,
+        targetMs,
+        source: decision.source,
+        distanceMs: best.distanceMs,
+      },
+    ],
+  };
+  appendAtomicOverlayReceipt(best.overlay, buildOverlayAtomicReceipt({
+    family: 'caption',
+    intent: 'caption-emphasis',
+    frame: decision.frame,
+    durationFrames: decision.durationFrames ?? 30,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: { overlayId: best.overlay.id },
+    payload: { emphasisWord, emphasisType, markedWordCount: markedWords.length, targetMs },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.frame', decision.frame, 1, 'edl'),
+      overlayAtom('caption-word', 'caption.emphasis.word', emphasisWord, decision.confidence, 'decision-param'),
+      overlayAtom('emphasis-role', 'caption.emphasis.type', emphasisType, decision.confidence, 'decision-param'),
+    ],
+  }));
+  attachAtomicMomentBundleMetadata(best.overlay, decision);
+
+  return { created: 0, modified: 1 };
+}
+
+function tokenizeCaptionEmphasis(value: string): string[] {
+  return value
+    .split(/\s+/)
+    .map(normalizeCaptionToken)
+    .filter((token) => token.length > 0);
+}
+
+function findCaptionWordSequence(
+  words: any[],
+  targetTokens: string[],
+  targetMs: number,
+): { start: number; distanceMs: number } | null {
+  let best: { start: number; distanceMs: number } | null = null;
+  for (let start = 0; start <= words.length - targetTokens.length; start += 1) {
+    const matches = targetTokens.every((token, offset) => normalizeCaptionToken(words[start + offset]?.word) === token);
+    if (!matches) continue;
+    const startMs = Number(words[start]?.startMs ?? targetMs);
+    const endMs = Number(words[start + targetTokens.length - 1]?.endMs ?? startMs);
+    const distanceMs = targetMs >= startMs && targetMs <= endMs
+      ? 0
+      : Math.min(Math.abs(targetMs - startMs), Math.abs(targetMs - endMs));
+    if (!best || distanceMs < best.distanceMs) best = { start, distanceMs };
+  }
+  return best;
+}
+
+function markOverlayWordList(
+  words: unknown,
+  targetTokens: string[],
+  targetMs: number,
+  emphasisType: 'keyword' | 'statistic' | 'cta' | 'entity',
+  source: string,
+): void {
+  if (!Array.isArray(words)) return;
+  const match = findCaptionWordSequence(words, targetTokens, targetMs);
+  if (!match || match.distanceMs > 1200) return;
+  for (const word of words.slice(match.start, match.start + targetTokens.length) as any[]) {
+    word.emphasis = { type: emphasisType, source };
+  }
+}
+
+function normalizeCaptionToken(value: unknown): string {
+  return typeof value === 'string'
+    ? value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    : '';
+}
+
+function captionEmphasisType(value: unknown): 'keyword' | 'statistic' | 'cta' | 'entity' {
+  const normalized = typeof value === 'string' ? value.toLowerCase() : '';
+  if (normalized === 'statistic' || normalized === 'cta' || normalized === 'entity') return normalized;
+  return 'keyword';
+}
 function applyCameraShake(
   decision: EditDecision,
   overlays: Overlay[],

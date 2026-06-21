@@ -24,7 +24,7 @@ import type {
   MappingNode, TechniqueNode,
 } from './graph-query';
 import {
-  evaluateMapping, getTechnique, interpolateParams, resolveAlias,
+  evaluateMapping, getTechnique, interpolateParams,
   getMappingsForSignal,
 } from './graph-query';
 import type { SignalTimeline, SignalSnapshot, EventSignal, OverlayInfo } from './signal-registry';
@@ -127,7 +127,6 @@ const REQUIRES_CLIP_BOUNDARY = new Set([
   'mapping:transition.film_burn', 'mapping:transition.iris_wipe',
   'mapping:transition.blur', 'mapping:transition.slide',
   'mapping:transition.soft_cut', 'mapping:transition.default_hard_cut',
-  'mapping:cross_domain.eye_trace_continuity_across_cuts',
 ]);
 
 // Mode 2: Structural-positional mappings SKIPPED for raw footage.
@@ -510,18 +509,19 @@ function buildDecision(
   const primary = mapping.details.primary;
   if (!primary) return null;
 
-  // Resolve technique from primary field
-  const techniqueId = inferTechniqueId(primary, mapping.category);
-  const technique = getTechnique(graphIndex, techniqueId);
+  const producedTechniqueId = graphIndex.producesTechnique.get(mapping.id);
+  if (!producedTechniqueId) return null;
+  const technique = getTechnique(graphIndex, producedTechniqueId);
+  if (!technique) return null;
 
-  // Get EDL decision type
-  const edlType = technique?.details?.edlDecisionType ?? inferEdlType(primary, mapping.category);
+  const techniqueId = technique.id;
+  if (!isExecutableMappingTechnique(mapping, technique, producedTechniqueId)) return null;
+
+  const edlType = technique.details?.edlDecisionType;
+  if (!isExecutableEdlType(edlType)) return null;
 
   // Interpolate parameters based on weight
-  const params: Record<string, unknown> = technique
-    ? interpolateParams(technique, momentWeight)
-    : getDefaultParams(edlType, momentWeight);
-
+  const params: Record<string, unknown> = interpolateParams(technique, momentWeight);
   // Propagate transition type from technique ID → params.transitionType
   // so the EDL executor can read it (it reads params.transitionType, not decision.technique)
   if (edlType === 'transition' && techniqueId.startsWith('technique:transition.')) {
@@ -945,66 +945,6 @@ function mapGraphTransitionToEdl(techniqueId: string): string {
 
 // ─── Inference Helpers ──────────────────────────────────────────────────────
 
-function inferTechniqueId(primary: string, category: string): string {
-  const lower = primary.toLowerCase();
-
-  // Direct technique name matches
-  if (lower.includes('zoom_punch')) return 'technique:zoom.zoom_punch';
-  if (lower.includes('zoom_push')) return 'technique:zoom.zoom_push';
-  if (lower.includes('zoom_pull_back')) return 'technique:zoom.zoom_pull_back';
-  if (lower.includes('zoom_drift')) return 'technique:zoom.zoom_drift';
-  if (lower.includes('zoom_reset')) return 'technique:zoom.zoom_reset';
-  if (lower.includes('slow_motion')) return 'technique:speed.slow_motion';
-  if (lower.includes('speed_ramp')) return 'technique:speed.speed_ramp';
-  if (lower.includes('time_lapse')) return 'technique:speed.time_lapse';
-  if (lower.includes('hard_cut')) return 'technique:transition.hard_cut';
-  if (lower.includes('dissolve')) return 'technique:transition.dissolve';
-  if (lower.includes('fade_to_black')) return 'technique:transition.fade_to_black';
-  if (lower.includes('whip_pan')) return 'technique:transition.whip_pan';
-  if (lower.includes('flash')) return 'technique:transition.flash';
-  if (lower.includes('stat_graphic') || lower.includes('stat graphic')) return 'technique:graphic.stat_counter';
-  if (lower.includes('lower_third')) return 'technique:graphic.lower_third';
-  if (lower.includes('callout')) return 'technique:graphic.callout';
-  if (lower.includes('keyword_highlight')) return 'technique:graphic.keyword_highlight';
-  if (lower.includes('quote_card')) return 'technique:graphic.quote_card';
-  if (lower.includes('logo_reveal')) return 'technique:graphic.logo_reveal';
-  if (lower.includes('camera_shake')) return 'technique:other.camera_shake';
-  if (lower.includes('caption_emphasis')) return 'technique:caption.caption_emphasis';
-  if (lower.includes('film_grain')) return 'technique:other.film_grain';
-  if (lower.includes('vignette')) return 'technique:other.vignette';
-  if (lower.includes('ambient')) return 'technique:sound.sfx_ambient_bed';
-  if (lower.includes('duck')) return 'technique:sound.music_duck';
-
-  // Generic category-based fallback
-  return `technique:${category}.${lower.replace(/[^a-z0-9_]/g, '_').substring(0, 30)}`;
-}
-
-function inferEdlType(primary: string, category: string): string {
-  const lower = primary.toLowerCase();
-  if (lower.includes('zoom')) return 'zoom';
-  if (lower.includes('transition') || lower.includes('dissolve') || lower.includes('cut') || lower.includes('fade') || lower.includes('wipe')) return 'transition';
-  if (lower.includes('graphic') || lower.includes('lower_third') || lower.includes('stat') || lower.includes('callout') || lower.includes('logo')) return 'graphic';
-  if (lower.includes('sfx') || lower.includes('sound') || lower.includes('ambient')) return 'sfx-trigger';
-  if (lower.includes('speed') || lower.includes('slow') || lower.includes('ramp') || lower.includes('lapse')) return 'speed-change';
-  if (lower.includes('caption')) return 'caption-emphasis';
-  if (lower.includes('shake')) return 'camera-shake';
-  if (lower.includes('filter') || lower.includes('grade') || lower.includes('color')) return 'filter-change';
-  if (lower.includes('duck')) return 'audio-duck';
-
-  // Category-based
-  switch (category) {
-    case 'speech': return 'zoom';
-    case 'transition': return 'transition';
-    case 'visual': return 'zoom';
-    case 'audio': return 'sfx-trigger';
-    case 'graphic': return 'graphic';
-    case 'color': return 'filter-change';
-    case 'sound-design': return 'sfx-trigger';
-    case 'speed': return 'speed-change';
-    default: return 'zoom';
-  }
-}
-
 function inferSfxType(description: string): string {
   if (description.includes('impact') || description.includes('hit')) return 'impact';
   if (description.includes('whoosh')) return 'whoosh';
@@ -1014,31 +954,41 @@ function inferSfxType(description: string): string {
   return 'impact';
 }
 
-function getDefaultParams(edlType: string, weight: number): Record<string, unknown> {
-  switch (edlType) {
-    case 'zoom':
-      return {
-        start_scale: 1.0,
-        end_scale: weight > 0.7 ? 1.2 : 1.08,
-        duration_s: weight > 0.7 ? 2 : 4,
-        easing: 'ease-out',
-      };
-    case 'transition':
-      return { transitionType: 'hard-cut', duration_frames: 0 };
-    case 'graphic':
-      return {
-        duration_s: 3,
-        position: 'lower-third',
-        text: '',
-        text_source: 'transcript',
-      };
-    case 'sfx-trigger':
-      return { type: 'impact', level_db: -14 };
-    case 'speed-change':
-      return { speed: weight > 0.7 ? 0.5 : 0.75, duration_s: 2 };
-    case 'camera-shake':
-      return { intensity_px: 4, duration_frames: 4, decay: 'true' };
-    default:
-      return {};
+function isExecutableMappingTechnique(
+  mapping: MappingNode,
+  technique: TechniqueNode,
+  producedTechniqueId?: string,
+): boolean {
+  const rawTechniqueId = (producedTechniqueId ?? technique.id).toLowerCase();
+  const resolvedTechniqueId = technique.id.toLowerCase();
+  const mappingTags = mapping.tags.map((tag) => tag.toLowerCase());
+  const nonExecutablePrefixes = [
+    'technique:composition.',
+    'technique:flag.',
+    'technique:pacing.',
+    'technique:cut.',
+    'technique:hold.',
+    'technique:layout.',
+    'technique:silence.',
+    'technique:shot-type.',
+  ];
+
+  const isNonExecutable = nonExecutablePrefixes.some((prefix) =>
+    rawTechniqueId.startsWith(prefix) || resolvedTechniqueId.startsWith(prefix)
+  );
+  if (isNonExecutable) return false;
+
+  if (mappingTags.includes('deterministic') && technique.tags.includes('AI_GEN_ONLY')) {
+    return false;
   }
+
+  return true;
+}
+
+function isExecutableEdlType(edlType: unknown): edlType is EditDecision['type'] {
+  return edlType === 'zoom' || edlType === 'transition' || edlType === 'graphic' ||
+    edlType === 'sfx' || edlType === 'sfx-trigger' || edlType === 'speed-change' ||
+    edlType === 'filter-change' || edlType === 'caption-emphasis' ||
+    edlType === 'audio-duck' || edlType === 'fade' || edlType === 'camera-shake' ||
+    edlType === 'cut' || edlType === 'pacing';
 }
