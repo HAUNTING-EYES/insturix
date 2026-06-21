@@ -3141,6 +3141,81 @@ function readableGraphicWords(content: Record<string, unknown>): number {
   return text ? text.split(/\s+/).filter(Boolean).length : 0;
 }
 
+function isGraphicOverlayForDedupe(overlay: Overlay): boolean {
+  return overlay.type === 'html-scene'
+    || overlay.type === 'motion-graphic'
+    || (overlay as any).type === 'sticker';
+}
+
+function graphicDedupeKeyFromOverlay(overlay: Overlay): string {
+  const metadata = (overlay as any).metadata || {};
+  const content = ((overlay as any).content && typeof (overlay as any).content === 'object')
+    ? (overlay as any).content as Record<string, unknown>
+    : {};
+  return graphicDedupeKeyFromContent(
+    metadata.graphicType ?? metadata.creativeDecisionType ?? (overlay as any).graphicType ?? overlay.type,
+    content,
+    metadata,
+  );
+}
+
+function graphicDedupeKeyFromContent(
+  graphicType: unknown,
+  content: Record<string, unknown>,
+  params: Record<string, unknown> = {},
+): string {
+  const semanticAtoms = recordValue(params.semanticAtoms) ?? recordValue(content.semanticAtoms);
+  const quantity = recordValue(semanticAtoms?.quantity);
+  const textAtom = recordValue(semanticAtoms?.text);
+  const identity = recordValue(semanticAtoms?.identity);
+  const quote = recordValue(semanticAtoms?.quote);
+  const relation = recordValue(semanticAtoms?.relation);
+  const kind = normalizeGraphicDedupeToken(params.creativeDecisionType ?? params.graphicType ?? graphicType ?? 'graphic');
+  const body = [
+    quantity?.displayText,
+    quantity?.label,
+    textAtom?.primary,
+    textAtom?.keyword,
+    semanticAtoms?.concept,
+    semanticAtoms?.claim,
+    semanticAtoms?.evidencePhrase,
+    identity?.name,
+    identity?.role,
+    quote?.text,
+    relation?.from,
+    relation?.to,
+    content.value,
+    content.label,
+    content.title,
+    content.body,
+    content.name,
+    content.text,
+    content.quote,
+    params.value,
+    params.label,
+    params.title,
+    params.body,
+    params.name,
+    params.text,
+    params.quote,
+  ]
+    .map(normalizeGraphicDedupeToken)
+    .filter(Boolean)
+    .join('|');
+  return `${kind}:${body || 'unknown'}`;
+}
+
+function recordValue(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null;
+}
+
+function normalizeGraphicDedupeToken(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 180);
+}
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -3237,17 +3312,16 @@ async function applyGraphic(
     }
   }
 
-  // DEDUP: Don't create graphic if one already exists at this frame range.
-  // Multiple systems (finalize, EDL, Director, chat) can create graphics.
-  // First one wins — no visual clutter from overlapping graphics.
-  const _graphicCheckDur = decision.durationFrames || 90;
+  // DEDUP: block the same graphic fact near the same frame, not every nearby graphic.
+  // A stat-counter and a lower-third can coexist; two copies of the same stat cannot.
+  const currentGraphicKey = graphicDedupeKeyFromContent(graphicType, contentMap, decision.params);
   const existingGraphic = overlays.find(o =>
-    (o.type === 'html-scene' || o.type === 'motion-graphic' || (o as any).type === 'sticker') &&
-    o.from <= decision.frame + 15 &&
-    (o.from + o.durationInFrames) >= decision.frame - 15
+    isGraphicOverlayForDedupe(o)
+    && Math.abs(o.from - decision.frame) <= 15
+    && graphicDedupeKeyFromOverlay(o) === currentGraphicKey
   );
   if (existingGraphic) {
-    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — existing graphic at frame ${existingGraphic.from} (dedup)`);
+    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — duplicate ${currentGraphicKey} at frame ${existingGraphic.from}`);
     return null;
   }
 

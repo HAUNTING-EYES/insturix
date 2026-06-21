@@ -3248,15 +3248,16 @@ async function invokeAITool(
         params.description = CATEGORY_DESCRIPTIONS[cat] || 'lower third';
       }
 
-      // Dedup: skip if EDL or another system already placed a graphic at this frame.
-      // Without this, EDL creates a graphic and then Director's profile action creates
-      // a duplicate at the same position.
+      // Dedup: skip if EDL or another system already placed the same graphic fact here.
+      // Distinct graphic jobs near each other are allowed; duplicate same-fact clutter is not.
+      const currentGraphicKey = directorGraphicDedupeKeyFromParams(params);
       const existingAtFrame = overlays.find((o: any) =>
-        (o.type === 'html-scene' || o.type === 'sticker' || o.type === 'motion-graphic') &&
-        Math.abs(o.from - (params.start || 0)) <= 30 // within 1 second
+        (o.type === 'html-scene' || o.type === 'sticker' || o.type === 'motion-graphic')
+        && Math.abs(o.from - (params.start || 0)) <= 30
+        && directorGraphicDedupeKeyFromOverlay(o) === currentGraphicKey
       );
       if (existingAtFrame) {
-        console.log(`[Director] add_motion_graphic: SKIPPED — existing graphic at frame ${existingAtFrame.from} (within 30 frames of ${params.start})`);
+        console.log(`[Director] add_motion_graphic: SKIPPED — duplicate ${currentGraphicKey} at frame ${existingAtFrame.from} (within 30 frames of ${params.start})`);
         return 0;
       }
 
@@ -3424,6 +3425,62 @@ function transitionPriority(o: any): number {
   return -1;
 }
 
+function directorGraphicDedupeKeyFromOverlay(overlay: any): string {
+  const metadata = overlay?.metadata || {};
+  const content = overlay?.content && typeof overlay.content === 'object' ? overlay.content : {};
+  return directorGraphicDedupeKey(
+    metadata.creativeDecisionType ?? metadata.graphicType ?? overlay?.graphicType ?? overlay?.type,
+    { ...content, ...metadata },
+  );
+}
+
+function directorGraphicDedupeKeyFromParams(params: Record<string, any>): string {
+  return directorGraphicDedupeKey(params.creativeDecisionType ?? params.graphicType ?? params.category ?? 'graphic', params);
+}
+
+function directorGraphicDedupeKey(kindValue: unknown, values: Record<string, any>): string {
+  const semanticAtoms = values.semanticAtoms && typeof values.semanticAtoms === 'object' ? values.semanticAtoms : {};
+  const quantity = semanticAtoms.quantity && typeof semanticAtoms.quantity === 'object' ? semanticAtoms.quantity : {};
+  const textAtom = semanticAtoms.text && typeof semanticAtoms.text === 'object' ? semanticAtoms.text : {};
+  const identity = semanticAtoms.identity && typeof semanticAtoms.identity === 'object' ? semanticAtoms.identity : {};
+  const quote = semanticAtoms.quote && typeof semanticAtoms.quote === 'object' ? semanticAtoms.quote : {};
+  const relation = semanticAtoms.relation && typeof semanticAtoms.relation === 'object' ? semanticAtoms.relation : {};
+  const kind = directorNormalizeGraphicToken(kindValue);
+  const body = [
+    quantity.displayText,
+    quantity.label,
+    textAtom.primary,
+    textAtom.keyword,
+    semanticAtoms.concept,
+    semanticAtoms.claim,
+    semanticAtoms.evidencePhrase,
+    identity.name,
+    identity.role,
+    quote.text,
+    relation.from,
+    relation.to,
+    values.value,
+    values.label,
+    values.title,
+    values.body,
+    values.name,
+    values.text,
+    values.quote,
+    values.description,
+  ]
+    .map(directorNormalizeGraphicToken)
+    .filter(Boolean)
+    .join('|');
+  return `${kind}:${body || 'unknown'}`;
+}
+
+function directorNormalizeGraphicToken(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 180);
+}
 function dedupTransitionsByClipPair(
   overlays: any[],
 ): { ghostsStripped: number; duplicatesRemoved: number } {

@@ -894,21 +894,24 @@ silence_tolerance: ${gp.silence_tolerance} — acceptable pause length in second
 
 function buildBudgetBlock(budget: BudgetMap): string {
   const lines = Object.entries(budget)
-    .map(([cat, { min, max }]) => `  ${cat}: ${min}-${max}`)
+    .map(([cat, { min, max }]) => cat === 'graphic'
+      ? '  graphic: warranted semantic facts only; native planner guards clutter/runaway density'
+      : `  ${cat}: ${min}-${max}`)
     .join('\n');
-  const totalMin = Object.values(budget).reduce((s, b) => s + b.min, 0);
-  const totalMax = Object.values(budget).reduce((s, b) => s + b.max, 0);
+  const countedBudgets = Object.entries(budget).filter(([cat]) => cat !== 'graphic');
+  const totalMin = countedBudgets.reduce((s, [, b]) => s + b.min, 0);
+  const totalMax = countedBudgets.reduce((s, [, b]) => s + b.max, 0);
   return `
 <decision_budget>
 Per-category limits for this video (computed from its parameters):
 ${lines}
-  TOTAL: ${totalMin}-${totalMax} decisions
-Exceeding any category maximum makes your output invalid.
+  TOTAL_NON_GRAPHIC: ${totalMin}-${totalMax} decisions
+Graphics are not source-capped here; emit every grounded semantic graphic fact and let the native planner/license/budget guardrail decide final density.
+Exceeding any non-graphic category maximum makes your output invalid.
 </decision_budget>`;
 }
 
 // ─── Signal → Decision Map (two-tier, filtered) ─────────────────────────────
-
 function buildSignalDecisionMap(ctx: VideoContext, genreParams?: GenreParameters | null): string {
   const detected = detectSignalsFromContext(ctx, genreParams);
   const { active, available } = partitionRegistry(detected);
@@ -1120,7 +1123,9 @@ export function computeDecisionBudget(
     zoom: { min: 2, max: Math.max(2, gp.zoom_budget) },
     transition: { min: transMin, max: transMax },
     sfx: { min: 0, max: sfxMax },
-    graphic: { min: 0, max: Math.max(1, Math.ceil(gp.graphic_density * durationMin)) },
+    // Graphics are supplied by warranted semantic facts. Keep this as a runaway guardrail
+    // using the CRG max range (0-8 graphics/min), not the current graphic_density target.
+    graphic: { min: 0, max: Math.max(8, Math.ceil(8 * durationMin)) },
     caption: { min: 2, max: Math.max(3, Math.ceil(durationMin * 2)) },
     speed: { min: 0, max: 3 },
     shake: { min: 0, max: 3 },
@@ -1246,8 +1251,11 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
   }
 
   // Pass 3: Budget enforcement (per-category limits from genre params)
+  // Graphics are semantic facts, not source-side creative supply. Do not cull them here by
+  // graphic_density or LLM confidence; the native planner/license/budget guardrail owns final density.
   if (budget) {
     for (const [category, { max }] of Object.entries(budget)) {
+      if (category === 'graphic') continue;
       const inCategory = allDecisions.filter(d => TYPE_TO_BUDGET[d.type] === category);
       if (inCategory.length > max) {
         inCategory.sort((a, b) => a.confidence - b.confidence);
@@ -1259,7 +1267,6 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
       }
     }
   }
-
   // Pass 4: Distribution check (warn if clustered)
   if (allDecisions.length > 5) {
     const positions = allDecisions.map(d =>

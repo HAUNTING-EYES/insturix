@@ -205,12 +205,27 @@ export class DecisionBudget {
           }
         }
 
-        // Check graphic breathing room (G-102)
-        if (frame < this.lastGraphicExitFrame + this.BUDGETS.GRAPHIC_BREATHING_FRAMES) {
+        const activeGraphics = this.committedDecisions.filter(d =>
+          d.type === 'graphic'
+          && this.intervalsOverlap(frame, frame + (decision.durationFrames || 90), d.frame, d.frame + (d.durationFrames || 90))
+        );
+        const currentGraphicKey = this.graphicDedupeKey(decision);
+        const duplicateGraphic = activeGraphics.find(d =>
+          Math.abs(frame - d.frame) < this.BUDGETS.GRAPHIC_BREATHING_FRAMES
+          && this.graphicDedupeKey(d) === currentGraphicKey
+        );
+        if (duplicateGraphic) {
           return {
             allowed: false,
-            reason: `Graphic too soon after previous (need ${this.BUDGETS.GRAPHIC_BREATHING_FRAMES} frame gap). Delay or skip.`,
+            reason: `Duplicate graphic content too close (${frame - duplicateGraphic.frame} frames apart).`,
             ruleId: 'G-102',
+          };
+        }
+        if (activeGraphics.length >= this.BUDGETS.MAX_SIMULTANEOUS_GRAPHICS) {
+          return {
+            allowed: false,
+            reason: `Graphic stack limit exceeded (${activeGraphics.length}/${this.BUDGETS.MAX_SIMULTANEOUS_GRAPHICS} active).`,
+            ruleId: 'G-101',
           };
         }
         break;
@@ -347,6 +362,62 @@ export class DecisionBudget {
     return scale >= 1.10; // 1.10+ is punch territory, below is slow-push
   }
 
+  private intervalsOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+    return aStart < bEnd && bStart < aEnd;
+  }
+
+  private graphicDedupeKey(decision: BudgetDecision): string {
+    const params = decision.params || {};
+    const semanticAtoms = this.recordParam(params.semanticAtoms);
+    const quantity = this.recordParam(semanticAtoms?.quantity);
+    const textAtom = this.recordParam(semanticAtoms?.text);
+    const identity = this.recordParam(semanticAtoms?.identity);
+    const quote = this.recordParam(semanticAtoms?.quote);
+    const relation = this.recordParam(semanticAtoms?.relation);
+    const kind = this.normalizeGraphicToken(
+      params.creativeDecisionType
+        ?? params.graphicType
+        ?? params.category
+        ?? 'graphic',
+    );
+    const content = [
+      quantity?.displayText,
+      quantity?.label,
+      textAtom?.primary,
+      textAtom?.keyword,
+      semanticAtoms?.concept,
+      semanticAtoms?.claim,
+      semanticAtoms?.evidencePhrase,
+      identity?.name,
+      identity?.role,
+      quote?.text,
+      relation?.from,
+      relation?.to,
+      params.value,
+      params.label,
+      params.title,
+      params.body,
+      params.name,
+      params.text,
+      params.quote,
+    ]
+      .map(value => this.normalizeGraphicToken(value))
+      .filter(Boolean)
+      .join('|');
+    return `${kind}:${content || 'unknown'}`;
+  }
+
+  private recordParam(value: unknown): Record<string, any> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null;
+  }
+
+  private normalizeGraphicToken(value: unknown): string {
+    return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .slice(0, 180);
+  }
   private getDecisionIntensity(decision: BudgetDecision): number {
     switch (decision.type) {
       case 'zoom': return this.isPunchZoom(decision.params) ? 0.8 : 0.3;
