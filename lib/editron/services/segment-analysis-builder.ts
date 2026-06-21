@@ -95,6 +95,39 @@ const DEFAULT_WEIGHT_RECORD: SegmentRecord['weight'] = {
   reason: 'no moment weight data available',
 };
 
+function buildVjepaMeta(vjepa: VjepaAnalysisResult | null): Pick<SegmentAnalysis['meta'],
+  | 'hasVjepa'
+  | 'vjepaStatus'
+  | 'vjepaRequestedSegmentCount'
+  | 'vjepaAnalyzedSegmentCount'
+  | 'vjepaDroppedSegmentCount'
+  | 'vjepaCoverageRatio'
+  | 'vjepaFailedBatchCount'
+> {
+  const analyzed = Math.max(0, Math.floor(vjepa?.analyzedSegmentCount ?? vjepa?.segments?.length ?? 0));
+  const requested = Math.max(0, Math.floor(vjepa?.requestedSegmentCount ?? analyzed));
+  const dropped = Math.max(0, Math.floor(vjepa?.droppedSegmentCount ?? Math.max(0, requested - analyzed)));
+  const coverageRatio = requested > 0
+    ? clamp01(vjepa?.coverageRatio ?? analyzed / requested)
+    : null;
+  const partial = !!vjepa?.partial || dropped > 0 || (coverageRatio != null && coverageRatio < 1);
+
+  return {
+    hasVjepa: analyzed > 0,
+    vjepaStatus: analyzed <= 0 ? 'absent' : partial ? 'partial' : 'complete',
+    vjepaRequestedSegmentCount: requested,
+    vjepaAnalyzedSegmentCount: analyzed,
+    vjepaDroppedSegmentCount: dropped,
+    vjepaCoverageRatio: coverageRatio,
+    vjepaFailedBatchCount: Math.max(0, Math.floor(vjepa?.failedBatchCount ?? 0)),
+  };
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
 // ─── Main Builder ──────────────────────────────────────────────
 
 export function buildSegmentAnalysis(
@@ -174,6 +207,8 @@ export function buildSegmentAnalysis(
     };
   });
 
+  const vjepaMeta = buildVjepaMeta(vjepa);
+
   return {
     version: 1,
     globalContext: buildGlobalContext(storyboard, rawFootage),
@@ -181,7 +216,7 @@ export function buildSegmentAnalysis(
     defaultWeight: momentWeights?.default_weight ?? 0.5,
     meta: {
       builtAt: new Date().toISOString(),
-      hasVjepa: !!vjepa?.segments?.length,
+      ...vjepaMeta,
       hasWav2vec: !!wav2vec?.segments?.length,
       momentWeightPhase: momentWeights?.computation_phase ?? 0,
       segmentCount: segments.length,
