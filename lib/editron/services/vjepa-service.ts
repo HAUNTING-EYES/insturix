@@ -90,6 +90,13 @@ export interface VjepaAnalysisResult {
   segments: VjepaSegmentResult[];
   modelVersion: string;
   processingTimeMs: number;
+  requestedSegmentCount?: number;
+  analyzedSegmentCount?: number;
+  droppedSegmentCount?: number;
+  coverageRatio?: number;
+  partial?: boolean;
+  failedBatchCount?: number;
+  failedBatchIndices?: number[];
 }
 
 // ─── Modal Response Shape (snake_case from endpoint) ────────────────────────
@@ -216,6 +223,7 @@ export async function analyzeVideoWithVjepa(
     console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     const batchStartMs = Date.now();
     const deadlineMs = batchStartMs + TOTAL_TIMEOUT_MS;
+    const failedBatchIndices: number[] = [];
 
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
@@ -228,22 +236,46 @@ export async function analyzeVideoWithVjepa(
         tokenSecret,
         deadlineMs,
       });
-      if (!mapped?.length) return null;
+      if (!mapped?.length) {
+        failedBatchIndices.push(b);
+        console.warn(
+          `[VjepaService] Batch ${b + 1}/${batches.length}: no usable result - ` +
+          'preserving successful V-JEPA batches if any',
+        );
+        continue;
+      }
 
       allResults.push(...mapped);
       console.log(`[VjepaService] Batch ${b + 1}/${batches.length}: ${mapped.length} segments analyzed`);
     }
 
+    if (!allResults.length) return null;
+
     const totalMs = Date.now() - batchStartMs;
+    const droppedSegmentCount = Math.max(0, segments.length - allResults.length);
+    const partial = droppedSegmentCount > 0 || failedBatchIndices.length > 0;
     console.log(
-      `[VjepaService] All ${allResults.length} segments analyzed in ${totalMs}ms ` +
+      `[VjepaService] ${partial ? 'Partial' : 'All'} ${allResults.length}/${segments.length} segments analyzed in ${totalMs}ms ` +
       `(avg significance: ${(allResults.reduce((sum, r) => sum + r.visualSignificance, 0) / allResults.length).toFixed(2)})`,
     );
+    if (partial) {
+      console.warn(
+        `[VjepaService] Partial V-JEPA coverage: dropped ${droppedSegmentCount}/${segments.length} segment(s); ` +
+        `failed batch indices=${failedBatchIndices.join(',') || 'none'}`,
+      );
+    }
 
     return {
       segments: allResults,
       modelVersion: 'vjepa-2',
       processingTimeMs: totalMs,
+      requestedSegmentCount: segments.length,
+      analyzedSegmentCount: allResults.length,
+      droppedSegmentCount,
+      coverageRatio: segments.length > 0 ? allResults.length / segments.length : 0,
+      partial,
+      failedBatchCount: failedBatchIndices.length,
+      failedBatchIndices,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -278,6 +310,7 @@ async function analyzeBatchWithFallback(args: {
 
   const retryResults: VjepaSegmentResult[] = [];
   const retryBatches = chunkSegments(args.batch, RETRY_BATCH_SIZE);
+  const failedRetryIndices: number[] = [];
   for (let i = 0; i < retryBatches.length; i++) {
     const retry = await fetchVjepaBatch({
       ...args,
@@ -285,9 +318,22 @@ async function analyzeBatchWithFallback(args: {
       batchIndex: i,
       batchCount: retryBatches.length,
     });
-    if (!retry?.length) return null;
+    if (!retry?.length) {
+      failedRetryIndices.push(i);
+      console.warn(
+        `[VjepaService] Retry batch ${i + 1}/${retryBatches.length}: no usable result - continuing with other retry chunks`,
+      );
+      continue;
+    }
     retryResults.push(...retry);
   }
+  if (failedRetryIndices.length > 0 && retryResults.length > 0) {
+    console.warn(
+      `[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount}: partial retry success ` +
+      `(${retryResults.length}/${args.batch.length} segment(s)); failed retry indices=${failedRetryIndices.join(',')}`,
+    );
+  }
+  if (!retryResults.length) return null;
   return retryResults;
 }
 

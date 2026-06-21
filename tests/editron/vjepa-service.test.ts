@@ -104,6 +104,109 @@ describe('V-JEPA service segment coverage', () => {
     expect(Math.max(...requestSizes)).toBeGreaterThan(5);
     expect(requestSizes.some(size => size <= 5)).toBe(true);
   });
+  it('preserves successful V-JEPA batches when a later batch fails', async () => {
+    process.env.MODAL_TOKEN_ID = 'test-token-id';
+    process.env.MODAL_TOKEN_SECRET = 'test-token-secret';
+    const requestSegments = Array.from({ length: 21 }, (_, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+    }));
+
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        segments?: Array<{ start_ms: number; end_ms: number }>;
+      };
+      const segments = body.segments ?? [];
+      if (segments.length === 1) {
+        return {
+          ok: false,
+          status: 504,
+          statusText: 'Gateway Timeout',
+          json: async () => ({}),
+        } as Response;
+      }
+
+      return successfulVjepaResponse(segments);
+    }) as unknown as typeof fetch;
+
+    const result = await analyzeVideoWithVjepa('https://example.com/video.mp4', requestSegments);
+
+    expect(result).not.toBeNull();
+    expect(result?.segments).toHaveLength(20);
+    expect(result?.partial).toBe(true);
+    expect(result?.requestedSegmentCount).toBe(21);
+    expect(result?.analyzedSegmentCount).toBe(20);
+    expect(result?.droppedSegmentCount).toBe(1);
+    expect(result?.coverageRatio).toBeCloseTo(20 / 21);
+    expect(result?.failedBatchCount).toBe(1);
+    expect(result?.failedBatchIndices).toEqual([1]);
+  });
+
+  it('preserves successful retry chunks when one retry chunk fails', async () => {
+    process.env.MODAL_TOKEN_ID = 'test-token-id';
+    process.env.MODAL_TOKEN_SECRET = 'test-token-secret';
+    const requestSegments = Array.from({ length: 20 }, (_, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+    }));
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        segments?: Array<{ start_ms: number; end_ms: number }>;
+      };
+      const segments = body.segments ?? [];
+      if (fetchMock.mock.calls.length === 1) {
+        return {
+          ok: false,
+          status: 504,
+          statusText: 'Gateway Timeout',
+          json: async () => ({}),
+        } as Response;
+      }
+      if (segments[0]?.start_ms === 10_000) {
+        return {
+          ok: false,
+          status: 504,
+          statusText: 'Gateway Timeout',
+          json: async () => ({}),
+        } as Response;
+      }
+
+      return successfulVjepaResponse(segments);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await analyzeVideoWithVjepa('https://example.com/video.mp4', requestSegments);
+
+    expect(result).not.toBeNull();
+    expect(result?.segments).toHaveLength(15);
+    expect(result?.partial).toBe(true);
+    expect(result?.requestedSegmentCount).toBe(20);
+    expect(result?.analyzedSegmentCount).toBe(15);
+    expect(result?.droppedSegmentCount).toBe(5);
+    expect(result?.coverageRatio).toBe(0.75);
+    expect(result?.failedBatchCount).toBe(0);
+    expect(result?.failedBatchIndices).toEqual([]);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('still returns null when every V-JEPA batch fails', async () => {
+    process.env.MODAL_TOKEN_ID = 'test-token-id';
+    process.env.MODAL_TOKEN_SECRET = 'test-token-secret';
+    const requestSegments = Array.from({ length: 2 }, (_, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+    }));
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 504,
+      statusText: 'Gateway Timeout',
+      json: async () => ({}),
+    } as Response)) as unknown as typeof fetch;
+
+    await expect(analyzeVideoWithVjepa('https://example.com/video.mp4', requestSegments)).resolves.toBeNull();
+  });
 });
 
 function restoreEnv(name: string, value: string | undefined): void {
@@ -112,4 +215,19 @@ function restoreEnv(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value;
   }
+}
+function successfulVjepaResponse(segments: Array<{ start_ms: number; end_ms: number }>): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: async () => ({
+      segments: segments.map(segment => ({
+        start_ms: segment.start_ms,
+        end_ms: segment.end_ms,
+        visual_significance: 0.7,
+        motion_intensity: 0.4,
+      })),
+    }),
+  } as Response;
 }
