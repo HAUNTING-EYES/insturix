@@ -639,6 +639,32 @@ export async function executeEDL(
     }
 
     const beforeTraceSnapshot = captureOverlayTraceSnapshot(overlays);
+    const visualCoverageGate = evaluateVjepaVisualOnlyExecutionGate(decision, projectSignalContext.vjepaScreenContextPolicy);
+    if (!visualCoverageGate.allowed) {
+      const gateReason = `VJEPA-COVERAGE: ${visualCoverageGate.reason}`;
+      result.decisionsSkipped++;
+      result.rejectedDecisions.push({
+        type: decision.type,
+        frame: decision.frame,
+        reason: gateReason,
+        ruleId: visualCoverageGate.ruleId,
+        params: {
+          source: decision.source,
+          signal: decision.signal,
+          visualEvidenceKeys: visualCoverageGate.evidenceKeys.slice(0, 8),
+        },
+      });
+      console.log(`[EDL-Exec] VJEPA COVERAGE REJECTED: ${decision.type} at frame ${decision.frame} - ${visualCoverageGate.reason}`);
+      appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+        decision,
+        currentDecisionIndex,
+        'guard-rejected',
+        beforeTraceSnapshot,
+        overlays,
+        { reason: gateReason, ruleId: visualCoverageGate.ruleId },
+      ));
+      continue;
+    }
     const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
@@ -981,6 +1007,98 @@ function appendVjepaScreenContextPolicySignals(
   signals['vjepa.allow_negative_space_placement'] = policy.allowNegativeSpacePlacement ? 1 : 0;
   signals['vjepa.allow_motion_direction'] = policy.allowMotionDirection ? 1 : 0;
   signals['vjepa.allow_text_avoidance'] = policy.allowTextAvoidance ? 1 : 0;
+}
+
+function evaluateVjepaVisualOnlyExecutionGate(
+  decision: EditDecision,
+  policy?: VjepaScreenContextPolicy,
+): { allowed: true; evidenceKeys: string[] } | { allowed: false; reason: string; ruleId: string; evidenceKeys: string[] } {
+  const evidenceKeys = visualCoverageEvidenceKeys(decision);
+  if (evidenceKeys.length === 0 || hasNonVisualExecutionEvidence(decision)) {
+    return { allowed: true, evidenceKeys };
+  }
+
+  if (!policy || policy.mode === 'trusted') {
+    return { allowed: true, evidenceKeys };
+  }
+
+  const mode = policy.mode;
+  const score = typeof policy?.score === 'number' ? ` score=${round4(policy.score)}` : '';
+  const reasons = policy?.reasons?.slice(0, 3).join('|');
+  return {
+    allowed: false,
+    ruleId: 'VJ-001',
+    evidenceKeys,
+    reason: `V-JEPA ${mode} screen context cannot license visual-only ${decision.type} (${evidenceKeys.slice(0, 6).join(',')})${score}${reasons ? `: ${reasons}` : ''}`,
+  };
+}
+
+function visualCoverageEvidenceKeys(decision: EditDecision): string[] {
+  const keys = new Set<string>();
+  const signals = normalizePlannerSignals(decisionSignals(decision));
+  const params = decision.params ?? {};
+  const joinedContext = [decision.source, decision.signal, params.source, params.technique, params.transitionJob]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(visual|motion|camera|subject|face|eye|gaze|negative[_ -]?space|composition)\b/.test(joinedContext)) {
+    keys.add('visual-context');
+  }
+
+  for (const key of Object.keys(signals)) {
+    if (isVisualCoverageSignalKey(key)) keys.add(key);
+  }
+
+  for (const key of Object.keys(params)) {
+    if (isVisualCoverageSignalKey(key)) keys.add(key);
+  }
+
+  return [...keys].sort();
+}
+
+function isVisualCoverageSignalKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/\./g, '_');
+  return normalized === 'visual_context'
+    || normalized.includes('visual_significance')
+    || normalized.includes('visual_change')
+    || normalized.includes('motion_intensity')
+    || normalized.includes('motion_vector')
+    || normalized.includes('motion_type')
+    || normalized.includes('action_type')
+    || normalized.includes('face_present')
+    || normalized.includes('face_count')
+    || normalized.includes('eye_contact')
+    || normalized.includes('shot_scale')
+    || normalized.includes('main_subject')
+    || normalized.includes('text_coverage')
+    || normalized.includes('text_box_count')
+    || normalized.includes('text_on_screen')
+    || normalized.includes('object_count')
+    || normalized.includes('negative_space');
+}
+
+function hasNonVisualExecutionEvidence(decision: EditDecision): boolean {
+  const signals = normalizePlannerSignals(decisionSignals(decision));
+  const params = decision.params ?? {};
+  const joinedContext = [decision.source, decision.signal, params.source, params.reason, params.sfxType, params.sfxCue]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(speech|audio|music|beat|keyword|word|phrase|semantic|narrative|topic|claim|quote|caption|sfx)\b/.test(joinedContext)) {
+    return true;
+  }
+
+  const nonVisualKeys = [
+    'speech_energy', 'speech.energy', 'emotion_intensity', 'speech.emotion_intensity', 'emotional_arousal',
+    'beat_strength', 'music_beat', 'audio.music_beat', 'music_energy', 'audio.music_energy',
+    'word_importance', 'topic_shift', 'claim_strength', 'phrase_impact', 'semanticAtoms',
+    'contentAtoms', 'contentStructure', 'momentBundle', 'text', 'value', 'label', 'quote',
+    'name', 'sfxType', 'sfxCue', 'beatFrame', 'keywordFrame', 'wordFrame', 'phraseFrame',
+  ];
+
+  return nonVisualKeys.some((key) => signals[key] !== undefined || params[key] !== undefined);
 }
 
 function resolveSourceFrame(frame: number, overlays: Overlay[]): { sourceFrame: number; assetId?: string } {

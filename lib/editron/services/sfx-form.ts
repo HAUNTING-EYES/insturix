@@ -245,7 +245,7 @@ export function evaluateAtomicSfxAssetCandidate(
   if (!durationOk) score -= 0.28;
   if (avoidTermsHit.length > 0) score -= Math.min(0.36, avoidTermsHit.length * 0.18);
 
-  const effectiveFloor = hasTitleEvidence ? form.asset.qualityFloor : Math.min(form.asset.qualityFloor, 0.64);
+  const effectiveFloor = effectiveAssetQualityFloor(form, candidateSource, hasTitleEvidence);
   const hardRejected = !durationOk
     || avoidTermsHit.length > 0
     || (hasTitleEvidence && !tokenMatches && matchedTerms.length === 0);
@@ -253,8 +253,10 @@ export function evaluateAtomicSfxAssetCandidate(
   const reasons = [
     accepted ? 'candidate-accepted' : 'candidate-rejected',
     `score:${format2(clamp01(score))}`,
-    `floor:${format2(form.asset.qualityFloor)}`,
+    `floor:${format2(effectiveFloor)}`,
+    ...(effectiveFloor !== form.asset.qualityFloor ? [`base-floor:${format2(form.asset.qualityFloor)}`] : []),
     `source:${candidateSource}`,
+    ...(candidateSource === 'curated' ? ['curated-source'] : []),
     ...(hasTitleEvidence ? [] : ['metadata-light-candidate']),
     ...(tokenMatches ? ['token-match'] : []),
     ...(matchedTerms.length > 0 ? [`matched:${matchedTerms.join(',')}`] : []),
@@ -269,7 +271,7 @@ export function evaluateAtomicSfxAssetCandidate(
     accepted,
     decision: accepted ? 'accept' : fallbackDecision(form),
     score: clamp01(score),
-    qualityFloor: form.asset.qualityFloor,
+    qualityFloor: effectiveFloor,
     candidateSource,
     candidateTitle,
     matchedTerms,
@@ -911,6 +913,17 @@ function fallbackPolicyFor(token: AtomicSfxCompatibilityToken, restraint: number
   if (token === 'ambient') return 'subtle-bed-only';
   if (token === 'riser') return 'generated-candidate-allowed';
   return 'library-first';
+}
+
+function effectiveAssetQualityFloor(
+  form: AtomicSfxForm,
+  candidateSource: AtomicSfxCandidateSource,
+  hasTitleEvidence: boolean,
+): number {
+  let floor = form.asset.qualityFloor;
+  if (candidateSource === 'curated') floor = Math.min(floor, 0.68);
+  if (!hasTitleEvidence) floor = Math.min(floor, 0.64);
+  return floor;
 }
 
 function fallbackDecision(form: AtomicSfxForm): AtomicSfxCandidateEvaluation['decision'] {
