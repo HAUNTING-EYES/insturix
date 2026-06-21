@@ -23,6 +23,7 @@ import {
   applyMoveRetimeToProject,
   applySpeedRampToProject,
   findVisualMomentCandidates,
+  resolveVisualEditPlacement,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
@@ -200,11 +201,18 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
+    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
       receiptLabel: 'Found visual moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_visual_edit')).toMatchObject({
+      label: 'Resolving visual edit',
+      shortLabel: 'Visual edit',
+      receiptLabel: 'Resolved visual edit',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -476,6 +484,85 @@ describe('chat edit context bundle', () => {
         },
       },
     });
+  });
+
+  it('resolves visual highlight placement from a high-confidence bounding box fact', () => {
+    const plan = resolveVisualEditPlacement({
+      fps: 30,
+      durationInFrames: 180,
+      overlays: [{ id: 1, type: 'video', from: 0, durationInFrames: 180, assetId: 'asset_video' }],
+      analysis: {
+        keyframeAnalyses: [{
+          frame: 96,
+          subjects: [{
+            label: 'logo',
+            boundingBox: { x: 0.7, y: 0.1, width: 0.2, height: 0.12 },
+            confidence: 0.92,
+          }],
+        }],
+      },
+    }, 'logo', {
+      action: 'highlight',
+      durationFrames: 36,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      action: 'highlight',
+      candidate: {
+        text: 'logo',
+        frame: 96,
+        boundingBox: {
+          x: 0.7,
+          y: 0.1,
+          width: 0.2,
+          height: 0.12,
+          units: 'normalized',
+        },
+      },
+      useWith: {
+        add_overlay: {
+          type: 'shape',
+          start: 96,
+          duration: 36,
+          x: '70%',
+          y: '10%',
+          width: '20%',
+          height: '12%',
+          styles: {
+            fill: 'transparent',
+            stroke: '#ffcc00',
+            strokeWidth: 4,
+            borderRadius: '10px',
+            opacity: 0.95,
+          },
+        },
+        visual_inspect_frame: {
+          frame: 96,
+        },
+      },
+    });
+  });
+
+  it('refuses visual highlight placement when the visual fact has no bounding box', () => {
+    const plan = resolveVisualEditPlacement(project, 'logo appears on laptop', {
+      action: 'highlight',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'no-placement',
+      action: 'highlight',
+      candidate: {
+        frame: 96,
+      },
+      useWith: {
+        visual_inspect_frame: {
+          frame: 96,
+        },
+      },
+    });
+    expect(plan.useWith?.add_overlay).toBeUndefined();
+    expect(plan.message).toContain('no bounding box');
   });
 
   it('plans camera shake as bounded x/y tracks on the active video overlay', () => {

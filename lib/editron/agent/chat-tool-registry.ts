@@ -73,6 +73,7 @@ export const CHAT_TOOL_REGISTRY = {
   find_transcript_moment: defineTool({ name: 'find_transcript_moment', label: 'Finding transcript moment', shortLabel: 'Find speech', iconCategory: 'caption', receiptLabel: 'Found transcript moment' }),
   resolve_transcript_edit: defineTool({ name: 'resolve_transcript_edit', label: 'Resolving transcript edit', shortLabel: 'Speech edit', iconCategory: 'caption', receiptLabel: 'Resolved transcript edit' }),
   find_visual_moment: defineTool({ name: 'find_visual_moment', label: 'Finding visual moment', shortLabel: 'Find visual', iconCategory: 'visual', receiptLabel: 'Found visual moment' }),
+  resolve_visual_edit: defineTool({ name: 'resolve_visual_edit', label: 'Resolving visual edit', shortLabel: 'Visual edit', iconCategory: 'visual', receiptLabel: 'Resolved visual edit' }),
   find_audio_moment: defineTool({ name: 'find_audio_moment', label: 'Finding audio moment', shortLabel: 'Find audio', iconCategory: 'audio', receiptLabel: 'Found audio moment' }),
   apply_audio_ducking: defineTool({ name: 'apply_audio_ducking', label: 'Applying audio ducking', shortLabel: 'Ducking', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied audio ducking' }),
   apply_camera_shake: defineTool({ name: 'apply_camera_shake', label: 'Applying camera shake', shortLabel: 'Shake', iconCategory: 'motion', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied camera shake' }),

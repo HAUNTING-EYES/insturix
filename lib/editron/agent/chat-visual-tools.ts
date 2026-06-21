@@ -5,6 +5,31 @@ import { DEFAULT_CONFIG } from "../config/editron-config";
 
 type OverlayId = string | number;
 
+export interface VisualBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  units: "normalized" | "pixel";
+}
+
+export interface VisualHighlightOverlayHint {
+  type: "shape";
+  start: number;
+  duration: number;
+  x: string | number;
+  y: string | number;
+  width: string | number;
+  height: string | number;
+  styles: {
+    fill: string;
+    stroke: string;
+    strokeWidth: number;
+    borderRadius: string;
+    opacity: number;
+  };
+}
+
 export interface VisualMomentCandidate {
   text: string;
   frame: number;
@@ -16,6 +41,7 @@ export interface VisualMomentCandidate {
   matchType: "exact-phrase" | "token-overlap" | "character-vector";
   matchReasons: string[];
   evidenceText: string;
+  boundingBox?: VisualBoundingBox;
   source: {
     type: "overlay" | "analysis";
     overlayId?: OverlayId;
@@ -42,6 +68,30 @@ interface VisualMomentOptions {
   limit?: number;
   minConfidence?: number;
   includeOverlayText?: boolean;
+}
+
+export type VisualEditAction = "highlight" | "inspect" | "cut_range" | "keyframe_anchor";
+export type VisualEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "no-placement";
+
+export interface VisualEditResolveOptions extends VisualMomentOptions {
+  action?: VisualEditAction;
+  durationFrames?: number;
+}
+
+export interface VisualEditResolution {
+  status: VisualEditResolutionStatus;
+  action: VisualEditAction;
+  query: string;
+  candidates: VisualMomentCandidate[];
+  candidate?: VisualMomentCandidate;
+  warnings: string[];
+  message: string;
+  useWith?: {
+    add_overlay?: VisualHighlightOverlayHint;
+    cut_section?: VisualMomentCandidate["useWith"]["cut_section"];
+    set_keyframes?: VisualMomentCandidate["useWith"]["set_keyframes"];
+    visual_inspect_frame?: VisualMomentCandidate["useWith"]["visual_inspect_frame"];
+  };
 }
 
 export interface CameraShakeOptions {
@@ -255,11 +305,13 @@ interface VisualEvidence {
   startFrame: number;
   endFrame: number;
   durationFrames: number;
+  boundingBox?: VisualBoundingBox;
   source: VisualMomentCandidate["source"];
 }
 
 const DEFAULT_FPS = 30;
 const DEFAULT_CLIP_DURATION_FRAMES = 30;
+const DEFAULT_HIGHLIGHT_DURATION_FRAMES = 45;
 
 const visualMomentSchema = z.object({
   query: z.string().min(1).describe("Natural-language visual event, object, action, scene, or on-screen text to locate in the timeline."),
@@ -267,6 +319,16 @@ const visualMomentSchema = z.object({
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum visual moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayText: z.boolean().default(true).describe("Also search text already attached to timeline overlays."),
+});
+
+const visualEditSchema = z.object({
+  query: z.string().min(1).describe("Visual event, object, action, scene, or on-screen text that anchors the edit."),
+  action: z.enum(["highlight", "inspect", "cut_range", "keyframe_anchor"]).default("highlight").describe("Requested downstream operation. Highlight needs a bounding box; inspect/cut/keyframe need only an unambiguous visual moment."),
+  videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline video overlay id to constrain the search."),
+  limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum visual candidates to inspect before resolving ambiguity."),
+  minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
+  includeOverlayText: z.boolean().default(true).describe("Also search text already attached to timeline overlays."),
+  durationFrames: z.coerce.number().int().min(1).max(300).default(DEFAULT_HIGHLIGHT_DURATION_FRAMES).describe("Duration for a resolved highlight overlay."),
 });
 
 const cameraShakeSchema = z.object({
@@ -560,6 +622,41 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     },
   );
 
+  const resolveVisualEdit = tool(
+    async (input: z.infer<typeof visualEditSchema>) => {
+      const { projectService } = await import("../services/project-service");
+      const project = await projectService.loadProject(userId, projectId);
+      const evidence = buildVisualEvidence(project, {
+        videoOverlayId: input.videoOverlayId,
+        includeOverlayText: input.includeOverlayText,
+      });
+      const plan = resolveVisualEditPlacement(project, input.query, {
+        action: input.action,
+        videoOverlayId: input.videoOverlayId,
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+        includeOverlayText: input.includeOverlayText,
+        durationFrames: input.durationFrames,
+      });
+
+      return JSON.stringify({
+        status: plan.status === "ready" ? "success" : "error",
+        data: {
+          ...plan,
+          searchedEvidenceCount: evidence.length,
+        },
+        message: plan.message,
+      });
+    },
+    {
+      name: "resolve_visual_edit",
+      description: `Resolve a stored visual event into safe edit parameters for downstream tools.
+Use before requests like "when the logo appears, add a highlight", "cut the shot with the laptop", "inspect the product frame", or "zoom/keyframe on the object".
+Returns add_overlay placement only when the matched visual fact has a bounding box. Otherwise it returns an inspection frame and fails loud instead of guessing coordinates. It never mutates the project by itself.`,
+      schema: visualEditSchema,
+    },
+  );
+
   const applyCameraShake = tool(
     async (input: z.infer<typeof cameraShakeSchema>) => {
       try {
@@ -775,7 +872,7 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     },
   );
 
-  return [findVisualMoment, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
+  return [findVisualMoment, resolveVisualEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
 }
 
 export function applyCameraShakeToProject(
@@ -2560,6 +2657,168 @@ export function findVisualMomentCandidates(
   }));
 }
 
+export function resolveVisualEditPlacement(
+  project: any,
+  query: string,
+  options: VisualEditResolveOptions = {},
+): VisualEditResolution {
+  const action = options.action ?? "highlight";
+  const candidates = findVisualMomentCandidates(project, query, {
+    videoOverlayId: options.videoOverlayId,
+    limit: options.limit ?? 5,
+    minConfidence: options.minConfidence ?? 0.35,
+    includeOverlayText: options.includeOverlayText,
+  });
+  const warnings: string[] = [];
+
+  if (!candidates.length) {
+    return {
+      status: "no-match",
+      action,
+      query,
+      candidates,
+      warnings,
+      message: `No stored visual evidence matched "${query}".`,
+    };
+  }
+
+  const candidate = candidates[0];
+  if (!candidate) {
+    return {
+      status: "no-match",
+      action,
+      query,
+      candidates,
+      warnings,
+      message: `No stored visual evidence matched "${query}".`,
+    };
+  }
+
+  if (!candidate.safeForAutoEdit) {
+    const second = candidates[1];
+    return {
+      status: "ambiguous",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      message: second
+        ? `Visual reference "${query}" is ambiguous between frames ${candidate.startFrame}-${candidate.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before editing.`
+        : `Visual reference "${query}" was not confident enough for automatic ${action}.`,
+    };
+  }
+
+  if (action === "inspect") {
+    return {
+      status: "ready",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      useWith: { visual_inspect_frame: candidate.useWith.visual_inspect_frame },
+      message: `Resolved visual inspection for "${candidate.text}" at frame ${candidate.frame}.`,
+    };
+  }
+
+  if (action === "cut_range") {
+    return {
+      status: "ready",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      useWith: { cut_section: candidate.useWith.cut_section },
+      message: `Resolved visual range for "${candidate.text}" to frames ${candidate.startFrame}-${candidate.endFrame}.`,
+    };
+  }
+
+  if (action === "keyframe_anchor") {
+    return {
+      status: "ready",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      useWith: { set_keyframes: candidate.useWith.set_keyframes },
+      message: `Resolved keyframe anchor for "${candidate.text}" at frame ${candidate.frame}.`,
+    };
+  }
+
+  const highlight = buildVisualHighlightOverlay(
+    candidate,
+    clampInt(options.durationFrames ?? DEFAULT_HIGHLIGHT_DURATION_FRAMES, 1, 300),
+  );
+  if (!highlight) {
+    return {
+      status: "no-placement",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      useWith: { visual_inspect_frame: candidate.useWith.visual_inspect_frame },
+      message: `Visual reference "${query}" resolved to frame ${candidate.frame}, but no bounding box was available for highlight placement. Inspect the frame before adding a shape overlay.`,
+    };
+  }
+
+  return {
+    status: "ready",
+    action,
+    query,
+    candidates,
+    candidate,
+    warnings,
+    useWith: {
+      add_overlay: highlight,
+      visual_inspect_frame: candidate.useWith.visual_inspect_frame,
+    },
+    message: `Resolved highlight for "${candidate.text}" to frame ${candidate.frame} with a bounding box.`,
+  };
+}
+
+function buildVisualHighlightOverlay(
+  candidate: VisualMomentCandidate,
+  durationFrames: number,
+): VisualHighlightOverlayHint | undefined {
+  if (!candidate.boundingBox) return undefined;
+  const position = visualBoxToOverlayPosition(candidate.boundingBox);
+  return {
+    type: "shape",
+    start: candidate.frame,
+    duration: durationFrames,
+    ...position,
+    styles: {
+      fill: "transparent",
+      stroke: "#ffcc00",
+      strokeWidth: 4,
+      borderRadius: "10px",
+      opacity: 0.95,
+    },
+  };
+}
+
+function visualBoxToOverlayPosition(box: VisualBoundingBox): Pick<VisualHighlightOverlayHint, "x" | "y" | "width" | "height"> {
+  if (box.units === "normalized") {
+    return {
+      x: `${round3(box.x * 100)}%`,
+      y: `${round3(box.y * 100)}%`,
+      width: `${round3(box.width * 100)}%`,
+      height: `${round3(box.height * 100)}%`,
+    };
+  }
+
+  return {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+  };
+}
+
 function buildVisualEvidence(project: any, options: VisualMomentOptions = {}): VisualEvidence[] {
   const fps = positiveNumber(project?.fps) ?? DEFAULT_FPS;
   const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
@@ -2631,6 +2890,7 @@ function collectVisualEvidence(
     fps: number;
     range: FrameRange;
     visualContext: boolean;
+    boundingBox?: VisualBoundingBox;
     sourceBase: Omit<VisualMomentCandidate["source"], "path">;
     output: VisualEvidence[];
   },
@@ -2642,7 +2902,7 @@ function collectVisualEvidence(
       addEvidence(context.output, value, context.range, {
         ...context.sourceBase,
         path: context.path,
-      });
+      }, context.boundingBox);
     }
     return;
   }
@@ -2653,7 +2913,7 @@ function collectVisualEvidence(
       addEvidence(context.output, stringItems.join(" "), context.range, {
         ...context.sourceBase,
         path: context.path,
-      });
+      }, context.boundingBox);
       return;
     }
 
@@ -2669,6 +2929,7 @@ function collectVisualEvidence(
   if (!isRecord(value)) return;
 
   const range = resolveFrameRange(value, context.fps, context.range);
+  const boundingBox = readVisualBoundingBox(value) ?? context.boundingBox;
   for (const [key, child] of Object.entries(value)) {
     const normalizedKey = normalizeKey(key);
     if (NON_VISUAL_KEYS.has(normalizedKey) && !TEXT_FACT_KEYS.has(normalizedKey)) continue;
@@ -2680,7 +2941,7 @@ function collectVisualEvidence(
         addEvidence(context.output, child, range, {
           ...context.sourceBase,
           path: childPath,
-        });
+        }, boundingBox);
       }
       continue;
     }
@@ -2690,7 +2951,7 @@ function collectVisualEvidence(
         addEvidence(context.output, child.join(" "), range, {
           ...context.sourceBase,
           path: childPath,
-        });
+        }, boundingBox);
       }
       continue;
     }
@@ -2700,6 +2961,7 @@ function collectVisualEvidence(
       path: childPath,
       range,
       visualContext: childVisualContext,
+      boundingBox,
     });
   }
 }
@@ -2765,6 +3027,7 @@ function scoreEvidence(
           `vector=${round3(vectorScore)}`,
         ],
     evidenceText: evidence.evidenceText,
+    boundingBox: evidence.boundingBox,
     source: evidence.source,
     safeForAutoEdit: false,
     useWith: {
@@ -2794,6 +3057,7 @@ function addEvidence(
   rawText: string | undefined,
   range: FrameRange,
   source: VisualMomentCandidate["source"],
+  boundingBox?: VisualBoundingBox,
 ): void {
   const evidenceText = cleanText(rawText);
   if (!evidenceText) return;
@@ -2805,8 +3069,34 @@ function addEvidence(
     startFrame,
     endFrame,
     durationFrames: endFrame - startFrame,
+    boundingBox,
     source,
   });
+}
+
+function readVisualBoundingBox(value: unknown): VisualBoundingBox | undefined {
+  if (!isRecord(value)) return undefined;
+  const candidate = value.boundingBox ?? value.bounding_box ?? value.bbox ?? value.box ?? value.bounds ?? value;
+  if (!isRecord(candidate)) return undefined;
+
+  const x = positiveOrZeroNumber(candidate.x ?? candidate.left);
+  const y = positiveOrZeroNumber(candidate.y ?? candidate.top);
+  const right = positiveOrZeroNumber(candidate.right ?? candidate.x2);
+  const bottom = positiveOrZeroNumber(candidate.bottom ?? candidate.y2);
+  const width = positiveNumber(candidate.width ?? candidate.w) ?? ((typeof right === "number" && typeof x === "number") ? right - x : undefined);
+  const height = positiveNumber(candidate.height ?? candidate.h) ?? ((typeof bottom === "number" && typeof y === "number") ? bottom - y : undefined);
+
+  if (typeof x !== "number" || typeof y !== "number" || typeof width !== "number" || typeof height !== "number") return undefined;
+  if (width <= 0 || height <= 0) return undefined;
+
+  const units: VisualBoundingBox["units"] = Math.max(x, y, width, height) <= 1 ? "normalized" : "pixel";
+  return {
+    x: round3(x),
+    y: round3(y),
+    width: round3(width),
+    height: round3(height),
+    units,
+  };
 }
 
 function resolveFrameRange(value: any, fps: number, fallback: FrameRange): FrameRange {
