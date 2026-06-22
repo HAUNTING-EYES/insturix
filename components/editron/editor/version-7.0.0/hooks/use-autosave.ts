@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getUserId } from "../utils/user-id";
+import { serializeEditorStateForSave } from "@/lib/editron/shared/project-save-payload";
 
 interface AutosaveOptions {
   /**
@@ -100,7 +101,7 @@ export const useAutosave = (
       // this window would overwrite the AI's changes with stale client state.
       if (pauseAutosave) return;
 
-      const body = JSON.stringify(state);
+      const body = serializeEditorStateForSave(state);
       if (!body) return;
 
       // Only save if state has changed since last save
@@ -151,11 +152,11 @@ export const useAutosave = (
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(state),
+        body: serializeEditorStateForSave(state),
       });
 
       if (response.ok) {
-        lastSavedStateRef.current = JSON.stringify(state);
+        lastSavedStateRef.current = serializeEditorStateForSave(state);
         if (onSave) onSave();
         return true;
       } else {
@@ -191,7 +192,7 @@ export const useAutosave = (
 
           // Seed the last-saved snapshot so the very next autosave tick
           // does NOT see a diff and immediately overwrite.
-          lastSavedStateRef.current = JSON.stringify(loadedState);
+          lastSavedStateRef.current = serializeEditorStateForSave(loadedState);
 
           // Mark initial load as done — autosave is now safe to run.
           hasLoadedRef.current = true;
