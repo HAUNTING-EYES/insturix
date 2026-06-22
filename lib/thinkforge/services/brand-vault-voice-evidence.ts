@@ -1,5 +1,9 @@
 import { deriveBrandSignalProfile, sanitizeEvidenceExcerpt, type BrandSignal, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 import { collectBrandSignals, createBrandSignalProfileDraft } from '@/lib/shared/brand-signal-lifecycle';
+import {
+  resolveBrandSignalEditLearningWeight,
+  type BrandSignalEditEventType,
+} from '@/lib/shared/brand-signal-edit-weighting';
 import { createBrandVaultDraftReviewPayload } from '@/lib/shared/brand-vault-draft-orchestrator';
 import { getDefaultBrandVaultRefineryStore, type BrandVaultRefineryStore } from '@/lib/shared/brand-vault-refinery-api';
 import type { BrandEvidenceCandidate, BrandRefineryJob } from '@/lib/shared/brand-website-refinery-types';
@@ -91,6 +95,14 @@ function createThinkForgeBrandDNACandidates(
     normalizedValue: unknown;
     excerpt?: string;
   }) => {
+    const editType = editTypeForSource(input.source);
+    const learningWeight = resolveBrandSignalEditLearningWeight({
+      service: 'thinkforge',
+      signalPath: args.signalPath,
+      editType,
+      scope: input.source === 'manual_brand_dna_edit' ? 'brand' : 'user',
+      polarity: input.source === 'manual_brand_dna_edit' ? 'replace' : 'affirm',
+    });
     candidates.push({
       id: `candidate_${idPart(input.source)}_${idPart(args.signalPath)}_${candidates.length + 1}`,
       brandId: input.brandId,
@@ -103,6 +115,7 @@ function createThinkForgeBrandDNACandidates(
       confidence,
       trustLevel: 'manual_user_entry',
       authorityClass: 'manual',
+      learningWeight,
       observedAt,
       extractorId: THINKFORGE_VAULT_EXTRACTOR,
     });
@@ -219,6 +232,7 @@ function attachCandidatesToProfile(profile: BrandSignalProfile, candidates: Bran
       confidence: candidate.confidence,
       trustLevel: candidate.trustLevel ?? 'manual_user_entry',
       authorityClass: authorityClassForSignalPath(candidate.signalPath),
+      learningWeight: candidate.learningWeight,
       observedAt: candidate.observedAt,
       extractor: candidate.extractorId,
     });
@@ -278,6 +292,12 @@ function sourceFieldForRecurring(source: ThinkForgeBrandVaultVoiceSource): strin
   if (source === 'voice_fingerprint_extract') return 'thinkforge.brandDNA.voiceFingerprint';
   if (source === 'passive_voice_exemplar') return 'thinkforge.brandDNA.voiceExemplars';
   return 'thinkforge.brandDNA.voiceRules';
+}
+
+function editTypeForSource(source: ThinkForgeBrandVaultVoiceSource): BrandSignalEditEventType {
+  if (source === 'voice_fingerprint_extract') return 'passive_voice_fingerprint';
+  if (source === 'passive_voice_exemplar') return 'passive_voice_exemplar';
+  return 'manual_brand_dna_edit';
 }
 
 function fingerprintVoiceRules(fingerprint?: VoiceFingerprint): string[] {

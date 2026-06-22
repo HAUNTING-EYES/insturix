@@ -1,4 +1,5 @@
 import { BRAND_CONFIDENCE } from './brand-confidence';
+import type { BrandSignalLearningWeight } from './brand-signal-edit-weighting';
 import type { UnifiedBrand } from './brand-registry';
 
 export type BrandSignalTrustLevel =
@@ -51,6 +52,7 @@ export interface BrandSignalEvidence {
   observedAt: string;
   extractor: string;
   fallbackReason?: string;
+  learningWeight?: BrandSignalLearningWeight;
 }
 
 export interface BrandSignal<T> {

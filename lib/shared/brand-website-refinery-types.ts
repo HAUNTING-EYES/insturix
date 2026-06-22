@@ -4,6 +4,7 @@ import type {
   BrandSignalProfile,
   BrandSignalTrustLevel,
 } from './brand-signal-profile';
+import type { BrandSignalLearningWeight } from './brand-signal-edit-weighting';
 import type { BrandSignalProfileRecord } from './brand-signal-lifecycle';
 
 export type BrandEvidenceCandidateSourceType =
@@ -145,6 +146,7 @@ export interface BrandEvidenceCandidate {
   confidence: number;
   trustLevel?: BrandSignalTrustLevel;
   authorityClass: BrandEvidenceCandidateAuthority;
+  learningWeight?: BrandSignalLearningWeight;
   observedAt: string;
   extractorId: string;
 }

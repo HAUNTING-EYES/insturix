@@ -23,6 +23,7 @@ import {
   verifyWebsiteBrandAssetCandidates,
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
+import { resolveBrandSignalEditLearningWeight } from './brand-signal-edit-weighting';
 import { inferAudience, inferCategory, inferIndustry, parseWebsiteHtml } from './brand-website-refinery-utils';
 import {
   createBrandVaultGeminiSocialOcrProvider,
@@ -884,6 +885,13 @@ export function applyBrandVaultSignalValueEditsToDraftRecord(
     if (!normalizedValue.ok) return signalEditFailure('validation_failed', edit.path, normalizedValue.message);
 
     const evidenceId = createUserEditEvidenceId(evidenceIds, edit.path, now, index);
+    const learningWeight = resolveBrandSignalEditLearningWeight({
+      service: 'brand_vault',
+      signalPath: edit.path,
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+    });
     evidenceIds.add(evidenceId);
     const evidence: BrandSignalEvidence = {
       id: evidenceId,
@@ -896,6 +904,7 @@ export function applyBrandVaultSignalValueEditsToDraftRecord(
       authorityClass: authorityClassForUserEdit(signal, edit.path),
       observedAt: now,
       extractor: USER_REVIEW_EDIT_EXTRACTOR,
+      learningWeight,
     };
 
     editedRecord.profile.evidence.push(evidence);

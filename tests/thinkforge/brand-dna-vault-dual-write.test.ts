@@ -37,6 +37,17 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
       'voice.killList',
       'voice.recurringPhrases',
     ]);
+    const killListCandidate = snapshot?.candidates.find((candidate) => candidate.signalPath === 'voice.killList');
+    expect(killListCandidate?.learningWeight).toMatchObject({
+      category: 'invented',
+      service: 'thinkforge',
+      editType: 'manual_brand_dna_edit',
+      scope: 'brand',
+      polarity: 'replace',
+      signalClass: 'hard_constraint',
+    });
+    expect(killListCandidate?.learningWeight?.value).toBeGreaterThan(0.85);
+
     const record = await store.getRecord(result.recordId);
     expect(record?.review.required).toBe(true);
     expect(record?.status).toBe('draft');
@@ -46,6 +57,10 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
     expect(record?.profile.voice.recurringPhrases.value).toEqual(
       expect.arrayContaining(['warm expert plainspoken', 'open with the broken process']),
     );
+    const killListEvidence = record?.profile.evidence.find(
+      (item) => item.signalPath === 'voice.killList' && item.sourceField === 'thinkforge.brandDNA.killList',
+    );
+    expect(killListEvidence?.learningWeight).toEqual(killListCandidate?.learningWeight);
     expect(record?.profile.evidence.some((item) => item.extractor === 'thinkforge-brand-dna-dual-write.v1')).toBe(true);
   });
 
@@ -96,6 +111,15 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
       sourceField: 'thinkforge.brandDNA.voiceFingerprint',
       trustLevel: 'manual_user_entry',
     });
+    expect(snapshot?.candidates[0]?.learningWeight).toMatchObject({
+      category: 'invented',
+      service: 'thinkforge',
+      editType: 'passive_voice_fingerprint',
+      scope: 'user',
+      polarity: 'affirm',
+      signalClass: 'voice_rule',
+    });
+    expect(snapshot?.candidates[0]?.learningWeight?.value).toBeLessThan(0.35);
 
     const record = await store.getRecord(result.recordId);
     expect(record?.status).toBe('draft');
@@ -106,6 +130,59 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
         'Content production is broken. One platform. Not ten.',
       ]),
     );
+    const fingerprintEvidence = record?.profile.evidence.find(
+      (item) => item.signalPath === 'voice.recurringPhrases' && item.sourceField === 'thinkforge.brandDNA.voiceFingerprint',
+    );
+    expect(fingerprintEvidence?.learningWeight).toEqual(snapshot?.candidates[0]?.learningWeight);
+  });
+
+  it('marks passive exemplars as softer user-scope affirmations', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+
+    const result = await writeThinkForgeBrandDNAToBrandVault({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      source: 'passive_voice_exemplar',
+      now: '2026-06-22T11:30:00.000Z',
+      store,
+      updates: {
+        voiceExemplars: [
+          {
+            id: 'exemplar_2',
+            text: 'Ship the sharper version, then let the system remember why it worked.',
+            signalProfile: { warmth: 0.3, directness: 0.8 },
+            contentType: 'linkedin',
+            pinned: false,
+            weight: 0.7,
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.skipped) throw new Error('expected Brand Vault write');
+
+    const snapshot = await store.getJobSnapshot(result.jobId);
+    expect(snapshot?.candidates[0]).toMatchObject({
+      signalPath: 'voice.recurringPhrases',
+      sourceField: 'thinkforge.brandDNA.voiceExemplars',
+      learningWeight: {
+        category: 'invented',
+        service: 'thinkforge',
+        editType: 'passive_voice_exemplar',
+        scope: 'user',
+        polarity: 'affirm',
+        signalClass: 'voice_rule',
+      },
+    });
+    expect(snapshot?.candidates[0]?.learningWeight?.value).toBeGreaterThan(0.15);
+    expect(snapshot?.candidates[0]?.learningWeight?.value).toBeLessThan(0.3);
+
+    const record = await store.getRecord(result.recordId);
+    const recurringEvidence = record?.profile.evidence.find(
+      (item) => item.signalPath === 'voice.recurringPhrases' && item.sourceField === 'thinkforge.brandDNA.voiceExemplars',
+    );
+    expect(recurringEvidence?.learningWeight).toEqual(snapshot?.candidates[0]?.learningWeight);
   });
 
   it('skips cleanly when no supported BrandDNA fields changed', async () => {
