@@ -1,12 +1,9 @@
 import { z } from "zod";
 import type { RenderMediaOnLambdaOutput } from "@remotion/lambda/client";
 
-import {
-  RenderRequest,
-  ProgressRequest,
-  ProgressResponse,
-} from "@/components/editron/editor/version-7.0.0/types";
+import { ProgressResponse } from "@/components/editron/editor/version-7.0.0/types";
 import { CompositionProps } from "@/components/editron/editor/version-7.0.0/types";
+import { buildCompactProjectRenderInputProps } from "@/lib/editron/shared/render-request-payload";
 
 type ApiResponse<T> = {
   type: "success" | "error";
@@ -26,7 +23,30 @@ const makeRequest = async <Res>(
       "content-type": "application/json",
     },
   });
-  const json = (await result.json()) as ApiResponse<Res>;
+  const text = await result.text();
+  let json: ApiResponse<Res> | null = null;
+
+  if (text.trim()) {
+    try {
+      json = JSON.parse(text) as ApiResponse<Res>;
+    } catch {
+      const snippet = text.slice(0, 240);
+      throw new Error(
+        `Request to ${endpoint} failed with ${result.status} ${result.statusText || "response"}: ${snippet}`
+      );
+    }
+  }
+
+  if (!result.ok) {
+    throw new Error(
+      json?.message ||
+        `Request to ${endpoint} failed with ${result.status} ${result.statusText || "response"}`
+    );
+  }
+
+  if (!json) {
+    throw new Error(`Empty response received from ${endpoint}`);
+  }
 
   if (json.type === "error") {
     console.error(`Error in response from ${endpoint}:`, json.message);
@@ -52,7 +72,9 @@ export const renderVideo = async ({
 
   const body = {
     id,
-    inputProps,
+    inputProps: projectId
+      ? buildCompactProjectRenderInputProps(inputProps)
+      : inputProps,
     projectId,
   };
 
