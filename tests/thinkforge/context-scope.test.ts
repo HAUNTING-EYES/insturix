@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   getProjectScopedEntries: vi.fn(),
   getRecentInteractionEvents: vi.fn(),
   queryRelevantFacts: vi.fn(),
-  resolveEffectiveBrandDNA: vi.fn(),
+  resolveEffectiveBrandDNAWithProfile: vi.fn(),
 }));
 
 vi.mock('@/lib/thinkforge/services/db', () => ({
@@ -16,7 +16,7 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getDataBankEntriesByUser: mocks.getDataBankEntriesByUser,
   getProjectScopedEntries: mocks.getProjectScopedEntries,
   getRecentInteractionEvents: mocks.getRecentInteractionEvents,
-  resolveEffectiveBrandDNA: mocks.resolveEffectiveBrandDNA,
+  resolveEffectiveBrandDNAWithProfile: mocks.resolveEffectiveBrandDNAWithProfile,
 }));
 
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
@@ -47,9 +47,9 @@ describe('fetchContextSources scoped DataBank reads', () => {
     mocks.getProjectScopedEntries.mockReset();
     mocks.getRecentInteractionEvents.mockReset();
     mocks.queryRelevantFacts.mockReset();
-    mocks.resolveEffectiveBrandDNA.mockReset();
+    mocks.resolveEffectiveBrandDNAWithProfile.mockReset();
 
-    mocks.resolveEffectiveBrandDNA.mockResolvedValue({});
+    mocks.resolveEffectiveBrandDNAWithProfile.mockResolvedValue({ brandDNA: {}, brandSignalProfile: null, source: 'legacy' });
     mocks.getProjectScopedEntries.mockResolvedValue([]);
     mocks.getRecentInteractionEvents.mockResolvedValue([]);
     mocks.queryRelevantFacts.mockResolvedValue([]);
@@ -93,7 +93,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
       limit: 200,
       scope: 'global',
     });
-    expect(mocks.resolveEffectiveBrandDNA).toHaveBeenCalledWith('user_1', undefined, 'brand_1');
+    expect(mocks.resolveEffectiveBrandDNAWithProfile).toHaveBeenCalledWith('user_1', undefined, 'brand_1');
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual([
       'entry_generic',
       'entry_brand_1',
@@ -153,6 +153,6 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
 
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_generic']);
-    expect(mocks.resolveEffectiveBrandDNA).toHaveBeenCalledWith('user_1', undefined, undefined);
+    expect(mocks.resolveEffectiveBrandDNAWithProfile).toHaveBeenCalledWith('user_1', undefined, undefined);
   });
 });
