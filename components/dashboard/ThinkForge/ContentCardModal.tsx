@@ -200,7 +200,10 @@ export default function ContentCardModal({
                 <div className="max-w-4xl mx-auto p-6">
                   <ContentCard
                     card={localCard}
-                    onUpdate={handleUpdate}
+                    // Child ContentCard's onUpdate is (id, updates); the modal already knows
+                    // card.id. OLD: passed the 1-arg handleUpdate directly, so the child's id
+                    // landed in the `updates` slot and corrupted the edit. NEW: bridge correctly.
+                    onUpdate={(_id, updates) => handleUpdate(updates)}
                     onOpenScript={onOpenScript ? (id) => {
                       onOpenScript(id);
                       onClose();
