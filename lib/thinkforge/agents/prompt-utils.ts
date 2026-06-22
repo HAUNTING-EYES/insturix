@@ -1,3 +1,5 @@
+﻿import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
+
 export interface DocumentRoleProfile {
   role: string;
   executionTest: string;
@@ -12,12 +14,12 @@ export function inferRoleFromContext(projectSummary: string, userPrompt: string,
   const userLower = userPrompt.toLowerCase();
   const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
 
-  // Post/article/text content — check USER PROMPT first
+  // Post/article/text content â€” check USER PROMPT first
   if (docType === 'post' || docType === 'article' || /\b(linkedin\s*post|twitter\s*post|x\s*post|instagram\s*caption|facebook\s*post|social\s*media\s*post|blog\s*post|article|newsletter|email\s*campaign|email\s*copy|carousel\s*post)\b/i.test(userLower)) {
     return {
       role: 'a Senior Content Strategist and Copywriter',
-      executionTest: 'A social media manager should be able to say: "I can publish this immediately — it fits the platform, hooks the audience, and drives the action I need."',
-      outputFeeling: 'a polished, platform-ready post or article — not a brief, not a script, not an outline',
+      executionTest: 'A social media manager should be able to say: "I can publish this immediately â€” it fits the platform, hooks the audience, and drives the action I need."',
+      outputFeeling: 'a polished, platform-ready post or article â€” not a brief, not a script, not an outline',
       sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Match the platform voice: LinkedIn is professional-conversational, Twitter is punchy, Instagram is visual-first captions.',
       defaultVoice: 'author',
       defaultMedium: 'post',
@@ -110,6 +112,77 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
     extraGuidance: 'Professional-conversational. Platform-agnostic but engagement-focused.',
   },
 };
+
+export function buildPostOutputFormat(platform: PlatformType): string {
+  const config = PLATFORM_CONFIGS[platform];
+  const antiAiConstraints = getAntiAiConstraintBundle().promptGuidance;
+  const platformHardRules = [
+    platform === 'twitter'
+      ? 'TWITTER/X HARD LIMIT:\n  - Write one publishable post unless the user explicitly asks for a thread.\n  - Stay under 280 characters including hashtags.'
+      : undefined,
+    platform === 'instagram'
+      ? 'INSTAGRAM HARD RULE:\n  - Use 1-3 relevant emojis unless brand context forbids emojis.\n  - The CTA must appear before the hashtag line.'
+      : undefined,
+  ].filter(Boolean).join('\n\n');
+
+  return `<output_format>
+Write the ACTUAL publishable ${config.name} post. Not a brief. Not production notes. Not an outline.
+
+LINE BREAK CONTRACT
+  - The content string must start with one standalone hook line.
+  - Insert a blank line immediately after the hook.
+  - Never put the first body sentence on the hook line.
+  - Use blank lines between paragraphs.
+
+STEP 1 HOOK
+  - The first line must be 10-180 characters and stand alone.
+  - The first ${config.foldChars} characters must contain a grounded claim, supplied number, named entity, concrete audience pain, or concrete object from <input_data>.
+  - Start with an audience, named product, supplied number, event, price, or concrete problem from <input_data>.
+  - Do not start with a broad category claim like "AI is...", "The future of...", "This is...", or "The world of...".
+  - Never open with "In today's...", "Have you ever...", "Imagine...", "It's no secret...", or "Picture this...".
+
+STEP 2 BODY
+  - Write 2-4 short paragraphs. Each paragraph max 3 sentences.
+  - Preserve supplied dates, times, prices, URLs, brand names, event names, product names, offers, audience labels, and taglines verbatim.
+  - Do not paraphrase supplied offers: if <input_data> says "free teardown", the final content must say "free teardown".
+  - Do not rewrite numeric phrases: if <input_data> says "12 qualified sales calls", do not write "Twelve calls" or drop adjacent qualifiers.
+  - Never add illustrative numbers, percentages, multipliers, money amounts, deadlines, or rankings unless that exact number appears in <input_data>.
+  - If no metric is supplied, create specificity through scene, audience pain, object detail, workflow friction, or decision tradeoff instead of inventing numbers.
+  - No scene headings, no **Visual:** labels, no **Narration:** labels, no production notes.
+  - Vary rhythm: mix short punch lines with longer explanation lines.
+
+STEP 3 CTA
+  - Write the CTA as its own line directly before hashtags.
+  - The final non-hashtag line must contain a ? or one clear action verb: ask, apply, book, buy, call, claim, comment, contact, DM, donate, discover, download, join, learn more, message, register, reply, reserve, save, schedule, send, share, shop, sign up, tag, try, visit, watch, or the equivalent action verb in the user's language.
+  - End the body with exactly one specific call-to-action tied to the brief.
+  - Use the supplied action when present: register, sign up, donate, shop, book, apply, claim, DM, message, schedule, comment, share, or the supplied URL.
+  - If no supplied action exists, the CTA line must start with a concrete action verb and ask for one specific action tied to the brief.
+  - Good pattern: "Comment with the workflow bottleneck your team most wants to remove."
+  - Never use generic CTAs like "What do you think?", "Thoughts?", "Agree?", "Right?", or reflective statement endings.
+  - The CTA must be in the last 3 non-hashtag lines.
+
+STEP 4 HASHTAGS
+  - Add ${config.hashtagRange} hashtags at the very end.
+  - Put hashtags on their own final line.
+  - If you run long, cut body copy before cutting the CTA or hashtags.
+
+PLATFORM CONSTRAINTS (${config.name})
+  - Target: ${config.charTarget} characters. Platform max: ${config.charMax}.
+  - Do not undershoot the target range unless the platform hard limit requires it.
+  - ${config.extraGuidance}
+${platformHardRules ? `\n${platformHardRules}\n` : ''}
+CLICKATRON OUTPUT
+  - Fill clickatron.singleImagePrompt or clickatron.carouselPrompts.
+  - Every Clickatron prompt must include source facts that matter visually: brand, audience, date, time, location, offer, product, price, CTA, and exact overlay text.
+  - Include concrete props, environment, composition, text overlay plan, and brand style.
+  - For carouselPrompts, each slide prompt must say what the slide communicates and what exact text should be editable.
+
+ANTI-AI CONSTRAINTS (from writing-knowledge graph)
+${antiAiConstraints}
+  Treat banned_phrase_list entries as literal forbidden substrings in final content.
+  Before returning, scan the final content and rewrite any sentence violating these constraints.
+</output_format>`;
+}
 
 export function detectPlatform(userPrompt: string, docType?: string, projectSummary?: string): PlatformType {
   const lower = userPrompt.toLowerCase();

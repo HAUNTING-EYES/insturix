@@ -84,10 +84,10 @@ async function storeCacheEntry(cacheName: string, modelName: string): Promise<vo
 export function getCreativeContentKnowledgeText(): string {
   if (cachedDocText) return cachedDocText;
 
-  const attempts = [
-    join(process.cwd(), 'docs', 'creative-content-knowledge.md'),
-    join(__dirname, '..', '..', '..', 'docs', 'creative-content-knowledge.md'),
-  ];
+  const attempts = [join(process.cwd(), 'docs', 'creative-content-knowledge.md')];
+  if (typeof __dirname !== 'undefined') {
+    attempts.push(join(__dirname, '..', '..', '..', 'docs', 'creative-content-knowledge.md'));
+  }
 
   const failures: string[] = [];
   for (const attempt of attempts) {
