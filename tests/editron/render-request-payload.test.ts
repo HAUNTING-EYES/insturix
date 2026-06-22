@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { renderVideo } from "@/components/editron/editor/version-7.0.0/lambda-helpers/api";
 import {
+  buildChapterRenderApiData,
   buildProjectRenderInputProps,
   shouldHydrateRenderInputFromProject,
 } from "@/lib/editron/shared/render-request-payload";
@@ -69,6 +70,46 @@ describe("Editron render request payloads", () => {
         inputProps,
       })
     ).rejects.toThrow(/413.*Request Entity Too Large/);
+  });
+
+
+  it("accepts chapter render success responses from the server", async () => {
+    const data = buildChapterRenderApiData({
+      jobId: "chr_123",
+      region: "us-east-1",
+      chapters: 3,
+    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ type: "success", data }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      renderVideo({
+        id: "TestComponent",
+        inputProps,
+        projectId: "proj_long",
+      })
+    ).resolves.toEqual(data);
+  });
+  it("builds chapter render success data in the client response contract", () => {
+    expect(
+      buildChapterRenderApiData({
+        jobId: "chr_123",
+        region: "us-east-1",
+        chapters: 3,
+      })
+    ).toEqual({
+      renderId: "chr_123",
+      bucketName: "chapter-render",
+      region: "us-east-1",
+      isChapterRender: true,
+      chapters: 3,
+      message: "Split into 3 chapters for parallel rendering",
+    });
   });
 
   it("hydrates compact render props from the project snapshot on the server side", () => {

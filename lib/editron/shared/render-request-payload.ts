@@ -66,3 +66,23 @@ export function buildProjectRenderInputProps(
     src: typeof props.src === "string" ? props.src : "",
   };
 }
+type ChapterRenderApiDataInput = {
+  jobId: string;
+  region: string;
+  chapters: number;
+};
+
+export function buildChapterRenderApiData({
+  jobId,
+  region,
+  chapters,
+}: ChapterRenderApiDataInput) {
+  return {
+    renderId: jobId,
+    bucketName: "chapter-render",
+    region,
+    isChapterRender: true,
+    chapters,
+    message: `Split into ${chapters} chapters for parallel rendering`,
+  };
+}

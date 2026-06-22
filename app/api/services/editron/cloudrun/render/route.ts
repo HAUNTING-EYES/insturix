@@ -5,6 +5,7 @@ import { createJob } from '@/lib/editron/services/render-job-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
+  buildChapterRenderApiData,
   buildProjectRenderInputProps,
   shouldHydrateRenderInputFromProject,
 } from '@/lib/editron/shared/render-request-payload';
@@ -101,12 +102,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         type: 'success',
-        renderId: jobId,
-        bucketName: 'chapter-render',
-        region,
-        isChapterRender: true,
-        chapters,
-        message: `Split into ${chapters} chapters for parallel rendering`,
+        data: buildChapterRenderApiData({ jobId, region, chapters }),
       });
     }
 
