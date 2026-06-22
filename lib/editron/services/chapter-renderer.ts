@@ -19,6 +19,7 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ interface Chapter {
   overlays: Overlay[];
   /** Render ID from Lambda (set after render starts) */
   renderId?: string;
+  /** Real Remotion bucket for this chapter render. */
+  bucketName?: string;
   /** Render status */
   status: 'pending' | 'rendering' | 'completed' | 'failed';
   /** Output URL (set after render completes) */
@@ -231,9 +234,7 @@ export async function startChapterRender(
   // Start all chapter renders in parallel
   const renderPromises = chapters.map(async (chapter, i) => {
     try {
-      // Set AWS credentials
-      process.env.AWS_ACCESS_KEY_ID = process.env.REMOTION_AWS_ACCESS_KEY_ID;
-      process.env.AWS_SECRET_ACCESS_KEY = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
+      await setAWSCredentials();
 
       const { renderId, bucketName } = await renderMediaOnLambda({
         region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
@@ -261,6 +262,7 @@ export async function startChapterRender(
         {
           $set: {
             'chapters.$.renderId': renderId,
+            'chapters.$.bucketName': bucketName,
             'chapters.$.status': 'rendering',
             updatedAt: new Date(),
           },
@@ -313,10 +315,15 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
   if (!job) return null;
 
   let totalProgress = 0;
+  let computedStatus = job.status;
+  let completedOutputUrl = typeof job.outputUrl === 'string' ? job.outputUrl : undefined;
   const chapterStatuses = [];
 
   for (const chapter of job.chapters) {
     let progress = 0;
+    let chapterStatus = chapter.status;
+    let chapterOutputUrl = chapter.outputUrl;
+    let chapterError = chapter.error;
 
     if (chapter.status === 'completed') {
       progress = 1;
@@ -325,12 +332,14 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     } else if (chapter.renderId) {
       // Poll Lambda for this chapter's progress
       try {
-        process.env.AWS_ACCESS_KEY_ID = process.env.REMOTION_AWS_ACCESS_KEY_ID;
-        process.env.AWS_SECRET_ACCESS_KEY = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
+        await setAWSCredentials();
+        const chapterBucketName = typeof chapter.bucketName === 'string' && chapter.bucketName.trim()
+          ? chapter.bucketName
+          : `remotionlambda-${process.env.REMOTION_AWS_REGION || 'us-east-1'}-vqv91tlyik`;
 
         const renderProgress = await getRenderProgress({
           renderId: chapter.renderId,
-          bucketName: `remotionlambda-${process.env.REMOTION_AWS_REGION || 'us-east-1'}-vqv91tlyik`,
+          bucketName: chapterBucketName,
           region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
           functionName: process.env.REMOTION_LAMBDA_FUNCTION_NAME || '',
         });
@@ -349,14 +358,18 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
               },
             },
           );
+          chapterStatus = 'completed';
+          chapterOutputUrl = renderProgress.outputFile;
           progress = 1;
         } else if (renderProgress.fatalErrorEncountered) {
+          chapterStatus = 'failed';
+          chapterError = renderProgress.errors?.[0]?.message || 'Render failed';
           await db.collection(CHAPTERS_COLLECTION).updateOne(
             { _id: jobId, 'chapters.index': chapter.index } as any,
             {
               $set: {
                 'chapters.$.status': 'failed',
-                'chapters.$.error': 'Render failed',
+                'chapters.$.error': chapterError,
                 updatedAt: new Date(),
               },
             },
@@ -370,10 +383,10 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     totalProgress += progress;
     chapterStatuses.push({
       index: chapter.index,
-      status: chapter.status,
+      status: chapterStatus,
       progress,
-      outputUrl: chapter.outputUrl,
-      error: chapter.error,
+      outputUrl: chapterOutputUrl,
+      error: chapterError,
     });
   }
 
@@ -387,6 +400,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
 
   if (allDone && !allCompleted) {
     // Some chapters failed
+    computedStatus = 'failed';
     await db.collection(CHAPTERS_COLLECTION).updateOne(
       { _id: jobId } as any,
       { $set: { status: 'failed', updatedAt: new Date() } },
@@ -398,6 +412,8 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
   // (concatenation requires a separate service — Cloud Run with FFmpeg)
   if (allCompleted) {
     const firstOutput = chapterStatuses.find(c => c.outputUrl)?.outputUrl;
+    computedStatus = 'completed';
+    completedOutputUrl = firstOutput;
     await db.collection(CHAPTERS_COLLECTION).updateOne(
       { _id: jobId } as any,
       { $set: { status: 'completed', outputUrl: firstOutput, updatedAt: new Date() } },
@@ -405,9 +421,9 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
   }
 
   return {
-    status: job.status,
+    status: computedStatus,
     overallProgress,
     chapters: chapterStatuses,
-    outputUrl: job.outputUrl,
+    outputUrl: completedOutputUrl,
   };
 }

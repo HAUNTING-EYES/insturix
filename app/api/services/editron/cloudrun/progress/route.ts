@@ -32,6 +32,71 @@ export async function GET(request: Request) {
     if (!functionName) {
       throw new Error('REMOTION_LAMBDA_FUNCTION_NAME is not defined');
     }
+    if (bucketName === 'chapter-render' || renderId.startsWith('chr_')) {
+      const { getChapterRenderProgress } = await import('@/lib/editron/services/chapter-renderer');
+      const chapterProgress = await getChapterRenderProgress(renderId);
+
+      if (!chapterProgress) {
+        return NextResponse.json(
+          { type: 'error', message: 'Chapter render job not found' },
+          { status: 404 },
+        );
+      }
+
+      const failedChapter = chapterProgress.chapters.find(
+        (chapter) => chapter.status === 'failed',
+      );
+      if (chapterProgress.status === 'failed' || failedChapter) {
+        const errorMessage = failedChapter?.error || 'Chapter render failed';
+        await failJob(renderId, errorMessage);
+        return NextResponse.json(
+          { type: 'error', message: errorMessage, chapters: chapterProgress.chapters },
+          { status: 500 },
+        );
+      }
+
+      if (chapterProgress.status === 'completed' && chapterProgress.outputUrl) {
+        await completeJob(renderId, chapterProgress.outputUrl, 0);
+        return NextResponse.json({
+          type: 'success',
+          data: {
+            done: true,
+            progress: 1,
+            outputUrl: chapterProgress.outputUrl,
+            outputFile: chapterProgress.outputUrl,
+            outputSize: 0,
+            renderMetadata: {
+              estimatedTotalLambdaInvokations: chapterProgress.chapters.length,
+              actualLambdaInvokations: chapterProgress.chapters.length,
+              renderBucketName: bucketName,
+              renderId,
+            },
+          },
+        });
+      }
+
+      try {
+        await updateJobProgress(renderId, chapterProgress.overallProgress);
+      } catch (dbError) {
+        console.error('Failed to update chapter render progress in DB:', dbError);
+      }
+
+      return NextResponse.json({
+        type: 'success',
+        data: {
+          done: false,
+          progress: chapterProgress.overallProgress,
+          renderedFrames: 0,
+          encodedFrames: 0,
+          lambdasInvoked: chapterProgress.chapters.length,
+          renderMetadata: {
+            estimatedTotalLambdaInvokations: chapterProgress.chapters.length,
+            renderBucketName: bucketName,
+            renderId,
+          },
+        },
+      });
+    }
 
     // Get render progress from Lambda
     const progress = await getRenderProgress({
