@@ -41,6 +41,8 @@ export interface BrandVaultFontPreview {
   previewStatus: BrandVaultFontPreviewStatus;
   sourceUrl?: string;
   stylesheetUrl?: string;
+  files?: string[];
+  weights?: number[];
   sampleText: string;
   confidence: number;
   signalPath: string;
@@ -119,7 +121,7 @@ export function createBrandVaultVisualIdentitySummary(args: {
 }): BrandVaultVisualIdentitySummary {
   return {
     colors: createVisualSwatches(args.profile, args.candidates, args.sourceEvidence),
-    fonts: createFontPreviews(args.profile),
+    fonts: createFontPreviews(args.profile, args.candidates),
     logos: createVisualAssetPreviews(args, 'logo').slice(0, MAX_VISUAL_LOGOS),
     images: createVisualAssetPreviews(args, 'image').slice(0, MAX_VISUAL_IMAGES),
   };
@@ -214,30 +216,53 @@ function addSignalSwatches(
   }
 }
 
-function createFontPreviews(profile: BrandSignalProfile): BrandVaultFontPreview[] {
+function createFontPreviews(profile: BrandSignalProfile, candidates: BrandEvidenceCandidate[]): BrandVaultFontPreview[] {
   const rawSignal = profile.typography.raw;
   if (!rawSignal?.value) return [];
   const evidenceById = new Map(profile.evidence.map((item) => [item.id, item]));
   const evidence = firstSignalEvidence(rawSignal, evidenceById);
   const brandName = profile.identity.brandName.value || 'Brand sample';
   const fontSource = fontPreviewSource(evidence);
+  const fontFilesByFamily = collectFontFilesByFamily(candidates);
   return uniqueStrings(rawSignal.value.split(',').map(cleanFontFamilyName).filter(isSpecificFontFamily))
     .slice(0, MAX_VISUAL_FONT_PREVIEWS)
-    .map((family, index) => ({
-      id: `visual_font_${idPart(family, `font_${index + 1}`)}`,
-      family,
-      cssFontFamily: `"${family}", ${fontFallbackForCategory(profile.typography.category.value)}`,
-      role: fontPreviewRole(family, index),
-      sourceKind: fontSource.kind,
-      previewStatus: fontSource.status,
-      sourceUrl: fontSource.sourceUrl,
-      stylesheetUrl: fontSource.stylesheetUrl,
-      sampleText: index === 0 ? brandName : `${brandName} brand system`,
-      confidence: rawSignal.confidence,
-      signalPath: 'typography.raw',
-      sourceField: evidence?.sourceField,
-      sourceTrust: rawSignal.trustLevel,
-    }));
+    .map((family, index) => {
+      const fileEntry = fontFilesByFamily.get(family.toLowerCase());
+      return {
+        id: `visual_font_${idPart(family, `font_${index + 1}`)}`,
+        family,
+        cssFontFamily: `"${family}", ${fontFallbackForCategory(profile.typography.category.value)}`,
+        role: fontPreviewRole(family, index),
+        sourceKind: fontSource.kind,
+        previewStatus: fontSource.status,
+        sourceUrl: fontSource.sourceUrl,
+        stylesheetUrl: fontSource.stylesheetUrl,
+        files: fileEntry?.files,
+        weights: fileEntry?.weights,
+        sampleText: index === 0 ? brandName : `${brandName} brand system`,
+        confidence: rawSignal.confidence,
+        signalPath: 'typography.raw',
+        sourceField: evidence?.sourceField,
+        sourceTrust: rawSignal.trustLevel,
+      };
+    });
+}
+
+// Indexes the font-file candidates the refinery emits (assets.fontFiles) by family
+// so each preview can attach the discovered @font-face / Google Fonts files + weights.
+function collectFontFilesByFamily(
+  candidates: BrandEvidenceCandidate[],
+): Map<string, { files: string[]; weights: number[] }> {
+  const byFamily = new Map<string, { files: string[]; weights: number[] }>();
+  for (const candidate of candidates) {
+    if (candidate.signalPath !== 'assets.fontFiles') continue;
+    const value = candidate.normalizedValue;
+    if (!isRecord(value) || typeof value.family !== 'string') continue;
+    const files = Array.isArray(value.files) ? value.files.filter((file): file is string => typeof file === 'string') : [];
+    const weights = Array.isArray(value.weights) ? value.weights.filter((weight): weight is number => typeof weight === 'number') : [];
+    if (files.length || weights.length) byFamily.set(value.family.toLowerCase(), { files, weights });
+  }
+  return byFamily;
 }
 
 function createVisualAssetPreviews(

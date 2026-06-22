@@ -333,6 +333,12 @@ export interface BrandWebsiteProductImageCandidate {
   confidence: number;
 }
 
+export interface BrandWebsiteFontFace {
+  family: string;
+  files: string[];
+  weights: number[];
+}
+
 export interface ParsedWebsiteEvidence {
   normalizedUrl: string;
   host: string;
@@ -344,6 +350,7 @@ export interface ParsedWebsiteEvidence {
   schemaTypes: string[];
   colors: string[];
   fonts: string[];
+  fontFaces: BrandWebsiteFontFace[];
   headings: string[];
   ctas: string[];
   proofSnippets: string[];

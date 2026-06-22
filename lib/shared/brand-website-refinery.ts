@@ -796,6 +796,16 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
     candidate.excerpt = sanitizeEvidenceExcerpt(`${logo.role} candidate from ${logo.sourceField}: ${logo.url}`);
     candidates.push(candidate);
   }
+  for (const fontFace of parsed.fontFaces) {
+    const candidate = candidateOnly('assets.fontFiles', fontFace.family, 'website_metadata', 'css.fontFace', normalizedUrl, observedAt, extractor, input);
+    const value = { family: fontFace.family, files: fontFace.files, weights: fontFace.weights };
+    candidate.rawValue = value;
+    candidate.normalizedValue = value;
+    candidate.excerpt = sanitizeEvidenceExcerpt(
+      `${fontFace.family}: ${fontFace.files.length} font file(s)${fontFace.weights.length ? `, weights ${fontFace.weights.join('/')}` : ''}`,
+    );
+    candidates.push(candidate);
+  }
   for (const image of parsed.socialPreviewImages) {
     candidates.push(candidateOnly('assets.socialPreviewImages', image, 'website_metadata', 'metadata.socialPreviewImage', normalizedUrl, observedAt, extractor, input));
   }
