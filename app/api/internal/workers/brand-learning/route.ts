@@ -9,6 +9,7 @@
  *   video_rendered     → recordProjectOutcome + Post-Mortem
  *   quality_reviewed   → recordProjectOutcome (quality score update)
  *   brand_updated      → placeholder for Phase 2 registry cache invalidation
+ *   user_override      -> stage weighted Brand Vault evidence candidates
  *   *                  → log + acknowledge (scaffolding for Phase 2 wiring)
  */
 
@@ -100,6 +101,10 @@ async function handler(request: NextRequest) {
 
       case 'thumbnail_created':
         result = await handleThumbnailCreated(event);
+        break;
+
+      case 'user_override':
+        result = await handleUserOverride(event);
         break;
 
       default:
@@ -389,7 +394,49 @@ async function handleBrandUpdated(
 }
 
 /**
- * Video published — update bandit with userPublished=true.
+ * User made a manual correction in a service UI.
+ * Stage weighted Brand Vault candidates for review; do not accept as truth here.
+ */
+async function handleUserOverride(
+  event: BrandEvent,
+): Promise<{ action: string; detail?: string }> {
+  const learningEvents = event.payload.learningEvents;
+  if (!Array.isArray(learningEvents) || learningEvents.length === 0) {
+    return { action: 'skipped', detail: 'No learningEvents in user_override payload' };
+  }
+
+  try {
+    const { writeBrandSignalLearningEventsToBrandVault } = await import(
+      '@/lib/shared/brand-vault-learning-events'
+    );
+    const result = await writeBrandSignalLearningEventsToBrandVault({
+      userId: event.userId,
+      brandId: nonEmptyString(event.brandId),
+      projectId: nonEmptyString(event.projectId),
+      sourceEventId: event.eventId,
+      actorId: event.userId,
+      learningEvents,
+    });
+
+    if (!result.ok) {
+      return { action: 'brand_vault_failed', detail: result.error };
+    }
+    if (result.skipped) {
+      return { action: 'brand_vault_learning_skipped', detail: result.reason };
+    }
+    return {
+      action: 'brand_vault_learning_staged',
+      detail: `jobId=${result.jobId}; recordId=${result.recordId}; candidateCount=${result.candidateCount}`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[BrandLearning] Brand Vault learning event write failed: ${msg}`);
+    return { action: 'brand_vault_failed', detail: msg };
+  }
+}
+
+/**
+ * Video published - update bandit with userPublished=true.
  */
 async function handleVideoPublished(
   event: BrandEvent,
@@ -581,7 +628,9 @@ function validatePersistedEvent(event: BrandEvent, expectedEventId: string): str
 }
 
 function shouldRetryResult(result: { action: string }): boolean {
-  return result.action === 'bandit_failed' || result.action === 'graphiti_failed';
+  return result.action === 'bandit_failed' ||
+    result.action === 'graphiti_failed' ||
+    result.action === 'brand_vault_failed';
 }
 
 // ==================== Export ====================
