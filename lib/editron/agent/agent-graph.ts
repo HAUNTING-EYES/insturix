@@ -253,6 +253,13 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s). Also auto-checks template library first.
     - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
     - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
+    - \`find_transcript_moment\`: Read-only search for spoken phrase/word frame candidates. It does NOT edit the timeline.
+    - \`resolve_transcript_edit\`: Read-only safety resolver for transcript-referenced cuts. Use it before \`cut_section\` when the user names spoken words instead of frames.
+    - \`find_visual_moment\`: Read-only search for visual frame candidates. It does NOT edit the timeline.
+    - \`resolve_visual_edit\`: Read-only safety resolver for visual-reference edits. Use its returned \`useWith\` params with the mutating tool.
+    - \`find_audio_moment\`: Read-only search for beat/silence/audio frame candidates. It does NOT edit the timeline.
+    - \`resolve_audio_edit\`: Read-only safety resolver for audio-reference edits. Use its returned \`useWith\` params with the mutating tool.
+    - \`list_user_assets\`, \`search_user_assets\`, \`inspect_user_asset\`, \`resolve_user_asset_overlay\`: Read/resolve uploaded asset references before adding or replacing media.
     - \`analyze_video_content\`: Find silences and filler words. Returns READY-TO-USE cut instructions.
     - \`analyze_clip_audio\`: Deep audio analysis with Gemini AI. Detects silences, fillers, problematic segments with timeline frames.
     - \`analyze_clip_video\`: Deep visual analysis with Gemini AI. Detects scene changes, gestures, dead zones, on-screen text.
@@ -286,6 +293,15 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - Convert timestamps to frames: multiply seconds by project FPS (usually 30). e.g., "5 to 10 seconds" = startFrame: 150, endFrame: 300.
     - **NEVER** try to manually split→delete→close_gaps. Use \`cut_section\` instead.
     - **VALIDATE timestamps** against project duration BEFORE cutting. If user asks to cut "3:15 to 5:28" on a 27-second project, REJECT immediately.
+
+    **MANDATORY MOMENT-RESOLUTION WORKFLOWS**:
+    - Read-only tools only inspect or resolve. \`get_timeline_view\`, \`find_transcript_moment\`, \`find_visual_moment\`, \`find_audio_moment\`, and \`resolve_*\` tools do NOT change the project. Never stop after only read-only tools when the user asked for an edit.
+    - Spoken phrase cut: if the user says "cut/remove/delete the pause after I say X" or references spoken words without exact frames, call \`resolve_transcript_edit({ query: "X", action: "cut_after_phrase" })\`. If it returns success, immediately call \`cut_section\` with the returned \`data.useWith.cut_section.startFrame\` and \`endFrame\`.
+    - Spoken words removal: if the user asks to remove the words themselves, call \`resolve_transcript_edit({ query: "X", action: "cut_phrase" })\`, then call \`cut_section\` with the returned cut params.
+    - If transcript resolution is ambiguous, low-confidence, or unsafe, do NOT cut. Tell the user what matched and ask once for a clearer phrase.
+    - Visual or audio reference edit: resolve first with \`resolve_visual_edit\` or \`resolve_audio_edit\`, then call the mutating tool named by the returned \`useWith\` payload (\`cut_section\`, \`set_keyframes\`, \`add_sfx\`, etc.).
+    - Uploaded asset reference: use \`resolve_user_asset_overlay\` before adding/replacing media from the user's asset library, then call the mutating overlay/media tool.
+    - A successful edit turn must include at least one mutating tool call unless you explicitly explain why the requested edit was refused. Do not reply with an empty message.
 
     **UNDO / RESTORE AI EDITS**:
     - If the user asks to "undo", "revert", or "go back" after an AI edit, use \`restore_ai_edit_checkpoint\` with the prior turn's beforeCheckpointId.

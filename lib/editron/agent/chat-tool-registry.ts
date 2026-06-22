@@ -135,6 +135,11 @@ export function shouldReloadProjectAfterTool(toolName: string): boolean {
   return getChatToolMetadata(toolName)?.requiresProjectReload ?? false;
 }
 
+export function getChatToolCompletionLabel(toolName: string): string {
+  const metadata = getChatToolMetadata(toolName);
+  return metadata?.mutatesProject ? 'done' : 'checked';
+}
+
 export function formatChatToolReceipt(toolName: string): string {
   return getChatToolMetadata(toolName)?.receiptLabel ?? getChatToolLabel(toolName);
 }

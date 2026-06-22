@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CHAT_TOOL_REGISTRY,
   formatChatToolReceipt,
+  getChatToolCompletionLabel,
   getChatToolMetadata,
   shouldReloadProjectAfterTool,
 } from '@/lib/editron/agent/chat-tool-registry';
@@ -64,6 +65,24 @@ describe('chat tool registry', () => {
     });
   });
 
+  it('uses honest completion labels for read-only versus mutating tools', () => {
+    expect(getChatToolCompletionLabel('get_timeline_view')).toBe('checked');
+    expect(getChatToolCompletionLabel('find_transcript_moment')).toBe('checked');
+    expect(getChatToolCompletionLabel('resolve_transcript_edit')).toBe('checked');
+    expect(getChatToolCompletionLabel('cut_section')).toBe('done');
+    expect(getChatToolCompletionLabel('add_overlay')).toBe('done');
+  });
+
+  it('keeps the live agent prompt wired to resolver-to-mutator workflows', () => {
+    const agentSource = readFileSync(join(process.cwd(), 'lib/editron/agent/agent-graph.ts'), 'utf8');
+
+    expect(agentSource).toContain('MANDATORY MOMENT-RESOLUTION WORKFLOWS');
+    expect(agentSource).toContain('Never stop after only read-only tools when the user asked for an edit');
+    expect(agentSource).toContain('resolve_transcript_edit({ query: "X", action: "cut_after_phrase" })');
+    expect(agentSource).toContain('immediately call');
+    expect(agentSource).toContain('cut_section');
+    expect(agentSource).toContain('A successful edit turn must include at least one mutating tool call');
+  });
   it('has labels and receipt text for registered tools', () => {
     const incomplete = Object.values(CHAT_TOOL_REGISTRY)
       .filter((metadata) => !metadata.label || !metadata.shortLabel || !formatChatToolReceipt(metadata.name))
