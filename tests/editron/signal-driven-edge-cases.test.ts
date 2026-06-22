@@ -112,6 +112,55 @@ describe('constraint-enforcer', () => {
     expect(result.totalChecked).toBe(0);
   });
 
+  it('does not invent SFX for a non-hard-cut transition without explicit SFX intent', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    const decisions: import('@/lib/editron/types/edit-decision').EditDecision[] = [{
+      type: 'transition' as const,
+      frame: 90,
+      confidence: 0.86,
+      source: 'signal-executor:test-boundary',
+      technique: 'technique:transition.zoom_punch',
+      params: { type: 'zoom-punch' },
+    }];
+
+    const result = enforceConstraints(decisions, [], graphIndex!, null, 30);
+
+    expect(decisions.some((decision) => decision.type === 'sfx-trigger')).toBe(false);
+    expect(result.violations.some((violation) =>
+      violation.constraintId === 'constraint:transition.missing_transition_sound'
+    )).toBe(false);
+  });
+
+  it('reports explicit transition SFX intent without auto-inserting fallback SFX', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    const decisions: import('@/lib/editron/types/edit-decision').EditDecision[] = [{
+      type: 'transition' as const,
+      frame: 90,
+      confidence: 0.86,
+      source: 'signal-executor:test-boundary',
+      technique: 'technique:transition.zoom_punch',
+      params: { type: 'zoom-punch', sfxRequired: true },
+    }];
+
+    const result = enforceConstraints(decisions, [], graphIndex!, null, 30);
+    const violation = result.violations.find((item) =>
+      item.constraintId === 'constraint:transition.missing_transition_sound'
+    );
+
+    expect(decisions.some((decision) => decision.type === 'sfx-trigger')).toBe(false);
+    expect(violation).toEqual(expect.objectContaining({
+      autoCorrected: false,
+      correction: expect.stringContaining('SFX planner/provider quality gate'),
+      deduction: 0,
+    }));
+  });
+
   it('shifts cut_mid_word violations to word boundaries', async () => {
     const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
     const { loadGraph } = await import('@/lib/editron/services/graph-query');
