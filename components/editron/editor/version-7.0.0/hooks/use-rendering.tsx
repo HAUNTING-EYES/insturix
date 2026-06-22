@@ -46,6 +46,93 @@ const wait = async (milliSeconds: number) => {
 
 type RenderType = "ssr" | "lambda";
 
+type ActiveRenderRecord = {
+  projectId?: string;
+  renderId?: string;
+  status?: string;
+};
+
+type RenderResumeClaim = {
+  renderId: string;
+  bucketName?: string;
+  createdAt: number;
+};
+
+const RENDER_RESUME_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+function getRenderResumeStorageKey(projectId: string) {
+  return `editron:render-resume:${projectId}`;
+}
+
+function readRenderResumeClaim(projectId: string): RenderResumeClaim | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(getRenderResumeStorageKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<RenderResumeClaim>;
+    if (typeof parsed.renderId !== "string" || !parsed.renderId.trim()) {
+      return null;
+    }
+    if (typeof parsed.createdAt !== "number") {
+      return null;
+    }
+    return {
+      renderId: parsed.renderId,
+      bucketName: typeof parsed.bucketName === "string" ? parsed.bucketName : undefined,
+      createdAt: parsed.createdAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRenderResumeClaim(
+  projectId: string | undefined,
+  renderId: string,
+  bucketName?: string,
+) {
+  if (!projectId || typeof window === "undefined") return;
+
+  try {
+    const claim: RenderResumeClaim = {
+      renderId,
+      bucketName,
+      createdAt: Date.now(),
+    };
+    window.sessionStorage.setItem(
+      getRenderResumeStorageKey(projectId),
+      JSON.stringify(claim),
+    );
+  } catch {
+    // Resume is best-effort only. Never block rendering if storage is unavailable.
+  }
+}
+
+function clearRenderResumeClaim(projectId?: string) {
+  if (!projectId || typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.removeItem(getRenderResumeStorageKey(projectId));
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+export function shouldResumeActiveRender(
+  activeRender: ActiveRenderRecord | null | undefined,
+  claim: RenderResumeClaim | null,
+  projectId: string,
+  now = Date.now(),
+) {
+  if (!activeRender || !claim) return false;
+  if (activeRender.projectId !== projectId) return false;
+  if (activeRender.status !== "rendering") return false;
+  if (activeRender.renderId !== claim.renderId) return false;
+  if (now - claim.createdAt > RENDER_RESUME_MAX_AGE_MS) return false;
+  return true;
+}
+
 // Custom hook to manage video rendering process
 export const useRendering = (
   id: string,
@@ -65,6 +152,9 @@ export const useRendering = (
 
     const checkActiveRender = async () => {
       try {
+        const resumeClaim = readRenderResumeClaim(projectId);
+        if (!resumeClaim) return;
+
         const response = await fetch("/api/services/editron/render/active");
         const json = await response.json();
         
@@ -74,7 +164,7 @@ export const useRendering = (
             (r: any) => r.projectId === projectId && r.status === "rendering"
           );
           
-          if (activeRender) {
+          if (shouldResumeActiveRender(activeRender, resumeClaim, projectId)) {
 
             setState({
               status: "rendering",
@@ -84,6 +174,8 @@ export const useRendering = (
             });
             // Start polling loop
             pollProgress(activeRender.renderId, activeRender.bucketName || "");
+          } else {
+            clearRenderResumeClaim(projectId);
           }
         }
       } catch (err) {
@@ -101,6 +193,7 @@ export const useRendering = (
           
           switch (result.type) {
             case "error":
+              clearRenderResumeClaim(projectId);
               setState({
                 status: "error",
                 renderId,
@@ -109,6 +202,7 @@ export const useRendering = (
               pending = false;
               break;
             case "done":
+              clearRenderResumeClaim(projectId);
               setState({
                 size: result.size,
                 url: result.url,
@@ -127,6 +221,7 @@ export const useRendering = (
           }
         } catch (err) {
           console.error("Error polling progress:", err);
+          clearRenderResumeClaim(projectId);
           pending = false;
         }
       }
@@ -153,10 +248,13 @@ export const useRendering = (
       const renderId = response.renderId;
       const bucketName =
         "bucketName" in response ? response.bucketName : undefined;
+      const normalizedBucketName =
+        typeof bucketName === "string" ? bucketName : undefined;
 
       // Check if render is already complete (synchronous Cloud Run)
       if ("publicUrl" in response && response.publicUrl) {
 
+        clearRenderResumeClaim(projectId);
         setState({
           status: "done",
           url: response.publicUrl as string,
@@ -174,8 +272,9 @@ export const useRendering = (
         status: "rendering",
         progress: 0,
         renderId,
-        bucketName: typeof bucketName === "string" ? bucketName : undefined,
+        bucketName: normalizedBucketName,
       });
+      writeRenderResumeClaim(projectId, renderId, normalizedBucketName);
 
       let pending = true;
 
@@ -183,6 +282,7 @@ export const useRendering = (
         // Check if cancelled
         if (cancelledRef.current) {
           console.log('[Render] Cancelled by user');
+          clearRenderResumeClaim(projectId);
           setState({ status: "init" });
           pending = false;
           break;
@@ -190,12 +290,13 @@ export const useRendering = (
 
         const result = await getProgress({
           id: renderId,
-          bucketName: typeof bucketName === "string" ? bucketName : "",
+          bucketName: normalizedBucketName ?? "",
         });
 
         switch (result.type) {
           case "error": {
             console.error(`Render error: ${result.message}`);
+            clearRenderResumeClaim(projectId);
             setState({
               status: "error",
               renderId: renderId,
@@ -208,6 +309,7 @@ export const useRendering = (
             console.log(
               `Render complete: url=${result.url}, size=${result.size}`
             );
+            clearRenderResumeClaim(projectId);
             setState({
               size: result.size,
               url: result.url,
@@ -229,6 +331,7 @@ export const useRendering = (
       }
     } catch (err) {
       console.error("Unexpected error during rendering:", err);
+      clearRenderResumeClaim(projectId);
       setState({
         status: "error",
         error: new Error(getUserFriendlyErrorMessage(err)),
@@ -239,14 +342,16 @@ export const useRendering = (
 
   // Reset the rendering state back to initial
   const undo = useCallback(() => {
+    clearRenderResumeClaim(projectId);
     setState({ status: "init" });
-  }, []);
+  }, [projectId]);
 
   // Cancel an in-progress render
   const cancelRender = useCallback(() => {
     cancelledRef.current = true;
+    clearRenderResumeClaim(projectId);
     setState({ status: "init" });
-  }, []);
+  }, [projectId]);
 
   // Return memoized values to prevent unnecessary re-renders
   return useMemo(

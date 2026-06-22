@@ -180,6 +180,14 @@ export function shouldUseChapterRendering(totalFrames: number): boolean {
   return totalFrames > CHAPTER_SPLIT_THRESHOLD;
 }
 
+function chapterProgressErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isTerminalChapterProgressError(message: string): boolean {
+  return /specified bucket does not exist|NoSuchBucket/i.test(message);
+}
+
 /**
  * Start a chapter-based render job.
  * Splits the composition, starts parallel Lambda renders,
@@ -377,7 +385,24 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
           );
         }
       } catch (err: unknown) {
-        console.warn('[ChapterRenderer] progress check failed (non-fatal):', err instanceof Error ? err.message : err);
+        const message = chapterProgressErrorMessage(err);
+        if (isTerminalChapterProgressError(message)) {
+          console.warn('[ChapterRenderer] progress check failed (terminal):', message);
+          chapterStatus = 'failed';
+          chapterError = message;
+          await db.collection(CHAPTERS_COLLECTION).updateOne(
+            { _id: jobId, 'chapters.index': chapter.index } as any,
+            {
+              $set: {
+                'chapters.$.status': 'failed',
+                'chapters.$.error': message,
+                updatedAt: new Date(),
+              },
+            },
+          );
+        } else {
+          console.warn('[ChapterRenderer] progress check failed (non-fatal):', message);
+        }
       }
     }
 
