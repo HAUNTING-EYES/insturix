@@ -657,7 +657,7 @@ describe('Brand Vault draft orchestrator', () => {
         },
         websiteOcrProvider: {
           async readTextFromImage(input) {
-            ocrImageUrls.push(input.imageUrl);
+            ocrImageUrls.push(input.imageUrl ?? '');
             return { text: 'Daily Barrier Serum\nDaily skincare essentials for sensitive skin.' };
           },
         },

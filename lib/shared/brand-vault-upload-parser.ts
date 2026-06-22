@@ -1,5 +1,6 @@
 import { inflateRawSync, inflateSync } from 'node:zlib';
 import type { BrandVaultSourceInput, BrandVaultUploadedAssetRole } from './brand-website-refinery-types';
+import { createBrandVaultGeminiSocialOcrProvider, type BrandVaultSocialOcrProvider } from './brand-vault-social-ocr';
 
 export type BrandVaultUploadParsedSource = BrandVaultSourceInput & {
   kind: 'uploaded_guideline' | 'uploaded_asset';
@@ -42,12 +43,15 @@ const LEGACY_OFFICE_EXTENSIONS = new Set(['doc', 'ppt']);
 
 export async function extractBrandVaultUploadEvidenceFromBuffer(
   input: BrandVaultUploadParserInput,
+  options: { ocrProvider?: BrandVaultSocialOcrProvider | null } = {},
 ): Promise<BrandVaultUploadParserResult> {
   const name = input.name.trim() || 'brand-upload';
   const mimeType = input.mimeType?.trim() || undefined;
   const extension = fileExtension(name);
   const warnings: string[] = [];
   let evidence: ParsedUploadEvidence = {};
+  // Env-gated by BRAND_VAULT_SOCIAL_OCR_ENABLED (returns null when off); tests inject a mock.
+  const ocrProvider = options.ocrProvider === undefined ? createBrandVaultGeminiSocialOcrProvider() : options.ocrProvider;
 
   if (isTextUpload(name, mimeType)) {
     if (input.buffer.byteLength <= MAX_TEXT_FILE_BYTES) {
@@ -76,6 +80,16 @@ export async function extractBrandVaultUploadEvidenceFromBuffer(
       });
     } catch {
       warnings.push(`${name}: image colors could not be sampled on the server.`);
+    }
+    if (ocrProvider) {
+      const ocr = await ocrProvider.readTextFromImage({
+        imageBase64: input.buffer.toString('base64'),
+        mimeType: mimeType ?? `image/${extension === 'jpg' ? 'jpeg' : extension}`,
+        sourceKind: 'upload',
+        sourceUrl: name,
+      });
+      if (ocr.text) evidence = mergeEvidence(evidence, { text: ocr.text });
+      if (ocr.warning) warnings.push(ocr.warning);
     }
   }
 

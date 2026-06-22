@@ -76,7 +76,7 @@ describe('Brand Vault connected social ingestion', () => {
       fetchFn,
       ocrProvider: {
         async readTextFromImage(input) {
-          ocrImageUrls.push(input.imageUrl);
+          ocrImageUrls.push(input.imageUrl ?? '');
           return { text: 'Limited beta\nBook a demo from the thumbnail.' };
         },
       },
@@ -332,7 +332,7 @@ describe('Brand Vault connected social ingestion', () => {
       }),
       ocrProvider: {
         async readTextFromImage(input) {
-          ocrImageUrls.push(input.imageUrl);
+          ocrImageUrls.push(input.imageUrl ?? '');
           return { text: 'Stop losing brand consistency between strategy and delivery.' };
         },
       },
