@@ -5,6 +5,7 @@ import {
   getDefaultBrandVaultRefineryStore,
   reviewBrandVaultSignalProfileDraft,
 } from '@/lib/shared/brand-vault-refinery-api';
+import { emitBrandEvent } from '@/lib/shared/brand-events';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,5 +47,24 @@ export async function PATCH(
     { userId, recordId: id, actorId: userId, body },
     { store: getDefaultBrandVaultRefineryStore() },
   );
+
+  if (result.body.ok && result.body.learningEvents.length > 0) {
+    await emitBrandEvent({
+      userId,
+      brandId: result.body.record.profile.brandId,
+      service: 'brand_vault',
+      type: 'brand_updated',
+      payload: {
+        source: 'brand_vault_review_acceptance',
+        recordId: result.body.record.id,
+        acceptedAt: result.body.record.review.acceptedAt,
+        learningEvents: result.body.learningEvents,
+      },
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[BrandVault] Reviewed learning event emit failed:', message);
+    });
+  }
+
   return NextResponse.json(result.body, { status: result.status });
 }

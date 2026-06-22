@@ -2121,6 +2121,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(accepted.body.job?.status).toBe('accepted');
     expect(accepted.body.reviewPayload?.reviewRequired).toBe(false);
     expect(accepted.body.reviewPayload?.intake.nextActions.map((action) => action.id)).not.toContain('review_candidates');
+    expect(accepted.body.learningEvents).toEqual([]);
 
     const rejectedDraft = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },
@@ -2144,6 +2145,65 @@ describe('Brand Vault refinery API boundary', () => {
     expect(rejected.body.record.status).toBe('rejected');
     expect(rejected.body.job?.status).toBe('rejected');
     expect(rejected.body.record.review.rejectionReason).toBe('Wrong client site.');
+    expect(rejected.body.learningEvents).toEqual([]);
+  });
+
+  it('returns reviewed Brand Vault learning events when accepted signal edits change values', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const accepted = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        actorId: 'brand_manager_1',
+        body: {
+          action: 'accept',
+          signalEdits: [{ path: 'identity.category', value: 'creative operations platform' }],
+        },
+        now: '2026-06-09T06:25:00.000Z',
+      },
+      { store },
+    );
+
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.ok).toBe(true);
+    if (!accepted.body.ok) throw new Error(accepted.body.error.message);
+    expect(accepted.body.record.profile.identity.category.value).toBe('creative operations platform');
+    expect(accepted.body.learningEvents).toHaveLength(1);
+
+    const event = accepted.body.learningEvents[0];
+    if (!event) throw new Error('Expected reviewed learning event.');
+    expect(event).toMatchObject({
+      version: 1,
+      service: 'brand_vault',
+      signalPath: 'identity.category',
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+      observedAt: '2026-06-09T06:25:00.000Z',
+      actorId: 'brand_manager_1',
+      context: {
+        userId: 'user_vault',
+        brandId: 'brand_vaultline',
+        sourceId: created.body.record.id,
+      },
+      afterValue: 'creative operations platform',
+      observedValue: 'creative operations platform',
+      learningWeight: {
+        category: 'invented',
+        service: 'brand_vault',
+        editType: 'direct_review_edit',
+        scope: 'brand',
+        polarity: 'replace',
+        signalClass: 'strategic_identity',
+      },
+    });
+    expect(event.learningWeight.value).toBeGreaterThan(0.8);
   });
 
   it('returns deterministic errors for invalid input, fetch failure, and bad review actions', async () => {

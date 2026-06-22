@@ -18,7 +18,8 @@ export type BrandEventService =
   | 'alyzitron'
   | 'clickatron'
   | 'musitron'
-  | 'uploaderx';
+  | 'uploaderx'
+  | 'brand_vault';
 
 export type BrandEventType =
   | 'script_generated'

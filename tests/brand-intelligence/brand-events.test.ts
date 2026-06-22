@@ -16,7 +16,8 @@ type BrandEventService =
   | 'alyzitron'
   | 'clickatron'
   | 'musitron'
-  | 'uploaderx';
+  | 'uploaderx'
+  | 'brand_vault';
 
 type BrandEventType =
   | 'script_generated'
@@ -39,13 +40,14 @@ const HANDLED_EVENT_TYPES: BrandEventType[] = [
   'video_rendered',
   'quality_reviewed',
   'brand_updated',
+  'user_override',
   'video_published',
   'thumbnail_created',
 ];
 
 const ALL_SERVICES: BrandEventService[] = [
   'thinkforge', 'editron', 'pipeline',
-  'alyzitron', 'clickatron', 'musitron', 'uploaderx',
+  'alyzitron', 'clickatron', 'musitron', 'uploaderx', 'brand_vault',
 ];
 
 const ALL_EVENT_TYPES: BrandEventType[] = [
@@ -71,8 +73,8 @@ describe('Brand Events', () => {
       expect(ALL_EVENT_TYPES).toHaveLength(13);
     });
 
-    it('has 7 services', () => {
-      expect(ALL_SERVICES).toHaveLength(7);
+    it('has 8 services', () => {
+      expect(ALL_SERVICES).toHaveLength(8);
     });
 
     it('no duplicate event types', () => {
@@ -87,8 +89,8 @@ describe('Brand Events', () => {
   });
 
   describe('worker handler coverage', () => {
-    it('handles the 6 key event types with real logic', () => {
-      expect(HANDLED_EVENT_TYPES).toHaveLength(6);
+    it('handles the 7 key event types with real logic', () => {
+      expect(HANDLED_EVENT_TYPES).toHaveLength(7);
     });
 
     it('all handled types are valid event types', () => {
@@ -112,6 +114,7 @@ describe('Brand Events', () => {
     it('brand-learning events are all handled', () => {
       const learningEvents: BrandEventType[] = [
         'brand_updated',
+        'user_override',
         'thumbnail_created',
       ];
       for (const type of learningEvents) {
@@ -123,7 +126,7 @@ describe('Brand Events', () => {
       const unhandled = ALL_EVENT_TYPES.filter(
         (t) => !HANDLED_EVENT_TYPES.includes(t),
       );
-      expect(unhandled.length).toBe(7);
+      expect(unhandled.length).toBe(6);
       expect(unhandled).toContain('script_generated');
       expect(unhandled).toContain('status_changed');
       expect(unhandled).toContain('project_created');

@@ -1,7 +1,8 @@
 import type { BrandSignalProfile } from './brand-signal-profile';
-import type {
-  BrandSignalLifecycleOptions,
-  BrandSignalProfileRecord,
+import {
+  collectBrandSignals,
+  type BrandSignalLifecycleOptions,
+  type BrandSignalProfileRecord,
 } from './brand-signal-lifecycle';
 import {
   createInMemoryBrandSignalProfileRepository,
@@ -36,6 +37,10 @@ import type {
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 import { createBrandVaultMongoRefineryStoreFromEnvironment } from './brand-vault-mongo-store';
+import {
+  createBrandSignalLearningEvent,
+  type BrandSignalLearningEvent,
+} from './brand-signal-edit-weighting';
 
 export type BrandVaultSourceEvidenceProviderResult = {
   sourceEvidence?: BrandVaultSourceInput[];
@@ -191,6 +196,7 @@ export type ReviewBrandVaultSignalProfileSuccessBody = {
   job: BrandRefineryJob | null;
   reviewPayload: BrandVaultWebsiteDraftReviewPayload | null;
   superseded: BrandSignalProfileRecord[];
+  learningEvents: BrandSignalLearningEvent[];
 };
 
 const DEFAULT_REFINERY_JOB_STALE_AFTER_MS = 10 * 60 * 1000;
@@ -770,6 +776,14 @@ export async function reviewBrandVaultSignalProfileDraft(
   }
 
   const status = action === 'accept' ? 'accepted' : 'rejected';
+  const learningEvents = action === 'accept'
+    ? createReviewedSignalEditLearningEvents({
+        beforeRecord: record,
+        afterRecord: result.record,
+        signalEdits: parsedSignalEdits.value,
+        options,
+      })
+    : [];
   const snapshot = await dependencies.store.updateJobStatusForRecord(args.recordId, status, options);
   return {
     status: 200,
@@ -779,8 +793,81 @@ export async function reviewBrandVaultSignalProfileDraft(
       job: snapshot?.job ?? null,
       reviewPayload: snapshot?.reviewPayload ?? null,
       superseded: result.superseded,
+      learningEvents,
     },
   };
+}
+
+function createReviewedSignalEditLearningEvents(args: {
+  beforeRecord: BrandSignalProfileRecord;
+  afterRecord: BrandSignalProfileRecord;
+  signalEdits: BrandVaultSignalValueEdit[];
+  options: BrandSignalLifecycleOptions;
+}): BrandSignalLearningEvent[] {
+  const edits = normalizeReviewedLearningEdits(args.signalEdits);
+  if (edits.length === 0) return [];
+
+  const beforeSignals = new Map(
+    collectBrandSignals(args.beforeRecord.profile).map((entry) => [entry.path, entry.signal]),
+  );
+  const afterSignals = new Map(
+    collectBrandSignals(args.afterRecord.profile).map((entry) => [entry.path, entry.signal]),
+  );
+  const observedAt = args.options.now ?? new Date().toISOString();
+  const learningEvents: BrandSignalLearningEvent[] = [];
+
+  for (const edit of edits) {
+    const beforeSignal = beforeSignals.get(edit.path);
+    const afterSignal = afterSignals.get(edit.path);
+    if (!afterSignal) continue;
+
+    const beforeValue = beforeSignal?.value;
+    const afterValue = afterSignal.value;
+    if (stableLearningValueKey(beforeValue) === stableLearningValueKey(afterValue)) continue;
+
+    learningEvents.push(createBrandSignalLearningEvent({
+      service: 'brand_vault',
+      signalPath: edit.path,
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+      observedAt,
+      actorId: args.options.actorId,
+      context: {
+        userId: args.afterRecord.profile.userId ?? args.beforeRecord.profile.userId,
+        brandId: args.afterRecord.profile.brandId ?? args.beforeRecord.profile.brandId,
+        sourceId: args.beforeRecord.id,
+      },
+      beforeValue,
+      afterValue,
+      observedValue: afterValue,
+      note: 'Brand Vault review accepted this manual signal edit.',
+    }));
+  }
+
+  return learningEvents;
+}
+
+function normalizeReviewedLearningEdits(edits: BrandVaultSignalValueEdit[]): BrandVaultSignalValueEdit[] {
+  const byPath = new Map<string, BrandVaultSignalValueEdit>();
+  for (const edit of edits) {
+    const path = edit.path.trim();
+    if (!path) continue;
+    byPath.set(path, { path, value: edit.value });
+  }
+  return [...byPath.values()].slice(0, 100);
+}
+
+function stableLearningValueKey(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map(stableLearningValueKey).join(',')}]`;
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableLearningValueKey(record[key])}`)
+    .join(',')}}`;
 }
 
 async function acceptDraft(
