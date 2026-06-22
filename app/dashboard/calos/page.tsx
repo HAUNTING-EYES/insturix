@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Calendar from '@/components/dashboard/ThinkForge/Calendar';
 import { useCalosDeliverables } from './hooks/useCalosDeliverables';
+import CampaignBar from './CampaignBar';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -45,7 +46,7 @@ export default function CalosPage() {
     };
   }, []);
 
-  const { cards, createCard, updateCard, deleteCard } = useCalosDeliverables(brandId);
+  const { cards, createCard, updateCard, deleteCard, refresh } = useCalosDeliverables(brandId);
 
   const selectBrand = (id: string) => {
     setBrandId(id);
@@ -89,6 +90,7 @@ export default function CalosPage() {
               ))}
             </select>
           )}
+          {brandId && <CampaignBar brandId={brandId} onAutoFilled={refresh} />}
         </div>
       </div>
 
