@@ -342,6 +342,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
           bucketName: chapterBucketName,
           region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
           functionName: process.env.REMOTION_LAMBDA_FUNCTION_NAME || '',
+          skipLambdaInvocation: true,
         });
 
         progress = renderProgress.overallProgress || 0;
