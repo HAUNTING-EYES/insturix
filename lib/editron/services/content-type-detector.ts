@@ -7,10 +7,8 @@
  * Vision doc mandate: "LLMs for understanding. Rules for decisions."
  * This is a decision — deterministic, same input = same output.
  *
- * Output drives:
- *   - Silence removal thresholds (aggressive for talking-head, conservative for documentary)
- *   - Profile selection (C-08 for vlog, C-02 for tutorial, etc.)
- *   - Pacing rules from creative doc v2 §3
+ * Output labels are metadata only. Silence thresholds are resolved from measured
+ * speech and pause signals below.
  */
 
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
@@ -25,7 +23,7 @@ export interface ContentTypeDetection {
   confidence: number;
   /** Signals that contributed to the detection */
   signals: string[];
-  /** Silence removal thresholds for this content type */
+  /** Silence removal thresholds derived from speech and pause signals */
   silenceThreshold: {
     removeAboveMs: number;
     shortenRangeMs: [number, number];
@@ -51,7 +49,7 @@ interface TranscriptFeatures {
 }
 
 // D-016: CONTENT_TYPE_TO_PROFILE mapping removed — signal system + Utility AI drive editing decisions.
-// Content type is still detected and returned for creative brief context + silence thresholds.
+// Content type is still detected and returned as metadata/brief context only.
 
 // ─── Feature Extraction ──────────────────────────────────────────
 
@@ -261,10 +259,7 @@ export function detectContentType(
   const features = extractFeatures(words, videoDurationSec, FILLER_SET);
   const { type, confidence, signals } = classify(features, userIntent);
 
-  // Get silence threshold for this content type
-  const config = DEFAULT_CONFIG.rawFootage;
-  const silenceThreshold = config.silenceThresholdByContentType[type]
-    || config.silenceThresholdByContentType['talking-head']; // safe fallback
+  const silenceThreshold = silenceThresholdFromSignals(features);
 
   console.log(`[ContentType] Detected: ${type} (confidence=${confidence.toFixed(2)}) | ${signals.join(', ')}`);
 
@@ -274,4 +269,26 @@ export function detectContentType(
     signals,
     silenceThreshold,
   };
+}
+
+function silenceThresholdFromSignals(features: TranscriptFeatures): ContentTypeDetection['silenceThreshold'] {
+  const config = DEFAULT_CONFIG.rawFootage;
+  if (features.speechCoverage < 0.05) {
+    return { removeAboveMs: 4000, shortenRangeMs: [2000, 4000], shortenTargetMs: 800 };
+  }
+
+  if (features.longPauseCount >= 3 && features.durationSec > 120) {
+    return { removeAboveMs: 2500, shortenRangeMs: [1000, 2500], shortenTargetMs: 500 };
+  }
+
+  if (features.speechCoverage >= config.speechHeavyCoverageThreshold) {
+    if (features.fillerRate >= config.casualFillerRateThreshold || features.avgWordGapMs < 280 || features.wpm > 175) {
+      return { removeAboveMs: 1200, shortenRangeMs: [600, 1200], shortenTargetMs: 250 };
+    }
+    if (features.wpm >= 120 && features.wpm <= 160 && features.fillerRate < 0.03) {
+      return { removeAboveMs: 1500, shortenRangeMs: [800, 1500], shortenTargetMs: 300 };
+    }
+  }
+
+  return { removeAboveMs: 1500, shortenRangeMs: [800, 1500], shortenTargetMs: 300 };
 }

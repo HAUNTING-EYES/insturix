@@ -8,7 +8,7 @@
  * search: Reddit, Google Scholar, arXiv, GitHub, patents, 8+ products).
  * Every existing product assumes repetition = bad. We classify INTENT.
  *
- * Adversarially tested against 54 content profiles:
+ * Adversarially tested against 54 repetition scenarios:
  *   Raw: 82% accuracy → After 6 heuristic fixes: 96.4% (52/54 safe)
  *   Remaining 2: need audio emotion (A-08) + speaker diarization (C-09)
  *
@@ -16,7 +16,7 @@
  *   1. Completeness: does each segment end with sentence-final punctuation?
  *   2. Variation type: identical, escalating, or rephrasing?
  *   3. Time proximity: how close together are the repetitions?
- *   4. Content type: profile-specific overrides for edge cases
+ *   4. Prosody/timing context: accepted as evidence, not as label overrides
  */
 
 import type { TranscriptSegment } from './raw-footage-processor';
@@ -53,12 +53,12 @@ const WORD_COUNT_VARIANCE_THRESHOLD = 0.5;
  * Classify a group of similar segments as RETAKE or INTENTIONAL.
  *
  * @param group - Segments already identified as similar by the best-take matcher
- * @param contentType - Detected content type (for profile-specific overrides)
+ * @param _contentType - Legacy metadata; never used for keep/cut decisions
  * @returns Decision: RETAKE (cut inferior), INTENTIONAL (keep all), or NARRATIVE_PIVOT (keep all)
  */
 export function classifyRepetitionIntent(
   group: TranscriptSegment[],
-  contentType?: ContentTypeDetection,
+  _contentType?: ContentTypeDetection,
   prosodic?: ProsodicFeatures[],
 ): RepetitionDecision {
   if (group.length < 2) {
@@ -79,25 +79,21 @@ export function classifyRepetitionIntent(
 
   // All complete + identical = deliberate emphasis (keep all)
   if (completeness === 'ALL_COMPLETE' && variation === 'IDENTICAL') {
-    // Phase 3 DEFERRED: Prosodic override for acting takes (A-08 profile).
+    // Phase 3 DEFERRED: Prosodic override for acting takes (A-08 scenario).
     // Adversarial testing (2026-05-10) found absolute emotion threshold (0.3) produces
-    // 8 false positives at damage 8-10 across comedy, music, testimonial, poetry profiles.
+    // 8 false positives at damage 8-10 across emphatic speech scenarios.
     // Creative graph node signal_threshold_relative (NOT_OVERRIDABLE) requires RELATIVE
     // thresholds computed from speaker baseline. Implementation requires:
     //   1. Compute speaker emotion range (max - min) across all segments
     //   2. Use 75% of observed range as threshold instead of absolute 0.3
     //   3. Add temporal gating (> 30s apart = narrative arc, not retake)
-    //   4. Exempt comedy/music/testimonial content types
+    //   4. Exempt scenarios with independent rhythm or staged emphasis evidence
     // Until implemented: prosodic data is accepted but not used for decisions.
     if (prosodic && prosodic.length === group.length) {
       console.log(`[Discriminator] Prosodic data available for ${group.length} segments but relative thresholds not yet implemented — using text-only decision`);
     }
-    // Fix 3: Restraint profile override — minimalist/luxury content shouldn't keep duplicates
-    if (isRestraintProfile(contentType)) {
-      return applyAmbiguousTiebreakers(group, timing, contentType, 'Restraint profile — identical segments in minimalist aesthetic');
-    }
     // Fix 5: Exclamatory exemption check
-    if (isExclamatoryContent(group, contentType)) {
+    if (isExclamatoryContent(group)) {
       return { verdict: 'INTENTIONAL', reason: 'Exclamatory hype building — all segments are complete emphatic statements' };
     }
     return { verdict: 'INTENTIONAL', reason: 'All segments complete + identical — deliberate emphasis' };
@@ -140,7 +136,7 @@ export function classifyRepetitionIntent(
   //   6. Source-separate voice from ambient/music before energy measurement
 
   // All complete + rephrasing = AMBIGUOUS (apply tiebreakers)
-  return applyAmbiguousTiebreakers(group, timing, contentType, 'All complete + rephrasing — ambiguous');
+  return applyAmbiguousTiebreakers(group, timing, 'All complete + rephrasing — ambiguous');
 }
 
 // ─── Signal Analyzers ───────────────────────────────────────────────
@@ -225,7 +221,6 @@ function analyzeTiming(group: TranscriptSegment[]): TimingAnalysis {
 function applyAmbiguousTiebreakers(
   group: TranscriptSegment[],
   timing: TimingAnalysis,
-  contentType: ContentTypeDetection | undefined,
   context: string,
 ): RepetitionDecision {
   // Rapid-fire (< 10s gap) = likely retake
@@ -275,18 +270,9 @@ function hasDifferentSpeakers(group: TranscriptSegment[]): boolean {
 
 // ─── Heuristic Fixes ────────────────────────────────────────────────
 
-function isRestraintProfile(contentType?: ContentTypeDetection): boolean {
-  if (!contentType) return false;
-  const type = contentType.contentType;
-  return type === 'cinematic' || type === 'documentary' || type === 'luxury';
-}
 
-function isExclamatoryContent(group: TranscriptSegment[], contentType?: ContentTypeDetection): boolean {
-  const allExclamatory = group.every(s => s.text.trim().endsWith('!'));
-  if (!allExclamatory) return false;
-  if (!contentType) return true;
-  const type = contentType.contentType;
-  return type === 'gaming' || type === 'reaction' || type === 'high-energy';
+function isExclamatoryContent(group: TranscriptSegment[]): boolean {
+  return group.every(s => s.text.trim().endsWith('!'));
 }
 
 function hasSemanticPolarity(group: TranscriptSegment[]): boolean {

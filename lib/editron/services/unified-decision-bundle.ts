@@ -494,7 +494,7 @@ export function normalizeUnifiedPlannerCandidates(
 
   for (const producerCandidate of orderProducerCandidates(candidates)) {
     const rawEdl = normalizeEdl(producerCandidate.edl);
-    const decisions = rawEdl.decisions.map(cloneDecision);
+    const decisions = cloneDecisions(rawEdl.decisions);
     const signalBudgets = producerCandidate.source === 'signal-driven'
       ? buildSignalExecutionBudgets(decisions)
       : {};
@@ -679,10 +679,10 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   const orderedProducerCandidates = orderProducerCandidates(candidates);
   const creativeDecisions = orderedProducerCandidates
     .filter((candidate) => candidate.source === 'creative-brief')
-    .flatMap((candidate) => normalizeEdl(candidate.edl).decisions.map(cloneDecision));
+    .flatMap((candidate) => normalizeEdl(candidate.edl).decisions);
   const rawSignalDecisions = orderedProducerCandidates
     .filter((candidate) => candidate.source === 'signal-driven')
-    .flatMap((candidate) => normalizeEdl(candidate.edl).decisions.map(cloneDecision));
+    .flatMap((candidate) => normalizeEdl(candidate.edl).decisions);
   const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(rawSignalDecisions, creativeDecisions);
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const signalDecisionAudit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
@@ -809,15 +809,15 @@ export function mergeSignalDrivenBundle(
 
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
   const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(
-    signalEdl.decisions.map(cloneDecision),
+    cloneDecisions(signalEdl.decisions),
     primaryBundle.edl.decisions,
   );
   const resolvedIncomingProducer = incomingProducer
     ?? inferIncomingProducer(signalDecisions, primaryBundle.source);
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const primaryProducer = resolveProducerForPlan(primaryBundle);
-  const mergedDecisionEntries = primaryBundle.edl.decisions.map((decision) => toPlannedDecision({
-    decision: cloneDecision(decision),
+  const mergedDecisionEntries = cloneDecisions(primaryBundle.edl.decisions).map((decision) => toPlannedDecision({
+    decision,
     source: primaryProducer,
   }));
   let addedSignalDecisionCount = 0;
@@ -4423,7 +4423,7 @@ function readMergeMetadata(decision: ReactiveEditDecision): Record<string, unkno
 }
 
 function normalizeEdl(edl: CompatibleEditDecisionList): ReactiveEditDecisionList {
-  const decisions = edl.decisions.map(cloneDecision);
+  const decisions = cloneDecisions(edl.decisions);
   return {
     ...edl,
     projectId: edl.projectId ?? 'unknown-project',
@@ -4443,8 +4443,14 @@ function normalizeEdl(edl: CompatibleEditDecisionList): ReactiveEditDecisionList
   };
 }
 
-function cloneDecision(decision: CompatibleEditDecision): ReactiveEditDecision {
+function cloneDecisions(decisions: CompatibleEditDecision[]): ReactiveEditDecision[] {
+  return decisions
+    .map(cloneDecision)
+    .filter((decision): decision is ReactiveEditDecision => Boolean(decision));
+}
+function cloneDecision(decision: CompatibleEditDecision): ReactiveEditDecision | null {
   const normalizedDecision = normalizeLegacyDecisionType(decision);
+  if (!normalizedDecision) return null;
   const confidence = clamp01(normalizedDecision.confidence ?? 0);
   return {
     ...normalizedDecision,
@@ -4460,7 +4466,7 @@ function cloneDecision(decision: CompatibleEditDecision): ReactiveEditDecision {
   } as ReactiveEditDecision;
 }
 
-function normalizeLegacyDecisionType(decision: CompatibleEditDecision): CompatibleEditDecision {
+function normalizeLegacyDecisionType(decision: CompatibleEditDecision): CompatibleEditDecision | null {
   const params = { ...(decision.params ?? {}) };
 
   if (decision.type === 'slow-motion') {
@@ -4477,28 +4483,13 @@ function normalizeLegacyDecisionType(decision: CompatibleEditDecision): Compatib
   }
 
   if (decision.type === 'filter') {
-    const filterId = legacyStringParam(params.filterId)
-      ?? legacyStringParam(params.filterPresetId)
-      ?? legacyStringParam(params.filterPreset);
-    return {
-      ...decision,
-      type: 'filter-change',
-      params: {
-        ...params,
-        ...(filterId ? { filterId } : {}),
-        legacyDecisionType: 'filter',
-      },
-    };
+    return null;
   }
 
   return decision;
 }
 
-function legacyStringParam(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+
 
 function priorityFromConfidence(confidence: number): number {
   if (confidence > 0.8) return 2;

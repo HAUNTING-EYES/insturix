@@ -61,6 +61,51 @@ function densityFromGenreParams(graphicDensity: number | undefined): 'heavy' | '
   return 'heavy';
 }
 
+function densityFromSignalsOrNeutral(genreParams: { graphic_density?: number } | undefined | null): 'heavy' | 'moderate' | 'minimal' {
+  return densityFromGenreParams(genreParams?.graphic_density) ?? 'moderate';
+}
+
+function targetCutsPerMinuteFromGenreParams(genreParams: { pacing_tolerance?: number } | undefined | null): number {
+  const pacingToleranceSec = genreParams?.pacing_tolerance;
+  if (typeof pacingToleranceSec !== 'number' || !Number.isFinite(pacingToleranceSec) || pacingToleranceSec <= 0) return 6;
+  return Math.max(2, Math.min(18, 60 / pacingToleranceSec));
+}
+
+function pacingFromRawFootageSignals(rawFootage: any): 'fast' | 'medium' {
+  const speechCoverage = typeof rawFootage?.speechCoverage === 'number'
+    ? rawFootage.speechCoverage
+    : computeSpeechCoverageFromSegments(rawFootage);
+  const avgWordGapMs = averageRawFootageSegmentNumber(rawFootage?.segments, 'avgWordGapMs');
+
+  if (speechCoverage >= 0.72 && (avgWordGapMs === undefined || avgWordGapMs < 350)) return 'fast';
+  return 'medium';
+}
+
+function computeSpeechCoverageFromSegments(rawFootage: any): number {
+  const durationMs = typeof rawFootage?.originalDurationMs === 'number' ? rawFootage.originalDurationMs : 0;
+  if (!durationMs || !Array.isArray(rawFootage?.segments)) return 0;
+  const speechMs = rawFootage.segments.reduce((sum: number, segment: any) => {
+    const startMs = typeof segment?.startMs === 'number' ? segment.startMs : 0;
+    const endMs = typeof segment?.endMs === 'number' ? segment.endMs : startMs;
+    return sum + Math.max(0, endMs - startMs);
+  }, 0);
+  return Math.max(0, Math.min(1, speechMs / durationMs));
+}
+
+function averageRawFootageSegmentNumber(segments: unknown, key: string): number | undefined {
+  if (!Array.isArray(segments) || segments.length === 0) return undefined;
+  let total = 0;
+  let count = 0;
+  for (const segment of segments) {
+    if (!segment || typeof segment !== 'object') continue;
+    const value = (segment as Record<string, unknown>)[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    total += value;
+    count += 1;
+  }
+  return count > 0 ? total / count : undefined;
+}
+
 function summarizeUnifiedDecisionBundle(bundle: UnifiedDecisionBundle, executionResult?: ExecutionResult) {
   const byType: Record<string, number> = {};
   for (const decision of bundle.edl.decisions) {
@@ -389,7 +434,7 @@ export async function executeDirectorPlan(
             cameraDirection: 'static',
             editDirections: {
               transition: undefined,
-              pacing: rfa.contentTypeDetection?.contentType === 'vlog' ? 'fast' : 'medium',
+              pacing: pacingFromRawFootageSignals(rfa),
               onScreenText: [],
             },
           }));
@@ -690,12 +735,20 @@ export async function executeDirectorPlan(
           let routingThresholds = DEFAULT_ROUTING_THRESHOLDS;
           try {
             const { loadThresholdBanditState, sampleThresholdAdjustments, getEffectiveThreshold } = await import('@/lib/editron/services/threshold-bandit');
-            const { buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
+            const { averageSignalValue, buildSignalBucket, buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
             const banditState = await loadThresholdBanditState(userId);
             if (banditState) {
+              const speechCoverage = rfa.speechCoverage ?? 0;
               const banditContext = {
-                contentType: rfa.contentTypeDetection?.contentType || 'unknown',
-                speechCoverageBucket: buildSpeechCoverageBucket(rfa.speechCoverage ?? 0),
+                signalBucket: buildSignalBucket({
+                  speechCoverage,
+                  speechEnergy: averageSignalValue(projectDoc.wav2vecAnalysis?.segments, 'energy'),
+                  motionIntensity: averageSignalValue(projectDoc.vjepaAnalysis?.segments, 'motionIntensity'),
+                  visualSignificance: averageSignalValue(projectDoc.vjepaAnalysis?.segments, 'visualSignificance'),
+                  musicEnergy: averageSignalValue(projectDoc.musicAnalysis?.energyCurve, 'energy'),
+                  beatStrength: projectDoc.musicAnalysis?.musicPresence,
+                }),
+                speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
                 durationBucket: buildDurationBucket(cleanDurationSec),
                 platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
               };
@@ -921,7 +974,7 @@ export async function executeDirectorPlan(
             unifiedDecisionCandidates.push({
               source: 'creative-brief',
               edl: briefResult.edl,
-              graphicsDensity: densityFromGenreParams(pathEGenreParams?.graphic_density) || effectiveProfile.graphicsDensity,
+              graphicsDensity: densityFromSignalsOrNeutral(pathEGenreParams),
               expectedExecuted: briefResult.stats.resolvedToFrame,
               expectedSkipped: briefResult.stats.skippedOutOfRange,
             });
@@ -1090,13 +1143,21 @@ export async function executeDirectorPlan(
             // Step D.3b: Threshold bandit — sample adjusted thresholds for this project
             try {
               const { loadThresholdBanditState, sampleThresholdAdjustments } = await import('@/lib/editron/services/threshold-bandit');
-              const { buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
+              const { averageSignalValue, buildSignalBucket, buildSpeechCoverageBucket, buildDurationBucket } = await import('@/lib/editron/services/genre-parameter-bandit');
               const banditState = await loadThresholdBanditState(userId);
               if (banditState) {
                 const rfa = projectDoc.rawFootageAnalysis;
+                const speechCoverage = rfa?.speechCoverage ?? 0;
                 const banditContext = {
-                  contentType: rfa?.contentTypeDetection?.contentType || 'unknown',
-                  speechCoverageBucket: buildSpeechCoverageBucket(rfa?.speechCoverage ?? 0),
+                  signalBucket: buildSignalBucket({
+                    speechCoverage,
+                    speechEnergy: averageSignalValue(projectDoc.wav2vecAnalysis?.segments, 'energy'),
+                    motionIntensity: averageSignalValue(projectDoc.vjepaAnalysis?.segments, 'motionIntensity'),
+                    visualSignificance: averageSignalValue(projectDoc.vjepaAnalysis?.segments, 'visualSignificance'),
+                    musicEnergy: averageSignalValue(projectDoc.musicAnalysis?.energyCurve, 'energy'),
+                    beatStrength: projectDoc.musicAnalysis?.musicPresence,
+                  }),
+                  speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
                   durationBucket: buildDurationBucket((editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000),
                   platform: projectDoc.syntheticStoryboard?.platform || 'youtube',
                 };
@@ -1340,7 +1401,7 @@ export async function executeDirectorPlan(
             unifiedDecisionCandidates.push({
               source: 'signal-driven',
               edl,
-              graphicsDensity: densityFromGenreParams(pathDGenreParams?.graphic_density) || effectiveProfile.graphicsDensity,
+              graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams),
               expectedExecuted: edl.totalDecisions,
               expectedSkipped: 0,
             });
@@ -1424,7 +1485,7 @@ export async function executeDirectorPlan(
           if (editedTimelineContext) {
             const captionPresentation = resolveAtomicCaptionPresentation({
               requestedStyle: briefCaptionStyle,
-              profileStyle: effectiveProfile.captionStyle,
+              profileStyle: undefined,
               genreParams: pathDGenreParams,
             });
             const captionTrackResult = installCanonicalCaptionTrack({
@@ -1504,12 +1565,14 @@ export async function executeDirectorPlan(
             let brandBlock = '';
             if (project.brandId && userId) {
               try {
-                const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+                const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
                 const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
-                const brand = await getUnifiedBrand(userId, project.brandId);
-                brandBlock = buildBrandContextBlock(brand);
+                const resolution = await resolveEffectiveBrandWithProfile(userId, project.brandId, {
+                  service: 'editron',
+                });
+                brandBlock = buildBrandContextBlock(resolution.brand);
                 if (brandBlock) {
-                  console.log(`[Director] Brand context: ${brand?.name} (${project.brandId})`);
+                  console.log(`[Director] Brand context: ${resolution.brand?.name} (${project.brandId}) from ${resolution.source}`);
                 }
               } catch (err) {
                 console.warn('[Director] Brand lookup failed (non-fatal):', err);
@@ -1518,11 +1581,9 @@ export async function executeDirectorPlan(
 
             // Layer 1b: LLM generates creative intent (WHAT + WHY, no frame numbers)
             const intentPlan = await generateCreativeIntentPlan(context, {
-              editProfileName: effectiveProfile.name,
-              targetCutsPerMinute: effectiveProfile.cutsPerMinRange
-                ? (effectiveProfile.cutsPerMinRange[0] + effectiveProfile.cutsPerMinRange[1]) / 2
-                : 6,
-              graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
+              editProfileName: 'signal-owned',
+              targetCutsPerMinute: targetCutsPerMinuteFromGenreParams(pathDGenreParams),
+              graphicDensity: densityFromSignalsOrNeutral(pathDGenreParams),
               assetBriefings: briefingsForPrompt,
               brandBlock,
             });
@@ -1551,7 +1612,7 @@ export async function executeDirectorPlan(
               analysesMap,
               overlays,
               context.fps,
-              effectiveProfile.graphicsDensity,
+              densityFromSignalsOrNeutral(pathDGenreParams),
               pathDGenreParams as Record<string, number> | undefined,
             );
 
@@ -1594,20 +1655,16 @@ export async function executeDirectorPlan(
             console.warn(`[Director] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
             const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
             edl = generateEditDecisionList(analyses, totalDurationMs, {
-              targetCutsPerMinute: effectiveProfile.cutsPerMinRange
-                ? (effectiveProfile.cutsPerMinRange[0] + effectiveProfile.cutsPerMinRange[1]) / 2
-                : 6,
-              transitionStyle: effectiveProfile.defaultTransition?.includes('dissolve') ? 'dissolve'
-                : effectiveProfile.defaultTransition?.includes('hard-cut') ? 'hard-cut'
-                : 'mixed',
-              graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
-              pacing: (effectiveProfile.pacing === 'variable' || effectiveProfile.pacing === 'beat-synced' ? 'medium' : effectiveProfile.pacing) || 'medium',
+              targetCutsPerMinute: targetCutsPerMinuteFromGenreParams(pathDGenreParams),
+              transitionStyle: 'mixed',
+              graphicDensity: densityFromSignalsOrNeutral(pathDGenreParams),
+              pacing: 'medium',
             });
           }
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap, effectiveProfile.graphicsDensity);
+          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap, densityFromSignalsOrNeutral(pathDGenreParams));
 
           // Build summary by decision type
           for (const d of edl.decisions) {
@@ -1791,7 +1848,7 @@ export async function executeDirectorPlan(
     }
 
     // ─── Step 2: Standard action sequence (D-016: signal-driven, not profile-driven) ──────────
-    // Filter: no hardcoded filterPresetId — uses effectiveProfile.filterPresetId (Utility AI winner from Step D.4c/1.5).
+    // Filter: runs only when an upstream signal/brief action provides a concrete filter id.
     // Transitions: handled by EDL/signal executor (not an action).
     // MGs: handled by composition engine (not an action).
     // Captions: injected below if resolvedCaptionStyle is set.
@@ -1825,8 +1882,8 @@ export async function executeDirectorPlan(
       },
     ];
     const hasCaptionAction = false; // standard actions never include captions — injection below handles it
-    // Utility AI output takes priority → brief output → profile fallback.
-    const resolvedCaptionStyle = briefCaptionStyle || effectiveProfile.captionStyle;
+    // Brief/utility signal output takes priority; neutral readable captions are the fallback.
+    const resolvedCaptionStyle = briefCaptionStyle || 'subtitle';
     const captionVideoOverlays = overlays.filter((overlay: any) => overlay?.type === 'video');
     const mappedCaptionVideoOverlays = captionVideoOverlays.filter((overlay: any) => {
       const sourceStartFrame = overlay?.sourceStartFrame ?? overlay?.videoStartTime;
@@ -1854,7 +1911,7 @@ export async function executeDirectorPlan(
         order: 5,
         failBehavior: 'warn' as any,
       });
-      console.log(`[Director] Caption injection: ${tool}(${style}) from ${briefCaptionStyle ? 'Utility AI' : 'profile fallback'}`);
+      console.log(`[Director] Caption injection: ${tool}(${style}) from ${briefCaptionStyle ? 'brief/signals' : 'neutral fallback'}`);
     } else {
       console.log(`[Director] No global caption action (${globalCaptionAction.reason}, resolvedCaptionStyle=${resolvedCaptionStyle || 'unset'})`);
     }
@@ -1865,7 +1922,7 @@ export async function executeDirectorPlan(
 
     // ─── Step 2.5: Continuity analysis (pure, zero-cost) ─────
     // Scores adjacent scene pairs to inform transition selection.
-    // Priority: script transition > KB M-002 > continuity > profile default.
+    // Priority: script transition > KB M-002 > continuity > action/brand/neutral evidence.
     let scenePairAnalysis: Array<{ sceneA: number; sceneB: number; score: { overall: number; visualSimilarity: number; energyMatch?: number }; recommendedTransition: string; flagForReview: boolean }> = [];
     const videoOverlaysForContinuity = overlays.filter((o: any) => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
     if (videoOverlaysForContinuity.length > 1 && storyboardScenes.length > 0) {
@@ -2463,17 +2520,14 @@ async function executeAction(
     case 'batch_update_overlays': {
       // Apply filter to visual overlays.
       // GUARD: If edit-direction-applier (finalize) already set a filter from the script,
-      // DON'T overwrite it — script intent > profile default.
-      // Only apply profile filter to overlays that have NO filter set.
-      const filterPresetId = action.params.filterPresetId || profile.filterPresetId;
+      // DON'T overwrite it — explicit script/signal intent beats generic filter actions.
+      const filterPresetId = action.params.filterPresetId;
+      if (!filterPresetId) break;
       const preset = getFilterPresetById(filterPresetId);
       if (preset.id === 'none') break;
 
-      // Apply profile filter to ALL visual overlays — profile is source of truth.
-      // OLD: skipped overlays with existing filters (from edit-direction-applier or EDL).
-      // This caused "filter schizophrenia" where different clips got different grades.
-      // NEW: profile filter overwrites everything. Users can manually adjust per-clip
-      // in the editor if they want variation.
+      // Apply the explicit filter to visual overlays. Profile defaults are not allowed
+      // to choose a filter in the upload-to-edit path.
       const targetTypes = action.params.targetTypes || ['image', 'video'];
       let overwritten = 0;
       for (const overlay of overlays) {
@@ -2637,7 +2691,7 @@ async function executeAction(
       if (action.tool === 'add_captions') {
         const captionPresentation = resolveAtomicCaptionPresentation({
           requestedStyle: action.params?.style,
-          profileStyle: captionStyleOverride || profile.captionStyle,
+          profileStyle: captionStyleOverride,
           displayMode: action.params?.displayMode,
           wordsPerGroup: action.params?.wordsPerGroup,
           genreParams,
@@ -2658,12 +2712,12 @@ async function executeAction(
         };
       }
       // These are AI tools — delegate to invokeAITool which handles per-video iteration
-      modified = await invokeAITool(action, userId, projectId, profile, overlays, captionStyleOverride);
+      modified = await invokeAITool(action, userId, projectId, profile, overlays, captionStyleOverride, genreParams);
       break;
     }
 
     case 'add_transition': {
-      // RULE: Script transitions ALWAYS win over profile transitions.
+      // RULE: Script transitions ALWAYS win over generic transition actions.
       // Finalize applies script transitions (from editDirections) BEFORE Director runs.
       // Director should only add transitions where none exist yet (gaps between scenes).
       //
@@ -2671,7 +2725,7 @@ async function executeAction(
       //   `o.type === 'html-scene' && (o.row === 1 || metadata.isTransition)`
       // which missed real TransitionOverlay tiles (type === 'transition' on row 5)
       // that the EDL executor had already placed. Result: Director thought the timeline
-      // had no transitions and spammed profile-default dip-to-black between every clip pair
+      // had no transitions and spammed generic dip-to-black between every clip pair
       // (10 redundant overlays on top of the EDL's 4). See editron_master_remaining.md
       // Phase A3 for full disaster inventory from the 2026-04-08 McDonald's test.
       //
@@ -2706,17 +2760,17 @@ async function executeAction(
           console.log('[Director] add_transition: all scene boundaries have transitions, skipping');
           break;
         }
-        console.log(`[Director] add_transition: ${gapCount} gaps without transitions, filling with profile default`);
+        console.log(`[Director] add_transition: ${gapCount} gaps without transitions, filling from action/brand/neutral evidence`);
       }
 
-      // Get transition type: script param → Graphiti brand preference → profile default
-      let transType: string = action.params.type || profile.defaultTransition || 'soft-cut';
+      // Get transition type: script/action param → Graphiti brand preference → neutral default
+      let transType: string = action.params.type || 'soft-cut';
 
       if (!action.params.type) {
         try {
           const { searchGraphitiFacts } = await import('@/lib/editron/services/graph-service');
           const brandFacts = await searchGraphitiFacts(
-            `What transitions work best for this content type and mood?`,
+            `What transitions fit this cut boundary, motion evidence, and brand taste?`,
             graphitiGroupId || userId,
             3,
           );
@@ -2730,7 +2784,7 @@ async function executeAction(
               transType = preferred;
             }
           }
-        } catch (err: unknown) { console.warn('[Director] Graphiti unavailable, using profile default:', err instanceof Error ? err.message : err); }
+        } catch (err: unknown) { console.warn('[Director] Graphiti unavailable, using neutral transition default:', err instanceof Error ? err.message : err); }
       }
 
       // 'hard-cut' means no transition overlay — skip entirely
@@ -2753,7 +2807,7 @@ async function executeAction(
 
       // ─── Per-scene transition from script editDirections ──────
       // The storyboard stores per-scene transition types (from script parsing).
-      // Use those where specified, fall back to profile default otherwise.
+      // Use those where specified, otherwise fall back to action/brand/neutral transition evidence.
       // This respects the script author's intent (e.g., "hard cut" vs "dissolve").
       const videoOverlaysForTrans = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
       let transModified = 0;
@@ -2785,14 +2839,14 @@ async function executeAction(
         // Overlay index ≠ scene index because montage scenes produce multiple
         // sub-shot overlays. E.g. 6 scenes with 4 sub-shots each = 24 overlays
         // but only 6 scene indices. Using i+1 looked up sceneIndex 7+ which
-        // doesn't exist → fell to profile default instead of script transition.
+        // doesn't exist → fell to generic default instead of script transition.
         const clipBSceneIndex = (clipB as any).metadata?.sceneIndex;
         const clipASceneIndex = (clipA as any).metadata?.sceneIndex;
 
         // ── KB M-002: Montage transition consistency ──────────────────
         // Same scene (montage sub-shots) → hard-cut, no overlay.
         // Montage entry/exit → dissolve or dip-to-black.
-        // Different non-montage scenes → script transition or profile default.
+        // Different non-montage scenes → script transition or boundary/brand/neutral evidence.
         const sameScene = clipASceneIndex !== undefined
           && clipBSceneIndex !== undefined
           && clipASceneIndex === clipBSceneIndex;
@@ -2828,20 +2882,23 @@ async function executeAction(
         // KB T-022 (WEIGHT 10 override): NEVER dip-to-black in montage sequences
         let effectiveType: string;
         let effectiveDuration: number;
+        let effectiveSource = 'action/brand/neutral';
         if (isMontageEdge) {
           const montageTransType = sceneTransType || 'dissolve';
           // T-022 hard override: dip-to-black kills montage momentum → force dissolve
           effectiveType = montageTransType === 'dip-to-black' ? 'dissolve' : montageTransType;
           effectiveDuration = sceneTransDuration || 600;
+          effectiveSource = sceneTransType ? 'script' : 'montage-boundary';
           console.log(`[Director] add_transition: boundary ${i}→${i+1}: montage edge (${sceneAType}→${sceneBType}), ${effectiveType} per KB M-002/T-022`);
         } else {
-          // Priority: script transition > continuity recommendation > profile default
+          // Priority: script transition > continuity recommendation > action/brand/neutral default
           const pairAnalysis = scenePairAnalysis.find(
             p => p.sceneA === clipASceneIndex && p.sceneB === clipBSceneIndex
           );
           if (sceneTransType) {
             effectiveType = sceneTransType;
             effectiveDuration = sceneTransDuration || action.params.durationMs || 500;
+            effectiveSource = 'script';
           } else if (pairAnalysis) {
             let contType = pairAnalysis.recommendedTransition;
             // KB T-012 (WEIGHT 9): NEVER dissolve between contrasting moods.
@@ -2855,6 +2912,7 @@ async function executeAction(
             }
             effectiveType = contType;
             effectiveDuration = action.params.durationMs || 500;
+            effectiveSource = 'continuity';
             console.log(`[Director] add_transition: boundary ${i}→${i+1}: continuity-informed ${effectiveType} (score=${pairAnalysis.score.overall.toFixed(2)})`);
           } else {
             effectiveType = transType;
@@ -2925,7 +2983,7 @@ async function executeAction(
               metadata: { isTransition: true, inMemoryMarker: true },
             } as any);
           }
-          console.log(`[Director] add_transition: ${i}→${i+1}: ${effectiveType} (${sceneTransType ? 'script' : 'profile default'})`);
+          console.log(`[Director] add_transition: ${i}→${i+1}: ${effectiveType} (${effectiveSource})`);
         } catch (err: any) {
           console.warn(`[Director] add_transition: boundary ${i}→${i+1} failed: ${err.message}`);
         }
@@ -2937,7 +2995,7 @@ async function executeAction(
     case 'add_motion_graphic':
     case 'generate_html_scene': {
       // Invoke the actual tool via createTools — these are fully functional
-      modified = await invokeAITool(action, userId, projectId, profile, overlays);
+      modified = await invokeAITool(action, userId, projectId, profile, overlays, undefined, genreParams);
       break;
     }
 
@@ -2998,6 +3056,7 @@ async function invokeAITool(
   profile: EditProfile,
   overlays: any[],
   captionStyleOverride?: string,
+  genreParams?: { graphic_density?: number } | null,
 ): Promise<number> {
   const { createTools } = await import('@/lib/editron/agent/tools');
   const tools = createTools(userId, projectId);
@@ -3044,13 +3103,13 @@ async function invokeAITool(
         return 0;
       }
       // Caption style: already computed by executeAction from signals (if Path D active)
-      // or from profile mapping. params.style is set upstream. Map any remaining invalid values.
+      // or from a neutral fallback. params.style is set upstream. Map any remaining invalid values.
       const CAPTION_STYLE_MAP: Record<string, string> = {
         'creator': 'bold', 'fancy': 'bold', 'word-by-word': 'bold',
         'kinetic': 'bold', 'none': 'subtitle',
       };
-      // params.style is resolved upstream from caption atoms/signals; override/profile are compatibility fallbacks.
-      const rawCaptionStyle = params.style || captionStyleOverride || profile.captionStyle || 'subtitle';
+      // params.style is resolved upstream from caption atoms/signals; subtitle is the neutral compatibility fallback.
+      const rawCaptionStyle = params.style || captionStyleOverride || 'subtitle';
       const captionStyle = CAPTION_STYLE_MAP[rawCaptionStyle] || rawCaptionStyle;
       const captionDisplayMode = params.displayMode;
       const captionWordsPerGroup = typeof params.wordsPerGroup === 'number' ? params.wordsPerGroup : undefined;
@@ -3277,15 +3336,13 @@ async function invokeAITool(
       const isPlaceholder = !rawDesc || rawDesc.length < 20 || PLACEHOLDER_PATTERNS.test(rawDesc);
 
       if (isPlaceholder) {
-        // Enrich with profile context instead of passing garbage to Gemini
-        const category = profile.category || 'general';
-        const density = profile.graphicsDensity || 'moderate';
+        const density = densityFromSignalsOrNeutral(genreParams);
         const style = density === 'heavy' ? 'bold animated'
           : density === 'moderate' ? 'clean professional'
           : 'minimal elegant';
         const contextualDesc = rawDesc && rawDesc.length >= 10
-          ? `${style} ${rawDesc} for ${category} content`
-          : `${style} title card with subtle gradient animation for ${category} video`;
+          ? `${style} ${rawDesc} for this moment`
+          : `${style} title card with subtle gradient animation for this video moment`;
         params.description = contextualDesc;
         console.warn(`[Director] generate_html_scene: description too vague ("${rawDesc.substring(0, 30)}") — enriched to: "${contextualDesc.substring(0, 60)}"`);
       } else {
@@ -3346,15 +3403,14 @@ function checkCondition(condition: string | undefined, overlays: any[], projectD
 function applyBriefOverrides(profile: EditProfile, brief?: ProjectBrief): EditProfile {
   if (!brief?.overrides) return profile;
 
-  return {
-    ...profile,
-    filterPresetId: brief.overrides.filterPresetId ?? profile.filterPresetId,
-    pacing: brief.overrides.pacing ?? profile.pacing,
-    captionStyle: brief.overrides.captionStyle ?? profile.captionStyle,
-    bgmDuckLevel: brief.overrides.bgmDuckLevel ?? profile.bgmDuckLevel,
-    graphicsDensity: brief.overrides.graphicsDensity ?? profile.graphicsDensity,
-    defaultTransition: brief.overrides.defaultTransition ?? profile.defaultTransition,
-  };
+  const next: EditProfile = { ...profile };
+  if (brief.overrides.filterPresetId !== undefined) next.filterPresetId = brief.overrides.filterPresetId;
+  if (brief.overrides.pacing !== undefined) next.pacing = brief.overrides.pacing;
+  if (brief.overrides.captionStyle !== undefined) next.captionStyle = brief.overrides.captionStyle;
+  if (brief.overrides.bgmDuckLevel !== undefined) next.bgmDuckLevel = brief.overrides.bgmDuckLevel;
+  if (brief.overrides.graphicsDensity !== undefined) next.graphicsDensity = brief.overrides.graphicsDensity;
+  if (brief.overrides.defaultTransition !== undefined) next.defaultTransition = brief.overrides.defaultTransition;
+  return next;
 }
 
 // ─── Transition Dedup Safety Net (B3) ────────────────────────────

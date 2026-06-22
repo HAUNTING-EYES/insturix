@@ -522,10 +522,7 @@ function extractComparisons(trigger: string): ParsedComparison[] {
       // Skip noise words
       if (['and', 'or', 'the', 'over', 'for', 'not', 'with'].includes(signal.toLowerCase())) continue;
 
-      let value: string | number | boolean = rawValue;
-      if (rawValue === 'true') value = true;
-      else if (rawValue === 'false') value = false;
-      else if (!isNaN(Number(rawValue))) value = Number(rawValue);
+      const value = parseComparisonValue(rawValue);
 
       comparisons.push({
         signal: signal.replace(/^signal:/, ''),
@@ -536,6 +533,19 @@ function extractComparisons(trigger: string): ParsedComparison[] {
   }
 
   return comparisons;
+}
+
+function parseComparisonValue(rawValue: string): string | number | boolean {
+  const normalized = rawValue.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+
+  const numericWithUnit = normalized.match(/^([+-]?\d+(?:\.\d+)?)(?:x|%|ms|s|px|db)?$/);
+  if (numericWithUnit) {
+    return Number(numericWithUnit[1]);
+  }
+
+  return rawValue;
 }
 
 function resolveSignalValue(

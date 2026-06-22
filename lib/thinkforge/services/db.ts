@@ -244,6 +244,12 @@ export interface ResolveEffectiveBrandDNAOptions {
   onVaultFallback?: (message: string, error: unknown) => void;
 }
 
+export interface EffectiveBrandDNAResolution {
+  brandDNA: BrandDNA;
+  brandSignalProfile: BrandSignalProfile | null;
+  source: 'legacy' | 'brand_vault';
+}
+
 export interface UserPreferences {
   _id: string;
   preferences: Record<string, any>;
@@ -3026,19 +3032,32 @@ export async function composeBrandDNAWithBrandVault(
   brandId?: string,
   options: ResolveEffectiveBrandDNAOptions = {},
 ): Promise<BrandDNA> {
+  return (await composeBrandDNAWithBrandVaultProfile(baseDNA, userId, brandId, options)).brandDNA;
+}
+
+export async function composeBrandDNAWithBrandVaultProfile(
+  baseDNA: BrandDNA = {},
+  userId: string,
+  brandId?: string,
+  options: ResolveEffectiveBrandDNAOptions = {},
+): Promise<EffectiveBrandDNAResolution> {
   const enabled = options.enabled ?? brandVaultSourceEnabled('thinkforge');
-  if (!enabled || !brandId) return baseDNA;
+  if (!enabled || !brandId) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
 
   try {
     const getAcceptedProfile = options.getAcceptedProfile ?? getDefaultBrandVaultBrandDNAProfile();
     const profile = await getAcceptedProfile({ brandId, userId });
-    if (!profile) return baseDNA;
-    if (profile.brandId && profile.brandId !== brandId) return baseDNA;
-    if (profile.userId && profile.userId !== userId) return baseDNA;
-    return brandSignalProfileToBrandDNA(profile, baseDNA);
+    if (!profile) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
+    if (profile.brandId && profile.brandId !== brandId) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
+    if (profile.userId && profile.userId !== userId) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
+    return {
+      brandDNA: brandSignalProfileToBrandDNA(profile, baseDNA),
+      brandSignalProfile: profile,
+      source: 'brand_vault',
+    };
   } catch (error) {
     (options.onVaultFallback ?? warnBrandDNAVaultFallback)('vault accepted-profile read failed; using legacy BrandDNA.', error);
-    return baseDNA;
+    return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
   }
 }
 
@@ -3052,12 +3071,21 @@ export async function resolveEffectiveBrandDNA(
   brandId?: string,
   options?: ResolveEffectiveBrandDNAOptions,
 ): Promise<BrandDNA> {
+  return (await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId, options)).brandDNA;
+}
+
+export async function resolveEffectiveBrandDNAWithProfile(
+  userId: string,
+  projectId?: string,
+  brandId?: string,
+  options?: ResolveEffectiveBrandDNAOptions,
+): Promise<EffectiveBrandDNAResolution> {
   const userDNA = await getUserBrandDNA(userId) || {};
-  if (!projectId) return composeBrandDNAWithBrandVault(userDNA, userId, brandId, options);
+  if (!projectId) return composeBrandDNAWithBrandVaultProfile(userDNA, userId, brandId, options);
 
   const projectDNA = await getProjectBrandDNA(projectId, userId) || {};
 
-  return composeBrandDNAWithBrandVault(mergeBrandDNA(userDNA, projectDNA), userId, brandId, options);
+  return composeBrandDNAWithBrandVaultProfile(mergeBrandDNA(userDNA, projectDNA), userId, brandId, options);
 }
 
 // ==================== Interaction Event Logging ====================

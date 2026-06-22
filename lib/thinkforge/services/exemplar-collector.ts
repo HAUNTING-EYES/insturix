@@ -8,6 +8,7 @@
 
 import { extractSignalsFromContext } from '../data/extract-signals';
 import { scoreContent } from '../data/quality-scorer';
+import { writeThinkForgeBrandDNAToBrandVault } from './brand-vault-voice-evidence';
 import { getUserBrandDNA, updateUserBrandDNA, type VoiceExemplar } from './db';
 
 const MIN_CHARS = 200;
@@ -27,6 +28,7 @@ export async function collectExemplarPassively(
   userId: string,
   content: string,
   contentType: string,
+  options: { brandId?: string; sessionId?: string } = {},
 ): Promise<void> {
   try {
     if (content.length < MIN_CHARS) return;
@@ -57,8 +59,15 @@ export async function collectExemplarPassively(
       weight: 1.0,
     };
 
-    await updateUserBrandDNA(userId, {
-      voiceExemplars: [...existing, exemplar],
+    const updates = { voiceExemplars: [...existing, exemplar] };
+    await updateUserBrandDNA(userId, updates);
+    await writeThinkForgeBrandDNAToBrandVault({
+      userId,
+      brandId: options.brandId,
+      sessionId: options.sessionId,
+      updates: { voiceExemplars: [exemplar] },
+      source: 'passive_voice_exemplar',
+      actorId: userId,
     });
 
     console.log(`[ThinkForge:Exemplar] Auto-collected exemplar (${contentType}, quality ${score.score}, ${existing.length + 1}/${MAX_EXEMPLARS})`);

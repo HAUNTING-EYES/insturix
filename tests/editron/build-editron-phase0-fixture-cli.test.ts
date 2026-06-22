@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseCliArgs } from '../../scripts/build-editron-phase0-fixture';
+import { parseCliArgs, phase0NodeCommand, phase0RenderArgs } from '../../scripts/build-editron-phase0-fixture';
 
 describe('build-editron-phase0-fixture cli', () => {
   it('uses environment defaults while keeping render opt-in', () => {
@@ -52,5 +52,22 @@ describe('build-editron-phase0-fixture cli', () => {
   it('rejects unknown flags and extra positional arguments', () => {
     expect(parseCliArgs(['proj_123', '--wat'], {})).toBeNull();
     expect(parseCliArgs(['proj_123', 'out-a', 'out-b'], {})).toBeNull();
+  });
+
+  it('builds a shell-free child render command that preserves paths with spaces', () => {
+    expect(phase0NodeCommand('C:/node/node.exe')).toBe('C:/node/node.exe');
+    expect(phase0RenderArgs(
+      'D:/google downloads/render-input.json',
+      'D:/google downloads/rendered aesthetic',
+      'phase0 tag',
+    )).toEqual([
+      '--import',
+      'tsx',
+      'scripts/render-editron-aesthetic.ts',
+      'D:/google downloads/render-input.json',
+      '--out=D:/google downloads/rendered aesthetic',
+      '--tag=phase0 tag',
+      '--overlay-only',
+    ]);
   });
 });

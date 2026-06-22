@@ -4,7 +4,7 @@
  * EVERY configurable value in the Editron pipeline lives here.
  * Replaces 100+ hardcoded values scattered across services.
  *
- * Resolution order: userOverrides > profileSettings > defaults
+ * Resolution order: userOverrides > signal-owned defaults
  *
  * To find what WAS hardcoded and WHERE, each value has a comment
  * with the original file and line number.
@@ -277,13 +277,6 @@ export interface RawFootageConfig {
   /** Minimum segment duration after cuts, in SECONDS (computed to frames at runtime via clip fps).
    * NOT hardcoded frames — user footage can be 24fps, 29.97fps, 30fps, 60fps. */
   minSegmentAfterCutSeconds: number;
-  /** Silence removal thresholds by content type (from creative doc v2 §3).
-   * Each entry: { removeAboveMs, shortenRangeMs: [min, max], shortenTargetMs } */
-  silenceThresholdByContentType: Record<string, {
-    removeAboveMs: number;
-    shortenRangeMs: [number, number];
-    shortenTargetMs: number;
-  }>;
   /** Filler removal mode. 'all-above-threshold' removes all fillers when rate exceeds threshold.
    * 'boundary-only' only removes fillers at segment boundaries. */
   fillerRemovalMode: 'all-above-threshold' | 'boundary-only';
@@ -477,18 +470,6 @@ export const DEFAULT_CONFIG: EditronConfig = {
   },
   rawFootage: {
     minSegmentAfterCutSeconds: 1.5,
-    silenceThresholdByContentType: {
-      'talking-head':  { removeAboveMs: 1500, shortenRangeMs: [800, 1500],  shortenTargetMs: 300  },
-      'tutorial':      { removeAboveMs: 1500, shortenRangeMs: [800, 1500],  shortenTargetMs: 300  },
-      'vlog':          { removeAboveMs: 1200, shortenRangeMs: [600, 1200],  shortenTargetMs: 250  },
-      'interview':     { removeAboveMs: 2500, shortenRangeMs: [1000, 2500], shortenTargetMs: 500  },
-      'documentary':   { removeAboveMs: 4000, shortenRangeMs: [2000, 4000], shortenTargetMs: 800  },
-      'comedy':        { removeAboveMs: 6000, shortenRangeMs: [3000, 6000], shortenTargetMs: 1500 },
-      'cinematic':     { removeAboveMs: 4000, shortenRangeMs: [2000, 4000], shortenTargetMs: 800  },
-      'ad':            { removeAboveMs: 1000, shortenRangeMs: [500, 1000],  shortenTargetMs: 200  },
-      'product-demo':  { removeAboveMs: 1000, shortenRangeMs: [500, 1000],  shortenTargetMs: 200  },
-      'corporate':     { removeAboveMs: 2000, shortenRangeMs: [800, 2000],  shortenTargetMs: 400  },
-    },
     fillerRemovalMode: 'all-above-threshold',
     casualFillerRateThreshold: 0.05,
     speechHeavyCoverageThreshold: 0.80,
@@ -503,17 +484,13 @@ export const DEFAULT_CONFIG: EditronConfig = {
 // ─── Config Builder ────────────────────────────────────────────────
 
 /**
- * Build a complete EditronConfig by merging:
- * 1. DEFAULT_CONFIG (baseline)
- * 2. Profile settings (from the edit profile)
- * 3. User overrides (from export dialog brief)
- *
- * Profile settings take precedence over defaults.
- * User overrides take precedence over everything.
+ * Build a complete EditronConfig by merging signal-owned defaults with user
+ * overrides. Edit profiles are accepted for API compatibility but never change
+ * budgets, pacing, transitions, filters, or beat behavior in upload-to-edit.
  */
 export function buildEditronConfig(
   project: { fps?: number; durationInFrames?: number },
-  profile?: EditProfile,
+  _profile?: EditProfile,
   userOverrides?: Partial<EditronConfig>,
 ): EditronConfig {
   // Start with defaults
@@ -521,35 +498,6 @@ export function buildEditronConfig(
 
   // Apply project settings
   if (project.fps) config.timing.fps = project.fps;
-
-  // Apply profile settings
-  if (profile) {
-    // Audio
-    if (profile.bgmDuckLevel !== undefined) config.audio.duckLevel = profile.bgmDuckLevel;
-
-    // Budgets — derive from profile's cutsPerMinRange
-    if (profile.cutsPerMinRange) {
-      const avgCPM = (profile.cutsPerMinRange[0] + profile.cutsPerMinRange[1]) / 2;
-      config.budgets.maxDecisionsPerSecond = avgCPM / 60;
-    }
-
-    // Music
-    // Profile beatSync setting (if the action exists in profile)
-    const hasBeatSync = profile.actions?.some(a => a.tool === 'sync_cuts_to_beats');
-    if (hasBeatSync) {
-      const beatAction = profile.actions.find(a => a.tool === 'sync_cuts_to_beats');
-      config.music.beatSyncMode = beatAction?.params?.beatFilter === 'all' ? 'all' : 'downbeats';
-    }
-
-    // Pacing → adjust budgets
-    if (profile.pacing === 'fast') {
-      config.budgets.maxPunchZooms = Math.ceil(config.budgets.maxPunchZooms * 1.5);
-      config.budgets.maxCameraShakes = Math.ceil(config.budgets.maxCameraShakes * 1.5);
-    } else if (profile.pacing === 'slow') {
-      config.budgets.maxPunchZooms = Math.ceil(config.budgets.maxPunchZooms * 0.5);
-      config.budgets.maxCameraShakes = Math.ceil(config.budgets.maxCameraShakes * 0.5);
-    }
-  }
 
   // Apply user overrides (deep merge)
   if (userOverrides) {

@@ -19,7 +19,7 @@
 
 export interface EditDecision {
   type: 'zoom' | 'transition' | 'graphic' | 'sfx' | 'sfx-trigger' | 'speed-change' |
-        'filter-change' | 'caption-emphasis' | 'audio-duck' | 'fade' | 'camera-shake' |
+        'caption-emphasis' | 'audio-duck' | 'fade' | 'camera-shake' |
         'cut' | 'pacing';
   frame: number;
   confidence: number;

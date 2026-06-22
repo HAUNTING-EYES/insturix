@@ -25,7 +25,7 @@ import {
 } from '../lib/editron/services/threshold-bandit';
 import { THRESHOLD_REGISTRY, getAdaptiveThresholds } from '../lib/editron/data/threshold-registry';
 import type { DecisionOutcome } from '../lib/editron/services/decision-tracker';
-import { buildContextKey, type BanditContext } from '../lib/editron/services/genre-parameter-bandit';
+import { buildContextKey, buildSignalBucket, type BanditContext } from '../lib/editron/services/genre-parameter-bandit';
 
 let passed = 0;
 let failed = 0;
@@ -41,7 +41,7 @@ function assert(condition: boolean, message: string) {
 }
 
 const testContext: BanditContext = {
-  contentType: 'talking_head',
+  signalBucket: buildSignalBucket({ speechCoverage: 0.82, motionIntensity: 0.24, musicEnergy: 0.18 }),
   speechCoverageBucket: 'high',
   durationBucket: 'medium',
   platform: 'youtube',

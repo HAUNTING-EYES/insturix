@@ -172,7 +172,7 @@ describe('resolveAtomicSfxForm', () => {
     expect(form.timing.anchor).toBe('scene-bed');
     expect(form.timing.durationFrames).toBe(150);
     expect(form.mix.fadeInFrames).toBeGreaterThan(0);
-    expect(form.asset.sourcePreference).toEqual(['curated', 'library', 'generated']);
+    expect(form.asset.sourcePreference).toEqual(['library', 'generated']);
     expect(form.asset.fallbackPolicy).toBe('subtle-bed-only');
     expect(form.primitiveAtoms.tail.release).toBe('long-bed');
     expect(form.primitiveAtoms.policy.silenceAllowed).toBe(false);
@@ -197,6 +197,7 @@ describe('resolveAtomicSfxForm', () => {
     expect(form.evidenceAtomKeys).toContain('audio.music_beat');
     expect(JSON.stringify(form)).not.toContain('presetId');
     expect(JSON.stringify(form)).not.toContain('templateId');
+    expect(JSON.stringify(form)).not.toContain('curated');
   });
 
   it('accepts library candidates that match the atomic asset plan', () => {

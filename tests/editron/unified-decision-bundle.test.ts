@@ -2219,7 +2219,7 @@ describe('unified decision bundle merge', () => {
     expect(bundle.edl.stats.speedChangeCount).toBe(1);
   });
 
-  it('normalizes legacy filter decisions to filter-change at the bundle boundary', () => {
+  it('drops legacy filter decisions instead of emitting inert filter-change decisions', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
@@ -2235,15 +2235,9 @@ describe('unified decision bundle merge', () => {
       ] as any),
     });
 
-    expect(bundle.edl.decisions).toHaveLength(1);
-    expect(bundle.edl.decisions[0]).toEqual(expect.objectContaining({
-      type: 'filter-change',
-      frame: 90,
-    }));
-    expect(bundle.edl.decisions[0].params).toEqual(expect.objectContaining({
-      filterId: 'warm-neutral',
-      legacyDecisionType: 'filter',
-    }));
+    expect(bundle.edl.decisions).toHaveLength(0);
+    expect(bundle.edl.totalDecisions).toBe(0);
+    expect(bundle.edl.stats.averageConfidence).toBe(0);
   });
 });
 

@@ -70,6 +70,16 @@ export interface BrandInputs {
   industry?: string;
   visualStyle?: string;
   typography?: string;
+  minimalism?: number;
+  densityTolerance?: number;
+  expressiveness?: number;
+  cornerRadiusBias?: number;
+  layoutSymmetry?: number;
+  contrastPreference?: number;
+  motionEnergy?: number;
+  overshootTolerance?: number;
+  transitionSharpness?: number;
+  rhythmRegularity?: number;
 }
 
 export interface MotionTokens {
@@ -154,6 +164,27 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function dial01(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? clamp(value, 0, 1) : undefined;
+}
+
+function biasFromNeutral(value: number | undefined, amount: number): number {
+  const dial = dial01(value);
+  return dial === undefined ? 0 : (dial - 0.5) * 2 * amount;
+}
+
+function biasMultiplier(value: number | undefined, amount: number): number {
+  return 1 + biasFromNeutral(value, amount);
+}
+
+function shiftDensity(
+  density: MotionTokens['layout']['density'],
+  direction: -1 | 1,
+): MotionTokens['layout']['density'] {
+  if (direction < 0) return density === 'rich' ? 'standard' : 'minimal';
+  return density === 'minimal' ? 'standard' : 'rich';
+}
+
 // ─── Easing Presets ─────────────────────────────────────
 // Organized by animation personality. Each maps to a GSAP ease string
 // (consumed by useGSAPTimeline hook) or CSS cubic-bezier (consumed by
@@ -195,11 +226,11 @@ export function resolveMotionTokens(
   const b = { ...DEFAULT_BRAND, ...brand };
 
   const computed: MotionTokens = {
-    animation: resolveAnimation(s),
+    animation: resolveAnimation(s, b),
     typography: resolveTypography(s, b),
     color: resolveColor(s, b),
-    surface: resolveSurface(s),
-    layout: resolveLayout(s),
+    surface: resolveSurface(s, b),
+    layout: resolveLayout(s, b),
   };
 
   if (!hierarchyOverrides) return computed;
@@ -207,7 +238,7 @@ export function resolveMotionTokens(
   return deepMerge(computed, hierarchyOverrides);
 }
 
-type DeepPartial<T> = {
+export type DeepPartial<T> = {
   [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
 
@@ -231,14 +262,15 @@ function deepMerge<T extends object>(base: T, overrides: DeepPartial<T>): T {
 
 // ─── Animation Resolution ───────────────────────────────
 
-function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
+function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['animation'] {
   // speech_energy (Wav2Vec/5-Track): high speech energy → bolder, faster animation
   // ← signal:speech.energy → animation speed. ⚠️ weight 0.3 INVENTED, needs calibration
   const speechEnergyBoost = typeof s.speech_energy === 'number' && isFinite(s.speech_energy) ? s.speech_energy * 0.3 : 0;
   // stress_detected (Wav2Vec): vocal stress → more overshoot, emphasis
   const hasStress = s.stress_detected === true;
 
-  const energy = (s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost;
+  const brandEnergyBias = biasFromNeutral(b.motionEnergy, 0.18);
+  const energy = clamp((s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost + brandEnergyBias, 0, 1);
   const formalityNorm = (s.formality + 1) / 2; // normalize -1..+1 to 0..1
 
   // Entrance easing: energy + formality together determine the curve personality
@@ -255,6 +287,14 @@ function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
     entranceEasing = EASING_PRESETS.smooth;
   } else {
     entranceEasing = EASING_PRESETS.smooth;
+  }
+  const transitionSharpness = dial01(b.transitionSharpness);
+  if (transitionSharpness !== undefined) {
+    if (transitionSharpness >= 0.75 && energy >= 0.45) {
+      entranceEasing = EASING_PRESETS.sharp;
+    } else if (transitionSharpness <= 0.25 && energy <= 0.65) {
+      entranceEasing = EASING_PRESETS.gentle;
+    }
   }
 
   // Exit easing: always simpler than entrance (professional convention)
@@ -291,15 +331,23 @@ function resolveAnimation(s: ContentSignals): MotionTokens['animation'] {
   // ← signal:audio.music_section → staggerMs. ⚠️ multipliers INVENTED, needs calibration
   const sectionMultipliers: Record<string, number> = { verse: 1.0, chorus: 0.7, bridge: 1.3, drop: 0.5, intro: 1.1, outro: 1.2 };
   const sectionMod = typeof s.music_section === 'string' ? (sectionMultipliers[s.music_section] ?? 1.0) : 1.0;
+  const rhythmRegularity = dial01(b.rhythmRegularity);
+  const rhythmMod = rhythmRegularity === undefined ? 1.0 : lerp(rhythmRegularity, 0, 1, 0.85, 1.15);
   const staggerMs = Math.round(
-    lerp(energy, 0, 1, 130, 40) * lerp(formalityNorm, 0, 1, 0.8, 1.2) * pitchMod * sectionMod,
+    lerp(energy, 0, 1, 130, 40) * lerp(formalityNorm, 0, 1, 0.8, 1.2) * pitchMod * sectionMod * rhythmMod,
   );
 
   // Overshoot: bounce past target. Casual + energetic, OR high narrative pressure.
   // ← signal:composite.narrative_pressure → overshoot. Threshold 0.6 ← creative_production_knowledge_v3:1820
   const narrativePressure = typeof s.narrative_pressure === 'number' && isFinite(s.narrative_pressure) ? s.narrative_pressure : 0;
   // stress_detected: vocal stress also triggers overshoot (speaker emphasis = visual emphasis)
-  const overshoot = (formalityNorm < 0.4 && energy > 0.5) || narrativePressure > 0.6 || hasStress;
+  const overshootTolerance = dial01(b.overshootTolerance);
+  const contentOvershoot = formalityNorm < 0.4 && energy > 0.5;
+  const brandOvershoot = overshootTolerance !== undefined && overshootTolerance > 0.62;
+  const overshoot = narrativePressure > 0.6
+    || hasStress
+    || brandOvershoot
+    || (contentOvershoot && (overshootTolerance === undefined || overshootTolerance >= 0.35));
 
   // Entrance pattern: formality drives conservatism
   let entrancePattern: MotionTokens['animation']['entrancePattern'];
@@ -414,9 +462,11 @@ function resolveColor(s: ContentSignals, b: BrandInputs): MotionTokens['color'] 
 
 // ─── Surface Resolution ─────────────────────────────────
 
-function resolveSurface(s: ContentSignals): MotionTokens['surface'] {
+function resolveSurface(s: ContentSignals, b: BrandInputs): MotionTokens['surface'] {
   const formalityNorm = (s.formality + 1) / 2;
   const energy = (s.enthusiasm + s.emotional_arousal) / 2;
+  const minimalism = dial01(b.minimalism);
+  const expressiveness = dial01(b.expressiveness);
 
   // Style: formality + energy determine material
   let style: MotionTokens['surface']['style'];
@@ -428,6 +478,11 @@ function resolveSurface(s: ContentSignals): MotionTokens['surface'] {
     style = 'gradient';
   } else {
     style = 'glass';
+  }
+  if (minimalism !== undefined && minimalism > 0.72 && style !== 'minimal' && formalityNorm > 0.35) {
+    style = 'minimal';
+  } else if (expressiveness !== undefined && expressiveness > 0.72 && energy > 0.45 && style === 'glass') {
+    style = 'gradient';
   }
 
   // Backdrop blur: glass = 12-16px, minimal = 0, solid = 0, gradient = 8px
@@ -442,11 +497,14 @@ function resolveSurface(s: ContentSignals): MotionTokens['surface'] {
 
   // Corner radius: warmth drives roundness
   // Range: 4px (cold/angular) to 16px (warm/rounded) ← from Director research
-  const cornerRadius = Math.round(lerp(s.warmth, 0, 1, 4, 16));
+  const cornerRadius = Math.round(lerp(s.warmth, 0, 1, 4, 16) * biasMultiplier(b.cornerRadiusBias, 0.35));
 
   // Border: formal styles get subtle borders
   const borderWeight = formalityNorm > 0.4 && style !== 'solid' ? 1 : 0;
-  const borderOpacity = formalityNorm > 0.4 ? lerp(formalityNorm, 0.4, 1, 0.06, 0.15) : 0;
+  const contrastBias = biasFromNeutral(b.contrastPreference, 0.05);
+  const borderOpacity = formalityNorm > 0.4
+    ? lerp(formalityNorm, 0.4, 1, 0.06, 0.15) + contrastBias
+    : Math.max(0, contrastBias);
 
   // Shadow: minimal and glass get subtle shadows, solid gets none
   let shadow = 'none';
@@ -467,7 +525,7 @@ function resolveSurface(s: ContentSignals): MotionTokens['surface'] {
 
 // ─── Layout Resolution ──────────────────────────────────
 
-function resolveLayout(s: ContentSignals): MotionTokens['layout'] {
+function resolveLayout(s: ContentSignals, b: BrandInputs): MotionTokens['layout'] {
   // Density: visual_dependency is the primary driver
   // position_in_video modulates: early in video = simpler (avoid overwhelming opener)
   // ← signal:structural.position_in_video → density. ⚠️ early-video reduction INVENTED
@@ -495,6 +553,13 @@ function resolveLayout(s: ContentSignals): MotionTokens['layout'] {
     density = density === 'rich' ? 'standard' : 'minimal';
   }
 
+  const densityTolerance = dial01(b.densityTolerance);
+  const densityProtectedByFootage = motionIntensity > 0.7 || timeSinceCut < 30;
+  if (densityTolerance !== undefined) {
+    if (densityTolerance < 0.3 && density !== 'minimal') density = shiftDensity(density, -1);
+    if (densityTolerance > 0.7 && !densityProtectedByFootage && density !== 'rich') density = shiftDensity(density, 1);
+  }
+
   // Max simultaneous: limits how many graphics can overlap
   const maxSimultaneous = density === 'rich' ? 3 : density === 'standard' ? 2 : 1;
 
@@ -511,10 +576,17 @@ function resolveLayout(s: ContentSignals): MotionTokens['layout'] {
 
   // Alignment: formality drives center vs left
   const formalityNorm = (s.formality + 1) / 2;
-  const alignment: MotionTokens['layout']['alignment'] = formalityNorm > 0.6 ? 'center' : 'left';
+  let alignment: MotionTokens['layout']['alignment'] = formalityNorm > 0.6 ? 'center' : 'left';
+  const layoutSymmetry = dial01(b.layoutSymmetry);
+  if (layoutSymmetry !== undefined) {
+    if (layoutSymmetry > 0.65) alignment = 'center';
+    else if (layoutSymmetry < 0.35) alignment = 'left';
+  }
 
   // Padding scale: warmth + formality = generous spacing
-  const paddingScale = lerp(formalityNorm, 0, 1, 0.85, 1.2) * lerp(s.warmth, 0, 1, 0.9, 1.1);
+  const paddingScale = lerp(formalityNorm, 0, 1, 0.85, 1.2)
+    * lerp(s.warmth, 0, 1, 0.9, 1.1)
+    * biasMultiplier(b.minimalism, 0.15);
 
   return {
     density,

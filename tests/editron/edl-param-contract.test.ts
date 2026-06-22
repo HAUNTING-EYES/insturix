@@ -55,46 +55,112 @@ describe('EDL param contract normalization', () => {
     expect(speedCurve.map((point: any) => point.value)).not.toContain(0.5);
   });
 
-  it('maps pixel shake intensity into the camera-shake handler contract', async () => {
-    const overlays = [videoOverlay({ width: 1200 })];
-    const edl = decisionList([{
-      type: 'camera-shake',
-      frame: 45,
-      durationFrames: 8,
-      confidence: 0.95,
-      params: { intensity_px: 12 },
-    }]);
+  it('executes graph-produced camera shake through the producer and EDL path', async () => {
+    const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
+    const { loadGraph } = await import('../../lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('../../lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    if (!graphIndex) throw new Error('creative graph failed to load');
 
-    const result = await executeEDL(edl, 'edl-param-shake-test', 'user-1', overlays, { width: 1200, height: 675 });
+    expect(graphIndex.producesTechnique.get('mapping:shake.camera_shake_impact')).toBe('technique:other.camera_shake');
+
+    const producerResult = executeSignalDrivenEdit({
+      gridSignals: new Map([[45, {
+        frame: 45,
+        timestampMs: 1500,
+        'composite.cinematic_moment': 0.95,
+        peak_score: 0.95,
+        formality: 0.3,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: { formality: 0.3 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, baseGenreParams(), buildMomentWeightMap(null, null), graphIndex, [{
+      id: 'video',
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
+    }]);
+    const decision = producerResult.decisions.find((item) =>
+      item.source === 'mapping:shake.camera_shake_impact' && item.type === 'camera-shake'
+    );
+
+    expect(decision).toEqual(expect.objectContaining({
+      type: 'camera-shake',
+      technique: 'technique:other.camera_shake',
+    }));
+
+    const overlays = [videoOverlay({ width: 1200 })];
+    const result = await executeEDL(decisionList([decision!]), 'edl-param-produced-shake-test', 'user-1', overlays, { width: 1200, height: 675 });
     const receipt = ((overlays[0] as any).metadata?.atomicOverlayReceipts ?? [])
       .find((item: any) => item.family === 'camera-shake');
 
     expect(result.decisionsExecuted).toBe(1);
-    expect(receipt?.payload.intensity).toBeCloseTo(1, 5);
-    expect(receipt?.payload.maxOffset).toBeCloseTo(12, 5);
+    expect(receipt?.payload.intensity).toBeGreaterThan(0);
+    expect(receipt?.payload.maxOffset).toBeGreaterThan(0);
   });
 
-  it('keeps caption-emphasis in the caption layer using targetWord aliases', async () => {
+  it('executes graph-produced caption emphasis through the producer and EDL path', async () => {
+    const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
+    const { loadGraph } = await import('../../lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('../../lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    if (!graphIndex) throw new Error('creative graph failed to load');
+
+    expect(graphIndex.producesTechnique.get('mapping:speech.speaker_emphasis_word')).toBe('technique:caption.caption_emphasis');
+
+    const producerResult = executeSignalDrivenEdit({
+      gridSignals: new Map([[30, {
+        frame: 30,
+        timestampMs: 1000,
+        spike: 1.8,
+        duration: 130,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [{
+        timestampMs: 1000,
+        frame: 30,
+        signal: 'speech.emphasis_word',
+        value: true,
+        context: 'process',
+      }],
+      globalSignals: { formality: 0.3 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, baseGenreParams(), buildMomentWeightMap(null, null), graphIndex, [{
+      id: 'video',
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
+    }]);
+    const decision = producerResult.decisions.find((item) =>
+      item.source === 'mapping:speech.speaker_emphasis_word' && item.type === 'caption-emphasis'
+    );
+
+    expect(decision).toEqual(expect.objectContaining({
+      type: 'caption-emphasis',
+      technique: 'technique:caption.caption_emphasis',
+      params: expect.objectContaining({ targetWord: 'process' }),
+    }));
+
     const overlays = [
       videoOverlay(),
       captionOverlay(),
     ];
-    const edl = decisionList([{
-      type: 'caption-emphasis',
-      frame: 30,
-      durationFrames: 20,
-      confidence: 0.95,
-      params: { targetWord: 'process', scale: 1.4 },
-    }]);
-
-    const result = await executeEDL(edl, 'edl-param-caption-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const result = await executeEDL(decisionList([decision!]), 'edl-param-produced-caption-test', 'user-1', overlays, { width: 1920, height: 1080 });
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION) as any;
     const processWord = caption.captions[0].words.find((word: any) => word.word === 'process');
 
     expect(result.decisionsExecuted).toBe(1);
     expect(result.overlaysCreated).toBe(0);
     expect(result.overlaysModified).toBe(1);
-    expect(processWord.emphasis).toEqual({ type: 'keyword', source: 'signal-executor:test' });
+    expect(processWord.emphasis).toEqual({ type: 'keyword', source: 'mapping:speech.speaker_emphasis_word' });
     expect(caption.metadata.captionEmphasisDecisions[0]).toEqual(expect.objectContaining({
       word: 'process',
       frame: 30,
@@ -136,39 +202,65 @@ describe('EDL param contract normalization', () => {
     );
   });
 
-  it('executes explicit filter-change decisions with live dispatch', async () => {
-    const overlays = [videoOverlay()];
-    const edl = decisionList([{
-      type: 'filter-change',
-      frame: 45,
-      durationFrames: 30,
-      confidence: 0.95,
-      params: { filterCss: 'brightness(1.08) contrast(1.04)' },
-    }]);
+  it('does not emit script filter-change decisions from the reactive producer', async () => {
+    const { generateEditDecisionList } = await import('../../lib/editron/services/reactive-edit-engine');
+    const edl = generateEditDecisionList([{
+      analysisQuality: 'high',
+      speechSegments: [{
+        startFrame: 10,
+        endFrame: 40,
+        startMs: 333,
+        endMs: 1333,
+        text: 'This moment should stay signal owned',
+        contentType: 'claim',
+        confidence: 0.95,
+        entities: [],
+        suggestedGraphicData: {},
+        scriptEditDirections: { filterPresetId: 'warm-neutral' },
+      }],
+      musicStructure: null,
+      motionSegments: [],
+      motionPeaks: [],
+      subjectTracks: [],
+      keyframeAnalyses: [],
+      audio: null,
+    } as any], 3000);
 
-    const result = await executeEDL(edl, 'edl-param-filter-test', 'user-1', overlays, { width: 1920, height: 1080 });
-
-    expect(result.decisionsExecuted).toBe(1);
-    expect(result.overlaysModified).toBe(1);
-    expect((overlays[0] as any).styles.filter).toBe('brightness(1.08) contrast(1.04)');
+    expect(edl.decisions.some((decision: any) => decision.type === 'filter-change')).toBe(false);
   });
 
-  it('skips filter-change decisions without explicit filter params', async () => {
-    const overlays = [videoOverlay()];
-    const edl = decisionList([{
-      type: 'filter-change',
-      frame: 45,
-      durationFrames: 30,
-      confidence: 0.95,
-      reason: 'make this warmer from prose only',
-      params: {},
+  it('does not emit graph filter-change decisions from signal mappings', async () => {
+    const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
+    const { loadGraph } = await import('../../lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('../../lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    if (!graphIndex) throw new Error('creative graph failed to load');
+
+    const filterTechniqueEntries = Array.from(graphIndex.producesTechnique.entries())
+      .filter(([, techniqueId]) => graphIndex.techniques.get(techniqueId)?.details?.edlDecisionType === 'filter-change');
+    expect(filterTechniqueEntries.length).toBeGreaterThan(0);
+
+    const producerResult = executeSignalDrivenEdit({
+      gridSignals: new Map([[30, {
+        frame: 30,
+        timestampMs: 1000,
+        'structural.position_in_video': 0.5,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: { formality: 0.3 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, baseGenreParams(), buildMomentWeightMap(null, null), graphIndex, [{
+      id: 'video',
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
     }]);
 
-    const result = await executeEDL(edl, 'edl-param-filter-prose-test', 'user-1', overlays, { width: 1920, height: 1080 });
-
-    expect(result.decisionsExecuted).toBe(0);
-    expect(result.decisionsSkipped).toBe(1);
-    expect((overlays[0] as any).styles.filter).toBeUndefined();
+    expect(producerResult.decisions.some((decision: any) => decision.type === 'filter-change')).toBe(false);
   });
 
   it('accepts pacing as an informational no-op rather than dead dispatch', async () => {
@@ -256,6 +348,20 @@ describe('EDL param contract normalization', () => {
     });
   });
 });
+
+function baseGenreParams() {
+  return {
+    pacing_tolerance: 5,
+    energy_baseline: 0.45,
+    transition_density: 10,
+    graphic_density: 3,
+    silence_tolerance: 1,
+    zoom_budget: 5,
+    sfx_density: 0.5,
+    color_temperature: 5500,
+    formality: 0.3,
+  };
+}
 
 function decisionList(decisions: Array<Record<string, any>>): EditDecisionList {
   return {

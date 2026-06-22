@@ -199,9 +199,12 @@ function overlaySignals(overlay: Overlay, overrides?: Record<string, unknown>): 
   const text = overlayText(overlay);
   const hasText = text.trim().length > 0;
   const isVisual = String(overlay.type) !== "sound";
+  const isCaption = String(overlay.type) === "caption";
+  const selfTextOnScreen = hasText ? 1 : 0;
+  const selfTextCoverage = hasText ? Math.min(text.length / 900, 0.72) : 0;
   return {
-    text_on_screen: hasText ? 1 : 0,
-    text_coverage: hasText ? Math.min(text.length / 900, 0.72) : 0,
+    text_on_screen: isCaption ? 0 : selfTextOnScreen,
+    text_coverage: isCaption ? 0 : selfTextCoverage,
     visual_complexity: isVisual ? 0.35 : 0,
     speech_energy: overlay.type === "sound" || overlay.type === "caption" ? 0.5 : 0,
     word_importance: hasText ? Math.min(text.split(/\s+/).filter(Boolean).length / 42, 1) : 0,

@@ -15,12 +15,12 @@ import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/dat
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
-import { resolveMotionTokens, type BrandInputs } from '@/lib/editron/data/motion-theme-resolver';
+import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { brandInputsFromUnifiedBrandAtomic } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
+import { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } from '@/lib/editron/motion-graphics/engine/brand-vault-to-motion';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import { buildAtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
@@ -509,6 +509,7 @@ export async function executeEDL(
   // composition sites), but NOTHING ever populated it → every MG rendered DEFAULT_BRAND gold. Populate
   // it here, the single sink all four director paths reach. Empty/no brand → {} → DEFAULT (unchanged).
   let projectBrand: Partial<BrandInputs> = {};
+  let projectBrandMotionOverrides: DeepPartial<MotionTokens> | undefined;
   let projectSignalContext: EDLSignalContext = {};
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
@@ -521,8 +522,15 @@ export async function executeEDL(
         : undefined,
     };
     if (projectDoc?.brandId && userId) {
-      const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
-      projectBrand = brandInputsFromUnifiedBrandAtomic(await getUnifiedBrand(userId, projectDoc.brandId));
+      const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
+      const resolution = await resolveEffectiveBrandWithProfile(userId, projectDoc.brandId, { service: 'editron' });
+      projectBrand = resolution.acceptedProfile
+        ? {
+            ...brandInputsFromUnifiedBrandAtomic(resolution.brand),
+            ...brandInputsFromBrandSignalProfile(resolution.acceptedProfile, resolution.brand),
+          }
+        : brandInputsFromUnifiedBrandAtomic(resolution.brand);
+      projectBrandMotionOverrides = brandVaultToMotionOverrides(resolution.acceptedProfile);
       if (projectBrand.accentColor) console.log(`[EDL] Brand accent ${projectBrand.accentColor} → MG (brand ${projectDoc.brandId})`);
     }
   } catch (e) {
@@ -532,6 +540,9 @@ export async function executeEDL(
     if (d.type === 'graphic' || d.type === 'caption-emphasis') {
       d.params = d.params || {};
       if (d.params.brand == null) d.params.brand = projectBrand;
+      if (projectBrandMotionOverrides && d.params.brandMotionOverrides == null) {
+        d.params.brandMotionOverrides = projectBrandMotionOverrides;
+      }
     }
   }
 
@@ -1777,8 +1788,6 @@ function utilityCategoryForDecision(decision: EditDecision): OverlayCategory | u
       return 'camera';
     case 'cut':
       return 'cut';
-    case 'filter-change':
-      return 'filter';
     default:
       return undefined;
   }
@@ -1852,7 +1861,7 @@ function mergeUtilityOutputValues(
     return;
   }
 
-  if (category === 'caption' || category === 'filter') {
+  if (category === 'caption') {
     for (const key of Object.keys(outputValues)) copy(key, 'fill');
   }
 }
@@ -1990,9 +1999,6 @@ async function applyDecision(
       // Cuts are informational — they indicate where scene boundaries SHOULD be
       // but don't create new overlays (the scenes already exist from ThinkForge)
       return null;
-
-    case 'filter-change':
-      return applyFilterChange(decision, overlays);
 
     case 'caption-emphasis': {
       // Caption emphasis belongs in the caption layer. Only fall back to MG if
@@ -3477,7 +3483,11 @@ async function applyGraphic(
   // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
   if (useCompositionEngine) {
     const rawSignals = buildMotionGraphicSignalSnapshot(decision);
-    const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
+    const tokens = resolveMotionTokens(
+      rawSignals,
+      decision.params.brand || {},
+      decision.params.brandMotionOverrides as DeepPartial<MotionTokens> | undefined,
+    );
 
     let mgScores: MgOverlayScores | undefined = decision.params.mgOverlayScores as MgOverlayScores | undefined;
     if (!mgScores && rawSignals && Object.keys(rawSignals).length > 0) {
@@ -3811,7 +3821,11 @@ async function applyGraphic(
   // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
   // All other types use html-scene (Shadow DOM) until their structure components exist.
   if (graphicType === 'stat-counter') {
-    const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
+    const tokens = resolveMotionTokens(
+      decision.params.signals || {},
+      decision.params.brand || {},
+      decision.params.brandMotionOverrides as DeepPartial<MotionTokens> | undefined,
+    );
     const contentMap: Record<string, string> = {
       value: decision.params.value ? String(decision.params.value) : decision.params.endValue ? String(decision.params.endValue) : text,
       prefix: decision.params.prefix || '',
@@ -3934,79 +3948,4 @@ function applyPacingNoop(
 ): { created: number; modified: number } {
   console.log('[EDL-Exec] Pacing at frame ' + decision.frame + ': accepted as informational no-op');
   return { created: 0, modified: 0 };
-}
-
-function applyFilterChange(
-  decision: EditDecision,
-  overlays: Overlay[],
-): { created: number; modified: number } | null {
-  let { filterId, filterCss, filterPreset } = decision.params;
-
-  if (!filterId && typeof filterPreset === 'string') {
-    filterId = filterPreset;
-  }
-
-  // Phase A3.5.4 fix: previously `filterId` was read but never resolved to CSS — only
-  // `filterCss` was applied. Now if filterId is set, resolve it via getFilterPresetById
-  // so server-safe preset names ("golden-hour-pro", "film-portra", etc.) actually work.
-  if (filterId && !filterCss) {
-    const preset = getFilterPresetById(filterId);
-    if (preset && preset.id !== 'none') {
-      filterCss = preset.filter;
-    }
-  }
-
-  if (!filterId && !filterCss) {
-    console.log('[EDL-Exec] Filter-change at frame ' + decision.frame + ': SKIPPED - no explicit filterId/filterCss');
-    return null;
-  }
-
-  // Bundle 3 (2026-04-08): Skin-tone safety rail.
-  // Reject any filter with hue-rotate > 30deg (or < -30deg) unless the user's edit profile
-  // EXPLICITLY selected a stylistic preset (teal-orange, blade-runner, neon-nights, cool).
-  // Generic EDL filter-change decisions must not turn skin tones blue/green on emotional
-  // / human / nostalgia content. See creative_production_knowledge.md §6 Color Grading
-  // Psychology + Phase A3.5.4 disaster inventory.
-  if (filterCss) {
-    const hueMatch = filterCss.match(/hue-rotate\((-?\d+)deg\)/);
-    if (hueMatch) {
-      const degrees = parseInt(hueMatch[1], 10);
-      // Normalize to [-180, 180]
-      let normalized = degrees % 360;
-      if (normalized > 180) normalized -= 360;
-      if (normalized < -180) normalized += 360;
-      if (Math.abs(normalized) > 30) {
-        console.warn(`[EDL-Exec] Filter-change at frame ${decision.frame}: REJECTED filterCss with hue-rotate(${normalized}deg) — too extreme for skin tones. (filterId was "${filterId || '(none)'}")`);
-        return null;
-      }
-    }
-  }
-
-  let modified = 0;
-  const videoOverlays = overlays.filter(o =>
-    (o.type === 'video' || o.type === 'image') &&
-    o.from <= decision.frame &&
-    o.from + o.durationInFrames > decision.frame,
-  );
-
-  // Bundle 3 (2026-04-08): Don't overwrite a filter that finalize already set.
-  // Finalize's applyEditDirections picks a mood-appropriate filter from moodFilterMap
-  // (which Bundle 1 locked to skin-tone-safe presets only). Director's batch_update_overlays
-  // ALREADY respects this via a script-filter-preserved guard. The EDL executor didn't,
-  // which is how teal-orange hue-rotate(160deg) ended up on clips 0+2 of proj_r8E_z9WVaBX9
-  // despite mood='calm' and mood='inspirational' both mapping to golden-hour-pro.
-  // Fix: same guard here. Only apply filter-change to overlays that have no filter yet.
-  for (const overlay of videoOverlays) {
-    if (!(overlay as any).styles) (overlay as any).styles = {};
-    if ((overlay as any).styles.filter) {
-      // Finalize/Director already set a filter — respect it. Skip this overlay.
-      continue;
-    }
-    if (filterCss) {
-      (overlay as any).styles.filter = filterCss;
-    }
-    modified++;
-  }
-
-  return modified > 0 ? { created: 0, modified } : null;
 }

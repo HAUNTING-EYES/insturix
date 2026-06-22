@@ -26,7 +26,7 @@ export interface SFXLibraryResult {
   gcsPath: string;
   audioAssetId: string;
   durationMs: number;
-  source: 'pixabay' | 'freesound' | 'local';
+  source: 'pixabay' | 'freesound';
   originalTitle?: string;
 }
 
@@ -55,85 +55,10 @@ function stringValue(value: unknown): string | undefined {
 
 const SFX_SEARCH_PROVIDERS: SFXSearchProvider[] = [
   {
-    source: 'local',
-    search: searchCuratedLocalSfxPack,
-  },
-  {
     source: 'freesound',
     search: searchFreesound,
   },
 ];
-
-interface CuratedSfxPackEntry {
-  id?: unknown;
-  url?: unknown;
-  title?: unknown;
-  duration?: unknown;
-  durationSec?: unknown;
-  tags?: unknown;
-  rating?: unknown;
-}
-
-async function searchCuratedLocalSfxPack(
-  query: string,
-  maxDuration?: number,
-): Promise<SFXProviderCandidate[]> {
-  const raw = process.env.EDITRON_CURATED_SFX_PACK_JSON;
-  if (!raw) return [];
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err: unknown) {
-    console.warn(`[SFXLib] EDITRON_CURATED_SFX_PACK_JSON invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
-  }
-
-  if (!Array.isArray(parsed)) {
-    console.warn('[SFXLib] EDITRON_CURATED_SFX_PACK_JSON must be a JSON array.');
-    return [];
-  }
-
-  const queryTerms = normalizedSfxQueryTerms(query);
-  return parsed
-    .map((entry): SFXProviderCandidate | null => {
-      if (!isRecord(entry)) return null;
-      const candidate = curatedPackEntryToCandidate(entry);
-      if (!candidate) return null;
-      if (maxDuration && candidate.duration > maxDuration + 1) return null;
-      const text = candidateSearchText(candidate);
-      const hasQueryMatch = queryTerms.length === 0
-        || queryTerms.some((term) => termMatchesText(term, text));
-      return hasQueryMatch ? candidate : null;
-    })
-    .filter((candidate): candidate is SFXProviderCandidate => Boolean(candidate));
-}
-
-function curatedPackEntryToCandidate(entry: CuratedSfxPackEntry): SFXProviderCandidate | null {
-  const url = stringValue(entry.url);
-  if (!url) return null;
-  const title = stringValue(entry.title) || 'Curated SFX';
-  const rawDuration = typeof entry.durationSec === 'number'
-    ? entry.durationSec
-    : typeof entry.duration === 'number'
-      ? entry.duration
-      : undefined;
-  const duration = rawDuration && Number.isFinite(rawDuration) && rawDuration > 0
-    ? rawDuration
-    : 1;
-  const tags = Array.isArray(entry.tags)
-    ? entry.tags.filter((tag: unknown): tag is string => typeof tag === 'string' && tag.trim().length > 0)
-    : [];
-  return {
-    id: entry.id !== undefined ? String(entry.id) : undefined,
-    url,
-    title,
-    duration,
-    source: 'local',
-    tags,
-    rating: typeof entry.rating === 'number' && Number.isFinite(entry.rating) ? entry.rating : 5,
-  };
-}
 
 // ─── Freesound API ───────────────────────────────────────────────
 // Docs: https://freesound.org/docs/api/
@@ -163,7 +88,7 @@ async function searchFreesound(
       params.set('filter', `license:"Creative Commons 0" duration:[0 TO ${maxDuration + 2}]`);
     }
 
-    const res = await fetch(`https://freesound.org/apiv2/search/text/?${params}`);
+    const res = await fetch(`https://freesound.org/apiv2/search/?${params}`);
     if (!res.ok) {
       console.warn(`[SFXLib] Freesound search failed: ${res.status}`);
       return [];

@@ -20,7 +20,7 @@
  *          Beat + motion peak coincidence → zoom punch
  * MEDIUM:  B-roll suggestion → cutaway
  *          Keyword highlight → caption emphasis
- * LOW:     Aesthetic improvement → filter adjustment
+ * LOW:     Aesthetic evidence → handled by color/manual owners, not auto EDL filters
  *          Pacing normalization → duration adjustment
  */
 
@@ -39,7 +39,7 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 export type EditDecisionType =
   | 'cut' | 'transition' | 'zoom' | 'pan' | 'graphic'
-  | 'sfx' | 'sfx-trigger' | 'speed-change' | 'filter-change' | 'caption-emphasis'
+  | 'sfx' | 'sfx-trigger' | 'speed-change' | 'caption-emphasis'
   | 'audio-duck' | 'fade' | 'pacing' | 'camera-shake';
 
 export interface EditDecision {
@@ -279,16 +279,7 @@ export function generateEditDecisionList(
           }
         }
 
-        // Filter from script: "cool sophisticated palette", "warm cinematic"
-        if (ed.filterPresetId) {
-          decisions.push({
-            frame: seg.startFrame, type: 'filter-change',
-            trigger: { track: 'speech', signal: 'script_filter', confidence: 1.0 },
-            action: { tool: 'apply_filter', params: { filterPresetId: ed.filterPresetId } },
-            priority: 85, source: 'speech', signal: 'script_filter', reason: `Script filter: ${ed.filterPresetId}`, params: { filterId: ed.filterPresetId },
-            confidence: 1.0,
-          } as EditDecision);
-        }
+        // Script filter IDs are evidence for the color/manual owner; auto EDL no longer emits filter-change.
 
         // Pacing from script: "quick cuts", "slow reveal", "building"
         if (ed.pacing) {

@@ -36,7 +36,7 @@ import { enrichMotionGraphicFactParams } from './mg-semantic-facts';
 
 export interface EditDecision {
   type: 'zoom' | 'transition' | 'graphic' | 'sfx' | 'sfx-trigger' | 'speed-change' |
-        'filter-change' | 'caption-emphasis' | 'audio-duck' | 'fade' | 'camera-shake' |
+        'caption-emphasis' | 'audio-duck' | 'fade' | 'camera-shake' |
         'cut' | 'pacing';
   frame: number;
   confidence: number;
@@ -517,7 +517,7 @@ function buildDecision(
   const techniqueId = technique.id;
   if (!isExecutableMappingTechnique(mapping, technique, producedTechniqueId)) return null;
 
-  const edlType = technique.details?.edlDecisionType;
+  const edlType = canonicalizeGraphEdlDecisionType(technique.details?.edlDecisionType, techniqueId);
   if (!isExecutableEdlType(edlType)) return null;
 
   // Interpolate parameters based on weight
@@ -528,6 +528,17 @@ function buildDecision(
     params.transitionType = mapGraphTransitionToEdl(techniqueId);
   }
 
+  if (edlType === 'caption-emphasis' && signals) {
+    const targetWord = readStringSignal(signals, [
+      'speech.emphasis_word_context',
+      'emphasis_word_context',
+      'speech.emphasis_word',
+      'emphasis_word',
+    ]);
+    if (targetWord) {
+      params.targetWord = targetWord;
+    }
+  }
   // ── Attach signal snapshot to decision (ROOT CAUSE FIX) ──
   // Previously: signal values were DISCARDED after triggering mappings.
   // edl-executor read decision.params.signals → always {} → composition used DEFAULT_SIGNALS.
@@ -745,65 +756,72 @@ function buildComplements(
   const complements: EditDecision[] = [];
   if (!mapping.details.complements?.length) return complements;
 
-  // Only add complements at medium+ weight
+  // Only add complements at medium+ weight.
   if (momentWeight < 0.5) return complements;
 
-  for (const complement of mapping.details.complements) {
-    const lower = complement.toLowerCase();
+  const complementEdges = graphIndex.edgesFrom.get(primaryDecision.technique)
+    ?.filter((edge) => edge.type === 'composes_with' && edge.to.startsWith('technique:')) ?? [];
+  const seenTechniqueIds = new Set<string>();
 
-    // SFX complement — rate-limited by budget (KB A-100: max 15/30s)
-    if (lower.includes('sfx') || lower.includes('impact') || lower.includes('whoosh')) {
-      const sfxDecision: EditDecision = {
-        type: 'sfx-trigger',
-        frame,
-        confidence: momentWeight * 0.8,
-        source: mapping.id,
-        technique: 'technique:sound.sfx_impact',
-        params: { level_db: momentWeight > 0.7 ? -12 : -16, type: inferSfxType(lower) },
-        reason: `Complement for ${primaryDecision.technique}`,
-      };
-      if (!budget || checkBudget(sfxDecision, budget, momentWeight)) {
-        complements.push(sfxDecision);
-        if (budget) updateBudget(sfxDecision, frame, budget);
-      }
+  for (const edge of complementEdges) {
+    const technique = getTechnique(graphIndex, edge.to);
+    if (!technique) continue;
+    if (!isExecutableMappingTechnique(mapping, technique, edge.to)) continue;
+
+    const techniqueId = technique.id;
+    if (techniqueId === primaryDecision.technique || seenTechniqueIds.has(techniqueId)) continue;
+    seenTechniqueIds.add(techniqueId);
+
+    const rawEdlType = canonicalizeGraphEdlDecisionType(technique.details?.edlDecisionType, techniqueId);
+    const edlType = canonicalizeComplementEdlDecisionType(rawEdlType);
+    if (!isExecutableEdlType(edlType)) continue;
+
+    const params: Record<string, unknown> = interpolateParams(technique, momentWeight);
+    if (primaryDecision.params.signals && !params.signals) {
+      params.signals = primaryDecision.params.signals;
     }
 
-    // Caption emphasis complement — rate-limited by budget (KB C-012: max 10/30s)
-    if (lower.includes('caption') && lower.includes('emphasis')) {
-      const capDecision: EditDecision = {
-        type: 'caption-emphasis',
-        frame,
-        confidence: momentWeight * 0.7,
-        source: mapping.id,
-        technique: 'technique:caption.caption_emphasis',
-        params: { scale: momentWeight > 0.7 ? 1.4 : 1.2, accent_color: 'true' },
-        reason: `Complement for ${primaryDecision.technique}`,
-      };
-      if (!budget || checkBudget(capDecision, budget, momentWeight)) {
-        complements.push(capDecision);
-        if (budget) updateBudget(capDecision, frame, budget);
-      }
+    if (edlType === 'transition' && techniqueId.startsWith('technique:transition.')) {
+      params.transitionType = mapGraphTransitionToEdl(techniqueId);
     }
 
-    // Zoom complement (subtle)
-    if (lower.includes('zoom_drift') || lower.includes('zoom_push') && !primaryDecision.type.includes('zoom')) {
-      if (momentWeight > 0.6) {
-        complements.push({
-          type: 'zoom',
-          frame,
-          confidence: momentWeight * 0.6,
-          source: mapping.id,
-          technique: 'technique:zoom.zoom_drift',
-          params: { start_scale: 1.0, end_scale: 1.05, duration_s: 4 },
-          reason: `Subtle zoom complement`,
-        });
-      }
+    if (edlType === 'sfx-trigger') {
+      const sfxType = graphSfxTokenFromTechnique(techniqueId);
+      if (sfxType && typeof params.sfxType !== 'string') params.sfxType = sfxType;
+      if (sfxType && typeof params.sfxCue !== 'string') params.sfxCue = sfxType;
+    }
+
+    const decision: EditDecision = {
+      type: edlType,
+      frame,
+      confidence: roundSignalScore(clampSignal01(primaryDecision.confidence * 0.86)),
+      source: mapping.id,
+      technique: techniqueId,
+      params,
+      reason: `Graph complement for ${primaryDecision.technique}`,
+    };
+
+    if (!budget || checkBudget(decision, budget, momentWeight)) {
+      complements.push(decision);
+      if (budget) updateBudget(decision, frame, budget);
     }
   }
 
   return complements;
 }
 
+function canonicalizeComplementEdlDecisionType(rawEdlType: unknown): unknown {
+  return rawEdlType === 'sfx' ? 'sfx-trigger' : rawEdlType;
+}
+
+function graphSfxTokenFromTechnique(techniqueId: string): string | undefined {
+  const normalized = techniqueId.toLowerCase();
+  if (!normalized.startsWith('technique:sound.')) return undefined;
+  return normalized
+    .replace(/^technique:sound\./, '')
+    .replace(/^sfx_/, '')
+    .replace(/_/g, '-');
+}
 function checkBudget(decision: EditDecision, budget: BudgetState, weight: number): boolean {
   switch (decision.type) {
     case 'zoom':
@@ -945,15 +963,6 @@ function mapGraphTransitionToEdl(techniqueId: string): string {
 
 // ─── Inference Helpers ──────────────────────────────────────────────────────
 
-function inferSfxType(description: string): string {
-  if (description.includes('impact') || description.includes('hit')) return 'impact';
-  if (description.includes('whoosh')) return 'whoosh';
-  if (description.includes('shimmer') || description.includes('chime')) return 'shimmer';
-  if (description.includes('pop') || description.includes('ding')) return 'pop';
-  if (description.includes('click') || description.includes('shutter')) return 'shutter';
-  return 'impact';
-}
-
 function isExecutableMappingTechnique(
   mapping: MappingNode,
   technique: TechniqueNode,
@@ -985,10 +994,35 @@ function isExecutableMappingTechnique(
   return true;
 }
 
+function canonicalizeGraphEdlDecisionType(rawEdlType: unknown, techniqueId: string): unknown {
+  const normalizedTechniqueId = techniqueId.toLowerCase().replace(/[._]/g, '-');
+
+  if (rawEdlType === 'caption' && normalizedTechniqueId.includes('caption-emphasis')) {
+    return 'caption-emphasis';
+  }
+
+  if (rawEdlType === 'shake' && normalizedTechniqueId.includes('camera-shake')) {
+    return 'camera-shake';
+  }
+
+  return rawEdlType;
+}
+
+function readStringSignal(signals: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = signals[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
 function isExecutableEdlType(edlType: unknown): edlType is EditDecision['type'] {
   return edlType === 'zoom' || edlType === 'transition' || edlType === 'graphic' ||
     edlType === 'sfx' || edlType === 'sfx-trigger' || edlType === 'speed-change' ||
-    edlType === 'filter-change' || edlType === 'caption-emphasis' ||
+    edlType === 'caption-emphasis' ||
     edlType === 'audio-duck' || edlType === 'fade' || edlType === 'camera-shake' ||
     edlType === 'cut' || edlType === 'pacing';
 }

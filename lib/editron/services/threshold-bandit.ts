@@ -22,7 +22,11 @@ import {
 } from '../data/threshold-registry';
 import type { DecisionOutcome } from './decision-tracker';
 import {
+  averageSignalValue,
   buildContextKey,
+  buildDurationBucket,
+  buildSignalBucket,
+  buildSpeechCoverageBucket,
   type BanditContext,
 } from './genre-parameter-bandit';
 
@@ -327,7 +331,6 @@ export async function processDecisionOutcomes(
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const { diffOutcomes, aggregateOutcomes } = await import('./decision-tracker');
-    const { buildSpeechCoverageBucket, buildDurationBucket } = await import('./genre-parameter-bandit');
 
     const db = await getDatabase();
     const projectDoc = await db.collection('projects').findOne({ projectId });
@@ -350,9 +353,17 @@ export async function processDecisionOutcomes(
     if (!state) state = createThresholdBanditState(userId);
 
     const durationSec = (decisionLog.totalDurationMs || 60000) / 1000;
-    const context = {
-      contentType: projectDoc?.rawFootageAnalysis?.contentTypeDetection?.contentType || 'unknown',
-      speechCoverageBucket: buildSpeechCoverageBucket(projectDoc?.rawFootageAnalysis?.speechCoverage ?? 0),
+    const speechCoverage = projectDoc?.rawFootageAnalysis?.speechCoverage ?? 0;
+    const context: BanditContext = {
+      signalBucket: buildSignalBucket({
+        speechCoverage,
+        speechEnergy: averageSignalValue(projectDoc?.wav2vecAnalysis?.segments, 'energy'),
+        motionIntensity: averageSignalValue(projectDoc?.vjepaAnalysis?.segments, 'motionIntensity'),
+        visualSignificance: averageSignalValue(projectDoc?.vjepaAnalysis?.segments, 'visualSignificance'),
+        musicEnergy: averageSignalValue(projectDoc?.musicAnalysis?.energyCurve, 'energy'),
+        beatStrength: projectDoc?.musicAnalysis?.musicPresence,
+      }),
+      speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
       durationBucket: buildDurationBucket(durationSec),
       platform: projectDoc?.syntheticStoryboard?.platform || 'youtube',
     };

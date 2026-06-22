@@ -1,6 +1,7 @@
 import type { AssembledContext, ProjectContextData } from '../agents/types';
 import type { RetrievedContext, SemanticFact } from '../context/fetchContextSources';
 import { extractSignalsFromContext } from '../data/extract-signals';
+import { brandSignalProfileToCreativeSignalDefaults } from '../../shared/brand-to-creative-signals';
 import type {
   ContentSignalProfile,
   ContentConstraints,
@@ -53,6 +54,7 @@ export interface ThinkForgeContentSignalProfile {
     sessionId?: string;
     projectName?: string;
     brandContextPresent: boolean;
+    brandVaultProfilePresent: boolean;
     projectFactsUsed: number;
     globalFactsUsed: number;
     interactionPatternsUsed: number;
@@ -129,6 +131,8 @@ export function resolveContentSignalProfile(
     setSignal(signals, metadata, key, value, 'format_default', 0.72, outputFormat);
   }
 
+  applyBrandVaultSignalDefaults(signals, metadata, retrieved?.brandSignalProfile);
+
   for (const [key, value] of typedSignalEntries(promptSignals)) {
     if (value !== formatSignals[key]) {
       setSignal(signals, metadata, key, value, 'brief_extraction', 0.78, 'user_prompt');
@@ -177,6 +181,7 @@ export function resolveContentSignalProfile(
       sessionId: input.sessionId,
       projectName: project?.projectName,
       brandContextPresent: hasBrandContext(brandDNA),
+      brandVaultProfilePresent: Boolean(retrieved?.brandSignalProfile),
       projectFactsUsed: retrieved?.projectFacts.length ?? 0,
       globalFactsUsed: retrieved?.globalFacts.length ?? 0,
       interactionPatternsUsed: retrieved?.interactionPatterns.length ?? 0,
@@ -342,6 +347,27 @@ function applyBrandSignalHints(
     ...(brandDNA.structuralHabits ?? []),
   ].filter(Boolean).join(' ');
   applyTextSignalHints(signals, metadata, text, 'brand_dna', 'brand_dna', 0.84);
+}
+function applyBrandVaultSignalDefaults(
+  signals: Partial<CreativeSignals>,
+  metadata: Record<string, InferenceMetadata>,
+  profile?: RetrievedContext['brandSignalProfile'],
+): void {
+  if (!profile) return;
+  const mapped = brandSignalProfileToCreativeSignalDefaults(profile);
+  for (const [key, value] of typedSignalEntries(mapped.signals)) {
+    const sourceMetadata = mapped._inference_metadata[String(key)];
+    setSignal(
+      signals,
+      metadata,
+      key,
+      value,
+      sourceMetadata?.source ?? 'brand_dna',
+      sourceMetadata?.confidence ?? 0.7,
+      sourceMetadata?.resolvedFrom ?? 'brand_vault',
+      sourceMetadata?.wasLocked ?? false,
+    );
+  }
 }
 
 function applyProjectSignalHints(

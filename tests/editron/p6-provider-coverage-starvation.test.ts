@@ -105,18 +105,16 @@ function degradedVjepaAudit() {
 
 describe('P6 provider and coverage starvation', () => {
   const originalFreesoundKey = process.env.FREESOUND_API_KEY;
-  const originalCuratedPack = process.env.EDITRON_CURATED_SFX_PACK_JSON;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.projectDocs.clear();
     delete process.env.FREESOUND_API_KEY;
-    delete process.env.EDITRON_CURATED_SFX_PACK_JSON;
     mocks.uploadMedia.mockResolvedValue({
-      assetId: 'sfx_lib_local',
-      signedUrl: 'https://cdn.example.com/sfx_lib_local.mp3',
+      assetId: 'sfx_lib_freesound',
+      signedUrl: 'https://cdn.example.com/sfx_lib_freesound.mp3',
       gcsPath: null,
-      r2Key: 'sfx/local/whoosh.mp3',
+      r2Key: 'sfx/freesound/whoosh.mp3',
       urlExpiresAt: null,
       size: 8,
       contentType: 'audio/mpeg',
@@ -129,23 +127,30 @@ describe('P6 provider and coverage starvation', () => {
   afterEach(() => {
     if (originalFreesoundKey) process.env.FREESOUND_API_KEY = originalFreesoundKey;
     else delete process.env.FREESOUND_API_KEY;
-    if (originalCuratedPack) process.env.EDITRON_CURATED_SFX_PACK_JSON = originalCuratedPack;
-    else delete process.env.EDITRON_CURATED_SFX_PACK_JSON;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it('places SFX from a configured curated local pack when Freesound is unavailable', async () => {
-    process.env.EDITRON_CURATED_SFX_PACK_JSON = JSON.stringify([{
-      id: 'curated-whoosh-1',
-      url: 'https://r2.example.com/sfx/whoosh.mp3',
-      title: 'Curated cinematic whoosh sweep',
-      durationSec: 0.8,
-      tags: ['whoosh', 'cinematic', 'transition', 'smooth'],
-      rating: 5,
-    }]);
+  it('places SFX from provider search without a curated local pack', async () => {
+    process.env.FREESOUND_API_KEY = 'test-freesound-key';
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
-      expect(String(url)).toBe('https://r2.example.com/sfx/whoosh.mp3');
+      const href = String(url);
+      if (href.startsWith('https://freesound.org/apiv2/search/')) {
+        expect(href).toContain('query=whoosh');
+        expect(href).toContain('fields=id%2Cname%2Cduration%2Cpreviews%2Clicense%2Ctags%2Cavg_rating');
+        return new Response(JSON.stringify({
+          results: [{
+            id: 42,
+            name: 'Cinematic whoosh sweep transition',
+            duration: 0.8,
+            previews: { 'preview-hq-mp3': 'https://cdn.freesound.example/whoosh.mp3' },
+            license: 'Creative Commons 0',
+            tags: ['whoosh', 'cinematic', 'transition', 'smooth'],
+            avg_rating: 4.8,
+          }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      expect(href).toBe('https://cdn.freesound.example/whoosh.mp3');
       return new Response(Buffer.from([0x49, 0x44, 0x33, 0x04, 0, 0, 0, 0]), {
         status: 200,
         headers: { 'content-type': 'audio/mpeg' },
@@ -161,7 +166,7 @@ describe('P6 provider and coverage starvation', () => {
         priority: 3,
         source: 'signal-executor:test',
         signal: 'audio.music_beat',
-        reason: 'Beat-synced whoosh should materialize from curated pack',
+        reason: 'Beat-synced whoosh should materialize from provider search',
         confidence: 0.95,
         params: {
           sfxType: 'whoosh',
@@ -173,7 +178,7 @@ describe('P6 provider and coverage starvation', () => {
           },
         },
       }]),
-      'p6-curated-sfx-test',
+      'p6-provider-sfx-test',
       'user-1',
       overlays,
       { width: 1920, height: 1080 },
@@ -183,20 +188,20 @@ describe('P6 provider and coverage starvation', () => {
     expect(result.overlaysCreated).toBe(1);
     expect(sound).toEqual(expect.objectContaining({
       type: 'sound',
-      assetId: 'sfx_lib_local',
+      assetId: 'sfx_lib_freesound',
     }));
     expect(sound.metadata.sfxAssetQuality).toEqual(expect.objectContaining({
       accepted: true,
-      candidateSource: 'curated',
-      candidateTitle: 'Curated cinematic whoosh sweep',
+      candidateSource: 'library',
+      candidateTitle: 'Cinematic whoosh sweep transition',
     }));
-    expect(sound.metadata.sfxAssetQuality.reasons).toContain('curated-source');
+    expect(sound.metadata.sfxAssetQuality.reasons).not.toContain('curated-source');
     expect(mocks.updateOne).toHaveBeenCalledWith(
-      { assetId: 'sfx_lib_local' },
+      { assetId: 'sfx_lib_freesound' },
       expect.objectContaining({
         $setOnInsert: expect.objectContaining({
-          source: 'sfx-provider-local',
-          sfxLibrarySource: 'local',
+          source: 'sfx-provider-freesound',
+          sfxLibrarySource: 'freesound',
           providerCandidateAccepted: true,
         }),
       }),

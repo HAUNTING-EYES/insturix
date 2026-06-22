@@ -289,7 +289,7 @@ async function handler(request: NextRequest) {
         try {
           const {
             loadBanditState, sampleAdjustments, applyAdjustments,
-            buildDurationBucket, buildSpeechCoverageBucket, buildContextKey,
+            averageSignalValue, buildDurationBucket, buildSignalBucket, buildSpeechCoverageBucket, buildContextKey,
           } = await import('@/lib/editron/services/genre-parameter-bandit');
           const banditState = await loadBanditState(userId);
 
@@ -303,7 +303,10 @@ async function handler(request: NextRequest) {
               : 0;
 
             const context = {
-              contentType: rawFootageAnalysis.contentTypeDetection?.contentType || 'unknown',
+              signalBucket: buildSignalBucket({
+                speechCoverage,
+                speechEnergy: averageSignalValue(rawFootageAnalysis.segments, 'energy'),
+              }),
               speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
               durationBucket: buildDurationBucket(effectiveDurationSec),
               platform: platform || 'youtube',

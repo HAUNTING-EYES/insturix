@@ -207,6 +207,22 @@ async function pruneOldPhase0Runs(
   return prunedRuns;
 }
 
+export function phase0NodeCommand(execPath: string = process.execPath): string {
+  return execPath;
+}
+
+export function phase0RenderArgs(renderInputPath: string, outDir: string, tag: string): string[] {
+  return [
+    '--import',
+    'tsx',
+    'scripts/render-editron-aesthetic.ts',
+    renderInputPath,
+    `--out=${outDir}`,
+    `--tag=${tag}`,
+    '--overlay-only',
+  ];
+}
+
 function runRenderedAestheticHarness(
   renderInputPath: string,
   outDir: string,
@@ -215,14 +231,7 @@ function runRenderedAestheticHarness(
 ): void {
   console.log('Phase 0 rendered aesthetic capture starting...');
   try {
-    execFileSync('npx', [
-      'tsx',
-      'scripts/render-editron-aesthetic.ts',
-      renderInputPath,
-      `--out=${outDir}`,
-      `--tag=${tag}`,
-      '--overlay-only',
-    ], {
+    execFileSync(phase0NodeCommand(), phase0RenderArgs(renderInputPath, outDir, tag), {
       cwd: process.cwd(),
       stdio: 'inherit',
     });
