@@ -64,6 +64,119 @@ describe('Brand Vault learning-event ingestion', () => {
     expect(evidence?.learningWeight).toEqual(event.learningWeight);
   });
 
+  it('reduces repeated matching corrections into one stronger review candidate', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const events = [
+      createEditronUserOverrideLearningEvent({
+        userId: 'user_1',
+        brandId: 'brand_1',
+        projectId: 'project_1',
+        observedAt: '2026-06-22T12:00:00.000Z',
+        kind: 'transition_style',
+        beforeValue: 'fade',
+        afterValue: 'hard-cut',
+        overlayId: 'transition_1',
+      }),
+      createEditronUserOverrideLearningEvent({
+        userId: 'user_1',
+        brandId: 'brand_1',
+        projectId: 'project_1',
+        observedAt: '2026-06-22T12:01:00.000Z',
+        kind: 'transition_style',
+        beforeValue: 'fade',
+        afterValue: 'hard-cut',
+        overlayId: 'transition_2',
+      }),
+      createEditronUserOverrideLearningEvent({
+        userId: 'user_1',
+        brandId: 'brand_1',
+        projectId: 'project_1',
+        observedAt: '2026-06-22T12:02:00.000Z',
+        kind: 'transition_style',
+        beforeValue: 'fade',
+        afterValue: 'hard-cut',
+        overlayId: 'transition_3',
+      }),
+    ];
+
+    const result = await writeBrandSignalLearningEventsToBrandVault({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      projectId: 'project_1',
+      sourceEventId: 'brand_event_repeated',
+      learningEvents: events,
+      now: '2026-06-22T12:05:00.000Z',
+      store,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({ candidateCount: 1 });
+    if (!result.ok || result.skipped) throw new Error('expected learning-event write');
+
+    const snapshot = await store.getJobSnapshot(result.jobId);
+    expect(snapshot?.candidates).toHaveLength(1);
+    expect(snapshot?.candidates[0]).toMatchObject({
+      sourceField: 'brandLearning.aggregate.motion.transitionSharpness',
+      normalizedValue: 0.86,
+      rawValue: {
+        repetitions: 3,
+        services: ['editron'],
+        editTypes: ['generated_output_correction'],
+      },
+    });
+    expect(snapshot?.candidates[0]?.confidence).toBeGreaterThan(0.5);
+    expect(snapshot?.candidates[0]?.learningWeight?.value).toBeGreaterThan(events[0].learningWeight.value);
+
+    const record = await store.getRecord(result.recordId);
+    const evidence = record?.profile.evidence.find(
+      (item) => item.extractor === 'brand-vault-learning-events.v1' && item.signalPath === 'motion.transitionSharpness',
+    );
+    expect(evidence?.sourceField).toBe('brandLearning.aggregate.motion.transitionSharpness');
+    expect(evidence?.learningWeight?.value).toBe(snapshot?.candidates[0]?.learningWeight?.value);
+  });
+
+  it('keeps conflicting corrections as separate review candidates', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const hardCut = createEditronUserOverrideLearningEvent({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      projectId: 'project_1',
+      observedAt: '2026-06-22T12:00:00.000Z',
+      kind: 'transition_style',
+      beforeValue: 'fade',
+      afterValue: 'hard-cut',
+      overlayId: 'transition_1',
+    });
+    const softFade = createEditronUserOverrideLearningEvent({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      projectId: 'project_1',
+      observedAt: '2026-06-22T12:01:00.000Z',
+      kind: 'transition_style',
+      beforeValue: 'hard-cut',
+      afterValue: 'fade',
+      overlayId: 'transition_2',
+    });
+
+    const result = await writeBrandSignalLearningEventsToBrandVault({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      projectId: 'project_1',
+      sourceEventId: 'brand_event_conflict',
+      learningEvents: [hardCut, softFade],
+      now: '2026-06-22T12:05:00.000Z',
+      store,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({ candidateCount: 2 });
+    if (!result.ok || result.skipped) throw new Error('expected learning-event write');
+
+    const snapshot = await store.getJobSnapshot(result.jobId);
+    expect(snapshot?.candidates.map((candidate) => candidate.normalizedValue).sort()).toEqual([0.24, 0.86]);
+    expect(snapshot?.candidates.every((candidate) => candidate.sourceField !== 'brandLearning.aggregate.motion.transitionSharpness')).toBe(true);
+  });
+
   it('drops malformed envelopes instead of staging fake evidence', () => {
     expect(parseBrandSignalLearningEvents([{ version: 1, signalPath: 'motion.transitionSharpness' }])).toEqual([]);
     expect(parseBrandSignalLearningEvents('not-array')).toEqual([]);

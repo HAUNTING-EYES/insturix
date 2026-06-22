@@ -101,9 +101,10 @@ export async function writeBrandSignalLearningEventsToBrandVault(
 
     const now = input.now ?? new Date().toISOString();
     const profile = createLearningProfile(input, now);
-    const candidates = learningEvents
+    const rawCandidates = learningEvents
       .map((event, index) => createLearningEventCandidate(input, event, index, now))
       .filter((candidate): candidate is BrandEvidenceCandidate => Boolean(candidate));
+    const candidates = reduceRepeatedLearningCandidates(rawCandidates);
     if (candidates.length === 0) return { ok: true, skipped: true, reason: 'no_supported_candidates' };
 
     const attachedCandidates = attachCandidatesToProfile(profile, candidates);
@@ -221,6 +222,107 @@ function createLearningEventCandidate(
     observedAt: event.observedAt || observedAt,
     extractorId: LEARNING_EVENTS_EXTRACTOR,
   };
+}
+
+function reduceRepeatedLearningCandidates(candidates: BrandEvidenceCandidate[]): BrandEvidenceCandidate[] {
+  const groups = new Map<string, BrandEvidenceCandidate[]>();
+  for (const candidate of candidates) {
+    const key = [
+      candidate.signalPath,
+      candidate.trustLevel ?? 'manual_user_entry',
+      candidate.authorityClass ?? 'manual',
+      candidateValueKey(candidate.normalizedValue),
+    ].join('|');
+    const group = groups.get(key);
+    if (group) group.push(candidate);
+    else groups.set(key, [candidate]);
+  }
+
+  return Array.from(groups.values()).map((group, index) => mergeLearningCandidateGroup(group, index));
+}
+
+function mergeLearningCandidateGroup(group: BrandEvidenceCandidate[], index: number): BrandEvidenceCandidate {
+  const first = group[0];
+  if (!first || group.length === 1) return first as BrandEvidenceCandidate;
+
+  const confidence = round(clamp(
+    Math.max(...group.map((candidate) => candidate.confidence)) + repetitionConfidenceBoost(group.length),
+    0.35,
+    0.9,
+  ));
+  const mergedWeight = mergeLearningWeights(group.map((candidate) => candidate.learningWeight).filter(Boolean) as BrandSignalLearningWeight[]);
+  const serviceList = uniquePrimitiveValues(group.map((candidate) => serviceFromCandidate(candidate))).join(', ');
+  const editTypeList = uniquePrimitiveValues(group.map((candidate) => editTypeFromCandidate(candidate))).join(', ');
+
+  return {
+    ...first,
+    id: `${first.id}_x${group.length}_${index + 1}`,
+    sourceField: `brandLearning.aggregate.${first.signalPath}`,
+    rawValue: {
+      repetitions: group.length,
+      services: serviceList ? serviceList.split(', ') : undefined,
+      editTypes: editTypeList ? editTypeList.split(', ') : undefined,
+      samples: group.map((candidate) => candidate.rawValue).slice(0, 8),
+    },
+    excerpt: sanitizeEvidenceExcerpt([
+      `${group.length} matching service edit events support ${first.signalPath}.`,
+      serviceList ? `Services: ${serviceList}.` : undefined,
+      first.excerpt,
+    ].filter(Boolean).join(' '), 240),
+    confidence,
+    learningWeight: mergedWeight ?? first.learningWeight,
+    observedAt: latestObservedAt(group) ?? first.observedAt,
+  };
+}
+
+function mergeLearningWeights(weights: BrandSignalLearningWeight[]): BrandSignalLearningWeight | undefined {
+  const first = weights[0];
+  if (!first) return undefined;
+  const strongest = weights.reduce((best, weight) => weight.value > best.value ? weight : best, first);
+  const average = weights.reduce((sum, weight) => sum + weight.value, 0) / weights.length;
+  const boosted = clamp(average + repetitionWeightBoost(weights.length), 0, 1);
+  return {
+    ...strongest,
+    value: round(boosted),
+    rationale: `${strongest.rationale}; reduced_repetition=${weights.length}; reduced_average=${round(average)}`,
+  };
+}
+
+function candidateValueKey(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return `number:${round(value)}`;
+  if (typeof value === 'string') return `string:${value.trim().toLowerCase()}`;
+  if (Array.isArray(value)) {
+    return `array:${cleanStrings(value).map((item) => item.toLowerCase()).sort().join(',')}`;
+  }
+  return `json:${stableJson(value)}`;
+}
+
+function serviceFromCandidate(candidate: BrandEvidenceCandidate): string | undefined {
+  const parts = candidate.sourceField?.split('.') ?? [];
+  return parts[1];
+}
+
+function editTypeFromCandidate(candidate: BrandEvidenceCandidate): string | undefined {
+  const parts = candidate.sourceField?.split('.') ?? [];
+  return parts[2];
+}
+
+function latestObservedAt(candidates: BrandEvidenceCandidate[]): string | undefined {
+  return candidates
+    .map((candidate) => candidate.observedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+}
+
+function repetitionConfidenceBoost(count: number): number {
+  if (count <= 1) return 0;
+  return Math.min(0.14, Math.log2(count) * 0.045);
+}
+
+function repetitionWeightBoost(count: number): number {
+  if (count <= 1) return 0;
+  return Math.min(0.18, Math.log2(count) * 0.055);
 }
 
 function createLearningProfile(input: BrandVaultLearningEventWriteInput, generatedAt: string): BrandSignalProfile {
@@ -573,6 +675,7 @@ function nonEmptyString(value: unknown): string | undefined {
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
+
 function stringEnum<T extends string>(value: unknown, allowed: ReadonlySet<T>): T | undefined {
   return typeof value === 'string' && allowed.has(value as T) ? value as T : undefined;
 }
@@ -592,6 +695,14 @@ function clamp(value: number, min: number, max: number): number {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function stableJson(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`;
 }
 
 function idPart(value: string): string {
