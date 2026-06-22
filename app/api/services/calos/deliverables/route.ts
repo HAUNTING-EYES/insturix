@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { orgMemberService } from "@/lib/services/orgMemberService";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable, { type ICalosDeliverable } from "@/schemas/calos-deliverable";
 import {
@@ -13,9 +12,10 @@ import { toDeliverableDoc, toContentCard } from "@/lib/calos/deliverable-mapper"
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/services/calos/deliverables?orgId=&brandId=
- * List a client/brand's deliverables. Scoped: requires org membership; never returns
- * another org's content.
+ * GET /api/services/calos/deliverables?brandId=
+ * List the caller's deliverables for a client/brand. Scoped by ownerUserId (from the Clerk
+ * session) + brandId — a user only ever sees their own deliverables, never another user's.
+ * (orgId is an optional future agency/team-share layer; not required here.)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -25,19 +25,17 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get("orgId");
     const brandId = searchParams.get("brandId");
-    if (!orgId || !brandId) {
-      return NextResponse.json({ error: "orgId and brandId are required" }, { status: 400 });
-    }
-
-    const isMember = await orgMemberService.isMember(userId, orgId);
-    if (!isMember) {
-      return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
+    if (!brandId) {
+      return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }
 
     await connectToDatabase();
-    const docs = await CalosDeliverable.find({ orgId, brandId, deletedAt: null }).lean<ICalosDeliverable[]>();
+    const docs = await CalosDeliverable.find({
+      ownerUserId: userId,
+      brandId,
+      deletedAt: null,
+    }).lean<ICalosDeliverable[]>();
     const cards = docs.map((doc) => toContentCard(doc));
 
     return NextResponse.json({ cards });
@@ -48,7 +46,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/services/calos/deliverables  { orgId, brandId, card }
+ * POST /api/services/calos/deliverables  { brandId, card, orgId? }
  * Create a deliverable for a client/brand. The card payload is validated by the shared
  * content-card contract (DRY) before it is wrapped into a deliverable.
  */
@@ -60,17 +58,12 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { orgId, brandId, card } = body;
-    if (!orgId || !brandId) {
-      return NextResponse.json({ error: "orgId and brandId are required" }, { status: 400 });
+    const { brandId, card, orgId } = body;
+    if (!brandId) {
+      return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }
     if (!card || !card.title) {
       return NextResponse.json({ error: "Invalid card data. Title is required." }, { status: 400 });
-    }
-
-    const isMember = await orgMemberService.isMember(userId, orgId);
-    if (!isMember) {
-      return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
     }
 
     // Validate + normalize the content payload with the shared contract.
@@ -79,7 +72,10 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
     const doc = await CalosDeliverable.create(
-      toDeliverableDoc({ ...contentCard, brandId }, { ownerUserId: userId, orgId, brandId })
+      toDeliverableDoc(
+        { ...contentCard, brandId },
+        { ownerUserId: userId, brandId, orgId: orgId ?? null }
+      )
     );
 
     return NextResponse.json({ card: toContentCard(doc) }, { status: 201 });

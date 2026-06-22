@@ -38,7 +38,7 @@ export interface CalosApproval {
  */
 export interface ICalosDeliverable extends Document {
   ownerUserId: string; // creator; also the connected-account owner for downstream publish
-  orgId: string; // agency workspace (Clerk org) — scoping
+  orgId?: string | null; // optional agency/team-share layer (future); P0 scopes by ownerUserId + brandId
   brandId: string; // client brand — scoping
   campaignId?: string | null;
   editorialStatus: CalosEditorialStatus;
@@ -87,7 +87,7 @@ const ApprovalSchema = new Schema<CalosApproval>(
 const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
   {
     ownerUserId: { type: String, required: true },
-    orgId: { type: String, required: true },
+    orgId: { type: String, default: null },
     brandId: { type: String, required: true },
     campaignId: { type: String, default: null },
     editorialStatus: {
@@ -110,9 +110,9 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
   { timestamps: true }
 );
 
-// Calendar window query (per client/brand, by date) + editorial filters + campaign rollups.
-CalosDeliverableSchema.index({ orgId: 1, brandId: 1, plannedDates: 1 });
-CalosDeliverableSchema.index({ orgId: 1, editorialStatus: 1 });
+// Calendar window query (per owner+client, by date) + editorial filters + campaign rollups.
+CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, plannedDates: 1 });
+CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, editorialStatus: 1 });
 CalosDeliverableSchema.index({ campaignId: 1 });
 
 const CalosDeliverable =

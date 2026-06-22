@@ -27,15 +27,15 @@ export function mapLegacyStatusToEditorial(status?: ContentCardStatus): CalosEdi
 
 export interface DeliverableScope {
   ownerUserId: string;
-  orgId: string;
   brandId: string;
+  orgId?: string | null; // optional agency/team-share layer (future)
 }
 
 /** Persisted CalOS deliverable fields derived from a (validated) ContentCard. */
 export function toDeliverableDoc(card: ContentCard, scope: DeliverableScope) {
   return {
     ownerUserId: scope.ownerUserId,
-    orgId: scope.orgId,
+    orgId: scope.orgId ?? null,
     brandId: scope.brandId,
     campaignId: card.campaignId ?? null,
     editorialStatus: mapLegacyStatusToEditorial(card.status),

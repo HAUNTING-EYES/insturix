@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { orgMemberService } from "@/lib/services/orgMemberService";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import {
@@ -15,9 +14,9 @@ export const dynamic = "force-dynamic";
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**
- * PATCH /api/services/calos/deliverables/[id]  { orgId, brandId, updates }
- * Update a deliverable's content. Scoped + membership-checked. editorialStatus is owned by
- * the CalOS approval flow (P4), not by the calendar's legacy status, so PATCH leaves it alone.
+ * PATCH /api/services/calos/deliverables/[id]  { brandId, updates }
+ * Update a deliverable's content. Scoped by ownerUserId + brandId + card.id. editorialStatus
+ * is owned by the CalOS approval flow (P4), not the calendar's legacy status, so PATCH leaves it alone.
  */
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
@@ -28,23 +27,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const body = await req.json();
-    const { orgId, brandId, updates } = body;
-    if (!orgId || !brandId) {
-      return NextResponse.json({ error: "orgId and brandId are required" }, { status: 400 });
+    const { brandId, updates } = body;
+    if (!brandId) {
+      return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }
     if (!updates) {
       return NextResponse.json({ error: "updates are required" }, { status: 400 });
     }
 
-    const isMember = await orgMemberService.isMember(userId, orgId);
-    if (!isMember) {
-      return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
-    }
-
     await connectToDatabase();
     const existing = await CalosDeliverable.findOne({
       "card.id": id,
-      orgId,
+      ownerUserId: userId,
       brandId,
       deletedAt: null,
     });
@@ -74,8 +68,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * DELETE /api/services/calos/deliverables/[id]?orgId=&brandId=
- * Soft-delete (sets deletedAt) — no hard data loss. Scoped + membership-checked.
+ * DELETE /api/services/calos/deliverables/[id]?brandId=
+ * Soft-delete (sets deletedAt) — no hard data loss. Scoped by ownerUserId + brandId + card.id.
  */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
@@ -86,21 +80,15 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get("orgId");
     const brandId = searchParams.get("brandId");
-    if (!orgId || !brandId) {
-      return NextResponse.json({ error: "orgId and brandId are required" }, { status: 400 });
-    }
-
-    const isMember = await orgMemberService.isMember(userId, orgId);
-    if (!isMember) {
-      return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
+    if (!brandId) {
+      return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }
 
     await connectToDatabase();
     const existing = await CalosDeliverable.findOne({
       "card.id": id,
-      orgId,
+      ownerUserId: userId,
       brandId,
       deletedAt: null,
     });
