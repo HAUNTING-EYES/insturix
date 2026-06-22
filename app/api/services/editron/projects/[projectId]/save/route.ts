@@ -5,6 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { projectService } from '@/lib/editron/services/project-service';
+import {
+  createEditronUserOverrideLearningEvent,
+  type EditronUserOverrideKind,
+} from '@/lib/editron/services/editron-brand-learning-events';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
 
@@ -136,6 +140,14 @@ interface OverlayLike {
   [key: string]: unknown;
 }
 
+interface DetectedEditronOverride {
+  kind: EditronUserOverrideKind;
+  label: string;
+  beforeValue: unknown;
+  afterValue: unknown;
+  overlayId?: string | number;
+}
+
 async function dispatchOverlayDiff(
   userId: string,
   projectId: string,
@@ -143,14 +155,11 @@ async function dispatchOverlayDiff(
   newOverlays: OverlayLike[],
 ) {
   const qstashToken = process.env.QSTASH_TOKEN;
-  if (!qstashToken) return;
-
   const baseUrl = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
     : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
   const graphSyncUrl = `${baseUrl}/api/internal/workers/graph-sync`;
 
-  // Collect video/image asset IDs from overlays
   const getAssetIds = (overlays: OverlayLike[]) => new Set(
     overlays
       .filter(o => (o.type === 'video' || o.type === 'image') && o.metadata?.assetId)
@@ -160,7 +169,6 @@ async function dispatchOverlayDiff(
   const prevAssets = getAssetIds(prevOverlays);
   const newAssets = getAssetIds(newOverlays);
 
-  // Helper: dispatch to graph-sync worker via QStash
   const dispatchGraphSync = async (action: string, data: Record<string, unknown>) => {
     await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${graphSyncUrl}`, {
       method: 'POST',
@@ -173,55 +181,50 @@ async function dispatchOverlayDiff(
     });
   };
 
-  // Added assets → USED_IN edges
-  for (const assetId of newAssets) {
-    if (!prevAssets.has(assetId)) {
-      const overlay = newOverlays.find(o => o.metadata?.assetId === assetId);
-      try {
-        await dispatchGraphSync('asset_used', {
-          assetId,
-          projectId,
-          props: {
-            sceneId: `${projectId}_user_add_${Date.now()}`,
-            sceneIndex: overlay?.metadata?.sceneIndex ?? 0,
-            trimStart: null,
-            trimEnd: null,
-            role: 'hero',
-            filterApplied: null,
-            wasKept: true,
-          },
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[Save] USED_IN dispatch failed for ${assetId}: ${msg}`);
+  if (qstashToken) {
+    for (const assetId of newAssets) {
+      if (!prevAssets.has(assetId)) {
+        const overlay = newOverlays.find(o => o.metadata?.assetId === assetId);
+        try {
+          await dispatchGraphSync('asset_used', {
+            assetId,
+            projectId,
+            props: {
+              sceneId: `${projectId}_user_add_${Date.now()}`,
+              sceneIndex: overlay?.metadata?.sceneIndex ?? 0,
+              trimStart: null,
+              trimEnd: null,
+              role: 'hero',
+              filterApplied: null,
+              wasKept: true,
+            },
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[Save] USED_IN dispatch failed for ${assetId}: ${msg}`);
+        }
+      }
+    }
+
+    for (const assetId of prevAssets) {
+      if (!newAssets.has(assetId)) {
+        const prevOverlay = prevOverlays.find(o => o.metadata?.assetId === assetId);
+        try {
+          await dispatchGraphSync('asset_removed', {
+            assetId,
+            projectId,
+            sceneIndex: prevOverlay?.metadata?.sceneIndex ?? null,
+            removedAt: new Date().toISOString(),
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[Save] REMOVED_FROM dispatch failed for ${assetId}: ${msg}`);
+        }
       }
     }
   }
 
-  // Removed assets → REMOVED_FROM edges
-  // OLD: hardcoded neutral values (sceneEnergy:0.5, assetMood:'neutral', etc.) — Rule 23N violation.
-  //   The contextual scoring math was structurally degenerate because every removal looked identical.
-  // NEW: send assetId + sceneIndex only. The graph-sync worker queries Neo4j for real Asset + Scene
-  //   attributes (mood, energy, colorTemp) and computes contrast flags before writing the edge.
-  for (const assetId of prevAssets) {
-    if (!newAssets.has(assetId)) {
-      const prevOverlay = prevOverlays.find(o => o.metadata?.assetId === assetId);
-      try {
-        await dispatchGraphSync('asset_removed', {
-          assetId,
-          projectId,
-          sceneIndex: prevOverlay?.metadata?.sceneIndex ?? null,
-          removedAt: new Date().toISOString(),
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[Save] REMOVED_FROM dispatch failed for ${assetId}: ${msg}`);
-      }
-    }
-  }
-
-  // Override detection: compare transitions, filters changed by user
-  const overrides: string[] = [];
+  const overrides: DetectedEditronOverride[] = [];
 
   const getTransitions = (overlays: OverlayLike[]) =>
     overlays.filter(o => o.type === 'transition').map(o => ({
@@ -235,49 +238,104 @@ async function dispatchOverlayDiff(
   for (const nt of newTrans) {
     const pt = prevTrans.find(p => p.id === nt.id);
     if (pt && pt.type !== nt.type) {
-      overrides.push(`transition changed from ${pt.type} to ${nt.type}`);
+      overrides.push({
+        kind: 'transition_style',
+        label: `transition changed from ${pt.type} to ${nt.type}`,
+        beforeValue: pt.type,
+        afterValue: nt.type,
+        overlayId: nt.id,
+      });
     }
   }
 
   const getFilter = (overlays: OverlayLike[]) =>
-    overlays.filter(o => o.type === 'video' && o.filterPresetId).map(o => o.filterPresetId!);
+    overlays.filter(o => o.type === 'video' && o.filterPresetId).map(o => ({
+      id: o.id,
+      type: o.filterPresetId!,
+    }));
   const prevFilters = getFilter(prevOverlays);
   const newFilters = getFilter(newOverlays);
-  if (prevFilters.length > 0 && newFilters.length > 0 && prevFilters[0] !== newFilters[0]) {
-    overrides.push(`filter changed from ${prevFilters[0]} to ${newFilters[0]}`);
+  if (prevFilters.length > 0 && newFilters.length > 0 && prevFilters[0].type !== newFilters[0].type) {
+    overrides.push({
+      kind: 'filter_preset',
+      label: `filter changed from ${prevFilters[0].type} to ${newFilters[0].type}`,
+      beforeValue: prevFilters[0].type,
+      afterValue: newFilters[0].type,
+      overlayId: newFilters[0].id,
+    });
   }
 
-  // Dispatch override episode if changes detected.
-  // Rule 11N: scope to brandId when available so agency multi-brand intelligence stays separate.
-  if (overrides.length > 0) {
-    try {
-      const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
-      // Try to get brandId from the MongoDB project doc (set during finalize if brand was selected).
-      let groupId = userId;
-      try {
-        const { getDatabase } = await import('@/lib/editron/db/mongodb');
-        const db = await getDatabase();
-        const projDoc = await db.collection('projects').findOne(
-          { projectId },
-          { projection: { brandId: 1 } },
-        );
-        if (projDoc?.brandId) groupId = projDoc.brandId as string;
-      } catch {
-          // Fallback to userId if project lookup fails. Episode still dispatches,
-          // just without brand scoping. Logged per Rule 18N.
-          console.warn(`[Save] brandId lookup failed for project ${projectId}, falling back to userId`);
-        }
+  if (overrides.length === 0) return;
 
-      await addGraphitiEpisode({
-        type: 'user_override',
-        name: `override_${projectId}_${Date.now()}`,
-        body: `User made ${overrides.length} editing overrides on project ${projectId}: ${overrides.join('. ')}.`,
-        sourceDescription: 'user_override',
-        groupId,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[Save] Override episode dispatch failed: ${msg}`);
+  const observedAt = new Date().toISOString();
+  const overrideLabels = overrides.map((override) => override.label);
+  let brandId: string | undefined;
+  let groupId = userId;
+
+  try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const db = await getDatabase();
+    const projDoc = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { brandId: 1 } },
+    );
+    if (typeof projDoc?.brandId === 'string' && projDoc.brandId.trim().length > 0) {
+      brandId = projDoc.brandId;
+      groupId = brandId;
     }
+  } catch {
+    console.warn(`[Save] brandId lookup failed for project ${projectId}, falling back to userId`);
+  }
+
+  try {
+    const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
+    await addGraphitiEpisode({
+      type: 'user_override',
+      name: `override_${projectId}_${Date.now()}`,
+      body: `User made ${overrides.length} editing overrides on project ${projectId}: ${overrideLabels.join('. ')}.`,
+      sourceDescription: 'user_override',
+      groupId,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Save] Override episode dispatch failed: ${msg}`);
+  }
+
+  try {
+    const { emitBrandEvent } = await import('@/lib/shared/brand-events');
+    const learningEvents = overrides.map((override) => createEditronUserOverrideLearningEvent({
+      userId,
+      brandId,
+      projectId,
+      observedAt,
+      kind: override.kind,
+      beforeValue: override.beforeValue,
+      afterValue: override.afterValue,
+      overlayId: override.overlayId,
+      note: override.label,
+    }));
+
+    await emitBrandEvent({
+      userId,
+      brandId,
+      projectId,
+      service: 'editron',
+      type: 'user_override',
+      payload: {
+        shadowEventType: 'save_overlay_diff',
+        overrideCount: overrides.length,
+        overrides: overrides.map((override) => ({
+          kind: override.kind,
+          label: override.label,
+          beforeValue: override.beforeValue,
+          afterValue: override.afterValue,
+          overlayId: override.overlayId,
+        })),
+        learningEvents,
+      },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Save] Brand override event dispatch failed: ${msg}`);
   }
 }
