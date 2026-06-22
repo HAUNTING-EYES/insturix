@@ -30,8 +30,8 @@ const ICON_MAP = {
 /**
  * EDL Suggestions Panel
  *
- * Auto-loads 5-Track analysis for the project and generates
- * editing suggestions from the Reactive Edit Engine.
+ * Auto-loads cached analysis for the project and generates
+ * lightweight editing suggestions from the Reactive Edit Engine.
  * Shows clickable suggestion cards that trigger AI chat tool calls.
  */
 export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsProps) {
@@ -53,7 +53,7 @@ export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsP
       const res = await fetch('/api/services/editron/analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ projectId, mode: 'cached-suggestions' }),
       });
 
       if (!res.ok) {
