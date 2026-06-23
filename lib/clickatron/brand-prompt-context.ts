@@ -178,16 +178,19 @@ export async function resolveClickatronBrandContextBlock(
   const resolvedBrandId = cleanText(brandId);
   if (!resolvedBrandId) return "";
 
-  const [{ getUnifiedBrand }, { buildBrandContextBlock }] = deps.getBrand && deps.formatBrand
-    ? [{ getUnifiedBrand: deps.getBrand }, { buildBrandContextBlock: deps.formatBrand }]
-    : await Promise.all([
-      import("@/lib/shared/brand-registry"),
-      import("@/lib/shared/brand-context-block"),
-    ]);
-  const getBrand = deps.getBrand ?? getUnifiedBrand;
-  const formatBrand = deps.formatBrand ?? buildBrandContextBlock;
-  const brand = await getBrand(userId, resolvedBrandId);
+  const formatBrand = deps.formatBrand ?? (await import("@/lib/shared/brand-context-block")).buildBrandContextBlock;
+  const brand = deps.getBrand
+    ? await deps.getBrand(userId, resolvedBrandId)
+    : await resolveDefaultClickatronBrand(userId, resolvedBrandId);
   return formatBrand(brand).trim();
+}
+
+async function resolveDefaultClickatronBrand(
+  userId: string,
+  brandId: string,
+): Promise<UnifiedBrand | null> {
+  const { resolveEffectiveBrand } = await import("@/lib/shared/brand-effective-resolver");
+  return resolveEffectiveBrand(userId, brandId, { service: "clickatron" });
 }
 
 export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | null): string {
