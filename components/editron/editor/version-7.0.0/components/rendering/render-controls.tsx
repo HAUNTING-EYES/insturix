@@ -97,17 +97,23 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   }, [saveProject]);
 
   const handleRenderWithQualityCheck = React.useCallback(async () => {
+    // Immediate feedback: reflect in-progress work the instant the button is clicked, including
+    // the save below. Previously the save ran with no indicator, so a slow-saving project looked
+    // like "I hit render and nothing happened." Reset on every early-exit path.
+    setQualityChecking(true);
+
     const saved = await saveBeforeRender();
     if (!saved) {
+      setQualityChecking(false);
       return;
     }
 
     if (!projectId || renderType !== "lambda") {
+      setQualityChecking(false);
       handleRender();
       return;
     }
 
-    setQualityChecking(true);
     try {
       const res = await fetch("/api/services/editron/quality-review", {
         method: "POST",
