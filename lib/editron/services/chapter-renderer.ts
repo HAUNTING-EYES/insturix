@@ -15,7 +15,7 @@
  */
 
 import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
-import { REMOTION_COMPOSITION_ID } from './remotion-constants';
+import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
@@ -34,14 +34,16 @@ const TARGET_CHAPTER_FRAMES = 4500;
 const MIN_CHAPTER_FRAMES = 900; // 30 seconds
 
 /**
- * Max chapters rendering on Lambda at once. Each chapter fans out into ~ceil(frames / framesPerLambda)
- * renderer Lambdas; on a concurrency-limited AWS account (default ~10) firing every chapter in parallel
- * over-subscribes the limit, so chunk renderers get throttled and the per-chapter main function times out
- * ("main function timed out after 600000ms, N chunks missing"). Keep this low so each running chapter gets
- * the full available concurrency. Raise it after increasing the AWS Lambda "Concurrent executions" quota.
- * The queue is advanced by getChapterRenderProgress() (the progress poller) as chapters finish.
+ * AWS Lambda concurrent-execution budget to spend on chapter renders at once.
+ *
+ * Each chapter fans out into ~ceil(durationFrames / REMOTION_FRAMES_PER_LAMBDA) renderer Lambdas.
+ * startPendingChapters() admits pending chapters while the estimated in-flight renderer Lambdas stay
+ * under this budget; the progress poller admits more as chapters finish. This replaces the old fixed
+ * "1 chapter at a time" cap, which was correct only on a ~10-concurrency AWS account. The Insturix
+ * account is at the 1000 concurrent-execution quota, so we spend up to 800 and leave ~200 headroom for
+ * the per-chapter orchestrator functions, progress polls, and other Lambda traffic.
  */
-const MAX_CONCURRENT_CHAPTER_RENDERS = 1;
+const LAMBDA_CONCURRENCY_BUDGET = 800;
 
 const CHAPTERS_COLLECTION = 'editron_render_chapters';
 
@@ -238,7 +240,7 @@ async function startSingleChapterRender(
       },
       codec: 'h264',
       maxRetries: 1,
-      framesPerLambda: 200,
+      framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       privacy: 'public',
       timeoutInMilliseconds: 600000, // 10 min per chapter
       audioCodec: 'mp3',
@@ -270,11 +272,25 @@ export async function startPendingChapters(
   const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
   if (!job || !Array.isArray(job.chapters)) return;
 
-  const active = job.chapters.filter((c: any) => c.status === 'rendering').length;
-  const slots = MAX_CONCURRENT_CHAPTER_RENDERS - active;
-  if (slots <= 0) return;
+  // Admit pending chapters while the estimated in-flight renderer Lambdas stay under the budget. Each
+  // chapter needs ~ceil(durationFrames / REMOTION_FRAMES_PER_LAMBDA) renderer Lambdas; the per-chapter
+  // atomic claim in startSingleChapterRender() makes a momentary over-admit from racing polls harmless.
+  const lambdasForChapter = (c: Chapter) =>
+    Math.max(1, Math.ceil(c.durationFrames / REMOTION_FRAMES_PER_LAMBDA));
+  let remaining =
+    LAMBDA_CONCURRENCY_BUDGET -
+    (job.chapters as Chapter[])
+      .filter((c) => c.status === 'rendering')
+      .reduce((sum, c) => sum + lambdasForChapter(c), 0);
 
-  const pending = (job.chapters as Chapter[]).filter((c) => c.status === 'pending').slice(0, slots);
+  const pending: Chapter[] = [];
+  for (const chapter of (job.chapters as Chapter[]).filter((c) => c.status === 'pending')) {
+    const need = lambdasForChapter(chapter);
+    // Always admit at least one chapter even if it alone exceeds the budget, else the job deadlocks.
+    if (pending.length > 0 && need > remaining) break;
+    pending.push(chapter);
+    remaining -= need;
+  }
   if (pending.length === 0) return;
 
   const serveUrl = opts?.serveUrl || process.env.REMOTION_LAMBDA_SERVE_URL;

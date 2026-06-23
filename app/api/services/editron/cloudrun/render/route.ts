@@ -9,7 +9,7 @@ import {
   buildProjectRenderInputProps,
   shouldHydrateRenderInputFromProject,
 } from '@/lib/editron/shared/render-request-payload';
-import { REMOTION_COMPOSITION_ID } from '@/lib/editron/services/remotion-constants';
+import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
 
 export async function POST(request: Request) {
   try {
@@ -117,9 +117,8 @@ export async function POST(request: Request) {
       codec: 'h264',
       audioCodec: 'mp3', // Faster audio processing than AAC
       privacy: 'public', // Make the video publicly accessible
-      // Distributed rendering settings
-      // Set to 200 to use ~5-8 concurrent Lambdas (safe for new AWS accounts with limit 10)
-      framesPerLambda: 200,
+      // Distributed rendering settings — chunk size centralized in remotion-constants.
+      framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       timeoutInMilliseconds: 600000, // 10 minutes - AI videos need longer download time
     });
 
