@@ -15,6 +15,7 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import { emitBrandEvent } from '@/lib/shared/brand-events';
 import { invalidateCache } from '@/lib/shared/brand-registry';
+import { writeEditronBrandSettingsToBrandVault } from '@/lib/editron/services/editron-brand-vault-evidence';
 
 export const runtime = 'nodejs';
 
@@ -56,7 +57,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
@@ -116,9 +117,16 @@ export async function POST(request: NextRequest) {
       payload: { action: 'created', name: name.trim(), industry: industry || '' },
     }).catch((e) => console.warn('[Brands] brand_created event failed:', e));
 
+    const vaultSync = await writeEditronBrandSettingsToBrandVault({
+      userId,
+      actorId: userId,
+      brand: { ...brand, orgId: orgId ?? undefined },
+      source: 'manual_brand_create',
+    });
+
     invalidateCache(userId);
 
-    return NextResponse.json({ success: true, brand });
+    return NextResponse.json({ success: true, brand, vaultSync });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
