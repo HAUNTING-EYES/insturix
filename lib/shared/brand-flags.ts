@@ -8,11 +8,23 @@ const BRAND_VAULT_SOURCE_ENV_BY_SERVICE: Record<BrandVaultSourceService, string>
   clickatron: 'BRAND_VAULT_SOURCE_CLICKATRON',
 };
 
+// Default-on services use the brand vault as their source of truth in code.
+// The env var is now a kill switch: BRAND_VAULT_SOURCE_<SERVICE>=false force-disables,
+// =true force-enables, unset falls back to the default below.
+const BRAND_VAULT_SOURCE_DEFAULT_ON: Record<BrandVaultSourceService, boolean> = {
+  editron: false,
+  thinkforge: true,
+  clickatron: false,
+};
+
 export function brandVaultSourceEnabled(
   service: BrandVaultSourceService,
   env: BrandVaultFlagEnvironment = process.env,
 ): boolean {
-  return env[BRAND_VAULT_SOURCE_ENV_BY_SERVICE[service]] === 'true';
+  const raw = env[BRAND_VAULT_SOURCE_ENV_BY_SERVICE[service]];
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  return BRAND_VAULT_SOURCE_DEFAULT_ON[service];
 }
 
 export function brandVaultSourceFlagName(service: BrandVaultSourceService): string {

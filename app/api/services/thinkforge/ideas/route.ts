@@ -4,6 +4,7 @@ import { createIdeasAgent } from '@/lib/thinkforge/agents/ideas-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
+import { listUnifiedBrands } from '@/lib/shared/brand-registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,13 +36,21 @@ export async function POST(req: Request) {
 		// Deduct credits before processing
 		await creditCheck.deduct();
 
-		// Fetch brand context so ideas are grounded in the user's brand
+		// Fetch brand context so ideas are grounded in the user's brand.
+		// Ideation is pre-session (no brand chosen yet), so ground in the user's brand ONLY
+		// when it is unambiguous — exactly one brand — to avoid cross-brand contamination for
+		// multi-brand accounts. Drafting later scopes to the session's brandId.
 		let systemBrief = '';
 		try {
+			let brandId: string | undefined;
+			const brands = await listUnifiedBrands(userId);
+			if (brands.length === 1) brandId = brands[0].brandId;
+
 			const ctx = await fetchContextSources({
 				userId,
+				brandId,
 				currentPrompt: prompt,
-				maxFacts: 3,
+				maxFacts: 6,
 			});
 			systemBrief = formatSystemBrief(ctx);
 		} catch { /* ideas still work without brand context */ }

@@ -44,6 +44,18 @@ const IdeasResponseSchema = z.object({
 
 type IdeasOutput = z.infer<typeof IdeasResponseSchema>;
 
+// Deterministic floor behind the no-placeholder prompt rule: strip bracketed template
+// tokens the model leaves when context is thin (e.g. "The [Problem] Solution") and tidy
+// the seams. Only touches [...] tokens, so "X thread" / "Twitter/X" survive untouched.
+function stripPlaceholders(text: string): string {
+  return text
+    .replace(/\[[^\]]{1,60}\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([.,:;!?])/g, '$1')
+    .replace(/[\s:–—-]+$/g, '')
+    .trim();
+}
+
 // =============================================================================
 // NEW ARCHITECTURE - Clean, Pure Agent
 // =============================================================================
@@ -89,7 +101,7 @@ ${projectHint}${databankHint}
 4. Each idea should take a DIFFERENT angle on the same core request: a different narrative structure, audience focus, visual approach, or emotional lens.
 5. The "purpose" must explain what this specific angle achieves that the others don't.
 6. Formats and platforms must match the project's actual medium. A feature film project gets screenplay treatments, not TikTok reels.
-7. Titles should be specific and evocative, not generic ("Untold Stories of X" is better than "Content about X").
+7. Titles must be specific and concrete, filling every slot with a real noun from the user's request and brand context. NEVER ship a template: no bracketed placeholders like [Problem] or [Specific Skill/Outcome], no placeholder letters (X/Y/Z), and never use the word "Specific" as a stand-in for a real detail. If a concrete detail is missing, write a complete idea that does not need that slot ("Untold Stories of the Night Shift" beats "Untold Stories of [Topic]").
 8. If the user asks for a content calendar, campaign, or series, every idea must preserve that planning context in the purpose and format. Say where it fits in the calendar or campaign, not just what the content is.
 9. If the user asks to repurpose a public trend, meme, or news item, every idea must name the trend, explain the brand-fit reason, and include a freshness or expiry window.
 10. For business, agency, or operator content, make the format a concrete platform-ready deliverable such as "LinkedIn post", "LinkedIn carousel", "newsletter section", "blog article", "short video script", or "X thread". Avoid vague formats like "campaign idea", "content concept", or "multi-platform".
@@ -98,8 +110,8 @@ ${projectHint}${databankHint}
 - id: "idea_1" through "idea_4"
 - idea: Specific, compelling title (max 80 chars) that captures the angle
 - purpose: What this angle achieves for the project (1-2 sentences)
-- style: Visual/editorial style (e.g., "cinéma vérité", "data-driven explainer", "montage-driven narrative")
-- format: Actual deliverable format matching the project scope (e.g., "feature screenplay", "10-min documentary short", "pitch deck", "long-form essay")
+- style: Editorial/visual style matched to the medium (e.g., "data-driven explainer", "founder-voice monologue", "punchy contrarian take", "behind-the-scenes")
+- format: The concrete deliverable, matched to the medium the user asked for. If the request says "post", "write", "article", or names a text platform, choose a TEXT format ("LinkedIn post", "X thread", "carousel", "newsletter", "blog article"). Only choose a video format ("short video script", "reel script") when the user explicitly asks for video, reel, short, or names a video platform. Never default to video for a text request.
 - platform: Where this lives (e.g., "Netflix", "YouTube", "Film Festival", "Internal", "Blog", "Multi-platform")
 - tone: One of: white (factual), red (emotional), black (critical), yellow (optimistic), green (creative), blue (analytical)
 
@@ -143,21 +155,34 @@ Generate 4 ideas now.`;
           ? videoPlatforms
           : null; // null = all allowed
 
-    // Normalize multi-platform strings ("YouTube, LinkedIn") to first platform
-    const ideas = result.ideas.map(idea => {
-      const firstPlatform = idea.platform.split(/[,&]/)[ 0].trim();
-      return { ...idea, platform: firstPlatform };
-    });
+    // Medium intent: post wins when both appear ("post for a video tool" = post).
+    const intendedMedium: 'text' | 'video' | null = isPostIntent ? 'text' : isVideoIntent ? 'video' : null;
+    const VIDEO_FORMAT = /\b(video|reels?|shorts?|vlog|clip|skit|film|tiktok|youtube)\b/i;
+    const fallbackPlatform = allowedPlatforms ? [...allowedPlatforms][0] : null;
 
-    if (allowedPlatforms) {
-      const fallback = [...allowedPlatforms][0];
-      return ideas.map(idea => ({
+    return result.ideas.map(idea => {
+      // Normalize multi-platform strings ("YouTube, LinkedIn") to the first, then enforce.
+      const first = idea.platform.split(/[,&]/)[0].trim();
+      const platform = !allowedPlatforms
+        ? first
+        : allowedPlatforms.has(first) ? first : (fallbackPlatform as string);
+
+      // RC3: keep the deliverable in the medium the user asked for.
+      let format = idea.format;
+      if (intendedMedium === 'text' && VIDEO_FORMAT.test(format)) {
+        format = `${platform} post`;
+      }
+
+      // RC2: never let a bracketed template placeholder reach the UI.
+      return {
         ...idea,
-        platform: allowedPlatforms.has(idea.platform) ? idea.platform : fallback,
-      }));
-    }
-
-    return ideas;
+        platform,
+        format: stripPlaceholders(format),
+        idea: stripPlaceholders(idea.idea),
+        purpose: stripPlaceholders(idea.purpose),
+        style: stripPlaceholders(idea.style),
+      };
+    });
   }
 }
 

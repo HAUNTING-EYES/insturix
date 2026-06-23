@@ -2,7 +2,38 @@
 
 Date: 2026-06-15  
 Branch/worktree: `main` in `D:\google downloads\Front-End-main\Front-End-main`  
-Status: continuation handoff for the next teammate. Integration work with Clickatron/Editron/Alyzi can continue in separate sessions; this doc focuses on ThinkForge core.
+Status: continuation handoff for the next teammate. The signalTrace/context-cache work has already landed on `main`; this doc now focuses on what is still left.
+
+## Read This First
+
+Use this doc to continue ThinkForge core work, not to redo completed plumbing.
+
+Completed and pushed:
+
+- `signalTrace` is generated from the resolved content signal profile.
+- `signalTrace` is persisted on saved scripts as `script.metadata.signalTrace`.
+- Script read APIs expose saved metadata.
+- The ThinkForge -> Clickatron context path can carry `signalTrace`.
+- `ScriptAuthorAgent` can use Gemini context caching for `docs/creative-content-knowledge.md`.
+- The creative knowledge doc status header was corrected.
+
+Not completed:
+
+- ThinkForge output quality is not yet production-level.
+- The prompt quality pass has not been done against real ICP seed cases.
+- Brand Vault / learning-layer runtime depth has not been fully verified.
+- Calendar/trend intelligence is still mostly north-star work.
+- The 95 percent production quality gate is not complete.
+- DeepSeek remains eval/safe-route only; production private-context routing is not approved.
+- Shoot-guidance visuals are not built.
+
+Next best task:
+
+```text
+Run a prompt/output quality audit using real ThinkForge seeds, record failures, then patch the authoring prompt/contract.
+```
+
+Do not start by changing providers, calendar, or downstream integrations. First prove ThinkForge can produce excellent post/caption/script/carousel output from real brand/project context.
 
 ## Current Reality
 
@@ -30,11 +61,13 @@ prompt/session context
 
 This is real plumbing, but not full Brand Vault, calendar, trend, Alyzi, or Editron convergence.
 
-## Current Uncommitted ThinkForge Work
+## Already Landed On Main
 
-The current worktree has intentional uncommitted ThinkForge changes plus unrelated untracked files. Stage narrowly if committing.
+Commit:
 
-Intentional tracked files changed:
+- `15ff3ab1 feat(thinkforge): persist signal trace and cache writing context`
+
+Files landed in that commit:
 
 - `app/api/services/thinkforge/clickatron-context/route.ts`
 - `app/api/services/thinkforge/script/current/route.ts`
@@ -46,18 +79,18 @@ Intentional tracked files changed:
 - `lib/thinkforge/services/chat-service.ts`
 - `lib/thinkforge/services/command-service.ts`
 - `lib/thinkforge/services/db.ts`
-- `lib/thinkforge/signals/index.ts`
-- `tests/clickatron/think-to-click-context.test.ts`
-- `tests/thinkforge/script-draft-retrieved-context.test.ts`
-
-Intentional new files:
-
-- `lib/thinkforge/signals/signal-trace.ts`
 - `lib/thinkforge/services/gemini-writing-context-cache.ts`
+- `lib/thinkforge/signals/index.ts`
+- `lib/thinkforge/signals/signal-trace.ts`
+- `tests/clickatron/think-to-click-context.test.ts`
 - `tests/thinkforge/command-service-metadata.test.ts`
 - `tests/thinkforge/gemini-writing-context-cache.test.ts`
+- `tests/thinkforge/script-draft-retrieved-context.test.ts`
 
-Unrelated untracked files/folders exist in the worktree, including `.artifacts/`, `.agents/skills/`, `memory/`, `modal/`, assorted docs, and generated/video outputs. Do not `git add -A`.
+Current local worktree note:
+
+- After commit `15ff3ab1`, local `main` had no tracked ThinkForge source changes. This handoff doc may itself be modified if the current session is clarifying it.
+- There are unrelated untracked local folders/files in this checkout. Do not use `git add -A`.
 
 ## Verification State
 
@@ -237,27 +270,11 @@ Important previous gate: 95 percent should apply as both average and minimum-run
 
 ## What Is Left
 
-### 1. Land Current Work Safely
-
-Goal: commit only intentional ThinkForge changes.
-
-Steps:
-
-1. Re-run focused tests listed above.
-2. Re-run `npx eslint . --quiet`.
-3. Run full `npx tsc --noEmit`, then touched-file filter because full repo is baseline-red.
-4. Stage only intentional ThinkForge files.
-5. Commit and push when approved.
-
-Acceptance:
-
-- No API keys or local artifacts committed.
-- No unrelated untracked folders staged.
-- Final commit message should mention signalTrace + writing context cache.
-
-### 2. Prompt / Output Quality Pass
+### 1. Prompt / Output Quality Pass
 
 Goal: make ThinkForge outputs actually sharper, not just better wired.
+
+This is the next highest-value ThinkForge-core task.
 
 Scope:
 
@@ -287,7 +304,7 @@ Acceptance:
 - Output improvements are proven through seed evals, not vibes.
 - No prompt change lands without before/after examples and failing case notes.
 
-### 3. Seed Eval Expansion
+### 2. Seed Eval Expansion
 
 Goal: build a stronger eval set for the ICP: brands, agencies, film houses, content teams.
 
@@ -317,7 +334,7 @@ Acceptance:
 - 95 percent average and minimum-run gates are enforced.
 - DeepSeek is not called on private cases unless privacy gateway approves.
 
-### 4. Brand Vault And Learning Layer Depth
+### 3. Brand Vault And Learning Layer Depth
 
 Goal: verify ThinkForge uses the right brand/intelligence source at runtime.
 
@@ -345,7 +362,7 @@ Acceptance:
 - Produce a source-of-truth map with producer, decision owner, runtime object, prompt consumer, and tests.
 - Add tests proving forbidden terms, proof points, brand voice constraints, and learned user preferences survive into authoring setup.
 
-### 5. Production Quality Gate
+### 4. Production Quality Gate
 
 Goal: move from "tests prove wiring" to "system blocks weak creative output."
 
@@ -375,7 +392,7 @@ Acceptance:
 - Failure modes identify owner: model issue, prompt contract issue, eval rubric issue, provider issue.
 - Weak outputs do not silently pass as production-ready.
 
-### 6. Calendar And Trend Intelligence
+### 5. Calendar And Trend Intelligence
 
 Goal: turn planning from storage into content intelligence.
 
@@ -401,7 +418,7 @@ Acceptance:
 - Trend suggestions are auditable and dismissible.
 - Public/safe trend routes do not send private Brand Vault data to DeepSeek.
 
-### 7. Provider / Privacy Completion
+### 6. Provider / Privacy Completion
 
 Goal: keep DeepSeek useful but safe.
 
@@ -425,7 +442,7 @@ Relevant files:
 - `scripts/prompt-optimization/thinkforge-eval-provider-adapter.ts`
 - `docs/THINKFORGE_DEEPSEEK_PRODUCTION_GATE_2026_06_14.md`
 
-### 8. Shoot Guidance Visuals
+### 7. Shoot Guidance Visuals
 
 Goal: make shootable scripts operational for real user setups.
 
@@ -440,14 +457,22 @@ This is core ThinkForge product work, but downstream rendering/export can be sep
 
 ## Suggested Next Work Order
 
-1. Commit/push current signalTrace + writing context cache work after focused verification.
-2. Prompt/output quality audit with real seeds.
-3. Expand seed evals for ICP cases and 95 percent gate.
+1. Prompt/output quality audit with real seeds.
+2. Patch the authoring prompt/contract only after recorded failures.
+3. Expand seed evals for ICP cases and enforce the 95 percent gate.
 4. Brand Vault + learning runtime source-of-truth audit.
 5. Quality gate hardening.
 6. Calendar/trend intelligence.
 7. Provider/privacy completion.
 8. Shoot guidance visuals.
+
+## What Not To Do Next
+
+- Do not redo the signalTrace persistence work; it is already on `main`.
+- Do not treat Clickatron/Editron/Alyzi integration polish as the next ThinkForge-core task unless the user explicitly moves scope there.
+- Do not switch production private authoring to DeepSeek before privacy/provider routing is finished.
+- Do not patch prompts based on taste alone. Use seed outputs, failure notes, and before/after evidence.
+- Do not call Brand Vault integration unified until the runtime source-of-truth chain is verified in code.
 
 ## Known Gotchas
 
@@ -458,4 +483,3 @@ This is core ThinkForge product work, but downstream rendering/export can be sep
 - Do not send raw Brand Vault, user memory, private client docs, or child data to DeepSeek/OpenRouter.
 - DeepSeek may not support true deterministic seed. Use fixed cases, low temperature, repeated runs, and stability scoring.
 - The user cares about real output quality, not only architecture. Always show seed outputs and failures before prompt patching.
-

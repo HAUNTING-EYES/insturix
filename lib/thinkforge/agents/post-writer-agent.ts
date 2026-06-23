@@ -1,12 +1,14 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
-import type { AgentInput } from './types';
+import type { AgentInput, AgentStructuredOutput } from './types';
 import {
-  PLATFORM_CONFIGS,
+  buildPostOutputFormat,
   detectPlatform,
-  type PlatformType,
 } from './prompt-utils';
 import type { ThinkForgeContentSignalProfile } from '../signals';
+import { parseAgentJson } from '../protocol/parse-agent-json';
+import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
+import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -34,6 +36,54 @@ export interface PostWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
 }
 
+const POST_CTA_PATTERN =
+  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[ií]bete|registrate|reg[ií]strate|[uú]nete|reserva|compra|visita|env[ií]a|manda|escr[ií]benos|comenta|comparte)/i;
+
+const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
+  twitter: 50,
+  instagram: 150,
+  facebook: 150,
+  linkedin: 500,
+  generic: 250,
+};
+
+const CACHED_POST_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
+  regex: new RegExp(pattern.pattern, 'i'),
+  label: pattern.label,
+}));
+
+function getPublishableLines(content: string): string[] {
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^#\w/.test(line));
+}
+
+function assertUsableCachedPostResult(result: PostWriterResult, input: PostWriterInput): void {
+  const platform = detectPlatform(input.userPrompt, undefined, input.context.projectSummary);
+  const content = result.content.trim();
+  const lines = getPublishableLines(content);
+  const ctaTail = lines.slice(-3).join('\n');
+  const failures: string[] = [];
+  const minChars = MIN_COMPLETE_POST_CHARS[platform] ?? MIN_COMPLETE_POST_CHARS.generic;
+
+  if (content.length < minChars) failures.push(`content_under_${minChars}_chars`);
+  if (lines.length < 3) failures.push('missing_body_or_cta_lines');
+  if (!(/[?]/.test(ctaTail) || POST_CTA_PATTERN.test(ctaTail))) failures.push('missing_action_cta');
+  if (platform !== 'twitter' && !/#\w+/.test(content)) failures.push('missing_hashtags');
+  if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselPrompts?.length)) {
+    failures.push('missing_clickatron_prompt');
+  }
+
+  const filler = CACHED_POST_AI_FILLER.find((pattern) => pattern.regex.test(content));
+  if (filler) failures.push(`banned_phrase:${filler.label}`);
+
+  if (failures.length > 0) {
+    throw new Error(`Cached post failed publishable quality gate: ${failures.join(', ')}`);
+  }
+}
+
 export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   protected schema = PostWriterResultSchema;
 
@@ -44,65 +94,112 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
       // Default to flash for core creative thinking
       modelName: config?.modelName ?? 'gemini-2.5-flash',
       maxTokens: config?.maxTokens ?? 8192,
-      temperature: config?.temperature ?? 0.7,
+      temperature: config?.temperature ?? 0.45,
     });
   }
 
   buildPrompt(input: PostWriterInput): string {
-    const { context, userPrompt, contentSignalProfile, retrievedContext } = input;
-    
-    // Detect platform
+    const { context, userPrompt, retrievedContext } = input;
     const platform = detectPlatform(userPrompt, undefined, context.projectSummary);
-    const platformConfig = PLATFORM_CONFIGS[platform];
-
-    let prompt = `You are an elite Social Media Copywriter and Strategist.
-Your task is to write a highly engaging, platform-native post for ${platformConfig.name}.
-
-## Context
-**Project Summary:** ${context.projectSummary || 'No summary provided.'}
-**User Prompt:** ${userPrompt}
-
-`;
-
-    // 1. Inject Brand DNA (System Brief)
-    if (context.systemBrief) {
-      prompt += `## Brand DNA & Memory\n${context.systemBrief}\n\n`;
-    }
-
-    // 2. Inject DataBank / Retrieved Context
+    const outputFormat = buildPostOutputFormat(platform);
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
-    if (facts.length > 0) {
-      prompt += `## Relevant Knowledge (DataBank)\n`;
-      facts.forEach((fact, i) => {
-        prompt += `[Source ${i + 1} - ${fact.title}]: ${fact.summary}\n`;
-      });
-      prompt += '\n';
-    }
+    const databankBlock = facts.length > 0
+      ? facts.map((fact, i) => `[Source ${i + 1} - ${fact.title}]: ${fact.summary}`).join('\n')
+      : 'No retrieved project or global facts loaded.';
+    const brandBlock = context.systemBrief || 'No Brand DNA or memory loaded.';
 
-    // 3. Platform Rules
-    prompt += `## Platform Rules: ${platformConfig.name}
-- Target Length: ${platformConfig.charTarget} characters (Max: ${platformConfig.charMax})
-- Hook: The first ${platformConfig.foldChars} characters MUST arrest attention. Front-load the value.
-- Hashtags: Include ${platformConfig.hashtagRange} at the end.
-- Guidance: ${platformConfig.extraGuidance}
+    return `<role>You are an elite ${platform} copywriter and content strategist.</role>
+<task>Write ONE final, publishable post for the detected platform. Return JSON that matches the schema exactly.</task>
 
-## Generation Requirements
-1. **Content:** Write the FINAL, publishable text. No meta-commentary. Do not wrap in markdown code blocks.
-d2. **Factual Density & Completeness:**
-   - Treat the original user brief as the source of truth. If an idea/angle is present, use it only as creative framing.
-   - DO NOT write vague or generic fluff. You MUST explicitly include all details from the prompt/context: exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
-   - If the intent is promotional or event-based, you MUST include a clear Call-To-Action (CTA) and relevant signup/participation details.
-   - If a tagline, slogan, or specific brand phrase is provided, use it exactly as provided.
-3. **Quality:** Do NOT use AI buzzwords ("in today's fast-paced world", "delve", "leverage", "game-changer"). Speak directly, like a human expert.
-4. **Visual Prompts (Clickatron):** Provide high-fidelity image generation prompts in the \`clickatron\` field. If the post tells a multi-step story, provide \`carouselPrompts\`. If it's a single concept, provide \`singleImagePrompt\`.
-   - **Source Facts Are Mandatory:** Every image prompt must carry the relevant source facts from the brief: brand name, logo placement if mentioned, event name, date, time, location, audience, product/service, offer, handouts/freebies, required colors/brand style, and any exact words that must appear.
-   - **Include Specific Props/Elements:** Explicitly list relevant physical objects that should appear in the images (e.g., for a blood donation drive, specify "blood drops, syringes"; for a clothes drive, specify "folded clothes, donation boxes").
-   - **Include Text Overlays:** Explicitly define exact text overlays from the brief, including heading, brand name, date, location, CTA, and short tagline when available. If a logo is requested, say "Place [Brand Name] logo at [position]" rather than omitting it.
-   - **No Generic Image Prompts:** Never return prompts like "modern poster", "professional design", or "engaging visual" without the concrete factual details above.
+<rules>
+SOURCE-LEDGER
+- Every factual sentence must trace to an exact phrase in <input_data>.
+- Preserve supplied dates, times, prices, URLs, brand names, event names, product names, offers, and taglines verbatim.
+- Keep supplied formats when possible: "9am" stays "9am", "$40K" stays "$40K".
+- Do not invent ingredients, study results, timelines, percentages, discounts, prices, guarantees, or performance claims.
+- If proof is thin, make the writing specific through scene, audience pain, workflow friction, object detail, rhythm, and framing.
+
+HOOK
+- The first visible line must carry a grounded claim, supplied number, named entity, or concrete pain from <input_data>.
+- No cliche openers.
+
+CTA
+- A CTA is mandatory for every post.
+- It must be specific to the brief and appear before hashtags in the last 3 non-hashtag lines.
+- Use supplied URLs or actions when they exist.
+
+ANTI-FILLER
+- Obey the anti-filler list in <output_format> exactly.
+- Prefer plain, concrete nouns and verbs over abstract business language.
+
+VISUAL HANDOFF
+- The clickatron field is part of the deliverable, not optional decoration.
+- Image prompts must carry the same source facts as the post and include editable overlay text when text appears.
+</rules>
+
+${outputFormat}
+
+<input_data>
+Project Summary:
+${context.projectSummary || 'No summary provided.'}
+
+Brand DNA and Memory:
+${brandBlock}
+
+DataBank Facts:
+${databankBlock}
+
+USER BRIEF:
+${userPrompt}
+</input_data>
 
 Return your response strictly adhering to the JSON schema.`;
+  }
+  async runStructured(
+    input: PostWriterInput,
+    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    abortSignal?: AbortSignal,
+  ): Promise<AgentStructuredOutput<PostWriterResult>> {
+    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const gen = this.resolveGenConfig(overrides);
 
-    return prompt;
+    try {
+      const jsonContract = [
+        'Return ONLY valid JSON. Do not include markdown fences or commentary.',
+        'Required JSON shape:',
+        '{',
+        '  "content": "publishable post text as a string",',
+        '  "contentAnalysis": { "tone": "string", "vibe": "string", "theme": "string", "qualityScore": 0, "violations": [] },',
+        '  "clickatron": { "singleImagePrompt": "string", "carouselPrompts": ["string"] },',
+        '  "metadata": { "platform": "string", "charCount": 0 }',
+        '}',
+        'contentAnalysis.violations must be an array of strings only. Use [] when there are no violations; never return violation objects.',
+        'clickatron.singleImagePrompt must be a string, not an object.',
+        'Every carouselPrompts item must be a string, not an object.',
+        'Do not add keys outside the required JSON shape.',
+      ].join('\n');
+      const { text, cacheStatus, modelName } = await generateWithWritingContextCache({
+        prompt: `${prompt}\n\n${jsonContract}`,
+        modelName: this.config.modelName,
+        temperature: gen.temperature,
+        maxTokens: gen.maxTokens,
+        abortSignal,
+      });
+      const parsed = parseAgentJson(text);
+      const result = this.schema.parse(parsed);
+      assertUsableCachedPostResult(result, input);
+
+      return {
+        result,
+        metadata: {
+          model: modelName,
+          notes: `writing_context_cache:${cacheStatus}`,
+        },
+      };
+    } catch (error) {
+      console.warn('[ThinkForge:PostWriter] Writing context cache failed; falling back to structured path:', error);
+      return super.runStructured(input, overrides, abortSignal);
+    }
   }
 }
 

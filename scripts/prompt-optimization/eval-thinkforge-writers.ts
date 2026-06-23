@@ -1,0 +1,930 @@
+﻿/**
+ * Local eval harness for the LIVE ThinkForge writers: PostWriterAgent + ScriptWriterAgent.
+ *
+ * WHY THIS EXISTS:
+ *   Commit ee216913 ("flatten architecture") made PostWriterAgent / ScriptWriterAgent the live
+ *   generation path (chat-service.ts:852/882) but shipped NO eval for them. The existing
+ *   eval-thinkforge-author.ts tests the LEGACY ScriptAuthorAgent, which now only runs on the
+ *   blueprint + block-edit paths. This harness covers the agents that actually generate your
+ *   content today, so quality can be measured at scale before any prompt hardening or re-wiring.
+ *
+ * TRUE INTEGRATION TEST: unifies on the production prompt + production schema.
+ *   - Prompt    = agent.buildPrompt(input)            (the EXACT production prompt, no drift)
+ *   - Schema    = PostWriterResultSchema / ScriptWriterResultSchema (the EXACT production schema)
+ *   - Model     = PostWriterAgent.runStructured() for posts, direct generateObject for script seed control
+ *   - Routing   = detectContentPath(userPrompt, docType) (the EXACT production router)
+ *   The ONLY intentional deviation from runStructured() is the seed: base-agent hardcodes seed=42,
+ *   which makes multi-seed robustness testing impossible. Script eval still replicates generateObject
+ *   with a varying seed; post eval uses the production cached-doc runStructured path, so seed labels are robustness run IDs.
+ *   Script structured-failure fallback is not replicated; post fallback is production behavior.
+ *
+ * Usage:
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --seed=42
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --multi-seed
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --test-case=2
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --writer=post
+ *   GEMINI_API_KEY=dummy npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --dry-run
+ *     (--dry-run prints the built prompt + routing, makes ZERO network calls â€” offline verification)
+ *
+ * ~30s per run vs 5+ min deploy cycle. Rule 35 methodology.
+ */
+
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { generateObject } from 'ai';
+import dotenv from 'dotenv';
+
+// Agent imports -- TRUE UNIFICATION with the production prompt + schema.
+import {
+  PostWriterAgent,
+  type PostWriterResult,
+  type PostWriterInput,
+} from '../../lib/thinkforge/agents/post-writer-agent';
+import {
+  ScriptWriterAgent,
+  ScriptWriterResultSchema,
+  type ScriptWriterResult,
+  type ScriptWriterInput,
+} from '../../lib/thinkforge/agents/script-writer-agent';
+import { detectContentPath } from '../../lib/thinkforge/agents/prompt-utils';
+import { createThinkForgeModel } from '../../lib/thinkforge/agents/model-factory';
+import { getAntiAiConstraintBundle } from '../../lib/thinkforge/data/writing-graph-query';
+import {
+  buildEvalProviderConfig,
+  runEvalPrompt,
+  type EvalProvider,
+  type EvalProviderConfig,
+} from './thinkforge-eval-provider-adapter';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(__dirname, '../../.env.local') });
+
+// ---- CLI Args --------------------------------------------------------
+
+const seedArg = process.argv.find(a => a.startsWith('--seed='));
+const seed = seedArg ? parseInt(seedArg.split('=')[1]) : 42;
+const multiSeed = process.argv.includes('--multi-seed');
+const testCaseArg = process.argv.find(a => a.startsWith('--test-case='));
+const testCaseFilter = testCaseArg ? parseInt(testCaseArg.split('=')[1]) : null;
+const writerArg = process.argv.find(a => a.startsWith('--writer='));
+const writerFilter = writerArg ? writerArg.split('=')[1] : null; // 'post' | 'script'
+const suiteArg = process.argv.find(a => a.startsWith('--suite='));
+const suiteFilter = suiteArg ? suiteArg.split('=')[1] : null; // 'core' | 'heldout'
+const judgeArg = process.argv.find(a => a.startsWith('--judge='));
+const judgeProvider = judgeArg ? judgeArg.split('=')[1] as EvalProvider : null; // deepseek | openrouter
+const dryRun = process.argv.includes('--dry-run');
+
+const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+if (!API_KEY) {
+  console.error('No GEMINI_API_KEY. Set in .env.local or pass via: GEMINI_API_KEY=xxx npx tsx ...');
+  console.error('(For an offline prompt-assembly check with no network: GEMINI_API_KEY=dummy ... --dry-run)');
+  process.exit(1);
+}
+
+// ---- Anti-AI Constraints (writing graph source of truth) --------------
+
+const ANTI_AI_CONSTRAINTS = getAntiAiConstraintBundle();
+if (ANTI_AI_CONSTRAINTS.constraints.length === 0) {
+  throw new Error('No Anti-AI constraints loaded from writing-knowledge graph. Refusing to run filler eval with an empty oracle.');
+}
+
+const AI_FILLER = ANTI_AI_CONSTRAINTS.fillerPatterns.map(d => ({
+  regex: new RegExp(d.pattern, 'i'),
+  label: d.label,
+}));
+
+// ---- Test Cases ------------------------------------------------------
+// `grounding` = facts that MUST survive into the output (the writers' core promise is factual
+// completeness). Each is a case-insensitive substring; coverage is scored continuously.
+
+type WriterPath = 'post' | 'script';
+type GroundingFact = string | string[];
+type TestSuite = 'core' | 'heldout';
+
+interface TestCase {
+  id: number;
+  suite?: TestSuite;
+  name: string;
+  documentType: string;
+  projectSummary: string;
+  userPrompt: string;
+  systemBrief?: string;
+  expectedPath: WriterPath;
+  grounding?: GroundingFact[];
+  criteria: Record<string, any>;
+}
+
+const TEST_CASES: TestCase[] = [
+  {
+    id: 1,
+    name: 'LinkedIn thought-leadership post',
+    documentType: 'post',
+    projectSummary: 'Insturix - AI-powered video editing platform for creators and agencies.',
+    userPrompt:
+      'Write a LinkedIn post about how AI is changing video production workflows for small agencies.',
+    systemBrief:
+      'Brand: Insturix. Voice: Professional but approachable, grounded in real workflow pain. Target: Agency owners and creative directors managing 5-15 person teams.',
+    expectedPath: 'post',
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [800, 3000], noAiFiller: true,
+      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
+    },
+  },
+  {
+    id: 2,
+    name: 'Event promo post (grounding-heavy)',
+    documentType: 'post',
+    projectSummary: 'RedCross community chapter running a local blood donation drive.',
+    userPrompt:
+      'Write a Facebook post promoting our blood donation drive on June 15 at City Hall from 9am to 4pm. Free t-shirts for donors. Walk-ins welcome, or register at redcross.org/donate.',
+    systemBrief: 'Brand: RedCross local chapter. Voice: Warm, urgent, community-minded.',
+    expectedPath: 'post',
+    grounding: [
+      'June 15',
+      'City Hall',
+      ['9am', '9 am', '9:00', '9 a.m.'],
+      ['4pm', '4 pm', '16:00', '4 p.m.'],
+      't-shirt',
+      'redcross.org/donate',
+    ],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noAiFiller: true,
+      hasCTA: true, charRange: [200, 3000], groundingFloor: 0.8,
+    },
+  },
+  {
+    id: 3,
+    name: 'Twitter/X product launch',
+    documentType: 'post',
+    projectSummary: 'SaaS startup launching an AI writing tool for content marketers.',
+    userPrompt:
+      'Write a tweet announcing ContentForge, our new AI writing assistant that helps content marketers produce 3x more articles without sacrificing quality. Launching March 3.',
+    systemBrief: 'Brand: ContentForge. Voice: Confident, direct, zero fluff.',
+    expectedPath: 'post',
+    grounding: ['ContentForge', '3x', 'March 3'],
+    criteria: {
+      charRange: [50, 400], noSceneHeadings: true, noVisualLabels: true,
+      noAiFiller: true, hashtagRange: [0, 3], hasSpecificDetails: true,
+      groundingFloor: 0.66,
+    },
+  },
+  {
+    id: 4,
+    name: 'Instagram caption (product launch)',
+    documentType: 'post',
+    projectSummary: 'DTC skincare brand focused on clean ingredients and sustainability.',
+    userPrompt:
+      'Write an Instagram caption for our new vitamin C serum launch. Gold bottle on marble with orange slices. $38, launching this Friday.',
+    systemBrief: 'Brand: GlowNaturals. Voice: Warm, inviting, clean beauty enthusiast.',
+    expectedPath: 'post',
+    grounding: ['vitamin C', '$38'],
+    criteria: {
+      charRange: [150, 2200], noSceneHeadings: true, noVisualLabels: true,
+      noAiFiller: true, hasHashtags: true, hashtagRange: [3, 15], hasCTA: true,
+      groundingFloor: 0.5,
+    },
+  },
+  {
+    id: 5,
+    name: 'TikTok product ad script (30s)',
+    documentType: 'video_script',
+    projectSummary:
+      'Insturix - AI-powered video editing platform that turns raw footage into polished content in minutes.',
+    userPrompt:
+      'Create a 30-second TikTok product ad showing how Insturix saves time for freelance video editors.',
+    expectedPath: 'script',
+    grounding: ['Insturix'],
+    criteria: {
+      minScenes: 3, maxScenes: 8, hasNarration: true, hasVisual: true,
+      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
+    },
+  },
+  {
+    id: 6,
+    name: 'Brand film script (2 min)',
+    documentType: 'video_script',
+    projectSummary: 'Oakridge Coffee Co. -- craft roaster, farm-to-cup, Huila region Colombia.',
+    userPrompt:
+      'Write a 2-minute brand film script for Oakridge Coffee. Warm, unhurried, Terrence Malick meets food photography.',
+    systemBrief:
+      'Brand: Oakridge Coffee Co. Voice: Warm, unhurried, sensory-rich. Values: Craft, transparency, terroir.',
+    expectedPath: 'script',
+    grounding: ['Oakridge', 'Huila'],
+    criteria: {
+      minScenes: 4, maxScenes: 12, hasNarration: true, hasVisual: true,
+      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
+    },
+  },
+  {
+    id: 7,
+    name: 'YouTube explainer script',
+    documentType: 'video_script',
+    projectSummary: 'Personal brand - solo creator making YouTube videos that explain tech simply.',
+    userPrompt:
+      'Write a 5-minute YouTube script explaining how quantum computing works for a general audience. Include visual direction.',
+    expectedPath: 'script',
+    criteria: {
+      minScenes: 4, maxScenes: 14, hasNarration: true, hasVisual: true,
+      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
+    },
+  },
+  {
+    id: 8,
+    name: 'Personal-story LinkedIn post',
+    documentType: 'post',
+    projectSummary: 'Solo founder building a bootstrapped SaaS for restaurant inventory management.',
+    userPrompt:
+      'Write a LinkedIn post about the career lesson I learned when my first startup failed after 18 months and $40K of savings.',
+    systemBrief: 'Brand: Personal brand of a founder. Voice: Honest, reflective, no toxic positivity.',
+    expectedPath: 'post',
+    grounding: ['18 months', ['$40K', '$40k', '$40,000', '40k', '40000']],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [800, 3000], noAiFiller: true,
+      hookBeforeFold: true, hasCTA: true, groundingFloor: 0.5,
+    },
+  },
+  {
+    id: 9,
+    suite: 'heldout',
+    name: 'Held-out B2B SaaS compliance post',
+    documentType: 'post',
+    projectSummary: 'FlowLedger - workflow automation for finance teams preparing audit evidence.',
+    userPrompt:
+      'Write a LinkedIn post for FlowLedger about helping finance teams prepare SOC 2 evidence before Q4 audit season. Mention that the beta cut evidence-chasing time by 37% across 12 pilot teams. Target CFOs and RevOps leaders. Do not sound hypey.',
+    systemBrief: 'Brand: FlowLedger. Voice: precise, calm, operator-led. Avoid fearmongering. Audience: CFOs, RevOps, compliance owners.',
+    expectedPath: 'post',
+    grounding: ['FlowLedger', 'SOC 2', 'Q4', '37%', '12 pilot teams', 'CFOs', 'RevOps'],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [800, 3000], noAiFiller: true,
+      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
+      groundingFloor: 0.72,
+    },
+  },
+  {
+    id: 10,
+    suite: 'heldout',
+    name: 'Held-out nonprofit local action post',
+    documentType: 'post',
+    projectSummary: 'RiverAid - nonprofit organizing city river cleanup drives and youth education.',
+    userPrompt:
+      'Write a Facebook post for RiverAid recruiting volunteers for a cleanup on April 22 at Pier 9. We have 500 cleanup kits, check-in starts at 8:30am, families are welcome, and registration is at riveraid.org/cleanup.',
+    systemBrief: 'Brand: RiverAid. Voice: local, grateful, practical. Audience: parents, students, neighborhood groups.',
+    expectedPath: 'post',
+    grounding: ['RiverAid', 'April 22', 'Pier 9', '500 cleanup kits', ['8:30am', '8:30 am', '8:30 a.m.'], 'families', 'riveraid.org/cleanup'],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noAiFiller: true,
+      hasCTA: true, charRange: [300, 1200], hasSpecificDetails: true,
+      groundingFloor: 0.78,
+    },
+  },
+  {
+    id: 11,
+    suite: 'heldout',
+    name: 'Held-out e-comm Instagram caption',
+    documentType: 'post',
+    projectSummary: 'TrailNest - compact outdoor gear for city people who camp on weekends.',
+    userPrompt:
+      'Write an Instagram caption for TrailNest launching the PackLight Sling in Midnight Moss. It is made from recycled nylon, costs $89, launches Friday, and the product photo is a rain-speckled sling on a subway bench next to hiking boots.',
+    systemBrief: 'Brand: TrailNest. Voice: tactile, urban-outdoors, not luxury. Audience: weekend campers and commuters.',
+    expectedPath: 'post',
+    grounding: ['TrailNest', 'PackLight Sling', 'Midnight Moss', 'recycled nylon', '$89', 'Friday', 'subway bench', 'hiking boots'],
+    criteria: {
+      charRange: [150, 2200], noSceneHeadings: true, noVisualLabels: true,
+      noAiFiller: true, hasHashtags: true, hashtagRange: [3, 15], hasCTA: true,
+      hasSpecificDetails: true, groundingFloor: 0.75,
+    },
+  },
+  {
+    id: 12,
+    suite: 'heldout',
+    name: 'Held-out recruiting post',
+    documentType: 'post',
+    projectSummary: 'Nimbus Robotics - warehouse robotics company hiring perception engineers.',
+    userPrompt:
+      'Write a LinkedIn recruiting post for Nimbus Robotics hiring a Senior Perception Engineer in Austin. Hybrid role, apply by May 30 at careers.nimbusrobotics.ai. Mention robotics in messy warehouse aisles, not generic AI.',
+    systemBrief: 'Brand: Nimbus Robotics. Voice: builder-to-builder, specific, no corporate wallpaper. Audience: robotics engineers.',
+    expectedPath: 'post',
+    grounding: ['Nimbus Robotics', 'Senior Perception Engineer', 'Austin', 'Hybrid', 'May 30', 'careers.nimbusrobotics.ai', 'warehouse aisles'],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [700, 2500], noAiFiller: true,
+      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
+      groundingFloor: 0.72,
+    },
+  },
+  {
+    id: 13,
+    suite: 'heldout',
+    name: 'Held-out Spanish community post',
+    documentType: 'post',
+    projectSummary: 'Luna Verde - cafe and plant shop in Madrid running small neighborhood events.',
+    userPrompt:
+      'Escribe un post de Instagram en espanol para Luna Verde. Evento: taller de plantas para principiantes este sabado a las 11am en Calle Prado 14, Madrid. Hay 20 plazas y cafe gratis. Inscripcion: lunaverde.es/taller.',
+    systemBrief: 'Marca: Luna Verde. Voz: cercana, tranquila, de barrio. No sonar como anuncio masivo.',
+    expectedPath: 'post',
+    grounding: ['Luna Verde', 'sabado', ['11am', '11 am', '11:00'], 'Calle Prado 14', 'Madrid', '20 plazas', 'cafe gratis', 'lunaverde.es/taller'],
+    criteria: {
+      charRange: [150, 2200], noSceneHeadings: true, noVisualLabels: true,
+      noAiFiller: true, hasHashtags: true, hashtagRange: [3, 12], hasCTA: true,
+      hasSpecificDetails: true, groundingFloor: 0.75,
+    },
+  },
+  {
+    id: 14,
+    suite: 'heldout',
+    name: 'Held-out very long brief post',
+    documentType: 'post',
+    projectSummary: 'CivicDesk - case management SaaS for local government service desks.',
+    userPrompt: [
+      'Write a LinkedIn post for CivicDesk aimed at city managers and 311 directors.',
+      'Context: many cities are heading into budget review season and are trying to reduce resident response times without adding headcount.',
+      'Our new routing dashboard groups duplicate sidewalk, trash pickup, and permit questions before they reach staff.',
+      'Pilot detail: Maple County reduced duplicate ticket handling by 18% over six weeks, but we cannot promise that every city will get the same result.',
+      'Mention the webinar on July 8 with former 311 director Priya Menon.',
+      'Registration URL: civicdesk.com/webinar.',
+      'Tone: useful, measured, respectful of public-sector constraints, no Silicon Valley chest-thumping.'
+    ].join(' '),
+    systemBrief: 'Brand: CivicDesk. Voice: civic, careful, evidence-led. Audience: city managers, 311 directors, public-sector ops teams.',
+    expectedPath: 'post',
+    grounding: ['CivicDesk', 'city managers', '311 directors', 'budget review season', 'Maple County', '18%', 'six weeks', 'July 8', 'Priya Menon', 'civicdesk.com/webinar'],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [900, 3000], noAiFiller: true,
+      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
+      groundingFloor: 0.8,
+    },
+  },
+  {
+    id: 15,
+    suite: 'heldout',
+    name: 'Held-out unusual deadpan tone post',
+    documentType: 'post',
+    projectSummary: 'Boring Metrics Club - newsletter for founders who prefer honest dashboards over vanity metrics.',
+    userPrompt:
+      'Write a LinkedIn post in a dry, deadpan tone for Boring Metrics Club. Topic: why 12 qualified sales calls beat 4,000 empty impressions. Offer: free teardown of one dashboard this Thursday. The post should feel mildly amused, not snarky.',
+    systemBrief: 'Brand: Boring Metrics Club. Voice: dry, precise, anti-hype. Audience: bootstrapped founders and operators.',
+    expectedPath: 'post',
+    grounding: ['Boring Metrics Club', '12 qualified sales calls', '4,000 empty impressions', 'free teardown', 'Thursday'],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [700, 2500], noAiFiller: true,
+      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
+      groundingFloor: 0.8,
+    },
+  },];
+
+// ---- Regression Baselines --------------------------------------------
+// Rule 31: no fabricated numbers. These come from the first real Gemini multi-seed run
+// recorded in ThinkForge-Writers-Quality-Hardening-Plan.md.
+const REGRESSION_BASELINES: Record<number, number> = {
+  1: 0.80,
+  2: 0.83,
+  3: 1.00,
+  4: 0.93,
+  5: 0.92,
+  6: 0.83,
+  7: 0.92,
+  8: 0.87,
+};
+
+// ---- Scoring: structure + filler + specificity -----------------------
+
+interface ScoreResult {
+  passed: number;
+  total: number;
+  ratio: number;
+  checks: Record<string, boolean | string>;
+}
+
+function makeScorer() {
+  const checks: Record<string, boolean | string> = {};
+  let passed = 0;
+  let total = 0;
+  function check(name: string, condition: boolean) {
+    total++;
+    checks[name] = condition;
+    if (condition) passed++;
+  }
+  return {
+    check,
+    result: (): ScoreResult => ({ passed, total, ratio: total > 0 ? passed / total : 0, checks }),
+    checks,
+  };
+}
+
+function countScenes(content: string): number {
+  const headers = content.match(/^#{1,3}\s*(scene\s*\d|\[?\d+[:.)])/gim) || content.match(/^#{1,3}\s*scene\b/gim) || [];
+  return headers.length;
+}
+
+function normalizeFact(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function groundingFactLabel(fact: GroundingFact): string {
+  return Array.isArray(fact) ? fact[0] : fact;
+}
+
+function groundingFactVariants(fact: GroundingFact): string[] {
+  return Array.isArray(fact) ? fact : [fact];
+}
+
+function getCtaTail(lines: string[]): string {
+  return lines
+    .filter(l => l.trim().length > 0)
+    .filter(l => !/^#\w/.test(l.trim()))
+    .slice(-3)
+    .join('\n');
+}
+
+const CTA_ACTION_PATTERN =
+  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[ií]bete|registrate|reg[ií]strate|[uú]nete|reserva|compra|visita|env[ií]a|manda|escr[ií]benos|comenta|comparte)/i;
+
+function scoreStructural(content: string, tc: TestCase): ScoreResult {
+  const s = makeScorer();
+  const c = tc.criteria;
+  const lines = content.split('\n');
+
+  if (tc.expectedPath === 'post') {
+    if (c.noSceneHeadings) s.check('no_scene_headings', !/#{1,3}\s*scene\s*\d/i.test(content));
+    if (c.noVisualLabels) s.check('no_visual_labels', !/\*\*Visual/i.test(content));
+    if (c.noVOLabels) s.check('no_vo_labels', !/\*\*VO\b/i.test(content) && !/\*\*Narration/i.test(content));
+    if (c.hasHashtags) s.check('has_hashtags', /#\w+/.test(content));
+    if (c.hashtagRange) {
+      const tags = content.match(/#\w+/g) || [];
+      s.check('hashtag_range', tags.length >= c.hashtagRange[0] && tags.length <= c.hashtagRange[1]);
+    }
+    if (c.charRange) {
+      const len = content.length;
+      s.check('char_range', len >= c.charRange[0] && len <= c.charRange[1]);
+    }
+    if (c.hookBeforeFold) {
+      const firstLine = lines.find(l => l.trim().length > 0) || '';
+      s.check('hook_before_fold', firstLine.length > 10 && firstLine.length < 250);
+    }
+    if (c.hasCTA) {
+      const ctaTail = getCtaTail(lines);
+      s.check('has_cta', /\?/.test(ctaTail) || CTA_ACTION_PATTERN.test(ctaTail));
+    }
+  }
+
+  if (tc.expectedPath === 'script') {
+    const sceneCount = countScenes(content);
+    if (c.minScenes) s.check('min_scenes', sceneCount >= c.minScenes);
+    if (c.maxScenes) s.check('max_scenes', sceneCount <= c.maxScenes);
+    if (c.hasNarration) s.check('has_narration', /\*\*\s*(narration|vo|voiceover)\b/i.test(content));
+    if (c.hasVisual) s.check('has_visual', /\*\*\s*visual\b/i.test(content));
+  }
+
+  // Universal
+  if (c.noAiFiller) {
+    const found = AI_FILLER.filter(f => f.regex.test(content));
+    s.check('no_ai_filler', found.length === 0);
+    if (found.length > 0) s.checks.filler_details = found.map(f => f.label).join(', ');
+  }
+  if (c.hasSpecificDetails) {
+    const hasNumbers = /\d+[-+~\s]*(second|minute|hour|day|week|month|year|%|\$|x\b)/i.test(content) ||
+      /\$\d+/.test(content) || /\d+[kKmM]\b/.test(content) || /\d+\s*[-â€“]\s*\d+/.test(content);
+    const hasNames = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(content) || /[A-Z][a-z]+[A-Z]/.test(content);
+    s.check('has_specific_details', hasNumbers || hasNames);
+  }
+  s.check('no_h1_title', !content.startsWith('# '));
+
+  return s.result();
+}
+
+// ---- Scoring: grounding (must-appear facts survive into the output) --
+
+interface GroundingResult { coverage: number; present: string[]; missing: string[]; total: number; }
+
+function scoreGrounding(content: string, scenePromptsBlob: string, tc: TestCase): GroundingResult {
+  const facts = tc.grounding || [];
+  if (facts.length === 0) return { coverage: 1, present: [], missing: [], total: 0 };
+  const haystack = normalizeFact(`${content}\n${scenePromptsBlob}`);
+  const present: string[] = [];
+  const missing: string[] = [];
+  for (const f of facts) {
+    const label = groundingFactLabel(f);
+    const matched = groundingFactVariants(f).some(variant => haystack.includes(normalizeFact(variant)));
+    if (matched) present.push(label); else missing.push(label);
+  }
+  return { coverage: present.length / facts.length, present, missing, total: facts.length };
+}
+
+// ---- Scoring: structured JSON fields (these writers return typed objects) ----
+
+function scoreStructuredFields(
+  result: PostWriterResult | ScriptWriterResult,
+  tc: TestCase,
+): ScoreResult {
+  const s = makeScorer();
+
+  // qualityScore present + in range (self-report; informational but should be well-formed)
+  const qs = (result as any)?.contentAnalysis?.qualityScore;
+  s.check('quality_score_wellformed', typeof qs === 'number' && qs >= 0 && qs <= 100);
+
+  if (tc.expectedPath === 'post') {
+    const r = result as PostWriterResult;
+    s.check('violations_empty', Array.isArray(r.contentAnalysis?.violations) && r.contentAnalysis.violations.length === 0);
+    s.check('clickatron_prompts_present',
+      !!(r.clickatron?.singleImagePrompt || (r.clickatron?.carouselPrompts && r.clickatron.carouselPrompts.length > 0)));
+    s.check('platform_metadata_present', typeof r.metadata?.platform === 'string' && r.metadata.platform.length > 0);
+  } else {
+    const r = result as ScriptWriterResult;
+    s.check('scene_prompts_present', Array.isArray(r.visualMetadata?.scenePrompts) && r.visualMetadata.scenePrompts.length > 0);
+    if (tc.criteria.scenePromptsMatchScenes) {
+      const sceneCount = countScenes(r.content);
+      const promptCount = r.visualMetadata?.scenePrompts?.length || 0;
+      // 1:1 mapping is the contract; allow Â±1 for header-detection slack.
+      s.check('scene_prompts_match_scenes', sceneCount > 0 && Math.abs(promptCount - sceneCount) <= 1);
+    }
+    s.check('motion_info_present', typeof r.visualMetadata?.motionInfo === 'string' && r.visualMetadata.motionInfo.length > 0);
+  }
+
+  return s.result();
+}
+
+// ---- Scoring: quality track (prose craft, post-only, informational) --
+
+function scoreQuality(content: string, tc: TestCase): ScoreResult {
+  const s = makeScorer();
+  if (tc.expectedPath !== 'post') return s.result();
+
+  const lines = content.split('\n');
+  const firstLine = lines.find(l => l.trim().length > 0) || '';
+
+  const hasNumber = /\d/.test(firstLine);
+  const hasNamedEntity = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/.test(firstLine) &&
+    !/^(The|This|That|Here|When|What|How|Why|I|We|You|My|Our|Your|In|On|At|For|And|But|So|If)\b/.test(firstLine.trim());
+  s.check('hook_specificity', hasNumber || hasNamedEntity);
+
+  const ctaTail = getCtaTail(lines).toLowerCase();
+  const generic = /what do you think\??$|thoughts\??$|agree\??$|right\??$/i.test(ctaTail.trim());
+  s.check('cta_actionability', (/\?/.test(ctaTail) && !generic) || CTA_ACTION_PATTERN.test(ctaTail));
+
+  const sentences = content.split(/[.!?]+/).filter(x => x.trim().length > 10);
+  if (sentences.length >= 5) {
+    const lengths = sentences.map(x => x.trim().split(/\s+/).length);
+    const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    const stdDev = Math.sqrt(lengths.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / lengths.length);
+    s.check('rhythm_variation', (mean > 0 ? stdDev / mean : 0) > 0.15);
+  }
+
+  const cliche = /^(in today'?s|have you ever|it'?s no secret|let me tell you|picture this|imagine|there'?s no denying)/i;
+  s.check('no_cliche_opening', !cliche.test(firstLine.trim()));
+
+  return s.result();
+}
+
+// ---- Build input (production-shaped AgentInput) ----------------------
+
+function buildInput(tc: TestCase): PostWriterInput | ScriptWriterInput {
+  return {
+    context: {
+      projectSummary: tc.projectSummary,
+      systemBrief: tc.systemBrief,
+    },
+    userPrompt: tc.userPrompt,
+  };
+}
+
+// ---- Run one (prompt unified, schema unified, seed-controlled) -------
+
+interface RunResult {
+  seed: number;
+  path: WriterPath;
+  routedCorrectly: boolean;
+  content: string;
+  structural: ScoreResult;
+  structured: ScoreResult;
+  quality: ScoreResult;
+  grounding: GroundingResult;
+  combinedRatio: number;
+  elapsed: number;
+  error?: string;
+  judge?: JudgeResult;
+}
+
+async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
+  const routedPath = detectContentPath(tc.userPrompt, tc.documentType);
+  const routedCorrectly = routedPath === tc.expectedPath;
+  const input = buildInput(tc);
+
+  const start = Date.now();
+  let content = '';
+  let result: PostWriterResult | ScriptWriterResult;
+  let scenePromptsBlob = '';
+
+  const model = createThinkForgeModel('gemini-2.5-flash');
+
+  if (routedPath === 'post') {
+    const agent = new PostWriterAgent();
+    const { result: object } = await agent.runStructured(input as PostWriterInput, {
+      temperature: 0.45,
+      maxTokens: 8192,
+    });
+    result = object;
+    content = object.content;
+    scenePromptsBlob = [object.clickatron?.singleImagePrompt, ...(object.clickatron?.carouselPrompts || [])]
+      .filter(Boolean).join('\n');
+  } else {
+    const agent = new ScriptWriterAgent();
+    const prompt = agent.buildPrompt(input as ScriptWriterInput);
+    const { object } = await generateObject({
+      model, schema: ScriptWriterResultSchema, prompt, temperature: 0.7,
+      seed: seedVal,
+      // @ts-expect-error - Vercel AI SDK version mismatch on maxTokens (same as base-agent.ts)
+      maxTokens: 8192,
+    });
+    result = object;
+    content = object.content;
+    scenePromptsBlob = (object.visualMetadata?.scenePrompts || []).join('\n');
+  }
+  const elapsed = Date.now() - start;
+
+  const structural = scoreStructural(content, tc);
+  const structured = scoreStructuredFields(result, tc);
+  const quality = scoreQuality(content, tc);
+  const grounding = scoreGrounding(content, scenePromptsBlob, tc);
+
+  // Combined structural ratio folds in routing + a grounding floor (if the case sets one).
+  const groundingFloor = tc.criteria.groundingFloor as number | undefined;
+  const structPassed = structural.passed
+    + (routedCorrectly ? 1 : 0)
+    + structured.passed
+    + (groundingFloor !== undefined ? (grounding.coverage >= groundingFloor ? 1 : 0) : 0);
+  const structTotal = structural.total + 1 + structured.total + (groundingFloor !== undefined ? 1 : 0);
+
+  return {
+    seed: seedVal, path: routedPath, routedCorrectly, content,
+    structural, structured, quality, grounding,
+    combinedRatio: structTotal > 0 ? structPassed / structTotal : 0,
+    elapsed,
+  };
+}
+
+interface JudgeResult {
+  overall: number;
+  brandAdherence: number;
+  grounding: number;
+  specificity: number;
+  platformFit: number;
+  ctaUsefulness: number;
+  clickatronReadiness: number;
+  concerns: string[];
+}
+
+function clampJudgeScore(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function extractJsonObject<T>(raw: string): T {
+  const withoutFence = raw.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+  const start = withoutFence.indexOf('{');
+  const end = withoutFence.lastIndexOf('}');
+  if (start < 0 || end < start) {
+    throw new Error(`Judge did not return JSON: ${raw.slice(0, 300)}`);
+  }
+  return JSON.parse(withoutFence.slice(start, end + 1)) as T;
+}
+
+function normalizeJudgeResult(raw: unknown): JudgeResult {
+  const record = raw as Record<string, unknown>;
+  return {
+    overall: clampJudgeScore(record.overall),
+    brandAdherence: clampJudgeScore(record.brandAdherence),
+    grounding: clampJudgeScore(record.grounding),
+    specificity: clampJudgeScore(record.specificity),
+    platformFit: clampJudgeScore(record.platformFit),
+    ctaUsefulness: clampJudgeScore(record.ctaUsefulness),
+    clickatronReadiness: clampJudgeScore(record.clickatronReadiness),
+    concerns: Array.isArray(record.concerns)
+      ? record.concerns.map(String).filter(Boolean).slice(0, 5)
+      : [],
+  };
+}
+
+function buildJudgePrompt(tc: TestCase, result: RunResult): string {
+  return `You are an independent senior content quality judge for ThinkForge.
+Score the generated post against the brief. Do not reward keyword stuffing. Penalize generic copy, invented facts, weak brand fit, weak CTA, and weak Clickatron image readiness.
+
+Return ONLY valid JSON with this shape:
+{
+  "overall": 0-100,
+  "brandAdherence": 0-100,
+  "grounding": 0-100,
+  "specificity": 0-100,
+  "platformFit": 0-100,
+  "ctaUsefulness": 0-100,
+  "clickatronReadiness": 0-100,
+  "concerns": ["short issue", "short issue"]
+}
+
+Brief:
+- Case: ${tc.id} ${tc.name}
+- Document type: ${tc.documentType}
+- Project summary: ${tc.projectSummary}
+- System brief: ${tc.systemBrief ?? 'none'}
+- User prompt: ${tc.userPrompt}
+- Required facts: ${(tc.grounding ?? []).map(groundingFactLabel).join(' | ') || 'none'}
+
+Generated content:
+${result.content}`;
+}
+
+async function judgeRun(config: EvalProviderConfig, tc: TestCase, result: RunResult): Promise<JudgeResult> {
+  const modelRun = await runEvalPrompt(config, buildJudgePrompt(tc, result));
+  return normalizeJudgeResult(extractJsonObject(modelRun.output));
+}
+// ---- Dry run: print prompt + routing, no network ---------------------
+
+function dryRunCase(tc: TestCase): void {
+  const routedPath = detectContentPath(tc.userPrompt, tc.documentType);
+  const input = buildInput(tc);
+  const prompt = routedPath === 'post'
+    ? new PostWriterAgent().buildPrompt(input as PostWriterInput)
+    : new ScriptWriterAgent().buildPrompt(input as ScriptWriterInput);
+
+  console.log(`\n${'='.repeat(72)}`);
+  console.log(`TEST ${tc.id}: ${tc.name}`);
+  console.log(`  docType=${tc.documentType}  routed=${routedPath}  expected=${tc.expectedPath}  ` +
+    `${routedPath === tc.expectedPath ? 'âœ“ routing OK' : 'ðŸ”´ ROUTING MISMATCH'}`);
+  if (tc.grounding?.length) {
+    console.log(`  grounding facts (${tc.grounding.length}): ${tc.grounding.map(groundingFactLabel).join(' | ')}`);
+  }
+  console.log(`${'='.repeat(72)}`);
+  console.log(prompt);
+}
+
+// ---- Main ------------------------------------------------------------
+
+async function main() {
+  let cases = TEST_CASES;
+  if (testCaseFilter) cases = cases.filter(tc => tc.id === testCaseFilter);
+  if (writerFilter) cases = cases.filter(tc => tc.expectedPath === writerFilter);
+  if (suiteFilter) cases = cases.filter(tc => (tc.suite ?? 'core') === suiteFilter);
+
+  if (suiteFilter && suiteFilter !== 'core' && suiteFilter !== 'heldout') {
+    console.error(`Unsupported suite=${suiteFilter}. Use core or heldout.`);
+    process.exit(1);
+  }
+
+  if (judgeProvider && judgeProvider !== 'deepseek' && judgeProvider !== 'openrouter') {
+    console.error(`Unsupported judge=${judgeProvider}. Use deepseek or openrouter for a non-Gemini judge.`);
+    process.exit(1);
+  }
+
+  const judgeConfig = judgeProvider
+    ? buildEvalProviderConfig({
+        provider: judgeProvider,
+        temperature: 0,
+        maxOutputTokens: 1200,
+      })
+    : null;
+
+  if (cases.length === 0) {
+    console.error(`No test cases match (test-case=${testCaseFilter}, writer=${writerFilter}, suite=${suiteFilter}).`);
+    process.exit(1);
+  }
+
+  if (dryRun) {
+    console.log('\nDRY RUN â€” building production prompts, NO network calls.\n');
+    for (const tc of cases) dryRunCase(tc);
+    const mismatches = cases.filter(tc => detectContentPath(tc.userPrompt, tc.documentType) !== tc.expectedPath);
+    console.log(`\nDry run complete. ${cases.length} prompt(s) assembled. ` +
+      `Routing: ${cases.length - mismatches.length}/${cases.length} correct.`);
+    if (mismatches.length > 0) process.exit(1);
+    return;
+  }
+
+  const seeds = multiSeed ? [1, 2, 3, 5, 8, 13, 21, 34, 42, 55] : [seed];
+  let regressionFailed = false;
+
+  for (const tc of cases) {
+    console.log(`\n${'='.repeat(72)}`);
+    console.log(`TEST ${tc.id}: ${tc.name} (${tc.documentType} â†’ ${tc.expectedPath} writer)`);
+    console.log(`${'='.repeat(72)}`);
+
+    const results: RunResult[] = [];
+
+    for (const sv of seeds) {
+      process.stdout.write(`  seed=${sv}... `);
+      try {
+        const r = await runOnce(tc, sv);
+        results.push(r);
+        const pct = (r.combinedRatio * 100).toFixed(0);
+        const gpct = r.grounding.total > 0 ? ` | ground ${(r.grounding.coverage * 100).toFixed(0)}%` : '';
+        const qpct = r.quality.total > 0 ? ` | quality ${(r.quality.ratio * 100).toFixed(0)}%` : '';
+        const fails = [
+          ...Object.entries(r.structural.checks).filter(([, v]) => v === false).map(([k]) => k),
+          ...Object.entries(r.structured.checks).filter(([, v]) => v === false).map(([k]) => k),
+          ...(r.routedCorrectly ? [] : ['routing']),
+        ];
+        console.log(`${pct}%${gpct}${qpct} ${r.elapsed}ms${fails.length ? ' FAILED: ' + fails.join(', ') : ' âœ“'}`);
+        if (judgeConfig) {
+          try {
+            r.judge = await judgeRun(judgeConfig, tc, r);
+            console.log(`    judge (${judgeConfig.provider}): overall ${r.judge.overall}/100 | brand ${r.judge.brandAdherence} | ground ${r.judge.grounding} | click ${r.judge.clickatronReadiness}`);
+            if (r.judge.concerns.length > 0) console.log(`    judge concerns: ${r.judge.concerns.join(' | ')}`);
+          } catch (judgeError: any) {
+            console.log(`    judge ERROR: ${judgeError.message}`);
+          }
+        }
+        if (r.grounding.missing.length > 0) console.log(`    missing facts: ${r.grounding.missing.join(' | ')}`);
+        if (r.structural.checks.filler_details) console.log(`    filler: ${r.structural.checks.filler_details}`);
+        if (!multiSeed) {
+          console.log(`\n--- CONTENT (first 1200 chars) ---\n${r.content.substring(0, 1200)}\n--- END ---`);
+        }
+      } catch (e: any) {
+        console.log(`ERROR: ${e.message}`);
+        results.push({
+          seed: sv, path: tc.expectedPath, routedCorrectly: false, content: '',
+          structural: { passed: 0, total: 1, ratio: 0, checks: {} },
+          structured: { passed: 0, total: 0, ratio: 0, checks: {} },
+          quality: { passed: 0, total: 0, ratio: 0, checks: {} },
+          grounding: {
+            coverage: 0,
+            present: [],
+            missing: (tc.grounding || []).map(groundingFactLabel),
+            total: (tc.grounding || []).length,
+          },
+          combinedRatio: 0, elapsed: 0, error: e.message,
+        });
+      }
+    }
+
+    if (multiSeed && results.length > 1) {
+      const valid = results.filter(r => !r.error);
+      if (valid.length > 0) {
+        const ratios = valid.map(r => r.combinedRatio);
+        const min = Math.min(...ratios), max = Math.max(...ratios);
+        const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+        console.log(`\n  MULTI-SEED SUMMARY:`);
+        console.log(`    Min ${(min * 100).toFixed(0)}%  Max ${(max * 100).toFixed(0)}%  Avg ${(avg * 100).toFixed(0)}%  Variance ${((max - min) * 100).toFixed(0)}pp`);
+        if (min < 0.7) console.log(`    âš ï¸  Min < 70% -- prompt needs work`);
+        else if (min < 0.85) console.log(`    âš ï¸  Min < 85% -- prompt is fragile`);
+        else console.log(`    âœ… Min >= 85% -- prompt is robust`);
+
+        if (valid.some(r => r.grounding.total > 0)) {
+          const gMin = Math.min(...valid.filter(r => r.grounding.total > 0).map(r => r.grounding.coverage));
+          console.log(`    Grounding: worst-seed coverage ${(gMin * 100).toFixed(0)}%`);
+        }
+
+        const judged = valid.filter(r => r.judge);
+        if (judged.length > 0) {
+          const judgeScores = judged.map(r => r.judge!.overall);
+          const judgeMin = Math.min(...judgeScores);
+          const judgeAvg = judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length;
+          console.log(`    Judge: min ${judgeMin}/100 avg ${judgeAvg.toFixed(0)}/100 (${judgeProvider})`);
+        }
+
+        const failFreq: Record<string, number> = {};
+        for (const r of valid) {
+          for (const [k, v] of [...Object.entries(r.structural.checks), ...Object.entries(r.structured.checks)]) {
+            if (v === false) failFreq[k] = (failFreq[k] || 0) + 1;
+          }
+          if (!r.routedCorrectly) failFreq['routing'] = (failFreq['routing'] || 0) + 1;
+        }
+        if (Object.keys(failFreq).length > 0) {
+          console.log(`    Most common failures:`);
+          for (const [k, n] of Object.entries(failFreq).sort((a, b) => b[1] - a[1])) {
+            console.log(`      ${k}: ${n}/${valid.length}`);
+          }
+        }
+
+        const baseline = REGRESSION_BASELINES[tc.id];
+        if (baseline !== undefined) {
+          if (Math.round(min * 100) < Math.round(baseline * 100)) {
+            console.log(`    ðŸ”´ REGRESSION: min ${(min * 100).toFixed(0)}% < baseline ${(baseline * 100).toFixed(0)}%`);
+            regressionFailed = true;
+          } else {
+            console.log(`    âœ… Regression passed (min ${(min * 100).toFixed(0)}% >= baseline ${(baseline * 100).toFixed(0)}%)`);
+          }
+        } else {
+          console.log(`    (no baseline set for case ${tc.id} â€” set REGRESSION_BASELINES[${tc.id}] = ${(min).toFixed(2)} after reviewing this run)`);
+        }
+      }
+    }
+  }
+
+  if (regressionFailed) {
+    console.error('\nðŸ”´ REGRESSION DETECTED â€” one or more cases fell below baseline. Exiting non-zero.');
+    process.exit(1);
+  }
+}
+
+main().catch(e => {
+  console.error(e);
+  process.exit(1);
+});

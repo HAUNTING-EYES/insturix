@@ -77,6 +77,17 @@ export interface ConstraintDef {
   sourceLines: [number, number];
 }
 
+export interface AntiAiFillerPattern {
+  pattern: string;
+  label: string;
+}
+
+export interface AntiAiConstraintBundle {
+  constraints: ConstraintDef[];
+  fillerPatterns: AntiAiFillerPattern[];
+  promptGuidance: string;
+}
+
 export interface PlatformSpec {
   name: string;
   lastVerified: string | null;
@@ -140,6 +151,7 @@ interface WritingIndex {
 // ─── Loading ────────────────────────────────────────────────────────────────
 
 let cachedIndex: WritingIndex | null = null;
+let cachedAntiAiFillerPatterns: AntiAiFillerPattern[] | null = null;
 
 function loadWritingGraph(): WritingIndex | null {
   if (cachedIndex) return cachedIndex;
@@ -403,6 +415,55 @@ export function getConstraints(section?: string): ConstraintDef[] {
   return result;
 }
 
+function loadAntiAiFillerPatterns(): AntiAiFillerPattern[] {
+  if (cachedAntiAiFillerPatterns) return cachedAntiAiFillerPatterns;
+
+  const attempts: string[] = [];
+  if (typeof __dirname !== 'undefined') {
+    attempts.push(join(__dirname, 'ai-filler-patterns.json'));
+  }
+  attempts.push(
+    join(process.cwd(), 'lib', 'thinkforge', 'data', 'ai-filler-patterns.json'),
+    join(process.cwd(), '.next', 'server', 'lib', 'thinkforge', 'data', 'ai-filler-patterns.json'),
+  );
+
+  for (const attempt of attempts) {
+    try {
+      cachedAntiAiFillerPatterns = JSON.parse(readFileSync(attempt, 'utf8')) as AntiAiFillerPattern[];
+      return cachedAntiAiFillerPatterns;
+    } catch {
+      // Try the next runtime path.
+    }
+  }
+
+  cachedAntiAiFillerPatterns = [];
+  return cachedAntiAiFillerPatterns;
+}
+
+function formatAntiAiConstraintForPrompt(constraint: ConstraintDef): string {
+  const pieces = [
+    constraint.detection ? `detect: ${constraint.detection}` : null,
+    constraint.autoCorrection ? `fix: ${constraint.autoCorrection}` : null,
+    constraint.why ? `why: ${constraint.why}` : null,
+  ].filter(Boolean);
+
+  return `- ${constraint.id} (${constraint.severity}): ${pieces.join(' | ')}`;
+}
+
+export function getAntiAiConstraintBundle(): AntiAiConstraintBundle {
+  const constraints = getConstraints('Anti-AI Constraints');
+  const hasFillerConstraint = constraints.some((constraint) => constraint.id === 'ai_filler_words');
+  const fillerPatterns = hasFillerConstraint ? loadAntiAiFillerPatterns() : [];
+  const fillerLabels = fillerPatterns.map((pattern) => pattern.label).filter(Boolean);
+  const promptGuidance = [
+    ...constraints.map(formatAntiAiConstraintForPrompt),
+    fillerLabels.length > 0
+      ? `- banned_phrase_list: ${fillerLabels.join(', ')}`
+      : null,
+  ].filter(Boolean).join('\n');
+
+  return { constraints, fillerPatterns, promptGuidance };
+}
 export function getPlatform(name: string): PlatformSpec | null {
   const index = loadWritingGraph();
   return index?.platforms.get(name.toLowerCase()) ?? null;
