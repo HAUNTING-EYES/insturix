@@ -24,8 +24,14 @@ import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 
 // ─── Configuration ────────────────────────────────────────────────
 
-/** Minimum frames to trigger chapter splitting (3 min at 30fps) */
-const CHAPTER_SPLIT_THRESHOLD = 5400;
+/**
+ * Frames above which we split into separately-rendered chapters instead of one Lambda render.
+ * 27000 = 15 min at 30fps — the practical ceiling of a single `renderMediaOnLambda` (it chunks +
+ * stitches internally, bounded by the 900s Lambda function timeout). Videos at/under this render
+ * as ONE complete file via the standard path (the path that always worked, pre-chaptering). Only
+ * genuinely long videos (>15 min) chapter, and those need FFmpeg concat to be reassembled.
+ */
+const CHAPTER_SPLIT_THRESHOLD = 27000;
 
 /** Target chapter length in frames (~2.5 min at 30fps) */
 const TARGET_CHAPTER_FRAMES = 4500;
