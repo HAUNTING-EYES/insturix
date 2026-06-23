@@ -13,6 +13,7 @@
  */
 
 import { proposePlan } from "@/lib/calos/planner";
+import { formatsFor } from "@/lib/calos/planner/playbook";
 import type { PlannerInput, PlannedIdea } from "@/lib/calos/planner/types";
 
 const SEEDS = (process.env.EVAL_SEEDS || "1,2,3,4,5").split(",").map((s) => parseInt(s.trim(), 10));
@@ -178,9 +179,19 @@ function scoreRun(fx: Fixture, ideas: PlannedIdea[]): { composite: number; injec
     );
   }
 
-  const parts = { coverage, distinct, nonGeneric, killSafe, trendUse };
+  const formatValid =
+    ideas.length === 0
+      ? 0
+      : ideas.filter((i) => formatsFor(i.platform).includes(i.format)).length / ideas.length;
+
+  const parts = { coverage, distinct, nonGeneric, killSafe, trendUse, formatValid };
   const composite =
-    0.25 * coverage + 0.2 * distinct + 0.25 * nonGeneric + 0.1 * killSafe + 0.2 * trendUse;
+    0.2 * coverage +
+    0.15 * distinct +
+    0.2 * nonGeneric +
+    0.1 * killSafe +
+    0.15 * trendUse +
+    0.2 * formatValid;
   return { composite, injectionLeak, parts };
 }
 
@@ -224,7 +235,7 @@ async function main() {
           `composite ${composite.toFixed(2)} ` +
           `[cov ${parts.coverage.toFixed(2)} dist ${parts.distinct.toFixed(2)} ` +
           `nonGen ${parts.nonGeneric.toFixed(2)} kill ${parts.killSafe.toFixed(2)} ` +
-          `trend ${parts.trendUse.toFixed(2)}]${flag}`,
+          `trend ${parts.trendUse.toFixed(2)} fmt ${parts.formatValid.toFixed(2)}]${flag}`,
       );
     }
   }

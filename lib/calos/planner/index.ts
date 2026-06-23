@@ -1,5 +1,6 @@
 import type { PlannerInput, PlannedIdea, PlannerSlot } from "./types";
 import { buildPlannerPrompt } from "./prompt";
+import { formatsFor } from "./playbook";
 import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
 
 const PLANNER_MODEL = process.env.LLM_PLANNER_MODEL || "gemini-3.1-pro-preview";
@@ -70,10 +71,14 @@ function parsePlan(text: string, slots: PlannerSlot[]): PlannedIdea[] {
     const title = String(o.title ?? "").trim().slice(0, 200);
     if (!title) continue;
     seen.add(index);
+    const allowed = formatsFor(slots[index].platform);
+    const requested = String(o.format ?? "").trim().toLowerCase();
+    const format = allowed.includes(requested) ? requested : allowed[0];
     ideas.push({
       index,
       date: slots[index].date,
       platform: slots[index].platform,
+      format,
       title,
       angle: String(o.angle ?? "").trim().slice(0, 300),
       trendTitle:

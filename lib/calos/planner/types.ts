@@ -24,6 +24,7 @@ export interface PlannedIdea {
   index: number; // which slot this fills
   date: string;
   platform: string;
+  format: string; // a format valid for the platform (e.g. reel, carousel, long_video, text)
   title: string; // the concrete content idea / hook
   angle: string; // why it fits the brand + which trend it repurposes
   trendTitle: string | null; // exact trend title repurposed, or null if original

@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
         status: "draft",
         tags: [],
         customTags: [],
+        contentFormat: idea?.format || undefined,
         details: idea?.angle || undefined,
         campaignId: campaignRef ?? undefined,
         trendContext: matchedTrend
