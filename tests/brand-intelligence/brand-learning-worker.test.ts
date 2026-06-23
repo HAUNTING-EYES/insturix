@@ -168,6 +168,109 @@ describe('brand-learning worker', () => {
     expect(mocks.markEventConsumed).not.toHaveBeenCalled();
   });
 
+  it('stages committed Clickatron thumbnails into Brand Vault drafts', async () => {
+    mocks.claimEventForConsumer.mockResolvedValue({
+      status: 'claimed',
+      event: brandEvent({
+        eventId: 'event_1',
+        service: 'clickatron',
+        type: 'thumbnail_created',
+        brandId: 'brand_1',
+        projectId: 'project_1',
+        payload: {
+          thumbnailId: 'thumb_1',
+          thumbnailUrl: 'https://cdn.example/thumb_1.png',
+          sessionId: 'session_1',
+          variationId: 'variation_1',
+          prompt: 'Bold launch thumbnail',
+        },
+      }),
+    });
+    mocks.addGraphitiEpisode.mockResolvedValue({ ok: true });
+
+    const response = await POST(request({ eventId: 'event_1' }) as any);
+
+    expect(response.status).toBe(200);
+    await expect(json(response)).resolves.toMatchObject({
+      success: true,
+      eventId: 'event_1',
+      type: 'thumbnail_created',
+      action: 'graphiti_episode_dispatched, brand_vault_learning_staged',
+      detail: 'thumbnailId=thumb_1; jobId=learning_job_1; recordId=learning_record_1; candidateCount=1',
+    });
+    expect(mocks.writeBrandSignalLearningEventsToBrandVault).toHaveBeenCalledTimes(1);
+    const writeCall = mocks.writeBrandSignalLearningEventsToBrandVault.mock.calls[0]?.[0];
+    expect(writeCall).toMatchObject({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      projectId: 'project_1',
+      sourceEventId: 'event_1',
+      actorId: 'user_1',
+    });
+    expect(writeCall.learningEvents).toHaveLength(1);
+    expect(writeCall.learningEvents[0]).toMatchObject({
+      service: 'clickatron',
+      signalPath: 'assets.socialPreviewImages',
+      editType: 'accepted_output_confirmation',
+      scope: 'project',
+      polarity: 'affirm',
+      observedAt: '2026-06-09T00:00:00.000Z',
+      actorId: 'user_1',
+      observedValue: ['https://cdn.example/thumb_1.png'],
+      context: {
+        userId: 'user_1',
+        brandId: 'brand_1',
+        projectId: 'project_1',
+        contentId: 'thumb_1',
+        sourceId: 'session_1',
+        sourceUrl: 'https://cdn.example/thumb_1.png',
+      },
+      learningWeight: {
+        category: 'invented',
+        service: 'clickatron',
+        editType: 'accepted_output_confirmation',
+        signalClass: 'visual_identity',
+      },
+    });
+    expect(mocks.markEventConsumed).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
+  });
+
+  it('retries Clickatron thumbnail events when Brand Vault staging fails', async () => {
+    mocks.claimEventForConsumer.mockResolvedValue({
+      status: 'claimed',
+      event: brandEvent({
+        eventId: 'event_1',
+        service: 'clickatron',
+        type: 'thumbnail_created',
+        brandId: 'brand_1',
+        projectId: 'project_1',
+        payload: {
+          thumbnailId: 'thumb_1',
+          thumbnailUrl: 'https://cdn.example/thumb_1.png',
+        },
+      }),
+    });
+    mocks.addGraphitiEpisode.mockResolvedValue({ ok: true });
+    mocks.writeBrandSignalLearningEventsToBrandVault.mockResolvedValue({
+      ok: false,
+      error: 'mongo offline',
+    });
+
+    const response = await POST(request({ eventId: 'event_1' }) as any);
+
+    expect(response.status).toBe(500);
+    await expect(json(response)).resolves.toMatchObject({
+      success: false,
+      eventId: 'event_1',
+      type: 'thumbnail_created',
+      action: 'brand_vault_failed',
+      detail: 'mongo offline',
+    });
+    expect(mocks.releaseEventClaim).toHaveBeenCalledWith('event_1', 'brand-learning-worker');
+    expect(mocks.markEventConsumed).not.toHaveBeenCalled();
+  });
+
+
   it('passes persisted project and brand scope into rendered-video post-mortems', async () => {
     mocks.claimEventForConsumer.mockResolvedValue({
       status: 'claimed',

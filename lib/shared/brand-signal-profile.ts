@@ -79,6 +79,7 @@ export interface BrandSignalProfile {
   };
   assets?: {
     productImages: BrandSignal<string[]>;
+    socialPreviewImages?: BrandSignal<string[]>;
   };
   palette: {
     primary?: BrandSignal<string>;

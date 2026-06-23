@@ -214,6 +214,7 @@ function createLearningEventCandidate(
       context: event.context,
     },
     normalizedValue,
+    sourceUrl: event.context.sourceUrl,
     excerpt,
     confidence: confidenceForLearningEvent(event),
     trustLevel: trustLevelForLearningEvent(event),
@@ -346,10 +347,38 @@ function createLearningProfile(input: BrandVaultLearningEventWriteInput, generat
   return profile;
 }
 
+function seedLearningProfileSignals(
+  profile: BrandSignalProfile,
+  candidates: BrandEvidenceCandidate[],
+): void {
+  const signalPaths = new Set(candidates.map((candidate) => candidate.signalPath));
+  if (!signalPaths.has('assets.productImages') && !signalPaths.has('assets.socialPreviewImages')) return;
+
+  profile.assets ??= {} as NonNullable<BrandSignalProfile['assets']>;
+  if (signalPaths.has('assets.productImages') && !profile.assets.productImages) {
+    profile.assets.productImages = emptyLearningArraySignal('assets.productImages');
+  }
+  if (signalPaths.has('assets.socialPreviewImages') && !profile.assets.socialPreviewImages) {
+    profile.assets.socialPreviewImages = emptyLearningArraySignal('assets.socialPreviewImages');
+  }
+}
+
+function emptyLearningArraySignal(path: string): BrandSignal<string[]> {
+  return {
+    value: [],
+    confidence: 0,
+    trustLevel: 'fallback_default',
+    authorityClass: 'inferred_hint',
+    evidenceIds: [],
+    fallbackReason: `${path} will be populated only when matching learning evidence attaches.`,
+  };
+}
+
 function attachCandidatesToProfile(
   profile: BrandSignalProfile,
   candidates: BrandEvidenceCandidate[],
 ): BrandEvidenceCandidate[] {
+  seedLearningProfileSignals(profile, candidates);
   const signalsByPath = new Map(collectBrandSignals(profile).map(({ path, signal }) => [path, signal]));
   const existingEvidenceIds = new Set(profile.evidence.map((item) => item.id));
   const attached: BrandEvidenceCandidate[] = [];
@@ -568,6 +597,7 @@ function isStringArraySignalPath(signalPath: string): boolean {
     'voice.killList',
     'voice.hookArchetypes',
     'assets.productImages',
+    'assets.socialPreviewImages',
   ].includes(signalPath);
 }
 

@@ -339,12 +339,13 @@ function createVisualAssetPreviews(
   }
 
   if (mode === 'image') {
-    for (const url of args.profile.assets?.productImages.value ?? []) {
+    const productImages = args.profile.assets?.productImages;
+    for (const url of productImages?.value ?? []) {
       add({
         kind: 'product',
         label: 'Product or service image',
         url,
-        confidence: args.profile.assets?.productImages.confidence ?? BRAND_CONFIDENCE.FALLBACK_SIGNAL,
+        confidence: productImages?.confidence ?? BRAND_CONFIDENCE.FALLBACK_SIGNAL,
         signalPath: 'assets.productImages',
         sourceType: 'website',
       });
