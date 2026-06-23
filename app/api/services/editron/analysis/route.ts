@@ -21,7 +21,11 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120; // Analysis can take time for multiple assets
+// Unified Intelligence (mode 'full') runs gemini-3.1-pro-preview, which editron-config budgets at 300s.
+// At 120 the function died before the model returned → guaranteed 504. Raised to 300 to match the sibling
+// AI routes that run the same model class (director, asset-analysis = 300). If pro-preview still overruns,
+// the robust fix is moving 'full' analysis to a QStash worker (the plan already supports 800s).
+export const maxDuration = 300;
 type AnalysisRequestMode = 'full' | 'cached-suggestions';
 
 export async function POST(req: NextRequest) {
