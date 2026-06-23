@@ -18,6 +18,7 @@ export interface TrendQuery {
   platforms?: string[];
   limit?: number;
   brandId?: string;
+  location?: string; // region/market filter (e.g. "United States", "India")
 }
 
 export interface TrendsProvider {
