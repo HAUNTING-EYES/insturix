@@ -21,6 +21,7 @@ import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
+import { isChapterConcatConfigured, enqueueChapterConcat } from './chapter-concat-client';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ const MIN_CHAPTER_FRAMES = 900; // 30 seconds
  */
 const LAMBDA_CONCURRENCY_BUDGET = 800;
 
-const CHAPTERS_COLLECTION = 'editron_render_chapters';
+export const CHAPTERS_COLLECTION = 'editron_render_chapters';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -505,12 +506,10 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     );
   }
 
-  // When all chapters complete, the per-chapter MP4s still need to be stitched into one file.
-  // FFmpeg concatenation across chapters is NOT implemented yet (W6 Phase 2). A single-chapter
-  // job needs no stitching — its one output IS the whole video — so it completes normally. A
-  // multi-chapter job has no assembled output: returning chapter 0 alone (the old behaviour)
-  // silently shipped a TRUNCATED video reported as "done". Fail loud instead, so a partial
-  // render is never mistaken for a finished one. (Real fix: wire concat — tracked separately.)
+  // When all chapters complete, the per-chapter MP4s must be stitched into one file:
+  //  - single chapter → its one output IS the whole video; completes as-is.
+  //  - multi-chapter  → reassemble (in chapter order) via the async concat worker when configured;
+  //                     otherwise FAIL LOUD — never ship a truncated chapter 0 reported as "done".
   if (allCompleted) {
     if (chapterStatuses.length <= 1) {
       const onlyOutput = chapterStatuses.find(c => c.outputUrl)?.outputUrl;
@@ -520,7 +519,54 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
         { _id: jobId } as any,
         { $set: { status: 'completed', outputUrl: onlyOutput, updatedAt: new Date() } },
       );
+    } else if (job.concatStatus === 'done' && typeof job.outputUrl === 'string') {
+      // Concat worker finished and wrote the assembled URL.
+      computedStatus = 'completed';
+      completedOutputUrl = job.outputUrl;
+    } else if (job.concatStatus === 'failed') {
+      computedStatus = 'failed';
+      completedError =
+        typeof job.concatError === 'string' && job.concatError ? job.concatError : 'Chapter concatenation failed.';
+      completedOutputUrl = undefined;
+    } else if (
+      (job.concatStatus === 'queued' || job.concatStatus === 'running') &&
+      job.updatedAt &&
+      Date.now() - new Date(job.updatedAt).getTime() > 20 * 60 * 1000 // 20 min ← Modal 900s timeout + QStash retries
+    ) {
+      // Concat was dispatched but the worker never reported back (bad QStash signature, Modal down
+      // past retries, …). Fail loud instead of hanging in-progress forever.
+      computedStatus = 'failed';
+      completedError = 'Chapter concatenation timed out — the stitching worker did not report back.';
+      completedOutputUrl = undefined;
+      await db.collection(CHAPTERS_COLLECTION).updateOne(
+        { _id: jobId } as any,
+        { $set: { status: 'failed', concatStatus: 'failed', error: completedError, updatedAt: new Date() } },
+      );
+    } else if (isChapterConcatConfigured()) {
+      // Claim the concat atomically so only ONE poll enqueues the durable (QStash-retried) job,
+      // then keep reporting in-progress until the worker writes status/outputUrl back.
+      const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
+        { _id: jobId, concatStatus: { $exists: false } } as any,
+        { $set: { concatStatus: 'queued', updatedAt: new Date() } },
+      );
+      if (claim.modifiedCount === 1) {
+        try {
+          await enqueueChapterConcat(jobId);
+          console.log(`[ChapterRenderer] Job ${jobId}: enqueued concat of ${chapterStatuses.length} chapters`);
+        } catch (err: unknown) {
+          // Release the claim so a later poll retries instead of hanging in 'queued' forever.
+          await db.collection(CHAPTERS_COLLECTION).updateOne(
+            { _id: jobId } as any,
+            { $unset: { concatStatus: '' }, $set: { updatedAt: new Date() } },
+          );
+          console.warn(
+            `[ChapterRenderer] Job ${jobId}: concat enqueue failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      // computedStatus stays in-progress (job.status) → the client keeps polling.
     } else {
+      // No concat worker configured → fail loud rather than ship a truncated chapter 0.
       computedStatus = 'failed';
       completedError =
         `This video was split into ${chapterStatuses.length} render chapters that cannot yet be ` +

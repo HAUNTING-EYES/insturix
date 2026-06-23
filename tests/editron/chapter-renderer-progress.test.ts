@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   updateOne: vi.fn(async () => ({})),
   collection: vi.fn(),
+  isChapterConcatConfigured: vi.fn(() => false),
+  enqueueChapterConcat: vi.fn(async () => {}),
 }));
 
 vi.mock("@remotion/lambda/client", () => ({
@@ -21,6 +23,11 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
 
 vi.mock("@/lib/editron/utils/aws-credentials", () => ({
   setAWSCredentials: mocks.setAWSCredentials,
+}));
+
+vi.mock("@/lib/editron/services/chapter-concat-client", () => ({
+  isChapterConcatConfigured: mocks.isChapterConcatConfigured,
+  enqueueChapterConcat: mocks.enqueueChapterConcat,
 }));
 
 import { getChapterRenderProgress } from "@/lib/editron/services/chapter-renderer";
@@ -37,6 +44,11 @@ describe("chapter renderer progress", () => {
     mocks.getDatabase.mockResolvedValue({
       collection: mocks.collection,
     });
+    // Defaults: concat NOT configured (→ fail-loud), claim updateOne returns no match.
+    // Tests that exercise the concat path override these.
+    mocks.isChapterConcatConfigured.mockReturnValue(false);
+    mocks.enqueueChapterConcat.mockResolvedValue(undefined);
+    mocks.updateOne.mockResolvedValue({});
   });
 
   it("polls chapter progress through S3 state instead of Lambda status invocation", async () => {
@@ -180,5 +192,90 @@ describe("chapter renderer progress", () => {
     expect(progress?.status).toBe("completed");
     expect(progress?.outputUrl).toBe("https://video.example/only-chapter.mp4");
     expect(progress?.error).toBeUndefined();
+  });
+
+  it("enqueues async concat for a completed multi-chapter job when concat is configured", async () => {
+    mocks.isChapterConcatConfigured.mockReturnValue(true);
+    mocks.updateOne.mockResolvedValue({ modifiedCount: 1 }); // claim succeeds
+    mocks.findOne.mockResolvedValue({
+      _id: "chr_concat",
+      status: "rendering",
+      chapters: [
+        { index: 0, status: "completed", outputUrl: "https://video.example/0.mp4" },
+        { index: 1, status: "completed", outputUrl: "https://video.example/1.mp4" },
+      ],
+    });
+
+    const progress = await getChapterRenderProgress("chr_concat");
+
+    // Concat dispatched; job is still in-progress (NOT failed, NOT completed) until the worker writes back.
+    expect(mocks.enqueueChapterConcat).toHaveBeenCalledWith("chr_concat");
+    expect(progress?.status).not.toBe("failed");
+    expect(progress?.status).not.toBe("completed");
+    expect(progress?.outputUrl).toBeUndefined();
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { _id: "chr_concat", concatStatus: { $exists: false } },
+      expect.objectContaining({ $set: expect.objectContaining({ concatStatus: "queued" }) }),
+    );
+  });
+
+  it("completes a multi-chapter job once the concat worker wrote the assembled URL", async () => {
+    mocks.isChapterConcatConfigured.mockReturnValue(true);
+    mocks.findOne.mockResolvedValue({
+      _id: "chr_concat_done",
+      status: "rendering",
+      concatStatus: "done",
+      outputUrl: "https://video.example/full.mp4",
+      chapters: [
+        { index: 0, status: "completed", outputUrl: "https://video.example/0.mp4" },
+        { index: 1, status: "completed", outputUrl: "https://video.example/1.mp4" },
+      ],
+    });
+
+    const progress = await getChapterRenderProgress("chr_concat_done");
+
+    expect(progress?.status).toBe("completed");
+    expect(progress?.outputUrl).toBe("https://video.example/full.mp4");
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled(); // already done, no re-dispatch
+  });
+
+  it("fails a multi-chapter job when the concat worker reported a failure", async () => {
+    mocks.isChapterConcatConfigured.mockReturnValue(true);
+    mocks.findOne.mockResolvedValue({
+      _id: "chr_concat_failed",
+      status: "rendering",
+      concatStatus: "failed",
+      concatError: "ffmpeg concat failed: moov atom not found",
+      chapters: [
+        { index: 0, status: "completed", outputUrl: "https://video.example/0.mp4" },
+        { index: 1, status: "completed", outputUrl: "https://video.example/1.mp4" },
+      ],
+    });
+
+    const progress = await getChapterRenderProgress("chr_concat_failed");
+
+    expect(progress?.status).toBe("failed");
+    expect(progress?.error).toContain("moov atom");
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
+  });
+
+  it("fails a multi-chapter concat that has been stuck without the worker reporting back", async () => {
+    mocks.isChapterConcatConfigured.mockReturnValue(true);
+    mocks.findOne.mockResolvedValue({
+      _id: "chr_concat_stuck",
+      status: "rendering",
+      concatStatus: "running",
+      updatedAt: new Date(Date.now() - 21 * 60 * 1000), // 21 min ago — past the 20-min ceiling
+      chapters: [
+        { index: 0, status: "completed", outputUrl: "https://video.example/0.mp4" },
+        { index: 1, status: "completed", outputUrl: "https://video.example/1.mp4" },
+      ],
+    });
+
+    const progress = await getChapterRenderProgress("chr_concat_stuck");
+
+    expect(progress?.status).toBe("failed");
+    expect(progress?.error).toContain("timed out");
+    expect(mocks.enqueueChapterConcat).not.toHaveBeenCalled();
   });
 });
