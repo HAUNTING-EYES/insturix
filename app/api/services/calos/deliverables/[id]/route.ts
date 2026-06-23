@@ -55,6 +55,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     existing.platform = mergedCard.platform ?? "generic";
     existing.campaignId = mergedCard.campaignId ?? null;
     existing.version += 1;
+    // Editing content invalidates a prior approval (approvals are version-bound). If it was
+    // approved, drop it back to a generated draft awaiting re-review — edited content must not
+    // stay 'approved' (it would otherwise sail through the publish gate unreviewed).
+    if (existing.editorialStatus === "approved") existing.editorialStatus = "generated";
     await existing.save();
 
     return NextResponse.json({ card: toContentCard(existing) });

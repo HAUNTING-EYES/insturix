@@ -7,6 +7,7 @@ import { ContentCard as ContentCardType } from '@/app/dashboard/thinkforge/types
 import { format } from 'date-fns';
 import ContentCard from './ContentCard';
 import TagEditor from './TagEditor';
+import { stageMeta } from '@/lib/calos/stages';
 
 export interface ContentCardModalProps {
   card: ContentCardType | null;
@@ -16,6 +17,7 @@ export interface ContentCardModalProps {
   onOpenScript?: (sessionId: string) => void;
   onDelete?: (id: string) => void;
   onGenerate?: (id: string) => void;
+  onDecision?: (id: string, decision: 'approved' | 'rejected' | 'changes_requested') => void;
 }
 
 export default function ContentCardModal({
@@ -25,7 +27,8 @@ export default function ContentCardModal({
   onUpdate,
   onOpenScript,
   onDelete,
-  onGenerate
+  onGenerate,
+  onDecision
 }: ContentCardModalProps) {
   const [localCard, setLocalCard] = useState<ContentCardType | null>(card);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -64,6 +67,12 @@ export default function ContentCardModal({
   }, [isOpen]);
 
   if (!card || !localCard) return null;
+
+  const stage = stageMeta(localCard.editorialStatus);
+  const reviewable =
+    !!onDecision &&
+    ['generated', 'in_review', 'changes_requested'].includes(localCard.editorialStatus ?? '');
+  const isApproved = localCard.editorialStatus === 'approved';
 
   const handleUpdate = (updates: Partial<ContentCardType>) => {
     const updated = { ...localCard, ...updates };
@@ -162,6 +171,11 @@ export default function ContentCardModal({
                         {localCard.plannedDates.length} planned dates
                       </span>
                     )}
+                    {stage && (
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${stage.chip}`}>
+                        {stage.label}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -187,6 +201,27 @@ export default function ContentCardModal({
                       <FileText size={14} />
                       <span>Generate</span>
                     </button>
+                  )}
+                  {reviewable && (
+                    <>
+                      <button
+                        onClick={() => onDecision?.(card.id, 'changes_requested')}
+                        className="px-4 py-2 text-sm font-medium bg-[#1C1B19]/60 border border-neutral-700/70 text-neutral-300 rounded-xl hover:bg-[#D4A652]/20 hover:border-[#D4A652]/40 hover:text-[#D4A652] transition-colors"
+                      >
+                        Request changes
+                      </button>
+                      <button
+                        onClick={() => onDecision?.(card.id, 'approved')}
+                        className="px-4 py-2 text-sm font-medium bg-emerald-600/20 border border-emerald-500/40 text-emerald-200 rounded-xl hover:bg-emerald-600/30 transition-colors"
+                      >
+                        Approve
+                      </button>
+                    </>
+                  )}
+                  {isApproved && (
+                    <span className="px-4 py-2 text-sm font-medium bg-emerald-600/15 border border-emerald-500/40 text-emerald-300 rounded-xl">
+                      Approved ✓
+                    </span>
                   )}
                   {onDelete && (
                     <button

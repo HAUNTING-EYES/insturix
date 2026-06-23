@@ -34,6 +34,7 @@ type CalendarProps = {
   onDeleteCard?: (id: string) => void;
   onOpenScript?: (sessionId: string) => void;
   onGenerate?: (id: string) => void;
+  onDecision?: (id: string, decision: 'approved' | 'rejected' | 'changes_requested') => void;
 };
 
 // Platform icon mapping with ThinkForge tints (red-forward aesthetic)
@@ -133,7 +134,8 @@ export default function Calendar({
   onCreateCard,
   onDeleteCard,
   onOpenScript,
-  onGenerate
+  onGenerate,
+  onDecision
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState("");
@@ -867,6 +869,7 @@ export default function Calendar({
           }}
           onOpenScript={onOpenScript}
           onGenerate={onGenerate}
+          onDecision={onDecision}
         />
       )}
 

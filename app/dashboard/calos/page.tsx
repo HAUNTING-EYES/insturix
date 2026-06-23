@@ -111,6 +111,36 @@ export default function CalosPage() {
     }
   };
 
+  const handleDecision = async (
+    id: string,
+    decision: 'approved' | 'rejected' | 'changes_requested'
+  ) => {
+    if (!brandId) return;
+    try {
+      const res = await fetch(
+        `/api/services/calos/deliverables/${encodeURIComponent(id)}/decision`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, decision }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data?.error || `Decision failed (${res.status})`, variant: 'destructive' });
+        return;
+      }
+      toast({ title: decision === 'approved' ? 'Approved' : 'Sent back for changes' });
+      refresh();
+    } catch (err) {
+      toast({
+        title: 'Decision failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-[#0B0B0A]">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60">
@@ -169,6 +199,7 @@ export default function CalosPage() {
               void deleteCard(id);
             }}
             onGenerate={handleGenerate}
+            onDecision={handleDecision}
             onOpenScript={(sessionId) =>
               router.push(`/dashboard/thinkforge?sessionId=${encodeURIComponent(sessionId)}`)
             }
