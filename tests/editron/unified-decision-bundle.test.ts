@@ -351,6 +351,124 @@ describe('unified decision bundle merge', () => {
     expect(merged.edl.decisions[0].params.unifiedDecisionOwner).toBeUndefined();
   });
 
+  it('keeps ranked Creative Brief family labels as evidence until atoms license them', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'transition',
+            frame: 180,
+            source: 'creative-brief:graph-transition-label',
+            confidence: 0.94,
+            reason: 'AI models maintain quality for 3-4s, use transition',
+            params: { transitionType: 'dissolve' },
+          }),
+          decision({
+            type: 'sfx-trigger',
+            frame: 184,
+            source: 'creative-brief:graph-sfx-label',
+            confidence: 0.9,
+            params: { sfxType: 'impact', sfxAnchor: 'transition' },
+          }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({ type: 'zoom', frame: 360, source: 'signal-executor:evidence-only', confidence: 0.9, params: { scale: 1.08 } }),
+        ]),
+      },
+    ]);
+
+    expect(bundle?.edl.decisions).toHaveLength(0);
+    expect(bundle?.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 0,
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 3,
+    }));
+    expect(bundle?.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'transition',
+        source: 'creative-brief:graph-transition-label',
+        outcome: 'evidence-only',
+        reason: 'missing-transition-boundary-atoms',
+      }),
+      expect.objectContaining({
+        type: 'sfx-trigger',
+        source: 'creative-brief:graph-sfx-label',
+        outcome: 'evidence-only',
+        reason: 'missing-transition-sfx-boundary-atoms',
+      }),
+    ]));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-transition-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'missing-transition-sfx-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
+  it('lets ranked Creative Brief transitions execute only when boundary atoms license the family planner', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'transition',
+            frame: 240,
+            source: 'creative-brief:boundary-transition',
+            confidence: 0.91,
+            params: {
+              transitionType: 'whip-pan',
+              boundaryFrame: 240,
+              topicDelta: 0.74,
+              speechGapMs: 520,
+              motionVectorX: 0.58,
+              motionIntensity: 0.62,
+              beatStrength: 0.68,
+              recentTransitionSimilarity: 0.12,
+            },
+          }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({ type: 'caption-emphasis', frame: 600, source: 'signal-executor:evidence-only', confidence: 0.9 }),
+        ]),
+      },
+    ]);
+
+    const transition = bundle?.edl.decisions.find((decision) => decision.type === 'transition');
+    expect(bundle?.edl.decisions.map((decision) => decision.source)).toEqual(['creative-brief:boundary-transition']);
+    expect(transition?.params).toEqual(expect.objectContaining({
+      transitionBoundaryPlan: expect.objectContaining({
+        version: 'transition-boundary-plan-v1',
+        reasonKeys: expect.arrayContaining(['topic-shift', 'speech-gap', 'motion-direction', 'visual-motion']),
+        physicalFormInputs: expect.objectContaining({
+          sfxEligibility: expect.any(Number),
+          zoomBridgeNeed: expect.any(Number),
+        }),
+        crossFamily: expect.objectContaining({
+          sfxAllowed: expect.any(Boolean),
+          zoomBridgeAllowed: expect.any(Boolean),
+        }),
+      }),
+      unifiedDecisionMerge: expect.objectContaining({
+        role: 'planner-owned-primary',
+        executionLicense: 'licensed-by-transition-boundary-atoms',
+        familyPlanner: expect.objectContaining({
+          version: 'transition-family-planner-v1',
+          family: 'transition',
+        }),
+      }),
+    }));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'missing-caption-moment-atoms': expect.objectContaining({ count: 1 }),
+    }));
+  });
+
   it('lets high-confidence signal graphics execute only when backed by content facts', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -1171,7 +1289,7 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
-  it('lets the ranked batch planner choose a stronger signal over a weak near-equivalent brief decision', () => {
+  it('lets the ranked batch planner choose a stronger signal over an atomless brief hint', () => {
     const bundle = planUnifiedDecisionBundleFromCandidates([
       {
         source: 'creative-brief',
@@ -1246,14 +1364,14 @@ describe('unified decision bundle merge', () => {
       primaryDecisionCount: 0,
       signalDecisionCount: 1,
       addedSignalDecisionCount: 1,
-      suppressedSignalDuplicateCount: 1,
+      suppressedSignalDuplicateCount: 0,
       evidenceOnlySignalDecisionCount: 1,
     }));
     expect(bundle?.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
       type: 'zoom',
       source: 'creative-brief:weak-zoom',
-      outcome: 'signal-primary',
-      reason: 'shadowed-by-higher-score-candidate',
+      outcome: 'evidence-only',
+      reason: 'missing-camera-motion-atoms',
     }));
   });
 
@@ -1262,7 +1380,25 @@ describe('unified decision bundle merge', () => {
       {
         source: 'creative-brief',
         edl: edl([
-          decision({ type: 'zoom', frame: 120, source: 'creative-brief:usable-zoom', confidence: 0.82 }),
+          decision({
+            type: 'zoom',
+            frame: 120,
+            source: 'creative-brief:usable-zoom',
+            confidence: 0.82,
+            params: {
+              mainSubjectX: 0.5,
+              mainSubjectY: 0.42,
+              mainSubjectWidth: 0.34,
+              mainSubjectHeight: 0.52,
+              facePresent: 1,
+              eyeContact: 0.78,
+              speechPeak: 0.84,
+              wordImportance: 0.78,
+              visualMotion: 0.34,
+              timeSinceLastZoomSec: 8,
+              recentZoomSimilarity: 0.12,
+            },
+          }),
         ]),
       },
       {

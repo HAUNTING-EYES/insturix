@@ -546,7 +546,9 @@ function resolveUnifiedPlannerCandidateLicense(
   signalBudgets: Partial<Record<ReactiveEditDecision['type'], number>>,
 ): UnifiedPlannerCandidateLicense {
   if (source === 'creative-brief') {
-    const license = resolvePrimaryCreativeDecisionLicense(decision);
+    const license = resolvePrimaryCreativeDecisionLicense(decision, {
+      requireFamilyAtoms: true,
+    });
     return {
       ...license,
       stage: 'primary-license',
@@ -570,7 +572,9 @@ function sourceAuthorityForPlannerCandidate(
   const isSemanticContextGraphic = decision.type === 'graphic'
     && (normalizeParamString(decision.params.creativeDecisionAuthority) === 'semantic-context'
       || hasAnyDirectParam(decision, ['creativeBriefSemanticCandidate']));
-  return isSemanticContextGraphic ? 'semantic-context' : 'legacy-compatibility';
+  return isSemanticContextGraphic || isCreativeBriefFamilyCandidate(decision)
+    ? 'semantic-context'
+    : 'legacy-compatibility';
 }
 
 function licensePrimaryProducerDecisions(
@@ -624,13 +628,33 @@ function licensePrimaryProducerDecisions(
 
 function resolvePrimaryCreativeDecisionLicense(
   decision: ReactiveEditDecision,
+  options: { requireFamilyAtoms?: boolean } = {},
 ): { executable: boolean; reason: string } {
-  if (decision.type !== 'graphic') return { executable: true, reason: 'not-primary-graphic' };
+  if (decision.type !== 'graphic') {
+    if (options.requireFamilyAtoms && isCreativeBriefFamilyCandidate(decision)) {
+      return resolveFamilyExecutionLicense(decision);
+    }
+    return { executable: true, reason: 'not-primary-graphic' };
+  }
   const isSemanticContextGraphic = normalizeParamString(decision.params.creativeDecisionAuthority) === 'semantic-context'
     || hasAnyDirectParam(decision, ['creativeBriefSemanticCandidate']);
   if (!isSemanticContextGraphic) return { executable: true, reason: 'legacy-primary-graphic-compatibility' };
 
   return resolveGraphicContentEvidenceLicense(decision);
+}
+
+function isCreativeBriefFamilyCandidate(decision: ReactiveEditDecision): boolean {
+  switch (familyForSignalDecision(decision)) {
+    case 'audio':
+    case 'camera':
+    case 'caption':
+    case 'pacing':
+    case 'timing':
+    case 'transition':
+      return true;
+    default:
+      return false;
+  }
 }
 export function planUnifiedDecisionBundle(
   currentBundle: UnifiedDecisionBundle | null,
@@ -725,7 +749,7 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   for (const entry of plannerEntries) {
     const license = entry.source === 'signal-driven'
       ? resolveSignalExecutionLicense(selectedDecisions(), entry.decision, signalExecutionBudgets)
-      : resolvePrimaryCreativeDecisionLicense(entry.decision);
+      : resolvePrimaryCreativeDecisionLicense(entry.decision, { requireFamilyAtoms: true });
     if (!license.executable) {
       keepAsEvidence(entry, 'evidence-only', license.reason);
       continue;
@@ -4173,7 +4197,7 @@ function shouldSignalReplacePrimary(
   return signalPlan.score >= existingPlan.score + 0.035;
 }
 
-function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+function applyFamilyPlanner(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
   const transitionPlan = resolveTransitionBoundaryPlan(signalDecision);
   if (transitionPlan) {
     const existingSignals = recordParam(signalDecision.params.signals) ?? {};
@@ -4300,7 +4324,7 @@ function applySignalFamilyPlanner(signalDecision: ReactiveEditDecision, reason: 
 }
 
 function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
-  const plannedDecision = applySignalFamilyPlanner(signalDecision, reason);
+  const plannedDecision = applyFamilyPlanner(signalDecision, reason);
   return {
     ...plannedDecision,
     params: {
@@ -4316,7 +4340,7 @@ function markSignalSupplement(signalDecision: ReactiveEditDecision, reason: stri
 }
 
 function markPlannerSelectedSignal(signalDecision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
-  const plannedDecision = applySignalFamilyPlanner(signalDecision, reason);
+  const plannedDecision = applyFamilyPlanner(signalDecision, reason);
   return {
     ...plannedDecision,
     params: {
@@ -4332,12 +4356,13 @@ function markPlannerSelectedSignal(signalDecision: ReactiveEditDecision, reason:
 }
 
 function markPlannerSelectedPrimary(decision: ReactiveEditDecision, reason: string): ReactiveEditDecision {
+  const plannedDecision = applyFamilyPlanner(decision, reason);
   return {
-    ...decision,
+    ...plannedDecision,
     params: {
-      ...decision.params,
+      ...plannedDecision.params,
       unifiedDecisionMerge: {
-        ...readMergeMetadata(decision),
+        ...readMergeMetadata(plannedDecision),
         version: 'unified-decision-bundle-v1',
         role: 'planner-owned-primary',
         executionLicense: reason,
@@ -4350,7 +4375,7 @@ function markSignalReplacement(
   reason: string,
   replacedDecision: ReactiveEditDecision,
 ): ReactiveEditDecision {
-  const plannedDecision = applySignalFamilyPlanner(signalDecision, reason);
+  const plannedDecision = applyFamilyPlanner(signalDecision, reason);
   return {
     ...plannedDecision,
     params: {
