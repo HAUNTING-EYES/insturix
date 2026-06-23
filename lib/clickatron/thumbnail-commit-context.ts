@@ -1,3 +1,5 @@
+import { createBrandSignalLearningEvent, type BrandSignalLearningEvent } from '@/lib/shared/brand-signal-edit-weighting';
+
 type MetadataRecord = Record<string, unknown>;
 
 export interface ClickatronCommitTaskContext {
@@ -58,6 +60,7 @@ export interface ClickatronThumbnailCommitContext {
   universalId?: string;
   linkRecord: ClickatronThumbnailLinkRecord;
   brandEventPayload: MetadataRecord;
+  brandLearningEvents: BrandSignalLearningEvent[];
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -94,17 +97,21 @@ export function buildClickatronThumbnailCommitContext(
     nonEmptyString(request.metadata?.aspectRatio) ||
     nonEmptyString(variation.aspectRatio);
   const committedAtIso = committedAt.toISOString();
+  const prompt = nonEmptyString(variation.prompt);
+  const imageRef = nonEmptyString(variation.imageRef);
+  const thumbnailRef = nonEmptyString(variation.thumbnailRef);
+  const modelId = nonEmptyString(variation.modelId);
 
   const linkRecord = compactRecord({
     thumbnailId,
     sessionId: request.sessionId,
     variationId: request.variationId,
     thumbnailUrl: request.thumbnailUrl,
-    imageRef: nonEmptyString(variation.imageRef),
-    thumbnailRef: nonEmptyString(variation.thumbnailRef),
-    prompt: nonEmptyString(variation.prompt),
+    imageRef,
+    thumbnailRef,
+    prompt,
     aspectRatio,
-    modelId: nonEmptyString(variation.modelId),
+    modelId,
     sourceService: nonEmptyString(task.sourceService) || nonEmptyString(sourceContext?.sourceService),
     sourceSessionId: nonEmptyString(task.sourceSessionId) || nonEmptyString(sourceContext?.sourceSessionId),
     sourceScriptId: nonEmptyString(task.sourceScriptId) || nonEmptyString(sourceContext?.sourceScriptId),
@@ -118,11 +125,11 @@ export function buildClickatronThumbnailCommitContext(
     sessionId: request.sessionId,
     variationId: request.variationId,
     thumbnailUrl: request.thumbnailUrl,
-    imageRef: nonEmptyString(variation.imageRef),
-    thumbnailRef: nonEmptyString(variation.thumbnailRef),
-    prompt: nonEmptyString(variation.prompt),
+    imageRef,
+    thumbnailRef,
+    prompt,
     aspectRatio,
-    modelId: nonEmptyString(variation.modelId),
+    modelId,
     fileSize: request.metadata?.fileSize,
     contentType: nonEmptyString(request.metadata?.contentType),
     dimensions: nonEmptyString(request.metadata?.dimensions),
@@ -137,6 +144,20 @@ export function buildClickatronThumbnailCommitContext(
     committedAt: committedAtIso,
   });
 
+  const brandLearningEvents = createClickatronThumbnailLearningEvents({
+    thumbnailId,
+    sessionId: request.sessionId,
+    thumbnailUrl: request.thumbnailUrl,
+    committedAt: committedAtIso,
+    brandId,
+    projectId,
+    prompt,
+    aspectRatio,
+    modelId,
+    imageRef,
+    thumbnailRef,
+  });
+
   return {
     thumbnailId,
     brandId,
@@ -144,5 +165,47 @@ export function buildClickatronThumbnailCommitContext(
     universalId,
     linkRecord,
     brandEventPayload,
+    brandLearningEvents,
   };
+}
+
+function createClickatronThumbnailLearningEvents(args: {
+  thumbnailId: string;
+  sessionId: string;
+  thumbnailUrl: string;
+  committedAt: string;
+  brandId?: string;
+  projectId?: string;
+  prompt?: string;
+  aspectRatio?: string;
+  modelId?: string;
+  imageRef?: string;
+  thumbnailRef?: string;
+}): BrandSignalLearningEvent[] {
+  if (!args.brandId || !args.thumbnailUrl.trim()) return [];
+
+  return [createBrandSignalLearningEvent({
+    service: 'clickatron',
+    signalPath: 'assets.socialPreviewImages',
+    editType: 'accepted_output_confirmation',
+    scope: 'project',
+    polarity: 'affirm',
+    observedAt: args.committedAt,
+    context: {
+      brandId: args.brandId,
+      projectId: args.projectId,
+      contentId: args.sessionId,
+      sourceId: args.thumbnailId,
+      sourceUrl: args.thumbnailUrl,
+    },
+    afterValue: [args.thumbnailUrl],
+    observedValue: compactRecord({
+      prompt: args.prompt,
+      aspectRatio: args.aspectRatio,
+      modelId: args.modelId,
+      imageRef: args.imageRef,
+      thumbnailRef: args.thumbnailRef,
+    }),
+    note: 'Clickatron committed this thumbnail as a selected brand visual output.',
+  })];
 }

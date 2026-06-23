@@ -170,6 +170,25 @@ export async function POST(
       console.warn('[clickatron/commit] Failed to emit thumbnail_created brand event:', e);
     }
 
+    if (commitContext.brandId && commitContext.brandLearningEvents.length > 0) {
+      try {
+        const { writeBrandSignalLearningEventsToBrandVault } = await import('@/lib/shared/brand-vault-learning-events');
+        const vaultWrite = await writeBrandSignalLearningEventsToBrandVault({
+          userId,
+          brandId: commitContext.brandId,
+          projectId: commitContext.projectId,
+          sourceEventId: commitContext.thumbnailId,
+          learningEvents: commitContext.brandLearningEvents,
+          actorId: userId,
+        });
+        if (!vaultWrite.ok) {
+          console.warn('[clickatron/commit] Failed to stage thumbnail learning in Brand Vault:', vaultWrite.error);
+        }
+      } catch (e) {
+        console.warn('[clickatron/commit] Failed to stage thumbnail learning in Brand Vault:', e);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       thumbnailUrl: validatedData.gcsPath,
