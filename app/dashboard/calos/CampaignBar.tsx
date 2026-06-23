@@ -120,6 +120,47 @@ export default function CampaignBar({
     }
   };
 
+  const aiPlan = async () => {
+    setBusy(true);
+    try {
+      const now = new Date();
+      const from = startOfMonth(now).toISOString();
+      const to = endOfMonth(now).toISOString();
+      const res = await fetch('/api/services/calos/ai-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId, campaignId: campaignId || undefined, from, to }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Surfaces the planner's 422 (no key) with its actionable hint, not a generic failure.
+        toast({
+          title: data?.error || `AI plan failed (${res.status})`,
+          description: data?.hint,
+          variant: 'destructive',
+        });
+        return;
+      }
+      const created = data?.created ?? 0;
+      const trendsUsed = data?.trendsUsed ?? 0;
+      toast({
+        title: `Drafted ${created} idea${created === 1 ? '' : 's'}`,
+        description: `${format(now, 'MMMM yyyy')} · ${trendsUsed} trend${
+          trendsUsed === 1 ? '' : 's'
+        } via ${data?.provider ?? 'none'}.`,
+      });
+      onAutoFilled();
+    } catch (err) {
+      toast({
+        title: 'AI plan failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const btn =
     'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50';
 
@@ -159,6 +200,14 @@ export default function CampaignBar({
         className={`${btn} bg-[#5CCCB8]/15 border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25`}
       >
         {busy ? 'Working…' : 'Auto-fill month'}
+      </button>
+      <button
+        onClick={aiPlan}
+        disabled={busy}
+        title="Draft a month of on-brand ideas from your cadence + current trends"
+        className={`${btn} bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25`}
+      >
+        {busy ? 'Working…' : '✨ AI plan'}
       </button>
 
       {editorOpen && selected && (
