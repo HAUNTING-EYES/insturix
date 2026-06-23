@@ -1657,8 +1657,11 @@ function isRootWebsiteProfileEvidence(evidence: BrandSignalEvidence): boolean {
   return isWebsiteProfileEvidenceSource(evidence.sourceType) && !isCrawlProfileEvidence(evidence);
 }
 
-function isWebsiteFetchFailureWarning(warning: string): boolean {
-  return /Website fetch failed/i.test(warning);
+export function isWebsiteFetchFailureWarning(warning: string): boolean {
+  // Anchor ^: only the homepage-fetch warnings start with "Website fetch failed;". A crawled
+  // sub-page 404 ("Brand Vault crawler skipped …: Website fetch failed with HTTP 404") must NOT
+  // flip the Website badge to failed. ponytail: load-bearing ^, don't drop it.
+  return /^Website fetch failed/i.test(warning);
 }
 
 function isAuthWarning(warning: string): boolean {
