@@ -260,9 +260,10 @@ async function startSingleChapterRender(
 }
 
 /**
- * Start pending chapters up to MAX_CONCURRENT_CHAPTER_RENDERS, keeping total renderer Lambdas under the
- * AWS account limit. Called once when the job starts and again on every progress poll, so the next chapter
- * begins as soon as a running one finishes. Idempotent; safe to call repeatedly.
+ * Start pending chapters while their estimated renderer Lambdas fit under LAMBDA_CONCURRENCY_BUDGET,
+ * keeping total renderer Lambdas under the AWS account quota. Called once when the job starts and again on
+ * every progress poll, so the next chapter begins as soon as a running one finishes. Idempotent; safe to
+ * call repeatedly.
  */
 export async function startPendingChapters(
   jobId: string,
