@@ -2100,6 +2100,47 @@ describe('Brand Vault refinery API boundary', () => {
     expect(wrongUserProfile.status).toBe(404);
   });
 
+  it('does not leak jobs, profiles, or draft review across active org scopes', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'owner_user',
+        orgId: 'org_a',
+        body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' },
+      },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const sameOrgJob = await getBrandVaultRefineryJob(
+      { userId: 'owner_user', orgId: 'org_a', jobId: created.body.job.id },
+      { store },
+    );
+    const wrongOrgJob = await getBrandVaultRefineryJob(
+      { userId: 'owner_user', orgId: 'org_b', jobId: created.body.job.id },
+      { store },
+    );
+    const wrongOrgProfile = await getBrandVaultSignalProfile(
+      { userId: 'owner_user', orgId: 'org_b', recordId: created.body.record.id },
+      { store },
+    );
+    const wrongOrgReview = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'owner_user',
+        orgId: 'org_b',
+        recordId: created.body.record.id,
+        body: { action: 'accept' },
+      },
+      { store },
+    );
+
+    expect(sameOrgJob.status).toBe(200);
+    expect(wrongOrgJob.status).toBe(404);
+    expect(wrongOrgProfile.status).toBe(404);
+    expect(wrongOrgReview.status).toBe(404);
+    expect((await store.getRecord(created.body.record.id))?.status).toBe('draft');
+  });
+
   it('awaits promise-returning store adapters for production persistence compatibility', async () => {
     const store = createPromiseBackedStore();
     const created = await createBrandVaultRefineryJobFromWebsite(

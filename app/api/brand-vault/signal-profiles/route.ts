@@ -13,9 +13,12 @@ export const dynamic = 'force-dynamic';
  * of re-showing the "build" screen on every visit.
  */
 export async function GET() {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-  const record = await getDefaultBrandVaultRefineryStore().getLatestAcceptedRecord({ userId });
+  const record = await getDefaultBrandVaultRefineryStore().getLatestAcceptedRecord({
+    userId,
+    orgId: orgId ?? undefined,
+  });
   return NextResponse.json({ ok: true, recordId: record?.id ?? null });
 }

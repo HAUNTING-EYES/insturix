@@ -648,7 +648,7 @@ function errorMessage(error: unknown): string {
 }
 
 export async function getBrandVaultRefineryJob(
-  args: { userId: string; jobId: string },
+  args: { userId: string; orgId?: string; jobId: string },
   dependencies: GetBrandVaultRefineryJobDependencies,
 ): Promise<BrandVaultApiResult<GetBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const jobId = args.jobId.trim();
@@ -658,7 +658,7 @@ export async function getBrandVaultRefineryJob(
   const snapshot = storedSnapshot
     ? await failStaleActiveJobSnapshot(storedSnapshot, dependencies)
     : null;
-  if (!snapshot || snapshot.job.userId !== args.userId) return notFound('Brand Vault refinery job was not found.');
+  if (!snapshot || !matchesAuthenticatedBrandVaultScope(snapshot.job, args)) return notFound('Brand Vault refinery job was not found.');
 
   const record = snapshot.recordId ? await dependencies.store.getRecord(snapshot.recordId) : null;
   return {
@@ -721,14 +721,14 @@ function isoBefore(now: string, deltaMs: number): string {
 }
 
 export async function getBrandVaultSignalProfile(
-  args: { userId: string; recordId: string },
+  args: { userId: string; orgId?: string; recordId: string },
   dependencies: { store: BrandVaultRefineryStore },
 ): Promise<BrandVaultApiResult<GetBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const recordId = args.recordId.trim();
   if (!recordId) return invalidRequest('Missing record id.');
 
   const record = await dependencies.store.getRecord(recordId);
-  if (!record || record.profile.userId !== args.userId) return notFound('Brand signal profile was not found.');
+  if (!record || !matchesAuthenticatedBrandVaultScope(record.profile, args)) return notFound('Brand signal profile was not found.');
 
   const snapshot = await dependencies.store.getJobSnapshotByRecordId(recordId);
   const job = snapshot?.job ?? profileOnlyJob(record);
@@ -754,6 +754,7 @@ export async function getBrandVaultSignalProfile(
 export async function reviewBrandVaultSignalProfileDraft(
   args: {
     userId: string;
+    orgId?: string;
     recordId: string;
     body: unknown;
     actorId?: string;
@@ -762,7 +763,7 @@ export async function reviewBrandVaultSignalProfileDraft(
   dependencies: { store: BrandVaultRefineryStore },
 ): Promise<BrandVaultApiResult<ReviewBrandVaultSignalProfileSuccessBody | BrandVaultApiErrorBody>> {
   const record = await dependencies.store.getRecord(args.recordId);
-  if (!record || record.profile.userId !== args.userId) return notFound('Brand signal profile was not found.');
+  if (!record || !matchesAuthenticatedBrandVaultScope(record.profile, args)) return notFound('Brand signal profile was not found.');
 
   const body = isObjectRecord(args.body) ? args.body : {};
   const action = typeof body.action === 'string' ? body.action.trim() : '';
@@ -1317,6 +1318,15 @@ function statusForDraftFailure(result: Extract<BrandVaultWebsiteDraftJobResult, 
 
 function invalidRequest(message: string): BrandVaultApiResult<BrandVaultApiErrorBody> {
   return { status: 400, body: { ok: false, error: { code: 'invalid_request', message } } };
+}
+
+function matchesAuthenticatedBrandVaultScope(
+  owner: { userId?: string; orgId?: string },
+  scope: { userId: string; orgId?: string },
+): boolean {
+  if (owner.userId !== scope.userId) return false;
+  if (scope.orgId !== undefined && owner.orgId !== scope.orgId) return false;
+  return true;
 }
 
 function notFound(message: string): BrandVaultApiResult<BrandVaultApiErrorBody> {

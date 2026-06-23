@@ -3,6 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable, { type CalosEditorialStatus } from "@/schemas/calos-deliverable";
 import { toContentCard } from "@/lib/calos/deliverable-mapper";
+import { emitBrandEvent } from "@/lib/shared/brand-events";
+import { createCalosDecisionLearningEvent } from "@/lib/calos/calos-brand-learning-events";
 
 export const dynamic = "force-dynamic";
 
@@ -55,9 +57,32 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       at: new Date(),
       notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 1000) : undefined,
     });
-    // TODO(brand-learning): emit emitBrandEvent({service:'thinkforge', type:'user_override',
-    // payload.learningEvents:[...]}) here so approve/reject selections teach the brand vault.
     await deliverable.save();
+
+    // Teach the brand vault from the decision (staged as a DRAFT by the brand-learning worker;
+    // applied only after a human accepts it). Best-effort: a learning-emit failure must never fail
+    // the decision itself.
+    try {
+      const learningEvent = createCalosDecisionLearningEvent({
+        userId,
+        brandId,
+        campaignId: deliverable.campaignId,
+        contentId: id,
+        title: deliverable.card.title,
+        decision: decision as Decision,
+        observedAt: new Date().toISOString(),
+        notes: typeof notes === "string" ? notes : undefined,
+      });
+      await emitBrandEvent({
+        userId,
+        brandId,
+        service: "thinkforge",
+        type: "user_override",
+        payload: { learningEvents: [learningEvent] },
+      });
+    } catch (e) {
+      console.warn("[CalOS] decision brand-learning emit failed (non-fatal):", e);
+    }
 
     return NextResponse.json({ card: toContentCard(deliverable) });
   } catch (error) {
