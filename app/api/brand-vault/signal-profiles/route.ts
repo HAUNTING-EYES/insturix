@@ -18,7 +18,7 @@ export async function GET() {
 
   const record = await getDefaultBrandVaultRefineryStore().getLatestAcceptedRecord({
     userId,
-    orgId: orgId ?? undefined,
+    orgId: orgId ?? null,
   });
   return NextResponse.json({ ok: true, recordId: record?.id ?? null });
 }

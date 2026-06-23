@@ -33,7 +33,7 @@ export interface BrandSignalProfileRepositoryEvent {
 export interface BrandSignalProfileListFilter {
   brandId?: string;
   userId?: string;
-  orgId?: string;
+  orgId?: string | null;
   status?: BrandSignalProfileStatus;
 }
 
@@ -197,7 +197,7 @@ export function createInMemoryBrandSignalProfileRepository(
 function matchesFilter(record: BrandSignalProfileRecord, filter: BrandSignalProfileListFilter): boolean {
   if (filter.brandId && record.profile.brandId !== filter.brandId) return false;
   if (filter.userId && record.profile.userId !== filter.userId) return false;
-  if (filter.orgId && record.profile.orgId !== filter.orgId) return false;
+  if (filter.orgId !== undefined && record.profile.orgId !== (filter.orgId ?? undefined)) return false;
   if (filter.status && record.status !== filter.status) return false;
   return true;
 }

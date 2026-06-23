@@ -122,8 +122,14 @@ describe('Brand Vault Mongo refinery store', () => {
     if (!secondOrgA.ok) throw new Error('Expected second org A accept to succeed.');
     expect(secondOrgA.superseded.map((record) => record.id)).toEqual(['org_a_v1']);
     expect((await store.getRecord('org_b_v1'))?.status).toBe('accepted');
+    await store.saveRecord(draftRecord({ id: 'personal_v1', name: 'Personal V1', now: '2026-06-10T06:06:00.000Z' }));
+    const personal = await store.acceptDraft('personal_v1', { now: '2026-06-10T06:07:00.000Z' });
+    if (!personal.ok) throw new Error('Expected personal accept to succeed.');
+
     expect((await store.getLatestAcceptedProfile({ orgId: 'org_a', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org A V2');
     expect((await store.getLatestAcceptedProfile({ orgId: 'org_b', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org B V1');
+    expect((await store.getLatestAcceptedProfile({ orgId: null, brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Personal V1');
+    expect(collections.profiles.values().find((doc) => doc._id === 'personal_v1')?.orgId).toBeUndefined();
     expect(collections.profiles.values().find((doc) => doc._id === 'org_a_v2')?.orgId).toBe('org_a');
     expect(collections.events.values().find((event) => event.recordId === 'org_a_v2' && event.type === 'draft_accepted')?.orgId).toBe('org_a');
     expect(collections.profiles.indexes.flat()).toEqual(
@@ -186,7 +192,7 @@ describe('Brand Vault Mongo refinery store', () => {
   });
 });
 
-function draftRecord(input: { id: string; orgId: string; name: string; now: string }) {
+function draftRecord(input: { id: string; orgId?: string; name: string; now: string }) {
   const profile = deriveBrandSignalProfile(
     {
       brandId: 'shared_brand',
@@ -297,6 +303,7 @@ function matchesFilter(doc: Record<string, unknown>, filter: Record<string, unkn
 }
 
 function matchesFilterValue(actual: unknown, expected: unknown): boolean {
+  if (expected === null) return actual == null;
   if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
     const operators = expected as Record<string, unknown>;
     if ('$in' in operators) {

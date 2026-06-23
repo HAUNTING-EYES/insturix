@@ -263,7 +263,7 @@ export type BrandVaultStoreResult<T> = T | Promise<T>;
 export interface BrandVaultAcceptedProfileFilter {
   brandId?: string;
   userId?: string;
-  orgId?: string;
+  orgId?: string | null;
 }
 
 export interface BrandVaultSignalProfileStore {

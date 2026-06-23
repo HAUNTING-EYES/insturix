@@ -237,7 +237,7 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
       .find(toProfileFilter({
         brandId: accepted.profile.brandId,
         userId: accepted.profile.userId,
-        orgId: accepted.profile.orgId,
+        orgId: accepted.profile.orgId ?? null,
         status: 'accepted',
       }))
       .sort({ updatedAt: -1 })
@@ -384,7 +384,7 @@ function jobDocument(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultMongoJo
 function toProfileFilter(filter: {
   brandId?: string;
   userId?: string;
-  orgId?: string;
+  orgId?: string | null;
   status?: BrandSignalProfileRecord['status'];
 }): Filter<BrandVaultMongoProfileDocument> {
   return Object.fromEntries(
