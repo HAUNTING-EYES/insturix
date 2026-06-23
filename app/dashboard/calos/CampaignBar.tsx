@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { startOfMonth, endOfMonth, format } from 'date-fns';
+import { startOfMonth, endOfMonth, addDays, addMonths } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import { type CalosObjective } from '@/lib/calos/campaign-intent';
@@ -17,10 +17,29 @@ interface Campaign {
 
 type Pending = '' | 'create' | 'auto' | 'ai';
 
+type Period = 'rest_of_month' | 'next_2_weeks' | 'next_30_days' | 'next_month';
+const PERIOD_LABELS: Record<Period, string> = {
+  rest_of_month: 'Rest of this month',
+  next_2_weeks: 'Next 2 weeks',
+  next_30_days: 'Next 30 days',
+  next_month: 'Next month',
+};
+// The window content is generated for. Routes clamp the start to "now", so past days are never filled.
+function periodRange(p: Period): { from: string; to: string } {
+  const now = new Date();
+  if (p === 'next_month') {
+    const m = addMonths(now, 1);
+    return { from: startOfMonth(m).toISOString(), to: endOfMonth(m).toISOString() };
+  }
+  const to =
+    p === 'rest_of_month' ? endOfMonth(now) : p === 'next_2_weeks' ? addDays(now, 14) : addDays(now, 30);
+  return { from: now.toISOString(), to: to.toISOString() };
+}
+
 /**
- * Campaign picker + cadence editor + month-fill actions for a brand. Creating a campaign suggests
- * a brand-aware cadence and opens the editor so the user confirms or edits the mix before using it.
- * Auto-fill / AI-plan drop DRAFT cards across the current month; the parent refreshes via onAutoFilled.
+ * Campaign picker + cadence editor + generate actions for a brand. "+ Campaign" opens a New
+ * Campaign form (name + objective + platforms + frequency, pre-filled with a brand-aware suggestion)
+ * so the user sets the mix up front. The period selector chooses the window content is generated for.
  */
 export default function CampaignBar({
   brandId,
@@ -33,6 +52,9 @@ export default function CampaignBar({
   const [campaignId, setCampaignId] = useState<string>('');
   const [pending, setPending] = useState<Pending>('');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [suggestedRules, setSuggestedRules] = useState<CadenceRule[]>(DEFAULT_CADENCE as CadenceRule[]);
+  const [period, setPeriod] = useState<Period>('next_30_days');
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -71,14 +93,12 @@ export default function CampaignBar({
 
   const selected = campaigns.find((c) => c._id === campaignId) ?? null;
 
+  // "+ Campaign" fetches a brand-aware cadence suggestion, then opens the New Campaign form
+  // pre-filled. The form (CadenceEditor in create mode) does the actual POST on save.
   const createCampaign = async () => {
-    const name = window.prompt('Campaign name?');
-    if (!name || !name.trim()) return;
     setPending('create');
     try {
-      // Suggest a brand-aware cadence; the user confirms or edits it in the editor that opens next.
       let rules: CadenceRule[] = DEFAULT_CADENCE;
-      let rationale = 'Starter cadence — confirm or tweak the mix.';
       try {
         const sres = await fetch(
           `/api/services/calos/suggest-cadence?brandId=${encodeURIComponent(brandId)}`,
@@ -87,29 +107,12 @@ export default function CampaignBar({
         if (sres.ok) {
           const sdata = await sres.json();
           if (Array.isArray(sdata?.rules) && sdata.rules.length) rules = sdata.rules;
-          if (typeof sdata?.rationale === 'string') rationale = sdata.rationale;
         }
       } catch {
         /* suggestion is best-effort — fall back to the default cadence */
       }
-
-      const res = await fetch('/api/services/calos/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, name: name.trim(), cadenceRules: rules }),
-      });
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
-      const data = await res.json();
-      await loadCampaigns();
-      if (data?.campaign?._id) setCampaignId(data.campaign._id);
-      toast({ title: 'Campaign created', description: rationale });
-      setEditorOpen(true); // suggested -> then asked: open the editor to confirm or change the mix
-    } catch (err) {
-      toast({
-        title: 'Failed to create campaign',
-        description: err instanceof Error ? err.message : 'Unknown error',
-        variant: 'destructive',
-      });
+      setSuggestedRules(rules);
+      setCreateOpen(true);
     } finally {
       setPending('');
     }
@@ -122,9 +125,7 @@ export default function CampaignBar({
     }
     setPending('auto');
     try {
-      const now = new Date();
-      const from = startOfMonth(now).toISOString();
-      const to = endOfMonth(now).toISOString();
+      const { from, to } = periodRange(period);
       const res = await fetch('/api/services/calos/auto-fill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,7 +136,7 @@ export default function CampaignBar({
       const created = data?.created ?? 0;
       toast({
         title: `Filled ${created} draft${created === 1 ? '' : 's'}`,
-        description: `${format(now, 'MMMM yyyy')}, from the campaign cadence.`,
+        description: `${PERIOD_LABELS[period]}, from the campaign cadence.`,
       });
       onAutoFilled();
     } catch (err) {
@@ -152,9 +153,7 @@ export default function CampaignBar({
   const aiPlan = async () => {
     setPending('ai');
     try {
-      const now = new Date();
-      const from = startOfMonth(now).toISOString();
-      const to = endOfMonth(now).toISOString();
+      const { from, to } = periodRange(period);
       const res = await fetch('/api/services/calos/ai-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -174,7 +173,7 @@ export default function CampaignBar({
       const trendsUsed = data?.trendsUsed ?? 0;
       toast({
         title: `Drafted ${created} idea${created === 1 ? '' : 's'}`,
-        description: `${format(now, 'MMMM yyyy')} · ${trendsUsed} trend${
+        description: `${PERIOD_LABELS[period]} · ${trendsUsed} trend${
           trendsUsed === 1 ? '' : 's'
         } via ${data?.provider ?? 'none'}.`,
       });
@@ -193,6 +192,8 @@ export default function CampaignBar({
   const busy = pending !== '';
   const btn =
     'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50';
+  const selectCls =
+    'bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
 
   return (
     <div className="flex items-center gap-2">
@@ -201,7 +202,7 @@ export default function CampaignBar({
           value={campaignId}
           onChange={(e) => setCampaignId(e.target.value)}
           aria-label="Select campaign"
-          className="bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40"
+          className={selectCls}
         >
           {campaigns.map((c) => (
             <option key={c._id} value={c._id}>
@@ -224,17 +225,31 @@ export default function CampaignBar({
       >
         Edit cadence
       </button>
+      <select
+        value={period}
+        onChange={(e) => setPeriod(e.target.value as Period)}
+        disabled={busy}
+        aria-label="Generation period"
+        title="The window content is generated for"
+        className={selectCls}
+      >
+        {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+          <option key={p} value={p}>
+            {PERIOD_LABELS[p]}
+          </option>
+        ))}
+      </select>
       <button
         onClick={autoFill}
         disabled={busy || !campaignId}
         className={`${btn} bg-[#5CCCB8]/15 border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25`}
       >
-        {pending === 'auto' ? 'Working…' : 'Auto-fill month'}
+        {pending === 'auto' ? 'Working…' : 'Auto-fill'}
       </button>
       <button
         onClick={aiPlan}
         disabled={busy}
-        title="Draft a month of on-brand ideas from your cadence + current trends"
+        title="Draft on-brand ideas from your cadence + current trends for the selected period"
         className={`${btn} bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25`}
       >
         {pending === 'ai' ? 'Working…' : '✨ AI plan'}
@@ -249,7 +264,22 @@ export default function CampaignBar({
           initialObjective={selected.objective}
           initialTheme={selected.theme}
           onClose={() => setEditorOpen(false)}
-          onSaved={loadCampaigns}
+          onSaved={() => loadCampaigns()}
+        />
+      )}
+
+      {createOpen && (
+        <CadenceEditor
+          campaignId=""
+          brandId={brandId}
+          campaignName=""
+          initialRules={suggestedRules}
+          isCreate
+          onClose={() => setCreateOpen(false)}
+          onSaved={(newId) => {
+            void loadCampaigns();
+            if (newId) setCampaignId(newId);
+          }}
         />
       )}
     </div>

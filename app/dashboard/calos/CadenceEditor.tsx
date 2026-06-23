@@ -26,6 +26,7 @@ export default function CadenceEditor({
   initialRules,
   initialObjective,
   initialTheme,
+  isCreate = false,
   onClose,
   onSaved,
 }: {
@@ -35,9 +36,11 @@ export default function CadenceEditor({
   initialRules: CadenceRule[];
   initialObjective?: CalosObjective;
   initialTheme?: string;
+  isCreate?: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (newCampaignId?: string) => void;
 }) {
+  const [name, setName] = useState(campaignName);
   const [rules, setRules] = useState<CadenceRule[]>(
     (initialRules.length ? initialRules : DEFAULT_CADENCE).map((r) => ({
       platform: r.platform,
@@ -64,20 +67,31 @@ export default function CadenceEditor({
   const removeRule = (i: number) => setRules((rs) => rs.filter((_, idx) => idx !== i));
 
   const save = async () => {
+    if (isCreate && !name.trim()) {
+      toast({ title: 'Name your campaign first', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     try {
-      const res = await fetch(`/api/services/calos/campaigns/${campaignId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, updates: { cadenceRules: rules, objective, theme } }),
-      });
+      const res = isCreate
+        ? await fetch('/api/services/calos/campaigns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandId, name: name.trim(), objective, theme, cadenceRules: rules }),
+          })
+        : await fetch(`/api/services/calos/campaigns/${campaignId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandId, updates: { cadenceRules: rules, objective, theme } }),
+          });
       if (!res.ok) throw new Error(`Failed (${res.status})`);
-      toast({ title: 'Cadence saved' });
-      onSaved();
+      const data = await res.json().catch(() => ({}));
+      toast({ title: isCreate ? 'Campaign created' : 'Cadence saved' });
+      onSaved(isCreate ? data?.campaign?._id : undefined);
       onClose();
     } catch (err) {
       toast({
-        title: 'Failed to save cadence',
+        title: isCreate ? 'Failed to create campaign' : 'Failed to save cadence',
         description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -96,7 +110,9 @@ export default function CadenceEditor({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-[#ECE9E1]">Cadence — {campaignName}</h2>
+          <h2 className="text-sm font-semibold text-[#ECE9E1]">
+            {isCreate ? 'New campaign' : `Cadence — ${campaignName}`}
+          </h2>
           <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg text-neutral-400 hover:text-[#ECE9E1]">
             <X size={18} />
           </button>
@@ -104,6 +120,20 @@ export default function CadenceEditor({
         <p className="text-[11px] text-[#7A776E] mb-4">
           Objective + theme steer the AI plan; cadence sets posts/week per platform.
         </p>
+
+        {isCreate && (
+          <div className="flex items-center gap-2 mb-2">
+            <label className="text-[11px] text-[#7A776E] w-16 shrink-0">Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Q3 launch"
+              aria-label="Campaign name"
+              autoFocus
+              className="flex-1 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-2 py-1.5"
+            />
+          </div>
+        )}
 
         <div className="space-y-2 mb-4">
           <div className="flex items-center gap-2">
@@ -202,7 +232,7 @@ export default function CadenceEditor({
               disabled={saving}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#5CCCB8]/15 border border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25 disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Save cadence'}
+              {saving ? (isCreate ? 'Creating…' : 'Saving…') : isCreate ? 'Create campaign' : 'Save cadence'}
             </button>
           </div>
         </div>
