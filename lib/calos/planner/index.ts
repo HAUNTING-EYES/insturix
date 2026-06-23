@@ -1,6 +1,7 @@
 import type { PlannerInput, PlannedIdea, PlannerSlot } from "./types";
 import { buildPlannerPrompt } from "./prompt";
 import { formatsFor } from "./playbook";
+import { extractJsonArray } from "../llm-json";
 import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
 
 const PLANNER_MODEL = process.env.LLM_PLANNER_MODEL || "gemini-3.1-pro-preview";
@@ -44,23 +45,7 @@ export async function proposePlan(
  * so it can never corrupt the cadence. Malformed JSON degrades to [] (a bad reply is not an outage).
  */
 function parsePlan(text: string, slots: PlannerSlot[]): PlannedIdea[] {
-  if (!text) return [];
-  let body = text.trim();
-
-  const fence = body.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) body = fence[1].trim();
-
-  const start = body.indexOf("[");
-  const end = body.lastIndexOf("]");
-  if (start === -1 || end === -1 || end < start) return [];
-
-  let arr: unknown;
-  try {
-    arr = JSON.parse(body.slice(start, end + 1));
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(arr)) return [];
+  const arr = extractJsonArray(text);
 
   const seen = new Set<number>();
   const ideas: PlannedIdea[] = [];

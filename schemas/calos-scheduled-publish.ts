@@ -5,7 +5,8 @@ export type CalosPublishPlatform =
   | "facebook"
   | "instagram"
   | "linkedin"
-  | "twitter";
+  | "twitter"
+  | "tiktok";
 
 export type CalosPublishStatus =
   | "pending"
@@ -50,7 +51,7 @@ const CalosScheduledPublishSchema = new Schema<ICalosScheduledPublish>(
     platform: {
       type: String,
       required: true,
-      enum: ["youtube", "facebook", "instagram", "linkedin", "twitter"],
+      enum: ["youtube", "facebook", "instagram", "linkedin", "twitter", "tiktok"],
     },
     accountRef: { type: String, default: null },
     payload: { type: Object, default: {} },

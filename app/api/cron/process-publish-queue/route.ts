@@ -31,12 +31,12 @@ const BATCH_LIMIT = 10; // max rows per tick — keep each invocation bounded un
 const STALE_LOCK_MS = 5 * 60 * 1000; // re-claim a row stuck in 'claimed' >5 min (previous tick crashed)
 
 function isAuthorized(request: NextRequest): boolean {
-  const authHeader = request.headers.get("authorization");
-  if (process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
-    return true;
-  }
-  const ua = request.headers.get("user-agent") || "";
-  return ua.includes("vercel-cron");
+  // Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is configured.
+  // Require it — never trust the spoofable user-agent. No secret => deny (fail closed): publishing
+  // is the only irreversible action and must not run without an explicit secret.
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 export async function GET(request: NextRequest) {

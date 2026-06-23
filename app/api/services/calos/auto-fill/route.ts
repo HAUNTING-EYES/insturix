@@ -4,13 +4,8 @@ import { Types } from "mongoose";
 import { parseISO, isValid } from "date-fns";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
-import CalosDeliverable from "@/schemas/calos-deliverable";
 import { proposeCadenceCards } from "@/lib/calos/cadence";
-import { toDeliverableDoc } from "@/lib/calos/deliverable-mapper";
-import {
-  normalizeContentCardForStorage,
-  contentCardClientView,
-} from "@/lib/thinkforge/planning/content-card-contract";
+import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
 
 export const dynamic = "force-dynamic";
 
@@ -66,14 +61,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const docs = proposals.map((p) => {
-      const normalized = normalizeContentCardForStorage({ ...p, campaignId }, { userId });
-      const card = contentCardClientView(normalized);
-      return toDeliverableDoc(card, { ownerUserId: userId, brandId, orgId: null });
-    });
-
-    const inserted = await CalosDeliverable.insertMany(docs);
-    return NextResponse.json({ created: inserted.length }, { status: 201 });
+    const created = await persistDraftDeliverables(
+      proposals.map((p) => ({ ...p, campaignId })),
+      { userId, brandId },
+    );
+    return NextResponse.json({ created }, { status: 201 });
   } catch (error) {
     console.error("[CalOS] auto-fill error:", error);
     return NextResponse.json({ error: "Failed to auto-fill" }, { status: 500 });

@@ -4,14 +4,9 @@ import { Types } from "mongoose";
 import { parseISO, isValid } from "date-fns";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
-import CalosDeliverable from "@/schemas/calos-deliverable";
 import { proposeCadenceCards, DEFAULT_CADENCE } from "@/lib/calos/cadence";
-import { toDeliverableDoc } from "@/lib/calos/deliverable-mapper";
-import {
-  normalizeContentCardForStorage,
-  contentCardClientView,
-  type ContentCard,
-} from "@/lib/thinkforge/planning/content-card-contract";
+import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
+import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 import { resolveEffectiveBrand } from "@/lib/shared/brand-effective-resolver";
 import { buildBrandContextBlock } from "@/lib/shared/brand-context-block";
 import { getTrendsProvider } from "@/lib/calos/trends";
@@ -117,13 +112,13 @@ export async function POST(req: NextRequest) {
     const ideaByIndex = new Map(ideas.map((i) => [i.index, i]));
     const trendByTitle = new Map(trends.map((t) => [t.title.toLowerCase(), t]));
 
-    const docs = slots.map((slot, index) => {
+    const partials = slots.map((slot, index): Partial<ContentCard> => {
       const idea = ideaByIndex.get(index);
       const matchedTrend = idea?.trendTitle
         ? trendByTitle.get(idea.trendTitle.toLowerCase())
         : undefined;
 
-      const partial: Partial<ContentCard> = {
+      return {
         title: idea?.title || `${slot.platform} post`,
         date: slot.date,
         plannedDates: [slot.date],
@@ -146,16 +141,12 @@ export async function POST(req: NextRequest) {
             }
           : undefined,
       };
-
-      const normalized = normalizeContentCardForStorage(partial, { userId });
-      const card = contentCardClientView(normalized);
-      return toDeliverableDoc(card, { ownerUserId: userId, brandId, orgId: null });
     });
 
-    const inserted = await CalosDeliverable.insertMany(docs);
+    const created = await persistDraftDeliverables(partials, { userId, brandId });
     return NextResponse.json(
       {
-        created: inserted.length,
+        created,
         ideas: ideas.length,
         slots: slots.length,
         trendsUsed: trends.length,

@@ -1,4 +1,5 @@
 import type { Trend, TrendQuery, TrendsProvider } from "./types";
+import { extractJsonArray } from "../llm-json";
 import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
 
 /**
@@ -81,25 +82,7 @@ export class GeminiTrendsProvider implements TrendsProvider {
  * degrades to [] (cadence-only) rather than throwing — a malformed model reply is not an outage.
  */
 function parseTrends(text: string, limit: number): Trend[] {
-  if (!text) return [];
-  let body = text.trim();
-
-  const fence = body.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) body = fence[1].trim();
-
-  const start = body.indexOf("[");
-  const end = body.lastIndexOf("]");
-  if (start === -1 || end === -1 || end < start) return [];
-
-  let arr: unknown;
-  try {
-    arr = JSON.parse(body.slice(start, end + 1));
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(arr)) return [];
-
-  return arr
+  return extractJsonArray(text)
     .slice(0, limit)
     .map((item): Trend => {
       const t = (item ?? {}) as {
