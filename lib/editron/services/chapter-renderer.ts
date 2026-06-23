@@ -377,6 +377,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     error?: string;
   }>;
   outputUrl?: string;
+  error?: string;
 } | null> {
   const db = await getDatabase();
   const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
@@ -385,6 +386,7 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
   let totalProgress = 0;
   let computedStatus = job.status;
   let completedOutputUrl = typeof job.outputUrl === 'string' ? job.outputUrl : undefined;
+  let completedError: string | undefined;
   const chapterStatuses = [];
 
   for (const chapter of job.chapters) {
@@ -497,17 +499,33 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     );
   }
 
-  // TODO W6 Phase 2: When all chapters complete, trigger FFmpeg concatenation
-  // For now, if all chapters completed, return the first chapter's URL
-  // (concatenation requires a separate service — Cloud Run with FFmpeg)
+  // When all chapters complete, the per-chapter MP4s still need to be stitched into one file.
+  // FFmpeg concatenation across chapters is NOT implemented yet (W6 Phase 2). A single-chapter
+  // job needs no stitching — its one output IS the whole video — so it completes normally. A
+  // multi-chapter job has no assembled output: returning chapter 0 alone (the old behaviour)
+  // silently shipped a TRUNCATED video reported as "done". Fail loud instead, so a partial
+  // render is never mistaken for a finished one. (Real fix: wire concat — tracked separately.)
   if (allCompleted) {
-    const firstOutput = chapterStatuses.find(c => c.outputUrl)?.outputUrl;
-    computedStatus = 'completed';
-    completedOutputUrl = firstOutput;
-    await db.collection(CHAPTERS_COLLECTION).updateOne(
-      { _id: jobId } as any,
-      { $set: { status: 'completed', outputUrl: firstOutput, updatedAt: new Date() } },
-    );
+    if (chapterStatuses.length <= 1) {
+      const onlyOutput = chapterStatuses.find(c => c.outputUrl)?.outputUrl;
+      computedStatus = 'completed';
+      completedOutputUrl = onlyOutput;
+      await db.collection(CHAPTERS_COLLECTION).updateOne(
+        { _id: jobId } as any,
+        { $set: { status: 'completed', outputUrl: onlyOutput, updatedAt: new Date() } },
+      );
+    } else {
+      computedStatus = 'failed';
+      completedError =
+        `This video was split into ${chapterStatuses.length} render chapters that cannot yet be ` +
+        `stitched into a single file (multi-chapter assembly is not available). The full video ` +
+        `could not be produced — re-render at a shorter length for now.`;
+      completedOutputUrl = undefined;
+      await db.collection(CHAPTERS_COLLECTION).updateOne(
+        { _id: jobId } as any,
+        { $set: { status: 'failed', error: completedError, updatedAt: new Date() } },
+      );
+    }
   }
 
   return {
@@ -515,5 +533,6 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
     overallProgress,
     chapters: chapterStatuses,
     outputUrl: completedOutputUrl,
+    error: completedError,
   };
 }

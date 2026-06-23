@@ -121,4 +121,64 @@ describe("chapter renderer progress", () => {
       }),
     );
   });
+
+  it("fails loud when a multi-chapter job finishes but cannot be stitched into one file", async () => {
+    mocks.findOne.mockResolvedValue({
+      _id: "chr_multi_done",
+      status: "rendering",
+      chapters: [
+        {
+          index: 0,
+          status: "completed",
+          renderId: "chapter_render_0",
+          bucketName: "remotionlambda-us-east-1-realbucket",
+          outputUrl: "https://video.example/chapter-0.mp4",
+        },
+        {
+          index: 1,
+          status: "completed",
+          renderId: "chapter_render_1",
+          bucketName: "remotionlambda-us-east-1-realbucket",
+          outputUrl: "https://video.example/chapter-1.mp4",
+        },
+      ],
+    });
+
+    const progress = await getChapterRenderProgress("chr_multi_done");
+
+    // Multi-chapter jobs have no assembled output yet — they must NOT report success with a
+    // truncated single-chapter clip (the old silent-truncation bug).
+    expect(progress?.status).toBe("failed");
+    expect(progress?.outputUrl).toBeUndefined();
+    expect(progress?.outputUrl).not.toBe("https://video.example/chapter-0.mp4");
+    expect(progress?.error).toContain("2 render chapters");
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { _id: "chr_multi_done" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: "failed" }),
+      }),
+    );
+  });
+
+  it("completes normally when a single-chapter job finishes (no stitching needed)", async () => {
+    mocks.findOne.mockResolvedValue({
+      _id: "chr_single_done",
+      status: "rendering",
+      chapters: [
+        {
+          index: 0,
+          status: "completed",
+          renderId: "chapter_render_0",
+          bucketName: "remotionlambda-us-east-1-realbucket",
+          outputUrl: "https://video.example/only-chapter.mp4",
+        },
+      ],
+    });
+
+    const progress = await getChapterRenderProgress("chr_single_done");
+
+    expect(progress?.status).toBe("completed");
+    expect(progress?.outputUrl).toBe("https://video.example/only-chapter.mp4");
+    expect(progress?.error).toBeUndefined();
+  });
 });

@@ -47,7 +47,7 @@ export async function GET(request: Request) {
         (chapter) => chapter.status === 'failed',
       );
       if (chapterProgress.status === 'failed' || failedChapter) {
-        const errorMessage = failedChapter?.error || 'Chapter render failed';
+        const errorMessage = chapterProgress.error || failedChapter?.error || 'Chapter render failed';
         await failJob(renderId, errorMessage);
         return NextResponse.json(
           { type: 'error', message: errorMessage, chapters: chapterProgress.chapters },
