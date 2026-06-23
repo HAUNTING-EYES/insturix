@@ -489,6 +489,10 @@ export function BrandVaultReview() {
       setLocalError('Create or open a draft before accepting it.');
       return;
     }
+    if (!snapshot.record.profile.brandId) {
+      setLocalError('Select a brand/client and rescan before accepting this draft.');
+      return;
+    }
     const edits = Object.entries(signalEdits).map(([path, value]) => ({ path, value }));
     const result = await acceptDraft.mutateAsync({ recordId: snapshot.record.id, signalEdits: edits });
     setSnapshot((current) => mergeSnapshot(current, result));

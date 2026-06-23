@@ -771,6 +771,9 @@ export async function reviewBrandVaultSignalProfileDraft(
   const options = { actorId: args.actorId ?? args.userId, now };
   const parsedSignalEdits = parseSignalValueEdits(body.signalEdits);
   if (!parsedSignalEdits.ok) return invalidRequest(parsedSignalEdits.message);
+  if (action === 'accept' && !cleanString(record.profile.brandId)) {
+    return invalidRequest('brandId is required before accepting a Brand Vault profile.');
+  }
 
   const result =
     action === 'accept'

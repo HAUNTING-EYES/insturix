@@ -2226,6 +2226,31 @@ describe('Brand Vault refinery API boundary', () => {
     expect(rejected.body.learningEvents).toEqual([]);
   });
 
+  it('blocks accepting brandless drafts so consumers can resolve accepted truth by brandId', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const accepted = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        body: { action: 'accept' },
+        now: '2026-06-09T06:18:00.000Z',
+      },
+      { store },
+    );
+
+    expect(accepted.status).toBe(400);
+    expect(accepted.body.ok).toBe(false);
+    if (accepted.body.ok) throw new Error('Expected brandless accept to fail.');
+    expect(accepted.body.error.message).toBe('brandId is required before accepting a Brand Vault profile.');
+    expect(store.getRecord(created.body.record.id)?.status).toBe('draft');
+  });
+
   it('returns reviewed Brand Vault learning events when accepted signal edits change values', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const created = await createBrandVaultRefineryJobFromWebsite(
