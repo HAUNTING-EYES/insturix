@@ -48,7 +48,7 @@ export async function PATCH(
     { store: getDefaultBrandVaultRefineryStore() },
   );
 
-  if (result.body.ok && result.body.learningEvents.length > 0) {
+  if (result.body.ok && result.body.record.status === 'accepted') {
     await emitBrandEvent({
       userId,
       brandId: result.body.record.profile.brandId,
@@ -63,7 +63,7 @@ export async function PATCH(
       },
     }).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn('[BrandVault] Reviewed learning event emit failed:', message);
+      console.warn('[BrandVault] Review acceptance event emit failed:', message);
     });
   }
 

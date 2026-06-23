@@ -14,7 +14,7 @@
  * the query/mutation surfaces an error state rather than rendering junk.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/nextjs';
 import type {
   BrandVaultApiResult,
@@ -30,6 +30,7 @@ export const BRAND_VAULT_KEYS = {
   all: ['brand-vault'] as const,
   job: (jobId: string) => [...BRAND_VAULT_KEYS.all, 'job', jobId] as const,
   profile: (recordId: string) => [...BRAND_VAULT_KEYS.all, 'profile', recordId] as const,
+  latestAccepted: () => [...BRAND_VAULT_KEYS.all, 'latest-accepted'] as const,
 };
 
 /* ------------------------------------------------------------------ */
@@ -97,6 +98,18 @@ async function reviewDraftRequest(
   });
 }
 
+function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, fallbackRecordId: string): void {
+  const recordId = data.record?.id ?? fallbackRecordId;
+  const jobId = data.job?.id ?? data.reviewPayload?.jobId ?? null;
+
+  queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.latestAccepted() });
+  if (data.record?.status === 'accepted' && recordId) {
+    queryClient.setQueryData(BRAND_VAULT_KEYS.latestAccepted(), recordId);
+  }
+  if (recordId) queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(recordId) });
+  if (jobId) queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.job(jobId) });
+}
+
 /* ------------------------------------------------------------------ */
 /*  Hooks                                                              */
 /* ------------------------------------------------------------------ */
@@ -131,7 +144,7 @@ export function useBrandVaultProfile(recordId: string | null) {
 export function useLatestAcceptedBrandVaultRecordId() {
   const { isSignedIn } = useAuth();
   return useQuery({
-    queryKey: [...BRAND_VAULT_KEYS.all, 'latest-accepted'] as const,
+    queryKey: BRAND_VAULT_KEYS.latestAccepted(),
     queryFn: fetchLatestAcceptedRecordId,
     enabled: Boolean(isSignedIn),
     staleTime: 30 * 1000,
@@ -154,16 +167,16 @@ export function useBrandVaultMutations() {
   const acceptDraft = useMutation({
     mutationFn: (input: AcceptBrandVaultDraftInput) =>
       reviewDraftRequest(input.recordId, 'accept', undefined, input.signalEdits),
-    onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(input.recordId) });
+    onSuccess: (data, input) => {
+      syncReviewCaches(queryClient, data, input.recordId);
     },
   });
 
   const rejectDraft = useMutation({
     mutationFn: ({ recordId, reason }: { recordId: string; reason: string }) =>
       reviewDraftRequest(recordId, 'reject', reason),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(variables.recordId) });
+    onSuccess: (data, variables) => {
+      syncReviewCaches(queryClient, data, variables.recordId);
     },
   });
 
