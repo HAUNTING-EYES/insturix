@@ -15,6 +15,7 @@ export interface ContentCardModalProps {
   onUpdate: (id: string, updates: Partial<ContentCardType>) => void;
   onOpenScript?: (sessionId: string) => void;
   onDelete?: (id: string) => void;
+  onGenerate?: (id: string) => void;
 }
 
 export default function ContentCardModal({
@@ -23,7 +24,8 @@ export default function ContentCardModal({
   onClose,
   onUpdate,
   onOpenScript,
-  onDelete
+  onDelete,
+  onGenerate
 }: ContentCardModalProps) {
   const [localCard, setLocalCard] = useState<ContentCardType | null>(card);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -177,6 +179,15 @@ export default function ContentCardModal({
                       <span>Open Script</span>
                     </button>
                   )}
+                  {onGenerate && (
+                    <button
+                      onClick={() => onGenerate(card.id)}
+                      className="px-4 py-2 text-sm font-medium bg-[#5CCCB8]/20 border border-[#5CCCB8]/40 text-[#5CCCB8] rounded-xl hover:bg-[#5CCCB8]/30 transition-colors flex items-center gap-2"
+                    >
+                      <FileText size={14} />
+                      <span>Generate</span>
+                    </button>
+                  )}
                   {onDelete && (
                     <button
                       onClick={handleDelete}
@@ -210,6 +221,15 @@ export default function ContentCardModal({
                     } : undefined}
                     compact={false}
                   />
+
+                  {localCard.scriptPreview && (
+                    <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
+                      <span className="text-sm font-medium text-neutral-300">Generated draft</span>
+                      <p className="mt-2 text-[13px] text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                        {localCard.scriptPreview}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Status Selector */}
                   <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">

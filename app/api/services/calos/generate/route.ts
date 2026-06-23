@@ -4,6 +4,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import { serviceForFormat } from "@/lib/calos/generate/route-map";
 import { getGenerator, type GenerateParams } from "@/lib/calos/generate/contract";
+import "@/lib/calos/generate/register"; // side-effect: wires the live generators
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // a wired generator may call an LLM/render — needs headroom.
@@ -81,6 +82,10 @@ export async function POST(req: NextRequest) {
     deliverable.serviceRef = { service, ...result.serviceRef };
     deliverable.assetUrl = result.assetUrl ?? null;
     deliverable.assetText = result.assetText ?? null;
+    if (result.assetText) {
+      // Mirror the draft onto the card so the existing card view shows it.
+      deliverable.card = { ...deliverable.card, scriptPreview: result.assetText };
+    }
     deliverable.errorMessage = null;
     await deliverable.save();
 

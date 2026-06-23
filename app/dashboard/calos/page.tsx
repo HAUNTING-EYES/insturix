@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Calendar from '@/components/dashboard/ThinkForge/Calendar';
 import { useCalosDeliverables } from './hooks/useCalosDeliverables';
 import CampaignBar from './CampaignBar';
+import { toast } from '@/hooks/use-toast';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -80,6 +81,35 @@ export default function CalosPage() {
     });
   };
 
+  const handleGenerate = async (id: string) => {
+    if (!brandId) return;
+    try {
+      const res = await fetch('/api/services/calos/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId, deliverableId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data?.error || `Generate failed (${res.status})`, variant: 'destructive' });
+        return;
+      }
+      if (data?.generatorWired) {
+        toast({ title: 'Draft generated', description: `via ${data.routedTo}.` });
+      } else {
+        // Honest: routed to a service that has no automated generator yet.
+        toast({ title: `Routed to ${data.routedTo}`, description: data?.message });
+      }
+      refresh();
+    } catch (err) {
+      toast({
+        title: 'Generate failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-[#0B0B0A]">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60">
@@ -127,6 +157,7 @@ export default function CalosPage() {
             onDeleteCard={(id) => {
               void deleteCard(id);
             }}
+            onGenerate={handleGenerate}
             onOpenScript={(sessionId) =>
               router.push(`/dashboard/thinkforge?sessionId=${encodeURIComponent(sessionId)}`)
             }
