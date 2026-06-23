@@ -30,18 +30,32 @@ NC='\033[0m'
 
 echo -e "${YELLOW}🚀 Deploying Remotion render function: mem=${MEMORY}MB disk=${DISK}MB timeout=${TIMEOUT}s${NC}"
 
-# Load AWS credentials (same pattern as deploy-remotion-site.sh).
+# Load AWS credentials. .env.local is the canonical local env file (Next.js); it can hold complex JSON
+# values that break `source`, so pull only the three AWS keys we need. Honors .env.local.prod /
+# production.env / development.env too, and strips surrounding quotes + trailing CR (Windows CRLF files).
+load_env_key() {
+  local key="$1" file line val
+  for file in .env.local .env.local.prod production.env development.env; do
+    [ -f "$file" ] || continue
+    line=$(grep -E "^[[:space:]]*${key}=" "$file" | head -1)
+    [ -n "$line" ] || continue
+    val=${line#*=}
+    val=${val%$'\r'}
+    val=${val%\"}; val=${val#\"}
+    val=${val%\'}; val=${val#\'}
+    if [ -n "$val" ]; then printf '%s' "$val"; return 0; fi
+  done
+}
+
 if [ -z "$REMOTION_AWS_ACCESS_KEY_ID" ]; then
-  if [ -f "production.env" ]; then
-    source production.env
-  elif [ -f "development.env" ]; then
-    source development.env
-  fi
+  export REMOTION_AWS_ACCESS_KEY_ID="$(load_env_key REMOTION_AWS_ACCESS_KEY_ID)"
+  export REMOTION_AWS_SECRET_ACCESS_KEY="$(load_env_key REMOTION_AWS_SECRET_ACCESS_KEY)"
+  [ -z "$REMOTION_AWS_REGION" ] && export REMOTION_AWS_REGION="$(load_env_key REMOTION_AWS_REGION)"
 fi
 
 if [ -z "$REMOTION_AWS_ACCESS_KEY_ID" ]; then
-  echo -e "${RED}❌ Error: REMOTION_AWS_ACCESS_KEY_ID not set${NC}"
-  echo "Set AWS credentials in your environment, production.env, or development.env"
+  echo -e "${RED}❌ Error: REMOTION_AWS_ACCESS_KEY_ID not found${NC}"
+  echo "Set it in your shell, or in .env.local / .env.local.prod / production.env"
   exit 1
 fi
 
