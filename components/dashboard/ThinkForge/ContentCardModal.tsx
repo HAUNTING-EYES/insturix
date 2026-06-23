@@ -299,35 +299,56 @@ export default function ContentCardModal({
                   />
 
                   {localCard.scriptPreview && (
-                    <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
-                      <span className="text-sm font-medium text-neutral-300">Generated draft</span>
-                      <p className="mt-2 text-[13px] text-neutral-300 whitespace-pre-wrap leading-relaxed">
-                        {localCard.scriptPreview}
-                      </p>
+                    <div className="mt-6">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                        Generated draft
+                      </span>
+                      {/* Rendered as a post preview, not a raw text dump — what it'll look like posted. */}
+                      <div className="mt-2 rounded-2xl bg-[#0F0F0E] border border-[#1C1B19]/70 overflow-hidden">
+                        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 border-b border-[#1C1B19]/40">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#5CCCB8]/40 to-[#D4A652]/40 flex items-center justify-center text-[12px] font-bold text-[#ECE9E1]">
+                            {(localCard.platform || '?').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-[#ECE9E1] truncate">
+                              {localCard.clientName || 'Your brand'}
+                            </div>
+                            <div className="text-[11px] text-neutral-500 capitalize">
+                              {localCard.platform} · draft
+                            </div>
+                          </div>
+                        </div>
+                        <p className="px-4 py-4 text-[13px] text-[#D6D3CB] whitespace-pre-wrap leading-relaxed">
+                          {localCard.scriptPreview.replace(/\*\*(.+?)\*\*/g, '$1')}
+                        </p>
+                      </div>
                     </div>
                   )}
 
-                  {/* Status Selector */}
-                  <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm font-medium text-neutral-300">Status:</span>
-                      <div className="flex gap-2">
-                        {(['draft', 'scheduled', 'in_production', 'published'] as const).map((status) => (
-                          <button
-                            key={status}
-                            onClick={() => handleStatusChange(status)}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                              localCard.status === status
-                                ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
-                                : 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-400 hover:bg-[#1C1B19]/80'
-                            } border`}
-                          >
-                            {status.replace('_', ' ')}
-                          </button>
-                        ))}
+                  {/* Legacy status selector — only for non-CalOS cards. CalOS cards have an editorial
+                      stage (the chip + Approve/Request-changes actions), so this would be redundant. */}
+                  {!stage && (
+                    <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm font-medium text-neutral-300">Status:</span>
+                        <div className="flex gap-2">
+                          {(['draft', 'scheduled', 'in_production', 'published'] as const).map((status) => (
+                            <button
+                              key={status}
+                              onClick={() => handleStatusChange(status)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                                localCard.status === status
+                                  ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
+                                  : 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-400 hover:bg-[#1C1B19]/80'
+                              } border`}
+                            >
+                              {status.replace('_', ' ')}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Planned Dates Manager */}
                   {localCard.plannedDates.length > 0 && (
