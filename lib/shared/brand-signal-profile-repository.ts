@@ -84,6 +84,10 @@ export class InMemoryBrandSignalProfileRepository {
     return this.listRecords({ ...filter, status: 'accepted' })[0]?.profile ?? null;
   }
 
+  getLatestAcceptedRecord(filter: Omit<BrandSignalProfileListFilter, 'status'>): BrandSignalProfileRecord | null {
+    return this.listRecords({ ...filter, status: 'accepted' })[0] ?? null;
+  }
+
   acceptDraft(id: string, options: BrandSignalLifecycleOptions = {}): BrandSignalProfileRepositoryResult {
     const draft = this.records.get(id);
     if (!draft) return failure('not_found', 'record', `Brand signal profile record "${id}" was not found.`);

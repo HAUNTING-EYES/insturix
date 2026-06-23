@@ -152,6 +152,16 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     return docs[0]?.record.profile ? clone(docs[0].record.profile) : null;
   }
 
+  async getLatestAcceptedRecord(filter: { brandId?: string; userId?: string }): Promise<BrandSignalProfileRecord | null> {
+    const collections = await this.getCollections();
+    const docs = await collections.profiles
+      .find(toProfileFilter({ ...filter, status: 'accepted' }))
+      .sort({ updatedAt: -1 })
+      .limit(1)
+      .toArray();
+    return docs[0]?.record ? clone(docs[0].record) : null;
+  }
+
   async saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): Promise<BrandVaultRefineryJobSnapshot> {
     const collections = await this.getCollections();
     const doc = jobDocument(snapshot);

@@ -76,6 +76,7 @@ function createPromiseBackedStore(): BrandVaultRefineryStore {
     acceptDraft: async (id, options) => store.acceptDraft(id, options),
     rejectDraft: async (id, reason, options) => store.rejectDraft(id, reason, options),
     getLatestAcceptedProfile: async (filter) => store.getLatestAcceptedProfile(filter),
+    getLatestAcceptedRecord: async (filter) => store.getLatestAcceptedRecord(filter),
     saveJobSnapshot: async (snapshot) => store.saveJobSnapshot(snapshot),
     getJobSnapshot: async (jobId) => store.getJobSnapshot(jobId),
     getJobSnapshotByRecordId: async (recordId) => store.getJobSnapshotByRecordId(recordId),
@@ -271,6 +272,7 @@ describe('Brand Vault refinery API boundary', () => {
       acceptDraft: (id, options) => backingStore.acceptDraft(id, options),
       rejectDraft: (id, reason, options) => backingStore.rejectDraft(id, reason, options),
       getLatestAcceptedProfile: (filter) => backingStore.getLatestAcceptedProfile(filter),
+      getLatestAcceptedRecord: (filter) => backingStore.getLatestAcceptedRecord(filter),
       saveJobSnapshot: (snapshot) => {
         if (snapshot.recordId) throw new Error('mongo write failed');
         return backingStore.saveJobSnapshot(snapshot);

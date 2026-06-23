@@ -92,6 +92,7 @@ export type BrandVaultRefineryJobListFilter = {
 };
 
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
+  getLatestAcceptedRecord(filter: { brandId?: string; userId?: string }): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot>;
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
@@ -225,6 +226,10 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
 
   getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandSignalProfile | null {
     return this.profiles.getLatestAcceptedProfile(filter);
+  }
+
+  getLatestAcceptedRecord(filter: { brandId?: string; userId?: string }): BrandSignalProfileRecord | null {
+    return this.profiles.getLatestAcceptedRecord(filter);
   }
 
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultRefineryJobSnapshot {

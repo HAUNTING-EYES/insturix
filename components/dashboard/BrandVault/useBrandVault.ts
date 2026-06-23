@@ -77,6 +77,13 @@ async function fetchProfile(recordId: string): Promise<BrandVaultApiSuccess> {
   return brandVaultFetch(`/api/brand-vault/signal-profiles/${encodeURIComponent(recordId)}`);
 }
 
+/** Latest accepted brand profile record id for the signed-in user (null if none accepted yet). */
+async function fetchLatestAcceptedRecordId(): Promise<string | null> {
+  const response = await fetch('/api/brand-vault/signal-profiles', { credentials: 'include' });
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; recordId?: string | null } | null;
+  return payload?.ok ? payload.recordId ?? null : null;
+}
+
 async function reviewDraftRequest(
   recordId: string,
   action: 'accept' | 'reject',
@@ -116,6 +123,17 @@ export function useBrandVaultProfile(recordId: string | null) {
     queryKey: BRAND_VAULT_KEYS.profile(recordId ?? ''),
     queryFn: () => fetchProfile(recordId as string),
     enabled: Boolean(isSignedIn && recordId),
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Id of the signed-in user's latest accepted brand profile, so the tab can reload it on mount. */
+export function useLatestAcceptedBrandVaultRecordId() {
+  const { isSignedIn } = useAuth();
+  return useQuery({
+    queryKey: [...BRAND_VAULT_KEYS.all, 'latest-accepted'] as const,
+    queryFn: fetchLatestAcceptedRecordId,
+    enabled: Boolean(isSignedIn),
     staleTime: 30 * 1000,
   });
 }

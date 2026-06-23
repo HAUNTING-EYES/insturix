@@ -62,6 +62,7 @@ describe('BrandSignalProfile repository', () => {
     expect(accepted.record.status).toBe('accepted');
     expect(accepted.record.review.acceptedBy).toBe('brand_manager_1');
     expect(repo.getLatestAcceptedProfile({ brandId: 'brand_repo', userId: 'user_repo' })?.identity.brandName.value).toBe('Repository Brand');
+    expect(repo.getLatestAcceptedRecord({ brandId: 'brand_repo', userId: 'user_repo' })?.id).toBe('draft_repo_2');
     expect(repo.listEvents('draft_repo_2').map((event) => event.type)).toEqual(['draft_saved', 'draft_accepted']);
   });
 

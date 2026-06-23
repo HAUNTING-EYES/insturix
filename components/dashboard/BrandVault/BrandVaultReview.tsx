@@ -52,7 +52,7 @@ import type {
   SignalRow,
   SourceLane,
 } from './brand-vault-types';
-import { useBrandVaultJob, useBrandVaultMutations, useBrandVaultProfile } from './useBrandVault';
+import { useBrandVaultJob, useBrandVaultMutations, useBrandVaultProfile, useLatestAcceptedBrandVaultRecordId } from './useBrandVault';
 
 type ToastTone = 'good' | 'warn' | 'risk';
 type UploadStatus = 'idle' | 'extracting';
@@ -122,6 +122,7 @@ export function BrandVaultReview() {
   const jobQuery = useBrandVaultJob(jobId);
   const profileQuery = useBrandVaultProfile(profileId);
   const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
+  const latestAccepted = useLatestAcceptedBrandVaultRecordId();
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
@@ -139,6 +140,13 @@ export function BrandVaultReview() {
   useEffect(() => {
     setSignalEdits({});
   }, [snapshot.record?.id]);
+
+  // Fresh visit (no in-session scan/draft): load the user's saved accepted vault so the tab shows
+  // it instead of the build screen. Reuses the by-id load path via setProfileId.
+  useEffect(() => {
+    const recordId = latestAccepted.data;
+    if (recordId && !jobId && !profileId) setProfileId(recordId);
+  }, [latestAccepted.data, jobId, profileId]);
 
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
