@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    deliverable.editorialStatus = "generated";
+    deliverable.editorialStatus = result.status ?? "generated";
     deliverable.serviceRef = { service, ...result.serviceRef };
     deliverable.assetUrl = result.assetUrl ?? null;
     deliverable.assetText = result.assetText ?? null;

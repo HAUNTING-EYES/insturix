@@ -16,6 +16,10 @@ export interface GenerateResult {
   serviceRef?: Pick<CalosServiceRef, "jobId" | "sessionId" | "projectId" | "variationId">;
   assetUrl?: string | null;
   assetText?: string | null;
+  /** Editorial status to land the deliverable in. Defaults to 'generated'. A generator that only
+   *  produced a draft/brief (e.g. graphics: copy + image prompt, image still pending) returns
+   *  'drafting' so we don't claim a finished asset. */
+  status?: "generated" | "drafting";
   error?: string;
 }
 
