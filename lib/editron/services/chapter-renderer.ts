@@ -244,6 +244,9 @@ async function startSingleChapterRender(
         fps: ctx.fps,
         width: ctx.width,
         height: ctx.height,
+        // Use OffthreadVideo (ffmpeg, robust) not Html5Video for server render — without this flag the
+        // composition defaults isRendering=false and a large/slow-proxied clip hangs delayRender → timeout.
+        isRendering: true,
       },
       codec: 'h264',
       maxRetries: 1,

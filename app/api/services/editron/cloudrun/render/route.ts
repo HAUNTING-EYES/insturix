@@ -113,7 +113,9 @@ export async function POST(request: Request) {
       functionName,
       serveUrl,
       composition: compositionId || REMOTION_COMPOSITION_ID,
-      inputProps: resolvedProps,
+      // isRendering=true → composition uses OffthreadVideo (ffmpeg) not Html5Video; without it a
+      // large/slow-proxied clip hangs delayRender on the browser <video> element → 598s render timeout.
+      inputProps: { ...resolvedProps, isRendering: true },
       codec: 'h264',
       audioCodec: 'mp3', // Faster audio processing than AAC
       privacy: 'public', // Make the video publicly accessible
