@@ -2,12 +2,11 @@ import type { GenerateParams } from "../contract";
 
 /**
  * Shared PostWriter call for the text + graphics generators. Resolves brand context (best-effort)
- * and runs ThinkForge's PostWriterAgent, returning BOTH the post copy and the image prompt
- * PostWriter emits (its `clickatron` field) so graphics can hand a tailored prompt to Clickatron.
+ * and runs ThinkForge's PostWriterAgent, returning the on-brand post copy / caption. (The image
+ * prompt PostWriter can emit is internal plumbing — it's generated and HIDDEN inside ThinkForge's
+ * export-to-Clickatron flow at image-gen time, never surfaced to the user.)
  */
-export async function runPostWriter(
-  params: GenerateParams,
-): Promise<{ content: string; imagePrompt: string | null }> {
+export async function runPostWriter(params: GenerateParams): Promise<string> {
   let systemBrief = "";
   try {
     const { resolveEffectiveBrand } = await import("@/lib/shared/brand-effective-resolver");
@@ -36,11 +35,5 @@ export async function runPostWriter(
     brandId: params.brandId,
   });
 
-  const content = result?.content?.trim() ?? "";
-  const carousel = result?.clickatron?.carouselPrompts;
-  const imagePrompt =
-    result?.clickatron?.singleImagePrompt?.trim() ||
-    (Array.isArray(carousel) && carousel.length ? carousel.join("\n\n") : "") ||
-    null;
-  return { content, imagePrompt };
+  return result?.content?.trim() ?? "";
 }

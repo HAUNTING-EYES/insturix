@@ -8,7 +8,7 @@ import { runPostWriter } from "./_post-writer";
  */
 export async function thinkforgeGenerator(params: GenerateParams): Promise<GenerateResult> {
   try {
-    const { content } = await runPostWriter(params);
+    const content = await runPostWriter(params);
     if (!content) return { ok: false, error: "PostWriter returned empty content" };
     return { ok: true, assetText: content };
   } catch (err) {
