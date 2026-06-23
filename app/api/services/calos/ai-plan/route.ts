@@ -12,6 +12,7 @@ import { buildBrandContextBlock } from "@/lib/shared/brand-context-block";
 import { getTrendsProvider } from "@/lib/calos/trends";
 import type { Trend } from "@/lib/calos/trends/types";
 import { proposePlan } from "@/lib/calos/planner";
+import { DEFAULT_OBJECTIVE, type CalosObjective } from "@/lib/calos/campaign-intent";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // LLM call — needs headroom beyond the default route timeout.
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
     // Cadence + goal: from the campaign when given, else the default (no campaign required).
     let rules: { platform: string; perWeek: number; preferredDays: number[] }[];
     let goal: string | undefined;
+    let objective: CalosObjective = DEFAULT_OBJECTIVE;
+    let theme: string | undefined;
     let campaignRef: string | null = null;
     if (campaignId) {
       if (!Types.ObjectId.isValid(campaignId)) {
@@ -66,6 +69,8 @@ export async function POST(req: NextRequest) {
         preferredDays: [...r.preferredDays],
       }));
       goal = campaign.goal || undefined;
+      objective = campaign.objective;
+      theme = campaign.theme || undefined;
       campaignRef = String(campaign._id);
     } else {
       rules = DEFAULT_CADENCE.map((r) => ({ ...r, preferredDays: [...r.preferredDays] }));
@@ -100,7 +105,15 @@ export async function POST(req: NextRequest) {
     // Plan. proposePlan throws if no Gemini key -> surface a clear, actionable 422.
     let ideas: Awaited<ReturnType<typeof proposePlan>>;
     try {
-      ideas = await proposePlan({ brandContext, brandName: brand?.name, goal, slots, trends });
+      ideas = await proposePlan({
+        brandContext,
+        brandName: brand?.name,
+        objective,
+        theme,
+        goal,
+        slots,
+        trends,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI planner unavailable";
       return NextResponse.json(
@@ -124,7 +137,7 @@ export async function POST(req: NextRequest) {
         plannedDates: [slot.date],
         platform: slot.platform,
         status: "draft",
-        tags: [],
+        tags: idea?.funnelStage ? [idea.funnelStage] : [],
         customTags: [],
         contentFormat: idea?.format || undefined,
         details: idea?.angle || undefined,

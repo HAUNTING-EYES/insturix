@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { Types } from "mongoose";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign from "@/schemas/calos-campaign";
+import { isCalosObjective } from "@/lib/calos/campaign-intent";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // Whitelist mutable fields.
     if (typeof updates.name === "string" && updates.name.trim()) campaign.name = updates.name.trim();
     if (typeof updates.goal === "string") campaign.goal = updates.goal;
+    if (isCalosObjective(updates.objective)) campaign.objective = updates.objective;
+    if (typeof updates.theme === "string") campaign.theme = updates.theme;
     if (updates.status === "draft" || updates.status === "active" || updates.status === "archived") {
       campaign.status = updates.status;
     }

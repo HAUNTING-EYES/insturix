@@ -64,6 +64,8 @@ const FIXTURES: Fixture[] = [
         "</brand_context>",
       ].join("\n"),
       brandName: "Forklift",
+      objective: "conversion",
+      theme: "slow CI is a solved problem",
       goal: "drive signups for the new build-cache feature",
       slots: slots(["linkedin", "twitter", "youtube", "linkedin"]),
       trends: [
@@ -88,6 +90,8 @@ const FIXTURES: Fixture[] = [
         "</brand_context>",
       ].join("\n"),
       brandName: "Coach Maya",
+      objective: "conversion",
+      theme: "strong, sustainable training for busy parents",
       goal: "fill spots in the spring small-group program",
       slots: slots(["instagram", "tiktok", "youtube", "instagram", "tiktok"]),
       trends: [
@@ -112,6 +116,8 @@ const FIXTURES: Fixture[] = [
         "</brand_context>",
       ].join("\n"),
       brandName: "Plain Ritual",
+      objective: "awareness",
+      theme: "honest skincare without the hype",
       slots: slots(["instagram", "tiktok", "youtube"]),
       trends: [], // forces original on-brand ideation
     },
@@ -131,6 +137,8 @@ const FIXTURES: Fixture[] = [
         "</brand_context>",
       ].join("\n"),
       brandName: "Northwind Coffee",
+      objective: "engagement",
+      theme: "your neighborhood coffee ritual",
       slots: slots(["instagram", "tiktok", "facebook"]),
       trends: [
         {

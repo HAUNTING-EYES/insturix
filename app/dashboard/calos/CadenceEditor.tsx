@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
+import { CALOS_OBJECTIVES, DEFAULT_OBJECTIVE, type CalosObjective } from '@/lib/calos/campaign-intent';
 
 export interface CadenceRule {
   platform: string;
@@ -23,6 +24,8 @@ export default function CadenceEditor({
   brandId,
   campaignName,
   initialRules,
+  initialObjective,
+  initialTheme,
   onClose,
   onSaved,
 }: {
@@ -30,6 +33,8 @@ export default function CadenceEditor({
   brandId: string;
   campaignName: string;
   initialRules: CadenceRule[];
+  initialObjective?: CalosObjective;
+  initialTheme?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -40,6 +45,8 @@ export default function CadenceEditor({
       preferredDays: [...r.preferredDays],
     }))
   );
+  const [objective, setObjective] = useState<CalosObjective>(initialObjective ?? DEFAULT_OBJECTIVE);
+  const [theme, setTheme] = useState(initialTheme ?? '');
   const [saving, setSaving] = useState(false);
 
   const update = (i: number, patch: Partial<CadenceRule>) =>
@@ -62,7 +69,7 @@ export default function CadenceEditor({
       const res = await fetch(`/api/services/calos/campaigns/${campaignId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, updates: { cadenceRules: rules } }),
+        body: JSON.stringify({ brandId, updates: { cadenceRules: rules, objective, theme } }),
       });
       if (!res.ok) throw new Error(`Failed (${res.status})`);
       toast({ title: 'Cadence saved' });
@@ -95,8 +102,36 @@ export default function CadenceEditor({
           </button>
         </div>
         <p className="text-[11px] text-[#7A776E] mb-4">
-          Posts per week, per platform, on which days. Auto-fill uses this.
+          Objective + theme steer the AI plan; cadence sets posts/week per platform.
         </p>
+
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] text-[#7A776E] w-16 shrink-0">Objective</label>
+            <select
+              value={objective}
+              onChange={(e) => setObjective(e.target.value as CalosObjective)}
+              aria-label="Campaign objective"
+              className="flex-1 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-2 py-1.5 capitalize"
+            >
+              {CALOS_OBJECTIVES.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] text-[#7A776E] w-16 shrink-0">Theme</label>
+            <input
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+              placeholder="The big idea every post ladders up to"
+              aria-label="Campaign theme"
+              className="flex-1 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-2 py-1.5"
+            />
+          </div>
+        </div>
 
         <div className="space-y-3 max-h-[50vh] overflow-y-auto">
           {rules.map((r, i) => (

@@ -1,6 +1,7 @@
 import type { PlannerInput, PlannedIdea, PlannerSlot } from "./types";
 import { buildPlannerPrompt } from "./prompt";
 import { formatsFor } from "./playbook";
+import { isFunnelStage } from "../campaign-intent";
 import { extractJsonArray } from "../llm-json";
 import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
 
@@ -59,11 +60,14 @@ function parsePlan(text: string, slots: PlannerSlot[]): PlannedIdea[] {
     const allowed = formatsFor(slots[index].platform);
     const requested = String(o.format ?? "").trim().toLowerCase();
     const format = allowed.includes(requested) ? requested : allowed[0];
+    const fs = String(o.funnelStage ?? "").trim().toLowerCase();
+    const funnelStage = isFunnelStage(fs) ? fs : "tofu";
     ideas.push({
       index,
       date: slots[index].date,
       platform: slots[index].platform,
       format,
+      funnelStage,
       title,
       angle: String(o.angle ?? "").trim().slice(0, 300),
       trendTitle:

@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, models } from "mongoose";
+import { CALOS_OBJECTIVES, DEFAULT_OBJECTIVE, type CalosObjective } from "@/lib/calos/campaign-intent";
 
 export type CalosCampaignStatus = "draft" | "active" | "archived";
 
@@ -22,7 +23,9 @@ export interface ICalosCampaign extends Document {
   brandId: string; // the client this campaign belongs to
   orgId?: string | null; // optional agency/team-share layer (future)
   name: string;
-  goal?: string; // free-text objective
+  goal?: string; // free-text, specific target (e.g. "500 signups")
+  objective: CalosObjective; // structured goal type — drives the planner's funnel + content mix
+  theme?: string; // the campaign's big idea / through-line every post ladders up to
   status: CalosCampaignStatus;
   cadenceRules: CalosCadenceRule[];
   startDate?: string | null;
@@ -48,6 +51,12 @@ const CalosCampaignSchema = new Schema<ICalosCampaign>(
     orgId: { type: String, default: null },
     name: { type: String, required: true },
     goal: { type: String, default: "" },
+    objective: {
+      type: String,
+      enum: [...CALOS_OBJECTIVES],
+      default: DEFAULT_OBJECTIVE,
+    },
+    theme: { type: String, default: "" },
     status: {
       type: String,
       required: true,

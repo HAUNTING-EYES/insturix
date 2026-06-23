@@ -4,12 +4,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { startOfMonth, endOfMonth, format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
+import { type CalosObjective } from '@/lib/calos/campaign-intent';
 import CadenceEditor, { type CadenceRule } from './CadenceEditor';
 
 interface Campaign {
   _id: string;
   name: string;
   cadenceRules: CadenceRule[];
+  objective?: CalosObjective;
+  theme?: string;
 }
 
 type Pending = '' | 'create' | 'auto' | 'ai';
@@ -39,11 +42,21 @@ export default function CampaignBar({
       );
       const data = await res.json();
       const list: Campaign[] = Array.isArray(data?.campaigns)
-        ? data.campaigns.map((c: { _id: string; name: string; cadenceRules?: CadenceRule[] }) => ({
-            _id: c._id,
-            name: c.name,
-            cadenceRules: Array.isArray(c.cadenceRules) ? c.cadenceRules : [],
-          }))
+        ? data.campaigns.map(
+            (c: {
+              _id: string;
+              name: string;
+              cadenceRules?: CadenceRule[];
+              objective?: CalosObjective;
+              theme?: string;
+            }) => ({
+              _id: c._id,
+              name: c.name,
+              cadenceRules: Array.isArray(c.cadenceRules) ? c.cadenceRules : [],
+              objective: c.objective,
+              theme: c.theme,
+            }),
+          )
         : [];
       setCampaigns(list);
       setCampaignId((cur) => (cur && list.some((c) => c._id === cur) ? cur : list[0]?._id ?? ''));
@@ -233,6 +246,8 @@ export default function CampaignBar({
           brandId={brandId}
           campaignName={selected.name}
           initialRules={selected.cadenceRules}
+          initialObjective={selected.objective}
+          initialTheme={selected.theme}
           onClose={() => setEditorOpen(false)}
           onSaved={loadCampaigns}
         />

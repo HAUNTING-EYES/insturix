@@ -1,4 +1,5 @@
 import type { Trend } from "../trends/types";
+import type { CalosObjective, FunnelStage } from "../campaign-intent";
 
 /**
  * One scheduled slot the planner must fill with an idea. Produced by the cadence engine
@@ -13,7 +14,11 @@ export interface PlannerInput {
   /** Brand context block from buildBrandContextBlock (may be '' when no brand profile). */
   brandContext: string;
   brandName?: string;
-  /** Campaign goal, optional — steers the batch toward an objective. */
+  /** The campaign's structured objective — sets the funnel emphasis + content mix. */
+  objective: CalosObjective;
+  /** The campaign's big idea / through-line every idea ladders up to. */
+  theme?: string;
+  /** Campaign goal, optional — a specific target (e.g. "500 signups"). */
   goal?: string;
   slots: PlannerSlot[];
   trends: Trend[];
@@ -25,6 +30,7 @@ export interface PlannedIdea {
   date: string;
   platform: string;
   format: string; // a format valid for the platform (e.g. reel, carousel, long_video, text)
+  funnelStage: FunnelStage; // tofu | mofu | bofu — which buyer-journey stage this serves
   title: string; // the concrete content idea / hook
   angle: string; // why it fits the brand + which trend it repurposes
   trendTitle: string | null; // exact trend title repurposed, or null if original

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign from "@/schemas/calos-campaign";
+import { isCalosObjective, DEFAULT_OBJECTIVE } from "@/lib/calos/campaign-intent";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { brandId, name, goal, cadenceRules, startDate, endDate, orgId } = body;
+    const { brandId, name, goal, objective, theme, cadenceRules, startDate, endDate, orgId } = body;
     if (!brandId) {
       return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }
@@ -65,6 +66,8 @@ export async function POST(req: NextRequest) {
       orgId: orgId ?? null,
       name: name.trim(),
       goal: typeof goal === "string" ? goal : "",
+      objective: isCalosObjective(objective) ? objective : DEFAULT_OBJECTIVE,
+      theme: typeof theme === "string" ? theme : "",
       cadenceRules: Array.isArray(cadenceRules) ? cadenceRules : [],
       startDate: startDate ?? null,
       endDate: endDate ?? null,
