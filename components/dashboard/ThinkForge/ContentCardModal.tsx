@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, FileText } from 'lucide-react';
+import { X, Calendar, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ContentCard as ContentCardType } from '@/app/dashboard/thinkforge/types';
 import { format } from 'date-fns';
 import ContentCard from './ContentCard';
@@ -18,6 +18,8 @@ export interface ContentCardModalProps {
   onDelete?: (id: string) => void;
   onGenerate?: (id: string) => void;
   onDecision?: (id: string, decision: 'approved' | 'rejected' | 'changes_requested') => void;
+  onPrev?: () => void;
+  onNext?: () => void;
 }
 
 export default function ContentCardModal({
@@ -28,10 +30,13 @@ export default function ContentCardModal({
   onOpenScript,
   onDelete,
   onGenerate,
-  onDecision
+  onDecision,
+  onPrev,
+  onNext
 }: ContentCardModalProps) {
   const [localCard, setLocalCard] = useState<ContentCardType | null>(card);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const touchStartX = useRef<number | null>(null);
 
   // Update local card when card prop changes
   useEffect(() => {
@@ -40,19 +45,21 @@ export default function ContentCardModal({
     }
   }, [card]);
 
-  // Handle ESC key
+  // Keyboard: Escape closes; Left/Right move between cards (unless typing in a field).
   useEffect(() => {
     if (!isOpen) return;
-    
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
+
+    const handleKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (e.key === 'Escape') onClose();
+      else if (!typing && e.key === 'ArrowLeft') onPrev?.();
+      else if (!typing && e.key === 'ArrowRight') onNext?.();
     };
 
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onClose]);
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [isOpen, onClose, onPrev, onNext]);
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -73,6 +80,18 @@ export default function ContentCardModal({
     !!onDecision &&
     ['generated', 'in_review', 'changes_requested'].includes(localCard.editorialStatus ?? '');
   const isApproved = localCard.editorialStatus === 'approved';
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? null;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 60) return; // ignore small drags
+    if (dx < 0) onNext?.();
+    else onPrev?.();
+  };
 
   const handleUpdate = (updates: Partial<ContentCardType>) => {
     const updated = { ...localCard, ...updates };
@@ -136,6 +155,8 @@ export default function ContentCardModal({
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="fixed inset-4 sm:inset-8 z-50 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
           >
             <div className="h-full w-full bg-[#0B0B0A]/95 backdrop-blur-xl border border-[#1C1B19]/70 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
               {/* Header */}
@@ -230,6 +251,26 @@ export default function ContentCardModal({
                     >
                       Delete
                     </button>
+                  )}
+                  {(onPrev || onNext) && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onPrev?.()}
+                        disabled={!onPrev}
+                        aria-label="Previous content (←)"
+                        className="p-2 rounded-xl border border-[#1C1B19]/70 bg-[#0F0F0E]/60 hover:bg-[#0F0F0E]/80 text-neutral-400 hover:text-[#ECE9E1] disabled:opacity-30 transition-colors"
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
+                      <button
+                        onClick={() => onNext?.()}
+                        disabled={!onNext}
+                        aria-label="Next content (→)"
+                        className="p-2 rounded-xl border border-[#1C1B19]/70 bg-[#0F0F0E]/60 hover:bg-[#0F0F0E]/80 text-neutral-400 hover:text-[#ECE9E1] disabled:opacity-30 transition-colors"
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                    </div>
                   )}
                   <button
                     onClick={onClose}

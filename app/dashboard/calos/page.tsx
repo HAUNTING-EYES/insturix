@@ -143,7 +143,7 @@ export default function CalosPage() {
 
   return (
     <div className="w-full h-full flex flex-col bg-[#0B0B0A]">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60">
+      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60 bg-[#0B0B0A]/95 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-semibold text-[#ECE9E1]">Content Calendar</h1>
           {/* Brand switcher only when there's more than one brand (agencies). A single brand

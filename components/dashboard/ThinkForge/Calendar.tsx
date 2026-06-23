@@ -141,9 +141,11 @@ export default function Calendar({
   const [searchQuery, setSearchQuery] = useState("");
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [visibleMonths, setVisibleMonths] = useState<Date[]>([
-    subMonths(new Date(), 1),
+    // Default the view to the CURRENT month at the top; scrolling up lazy-loads past months
+    // (so previous months aren't removed, just not the default landing view).
     new Date(),
-    addMonths(new Date(), 1)
+    addMonths(new Date(), 1),
+    addMonths(new Date(), 2),
   ]);
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -854,24 +856,38 @@ export default function Calendar({
       </div>
 
       {/* Content Card Modal */}
-      {selectedCard && (
-        <ContentCardModal
-          card={selectedCard}
-          isOpen={!!selectedCard}
-          onClose={() => setSelectedCard(null)}
-          onUpdate={(id, updates) => {
-            onEventUpdate?.(id, updates);
-            setSelectedCard(prev => prev ? { ...prev, ...updates } : null);
-          }}
-          onDelete={(id) => {
-            onDeleteCard?.(id);
-            setSelectedCard(null);
-          }}
-          onOpenScript={onOpenScript}
-          onGenerate={onGenerate}
-          onDecision={onDecision}
-        />
-      )}
+      {selectedCard && (() => {
+        // Prev/next across all cards in date order — lets the modal move day-to-day (arrow keys on
+        // desktop, swipe on mobile) without close-and-reopen.
+        const ordered = [...events].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        const idx = ordered.findIndex((e) => e.id === selectedCard.id);
+        const goTo = (delta: number) => {
+          const next = ordered[idx + delta];
+          if (next) setSelectedCard(next as ContentCard);
+        };
+        return (
+          <ContentCardModal
+            card={selectedCard}
+            isOpen={!!selectedCard}
+            onClose={() => setSelectedCard(null)}
+            onUpdate={(id, updates) => {
+              onEventUpdate?.(id, updates);
+              setSelectedCard(prev => prev ? { ...prev, ...updates } : null);
+            }}
+            onDelete={(id) => {
+              onDeleteCard?.(id);
+              setSelectedCard(null);
+            }}
+            onOpenScript={onOpenScript}
+            onGenerate={onGenerate}
+            onDecision={onDecision}
+            onPrev={idx > 0 ? () => goTo(-1) : undefined}
+            onNext={idx >= 0 && idx < ordered.length - 1 ? () => goTo(1) : undefined}
+          />
+        );
+      })()}
 
       {/* Legacy Floating Panel for CalendarEvent (backward compatibility) */}
       <AnimatePresence>
