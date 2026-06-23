@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 
 export interface CadenceRule {
   platform: string;
@@ -33,9 +34,11 @@ export default function CadenceEditor({
   onSaved: () => void;
 }) {
   const [rules, setRules] = useState<CadenceRule[]>(
-    initialRules.length
-      ? initialRules.map((r) => ({ platform: r.platform, perWeek: r.perWeek, preferredDays: [...r.preferredDays] }))
-      : [{ platform: 'linkedin', perWeek: 3, preferredDays: [1, 3, 5] }]
+    (initialRules.length ? initialRules : DEFAULT_CADENCE).map((r) => ({
+      platform: r.platform,
+      perWeek: r.perWeek,
+      preferredDays: [...r.preferredDays],
+    }))
   );
   const [saving, setSaving] = useState(false);
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { startOfMonth, endOfMonth, format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
+import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import CadenceEditor, { type CadenceRule } from './CadenceEditor';
 
 interface Campaign {
@@ -11,12 +12,12 @@ interface Campaign {
   cadenceRules: CadenceRule[];
 }
 
-const DEFAULT_CADENCE: CadenceRule[] = [{ platform: 'linkedin', perWeek: 3, preferredDays: [1, 3, 5] }];
+type Pending = '' | 'create' | 'auto' | 'ai';
 
 /**
- * Campaign picker + cadence editor + "Auto-fill month" for a client/brand. Selecting a
- * campaign and clicking auto-fill calls the cadence engine to drop DRAFT cards across the
- * current month; the parent refreshes the calendar via onAutoFilled.
+ * Campaign picker + cadence editor + month-fill actions for a brand. Creating a campaign suggests
+ * a brand-aware cadence and opens the editor so the user confirms or edits the mix before using it.
+ * Auto-fill / AI-plan drop DRAFT cards across the current month; the parent refreshes via onAutoFilled.
  */
 export default function CampaignBar({
   brandId,
@@ -27,7 +28,7 @@ export default function CampaignBar({
 }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignId, setCampaignId] = useState<string>('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Pending>('');
   const [editorOpen, setEditorOpen] = useState(false);
 
   const loadCampaigns = useCallback(async () => {
@@ -60,21 +61,36 @@ export default function CampaignBar({
   const createCampaign = async () => {
     const name = window.prompt('Campaign name?');
     if (!name || !name.trim()) return;
-    setBusy(true);
+    setPending('create');
     try {
+      // Suggest a brand-aware cadence; the user confirms or edits it in the editor that opens next.
+      let rules: CadenceRule[] = DEFAULT_CADENCE;
+      let rationale = 'Starter cadence — confirm or tweak the mix.';
+      try {
+        const sres = await fetch(
+          `/api/services/calos/suggest-cadence?brandId=${encodeURIComponent(brandId)}`,
+          { cache: 'no-store' }
+        );
+        if (sres.ok) {
+          const sdata = await sres.json();
+          if (Array.isArray(sdata?.rules) && sdata.rules.length) rules = sdata.rules;
+          if (typeof sdata?.rationale === 'string') rationale = sdata.rationale;
+        }
+      } catch {
+        /* suggestion is best-effort — fall back to the default cadence */
+      }
+
       const res = await fetch('/api/services/calos/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, name: name.trim(), cadenceRules: DEFAULT_CADENCE }),
+        body: JSON.stringify({ brandId, name: name.trim(), cadenceRules: rules }),
       });
       if (!res.ok) throw new Error(`Failed (${res.status})`);
       const data = await res.json();
       await loadCampaigns();
       if (data?.campaign?._id) setCampaignId(data.campaign._id);
-      toast({
-        title: 'Campaign created',
-        description: "Starter cadence: 3 LinkedIn/wk. Use 'Edit cadence' to set your mix.",
-      });
+      toast({ title: 'Campaign created', description: rationale });
+      setEditorOpen(true); // suggested -> then asked: open the editor to confirm or change the mix
     } catch (err) {
       toast({
         title: 'Failed to create campaign',
@@ -82,7 +98,7 @@ export default function CampaignBar({
         variant: 'destructive',
       });
     } finally {
-      setBusy(false);
+      setPending('');
     }
   };
 
@@ -91,7 +107,7 @@ export default function CampaignBar({
       toast({ title: 'Pick or create a campaign first', variant: 'destructive' });
       return;
     }
-    setBusy(true);
+    setPending('auto');
     try {
       const now = new Date();
       const from = startOfMonth(now).toISOString();
@@ -116,12 +132,12 @@ export default function CampaignBar({
         variant: 'destructive',
       });
     } finally {
-      setBusy(false);
+      setPending('');
     }
   };
 
   const aiPlan = async () => {
-    setBusy(true);
+    setPending('ai');
     try {
       const now = new Date();
       const from = startOfMonth(now).toISOString();
@@ -157,10 +173,11 @@ export default function CampaignBar({
         variant: 'destructive',
       });
     } finally {
-      setBusy(false);
+      setPending('');
     }
   };
 
+  const busy = pending !== '';
   const btn =
     'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50';
 
@@ -185,11 +202,11 @@ export default function CampaignBar({
         disabled={busy}
         className={`${btn} bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-300 hover:bg-[#1C1B19]/90`}
       >
-        + Campaign
+        {pending === 'create' ? 'Working…' : '+ Campaign'}
       </button>
       <button
         onClick={() => setEditorOpen(true)}
-        disabled={!campaignId}
+        disabled={busy || !campaignId}
         className={`${btn} bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-300 hover:bg-[#1C1B19]/90`}
       >
         Edit cadence
@@ -199,7 +216,7 @@ export default function CampaignBar({
         disabled={busy || !campaignId}
         className={`${btn} bg-[#5CCCB8]/15 border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25`}
       >
-        {busy ? 'Working…' : 'Auto-fill month'}
+        {pending === 'auto' ? 'Working…' : 'Auto-fill month'}
       </button>
       <button
         onClick={aiPlan}
@@ -207,7 +224,7 @@ export default function CampaignBar({
         title="Draft a month of on-brand ideas from your cadence + current trends"
         className={`${btn} bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25`}
       >
-        {busy ? 'Working…' : '✨ AI plan'}
+        {pending === 'ai' ? 'Working…' : '✨ AI plan'}
       </button>
 
       {editorOpen && selected && (

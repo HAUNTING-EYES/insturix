@@ -5,7 +5,7 @@ import { parseISO, isValid } from "date-fns";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
 import CalosDeliverable from "@/schemas/calos-deliverable";
-import { proposeCadenceCards } from "@/lib/calos/cadence";
+import { proposeCadenceCards, DEFAULT_CADENCE } from "@/lib/calos/cadence";
 import { toDeliverableDoc } from "@/lib/calos/deliverable-mapper";
 import {
   normalizeContentCardForStorage,
@@ -20,10 +20,6 @@ import { proposePlan } from "@/lib/calos/planner";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // LLM call — needs headroom beyond the default route timeout.
-
-// Starter cadence when no campaign is selected — matches CampaignBar's DEFAULT_CADENCE so the
-// AI plan behaves consistently whether or not the user has created a campaign.
-const DEFAULT_CADENCE = [{ platform: "linkedin", perWeek: 3, preferredDays: [1, 3, 5] }];
 
 /**
  * POST /api/services/calos/ai-plan  { brandId, campaignId?, from, to }

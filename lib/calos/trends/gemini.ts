@@ -35,6 +35,9 @@ export class GeminiTrendsProvider implements TrendsProvider {
     const model = genAI.getGenerativeModel({
       model: process.env.LLM_TRENDS_MODEL || "gemini-3.1-flash-lite-preview",
       tools: [{ googleSearch: {} }],
+      // Rule 35: always seed. Grounding still varies with live web results, but this removes
+      // model-side sampling nondeterminism. value(7) <- fixed arbitrary seed.
+      generationConfig: { temperature: 0, seed: 7 },
     });
 
     // Rules over examples; the (untrusted) niche goes LAST. Output strict JSON we parse defensively

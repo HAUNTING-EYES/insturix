@@ -55,4 +55,24 @@ describe("proposeCadenceCards", () => {
       proposeCadenceCards([{ platform: "x", perWeek: 3, preferredDays: [1] }], { from: to, to: from })
     ).toHaveLength(0);
   });
+
+  it("spreads perWeek beyond preferred days onto distinct days (no duplicate slots)", () => {
+    const oneWeek = addDays(from, 6); // a single Sun..Sat week
+    const cards = proposeCadenceCards(
+      [{ platform: "linkedin", perWeek: 4, preferredDays: [1, 3, 5] }],
+      { from, to: oneWeek }
+    );
+    expect(cards).toHaveLength(4); // 4 distinct days, NOT 3 days + a duplicate
+    expect(new Set(cards.map((c) => c.date)).size).toBe(4); // all dates distinct
+  });
+
+  it("caps a single week at 7 distinct days even when perWeek exceeds 7", () => {
+    const oneWeek = addDays(from, 6);
+    const cards = proposeCadenceCards(
+      [{ platform: "linkedin", perWeek: 12, preferredDays: [1, 3, 5] }],
+      { from, to: oneWeek }
+    );
+    expect(cards).toHaveLength(7);
+    expect(new Set(cards.map((c) => c.date)).size).toBe(7);
+  });
 });

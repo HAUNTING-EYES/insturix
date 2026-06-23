@@ -118,7 +118,11 @@ export default function CalosPage() {
             }}
             onEventDrop={(id, newDate) => {
               const iso = newDate.toISOString();
-              void updateCard(id, { plannedDates: [iso], date: iso });
+              const existing = cards.find((c) => c.id === id)?.plannedDates ?? [];
+              // Single-date card: move it. Multi-date card: add the new date without dropping the
+              // others — Calendar doesn't say which instance was dragged, so never delete a date.
+              const next = existing.length > 1 ? Array.from(new Set([...existing, iso])) : [iso];
+              void updateCard(id, { plannedDates: next, date: iso });
             }}
             onDeleteCard={(id) => {
               void deleteCard(id);

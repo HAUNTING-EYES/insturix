@@ -18,6 +18,17 @@ export interface CadenceRuleInput {
 
 const DEFAULT_DAYS = [1, 3, 5]; // Mon / Wed / Fri
 
+/** Starter cadence used when no brand-specific suggestion applies. Single source of truth —
+ *  import this instead of redefining the triple in UI/routes. */
+export const DEFAULT_CADENCE: CadenceRuleInput[] = [
+  { platform: "linkedin", perWeek: 3, preferredDays: [1, 3, 5] },
+];
+
+// ponytail: hard cap on generated slots. A year of daily posts across ~3 platforms is ~1000, so
+// this bounds memory/DB regardless of an absurd date range or perWeek, without truncating any
+// realistic plan. value(1000) <- domain estimate.
+const MAX_SLOTS = 1000;
+
 /**
  * Deterministically propose draft cards from cadence rules over [from, to].
  *
@@ -35,16 +46,20 @@ export function proposeCadenceCards(
   const out: CadenceCardProposal[] = [];
 
   for (const rule of rules) {
-    const perWeek = Math.max(0, Math.floor(rule.perWeek));
-    if (perWeek === 0) continue;
-    const days = rule.preferredDays.length
-      ? [...rule.preferredDays].sort((a, b) => a - b)
+    // Distinct posting days: preferred first, then the rest of the week, so perWeek beyond the
+    // preferred days spreads onto NEW days instead of doubling up on one (which produced duplicate
+    // identical slots). Max 7 distinct days/week — multiple posts/day is a later feature.
+    const preferred = rule.preferredDays.length
+      ? [...new Set(rule.preferredDays)].sort((a, b) => a - b)
       : DEFAULT_DAYS;
+    const weekdays = [...preferred, ...[0, 1, 2, 3, 4, 5, 6].filter((d) => !preferred.includes(d))];
+    const count = Math.min(Math.max(0, Math.floor(rule.perWeek)), 7);
+    if (count === 0) continue;
 
     let weekStart = startOfWeek(from, { weekStartsOn: 0 });
     while (weekStart <= to) {
-      for (let n = 0; n < perWeek; n++) {
-        const slot = addDays(weekStart, days[n % days.length]);
+      for (let n = 0; n < count; n++) {
+        const slot = addDays(weekStart, weekdays[n]);
         if (slot >= from && slot <= to) {
           const iso = slot.toISOString();
           out.push({
@@ -56,6 +71,7 @@ export function proposeCadenceCards(
             tags: [],
             customTags: [],
           });
+          if (out.length >= MAX_SLOTS) return out;
         }
       }
       weekStart = addWeeks(weekStart, 1);
