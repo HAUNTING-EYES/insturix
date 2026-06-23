@@ -31,7 +31,8 @@
     "calibrate:vjepa": "tsx scripts/probe-vjepa-coverage.ts",
     "calibrate:bundles": "tsx scripts/build-moment-bundles.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
-    "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod"
+    "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod",
+    "deploy:remotion:function": "bash scripts/deploy-remotion-function.sh"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.39",
