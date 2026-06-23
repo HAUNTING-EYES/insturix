@@ -16,12 +16,18 @@ type PlanningPanelProps = {
  * redirects there so there is ONE calendar, not two competing data stores. (The previous
  * in-ThinkForge calendar + useContentPlanning hook are superseded by CalOS.)
  */
-export default function PlanningPanel(_props: PlanningPanelProps) {
+export default function PlanningPanel({ isOpen }: PlanningPanelProps) {
   const router = useRouter();
 
+  // Only redirect when this tab is actually the active/visible one. PlanningMode keeps
+  // this panel mounted (CSS-visibility pattern) even while the user is in Ideation or
+  // Scripting, so an unconditional redirect-on-mount would bounce every ThinkForge visit
+  // to /dashboard/calos. Gate on isOpen so the redirect fires only when Planning is selected.
   useEffect(() => {
-    router.replace('/dashboard/calos');
-  }, [router]);
+    if (isOpen) {
+      router.replace('/dashboard/calos');
+    }
+  }, [isOpen, router]);
 
   return (
     <div className="relative w-full h-full bg-[#0B0B0A] flex items-center justify-center">
