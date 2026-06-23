@@ -432,6 +432,20 @@ export function BrandVaultReview() {
     setToast({ message, tone });
   }
 
+  // Avoid the build-screen flash on open: hold a loader while we resolve whether the user has a saved
+  // accepted vault (and load it), instead of briefly rendering the empty/build state then swapping.
+  const bootstrappingVault = latestAccepted.isLoading || (Boolean(latestAccepted.data) && !snapshot.record);
+  if (bootstrappingVault) {
+    return (
+      <>
+        <style>{baseStyles}</style>
+        <div style={{ minHeight: '100vh', background: '#0B0B0A', color: '#ECE9E1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Loader2 size={28} className="animate-spin" style={{ color: '#D4A652' }} />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <style>{baseStyles}</style>
