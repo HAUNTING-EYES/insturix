@@ -55,6 +55,8 @@ export interface ContentCard {
   date: string;
   platform: 'youtube' | 'instagram' | 'linkedin' | string;
   status: ContentCardStatus;
+  /** CalOS editorial stage (display-only; set by toContentCard from the deliverable column). */
+  editorialStatus?: string;
   tags: string[];
   aiScore?: number;
   ideaId?: string;

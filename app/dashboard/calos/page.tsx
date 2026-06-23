@@ -6,6 +6,7 @@ import Calendar from '@/components/dashboard/ThinkForge/Calendar';
 import { useCalosDeliverables } from './hooks/useCalosDeliverables';
 import CampaignBar from './CampaignBar';
 import { toast } from '@/hooks/use-toast';
+import { EDITORIAL_STAGE_META } from '@/lib/calos/stages';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -133,6 +134,16 @@ export default function CalosPage() {
           )}
           {brandId && <CampaignBar brandId={brandId} onAutoFilled={refresh} />}
         </div>
+        {!loading && brandId && (
+          <div className="hidden lg:flex items-center gap-2.5 text-[10px] text-[#7A776E]">
+            {Object.values(EDITORIAL_STAGE_META).map((m) => (
+              <span key={m.label} className="flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+                {m.label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-0">

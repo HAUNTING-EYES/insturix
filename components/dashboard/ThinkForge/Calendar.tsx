@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus
 import { motion, AnimatePresence } from "framer-motion";
 import ContentCardModal from "./ContentCardModal";
 import { ContentCard } from "@/app/dashboard/thinkforge/types";
+import { stageMeta } from "@/lib/calos/stages";
 
 const DATE_PICKER_WIDTH = 320;
 const DATE_PICKER_MARGIN = 12;
@@ -65,7 +66,10 @@ const getStatusColor = (status: string) => {
 
 // Event chip component - the small event pills shown in calendar cells
 const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | CalendarEvent; onClick: () => void; onDragEnd?: (eventId: string, newDate: Date) => void }) => {
-  const statusColor = getStatusColor(event.status);
+  // CalOS cards carry an editorial stage; color the chip by it. Legacy ThinkForge cards (no
+  // editorialStatus) fall back to the existing status coloring.
+  const stage = stageMeta((event as ContentCard).editorialStatus);
+  const statusColor = stage?.chip ?? getStatusColor(event.status);
   // Support both legacy tags and new customTags
   const allTags = ('customTags' in event && event.customTags?.length) 
     ? [...event.customTags, ...(event.tags || [])]
@@ -99,6 +103,9 @@ const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | Calenda
       className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-[#D4A652]/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
       onClick={onClick}
     >
+      {stage && (
+        <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${stage.dot}`} title={stage.label} />
+      )}
       <PlatformIcon platform={event.platform} size={10} />
       <span className="truncate flex-1">{event.title}</span>
       {firstTag && (

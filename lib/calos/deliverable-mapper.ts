@@ -47,7 +47,7 @@ export function toDeliverableDoc(card: ContentCard, scope: DeliverableScope) {
 
 type DeliverableProjection = Pick<
   ICalosDeliverable,
-  "card" | "plannedDates" | "platform" | "brandId" | "campaignId"
+  "card" | "plannedDates" | "platform" | "brandId" | "campaignId" | "editorialStatus"
 >;
 
 /**
@@ -62,5 +62,6 @@ export function toContentCard(doc: DeliverableProjection): ContentCard {
     platform: doc.platform ?? doc.card.platform,
     brandId: doc.brandId ?? doc.card.brandId,
     campaignId: doc.campaignId ?? doc.card.campaignId,
+    editorialStatus: doc.editorialStatus,
   };
 }
