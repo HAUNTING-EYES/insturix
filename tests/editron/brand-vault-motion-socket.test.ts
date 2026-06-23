@@ -200,4 +200,18 @@ describe('Brand Vault Editron motion socket', () => {
     expect(seam).toContain('buildBrandContextBlock(resolution.brand)');
     expect(seam).not.toContain('getUnifiedBrand');
   });
+  it('routes LLM scene parser brand context through the effective resolver seam', () => {
+    const source = readFileSync(new URL('../../lib/pipeline/llm-scene-parser.ts', import.meta.url), 'utf8');
+    const seamStart = source.indexOf('Brand Context (optional)');
+    const seamEnd = source.indexOf("const { geminiRetry }", seamStart);
+
+    expect(seamStart).toBeGreaterThanOrEqual(0);
+    expect(seamEnd).toBeGreaterThan(seamStart);
+
+    const seam = source.slice(seamStart, seamEnd);
+    expect(seam).toContain('resolveEffectiveBrand');
+    expect(seam).toContain("service: 'editron'");
+    expect(seam).toContain('buildBrandContextBlock(brand)');
+    expect(seam).not.toContain('getUnifiedBrand');
+  });
 });

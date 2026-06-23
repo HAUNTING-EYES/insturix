@@ -216,9 +216,9 @@ export async function parseScriptWithLLM(
   let brandBlock = '';
   if (options.brandId && options.userId) {
     try {
-      const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+      const { resolveEffectiveBrand } = await import('@/lib/shared/brand-effective-resolver');
       const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
-      const brand = await getUnifiedBrand(options.userId, options.brandId);
+      const brand = await resolveEffectiveBrand(options.userId, options.brandId, { service: 'editron' });
       brandBlock = buildBrandContextBlock(brand);
       if (brandBlock) {
         console.log(`[SceneParser] Brand context injected: ${brand?.name} (${options.brandId})`);
