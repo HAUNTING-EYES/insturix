@@ -12,7 +12,10 @@ import type {
   BrandSignalProfileRepositoryEventType,
   BrandSignalProfileRepositoryResult,
 } from './brand-signal-profile-repository';
-import { createBrandVaultDraftReviewPayload } from './brand-vault-draft-orchestrator';
+import {
+  createBrandVaultDraftReviewPayload,
+  type BrandVaultAcceptedProfileFilter,
+} from './brand-vault-draft-orchestrator';
 import type {
   BrandVaultRefineryJobListFilter,
   BrandVaultRefineryJobSnapshot,
@@ -32,6 +35,7 @@ export interface BrandVaultMongoProfileDocument {
   status: BrandSignalProfileRecord['status'];
   brandId?: string;
   userId?: string;
+  orgId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -142,7 +146,7 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     return { ok: true, record: clone(rejected), superseded: [] };
   }
 
-  async getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): Promise<BrandSignalProfile | null> {
+  async getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): Promise<BrandSignalProfile | null> {
     const collections = await this.getCollections();
     const docs = await collections.profiles
       .find(toProfileFilter({ ...filter, status: 'accepted' }))
@@ -152,7 +156,7 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     return docs[0]?.record.profile ? clone(docs[0].record.profile) : null;
   }
 
-  async getLatestAcceptedRecord(filter: { brandId?: string; userId?: string }): Promise<BrandSignalProfileRecord | null> {
+  async getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): Promise<BrandSignalProfileRecord | null> {
     const collections = await this.getCollections();
     const docs = await collections.profiles
       .find(toProfileFilter({ ...filter, status: 'accepted' }))
@@ -233,6 +237,7 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
       .find(toProfileFilter({
         brandId: accepted.profile.brandId,
         userId: accepted.profile.userId,
+        orgId: accepted.profile.orgId,
         status: 'accepted',
       }))
       .sort({ updatedAt: -1 })
@@ -306,6 +311,7 @@ async function ensureIndexes(collections: BrandVaultMongoCollections): Promise<v
   await collections.profiles.createIndexes?.([
     { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'user_status_updatedAt' },
     { key: { brandId: 1, userId: 1, status: 1, updatedAt: -1 }, name: 'brand_user_status_updatedAt' },
+    { key: { orgId: 1, brandId: 1, userId: 1, status: 1, updatedAt: -1 }, name: 'org_brand_user_status_updatedAt' },
   ]);
   await collections.jobs.createIndexes?.([
     { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'user_status_updatedAt' },
@@ -314,6 +320,7 @@ async function ensureIndexes(collections: BrandVaultMongoCollections): Promise<v
   await collections.events.createIndexes?.([
     { key: { recordId: 1, createdAt: -1 }, name: 'record_createdAt' },
     { key: { userId: 1, createdAt: -1 }, name: 'user_createdAt' },
+    { key: { orgId: 1, userId: 1, createdAt: -1 }, name: 'org_user_createdAt' },
   ]);
 }
 
@@ -340,6 +347,7 @@ async function appendEvent(
     recordId: record.id,
     brandId: record.profile.brandId,
     userId: record.profile.userId,
+    orgId: record.profile.orgId,
     actorId: options.actorId,
     createdAt,
     ...extra,
@@ -354,6 +362,7 @@ function profileDocument(record: BrandSignalProfileRecord): BrandVaultMongoProfi
     status: record.status,
     brandId: record.profile.brandId,
     userId: record.profile.userId,
+    orgId: record.profile.orgId,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -375,6 +384,7 @@ function jobDocument(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultMongoJo
 function toProfileFilter(filter: {
   brandId?: string;
   userId?: string;
+  orgId?: string;
   status?: BrandSignalProfileRecord['status'];
 }): Filter<BrandVaultMongoProfileDocument> {
   return Object.fromEntries(

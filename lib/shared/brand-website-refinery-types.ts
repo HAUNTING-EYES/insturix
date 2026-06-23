@@ -154,6 +154,7 @@ export interface BrandEvidenceCandidate {
 export interface BrandRefineryJob {
   id: string;
   userId: string;
+  orgId?: string;
   brandId?: string;
   status: 'queued' | 'running' | 'needs_review' | 'accepted' | 'rejected' | 'failed';
   inputs: {
@@ -175,6 +176,7 @@ export interface BrandWebsiteDraftInput {
   renderedPrimitives?: BrandWebsiteRenderedPrimitiveEvidence;
   brandId?: string;
   userId?: string;
+  orgId?: string;
   companyName?: string;
   fetchedAt?: string;
   extractor?: string;

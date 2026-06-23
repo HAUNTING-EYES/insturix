@@ -14,6 +14,7 @@ import {
   createBrandVaultWebsiteDraftJob,
   type BrandVaultSignalProfileStore,
   type BrandVaultStoreResult,
+  type BrandVaultAcceptedProfileFilter,
   type BrandVaultSignalValueEdit,
   type BrandVaultTextEvidenceCompiler,
   type BrandVaultWebsiteDraftJobResult,
@@ -49,6 +50,7 @@ export type BrandVaultSourceEvidenceProviderResult = {
 
 export type BrandVaultSourceEvidenceProvider = (args: {
   userId: string;
+  orgId?: string;
   websiteUrl: string;
   brandId?: string;
   companyName?: string;
@@ -92,7 +94,7 @@ export type BrandVaultRefineryJobListFilter = {
 };
 
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
-  getLatestAcceptedRecord(filter: { brandId?: string; userId?: string }): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
+  getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot>;
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
@@ -224,11 +226,11 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
     return this.profiles.rejectDraft(id, reason, options);
   }
 
-  getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandSignalProfile | null {
+  getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfile | null {
     return this.profiles.getLatestAcceptedProfile(filter);
   }
 
-  getLatestAcceptedRecord(filter: { brandId?: string; userId?: string }): BrandSignalProfileRecord | null {
+  getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfileRecord | null {
     return this.profiles.getLatestAcceptedRecord(filter);
   }
 
@@ -314,6 +316,7 @@ export function getDefaultBrandVaultRefineryStore(): BrandVaultRefineryStore {
 export async function createBrandVaultRefineryJobFromWebsite(
   args: {
     userId: string;
+    orgId?: string;
     body: unknown;
     actorId?: string;
     jobId?: string;
@@ -326,6 +329,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
   const providerEvidence = await resolveSourceEvidenceProvider({
     provider: dependencies.sourceEvidenceProvider,
     userId: args.userId,
+    orgId: args.orgId,
     websiteUrl: parsed.value.websiteUrl,
     brandId: parsed.value.brandId,
     companyName: parsed.value.companyName,
@@ -337,6 +341,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
   const result = await createBrandVaultWebsiteDraftJob(
     {
       userId: args.userId,
+      orgId: args.orgId,
       websiteUrl: parsed.value.websiteUrl,
       brandId: parsed.value.brandId,
       companyName: parsed.value.companyName,
@@ -406,6 +411,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
 export async function startQueuedBrandVaultRefineryJobFromWebsite(
   args: {
     userId: string;
+    orgId?: string;
     body: unknown;
     actorId?: string;
   },
@@ -417,6 +423,7 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
   const now = dependencies.clock?.() ?? new Date().toISOString();
   const jobId = createDefaultRefineryJobId({
     userId: args.userId,
+    orgId: args.orgId,
     brandId: parsed.value.brandId,
     websiteUrl: parsed.value.websiteUrl,
     now,
@@ -424,6 +431,7 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
   const queuedJob: BrandRefineryJob = {
     id: jobId,
     userId: args.userId,
+    orgId: args.orgId,
     brandId: parsed.value.brandId,
     status: 'queued',
     inputs: {
@@ -538,6 +546,7 @@ export async function runQueuedBrandVaultRefineryJobSnapshot(
     await createBrandVaultRefineryJobFromWebsite(
       {
         userId: runningJob.userId,
+        orgId: runningJob.orgId,
         actorId: runningJob.userId,
         jobId: runningJob.id,
         body: {
@@ -571,6 +580,7 @@ export async function runQueuedBrandVaultRefineryJobSnapshot(
 async function resolveSourceEvidenceProvider(args: {
   provider?: BrandVaultSourceEvidenceProvider;
   userId: string;
+  orgId?: string;
   websiteUrl: string;
   brandId?: string;
   companyName?: string;
@@ -581,6 +591,7 @@ async function resolveSourceEvidenceProvider(args: {
   try {
     const result = await args.provider({
       userId: args.userId,
+      orgId: args.orgId,
       websiteUrl: args.websiteUrl,
       brandId: args.brandId,
       companyName: args.companyName,
@@ -617,11 +628,12 @@ function mergeWarnings(...groups: string[][]): string[] {
 
 function createDefaultRefineryJobId(args: {
   userId: string;
+  orgId?: string;
   brandId?: string;
   websiteUrl: string;
   now: string;
 }): string {
-  const owner = idPart(args.brandId ?? args.userId, 'brand');
+  const owner = idPart(args.brandId ?? args.orgId ?? args.userId, 'brand');
   const website = idPart(args.websiteUrl, 'website');
   return `brand_refinery_job_${owner}_${website}_${Date.parse(args.now) || 0}`;
 }
@@ -1315,6 +1327,7 @@ function profileOnlyJob(record: BrandSignalProfileRecord): BrandRefineryJob {
   return {
     id: `profile_only_${record.id}`,
     userId: record.profile.userId ?? 'unknown',
+    orgId: record.profile.orgId,
     brandId: record.profile.brandId,
     status: record.status === 'accepted' ? 'accepted' : record.status === 'rejected' ? 'rejected' : 'needs_review',
     inputs: { socialLinks: [], sourceEvidence: [] },

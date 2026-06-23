@@ -68,6 +68,7 @@ export interface BrandSignalProfile {
   version: 1;
   brandId?: string;
   userId?: string;
+  orgId?: string;
   generatedAt: string;
   identity: {
     brandName: BrandSignal<string>;
@@ -200,6 +201,7 @@ export function deriveBrandSignalProfile(
     version: 1,
     brandId: brand.brandId,
     userId: brand.userId,
+    orgId: brand.orgId,
     generatedAt,
     identity: {
       brandName: makeSignal('identity.brandName', brand.name, 1, 'brand_fact', 'name', brand.name),

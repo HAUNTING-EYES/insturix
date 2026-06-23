@@ -211,6 +211,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
   status: BrandRefineryJob['status'];
   brandId?: string;
   userId?: string;
+  orgId?: string;
   normalizedUrl: string;
   candidateCount: number;
   evidenceCount: number;
@@ -226,6 +227,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
 
 export interface BrandVaultWebsiteDraftJobInput {
   userId: string;
+  orgId?: string;
   websiteUrl: string;
   brandId?: string;
   companyName?: string;
@@ -258,6 +260,12 @@ export type BrandVaultTextEvidenceCompiler = (
 
 export type BrandVaultStoreResult<T> = T | Promise<T>;
 
+export interface BrandVaultAcceptedProfileFilter {
+  brandId?: string;
+  userId?: string;
+  orgId?: string;
+}
+
 export interface BrandVaultSignalProfileStore {
   saveRecord(
     record: BrandSignalProfileRecord,
@@ -270,7 +278,7 @@ export interface BrandVaultSignalProfileStore {
     reason: string,
     options?: BrandSignalLifecycleOptions,
   ): BrandVaultStoreResult<BrandSignalProfileRepositoryResult>;
-  getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandVaultStoreResult<BrandSignalProfile | null>;
+  getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfile | null>;
 }
 
 export interface SynchronousBrandVaultSignalProfileStore extends BrandVaultSignalProfileStore {
@@ -278,7 +286,7 @@ export interface SynchronousBrandVaultSignalProfileStore extends BrandVaultSigna
   getRecord(id: string): BrandSignalProfileRecord | null;
   acceptDraft(id: string, options?: BrandSignalLifecycleOptions): BrandSignalProfileRepositoryResult;
   rejectDraft(id: string, reason: string, options?: BrandSignalLifecycleOptions): BrandSignalProfileRepositoryResult;
-  getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandSignalProfile | null;
+  getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfile | null;
 }
 
 export interface BrandVaultWebsiteDraftJobDependencies {
@@ -495,6 +503,7 @@ export async function createBrandVaultWebsiteDraftJob(
         renderedPrimitives: snapshot.renderedPrimitives,
         brandId: input.brandId,
         userId: input.userId,
+        orgId: input.orgId,
         companyName: input.companyName,
         fetchedAt: snapshot.fetchedAt,
         jobId,
@@ -813,6 +822,7 @@ export function createBrandVaultDraftReviewPayload(args: {
     status: args.job.status,
     brandId: args.record.profile.brandId,
     userId: args.record.profile.userId,
+    orgId: args.record.profile.orgId,
     normalizedUrl: args.normalizedUrl,
     candidateCount: args.candidates.length,
     evidenceCount: args.record.profile.evidence.length,
@@ -1030,7 +1040,7 @@ export function rejectBrandVaultSignalProfileDraft(
 
 export function getLatestAcceptedBrandVaultProfile(
   repository: SynchronousBrandVaultSignalProfileStore,
-  filter: { brandId?: string; userId?: string },
+  filter: BrandVaultAcceptedProfileFilter,
 ): BrandSignalProfile | null {
   return repository.getLatestAcceptedProfile(filter);
 }
@@ -1752,6 +1762,7 @@ function createJob(args: {
   return {
     id: args.jobId,
     userId: args.input.userId,
+    orgId: args.input.orgId,
     brandId: args.input.brandId,
     status: args.status,
     inputs: {

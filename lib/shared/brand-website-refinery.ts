@@ -728,6 +728,7 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
     version: 1,
     brandId: input.brandId,
     userId: input.userId,
+    orgId: input.orgId,
     generatedAt: observedAt,
     identity: {
       brandName: makeSignal('identity.brandName', brandName, {

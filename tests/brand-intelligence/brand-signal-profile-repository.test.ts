@@ -10,6 +10,7 @@ function brand(overrides: Partial<UnifiedBrand> = {}): UnifiedBrand {
   return {
     brandId: 'brand_repo',
     userId: 'user_repo',
+    orgId: 'org_repo',
     name: 'Repository Brand',
     voice: {
       voiceLock: 'Warm, confident, technical voice.',
@@ -64,6 +65,7 @@ describe('BrandSignalProfile repository', () => {
     expect(repo.getLatestAcceptedProfile({ brandId: 'brand_repo', userId: 'user_repo' })?.identity.brandName.value).toBe('Repository Brand');
     expect(repo.getLatestAcceptedRecord({ brandId: 'brand_repo', userId: 'user_repo' })?.id).toBe('draft_repo_2');
     expect(repo.listEvents('draft_repo_2').map((event) => event.type)).toEqual(['draft_saved', 'draft_accepted']);
+    expect(repo.listEvents('draft_repo_2')[1]?.orgId).toBe('org_repo');
   });
 
   it('supersedes prior accepted profiles for the same brand and user', () => {
@@ -81,6 +83,28 @@ describe('BrandSignalProfile repository', () => {
     expect(repo.getRecord('draft_v1')?.status).toBe('superseded');
     expect(repo.getRecord('draft_v2')?.status).toBe('accepted');
     expect(repo.listRecords({ brandId: 'brand_repo', userId: 'user_repo', status: 'accepted' })).toHaveLength(1);
+  });
+
+  it('keeps accepted profiles isolated by organization', () => {
+    const repo = createInMemoryBrandSignalProfileRepository();
+    repo.saveDraft(profile({ orgId: 'org_a', name: 'Org A V1' }), { id: 'org_a_v1', now: NOW });
+    const firstOrgA = repo.acceptDraft('org_a_v1', { now: '2026-06-09T04:05:00.000Z' });
+    if (!firstOrgA.ok) throw new Error('Expected first org A accept to succeed.');
+
+    repo.saveDraft(profile({ orgId: 'org_b', name: 'Org B V1' }), { id: 'org_b_v1', now: '2026-06-09T04:10:00.000Z' });
+    const firstOrgB = repo.acceptDraft('org_b_v1', { now: '2026-06-09T04:15:00.000Z' });
+    if (!firstOrgB.ok) throw new Error('Expected org B accept to succeed.');
+
+    repo.saveDraft(profile({ orgId: 'org_a', name: 'Org A V2' }), { id: 'org_a_v2', now: '2026-06-09T04:20:00.000Z' });
+    const secondOrgA = repo.acceptDraft('org_a_v2', { now: '2026-06-09T04:25:00.000Z' });
+
+    expect(secondOrgA.ok).toBe(true);
+    if (!secondOrgA.ok) throw new Error('Expected second org A accept to succeed.');
+    expect(secondOrgA.superseded.map((record) => record.id)).toEqual(['org_a_v1']);
+    expect(repo.getRecord('org_b_v1')?.status).toBe('accepted');
+    expect(repo.listRecords({ orgId: 'org_a', brandId: 'brand_repo', userId: 'user_repo', status: 'accepted' }).map((record) => record.id)).toEqual(['org_a_v2']);
+    expect(repo.listRecords({ orgId: 'org_b', brandId: 'brand_repo', userId: 'user_repo', status: 'accepted' }).map((record) => record.id)).toEqual(['org_b_v1']);
+    expect(repo.getLatestAcceptedProfile({ orgId: 'org_b', brandId: 'brand_repo', userId: 'user_repo' })?.identity.brandName.value).toBe('Org B V1');
   });
 
   it('rejects drafts with reviewer metadata', () => {
