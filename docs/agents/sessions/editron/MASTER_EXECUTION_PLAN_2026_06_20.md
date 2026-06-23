@@ -148,6 +148,26 @@ Before claiming full Path E/D unification, all of these must pass:
 - Do not tune thresholds against one project, one creator, or one screenshot.
 - Do not call shared downstream plumbing "merged."
 
+### 0.5 2026-06-23 Authority Loophole To Close
+
+Commit `278c81e7` fixed the live ranked planner path so Creative Brief overlay-family
+labels must pass the same atom/family license as signal candidates before execution.
+That is a real authority fix, but it is **not the full Phase 1 completion**.
+
+Remaining verified gap:
+
+- If `planUnifiedDecisionBundleFromCandidates(...)` receives only a Creative Brief producer
+  and no `signal-driven` producer, it falls back through `createUnifiedDecisionBundle(...)`.
+  That path still calls `licensePrimaryProducerDecisions(...)`, which currently invokes
+  `resolvePrimaryCreativeDecisionLicense(...)` without `requireFamilyAtoms`.
+- Impact: when Path D/signals are absent or fail, Creative Brief transition/zoom/SFX/caption
+  family labels can still execute without the strict atom license.
+- Required next acceptance test: Creative Brief-only upload-to-edit family labels are
+  evidence-only unless they carry the same boundary/moment/audio/caption atoms required by
+  the ranked planner.
+- Required fix shape: strict family licensing must apply to Creative Brief-only upload-to-edit
+  bundles too, with any legacy compatibility kept explicit and isolated.
+
 ---
 
 ## 1) Northstar Contract (non-negotiable)
@@ -424,6 +444,7 @@ If any prior doc says â€œfully doneâ€, it should be treated as *histori
 3. Signal candidates drop via thresholds and first-wins dedupe before form can be considered.
 4. Merge still under-advances Path D candidates.
 5. Live reward/learning weak-score writes are gated at `recordProjectOutcome`; remaining risk is calibration quality because rendered evidence is not yet the hard truth loop.
+6. Creative Brief-only upload-to-edit bundles can still bypass strict family atom licensing when no signal producer is present.
 
 ### P2/P3 (stability and polish)
 6. Full-frame contract can downgrade into corner treatment via caption coordination.
