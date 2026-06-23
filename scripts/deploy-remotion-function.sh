@@ -15,11 +15,13 @@
 #   npm run deploy:remotion:function
 #   REMOTION_FUNCTION_MEMORY=4096 npm run deploy:remotion:function   # override a default
 #
-# Defaults: 8192MB RAM (~4.6 vCPU, ~4x the old 2GB → ~4x faster frames), 4096MB disk, 900s timeout (AWS max).
+# Defaults: 3008MB RAM (~1.7 vCPU — the MAX for an AWS account at the default Lambda cap; ~47% more CPU
+# than the old 2GB), 4096MB disk, 900s timeout (AWS max). After requesting an AWS Lambda memory-quota
+# increase (>3008, up to 10240), redeploy bigger: REMOTION_FUNCTION_MEMORY=8192 npm run deploy:remotion:function
 
 set -e
 
-MEMORY=${REMOTION_FUNCTION_MEMORY:-8192}
+MEMORY=${REMOTION_FUNCTION_MEMORY:-3008}
 DISK=${REMOTION_FUNCTION_DISK:-4096}
 TIMEOUT=${REMOTION_FUNCTION_TIMEOUT:-900}
 
