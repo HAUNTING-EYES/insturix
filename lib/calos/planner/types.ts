@@ -22,6 +22,8 @@ export interface PlannerInput {
   goal?: string;
   slots: PlannerSlot[];
   trends: Trend[];
+  /** Titles already planned for this brand — the planner must NOT repeat or paraphrase these. */
+  existingIdeas?: string[];
 }
 
 /** One drafted idea, aligned to a slot by index. Schedule (date/platform) mirrors the slot. */

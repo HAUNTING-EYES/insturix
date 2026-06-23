@@ -36,6 +36,12 @@ export async function POST(req: NextRequest) {
     if (!fromDate || !toDate || !isValid(fromDate) || !isValid(toDate)) {
       return NextResponse.json({ error: "from and to must be valid ISO dates" }, { status: 400 });
     }
+    // Never fill content for the past — clamp the window start to now.
+    const now = new Date();
+    const effectiveFrom = fromDate < now ? now : fromDate;
+    if (toDate < effectiveFrom) {
+      return NextResponse.json({ created: 0, note: "Date range is entirely in the past." });
+    }
 
     await connectToDatabase();
     const campaign = await CalosCampaign.findOne({
@@ -53,7 +59,7 @@ export async function POST(req: NextRequest) {
       perWeek: r.perWeek,
       preferredDays: [...r.preferredDays],
     }));
-    const proposals = proposeCadenceCards(rules, { from: fromDate, to: toDate });
+    const proposals = proposeCadenceCards(rules, { from: effectiveFrom, to: toDate });
     if (proposals.length === 0) {
       return NextResponse.json({
         created: 0,

@@ -13,10 +13,11 @@ export async function runPostWriter(params: GenerateParams): Promise<string> {
     const { buildBrandContextBlock } = await import("@/lib/shared/brand-context-block");
     const brand = await resolveEffectiveBrand(params.ownerUserId, params.brandId, {
       service: "thinkforge",
+      enabled: true, // CalOS always wants the vault, not the thin legacy fallback
     });
     systemBrief = buildBrandContextBlock(brand);
-  } catch {
-    /* brand context is best-effort — proceed without it */
+  } catch (e) {
+    console.warn("[CalOS] runPostWriter brand resolve failed:", e);
   }
 
   const userPrompt = [
@@ -35,5 +36,11 @@ export async function runPostWriter(params: GenerateParams): Promise<string> {
     brandId: params.brandId,
   });
 
-  return result?.content?.trim() ?? "";
+  return stripMarkdownEmphasis(result?.content?.trim() ?? "");
+}
+
+/** Social platforms render copy as plain text — strip markdown bold markers so posts don't show
+ *  literal **asterisks** (LinkedIn/X/IG don't render them). */
+function stripMarkdownEmphasis(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1");
 }

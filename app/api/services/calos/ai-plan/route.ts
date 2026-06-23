@@ -6,6 +6,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
 import { proposeCadenceCards, DEFAULT_CADENCE } from "@/lib/calos/cadence";
 import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
+import CalosDeliverable from "@/schemas/calos-deliverable";
 import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 import { resolveEffectiveBrand } from "@/lib/shared/brand-effective-resolver";
 import { buildBrandContextBlock } from "@/lib/shared/brand-context-block";
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
     if (!fromDate || !toDate || !isValid(fromDate) || !isValid(toDate)) {
       return NextResponse.json({ error: "from and to must be valid ISO dates" }, { status: 400 });
     }
+    // Never plan content for the past — clamp the window start to now.
+    const now = new Date();
+    const effectiveFrom = fromDate < now ? now : fromDate;
+    if (toDate < effectiveFrom) {
+      return NextResponse.json({ created: 0, note: "Date range is entirely in the past." });
+    }
 
     await connectToDatabase();
 
@@ -76,17 +83,35 @@ export async function POST(req: NextRequest) {
       rules = DEFAULT_CADENCE.map((r) => ({ ...r, preferredDays: [...r.preferredDays] }));
     }
 
-    const proposals = proposeCadenceCards(rules, { from: fromDate, to: toDate });
+    const proposals = proposeCadenceCards(rules, { from: effectiveFrom, to: toDate });
     if (proposals.length === 0) {
       return NextResponse.json({ created: 0, note: "No cadence rules produced slots in this range." });
     }
     const slots = proposals.map((p) => ({ date: p.date, platform: p.platform }));
 
-    // Brand context — reuse the shared resolver/block (same path clickatron/editron use). CalOS is
-    // ThinkForge's planning layer, so it rides the 'thinkforge' brand-source flag.
-    const brand = await resolveEffectiveBrand(userId, brandId, { service: "thinkforge" }).catch(
-      () => null,
-    );
+    // Avoid repeating ideas already planned for this brand (across months + re-runs).
+    const existingDocs = await CalosDeliverable.find({
+      ownerUserId: userId,
+      brandId,
+      deletedAt: null,
+    })
+      .select("card")
+      .limit(200)
+      .lean<{ card?: { title?: string } }[]>();
+    const existingIdeas = existingDocs
+      .map((d) => d?.card?.title)
+      .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+      .slice(0, 100);
+
+    // Brand context — force the vault ON (enabled:true) so CalOS always uses the rich brand profile,
+    // not the thin legacy fallback, regardless of the per-service rollout flag.
+    const brand = await resolveEffectiveBrand(userId, brandId, {
+      service: "thinkforge",
+      enabled: true,
+    }).catch((e) => {
+      console.warn("[CalOS] ai-plan brand resolve failed:", e);
+      return null;
+    });
     const brandContext = buildBrandContextBlock(brand);
     const niche =
       brand?.voice.nicheMap || brand?.visual.industry || brand?.name || "general business";
@@ -113,6 +138,7 @@ export async function POST(req: NextRequest) {
         goal,
         slots,
         trends,
+        existingIdeas,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI planner unavailable";
