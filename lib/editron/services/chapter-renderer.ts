@@ -33,6 +33,16 @@ const TARGET_CHAPTER_FRAMES = 4500;
 /** Min chapter length — don't create tiny chapters */
 const MIN_CHAPTER_FRAMES = 900; // 30 seconds
 
+/**
+ * Max chapters rendering on Lambda at once. Each chapter fans out into ~ceil(frames / framesPerLambda)
+ * renderer Lambdas; on a concurrency-limited AWS account (default ~10) firing every chapter in parallel
+ * over-subscribes the limit, so chunk renderers get throttled and the per-chapter main function times out
+ * ("main function timed out after 600000ms, N chunks missing"). Keep this low so each running chapter gets
+ * the full available concurrency. Raise it after increasing the AWS Lambda "Concurrent executions" quota.
+ * The queue is advanced by getChapterRenderProgress() (the progress poller) as chapters finish.
+ */
+const MAX_CONCURRENT_CHAPTER_RENDERS = 1;
+
 const CHAPTERS_COLLECTION = 'editron_render_chapters';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -194,6 +204,92 @@ function isTerminalChapterProgressError(message: string): boolean {
  * Splits the composition, starts parallel Lambda renders,
  * and returns a job ID for progress tracking.
  */
+/**
+ * Start ONE pending chapter on Lambda, atomically claimed so two overlapping progress polls can't
+ * double-start it. Flips the chapter pending → rendering first, then triggers the render and records the
+ * renderId; a start failure marks it 'failed'.
+ */
+async function startSingleChapterRender(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  jobId: string,
+  chapter: Chapter,
+  ctx: { serveUrl: string; functionName: string; fps: number; width: number; height: number },
+): Promise<void> {
+  // Atomic claim: only proceed if this chapter is still pending (prevents a racing poll double-starting it).
+  const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
+    { _id: jobId, chapters: { $elemMatch: { index: chapter.index, status: 'pending' } } } as any,
+    { $set: { 'chapters.$.status': 'rendering', updatedAt: new Date() } },
+  );
+  if (claim.modifiedCount === 0) return; // a concurrent poll already claimed it
+
+  try {
+    await setAWSCredentials();
+    const { renderId, bucketName } = await renderMediaOnLambda({
+      region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
+      functionName: ctx.functionName,
+      serveUrl: ctx.serveUrl,
+      composition: REMOTION_COMPOSITION_ID,
+      inputProps: {
+        overlays: chapter.overlays,
+        durationInFrames: chapter.durationFrames,
+        fps: ctx.fps,
+        width: ctx.width,
+        height: ctx.height,
+      },
+      codec: 'h264',
+      maxRetries: 1,
+      framesPerLambda: 200,
+      privacy: 'public',
+      timeoutInMilliseconds: 600000, // 10 min per chapter
+      audioCodec: 'mp3',
+    });
+    await db.collection(CHAPTERS_COLLECTION).updateOne(
+      { _id: jobId, 'chapters.index': chapter.index } as any,
+      { $set: { 'chapters.$.renderId': renderId, 'chapters.$.bucketName': bucketName, updatedAt: new Date() } },
+    );
+    console.log(`[ChapterRenderer] Chapter ${chapter.index} started: ${renderId}`);
+  } catch (err: any) {
+    console.error(`[ChapterRenderer] Chapter ${chapter.index} failed to start: ${err.message}`);
+    await db.collection(CHAPTERS_COLLECTION).updateOne(
+      { _id: jobId, 'chapters.index': chapter.index } as any,
+      { $set: { 'chapters.$.status': 'failed', 'chapters.$.error': err.message, updatedAt: new Date() } },
+    );
+  }
+}
+
+/**
+ * Start pending chapters up to MAX_CONCURRENT_CHAPTER_RENDERS, keeping total renderer Lambdas under the
+ * AWS account limit. Called once when the job starts and again on every progress poll, so the next chapter
+ * begins as soon as a running one finishes. Idempotent; safe to call repeatedly.
+ */
+export async function startPendingChapters(
+  jobId: string,
+  opts?: { serveUrl?: string; functionName?: string },
+): Promise<void> {
+  const db = await getDatabase();
+  const job = await db.collection(CHAPTERS_COLLECTION).findOne({ _id: jobId as any }) as any;
+  if (!job || !Array.isArray(job.chapters)) return;
+
+  const active = job.chapters.filter((c: any) => c.status === 'rendering').length;
+  const slots = MAX_CONCURRENT_CHAPTER_RENDERS - active;
+  if (slots <= 0) return;
+
+  const pending = (job.chapters as Chapter[]).filter((c) => c.status === 'pending').slice(0, slots);
+  if (pending.length === 0) return;
+
+  const serveUrl = opts?.serveUrl || process.env.REMOTION_LAMBDA_SERVE_URL;
+  const functionName = opts?.functionName || process.env.REMOTION_LAMBDA_FUNCTION_NAME;
+  if (!serveUrl || !functionName) {
+    console.warn('[ChapterRenderer] cannot start pending chapters: REMOTION_LAMBDA_SERVE_URL / FUNCTION_NAME unset');
+    return;
+  }
+
+  const ctx = { serveUrl, functionName, fps: job.fps, width: job.width, height: job.height };
+  for (const chapter of pending) {
+    await startSingleChapterRender(db, jobId, chapter, ctx);
+  }
+}
+
 export async function startChapterRender(
   projectId: string,
   userId: string,
@@ -240,65 +336,11 @@ export async function startChapterRender(
 
   console.log(`[ChapterRenderer] Job ${jobId}: ${chapters.length} chapters for ${totalFrames} frames`);
 
-  // Start all chapter renders in parallel
-  const renderPromises = chapters.map(async (chapter, i) => {
-    try {
-      await setAWSCredentials();
-
-      const { renderId, bucketName } = await renderMediaOnLambda({
-        region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
-        functionName,
-        serveUrl,
-        composition: REMOTION_COMPOSITION_ID,
-        inputProps: {
-          overlays: chapter.overlays,
-          durationInFrames: chapter.durationFrames,
-          fps,
-          width,
-          height,
-        },
-        codec: 'h264',
-        maxRetries: 1,
-        framesPerLambda: 200,
-        privacy: 'public',
-        timeoutInMilliseconds: 600000, // 10 min per chapter
-        audioCodec: 'mp3',
-      });
-
-      // Update chapter with renderId
-      await db.collection(CHAPTERS_COLLECTION).updateOne(
-        { _id: jobId, 'chapters.index': i } as any,
-        {
-          $set: {
-            'chapters.$.renderId': renderId,
-            'chapters.$.bucketName': bucketName,
-            'chapters.$.status': 'rendering',
-            updatedAt: new Date(),
-          },
-        },
-      );
-
-      console.log(`[ChapterRenderer] Chapter ${i}/${chapters.length} started: ${renderId}`);
-      return { index: i, renderId, bucketName };
-    } catch (err: any) {
-      console.error(`[ChapterRenderer] Chapter ${i} failed to start: ${err.message}`);
-
-      await db.collection(CHAPTERS_COLLECTION).updateOne(
-        { _id: jobId, 'chapters.index': i } as any,
-        {
-          $set: {
-            'chapters.$.status': 'failed',
-            'chapters.$.error': err.message,
-            updatedAt: new Date(),
-          },
-        },
-      );
-
-      return { index: i, error: err.message };
-    }
-  });
-
-  await Promise.allSettled(renderPromises);
+  // Start chapters under a concurrency cap. The rest stay 'pending' and are started by
+  // getChapterRenderProgress() as each running chapter finishes — keeping total renderer Lambdas under
+  // the AWS account limit instead of firing every chapter at once (which throttled the chunks and timed
+  // out the per-chapter main function after 600s).
+  await startPendingChapters(jobId, { serveUrl, functionName });
 
   return { jobId, chapters: chapters.length };
 }
@@ -416,6 +458,10 @@ export async function getChapterRenderProgress(jobId: string): Promise<{
       error: chapterError,
     });
   }
+
+  // Advance the chapter queue: finished chapters have freed slots, so start the next pending one(s).
+  // This is what carries the bounded-concurrency render past the first chapter.
+  await startPendingChapters(jobId);
 
   const overallProgress = job.chapters.length > 0
     ? totalProgress / job.chapters.length
