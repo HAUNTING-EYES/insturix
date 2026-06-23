@@ -9,6 +9,7 @@ import {
   buildProjectRenderInputProps,
   shouldHydrateRenderInputFromProject,
 } from '@/lib/editron/shared/render-request-payload';
+import { REMOTION_COMPOSITION_ID } from '@/lib/editron/services/remotion-constants';
 
 export async function POST(request: Request) {
   try {
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     await setAWSCredentials();
 
     console.log('Triggering distributed render on Lambda:', functionName);
-    console.log('Composition:', compositionId || 'TestComponent');
+    console.log('Composition:', compositionId || REMOTION_COMPOSITION_ID);
     console.log('Region:', region);
 
     // Resolve asset URLs before sending to Lambda - ensure all overlays have valid URLs.
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
       region,
       functionName,
       serveUrl,
-      composition: compositionId || 'TestComponent',
+      composition: compositionId || REMOTION_COMPOSITION_ID,
       inputProps: resolvedProps,
       codec: 'h264',
       audioCodec: 'mp3', // Faster audio processing than AAC

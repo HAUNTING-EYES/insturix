@@ -15,6 +15,7 @@
  */
 
 import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
+import { REMOTION_COMPOSITION_ID } from './remotion-constants';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
@@ -248,7 +249,7 @@ export async function startChapterRender(
         region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
         functionName,
         serveUrl,
-        composition: 'EditronComposition',
+        composition: REMOTION_COMPOSITION_ID,
         inputProps: {
           overlays: chapter.overlays,
           durationInFrames: chapter.durationFrames,

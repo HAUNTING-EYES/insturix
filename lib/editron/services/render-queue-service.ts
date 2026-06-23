@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis';
 import { countActiveRenders, createJob } from './render-job-service';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
+import { REMOTION_COMPOSITION_ID } from './remotion-constants';
 
 // Maximum concurrent renders (based on AWS Lambda account limits)
 export const MAX_CONCURRENT_RENDERS = 3; // Conservative limit for 10 concurrent Lambdas
@@ -107,7 +108,7 @@ async function startRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
     region,
     functionName,
     serveUrl,
-    composition: job.compositionId || 'TestComponent',
+    composition: job.compositionId || REMOTION_COMPOSITION_ID,
     inputProps: job.inputProps || {},
     codec: 'h264',
     audioCodec: 'mp3', // Faster audio processing than AAC
