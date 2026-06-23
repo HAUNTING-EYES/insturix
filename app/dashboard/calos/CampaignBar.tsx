@@ -3,20 +3,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { startOfMonth, endOfMonth, format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
+import CadenceEditor, { type CadenceRule } from './CadenceEditor';
 
 interface Campaign {
   _id: string;
   name: string;
+  cadenceRules: CadenceRule[];
 }
 
-// Starter cadence for a new campaign. The cadence EDITOR (per-platform mix UI) is the next
-// refinement; the campaigns PATCH API already supports editing cadenceRules.
-const DEFAULT_CADENCE = [{ platform: 'linkedin', perWeek: 3, preferredDays: [1, 3, 5] }];
+const DEFAULT_CADENCE: CadenceRule[] = [{ platform: 'linkedin', perWeek: 3, preferredDays: [1, 3, 5] }];
 
 /**
- * Campaign picker + "Auto-fill month" for a client/brand. Selecting a campaign and clicking
- * auto-fill calls the cadence engine to drop DRAFT cards across the current month; the parent
- * refreshes the calendar via onAutoFilled.
+ * Campaign picker + cadence editor + "Auto-fill month" for a client/brand. Selecting a
+ * campaign and clicking auto-fill calls the cadence engine to drop DRAFT cards across the
+ * current month; the parent refreshes the calendar via onAutoFilled.
  */
 export default function CampaignBar({
   brandId,
@@ -28,6 +28,7 @@ export default function CampaignBar({
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignId, setCampaignId] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -37,7 +38,11 @@ export default function CampaignBar({
       );
       const data = await res.json();
       const list: Campaign[] = Array.isArray(data?.campaigns)
-        ? data.campaigns.map((c: { _id: string; name: string }) => ({ _id: c._id, name: c.name }))
+        ? data.campaigns.map((c: { _id: string; name: string; cadenceRules?: CadenceRule[] }) => ({
+            _id: c._id,
+            name: c.name,
+            cadenceRules: Array.isArray(c.cadenceRules) ? c.cadenceRules : [],
+          }))
         : [];
       setCampaigns(list);
       setCampaignId((cur) => (cur && list.some((c) => c._id === cur) ? cur : list[0]?._id ?? ''));
@@ -49,6 +54,8 @@ export default function CampaignBar({
   useEffect(() => {
     void loadCampaigns();
   }, [loadCampaigns]);
+
+  const selected = campaigns.find((c) => c._id === campaignId) ?? null;
 
   const createCampaign = async () => {
     const name = window.prompt('Campaign name?');
@@ -66,7 +73,7 @@ export default function CampaignBar({
       if (data?.campaign?._id) setCampaignId(data.campaign._id);
       toast({
         title: 'Campaign created',
-        description: 'Starter cadence: 3 LinkedIn/wk (Mon/Wed/Fri). A cadence editor is coming next.',
+        description: "Starter cadence: 3 LinkedIn/wk. Use 'Edit cadence' to set your mix.",
       });
     } catch (err) {
       toast({
@@ -140,12 +147,30 @@ export default function CampaignBar({
         + Campaign
       </button>
       <button
+        onClick={() => setEditorOpen(true)}
+        disabled={!campaignId}
+        className={`${btn} bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-300 hover:bg-[#1C1B19]/90`}
+      >
+        Edit cadence
+      </button>
+      <button
         onClick={autoFill}
         disabled={busy || !campaignId}
         className={`${btn} bg-[#5CCCB8]/15 border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25`}
       >
         {busy ? 'Working…' : 'Auto-fill month'}
       </button>
+
+      {editorOpen && selected && (
+        <CadenceEditor
+          campaignId={selected._id}
+          brandId={brandId}
+          campaignName={selected.name}
+          initialRules={selected.cadenceRules}
+          onClose={() => setEditorOpen(false)}
+          onSaved={loadCampaigns}
+        />
+      )}
     </div>
   );
 }
