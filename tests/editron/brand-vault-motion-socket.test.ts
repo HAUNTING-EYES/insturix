@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../../lib/editron/data/motion-theme-resolver';
 import { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } from '../../lib/editron/motion-graphics/engine/brand-vault-to-motion';
 import { resolveEffectiveBrandWithProfile } from '../../lib/shared/brand-effective-resolver';
+import { brandSignalProfileToCreativeSignalDefaults } from '../../lib/shared/brand-to-creative-signals';
 import { deriveBrandSignalProfile, type BrandSignal, type BrandSignalProfile } from '../../lib/shared/brand-signal-profile';
 import type { UnifiedBrand } from '../../lib/shared/brand-registry';
 
@@ -38,6 +39,7 @@ function acceptedProfile(): BrandSignalProfile {
   setSignal(draft.palette.primary!, '#101820', 0.92, 'brand_fact');
   setSignal(draft.palette.accent!, '#ffcc00', 0.9, 'brand_preference');
   setSignal(draft.typography.casingBias, 'uppercase', 0.9, 'brand_preference');
+  setSignal(draft.voice.defaultFormality, 0.25, 0.86, 'brand_preference');
   setSignal(draft.visual.minimalism, 0.82, 0.86, 'brand_preference');
   setSignal(draft.visual.densityTolerance, 0.72, 0.84, 'brand_preference');
   setSignal(draft.visual.expressiveness, 0.68, 0.82, 'brand_preference');
@@ -133,6 +135,14 @@ describe('Brand Vault Editron motion socket', () => {
     expect(tokens.color.primary).toBe('#101820');
     expect(tokens.color.accent).toBe('#ffcc00');
     expect(tokens.typography.headingTransform).toBe('uppercase');
+
+    const creativeSignalDefaults = brandSignalProfileToCreativeSignalDefaults(profile);
+    expect(creativeSignalDefaults.signals).toMatchObject({
+      enthusiasm: 0.78,
+      pacing_velocity: 0.78,
+      pivot_intensity: 0.82,
+      formality: -0.5,
+    });
   });
 
   it('uses brand visual and motion dials as bias inputs, not presets', () => {
@@ -200,6 +210,18 @@ describe('Brand Vault Editron motion socket', () => {
     expect(seam).toContain('buildBrandContextBlock(resolution.brand)');
     expect(seam).not.toContain('getUnifiedBrand');
   });
+
+  it('routes accepted Brand Vault defaults into EDL signal enrichment as the lowest-priority signal tier', () => {
+    const source = readFileSync(new URL('../../lib/editron/services/edl-executor.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain('brandSignalProfileToCreativeSignalDefaults(resolution.acceptedProfile).signals');
+    expect(source).toContain('projectBrandSignalDefaults: Record<string, number | string>');
+    expect(source).toContain('enrichDecisionSignals(decision, overlays, analyses, projectSignalContext, projectBrandSignalDefaults)');
+    expect(source).toContain('{ ...brandSignalDefaults, ...derivedSignals, ...existingSignals }');
+    expect(source).toContain('formality');
+    expect(source).toContain('emotional_valence');
+  });
+
   it('routes LLM scene parser brand context through the effective resolver seam', () => {
     const source = readFileSync(new URL('../../lib/pipeline/llm-scene-parser.ts', import.meta.url), 'utf8');
     const seamStart = source.indexOf('Brand Context (optional)');

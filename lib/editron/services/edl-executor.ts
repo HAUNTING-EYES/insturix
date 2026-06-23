@@ -21,6 +21,7 @@ import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-te
 import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { brandInputsFromUnifiedBrandAtomic } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
 import { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } from '@/lib/editron/motion-graphics/engine/brand-vault-to-motion';
+import { brandSignalProfileToCreativeSignalDefaults } from '@/lib/shared/brand-to-creative-signals';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import { buildAtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
@@ -510,6 +511,7 @@ export async function executeEDL(
   // it here, the single sink all four director paths reach. Empty/no brand → {} → DEFAULT (unchanged).
   let projectBrand: Partial<BrandInputs> = {};
   let projectBrandMotionOverrides: DeepPartial<MotionTokens> | undefined;
+  let projectBrandSignalDefaults: Record<string, number | string> = {};
   let projectSignalContext: EDLSignalContext = {};
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
@@ -531,6 +533,11 @@ export async function executeEDL(
           }
         : brandInputsFromUnifiedBrandAtomic(resolution.brand);
       projectBrandMotionOverrides = brandVaultToMotionOverrides(resolution.acceptedProfile);
+      if (resolution.acceptedProfile) {
+        projectBrandSignalDefaults = normalizePlannerSignals(
+          brandSignalProfileToCreativeSignalDefaults(resolution.acceptedProfile).signals,
+        );
+      }
       if (projectBrand.accentColor) console.log(`[EDL] Brand accent ${projectBrand.accentColor} → MG (brand ${projectDoc.brandId})`);
     }
   } catch (e) {
@@ -641,7 +648,7 @@ export async function executeEDL(
     const currentDecisionIndex = decisionIndex++;
 
     try {
-      enrichDecisionSignals(decision, overlays, analyses, projectSignalContext);
+      enrichDecisionSignals(decision, overlays, analyses, projectSignalContext, projectBrandSignalDefaults);
       if (utilityScoringRuntime) {
         enrichDecisionWithUtilityScoring(decision, utilityScoringRuntime);
       }
@@ -813,11 +820,12 @@ function enrichDecisionSignals(
   overlays: Overlay[],
   analyses?: Map<string, any>,
   projectSignalContext: EDLSignalContext = {},
+  brandSignalDefaults: Record<string, number | string> = {},
 ): void {
   decision.params = decision.params || {};
   const existingSignals = normalizePlannerSignals(decision.params.signals);
   const derivedSignals = deriveSignalsAtDecisionFrame(decision.frame, overlays, analyses, projectSignalContext);
-  const mergedSignals = normalizePlannerSignals({ ...derivedSignals, ...existingSignals });
+  const mergedSignals = normalizePlannerSignals({ ...brandSignalDefaults, ...derivedSignals, ...existingSignals });
 
   if (Object.keys(mergedSignals).length > 0) {
     decision.params.signals = mergedSignals;
@@ -1137,7 +1145,17 @@ function normalizePlannerSignals(value: unknown): Record<string, number | string
   if (!value || typeof value !== 'object') return {};
   const source = value as Record<string, unknown>;
   const signals: Record<string, number | string> = {};
-  const signedKeys = new Set(['motion_vector_x', 'motion_vector_y', 'visual.motion_vector.x', 'visual.motion_vector.y']);
+  const signedKeys = new Set([
+    'formality',
+    'content.formality',
+    'personality.formality',
+    'emotional_valence',
+    'speech.emotional_valence',
+    'motion_vector_x',
+    'motion_vector_y',
+    'visual.motion_vector.x',
+    'visual.motion_vector.y',
+  ]);
   const unboundedNumericKeys = new Set([
     'object_count', 'visual.object_count',
     'face_count', 'visual.face_count',
