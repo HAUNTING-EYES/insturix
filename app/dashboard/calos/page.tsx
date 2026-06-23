@@ -13,14 +13,14 @@ interface BrandOption {
 }
 
 const LS_SELECTED_BRAND = 'calos_selected_brand';
+const DEFAULT_BRAND = 'default'; // personal space when the user has no explicit brand
 
 export default function CalosPage() {
   const router = useRouter();
   const [brands, setBrands] = useState<BrandOption[]>([]);
-  const [brandsLoading, setBrandsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [brandId, setBrandId] = useState<string | null>(null);
 
-  // Load the user's client brands once; restore the last-selected one.
   useEffect(() => {
     let active = true;
     (async () => {
@@ -32,13 +32,23 @@ export default function CalosPage() {
           : [];
         if (!active) return;
         setBrands(list);
-        const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_SELECTED_BRAND) : null;
-        const initial = saved && list.some((b) => b.brandId === saved) ? saved : list[0]?.brandId ?? null;
-        setBrandId(initial);
+        // Works for a single brand AND an agency: 0 brands -> personal default; exactly 1 -> that
+        // brand; many -> last-selected or first. No "pick a client" step is ever forced.
+        let effective = DEFAULT_BRAND;
+        if (list.length === 1) {
+          effective = list[0].brandId;
+        } else if (list.length > 1) {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_SELECTED_BRAND) : null;
+          effective = saved && list.some((b) => b.brandId === saved) ? saved : list[0].brandId;
+        }
+        setBrandId(effective);
       } catch {
-        if (active) setBrands([]);
+        if (active) {
+          setBrands([]);
+          setBrandId(DEFAULT_BRAND);
+        }
       } finally {
-        if (active) setBrandsLoading(false);
+        if (active) setLoading(false);
       }
     })();
     return () => {
@@ -72,16 +82,17 @@ export default function CalosPage() {
 
   return (
     <div className="w-full h-full flex flex-col bg-[#0B0B0A]">
-      {/* Header: client/brand switcher */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-semibold text-[#ECE9E1]">Content Calendar</h1>
-          {brands.length > 0 && (
+          {/* Brand switcher only when there's more than one brand (agencies). A single brand
+              or a solo user never sees a "pick a client" step. */}
+          {brands.length > 1 && (
             <select
               value={brandId ?? ''}
               onChange={(e) => selectBrand(e.target.value)}
-              aria-label="Select client"
-              className="bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40"
+              aria-label="Switch brand"
+              className="bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40"
             >
               {brands.map((b) => (
                 <option key={b.brandId} value={b.brandId}>
@@ -94,25 +105,9 @@ export default function CalosPage() {
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex-1 min-h-0">
-        {brandsLoading ? (
-          <div className="h-full flex items-center justify-center text-[#7A776E] text-sm">
-            Loading clients…
-          </div>
-        ) : brands.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-8">
-            <p className="text-[#ECE9E1] text-sm font-medium">No client brands yet</p>
-            <p className="text-[#7A776E] text-xs max-w-sm">
-              Create a client in the Brand Vault, then plan its content here.
-            </p>
-            <button
-              onClick={() => router.push('/dashboard/brand-vault')}
-              className="px-4 py-2 rounded-lg bg-[#D4A652]/20 border border-[#D4A652]/40 text-[#D4A652] text-xs font-medium hover:bg-[#D4A652]/30 transition-colors"
-            >
-              Go to Brand Vault
-            </button>
-          </div>
+        {loading || !brandId ? (
+          <div className="h-full flex items-center justify-center text-[#7A776E] text-sm">Loading…</div>
         ) : (
           <Calendar
             events={cards}
