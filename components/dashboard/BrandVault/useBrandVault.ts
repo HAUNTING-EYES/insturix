@@ -30,7 +30,9 @@ export const BRAND_VAULT_KEYS = {
   all: ['brand-vault'] as const,
   job: (jobId: string) => [...BRAND_VAULT_KEYS.all, 'job', jobId] as const,
   profile: (recordId: string) => [...BRAND_VAULT_KEYS.all, 'profile', recordId] as const,
-  latestAccepted: () => [...BRAND_VAULT_KEYS.all, 'latest-accepted'] as const,
+  latestAcceptedRoot: () => [...BRAND_VAULT_KEYS.all, 'latest-accepted'] as const,
+  latestAccepted: (brandId: string | null | undefined) =>
+    [...BRAND_VAULT_KEYS.latestAcceptedRoot(), brandId ?? 'none'] as const,
 };
 
 /* ------------------------------------------------------------------ */
@@ -78,11 +80,18 @@ async function fetchProfile(recordId: string): Promise<BrandVaultApiSuccess> {
   return brandVaultFetch(`/api/brand-vault/signal-profiles/${encodeURIComponent(recordId)}`);
 }
 
-/** Latest accepted brand profile record id for the signed-in user (null if none accepted yet). */
-async function fetchLatestAcceptedRecordId(): Promise<string | null> {
-  const response = await fetch('/api/brand-vault/signal-profiles', { credentials: 'include' });
-  const payload = (await response.json().catch(() => null)) as { ok?: boolean; recordId?: string | null } | null;
-  return payload?.ok ? payload.recordId ?? null : null;
+/** Latest accepted brand profile record id for the signed-in user + brand (null if none accepted yet). */
+async function fetchLatestAcceptedRecordId(brandId: string): Promise<string | null> {
+  const params = new URLSearchParams({ brandId });
+  const response = await fetch(`/api/brand-vault/signal-profiles?${params.toString()}`, { credentials: 'include' });
+  const payload = (await response.json().catch(() => null)) as
+    | { ok: true; recordId?: string | null }
+    | { ok: false; error?: { message?: string } }
+    | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload && 'error' in payload ? payload.error?.message ?? 'Could not load the accepted Brand Vault profile.' : 'Could not load the accepted Brand Vault profile.');
+  }
+  return payload.recordId ?? null;
 }
 
 async function reviewDraftRequest(
@@ -102,9 +111,11 @@ function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, 
   const recordId = data.record?.id ?? fallbackRecordId;
   const jobId = data.job?.id ?? data.reviewPayload?.jobId ?? null;
 
-  queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.latestAccepted() });
-  if (data.record?.status === 'accepted' && recordId) {
-    queryClient.setQueryData(BRAND_VAULT_KEYS.latestAccepted(), recordId);
+  const brandId = data.record?.profile.brandId ?? null;
+
+  queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.latestAcceptedRoot() });
+  if (data.record?.status === 'accepted' && recordId && brandId) {
+    queryClient.setQueryData(BRAND_VAULT_KEYS.latestAccepted(brandId), recordId);
   }
   if (recordId) queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(recordId) });
   if (jobId) queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.job(jobId) });
@@ -141,12 +152,12 @@ export function useBrandVaultProfile(recordId: string | null) {
 }
 
 /** Id of the signed-in user's latest accepted brand profile, so the tab can reload it on mount. */
-export function useLatestAcceptedBrandVaultRecordId() {
+export function useLatestAcceptedBrandVaultRecordId(brandId: string | null | undefined) {
   const { isSignedIn } = useAuth();
   return useQuery({
-    queryKey: BRAND_VAULT_KEYS.latestAccepted(),
-    queryFn: fetchLatestAcceptedRecordId,
-    enabled: Boolean(isSignedIn),
+    queryKey: BRAND_VAULT_KEYS.latestAccepted(brandId),
+    queryFn: () => fetchLatestAcceptedRecordId(brandId as string),
+    enabled: Boolean(isSignedIn && brandId),
     staleTime: 30 * 1000,
   });
 }

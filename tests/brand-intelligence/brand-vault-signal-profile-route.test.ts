@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET } from '@/app/api/brand-vault/signal-profiles/route';
 import { PATCH } from '@/app/api/brand-vault/signal-profiles/[id]/route';
 
 const mocks = vi.hoisted(() => ({
@@ -6,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   emitBrandEvent: vi.fn(),
   getBrandVaultSignalProfile: vi.fn(),
   getDefaultBrandVaultRefineryStore: vi.fn(),
+  getLatestAcceptedRecord: vi.fn(),
   reviewBrandVaultSignalProfileDraft: vi.fn(),
 }));
 
@@ -30,17 +32,53 @@ function request(body: unknown): Request {
   });
 }
 
-describe('Brand Vault signal profile review route', () => {
+function listRequest(brandId?: string): Request {
+  const suffix = brandId ? `?brandId=${encodeURIComponent(brandId)}` : '';
+  return new Request(`http://localhost/api/brand-vault/signal-profiles${suffix}`);
+}
+
+describe('Brand Vault signal profile routes', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
     mocks.emitBrandEvent.mockReset();
     mocks.getBrandVaultSignalProfile.mockReset();
     mocks.getDefaultBrandVaultRefineryStore.mockReset();
+    mocks.getLatestAcceptedRecord.mockReset();
     mocks.reviewBrandVaultSignalProfileDraft.mockReset();
 
     mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: 'org_route' });
     mocks.emitBrandEvent.mockResolvedValue('event_route');
-    mocks.getDefaultBrandVaultRefineryStore.mockReturnValue({ store: 'brand-vault' });
+    mocks.getDefaultBrandVaultRefineryStore.mockReturnValue({
+      store: 'brand-vault',
+      getLatestAcceptedRecord: mocks.getLatestAcceptedRecord,
+    });
+  });
+
+  it('requires brandId when loading the latest accepted profile', async () => {
+    const response = await GET(listRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual({
+      ok: false,
+      error: { code: 'brand_required', message: 'brandId is required.' },
+    });
+    expect(mocks.getLatestAcceptedRecord).not.toHaveBeenCalled();
+  });
+
+  it('loads the latest accepted profile for the selected brand', async () => {
+    mocks.getLatestAcceptedRecord.mockResolvedValue({ id: 'accepted_route' });
+
+    const response = await GET(listRequest('brand_route'));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ ok: true, recordId: 'accepted_route' });
+    expect(mocks.getLatestAcceptedRecord).toHaveBeenCalledWith({
+      userId: 'user_route',
+      orgId: 'org_route',
+      brandId: 'brand_route',
+    });
   });
 
   it('emits brand_updated when a draft is accepted without manual learning events', async () => {
@@ -74,7 +112,7 @@ describe('Brand Vault signal profile review route', () => {
         actorId: 'user_route',
         body: { action: 'accept' },
       },
-      { store: { store: 'brand-vault' } },
+      { store: expect.objectContaining({ store: 'brand-vault' }) },
     );
     expect(mocks.emitBrandEvent).toHaveBeenCalledWith({
       userId: 'user_route',

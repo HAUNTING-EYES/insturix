@@ -49,6 +49,7 @@ import type {
   BrandVaultSignalGroup,
   BrandVaultSnapshot,
   BrandVaultSourceInput,
+  CreateBrandVaultDraftInput,
   SignalRow,
   SourceLane,
 } from './brand-vault-types';
@@ -69,6 +70,11 @@ interface DomainVerificationState {
   checkedAt?: string;
   observedRecordValues?: string[];
   error?: string;
+}
+
+interface BrandVaultBrandOption {
+  brandId: string;
+  name: string;
 }
 
 const BRAND_GROUPS: BrandVaultSignalGroup[] = [
@@ -93,7 +99,44 @@ const SOCIAL_PLATFORM_META = [
 ] as const;
 
 const GENERIC_SOCIAL_META = { id: 'website', label: 'Website', color: '#D4A652' } as const;
+const BRAND_VAULT_SELECTED_BRAND_KEY = 'brand_vault_selected_brand_id';
 const BRAND_VAULT_UPLOAD_ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.markdown,.csv,.json,.html,.htm,.css,.svg,image/*';
+
+function normalizeBrandOptions(value: unknown): BrandVaultBrandOption[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const options: BrandVaultBrandOption[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const brand = item as { brandId?: unknown; name?: unknown };
+    if (typeof brand.brandId !== 'string') continue;
+    const brandId = brand.brandId.trim();
+    if (!brandId || seen.has(brandId)) continue;
+    seen.add(brandId);
+    options.push({
+      brandId,
+      name: typeof brand.name === 'string' && brand.name.trim() ? brand.name.trim() : brandId,
+    });
+  }
+
+  return options;
+}
+
+function readStoredBrandId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(BRAND_VAULT_SELECTED_BRAND_KEY);
+}
+
+function persistSelectedBrandId(brandId: string): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(BRAND_VAULT_SELECTED_BRAND_KEY, brandId);
+}
+
+function selectInitialBrandId(options: BrandVaultBrandOption[], preferredBrandId: string | null): string | null {
+  if (preferredBrandId && options.some((option) => option.brandId === preferredBrandId)) return preferredBrandId;
+  return options[0]?.brandId ?? null;
+}
 
 export function BrandVaultReview() {
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -116,16 +159,57 @@ export function BrandVaultReview() {
   const [resolvingConflictPath, setResolvingConflictPath] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [brandOptions, setBrandOptions] = useState<BrandVaultBrandOption[]>([]);
+  const [activeBrandId, setActiveBrandId] = useState<string | null>(null);
+  const [brandOptionsLoaded, setBrandOptionsLoaded] = useState(false);
+  const [brandOptionsError, setBrandOptionsError] = useState<string | null>(null);
   const [showSignals, setShowSignals] = useState(false);
   const [signalEdits, setSignalEdits] = useState<Record<string, unknown>>({});
 
   const jobQuery = useBrandVaultJob(jobId);
   const profileQuery = useBrandVaultProfile(profileId);
   const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
-  const latestAccepted = useLatestAcceptedBrandVaultRecordId();
+  const latestAccepted = useLatestAcceptedBrandVaultRecordId(activeBrandId);
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBrands() {
+      setBrandOptionsLoaded(false);
+      setBrandOptionsError(null);
+      try {
+        const response = await fetch('/api/services/editron/brands', { credentials: 'include', cache: 'no-store' });
+        const payload = (await response.json().catch(() => null)) as
+          | { success?: boolean; brands?: unknown; error?: string }
+          | null;
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.error ?? 'Could not load brands.');
+        }
+
+        const options = normalizeBrandOptions(payload.brands);
+        const nextBrandId = selectInitialBrandId(options, readStoredBrandId());
+        if (cancelled) return;
+        setBrandOptions(options);
+        setActiveBrandId(nextBrandId);
+        setBrandOptionsError(nextBrandId ? null : 'Create a brand/client before scanning in Brand Vault.');
+      } catch (error) {
+        if (cancelled) return;
+        setBrandOptions([]);
+        setActiveBrandId(null);
+        setBrandOptionsError(error instanceof Error ? error.message : 'Could not load brands.');
+      } finally {
+        if (!cancelled) setBrandOptionsLoaded(true);
+      }
+    }
+
+    void loadBrands();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!jobQuery.data) return;
@@ -144,9 +228,10 @@ export function BrandVaultReview() {
   // Fresh visit (no in-session scan/draft): load the user's saved accepted vault so the tab shows
   // it instead of the build screen. Reuses the by-id load path via setProfileId.
   useEffect(() => {
+    if (!activeBrandId) return;
     const recordId = latestAccepted.data;
     if (recordId && !jobId && !profileId) setProfileId(recordId);
-  }, [latestAccepted.data, jobId, profileId]);
+  }, [activeBrandId, latestAccepted.data, jobId, profileId]);
 
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
@@ -189,15 +274,21 @@ export function BrandVaultReview() {
     uploadStatus === 'extracting';
   const currentError =
     localError ??
+    brandOptionsError ??
     errorMessage(createDraft.error) ??
     errorMessage(acceptDraft.error) ??
     errorMessage(rejectDraft.error) ??
     errorMessage(jobQuery.error) ??
-    errorMessage(profileQuery.error);
+    errorMessage(profileQuery.error) ??
+    errorMessage(latestAccepted.error);
   const statusLabel = snapshot.record?.status ?? snapshot.job?.status ?? 'draft';
   const needsCount = activeConflicts.length;
   const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';
-  const canRescanWithEvidence = Boolean(scanWebsiteUrl) && !busy;
+  const brandReady = Boolean(activeBrandId);
+  const activeBrandName = activeBrandId
+    ? brandOptions.find((option) => option.brandId === activeBrandId)?.name ?? activeBrandId
+    : 'No brand selected';
+  const canRescanWithEvidence = Boolean(scanWebsiteUrl && brandReady) && !busy;
 
   useEffect(() => {
     if (!toast) return;
@@ -227,10 +318,15 @@ export function BrandVaultReview() {
       setLocalError('Enter a client website before scanning.');
       return;
     }
+    if (!activeBrandId) {
+      setLocalError('Select a brand/client before scanning.');
+      return;
+    }
 
     setLocalError(null);
     setScanLatchActive(true);
-    const input = {
+    const input: CreateBrandVaultDraftInput = {
+      brandId: activeBrandId,
       websiteUrl: cleanUrl,
       companyName: companyName.trim() || undefined,
       socialLinks: parseSocialLinks(socialLinksText),
@@ -432,9 +528,35 @@ export function BrandVaultReview() {
     setToast({ message, tone });
   }
 
+  function selectActiveBrand(nextBrandId: string) {
+    const cleanBrandId = nextBrandId.trim();
+    if (!cleanBrandId || cleanBrandId === activeBrandId) return;
+    persistSelectedBrandId(cleanBrandId);
+    setActiveBrandId(cleanBrandId);
+    setSnapshot(EMPTY_SNAPSHOT);
+    setWebsiteUrl('');
+    setCompanyName('');
+    setSocialLinksText('');
+    setSourceNotes('');
+    setLookupId('');
+    setRejectReason('');
+    setUploadedSources([]);
+    setUploadWarnings([]);
+    setDomainVerification(null);
+    setJobId(null);
+    setProfileId(null);
+    setResolvedConflicts(new Set());
+    setResolvingConflictPath(null);
+    setActiveGuidanceWorkflow(null);
+    setSignalEdits({});
+    setShowSignals(false);
+    setLocalError(null);
+    setBrandOptionsError(null);
+  }
+
   // Avoid the build-screen flash on open: hold a loader while we resolve whether the user has a saved
   // accepted vault (and load it), instead of briefly rendering the empty/build state then swapping.
-  const bootstrappingVault = latestAccepted.isLoading || (Boolean(latestAccepted.data) && !snapshot.record);
+  const bootstrappingVault = !brandOptionsLoaded || latestAccepted.isLoading || (Boolean(latestAccepted.data) && !snapshot.record);
   if (bootstrappingVault) {
     return (
       <>
@@ -457,8 +579,23 @@ export function BrandVaultReview() {
             <i />
           </span>
           <span className="bv-c1-wordmark">Brand Vault</span>
+          {brandOptions.length > 1 && (
+            <select
+              aria-label="Active brand"
+              className="bv-c1-input h-9 w-[220px] py-0"
+              value={activeBrandId ?? ''}
+              disabled={busy}
+              onChange={(event) => selectActiveBrand(event.target.value)}
+            >
+              {brandOptions.map((option) => (
+                <option key={option.brandId} value={option.brandId}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="bv-c1-context">
-            {brandName} / {statusLabel}
+            {activeBrandName} / {brandName} / {statusLabel}
           </span>
           <span className="flex-1" />
           <span className={`bv-c1-pill ${needsCount === 0 ? 'clear' : ''}`}>
@@ -500,7 +637,7 @@ export function BrandVaultReview() {
           <IntakeGuidancePanel
             guidance={intakeGuidance}
             activeWorkflow={activeGuidanceWorkflow}
-            busy={busy}
+            busy={busy || !brandReady}
             scanBusy={scanBusy}
             socialLinksText={socialLinksText}
             uploadStatus={uploadStatus}
@@ -526,7 +663,7 @@ export function BrandVaultReview() {
               lookupId={lookupId}
               uploadedSources={uploadedSources}
               uploadWarnings={uploadWarnings}
-              busy={busy}
+              busy={busy || !brandReady}
               scanBusy={scanBusy}
               uploadStatus={uploadStatus}
               onWebsiteUrlChange={setWebsiteUrl}

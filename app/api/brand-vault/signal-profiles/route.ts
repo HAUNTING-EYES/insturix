@@ -6,19 +6,27 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/brand-vault/signal-profiles
+ * GET /api/brand-vault/signal-profiles?brandId=...
  *
- * Returns the id of the signed-in user's latest accepted brand profile (or null), so the
- * Brand Vault tab can reload the saved vault on mount via the existing [id] load path instead
- * of re-showing the "build" screen on every visit.
+ * Returns the signed-in user's latest accepted profile for one brand. Generation consumers
+ * resolve accepted Vault state by brandId, so the review UI must not reload a global profile.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+
+  const brandId = new URL(request.url).searchParams.get('brandId')?.trim();
+  if (!brandId) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'brand_required', message: 'brandId is required.' } },
+      { status: 400 },
+    );
+  }
 
   const record = await getDefaultBrandVaultRefineryStore().getLatestAcceptedRecord({
     userId,
     orgId: orgId ?? null,
+    brandId,
   });
   return NextResponse.json({ ok: true, recordId: record?.id ?? null });
 }
