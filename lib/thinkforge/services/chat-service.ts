@@ -30,6 +30,8 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { detectContentPath } from '../agents/prompt-utils';
+import { resolveContentSignalProfile, formatContentSignalProfileForPrompt } from '../signals';
+import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import crypto from 'crypto';
 
 // Generator may be imperfect. Renderer must never fail.
@@ -831,6 +833,27 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let signalTrace: any = undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
 
+        // Phase 4: resolve the content signal profile and fold it into systemBrief so the writers
+        // ground (proof points, forbidden terms, source-ledger) and signalTrace persists for the
+        // Clickatron handoff. ponytail: reuse the systemBrief injection the writers already read --
+        // no writer-agent changes. Fails soft to the un-grounded brief.
+        let groundedSystemBrief = systemBrief;
+        try {
+          const contentSignalProfile = resolveContentSignalProfile({
+            userPrompt: effectivePrompt,
+            documentType: sessionState.metadata.format,
+            brandId: sessionState.metadata.brandId,
+            sessionId: sessionState.sessionId,
+            retrievedContext: retrievedCtx || undefined,
+          });
+          groundedSystemBrief = [systemBrief, formatContentSignalProfileForPrompt(contentSignalProfile)]
+            .filter(Boolean)
+            .join('\n\n');
+          signalTrace = buildThinkForgeSignalTrace(contentSignalProfile);
+        } catch (profileErr) {
+          console.warn('[chat-service] content signal profile resolution failed; generating without it:', profileErr);
+        }
+
         try {
           const baseInput = {
             context: quickAssembleContext(
@@ -839,7 +862,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               null,
               [],
               null,
-              systemBrief
+              groundedSystemBrief
             ),
             userPrompt: effectivePrompt,
             retrievedContext: retrievedCtx || undefined,
