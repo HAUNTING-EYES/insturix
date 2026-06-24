@@ -85,9 +85,9 @@ async function fetchProfile(recordId: string): Promise<BrandVaultApiSuccess> {
 }
 
 /** Latest accepted brand profile record id for the signed-in user + brand (null if none accepted yet). */
-async function fetchLatestAcceptedRecordId(brandId: string): Promise<string | null> {
-  const params = new URLSearchParams({ brandId });
-  const response = await fetch(`/api/brand-vault/signal-profiles?${params.toString()}`, { credentials: 'include' });
+async function fetchLatestAcceptedRecordId(brandId: string | null | undefined): Promise<string | null> {
+  const query = brandId ? `?${new URLSearchParams({ brandId }).toString()}` : '';
+  const response = await fetch(`/api/brand-vault/signal-profiles${query}`, { credentials: 'include' });
   const payload = (await response.json().catch(() => null)) as
     | { ok: true; recordId?: string | null }
     | { ok: false; error?: { message?: string } }
@@ -173,8 +173,8 @@ export function useLatestAcceptedBrandVaultRecordId(brandId: string | null | und
   const { isSignedIn } = useAuth();
   return useQuery({
     queryKey: BRAND_VAULT_KEYS.latestAccepted(brandId),
-    queryFn: () => fetchLatestAcceptedRecordId(brandId as string),
-    enabled: Boolean(isSignedIn && brandId),
+    queryFn: () => fetchLatestAcceptedRecordId(brandId),
+    enabled: Boolean(isSignedIn),
     staleTime: 30 * 1000,
   });
 }

@@ -221,12 +221,15 @@ export function BrandVaultReview() {
         if (cancelled) return;
         setBrandOptions(options);
         setActiveBrandId(nextBrandId);
-        setBrandOptionsError(nextBrandId ? null : 'Create a brand/client before scanning in Brand Vault.');
+        // First-run with no brand is valid — you scan to create one, so don't surface a blocking error.
+        setBrandOptionsError(null);
       } catch (error) {
         if (cancelled) return;
         setBrandOptions([]);
         setActiveBrandId(null);
-        setBrandOptionsError(error instanceof Error ? error.message : 'Could not load brands.');
+        // acceptedBrands (the brand-vault hook) is the real source; a failed editron brands fetch
+        // must not block the vault. Keep the error non-blocking.
+        setBrandOptionsError(null);
       } finally {
         if (!cancelled) setBrandOptionsLoaded(true);
       }
@@ -268,10 +271,9 @@ export function BrandVaultReview() {
   // Fresh visit (no in-session scan/draft): load the user's saved accepted vault so the tab shows
   // it instead of the build screen. Reuses the by-id load path via setProfileId.
   useEffect(() => {
-    if (!activeBrandId) return;
     const recordId = latestAccepted.data;
     if (recordId && !jobId && !profileId) setProfileId(recordId);
-  }, [activeBrandId, latestAccepted.data, jobId, profileId]);
+  }, [latestAccepted.data, jobId, profileId]);
 
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
@@ -325,11 +327,10 @@ export function BrandVaultReview() {
   const statusLabel = snapshot.record?.status ?? snapshot.job?.status ?? 'draft';
   const needsCount = activeConflicts.length;
   const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';
-  const brandReady = Boolean(activeBrandId);
   const activeBrandName = activeBrandId
     ? brandOptions.find((option) => option.brandId === activeBrandId)?.name ?? activeBrandId
     : 'No brand selected';
-  const canRescanWithEvidence = Boolean(scanWebsiteUrl && brandReady) && !busy;
+  const canRescanWithEvidence = Boolean(scanWebsiteUrl) && !busy;
 
   useEffect(() => {
     if (!toast) return;
@@ -359,15 +360,17 @@ export function BrandVaultReview() {
       setLocalError('Enter a client website before scanning.');
       return;
     }
-    if (!activeBrandId) {
-      setLocalError('Select a brand/client before scanning.');
-      return;
+    // No brand selected yet (first run) → mint one so the first scan creates the brand. Fail-open.
+    const scanBrandId = activeBrandId ?? `brand_${crypto.randomUUID()}`;
+    if (scanBrandId !== activeBrandId) {
+      persistSelectedBrandId(scanBrandId);
+      setActiveBrandId(scanBrandId);
     }
 
     setLocalError(null);
     setScanLatchActive(true);
     const input: CreateBrandVaultDraftInput = {
-      brandId: activeBrandId,
+      brandId: scanBrandId,
       websiteUrl: cleanUrl,
       companyName: companyName.trim() || undefined,
       socialLinks: parseSocialLinks(socialLinksText),
@@ -682,7 +685,7 @@ export function BrandVaultReview() {
           <IntakeGuidancePanel
             guidance={intakeGuidance}
             activeWorkflow={activeGuidanceWorkflow}
-            busy={busy || !brandReady}
+            busy={busy}
             scanBusy={scanBusy}
             socialLinksText={socialLinksText}
             uploadStatus={uploadStatus}
@@ -708,7 +711,7 @@ export function BrandVaultReview() {
               lookupId={lookupId}
               uploadedSources={uploadedSources}
               uploadWarnings={uploadWarnings}
-              busy={busy || !brandReady}
+              busy={busy}
               scanBusy={scanBusy}
               uploadStatus={uploadStatus}
               onWebsiteUrlChange={setWebsiteUrl}
