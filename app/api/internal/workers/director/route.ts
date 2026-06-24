@@ -23,7 +23,10 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+// 800 (not 300): a 20-min+ video's Director (load + Creative Brief + Path D + EDL execute + save) runs right
+// at ~300s and 504'd mid-EDL before persisting (0.3% over). Siblings video-analysis + tribe-analysis are
+// already 800 for long videos; the Director was the outlier left at 300.
+export const maxDuration = 800;
 
 interface DirectorWorkerPayload {
   projectId: string;
