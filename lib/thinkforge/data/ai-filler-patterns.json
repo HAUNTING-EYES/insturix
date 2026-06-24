@@ -24,7 +24,7 @@
   { "pattern": "\\bmoreover,?\\s+(it is|this|these|such|we must|one must)", "label": "moreover [filler opener]" },
   { "pattern": "\\b(ever[- ]?evolving|rapidly[- ]changing|competitive|digital|marketing|business|content|media|industry)\\s+landscape\\b", "label": "abstract landscape" },
   { "pattern": "\\btapestry\\b", "label": "tapestry" },
-  { "pattern": "\\bfoster\\b", "label": "foster" },
+  { "pattern": "\\bfoster(s|ed|ing)?\\b", "label": "foster" },
   { "pattern": "\\bshowcase\\b", "label": "showcase" },
   { "pattern": "\\binterplay\\b", "label": "interplay" }
 ]

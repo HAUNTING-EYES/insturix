@@ -72,7 +72,8 @@ const writerFilter = writerArg ? writerArg.split('=')[1] : null; // 'post' | 'sc
 const suiteArg = process.argv.find(a => a.startsWith('--suite='));
 const suiteFilter = suiteArg ? suiteArg.split('=')[1] : null; // 'core' | 'heldout'
 const judgeArg = process.argv.find(a => a.startsWith('--judge='));
-const judgeProvider = judgeArg ? judgeArg.split('=')[1] as EvalProvider : null; // deepseek | openrouter
+const judgeRaw = judgeArg ? judgeArg.split('=')[1] : null;
+const judgeProvider = (judgeRaw === 'claude' ? 'anthropic' : judgeRaw) as EvalProvider | null; // claude(anthropic) | deepseek | openrouter
 const dryRun = process.argv.includes('--dry-run');
 
 const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -780,8 +781,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (judgeProvider && judgeProvider !== 'deepseek' && judgeProvider !== 'openrouter') {
-    console.error(`Unsupported judge=${judgeProvider}. Use deepseek or openrouter for a non-Gemini judge.`);
+  if (judgeProvider && judgeProvider !== 'deepseek' && judgeProvider !== 'openrouter' && judgeProvider !== 'anthropic') {
+    console.error(`Unsupported judge=${judgeRaw}. Use claude (anthropic), deepseek, or openrouter for a non-Gemini judge.`);
     process.exit(1);
   }
 
@@ -887,6 +888,17 @@ async function main() {
           const judgeMin = Math.min(...judgeScores);
           const judgeAvg = judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length;
           console.log(`    Judge: min ${judgeMin}/100 avg ${judgeAvg.toFixed(0)}/100 (${judgeProvider})`);
+          // OVERFIT VERDICT: the deterministic checks share word-lists with the prompt, so a high
+          // deterministic score only proves quality if the INDEPENDENT judge agrees. Surface the gap.
+          const detMinPct = Math.round(min * 100);
+          const couplingGap = detMinPct - judgeMin;
+          if (detMinPct >= 95 && judgeMin < 75) {
+            console.log(`    🔴 OVERFIT: deterministic ${detMinPct}% but independent judge ${judgeMin}/100 — score is coupled to the checks, not proven quality.`);
+          } else if (couplingGap >= 20) {
+            console.log(`    ⚠️  Coupling gap ${couplingGap}pp (deterministic ${detMinPct}% vs judge ${judgeMin}) — trust the judge, not the deterministic %.`);
+          } else {
+            console.log(`    ✅ Deterministic ${detMinPct}% and independent judge ${judgeMin} agree (gap ${couplingGap}pp) — score is trustworthy.`);
+          }
         }
 
         const failFreq: Record<string, number> = {};

@@ -49,6 +49,16 @@ const MUSIC_MODELS_CONFIG: Record<
     channelNumber: 3,
     knobRotation: 60,
   },
+  "fal-ai/ace-step/prompt-to-audio": {
+    label: "ACE-Step 1.5",
+    hasDuration: true,
+    minDuration: 5,
+    maxDuration: 240,
+    description:
+      "Fastest full-song generator (<2s); supports 50+ languages, lyrics-to-song with vocals, controllable via genre tags and style prompts.",
+    channelNumber: 4,
+    knobRotation: 90,
+  },
 };
 
 export default function MusicGenerator() {

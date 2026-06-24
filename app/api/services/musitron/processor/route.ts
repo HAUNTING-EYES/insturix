@@ -91,7 +91,17 @@ async function handler(request: Request) {
       // Build input based on model requirements
       let falInput: Record<string, any> = {};
 
-      if (model.includes("minimax-music")) {
+      if (model.includes("ace-step")) {
+        falInput = {
+          prompt: `${task.style}. ${task.title}. ${!task.instrumental_only ? task.lyrics : ""}`,
+          instrumental: task.instrumental_only,
+          duration: Math.min(Math.max(task.duration || 60, 5), 240),
+          number_of_steps: 27,
+          scheduler: "euler",
+          guidance_type: "apg",
+          guidance_scale: 15,
+        };
+      } else if (model.includes("minimax-music")) {
         falInput = {
           prompt: `${task.style}. ${task.title}`,
           lyrics_prompt: task.instrumental_only ? "[instrumental]" : (task.lyrics || "[instrumental]"),
@@ -108,8 +118,6 @@ async function handler(request: Request) {
           bpm: "auto",
         };
       } else {
-        // Default to Stable Audio or generic params
-        // Stable Audio 2.5 uses 'seconds_total' instead of 'duration'
         falInput = {
           prompt: `${task.style}. ${task.title}. ${!task.instrumental_only ? task.lyrics : ""}`,
           instrumental: task.instrumental_only,
