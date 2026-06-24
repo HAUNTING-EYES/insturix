@@ -93,6 +93,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       modelMultipliers: {
         'fal-ai/minimax-music/v2': 3,
         'sonauto/v2/text-to-music': 8,
+        'fal-ai/ace-step/prompt-to-audio': 2,
         'beatoven/music-generation': 5,
         'beatoven/sound-effect-generation': 5,
       },

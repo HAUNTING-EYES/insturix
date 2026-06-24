@@ -30,6 +30,7 @@ const MUSITRON_MODELS = [
   "fal-ai/stable-audio/v2.5",
   "sonauto/v2/text-to-music",
   "fal-ai/minimax-music/v2",
+  "fal-ai/ace-step/prompt-to-audio",
 ] as const;
 
 const generateSchema = z

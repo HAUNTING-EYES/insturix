@@ -4,6 +4,9 @@ import React, { useState, useCallback, useEffect } from "react";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { VUMeter } from "./VUMeter";
 import { useQuery } from "@tanstack/react-query";
+import { fetchSignedUrl } from "@/lib/musitron/daw-utils";
+import { DAWProvider } from "./DAW/DAWContext";
+import DAWWorkspace from "./DAW/DAWWorkspace";
 
 interface RecordingStudioProps {
   children: React.ReactNode; // MusicGenerator form
@@ -20,26 +23,8 @@ function titleToGradient(title: string): string {
   return `radial-gradient(circle, hsl(${h1},50%,35%), hsl(${h2},30%,15%))`;
 }
 
-async function fetchSignedUrl(gcsUrl: string): Promise<string | null> {
-  try {
-    const res = await fetch("/api/services/musitron/gcs/sign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: gcsUrl.split("/").pop(),
-        contentType: "audio/mpeg",
-        gcsUrl,
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.url || null;
-  } catch {
-    return null;
-  }
-}
-
 export function RecordingStudio({ children }: RecordingStudioProps) {
+  const [view, setView] = useState<"studio" | "daw">("studio");
   const [activeTrackIdx, setActiveTrackIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -69,6 +54,7 @@ export function RecordingStudio({ children }: RecordingStudioProps) {
     },
     staleTime: 5000,
     gcTime: 1000 * 60 * 10,
+    enabled: view !== "daw",
   });
 
   const tasks: MusitronTask[] = tasksData ?? [];
@@ -150,6 +136,16 @@ export function RecordingStudio({ children }: RecordingStudioProps) {
     ? titleToGradient(activeTask.title || "Musitron")
     : "radial-gradient(circle, #D4A652, #8a6520)";
 
+  if (view === "daw") {
+    return (
+      <DAWProvider>
+        <DAWWorkspace onSwitchToStudio={() => setView("studio")}>
+          {children}
+        </DAWWorkspace>
+      </DAWProvider>
+    );
+  }
+
   return (
     <div
       style={{
@@ -170,16 +166,52 @@ export function RecordingStudio({ children }: RecordingStudioProps) {
       >
         <div
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: "1.2px",
-            textTransform: "uppercase",
-            color: "#7A776E",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
             marginBottom: 20,
-            fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          Mixing Console
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "1.2px",
+              textTransform: "uppercase",
+              color: "#7A776E",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            Mixing Console
+          </div>
+          <button
+            type="button"
+            onClick={() => setView("daw")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "5px 10px",
+              background: "rgba(212,166,82,0.08)",
+              border: "1px solid rgba(212,166,82,0.25)",
+              borderRadius: 6,
+              color: "#D4A652",
+              cursor: "pointer",
+              fontSize: 10,
+              fontWeight: 600,
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.5px",
+              textTransform: "uppercase",
+              transition: "all .15s",
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="3" width="20" height="18" rx="2" />
+              <line x1="2" y1="9" x2="22" y2="9" />
+              <line x1="2" y1="15" x2="22" y2="15" />
+            </svg>
+            DAW
+          </button>
         </div>
         {children}
       </div>
