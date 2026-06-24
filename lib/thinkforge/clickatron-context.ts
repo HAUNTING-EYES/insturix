@@ -286,6 +286,17 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   // applyContentSignalProfileToClickatronExportMeta.
   const hasRealPrompt = Boolean(singleImagePrompt) || hasCarousel || hasScene;
 
+  // ponytail: pull grounded facts + forbidden visible-text off the signal trace (now persisted by
+  // chat-service Phase 4) so the image carries them. Mirrors the sidecar; flows to the model via
+  // brand-prompt-context's source-context block.
+  const traceIntent = toPlainRecord(toPlainRecord(input.signalTrace)?.selectedIntent) ?? {};
+  const keyClaims = (Array.isArray(traceIntent.proofPoints) ? traceIntent.proofPoints : [])
+    .filter((c: unknown): c is string => typeof c === "string" && c.trim().length > 0)
+    .slice(0, 6);
+  const hardConstraints = (Array.isArray(traceIntent.forbiddenTerms) ? traceIntent.forbiddenTerms : [])
+    .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0)
+    .map((t: string) => `Do not use visible text "${t}".`);
+
   let kind: ClickatronCreativeKind = "single_post_visual";
   if (choices.kind) {
     kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
@@ -368,7 +379,9 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
       objective,
       coreMessage,
       ...(toNonEmptyString(choices.vibe) ? { hook: choices.vibe } : {}),
+      ...(keyClaims.length > 0 ? { keyClaims } : {}),
     },
+    ...(hardConstraints.length > 0 ? { brand: { hardConstraints } } : {}),
     renderPlan: {
       textPolicy,
       imagePrompt,
