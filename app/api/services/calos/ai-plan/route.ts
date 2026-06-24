@@ -8,8 +8,8 @@ import { proposeCadenceCards, DEFAULT_CADENCE } from "@/lib/calos/cadence";
 import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
-import { resolveEffectiveBrand } from "@/lib/shared/brand-effective-resolver";
-import { buildBrandContextBlock } from "@/lib/shared/brand-context-block";
+import { resolveEffectiveBrandWithProfile } from "@/lib/shared/brand-effective-resolver";
+import { buildBrandContextBlock, buildRichBrandContextBlock } from "@/lib/shared/brand-context-block";
 import { getTrendsProvider } from "@/lib/calos/trends";
 import type { Trend } from "@/lib/calos/trends/types";
 import { proposePlan } from "@/lib/calos/planner";
@@ -105,14 +105,19 @@ export async function POST(req: NextRequest) {
 
     // Brand context — force the vault ON (enabled:true) so CalOS always uses the rich brand profile,
     // not the thin legacy fallback, regardless of the per-service rollout flag.
-    const brand = await resolveEffectiveBrand(userId, brandId, {
+    const resolution = await resolveEffectiveBrandWithProfile(userId, brandId, {
       service: "thinkforge",
       enabled: true,
     }).catch((e) => {
       console.warn("[CalOS] ai-plan brand resolve failed:", e);
       return null;
     });
-    const brandContext = buildBrandContextBlock(brand);
+    const brand = resolution?.brand ?? null;
+    // Feed the planner the RICH accepted vault profile when present (same dead wire the post
+    // writer had); fall back to the thin block, then to empty.
+    const brandContext = resolution?.acceptedProfile
+      ? buildRichBrandContextBlock(resolution.acceptedProfile, brand)
+      : buildBrandContextBlock(brand);
     const niche =
       brand?.voice.nicheMap || brand?.visual.industry || brand?.name || "general business";
 
