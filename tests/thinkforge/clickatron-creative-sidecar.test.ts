@@ -73,6 +73,26 @@ describe('Clickatron creative sidecar signal profile', () => {
 
     expect(shouldRequestClickatronCreativeSidecar(input)).toBe(false);
   });
+  it('ignores learned social voice examples when deciding hidden Clickatron export intent', () => {
+    const input: AgentInput = {
+      context: {
+        projectSummary: 'Audience: agency founders.',
+        systemBrief: [
+          '## Brand DNA',
+          'Voice: warm, expert, plainspoken',
+          '<voice_fingerprint samples="4">',
+          '  Characteristic phrases: "approval loop"',
+          '</voice_fingerprint>',
+          '<voice_example index="1" type="linkedin">',
+          'Approval loops need one named owner and one next step.',
+          '</voice_example>',
+        ].join('\n'),
+      },
+      userPrompt: 'Write a case study about reducing approval time by 37%.',
+    };
+
+    expect(shouldRequestClickatronCreativeSidecar(input)).toBe(false);
+  });
 
   it('adds the resolved profile to the hidden sidecar instruction', () => {
     const profile = resolveInstagramImagePostProfile();

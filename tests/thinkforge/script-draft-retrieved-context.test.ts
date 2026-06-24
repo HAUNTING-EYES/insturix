@@ -1,10 +1,54 @@
 import { describe, expect, it } from 'vitest';
 import { ScriptDraftAgent } from '@/lib/thinkforge/agents/script-draft-agent';
-import type { ScriptAuthorInput } from '@/lib/thinkforge/agents/script-author-agent';
-import type { RetrievedContext } from '@/lib/thinkforge/context';
+import { ScriptAuthorAgent, type ScriptAuthorInput } from '@/lib/thinkforge/agents/script-author-agent';
+import { formatSystemBrief, type RetrievedContext } from '@/lib/thinkforge/context';
+import { deriveBrandSignalProfile, type BrandSignal, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+import type { UnifiedBrand } from '@/lib/shared/brand-registry';
 
 async function* streamText(text: string): AsyncGenerator<string, void, unknown> {
   yield text;
+}
+
+function brand(): UnifiedBrand {
+  return {
+    brandId: 'brand_1',
+    userId: 'user_1',
+    name: 'ApprovalOps',
+    voice: {
+      voiceLock: 'warm, expert, plainspoken',
+      nicheMap: 'agency founders',
+      killList: ['game-changing'],
+      hookArchetypes: ['contrarian opener'],
+      structuralHabits: ['metric, lesson, soft CTA'],
+    },
+    visual: {
+      industry: 'agency operations software',
+      colors: ['#101820', '#ffcc00'],
+      visualStyle: 'sharp proof-led dashboard',
+      typography: 'Geometric sans',
+    },
+    learning: { banditProjectCount: 0 },
+  };
+}
+
+function acceptedProfile(): BrandSignalProfile {
+  const profile = deriveBrandSignalProfile(brand(), {
+    generatedAt: '2026-06-24T00:00:00.000Z',
+  });
+
+  setSignal(profile.motion.motionEnergy, 0.83, 0.86);
+  setSignal(profile.identity.proofStyle, 'metrics', 0.84);
+  setSignal(profile.voice.humor, 0.2, 0.81);
+
+  return profile;
+}
+
+function setSignal<T>(signal: BrandSignal<T>, value: T, confidence: number): void {
+  signal.value = value;
+  signal.confidence = confidence;
+  signal.trustLevel = 'manual_user_entry';
+  signal.authorityClass = 'brand_preference';
+  delete signal.fallbackReason;
 }
 
 describe('ScriptDraftAgent retrieved context wiring', () => {
@@ -62,7 +106,32 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
         killList: ['game-changing'],
         hookArchetypes: ['contrarian opener'],
         structuralHabits: ['metric, lesson, soft CTA'],
+        voiceFingerprint: {
+          avgWordsPerSentence: 8,
+          sentenceLengthVariance: 1.4,
+          topBigrams: [['approval loop', 4]],
+          punctuationProfile: { comma: 0.4 },
+          passiveVoiceRatio: 0.05,
+          questionFrequency: 0.08,
+          sentenceRhythm: ['short', 'medium'],
+          openingPattern: 'direct_claim',
+          transitionStyle: 'implicit',
+          closingPattern: 'cta',
+          listStyle: 'none',
+          extractedFromCount: 4,
+        },
+        voiceExemplars: [
+          {
+            id: 'learned_voice_1',
+            text: 'Approval loops do not need another dashboard. They need one named owner and one next step.',
+            signalProfile: { warmth: 0.72, ethos_load: 0.84 },
+            contentType: 'linkedin',
+            pinned: true,
+            weight: 0.95,
+          },
+        ],
       },
+      brandSignalProfile: acceptedProfile(),
       projectFacts: [
         {
           id: 'fact_1',
@@ -81,11 +150,12 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
         },
       ],
     };
+    const systemBrief = formatSystemBrief(retrievedContext);
 
     const result = await agent.generateScript({
       context: {
         projectSummary: 'Audience: agency founders.',
-        systemBrief: '## Brand DNA\nVoice: warm, expert, plainspoken',
+        systemBrief,
       },
       project: {
         format: 'case_study',
@@ -101,8 +171,17 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
 
     const profile = captured.authorInput?.contentSignalProfile;
     expect(profile?.sources.brandContextPresent).toBe(true);
+    expect(profile?.sources.brandVaultProfilePresent).toBe(true);
     expect(profile?.sources.projectFactsUsed).toBe(1);
     expect(profile?.sources.interactionPatternsUsed).toBe(1);
+    expect(profile?.profile.signals.enthusiasm).toBe(0.83);
+    expect(profile?.profile.signals.pacing_velocity).toBe(0.83);
+    expect(profile?.profile.signals.humor).toBe(0.2);
+    expect(profile?.profile._inference_metadata?.enthusiasm).toMatchObject({
+      source: 'brand_dna',
+      confidence: 0.86,
+    });
+    expect(profile?.profile._inference_metadata?.enthusiasm.resolvedFrom).toContain('brand_vault:');
     expect(profile?.intent.forbiddenTerms).toContain('game-changing');
     expect(profile?.intent.proofPoints).toEqual(
       expect.arrayContaining([
@@ -121,6 +200,7 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
         brandId: 'brand_1',
         sessionId: 'session_1',
         brandContextPresent: true,
+        brandVaultProfilePresent: true,
         projectFactsUsed: 1,
         interactionPatternsUsed: 1,
       },
@@ -133,6 +213,26 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
       ]),
     );
     expect(result.signalTrace?.provenanceSummary.some((entry) => entry.signal === 'warmth')).toBe(true);
+    expect(result.signalTrace?.provenanceSummary).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signal: 'enthusiasm',
+          source: 'brand_dna',
+          confidence: 0.86,
+        }),
+      ]),
+    );
+    expect(captured.authorInput?.context.systemBrief).toContain('<voice_fingerprint samples="4">');
+    expect(captured.authorInput?.context.systemBrief).toContain('Characteristic phrases: "approval loop"');
+    expect(captured.authorInput?.context.systemBrief).toContain('<voice_example index="1" type="linkedin">');
+
+    const authorPrompt = new ScriptAuthorAgent().buildPrompt(captured.authorInput!);
+    expect(authorPrompt).toContain('<brand_context>');
+    expect(authorPrompt).toContain('<voice_fingerprint samples="4">');
+    expect(authorPrompt).toContain('<voice_example index="1" type="linkedin">');
+    expect(authorPrompt).toContain('<content_signal_profile>');
+    expect(authorPrompt).toContain('"enthusiasm": 0.83');
+    expect(authorPrompt).toContain('brand_vault:');
     expect(JSON.stringify(result.signalTrace)).not.toContain('## Brand DNA');
   });
 });
