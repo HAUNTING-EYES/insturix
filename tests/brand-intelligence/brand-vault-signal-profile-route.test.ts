@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET as GET_BRANDS } from '@/app/api/brand-vault/brands/route';
 import { GET } from '@/app/api/brand-vault/signal-profiles/route';
 import { PATCH } from '@/app/api/brand-vault/signal-profiles/[id]/route';
 
@@ -8,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getBrandVaultSignalProfile: vi.fn(),
   getDefaultBrandVaultRefineryStore: vi.fn(),
   getLatestAcceptedRecord: vi.fn(),
+  listAcceptedBrands: vi.fn(),
   reviewBrandVaultSignalProfileDraft: vi.fn(),
 }));
 
@@ -44,6 +46,7 @@ describe('Brand Vault signal profile routes', () => {
     mocks.getBrandVaultSignalProfile.mockReset();
     mocks.getDefaultBrandVaultRefineryStore.mockReset();
     mocks.getLatestAcceptedRecord.mockReset();
+    mocks.listAcceptedBrands.mockReset();
     mocks.reviewBrandVaultSignalProfileDraft.mockReset();
 
     mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: 'org_route' });
@@ -51,7 +54,54 @@ describe('Brand Vault signal profile routes', () => {
     mocks.getDefaultBrandVaultRefineryStore.mockReturnValue({
       store: 'brand-vault',
       getLatestAcceptedRecord: mocks.getLatestAcceptedRecord,
+      listAcceptedBrands: mocks.listAcceptedBrands,
     });
+  });
+
+  it('lists accepted brands for the active organization', async () => {
+    mocks.listAcceptedBrands.mockResolvedValue([
+      {
+        brandId: 'brand_route',
+        name: 'Route Brand',
+        recordId: 'accepted_route',
+        orgId: 'org_route',
+        userId: 'user_route',
+        acceptedAt: '2026-06-24T01:00:00.000Z',
+        updatedAt: '2026-06-24T01:01:00.000Z',
+      },
+    ]);
+
+    const response = await GET_BRANDS();
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      ok: true,
+      brands: [
+        {
+          brandId: 'brand_route',
+          name: 'Route Brand',
+          recordId: 'accepted_route',
+          orgId: 'org_route',
+          userId: 'user_route',
+          acceptedAt: '2026-06-24T01:00:00.000Z',
+          updatedAt: '2026-06-24T01:01:00.000Z',
+        },
+      ],
+    });
+    expect(mocks.listAcceptedBrands).toHaveBeenCalledWith({ orgId: 'org_route' });
+  });
+
+  it('lists personal accepted brands only for the signed-in user when no org is active', async () => {
+    mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: null });
+    mocks.listAcceptedBrands.mockResolvedValue([]);
+
+    const response = await GET_BRANDS();
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ ok: true, brands: [] });
+    expect(mocks.listAcceptedBrands).toHaveBeenCalledWith({ orgId: null, userId: 'user_route' });
   });
 
   it('requires brandId when loading the latest accepted profile', async () => {

@@ -129,11 +129,23 @@ describe('Brand Vault Mongo refinery store', () => {
     expect((await store.getLatestAcceptedProfile({ orgId: 'org_a', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org A V2');
     expect((await store.getLatestAcceptedProfile({ orgId: 'org_b', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org B V1');
     expect((await store.getLatestAcceptedProfile({ orgId: null, brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Personal V1');
+    await expect(store.listAcceptedBrands({ orgId: 'org_a' })).resolves.toEqual([
+      expect.objectContaining({ brandId: 'shared_brand', name: 'Org A V2', recordId: 'org_a_v2', orgId: 'org_a' }),
+    ]);
+    await expect(store.listAcceptedBrands({ orgId: 'org_b' })).resolves.toEqual([
+      expect.objectContaining({ brandId: 'shared_brand', name: 'Org B V1', recordId: 'org_b_v1', orgId: 'org_b' }),
+    ]);
+    await expect(store.listAcceptedBrands({ orgId: null, userId: 'shared_user' })).resolves.toEqual([
+      expect.objectContaining({ brandId: 'shared_brand', name: 'Personal V1', recordId: 'personal_v1', userId: 'shared_user' }),
+    ]);
     expect(collections.profiles.values().find((doc) => doc._id === 'personal_v1')?.orgId).toBeUndefined();
     expect(collections.profiles.values().find((doc) => doc._id === 'org_a_v2')?.orgId).toBe('org_a');
     expect(collections.events.values().find((event) => event.recordId === 'org_a_v2' && event.type === 'draft_accepted')?.orgId).toBe('org_a');
     expect(collections.profiles.indexes.flat()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'org_brand_user_status_updatedAt' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'org_brand_user_status_updatedAt' }),
+        expect.objectContaining({ name: 'org_status_updatedAt' }),
+      ]),
     );
     expect(collections.events.indexes.flat()).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'org_user_createdAt' })]),

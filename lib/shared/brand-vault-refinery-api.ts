@@ -93,8 +93,25 @@ export type BrandVaultRefineryJobListFilter = {
   limit?: number;
 };
 
+export type BrandVaultAcceptedBrandListFilter = {
+  orgId?: string | null;
+  userId?: string;
+  limit?: number;
+};
+
+export interface BrandVaultAcceptedBrandSummary {
+  brandId: string;
+  name: string;
+  recordId: string;
+  orgId?: string;
+  userId?: string;
+  acceptedAt?: string;
+  updatedAt: string;
+}
+
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
   getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
+  listAcceptedBrands?(filter?: BrandVaultAcceptedBrandListFilter): BrandVaultStoreResult<BrandVaultAcceptedBrandSummary[]>;
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot>;
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
@@ -232,6 +249,18 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
 
   getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfileRecord | null {
     return this.profiles.getLatestAcceptedRecord(filter);
+  }
+
+  listAcceptedBrands(filter: BrandVaultAcceptedBrandListFilter = {}): BrandVaultAcceptedBrandSummary[] {
+    const userId = filter.orgId === undefined || filter.orgId === null ? filter.userId : undefined;
+    return summarizeAcceptedBrandRecords(
+      this.profiles.listRecords({
+        orgId: filter.orgId,
+        userId,
+        status: 'accepted',
+      }),
+      filter.limit,
+    );
   }
 
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultRefineryJobSnapshot {
@@ -1352,4 +1381,33 @@ function profileOnlyJob(record: BrandSignalProfileRecord): BrandRefineryJob {
 
 function cloneSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultRefineryJobSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as BrandVaultRefineryJobSnapshot;
+}
+
+function summarizeAcceptedBrandRecords(
+  records: BrandSignalProfileRecord[],
+  limitInput?: number,
+): BrandVaultAcceptedBrandSummary[] {
+  const limit = Math.max(1, Math.min(limitInput ?? 100, 250));
+  const seen = new Set<string>();
+  const summaries: BrandVaultAcceptedBrandSummary[] = [];
+
+  for (const record of records) {
+    const brandId = record.profile.brandId?.trim();
+    if (!brandId || seen.has(brandId)) continue;
+
+    const name = record.profile.identity.brandName.value.trim() || brandId;
+    seen.add(brandId);
+    summaries.push({
+      brandId,
+      name,
+      recordId: record.id,
+      orgId: record.profile.orgId,
+      userId: record.profile.userId,
+      acceptedAt: record.review.acceptedAt,
+      updatedAt: record.updatedAt,
+    });
+    if (summaries.length >= limit) break;
+  }
+
+  return summaries;
 }

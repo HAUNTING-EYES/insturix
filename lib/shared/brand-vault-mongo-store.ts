@@ -17,6 +17,8 @@ import {
   type BrandVaultAcceptedProfileFilter,
 } from './brand-vault-draft-orchestrator';
 import type {
+  BrandVaultAcceptedBrandListFilter,
+  BrandVaultAcceptedBrandSummary,
   BrandVaultRefineryJobListFilter,
   BrandVaultRefineryJobSnapshot,
   BrandVaultRefineryStore,
@@ -166,6 +168,18 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     return docs[0]?.record ? clone(docs[0].record) : null;
   }
 
+  async listAcceptedBrands(filter: BrandVaultAcceptedBrandListFilter = {}): Promise<BrandVaultAcceptedBrandSummary[]> {
+    const collections = await this.getCollections();
+    const limit = Math.max(1, Math.min(filter.limit ?? 100, 250));
+    const userId = filter.orgId === undefined || filter.orgId === null ? filter.userId : undefined;
+    const docs = await collections.profiles
+      .find(toProfileFilter({ orgId: filter.orgId, userId, status: 'accepted' }))
+      .sort({ updatedAt: -1 })
+      .limit(limit * 4)
+      .toArray();
+    return summarizeAcceptedBrandRecords(docs.map((doc) => doc.record), limit);
+  }
+
   async saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): Promise<BrandVaultRefineryJobSnapshot> {
     const collections = await this.getCollections();
     const doc = jobDocument(snapshot);
@@ -312,6 +326,7 @@ async function ensureIndexes(collections: BrandVaultMongoCollections): Promise<v
     { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'user_status_updatedAt' },
     { key: { brandId: 1, userId: 1, status: 1, updatedAt: -1 }, name: 'brand_user_status_updatedAt' },
     { key: { orgId: 1, brandId: 1, userId: 1, status: 1, updatedAt: -1 }, name: 'org_brand_user_status_updatedAt' },
+    { key: { orgId: 1, status: 1, updatedAt: -1 }, name: 'org_status_updatedAt' },
   ]);
   await collections.jobs.createIndexes?.([
     { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'user_status_updatedAt' },
@@ -366,6 +381,34 @@ function profileDocument(record: BrandSignalProfileRecord): BrandVaultMongoProfi
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function summarizeAcceptedBrandRecords(
+  records: BrandSignalProfileRecord[],
+  limit: number,
+): BrandVaultAcceptedBrandSummary[] {
+  const seen = new Set<string>();
+  const summaries: BrandVaultAcceptedBrandSummary[] = [];
+
+  for (const record of records) {
+    const brandId = record.profile.brandId?.trim();
+    if (!brandId || seen.has(brandId)) continue;
+
+    const name = record.profile.identity.brandName.value.trim() || brandId;
+    seen.add(brandId);
+    summaries.push({
+      brandId,
+      name,
+      recordId: record.id,
+      orgId: record.profile.orgId,
+      userId: record.profile.userId,
+      acceptedAt: record.review.acceptedAt,
+      updatedAt: record.updatedAt,
+    });
+    if (summaries.length >= limit) break;
+  }
+
+  return summaries;
 }
 
 function jobDocument(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultMongoJobDocument {
