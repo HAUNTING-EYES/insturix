@@ -280,6 +280,11 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
 
   const hasCarousel = carouselPrompts.length > 0;
   const hasScene = scenePrompts.length > 0;
+  // ponytail: real writer visual prompt present, vs the placeholder fallbacks below. Drives an honest
+  // validation.status instead of a hardcoded "ready". Fact-level grounding (does the prompt carry the
+  // brand/offer/price) needs the resolved signal profile wired into this path (Phase 4), then reuse
+  // applyContentSignalProfileToClickatronExportMeta.
+  const hasRealPrompt = Boolean(singleImagePrompt) || hasCarousel || hasScene;
 
   let kind: ClickatronCreativeKind = "single_post_visual";
   if (choices.kind) {
@@ -373,9 +378,16 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
       ...(rootTextLayers ? { textLayers: rootTextLayers } : {}),
       ...(slides && slides.length > 0 ? { slides } : {}),
     },
-    validation: {
-      status: "ready",
-    },
+    validation: hasRealPrompt
+      ? { status: "ready" }
+      : {
+          status: "needs_user_input",
+          issues: [{
+            code: "missing_writer_visual_prompt",
+            message: "Writer produced no visual prompt; the image would render from a generic placeholder. Add a visual prompt before sending to Clickatron.",
+            severity: "warning",
+          }],
+        },
   });
 }
 
