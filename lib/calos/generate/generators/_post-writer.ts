@@ -1,4 +1,5 @@
 import type { GenerateParams } from "../contract";
+import { resolveSystemBrief } from "./_brand-brief";
 
 /**
  * Shared PostWriter call for the text + graphics generators. Resolves brand context (best-effort)
@@ -7,26 +8,7 @@ import type { GenerateParams } from "../contract";
  * export-to-Clickatron flow at image-gen time, never surfaced to the user.)
  */
 export async function runPostWriter(params: GenerateParams): Promise<string> {
-  let systemBrief = "";
-  try {
-    const { resolveEffectiveBrandWithProfile } = await import("@/lib/shared/brand-effective-resolver");
-    const { buildBrandContextBlock, buildRichBrandContextBlock } = await import(
-      "@/lib/shared/brand-context-block"
-    );
-    // Read the RICH accepted vault profile, not the lossy thin projection. The resolver already
-    // fetches it; the old resolveEffectiveBrand wrapper discarded acceptedProfile (the dead wire),
-    // so on-brand generation only ever saw ~4 of the vault's ~40 signals.
-    const { brand, acceptedProfile } = await resolveEffectiveBrandWithProfile(
-      params.ownerUserId,
-      params.brandId,
-      { service: "thinkforge", enabled: true }, // CalOS always wants the vault, not the thin legacy fallback
-    );
-    systemBrief = acceptedProfile
-      ? buildRichBrandContextBlock(acceptedProfile, brand)
-      : buildBrandContextBlock(brand);
-  } catch (e) {
-    console.warn("[CalOS] runPostWriter brand resolve failed:", e);
-  }
+  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId);
 
   const userPrompt = [
     params.title,
