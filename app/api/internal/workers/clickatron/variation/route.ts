@@ -592,6 +592,28 @@ async function handler(req: Request) {
       await task.save();
 
       await completeJob(jobId, rawR2Url);
+
+      // CalOS completion callback (isolated — can never fail the Clickatron job): if this image was
+      // generated for a CalOS deliverable (ThinkForge handoff today, or a CalOS kickoff later), land
+      // the finished image on the card and advance it drafting -> generated.
+      const calosSuccessMeta = { ...asPromptMetadataRecord(task.metadata), ...asPromptMetadataRecord(job.metadata) };
+      const calosSuccessDeliverableId =
+        (calosSuccessMeta.clickatronHandoff as { contentCardId?: string } | undefined)?.contentCardId ??
+        (calosSuccessMeta.sourceContext as { calosDeliverableId?: string } | undefined)?.calosDeliverableId;
+      if (calosSuccessDeliverableId && task.brandId) {
+        try {
+          const { attachGeneratedAsset } = await import('@/lib/calos/attach-generated-asset');
+          await attachGeneratedAsset({
+            deliverableId: calosSuccessDeliverableId,
+            ownerUserId: job.userId,
+            brandId: task.brandId,
+            assetUrl: rawR2Url,
+            serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
+          });
+        } catch (e) {
+          console.warn('[clickatron] CalOS asset attach failed', e);
+        }
+      }
     } catch (generationError: any) {
       console.error('Worker: Image generation failed:', generationError);
 
@@ -653,6 +675,27 @@ async function handler(req: Request) {
       } catch (saveError) {
         console.error('Worker: Failed to save variation status:', saveError);
         // Even if we can't save to the database, we still need to fail the job
+      }
+
+      // CalOS failure callback (isolated): record the error on the deliverable, keep it in drafting
+      // (success-wins, so a later retry that succeeds still overwrites this).
+      const calosFailMeta = { ...asPromptMetadataRecord(task.metadata), ...asPromptMetadataRecord(job.metadata) };
+      const calosFailDeliverableId =
+        (calosFailMeta.clickatronHandoff as { contentCardId?: string } | undefined)?.contentCardId ??
+        (calosFailMeta.sourceContext as { calosDeliverableId?: string } | undefined)?.calosDeliverableId;
+      if (calosFailDeliverableId && task.brandId) {
+        try {
+          const { markGeneratedAssetFailed } = await import('@/lib/calos/attach-generated-asset');
+          await markGeneratedAssetFailed({
+            deliverableId: calosFailDeliverableId,
+            ownerUserId: job.userId,
+            brandId: task.brandId,
+            errorMessage,
+            serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
+          });
+        } catch (e) {
+          console.warn('[clickatron] CalOS asset-failed callback failed', e);
+        }
       }
 
       await failJob(jobId, {
