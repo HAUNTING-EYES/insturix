@@ -133,6 +133,29 @@ export function mapEditedFrameToSourceFrame(
   return null;
 }
 
+/**
+ * Brief decisions reference ORIGINAL-video timestamps (Gemini watches the source clip). The brief
+ * executor resolves against the CUT timeline, so original-time timestamps land "out of range" and get
+ * dropped — a regression introduced when the editedTimelineContext switch (2026-06-13) stopped passing the
+ * clip map to the executor. Map each timestamp decision's targetTimestampMs onto the cut timeline here.
+ * Word-index decisions carry no targetTimestampMs and are left untouched (their transcript is already
+ * cut-timed). A timestamp landing in a removed-silence gap is dropped — that moment no longer exists.
+ */
+export function remapBriefTimestampsToEditedTimeline<T extends { targetTimestampMs?: number }>(
+  decisions: T[],
+  sourceClips: EditedTimelineClip[],
+  fps: number,
+): T[] {
+  if (!sourceClips.length || fps <= 0) return decisions;
+  return decisions.flatMap((decision) => {
+    if (typeof decision.targetTimestampMs !== 'number' || decision.targetTimestampMs < 0) return [decision];
+    const sourceFrame = Math.round((decision.targetTimestampMs / 1000) * fps);
+    const editedFrame = mapSourceFrameToEditedFrame(sourceFrame, sourceClips);
+    if (editedFrame === null) return [];
+    return [{ ...decision, targetTimestampMs: Math.round((editedFrame / fps) * 1000) }];
+  });
+}
+
 export function projectSignalTimelineToEditedTimeline(
   sourceTimeline: SignalTimeline,
   context: EditedTimelineContext,

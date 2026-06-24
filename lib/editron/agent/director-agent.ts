@@ -820,8 +820,16 @@ export async function executeDirectorPlan(
             // mapping is kept separately for V-JEPA/Wav2Vec lookup; decisions themselves
             // must land on the final cut timeline.
             const totalDurationMs = editedTimelineContext?.durationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
+            // Brief timestamps are in ORIGINAL-video time (Gemini watches the source clip); the executor
+            // resolves against the CUT timeline, so they'd land "out of range" and get dropped (regression
+            // from the 2026-06-13 editedTimelineContext switch). Map them onto the cut timeline first.
+            let briefDecisionsForExecutor = creativeBrief.decisions;
+            if (editedTimelineContext?.sourceClips?.length) {
+              const { remapBriefTimestampsToEditedTimeline } = await import('@/lib/editron/services/edited-timeline-context');
+              briefDecisionsForExecutor = remapBriefTimestampsToEditedTimeline(creativeBrief.decisions, editedTimelineContext.sourceClips, pathEFps);
+            }
             const briefResult = executeBrief({
-              brief: creativeBrief,
+              brief: { ...creativeBrief, decisions: briefDecisionsForExecutor },
               transcription,
               fps: pathEFps,
               audioEnergyCurve: audioEnergyCurve.length > 0 ? audioEnergyCurve : undefined,
