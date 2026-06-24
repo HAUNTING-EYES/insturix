@@ -4,7 +4,7 @@ import {
   type ProviderPrivacyAuditRecord,
 } from '../../lib/thinkforge/privacy/provider-privacy-gateway';
 
-export type EvalProvider = 'gemini' | 'deepseek' | 'openrouter';
+export type EvalProvider = 'gemini' | 'deepseek' | 'openrouter' | 'anthropic';
 
 export interface EvalUsage {
   promptTokens?: number;
@@ -76,6 +76,7 @@ const DEFAULT_MODELS: Record<EvalProvider, string> = {
   gemini: 'gemini-2.5-flash',
   deepseek: 'deepseek-v4-flash',
   openrouter: 'deepseek/deepseek-chat',
+  anthropic: 'claude-sonnet-4-6',
 };
 
 const DEFAULT_PRICE_HINTS: Record<string, PriceHint> = {
@@ -109,8 +110,8 @@ export function parseEvalProviders(value: string | undefined): EvalProvider[] {
     .filter(Boolean);
 
   const parsed = providers.map((provider) => {
-    if (provider !== 'gemini' && provider !== 'deepseek' && provider !== 'openrouter') {
-      throw new Error(`Unsupported eval provider "${provider}". Use gemini, deepseek, or openrouter.`);
+    if (provider !== 'gemini' && provider !== 'deepseek' && provider !== 'openrouter' && provider !== 'anthropic') {
+      throw new Error(`Unsupported eval provider "${provider}". Use gemini, anthropic, deepseek, or openrouter.`);
     }
     return provider;
   });
@@ -174,7 +175,9 @@ async function runProviderPromptWithRetry(
     try {
       return config.provider === 'gemini'
         ? await runGeminiPrompt(config, prompt)
-        : await runOpenAICompatiblePrompt(config, prompt);
+        : config.provider === 'anthropic'
+          ? await runAnthropicPrompt(config, prompt)
+          : await runOpenAICompatiblePrompt(config, prompt);
     } catch (error) {
       lastError = error;
       if (attempt >= attempts || !isTransientProviderError(error)) {
@@ -210,14 +213,18 @@ function readApiKey(provider: EvalProvider): string {
     ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
     : provider === 'deepseek'
       ? process.env.DEEPSEEK_API_KEY
-      : process.env.OPENROUTER_API_KEY;
+      : provider === 'anthropic'
+        ? process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY
+        : process.env.OPENROUTER_API_KEY;
 
   if (!key) {
     const names = provider === 'gemini'
       ? 'GEMINI_API_KEY, GOOGLE_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY'
       : provider === 'deepseek'
         ? 'DEEPSEEK_API_KEY'
-        : 'OPENROUTER_API_KEY';
+        : provider === 'anthropic'
+          ? 'ANTHROPIC_API_KEY'
+          : 'OPENROUTER_API_KEY';
     throw new Error(`Missing API key for ${provider}. Set ${names}.`);
   }
 
@@ -310,6 +317,62 @@ async function runOpenAICompatiblePrompt(
           totalTokens: body.usage.total_tokens,
           promptCacheHitTokens: body.usage.prompt_cache_hit_tokens,
           promptCacheMissTokens: body.usage.prompt_cache_miss_tokens,
+        }
+      : undefined,
+  };
+}
+
+interface AnthropicMessagesResponse {
+  content?: Array<{ type?: string; text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
+  error?: { message?: string };
+}
+
+async function runAnthropicPrompt(
+  config: EvalProviderConfig,
+  prompt: string,
+): Promise<RawEvalRunResult> {
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com';
+  const endpoint = `${baseUrl.replace(/\/$/, '')}/v1/messages`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: config.maxOutputTokens,
+      temperature: config.temperature,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  const text = await response.text();
+  const body = parseJson<AnthropicMessagesResponse>(text);
+
+  if (!response.ok) {
+    const message = body?.error?.message ?? response.statusText;
+    throw new Error(`anthropic request failed (${response.status}): ${message}`);
+  }
+
+  const output = (body?.content ?? [])
+    .map((block) => block?.text ?? '')
+    .join('')
+    .trim();
+  if (!output) {
+    throw new Error(`anthropic response had no text content; raw=${text.slice(0, 600)}`);
+  }
+
+  return {
+    output,
+    usage: body?.usage
+      ? {
+          promptTokens: body.usage.input_tokens,
+          completionTokens: body.usage.output_tokens,
+          totalTokens: (body.usage.input_tokens ?? 0) + (body.usage.output_tokens ?? 0),
         }
       : undefined,
   };
