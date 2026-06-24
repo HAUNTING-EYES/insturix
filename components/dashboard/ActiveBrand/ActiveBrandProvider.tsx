@@ -20,6 +20,17 @@ import { useAuth } from '@clerk/nextjs';
 
 const ACTIVE_BRAND_KEY = 'brand_vault_selected_brand_id';
 
+/**
+ * Read the currently-selected brandId straight from storage (the source the provider writes through).
+ * For non-React call sites — event handlers, fetch bodies — that need the freshest selection at call time
+ * without subscribing to the context. Returns undefined when nothing is selected, so callers can spread it
+ * into a JSON body and have the key omitted (routes then create an unscoped project, exactly as before).
+ */
+export function getActiveBrandIdFromStorage(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return window.localStorage.getItem(ACTIVE_BRAND_KEY) ?? undefined;
+}
+
 export interface ActiveBrandOption {
   brandId: string;
   name: string;

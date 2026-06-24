@@ -25,6 +25,7 @@ import { UploadProgressBar } from '@/components/editron/project/upload-progress-
 import { uploadReducer, INITIAL_UPLOAD_STATE } from '@/lib/editron/client/upload-types';
 import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron/client/video-compressor';
 import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
+import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 
 interface Project {
   projectId: string;
@@ -168,6 +169,7 @@ export default function ProjectDashboard() {
         },
         body: JSON.stringify({
           name: newProjectName,
+          brandId: getActiveBrandIdFromStorage(),
         }),
       });
 
@@ -285,6 +287,7 @@ export default function ProjectDashboard() {
         body: JSON.stringify({
           assetId,
           title: file.name.replace(/\.[^.]+$/, ''),
+          brandId: getActiveBrandIdFromStorage(),
           ...(options.platform && { platform: options.platform }),
           ...(options.aspectRatio && { aspectRatio: options.aspectRatio }),
           ...(options.userIntent && { userIntent: options.userIntent }),

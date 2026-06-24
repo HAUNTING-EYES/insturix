@@ -24,6 +24,7 @@ import {
 import { buildClickatronSessionFormData } from "@/lib/thinkforge/clickatron-session-payload";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
+import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -1085,6 +1086,7 @@ export function useExportPipeline(
             aspectRatio,
             includeVoiceover: scriptHasNarration,
             includeCaptions: true,
+            brandId: getActiveBrandIdFromStorage(),
           }),
         });
 
@@ -1111,6 +1113,7 @@ export function useExportPipeline(
             title: title || "Untitled Script",
             aspectRatio,
             sourceScriptId: scriptId,
+            brandId: getActiveBrandIdFromStorage(),
           }),
         });
 
