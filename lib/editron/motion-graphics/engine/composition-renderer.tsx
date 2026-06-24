@@ -148,7 +148,10 @@ export function resolveVisualIntentStageChrome(
           background: [
             `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.2)} 0%, transparent 44%)`,
             `radial-gradient(circle at 12% 94%, ${withAlpha(primary, 0.28)} 0%, transparent 38%)`,
-            `linear-gradient(135deg, ${withAlpha(surface, 0.86)} 0%, ${withAlpha(primary, 0.38)} 58%, ${withAlpha(accent, 0.24)} 100%)`,
+            // ponytail: was surface@0.86 — a full-frame BLACKOUT that hid the footage behind identity/
+            // scene MGs (the "blank video" + mid-clip interruptions). Light legibility scrim so the
+            // video stays visible through the graphic. Tune in the MG-taste phase.
+            `linear-gradient(135deg, ${withAlpha(surface, 0.3)} 0%, ${withAlpha(primary, 0.2)} 58%, ${withAlpha(accent, 0.14)} 100%)`,
           ].join(', '),
         },
       };
