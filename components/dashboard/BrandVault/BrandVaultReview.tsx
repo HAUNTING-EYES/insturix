@@ -53,7 +53,13 @@ import type {
   SignalRow,
   SourceLane,
 } from './brand-vault-types';
-import { useBrandVaultJob, useBrandVaultMutations, useBrandVaultProfile, useLatestAcceptedBrandVaultRecordId } from './useBrandVault';
+import {
+  useAcceptedBrandVaultBrands,
+  useBrandVaultJob,
+  useBrandVaultMutations,
+  useBrandVaultProfile,
+  useLatestAcceptedBrandVaultRecordId,
+} from './useBrandVault';
 
 type ToastTone = 'good' | 'warn' | 'risk';
 type UploadStatus = 'idle' | 'extracting';
@@ -138,6 +144,26 @@ function selectInitialBrandId(options: BrandVaultBrandOption[], preferredBrandId
   return options[0]?.brandId ?? null;
 }
 
+function mergeBrandOptions(...groups: BrandVaultBrandOption[][]): BrandVaultBrandOption[] {
+  const byId = new Map<string, BrandVaultBrandOption>();
+
+  for (const group of groups) {
+    for (const option of group) {
+      const brandId = option.brandId.trim();
+      if (!brandId) continue;
+      const name = option.name.trim() || brandId;
+      const current = byId.get(brandId);
+      if (!current || current.name === current.brandId) byId.set(brandId, { brandId, name });
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+function sameBrandOptions(left: BrandVaultBrandOption[], right: BrandVaultBrandOption[]): boolean {
+  return left.length === right.length && left.every((option, index) => option.brandId === right[index]?.brandId && option.name === right[index]?.name);
+}
+
 export function BrandVaultReview() {
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -170,6 +196,7 @@ export function BrandVaultReview() {
   const profileQuery = useBrandVaultProfile(profileId);
   const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
   const latestAccepted = useLatestAcceptedBrandVaultRecordId(activeBrandId);
+  const acceptedBrands = useAcceptedBrandVaultBrands();
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
@@ -210,6 +237,19 @@ export function BrandVaultReview() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const acceptedOptions = normalizeBrandOptions(acceptedBrands.data);
+    if (acceptedOptions.length === 0) return;
+
+    const mergedOptions = mergeBrandOptions(brandOptions, acceptedOptions);
+    if (!sameBrandOptions(brandOptions, mergedOptions)) setBrandOptions(mergedOptions);
+    if (!activeBrandId) {
+      const nextBrandId = selectInitialBrandId(mergedOptions, readStoredBrandId());
+      if (nextBrandId) setActiveBrandId(nextBrandId);
+    }
+    setBrandOptionsError(null);
+  }, [acceptedBrands.data, activeBrandId, brandOptions, brandOptionsLoaded]);
 
   useEffect(() => {
     if (!jobQuery.data) return;
@@ -280,7 +320,8 @@ export function BrandVaultReview() {
     errorMessage(rejectDraft.error) ??
     errorMessage(jobQuery.error) ??
     errorMessage(profileQuery.error) ??
-    errorMessage(latestAccepted.error);
+    errorMessage(latestAccepted.error) ??
+    errorMessage(acceptedBrands.error);
   const statusLabel = snapshot.record?.status ?? snapshot.job?.status ?? 'draft';
   const needsCount = activeConflicts.length;
   const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';

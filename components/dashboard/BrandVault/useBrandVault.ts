@@ -17,6 +17,8 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/nextjs';
 import type {
+  BrandVaultAcceptedBrandsApiResult,
+  BrandVaultAcceptedBrandSummary,
   BrandVaultApiResult,
   BrandVaultApiSuccess,
   CreateBrandVaultDraftInput,
@@ -33,6 +35,8 @@ export const BRAND_VAULT_KEYS = {
   latestAcceptedRoot: () => [...BRAND_VAULT_KEYS.all, 'latest-accepted'] as const,
   latestAccepted: (brandId: string | null | undefined) =>
     [...BRAND_VAULT_KEYS.latestAcceptedRoot(), brandId ?? 'none'] as const,
+  acceptedBrandsRoot: () => [...BRAND_VAULT_KEYS.all, 'accepted-brands'] as const,
+  acceptedBrands: () => BRAND_VAULT_KEYS.acceptedBrandsRoot(),
 };
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +98,18 @@ async function fetchLatestAcceptedRecordId(brandId: string): Promise<string | nu
   return payload.recordId ?? null;
 }
 
+async function fetchAcceptedBrands(): Promise<BrandVaultAcceptedBrandSummary[]> {
+  const response = await fetch('/api/brand-vault/brands', { credentials: 'include', cache: 'no-store' });
+  const payload = (await response.json().catch(() => null)) as BrandVaultAcceptedBrandsApiResult | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload && 'error' in payload ? payload.error?.message ?? 'Could not load accepted Brand Vault brands.' : 'Could not load accepted Brand Vault brands.');
+  }
+  if (!Array.isArray(payload.brands)) {
+    throw new Error('Accepted Brand Vault brand list was malformed.');
+  }
+  return payload.brands;
+}
+
 async function reviewDraftRequest(
   recordId: string,
   action: 'accept' | 'reject',
@@ -114,6 +130,7 @@ function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, 
   const brandId = data.record?.profile.brandId ?? null;
 
   queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.latestAcceptedRoot() });
+  queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.acceptedBrandsRoot() });
   if (data.record?.status === 'accepted' && recordId && brandId) {
     queryClient.setQueryData(BRAND_VAULT_KEYS.latestAccepted(brandId), recordId);
   }
@@ -158,6 +175,17 @@ export function useLatestAcceptedBrandVaultRecordId(brandId: string | null | und
     queryKey: BRAND_VAULT_KEYS.latestAccepted(brandId),
     queryFn: () => fetchLatestAcceptedRecordId(brandId as string),
     enabled: Boolean(isSignedIn && brandId),
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Latest accepted Brand Vault profiles grouped by brand for the signed-in scope. */
+export function useAcceptedBrandVaultBrands() {
+  const { isSignedIn } = useAuth();
+  return useQuery({
+    queryKey: BRAND_VAULT_KEYS.acceptedBrands(),
+    queryFn: fetchAcceptedBrands,
+    enabled: Boolean(isSignedIn),
     staleTime: 30 * 1000,
   });
 }

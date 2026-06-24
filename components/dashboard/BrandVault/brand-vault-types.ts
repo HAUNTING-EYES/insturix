@@ -28,6 +28,7 @@ import type {
   BrandVaultVisualSwatch,
   BrandVaultWebsiteDraftReviewPayload,
 } from '@/lib/shared/brand-vault-draft-orchestrator';
+import type { BrandVaultAcceptedBrandSummary } from '@/lib/shared/brand-vault-refinery-api';
 
 export type {
   BrandSignal,
@@ -46,6 +47,7 @@ export type {
   BrandVaultVisualIdentitySummary,
   BrandVaultVisualSwatch,
   BrandVaultWebsiteDraftReviewPayload,
+  BrandVaultAcceptedBrandSummary,
 };
 
 /* ------------------------------------------------------------------ */
@@ -68,6 +70,13 @@ export interface BrandVaultApiSuccess {
 }
 
 export type BrandVaultApiResult = BrandVaultApiSuccess | BrandVaultApiError;
+
+export interface BrandVaultAcceptedBrandsApiSuccess {
+  ok: true;
+  brands: BrandVaultAcceptedBrandSummary[];
+}
+
+export type BrandVaultAcceptedBrandsApiResult = BrandVaultAcceptedBrandsApiSuccess | BrandVaultApiError;
 
 /** Normalized snapshot the UI renders from, regardless of which route filled it. */
 export interface BrandVaultSnapshot {
