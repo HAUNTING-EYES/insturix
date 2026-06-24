@@ -1,4 +1,6 @@
+import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-resolver";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
+import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 
 type MetadataRecord = Record<string, unknown>;
 
@@ -10,7 +12,9 @@ export interface ClickatronPromptContextInput {
 
 export interface BrandContextResolverDeps {
   getBrand?: (userId: string, brandId: string) => Promise<UnifiedBrand | null>;
+  getBrandResolution?: (userId: string, brandId: string) => Promise<EffectiveBrandResolution>;
   formatBrand?: (brand: UnifiedBrand | null) => string;
+  formatBrandResolution?: (resolution: EffectiveBrandResolution) => string;
 }
 
 const MAX_FIELD_LENGTH = 700;
@@ -178,19 +182,128 @@ export async function resolveClickatronBrandContextBlock(
   const resolvedBrandId = cleanText(brandId);
   if (!resolvedBrandId) return "";
 
-  const formatBrand = deps.formatBrand ?? (await import("@/lib/shared/brand-context-block")).buildBrandContextBlock;
-  const brand = deps.getBrand
-    ? await deps.getBrand(userId, resolvedBrandId)
-    : await resolveDefaultClickatronBrand(userId, resolvedBrandId);
-  return formatBrand(brand).trim();
+  if (deps.getBrandResolution) {
+    return (await formatClickatronBrandResolution(await deps.getBrandResolution(userId, resolvedBrandId), deps)).trim();
+  }
+
+  if (deps.getBrand) {
+    return (await formatClickatronBrandResolution(
+      { brand: await deps.getBrand(userId, resolvedBrandId), acceptedProfile: null, source: "legacy" },
+      deps,
+    )).trim();
+  }
+
+  return (await formatClickatronBrandResolution(await resolveDefaultClickatronBrandResolution(userId, resolvedBrandId), deps)).trim();
 }
 
-async function resolveDefaultClickatronBrand(
+async function resolveDefaultClickatronBrandResolution(
   userId: string,
   brandId: string,
-): Promise<UnifiedBrand | null> {
-  const { resolveEffectiveBrand } = await import("@/lib/shared/brand-effective-resolver");
-  return resolveEffectiveBrand(userId, brandId, { service: "clickatron" });
+): Promise<EffectiveBrandResolution> {
+  const { resolveEffectiveBrandWithProfile } = await import("@/lib/shared/brand-effective-resolver");
+  return resolveEffectiveBrandWithProfile(userId, brandId, { service: "clickatron" });
+}
+
+async function formatClickatronBrandResolution(
+  resolution: EffectiveBrandResolution,
+  deps: BrandContextResolverDeps,
+): Promise<string> {
+  if (deps.formatBrandResolution) return deps.formatBrandResolution(resolution);
+  if (resolution.acceptedProfile) {
+    return buildClickatronBrandSignalContextBlock(resolution.acceptedProfile, resolution.brand);
+  }
+
+  const formatBrand = deps.formatBrand ?? (await import("@/lib/shared/brand-context-block")).buildBrandContextBlock;
+  return formatBrand(resolution.brand);
+}
+
+function actionableValue<T>(signal: BrandSignal<T> | undefined): T | undefined {
+  return signal && isBrandSignalActionable(signal) ? signal.value : undefined;
+}
+
+function actionableList(signal: BrandSignal<string[]> | undefined): string[] | undefined {
+  const value = actionableValue(signal);
+  return value && value.length > 0 ? value : undefined;
+}
+
+function pushListField(lines: string[], label: string, values: string[] | undefined): void {
+  if (values?.length) lines.push(`${label}: ${values.join(", ")}`);
+}
+
+function pushVisualDirective(
+  directives: string[],
+  signal: BrandSignal<number> | undefined,
+  high: string,
+  low: string,
+): void {
+  if (!signal || !isBrandSignalActionable(signal)) return;
+  if (signal.value >= 0.6) directives.push(high);
+  else if (signal.value <= 0.4) directives.push(low);
+}
+
+function describeClickatronVisualDirectives(profile: BrandSignalProfile): string[] {
+  const directives: string[] = [];
+  pushVisualDirective(directives, profile.visual.minimalism, "minimal, sparse composition", "visually rich composition");
+  pushVisualDirective(directives, profile.visual.densityTolerance, "high information density is allowed", "keep layouts airy and low-density");
+  pushVisualDirective(directives, profile.visual.dataVizAffinity, "data, diagram, or dashboard metaphors are on-brand", "avoid chart-heavy visual metaphors");
+  pushVisualDirective(directives, profile.visual.expressiveness, "bold expressive visual energy", "restrained visual energy");
+  pushVisualDirective(directives, profile.visual.geometryTendency, "geometric and angular forms", "organic and soft forms");
+  pushVisualDirective(directives, profile.visual.decorationTolerance, "decorative accents are allowed", "avoid decorative filler");
+  pushVisualDirective(directives, profile.visual.cornerRadiusBias, "rounded friendly shape language", "sharp or squared shape language");
+  pushVisualDirective(directives, profile.visual.layoutSymmetry, "structured symmetrical layout", "asymmetric editorial layout");
+  pushVisualDirective(directives, profile.visual.contrastPreference, "high-contrast composition", "soft low-contrast composition");
+  return directives;
+}
+
+function buildClickatronBrandSignalContextBlock(
+  profile: BrandSignalProfile,
+  fallbackBrand: UnifiedBrand | null,
+): string {
+  const lines: string[] = ["<brand_context>"];
+  const brandName = actionableValue(profile.identity.brandName) ?? fallbackBrand?.name ?? "Brand";
+  lines.push(`Brand: ${brandName}`);
+  lines.push("Brand source: accepted Brand Vault profile");
+
+  const category = actionableValue(profile.identity.category)
+    ?? actionableValue(profile.identity.industry)
+    ?? fallbackBrand?.visual.industry;
+  pushField(lines, "Industry/category", category && category !== "unknown" ? category : undefined);
+  pushListField(lines, "Audience", actionableList(profile.identity.audience) ?? (fallbackBrand?.voice.nicheMap ? [fallbackBrand.voice.nicheMap] : undefined));
+  pushListField(lines, "Products/services", actionableList(profile.identity.productServices));
+
+  const primary = actionableValue(profile.palette.primary);
+  const accent = actionableValue(profile.palette.accent);
+  const supporting = actionableList(profile.palette.supporting);
+  const paletteParts = [
+    primary ? `primary ${primary}` : undefined,
+    accent ? `accent ${accent}` : undefined,
+    supporting?.length ? `supporting ${supporting.join(", ")}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+  if (paletteParts.length > 0) lines.push(`Brand colors: ${paletteParts.join("; ")}`);
+  else pushListField(lines, "Brand colors", fallbackBrand?.visual.colors);
+
+  const unsafeOnDark = actionableList(profile.palette.unsafeOnDark);
+  const unsafeOnLight = actionableList(profile.palette.unsafeOnLight);
+  if (unsafeOnDark?.length || unsafeOnLight?.length) {
+    lines.push(
+      `Contrast cautions: ${[
+        unsafeOnDark?.length ? `avoid ${unsafeOnDark.join(", ")} on dark surfaces` : undefined,
+        unsafeOnLight?.length ? `avoid ${unsafeOnLight.join(", ")} on light surfaces` : undefined,
+      ].filter(Boolean).join("; ")}`,
+    );
+  }
+
+  pushField(lines, "Typography", actionableValue(profile.typography.raw) ?? fallbackBrand?.visual.typography);
+  const visualDirectives = describeClickatronVisualDirectives(profile);
+  if (visualDirectives.length) lines.push(`Visual direction: ${visualDirectives.join("; ")}`);
+
+  pushField(lines, "Visual style", fallbackBrand?.visual.visualStyle);
+  pushListField(lines, "Preferred hook styles", actionableList(profile.voice.hookArchetypes) ?? fallbackBrand?.voice.hookArchetypes);
+  pushListField(lines, "Recurring phrases/structures", actionableList(profile.voice.recurringPhrases) ?? fallbackBrand?.voice.structuralHabits);
+  pushListField(lines, "Never use words/phrases", actionableList(profile.voice.killList) ?? fallbackBrand?.voice.killList);
+
+  lines.push("</brand_context>");
+  return lines.join("\n");
 }
 
 export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | null): string {

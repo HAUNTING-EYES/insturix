@@ -8,11 +8,12 @@ import {
 import { generateModelPayload } from "@/lib/config/clickatron-models";
 import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
-import { resolveEffectiveBrand } from "@/lib/shared/brand-effective-resolver";
+import { resolveEffectiveBrandWithProfile } from "@/lib/shared/brand-effective-resolver";
 import { buildBrandContextBlock } from "@/lib/shared/brand-context-block";
+import { deriveBrandSignalProfile, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 
 vi.mock("@/lib/shared/brand-effective-resolver", () => ({
-  resolveEffectiveBrand: vi.fn(),
+  resolveEffectiveBrandWithProfile: vi.fn(),
 }));
 
 vi.mock("@/lib/shared/brand-context-block", () => ({
@@ -40,6 +41,30 @@ const unifiedBrand: UnifiedBrand = {
     banditProjectCount: 0,
   },
 };
+
+function acceptedVaultProfile(): BrandSignalProfile {
+  const profile = deriveBrandSignalProfile(unifiedBrand, {
+    generatedAt: "2026-06-24T00:00:00.000Z",
+  });
+
+  setSignal(profile.visual.densityTolerance, 0.86, 0.9);
+  setSignal(profile.visual.dataVizAffinity, 0.82, 0.88);
+  setSignal(profile.visual.cornerRadiusBias, 0.2, 0.92);
+  setSignal(profile.visual.layoutSymmetry, 0.84, 0.91);
+  setSignal(profile.visual.contrastPreference, 0.88, 0.93);
+  setSignal(profile.voice.hookArchetypes, ["contrarian proof", "metric-led before/after"], 0.86);
+  setSignal(profile.voice.killList, ["revolutionary", "game-changing"], 0.95);
+
+  return profile;
+}
+
+function setSignal<T>(signal: BrandSignal<T>, value: T, confidence: number): void {
+  signal.value = value;
+  signal.confidence = confidence;
+  signal.trustLevel = "manual_user_entry";
+  signal.authorityClass = "brand_preference";
+  delete signal.fallbackReason;
+}
 
 function creativeSpec() {
   return {
@@ -257,15 +282,63 @@ describe("Clickatron brand prompt context", () => {
   });
 
   it("uses the Vault-aware effective brand resolver by default", async () => {
-    vi.mocked(resolveEffectiveBrand).mockResolvedValueOnce(unifiedBrand);
+    vi.mocked(resolveEffectiveBrandWithProfile).mockResolvedValueOnce({
+      brand: unifiedBrand,
+      acceptedProfile: null,
+      source: "legacy",
+    });
     vi.mocked(buildBrandContextBlock).mockClear();
 
     const brandBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct");
 
-    expect(resolveEffectiveBrand).toHaveBeenCalledWith("user_1", "brand_direct", { service: "clickatron" });
+    expect(resolveEffectiveBrandWithProfile).toHaveBeenCalledWith("user_1", "brand_direct", { service: "clickatron" });
     expect(buildBrandContextBlock).toHaveBeenCalledWith(unifiedBrand);
     expect(brandBlock).toBe("BrandVault: Signal Supply");
   });
+
+  it("uses accepted Brand Vault profile visual signals in the final model payload prompt", async () => {
+    vi.mocked(resolveEffectiveBrandWithProfile).mockResolvedValueOnce({
+      brand: unifiedBrand,
+      acceptedProfile: acceptedVaultProfile(),
+      source: "brand_vault",
+    });
+    vi.mocked(buildBrandContextBlock).mockClear();
+
+    const brandContextBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct");
+
+    expect(resolveEffectiveBrandWithProfile).toHaveBeenCalledWith("user_1", "brand_direct", { service: "clickatron" });
+    expect(buildBrandContextBlock).not.toHaveBeenCalled();
+    expect(brandContextBlock).toContain("Brand source: accepted Brand Vault profile");
+    expect(brandContextBlock).toContain("Brand colors: primary #111111; accent #f5c542");
+    expect(brandContextBlock).toContain("high information density is allowed");
+    expect(brandContextBlock).toContain("data, diagram, or dashboard metaphors are on-brand");
+    expect(brandContextBlock).toContain("sharp or squared shape language");
+    expect(brandContextBlock).toContain("structured symmetrical layout");
+    expect(brandContextBlock).toContain("high-contrast composition");
+    expect(brandContextBlock).toContain("Never use words/phrases: revolutionary, game-changing");
+
+    const payload = generateModelPayload(
+      "fal-ai/imagen4/preview",
+      { num_images: 1 },
+      {
+        prompt: buildClickatronGenerationPrompt({
+          prompt: "Create a Clickatron visual.",
+          metadata: { sourceContext: { sourceService: "thinkforge", brandId: "brand_direct" } },
+          brandContextBlock,
+        }),
+      },
+      "1:1",
+      1024,
+      1024,
+    );
+
+    expect(payload.prompt).toContain("Brand source: accepted Brand Vault profile");
+    expect(payload.prompt).toContain("Brand colors: primary #111111; accent #f5c542");
+    expect(payload.prompt).toContain("Visual direction:");
+    expect(payload.prompt).toContain("sharp or squared shape language");
+    expect(payload.prompt).toContain("<clickatron_thumbnail_request>");
+  });
+
   it("carries resolved BrandVault context into the final model payload prompt", async () => {
     const brandContextBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct", {
       getBrand: async () => unifiedBrand,
