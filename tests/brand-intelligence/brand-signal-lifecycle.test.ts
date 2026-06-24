@@ -3,6 +3,10 @@ import type { UnifiedBrand } from '../../lib/shared/brand-registry';
 import type { BrandSignalProfile } from '../../lib/shared/brand-signal-profile';
 import { deriveBrandSignalProfile } from '../../lib/shared/brand-signal-profile';
 import {
+  createBrandSignalLearningEvent,
+  resolveBrandSignalEditLearningWeight,
+} from '../../lib/shared/brand-signal-edit-weighting';
+import {
   acceptBrandSignalProfileDraft,
   collectBrandSignals,
   createBrandSignalProfileDraft,
@@ -10,6 +14,7 @@ import {
   supersedeBrandSignalProfileRecord,
   validateBrandSignalProfile,
 } from '../../lib/shared/brand-signal-lifecycle';
+import { applyBrandVaultSignalValueEditsToDraftRecord } from '../../lib/shared/brand-vault-draft-orchestrator';
 
 const NOW = '2026-06-09T01:00:00.000Z';
 
@@ -131,5 +136,155 @@ describe('BrandSignalProfile lifecycle', () => {
     expect(rejected.status).toBe('rejected');
     expect(rejected.review.rejectionReason).toBe('Wrong client brand.');
     expect(superseded.status).toBe('superseded');
+  });
+
+  it('uses invented service-wide learning weights for manual signal edits', () => {
+    const brandVaultKillList = resolveBrandSignalEditLearningWeight({
+      service: 'brand_vault',
+      signalPath: 'voice.killList',
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+    });
+    const editronFrameMotionCorrection = resolveBrandSignalEditLearningWeight({
+      service: 'editron',
+      signalPath: 'motion.motionEnergy',
+      editType: 'generated_output_correction',
+      scope: 'frame',
+      polarity: 'replace',
+    });
+    const clickatronProjectPaletteCorrection = resolveBrandSignalEditLearningWeight({
+      service: 'clickatron',
+      signalPath: 'palette.accent',
+      editType: 'generated_output_correction',
+      scope: 'project',
+      polarity: 'replace',
+      repetitionCount: 3,
+    });
+    const alyzitronPassiveVoice = resolveBrandSignalEditLearningWeight({
+      service: 'alyzitron',
+      signalPath: 'voice.recurringPhrases',
+      editType: 'passive_voice_exemplar',
+      scope: 'video',
+      polarity: 'affirm',
+    });
+
+    expect(brandVaultKillList).toMatchObject({
+      category: 'invented',
+      service: 'brand_vault',
+      signalClass: 'hard_constraint',
+      value: 1,
+    });
+    expect(editronFrameMotionCorrection.category).toBe('invented');
+    expect(editronFrameMotionCorrection.value).toBeLessThan(0.1);
+    expect(clickatronProjectPaletteCorrection.value).toBeGreaterThan(editronFrameMotionCorrection.value);
+    expect(alyzitronPassiveVoice.value).toBeGreaterThan(0);
+    expect(alyzitronPassiveVoice.rationale).toContain('invented v1 weight');
+  });
+
+  it('builds service-wide learning event envelopes for corrections, acceptances, and rejections', () => {
+    const editronCorrection = createBrandSignalLearningEvent({
+      service: 'editron',
+      signalPath: 'motion.motionEnergy',
+      editType: 'generated_output_correction',
+      observedAt: '2026-06-09T01:30:00.000Z',
+      actorId: 'editor_1',
+      context: { brandId: 'brand_core', projectId: 'edit_project_1', frame: 120, campaignId: undefined },
+      beforeValue: 0.8,
+      afterValue: 0.45,
+      note: 'User reduced motion after render review.',
+    });
+    const clickatronRejection = createBrandSignalLearningEvent({
+      service: 'clickatron',
+      signalPath: 'palette.accent',
+      editType: 'rejected_candidate',
+      observedAt: '2026-06-09T01:31:00.000Z',
+      context: { brandId: 'brand_core', projectId: 'image_project_1', sourceId: 'thumb_candidate_7' },
+      observedValue: '#f2c94c',
+    });
+    const alyzitronAcceptance = createBrandSignalLearningEvent({
+      service: 'alyzitron',
+      signalPath: 'voice.recurringPhrases',
+      editType: 'accepted_output_confirmation',
+      observedAt: '2026-06-09T01:32:00.000Z',
+      context: { brandId: 'brand_core', contentId: 'analysis_video_1', timestampMs: 42000 },
+      observedValue: ['one platform, not ten'],
+    });
+    const thinkForgeManual = createBrandSignalLearningEvent({
+      service: 'thinkforge',
+      signalPath: 'voice.killList',
+      editType: 'manual_brand_dna_edit',
+      observedAt: '2026-06-09T01:33:00.000Z',
+      context: { brandId: 'brand_core', userId: 'user_core' },
+      afterValue: ['cheap'],
+    });
+
+    expect(editronCorrection).toMatchObject({
+      version: 1,
+      service: 'editron',
+      signalPath: 'motion.motionEnergy',
+      scope: 'frame',
+      polarity: 'replace',
+      beforeValue: 0.8,
+      afterValue: 0.45,
+      context: { brandId: 'brand_core', projectId: 'edit_project_1', frame: 120 },
+    });
+    expect(editronCorrection.context).not.toHaveProperty('campaignId');
+    expect(editronCorrection.id).toContain('brand_signal_learning_editron_generated_output_correction_motion_motionenergy');
+    expect(clickatronRejection.learningWeight).toMatchObject({
+      category: 'invented',
+      service: 'clickatron',
+      editType: 'rejected_candidate',
+      polarity: 'reject',
+      signalClass: 'visual_identity',
+    });
+    expect(alyzitronAcceptance).toMatchObject({
+      scope: 'project',
+      polarity: 'affirm',
+      learningWeight: { category: 'invented', service: 'alyzitron', editType: 'accepted_output_confirmation' },
+    });
+    expect(thinkForgeManual).toMatchObject({
+      scope: 'brand',
+      polarity: 'replace',
+      learningWeight: { category: 'invented', service: 'thinkforge', signalClass: 'hard_constraint' },
+    });
+    expect(thinkForgeManual.learningWeight.value).toBeGreaterThan(editronCorrection.learningWeight.value);
+    expect(() => createBrandSignalLearningEvent({
+      service: 'editron',
+      signalPath: '   ',
+      editType: 'generated_output_correction',
+      observedAt: '2026-06-09T01:34:00.000Z',
+    })).toThrow('signalPath');
+    expect(() => createBrandSignalLearningEvent({
+      service: 'clickatron',
+      signalPath: 'palette.accent',
+      editType: 'accepted_output_confirmation',
+      observedAt: 'not-a-date',
+    })).toThrow('observedAt');
+  });
+
+  it('records invented learning weight metadata on Brand Vault review edits', () => {
+    const draft = createBrandSignalProfileDraft(profile(), { id: 'draft_weighted_edit', now: NOW });
+    const result = applyBrandVaultSignalValueEditsToDraftRecord(
+      draft,
+      [{ path: 'palette.accent', value: '#00aa66' }],
+      { actorId: 'brand_manager_3', now: '2026-06-09T01:25:00.000Z' },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Expected signal edit to succeed.');
+    expect(result.record.profile.palette.accent?.value).toBe('#00aa66');
+
+    const evidence = result.record.profile.evidence.find((item) => item.sourceField === 'brandVault.review.signalEdits');
+    expect(evidence?.learningWeight).toMatchObject({
+      category: 'invented',
+      service: 'brand_vault',
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+      signalClass: 'visual_identity',
+    });
+    expect(evidence?.learningWeight?.value).toBeGreaterThan(0.85);
+    expect(validateBrandSignalProfile(result.record.profile).valid).toBe(true);
   });
 });

@@ -3,6 +3,56 @@ import {
   formatContentSignalProfileForPrompt,
   resolveContentSignalProfile,
 } from '@/lib/thinkforge/signals';
+import {
+  deriveBrandSignalProfile,
+  type BrandSignal,
+  type BrandSignalProfile,
+} from '@/lib/shared/brand-signal-profile';
+import type { UnifiedBrand } from '@/lib/shared/brand-registry';
+
+function brand(): UnifiedBrand {
+  return {
+    brandId: 'brand_creative',
+    userId: 'user_creative',
+    name: 'Northstar Analytics',
+    voice: {
+      voiceLock: 'Confident, warm, technical B2B voice with direct CTAs.',
+      nicheMap: 'Revenue teams at data-forward SaaS companies',
+      killList: ['cheap'],
+      hookArchetypes: ['metric-led proof'],
+      structuralHabits: ['lead with one hard number'],
+    },
+    visual: {
+      industry: 'B2B analytics',
+      colors: ['#102033', '#ff6a00', '#f7f7f7'],
+      visualStyle: 'minimal data dashboard with expressive sharp transitions',
+      typography: 'Geometric sans',
+    },
+    learning: {
+      banditProjectCount: 0,
+    },
+  };
+}
+
+function acceptedProfile(): BrandSignalProfile {
+  const draft = deriveBrandSignalProfile(brand(), {
+    generatedAt: '2026-06-20T00:00:00.000Z',
+  });
+
+  setSignal(draft.voice.humor, 0.7, 0.88);
+  setSignal(draft.motion.motionEnergy, 0.83, 0.86);
+  setSignal(draft.identity.proofStyle, 'metrics', 0.8);
+
+  return draft;
+}
+
+function setSignal<T>(signal: BrandSignal<T>, value: T, confidence: number): void {
+  signal.value = value;
+  signal.confidence = confidence;
+  signal.trustLevel = 'manual_user_entry';
+  signal.authorityClass = 'brand_preference';
+  delete signal.fallbackReason;
+}
 
 describe('resolveContentSignalProfile', () => {
   it('resolves brand, platform, proof, and forbidden terms for social posts', () => {
@@ -115,6 +165,35 @@ describe('resolveContentSignalProfile', () => {
       platform: 'Instagram',
       preferredAspectRatio: '4:5',
     });
+  });
+
+  it('applies accepted Brand Vault signals as brand-level creative defaults without overriding explicit instructions', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a LinkedIn post about the launch.',
+      brandId: 'brand_creative',
+      retrievedContext: {
+        brandDNA: {},
+        brandSignalProfile: acceptedProfile(),
+        projectFacts: [],
+        globalFacts: [],
+        semanticFacts: [],
+        interactionPatterns: [],
+      },
+      signalOverrides: {
+        humor: 0.1,
+      },
+    });
+
+    expect(resolved.sources.brandVaultProfilePresent).toBe(true);
+    expect(resolved.profile.signals.enthusiasm).toBe(0.83);
+    expect(resolved.profile._inference_metadata?.enthusiasm).toMatchObject({
+      source: 'brand_dna',
+      confidence: 0.86,
+    });
+    expect(resolved.profile._inference_metadata?.enthusiasm.resolvedFrom).toContain('brand_vault:');
+    expect(resolved.profile.signals.humor).toBe(0.1);
+    expect(resolved.profile._inference_metadata?.humor.source).toBe('user_explicit');
+    expect(resolved.profile.signals.logos_load).toBe(0.78);
   });
 
   it('clamps explicit signal overrides and formats a prompt block', () => {

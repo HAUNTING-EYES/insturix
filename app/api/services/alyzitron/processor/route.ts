@@ -8,6 +8,22 @@ import { logger } from "../utils/logger";
 import { upsertTranscriptionProcessing, upsertTranscriptionCompleted } from "@/lib/alyzitron";
 import { extractMediaUri, ExtractionError } from "@/lib/alyzitron/extraction/apify";
 import { uploadUrlToGeminiFileAPI } from "@/lib/services/geminiFileService";
+import {
+  buildAlyzitronAnalysisContext,
+  resolveAlyzitronBrandContext,
+} from "@/lib/alyzitron/services/brand-vault-context";
+
+function cleanString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 async function handler(request: NextRequest) {
   let currentTaskId: string | null = null;
@@ -28,6 +44,24 @@ async function handler(request: NextRequest) {
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
     if (task.status === "completed" || task.status === "failed") return NextResponse.json({ success: true, message: "Already processed" });
 
+    const taskBrandId =
+      cleanString(body.brandId) ??
+      cleanString(task.brandId) ??
+      cleanString(asRecord(task.context)?.brandId) ??
+      cleanString(asRecord(task.metadata)?.brandId);
+    const brandContext = await resolveAlyzitronBrandContext({ userId, brandId: taskBrandId });
+    const analysisContext = buildAlyzitronAnalysisContext(task.context || {}, brandContext);
+    const analysisMetadata = {
+      ...(task.metadata || {}),
+      ...(taskBrandId ? { brandId: taskBrandId } : {}),
+      ...(brandContext.source !== "none" ? { brandContextSource: brandContext.source } : {}),
+    };
+    const brandCompletionFields = {
+      ...(taskBrandId ? { brandId: taskBrandId, "metadata.brandId": taskBrandId } : {}),
+      ...(brandContext.source !== "none"
+        ? { brandContextSource: brandContext.source, "metadata.brandContextSource": brandContext.source }
+        : {}),
+    };
     // Initial Status Update
     await analyses.updateOne({ _id: task._id }, { $set: { status: "processing", processingStartTime: new Date(), updatedAt: new Date() } });
 
@@ -62,7 +96,7 @@ async function handler(request: NextRequest) {
         logger.info("Route 1: Direct Image");
         updatedMimeType = 'image/jpeg';
         await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image Analysis]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-        analysisResults = await analyzeVideoWithGemini(task.videoUrl, task.context || {}, task.metadata || {});
+        analysisResults = await analyzeVideoWithGemini(task.videoUrl, analysisContext, analysisMetadata);
       }
       // ROUTE 2.5: R2 PATH
       else if (isR2Path) {
@@ -79,7 +113,7 @@ async function handler(request: NextRequest) {
         const { fileUri } = await uploadUrlToGeminiFileAPI(downloadUrl, updatedMimeType, `task-${taskId}`);
 
         logger.info("Starting Gemini Analysis for R2 Path");
-        const gem = await analyzeVideoWithGemini(fileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+        const gem = await analyzeVideoWithGemini(fileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
         analysisResults = gem;
         transcriptResult = {
           id: "gemini-" + Date.now().toString(),
@@ -104,7 +138,7 @@ async function handler(request: NextRequest) {
           updatedVideoUrl = task.videoUrl;
           updatedMimeType = "video/mp4";
 
-          const gem = await analyzeVideoWithGemini(task.videoUrl, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {});
+          const gem = await analyzeVideoWithGemini(task.videoUrl, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
           analysisResults = gem;
 
           transcriptResult = {
@@ -126,7 +160,7 @@ async function handler(request: NextRequest) {
             const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
             updatedVideoUrl = extracted.downloadUrl;
             await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-            analysisResults = await analyzeVideoWithGemini(fileUri, task.context || {}, task.metadata || {});
+            analysisResults = await analyzeVideoWithGemini(fileUri, analysisContext, analysisMetadata);
 
           } else {
             // VIDEO/AUDIO LOGIC
@@ -146,7 +180,7 @@ async function handler(request: NextRequest) {
             updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
 
             logger.info("Starting Gemini Analysis" + (audioFileUri ? " (dual-file: video + audio)" : ""));
-            const gem = await analyzeVideoWithGemini(videoFileUri, { ...(task.context || {}), transcript: "Native audio." }, task.metadata || {}, undefined, audioFileUri);
+            const gem = await analyzeVideoWithGemini(videoFileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata, undefined, audioFileUri);
             analysisResults = gem;
 
             transcriptResult = {
@@ -187,6 +221,7 @@ async function handler(request: NextRequest) {
             videoUrl: updatedVideoUrl,
             originalSourceUrl,
             "metadata.mimeType": updatedMimeType,
+            ...brandCompletionFields,
             completedAt: new Date(),
             updatedAt: new Date()
           }

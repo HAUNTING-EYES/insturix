@@ -19,6 +19,7 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 export interface UnifiedBrand {
   brandId: string;
   userId: string;
+  orgId?: string;
   name: string;
   voice: {
     voiceLock?: string;
@@ -44,6 +45,7 @@ export interface UnifiedBrand {
 interface EditronBrand {
   brandId: string;
   userId: string;
+  orgId?: string;
   name: string;
   industry: string;
   colors: string[];
@@ -216,6 +218,7 @@ function mergeToUnified(
   return {
     brandId: editron.brandId,
     userId: editron.userId,
+    orgId: editron.orgId,
     name: editron.name,
     voice: {
       voiceLock: dna?.voiceLock,

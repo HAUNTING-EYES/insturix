@@ -9,6 +9,7 @@
  *   video_rendered     → recordProjectOutcome + Post-Mortem
  *   quality_reviewed   → recordProjectOutcome (quality score update)
  *   brand_updated      → placeholder for Phase 2 registry cache invalidation
+ *   user_override      -> stage weighted Brand Vault evidence candidates
  *   *                  → log + acknowledge (scaffolding for Phase 2 wiring)
  */
 
@@ -100,6 +101,10 @@ async function handler(request: NextRequest) {
 
       case 'thumbnail_created':
         result = await handleThumbnailCreated(event);
+        break;
+
+      case 'user_override':
+        result = await handleUserOverride(event);
         break;
 
       default:
@@ -389,7 +394,57 @@ async function handleBrandUpdated(
 }
 
 /**
- * Video published — update bandit with userPublished=true.
+ * User made a manual correction in a service UI.
+ * Stage weighted Brand Vault candidates for review; do not accept as truth here.
+ */
+async function handleUserOverride(
+  event: BrandEvent,
+): Promise<{ action: string; detail?: string }> {
+  const learningEvents = event.payload.learningEvents;
+  if (!Array.isArray(learningEvents) || learningEvents.length === 0) {
+    return { action: 'skipped', detail: 'No learningEvents in user_override payload' };
+  }
+
+  return stageBrandVaultLearningEvents(event, learningEvents);
+}
+
+async function stageBrandVaultLearningEvents(
+  event: BrandEvent,
+  learningEvents: unknown[],
+  options: { projectId?: string } = {},
+): Promise<{ action: string; detail?: string }> {
+  try {
+    const { writeBrandSignalLearningEventsToBrandVault } = await import(
+      '@/lib/shared/brand-vault-learning-events'
+    );
+    const result = await writeBrandSignalLearningEventsToBrandVault({
+      userId: event.userId,
+      brandId: nonEmptyString(event.brandId),
+      projectId: nonEmptyString(options.projectId) ?? nonEmptyString(event.projectId),
+      sourceEventId: event.eventId,
+      actorId: event.userId,
+      learningEvents,
+    });
+
+    if (!result.ok) {
+      return { action: 'brand_vault_failed', detail: result.error };
+    }
+    if (result.skipped) {
+      return { action: 'brand_vault_learning_skipped', detail: result.reason };
+    }
+    return {
+      action: 'brand_vault_learning_staged',
+      detail: `jobId=${result.jobId}; recordId=${result.recordId}; candidateCount=${result.candidateCount}`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[BrandLearning] Brand Vault learning event write failed: ${msg}`);
+    return { action: 'brand_vault_failed', detail: msg };
+  }
+}
+
+/**
+ * Video published - update bandit with userPublished=true.
  */
 async function handleVideoPublished(
   event: BrandEvent,
@@ -508,9 +563,23 @@ async function handleThumbnailCreated(
       };
     }
 
+    const learningEvents = await createClickatronThumbnailLearningEvents({
+      event,
+      brandId,
+      projectId,
+      thumbnailId,
+      thumbnailUrl: nonEmptyString(payload.thumbnailUrl),
+      sourceId: nonEmptyString(payload.sessionId) || nonEmptyString(payload.variationId),
+    });
+    const vaultResult = learningEvents.length > 0
+      ? await stageBrandVaultLearningEvents(event, learningEvents, { projectId })
+      : { action: 'brand_vault_learning_skipped', detail: 'No thumbnailUrl on thumbnail_created event' };
+
+    if (shouldRetryResult(vaultResult)) return vaultResult;
+
     return {
-      action: 'graphiti_episode_dispatched',
-      detail: `thumbnailId=${thumbnailId}`,
+      action: `graphiti_episode_dispatched, ${vaultResult.action}`,
+      detail: `thumbnailId=${thumbnailId}; ${vaultResult.detail ?? 'Brand Vault learning skipped'}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -519,6 +588,49 @@ async function handleThumbnailCreated(
   }
 }
 
+
+async function createClickatronThumbnailLearningEvents(input: {
+  event: BrandEvent;
+  brandId: string;
+  projectId?: string;
+  thumbnailId: string;
+  thumbnailUrl?: string;
+  sourceId?: string;
+}): Promise<unknown[]> {
+  if (!input.thumbnailUrl) return [];
+
+  const { createBrandSignalLearningEvent } = await import(
+    '@/lib/shared/brand-signal-edit-weighting'
+  );
+  return [
+    createBrandSignalLearningEvent({
+      service: 'clickatron',
+      signalPath: 'assets.socialPreviewImages',
+      editType: 'accepted_output_confirmation',
+      scope: 'project',
+      polarity: 'affirm',
+      observedAt: observedAtForBrandEvent(input.event),
+      actorId: input.event.userId,
+      context: {
+        userId: input.event.userId,
+        brandId: input.brandId,
+        projectId: input.projectId,
+        contentId: input.thumbnailId,
+        sourceId: input.sourceId ?? input.thumbnailId,
+        sourceUrl: input.thumbnailUrl,
+      },
+      observedValue: [input.thumbnailUrl],
+      note: 'User committed this Clickatron thumbnail output; stage as a weak social-preview asset signal until human review.',
+    }),
+  ];
+}
+
+function observedAtForBrandEvent(event: BrandEvent): string {
+  const timestamp = event.createdAt instanceof Date
+    ? event.createdAt.getTime()
+    : Date.parse(String(event.createdAt));
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : new Date().toISOString();
+}
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
@@ -581,7 +693,9 @@ function validatePersistedEvent(event: BrandEvent, expectedEventId: string): str
 }
 
 function shouldRetryResult(result: { action: string }): boolean {
-  return result.action === 'bandit_failed' || result.action === 'graphiti_failed';
+  return result.action === 'bandit_failed' ||
+    result.action === 'graphiti_failed' ||
+    result.action === 'brand_vault_failed';
 }
 
 // ==================== Export ====================

@@ -76,6 +76,7 @@ function createPromiseBackedStore(): BrandVaultRefineryStore {
     acceptDraft: async (id, options) => store.acceptDraft(id, options),
     rejectDraft: async (id, reason, options) => store.rejectDraft(id, reason, options),
     getLatestAcceptedProfile: async (filter) => store.getLatestAcceptedProfile(filter),
+    getLatestAcceptedRecord: async (filter) => store.getLatestAcceptedRecord(filter),
     saveJobSnapshot: async (snapshot) => store.saveJobSnapshot(snapshot),
     getJobSnapshot: async (jobId) => store.getJobSnapshot(jobId),
     getJobSnapshotByRecordId: async (recordId) => store.getJobSnapshotByRecordId(recordId),
@@ -93,6 +94,7 @@ describe('Brand Vault refinery API boundary', () => {
     const started = await startQueuedBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -108,7 +110,8 @@ describe('Brand Vault refinery API boundary', () => {
             return htmlResponse();
           },
         },
-        sourceEvidenceProvider: async () => {
+        sourceEvidenceProvider: async ({ orgId }) => {
+          expect(orgId).toBe('org_vaultline');
           providerCallCount += 1;
           return { warnings: ['connected social enrichment ran'] };
         },
@@ -119,6 +122,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(started.response.body.ok).toBe(true);
     if (!started.response.body.ok) throw new Error(started.response.body.error.message);
     expect(started.response.body.job.status).toBe('queued');
+    expect(started.response.body.job.orgId).toBe('org_vaultline');
     expect(started.response.body.record).toBeNull();
     expect(started.response.body.reviewPayload).toBeNull();
     expect(websiteFetchCount).toBe(0);
@@ -132,6 +136,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(queued.body.ok).toBe(true);
     if (!queued.body.ok) throw new Error(queued.body.error.message);
     expect(queued.body.job.status).toBe('queued');
+    expect(queued.body.job.orgId).toBe('org_vaultline');
     expect(queued.body.record).toBeNull();
 
     await started.run?.();
@@ -146,9 +151,12 @@ describe('Brand Vault refinery API boundary', () => {
     expect(completed.body.ok).toBe(true);
     if (!completed.body.ok) throw new Error(completed.body.error.message);
     expect(completed.body.job.status).toBe('needs_review');
+    expect(completed.body.job.orgId).toBe('org_vaultline');
     expect(completed.body.job.id).toBe(started.response.body.job.id);
     expect(completed.body.job.warnings).toContain('connected social enrichment ran');
     expect(completed.body.record?.id).toBe(`${started.response.body.job.id}_profile`);
+    expect(completed.body.record?.profile.orgId).toBe('org_vaultline');
+    expect(completed.body.reviewPayload?.orgId).toBe('org_vaultline');
     expect(completed.body.reviewPayload?.reviewRequired).toBe(true);
   });
 
@@ -160,6 +168,7 @@ describe('Brand Vault refinery API boundary', () => {
     const started = await startQueuedBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -175,7 +184,8 @@ describe('Brand Vault refinery API boundary', () => {
             return htmlResponse();
           },
         },
-        sourceEvidenceProvider: async () => {
+        sourceEvidenceProvider: async ({ orgId }) => {
+          expect(orgId).toBe('org_vaultline');
           providerCallCount += 1;
           return { warnings: ['connected social enrichment ran'] };
         },
@@ -196,7 +206,8 @@ describe('Brand Vault refinery API boundary', () => {
           return htmlResponse();
         },
       },
-      sourceEvidenceProvider: async () => {
+      sourceEvidenceProvider: async ({ orgId }) => {
+        expect(orgId).toBe('org_vaultline');
         providerCallCount += 1;
         return { warnings: ['connected social enrichment ran'] };
       },
@@ -218,7 +229,10 @@ describe('Brand Vault refinery API boundary', () => {
     expect(completed.body.ok).toBe(true);
     if (!completed.body.ok) throw new Error(completed.body.error.message);
     expect(completed.body.job.status).toBe('needs_review');
+    expect(completed.body.job.orgId).toBe('org_vaultline');
     expect(completed.body.record?.id).toBe(`${started.response.body.job.id}_profile`);
+    expect(completed.body.record?.profile.orgId).toBe('org_vaultline');
+    expect(completed.body.reviewPayload?.orgId).toBe('org_vaultline');
   });
 
   it('fails malformed persisted queued jobs instead of leaving them running forever', async () => {
@@ -271,6 +285,7 @@ describe('Brand Vault refinery API boundary', () => {
       acceptDraft: (id, options) => backingStore.acceptDraft(id, options),
       rejectDraft: (id, reason, options) => backingStore.rejectDraft(id, reason, options),
       getLatestAcceptedProfile: (filter) => backingStore.getLatestAcceptedProfile(filter),
+      getLatestAcceptedRecord: (filter) => backingStore.getLatestAcceptedRecord(filter),
       saveJobSnapshot: (snapshot) => {
         if (snapshot.recordId) throw new Error('mongo write failed');
         return backingStore.saveJobSnapshot(snapshot);
@@ -283,6 +298,7 @@ describe('Brand Vault refinery API boundary', () => {
     const started = await startQueuedBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -323,6 +339,7 @@ describe('Brand Vault refinery API boundary', () => {
     const started = await startQueuedBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -354,6 +371,7 @@ describe('Brand Vault refinery API boundary', () => {
       job: {
         id: 'brand_refinery_job_running_stale',
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         brandId: 'brand_vaultline',
         status: 'running',
         inputs: {
@@ -387,6 +405,7 @@ describe('Brand Vault refinery API boundary', () => {
       job: {
         id: 'brand_refinery_job_running_retry',
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         brandId: 'brand_vaultline',
         status: 'running',
         inputs: {
@@ -419,6 +438,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(completed.body.ok).toBe(true);
     if (!completed.body.ok) throw new Error(completed.body.error.message);
     expect(completed.body.job.status).toBe('needs_review');
+    expect(completed.body.job.orgId).toBe('org_vaultline');
     expect(completed.body.record?.id).toBe('brand_refinery_job_running_retry_profile');
   });
 
@@ -428,6 +448,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -464,6 +485,9 @@ describe('Brand Vault refinery API boundary', () => {
     expect(created.body.ok).toBe(true);
     if (!created.body.ok) throw new Error(created.body.error.message);
     expect(created.body.job.status).toBe('needs_review');
+    expect(created.body.job.orgId).toBe('org_vaultline');
+    expect(created.body.record.profile.orgId).toBe('org_vaultline');
+    expect(created.body.reviewPayload.orgId).toBe('org_vaultline');
     expect(created.body.record.review.required).toBe(true);
     expect(created.body.record.profile.identity.brandName.value).toBe('Vaultline');
     expect(created.body.reviewPayload.candidateCount).toBeGreaterThan(0);
@@ -514,6 +538,9 @@ describe('Brand Vault refinery API boundary', () => {
     expect(loaded.body.ok).toBe(true);
     if (!loaded.body.ok) throw new Error(loaded.body.error.message);
     expect(loaded.body.job.id).toBe(created.body.job.id);
+    expect(loaded.body.job.orgId).toBe('org_vaultline');
+    expect(loaded.body.record?.profile.orgId).toBe('org_vaultline');
+    expect(loaded.body.reviewPayload?.orgId).toBe('org_vaultline');
     expect(loaded.body.record?.id).toBe(created.body.record.id);
     expect(loaded.body.reviewPayload?.reviewRequired).toBe(true);
     expect(loaded.body.candidates).toHaveLength(created.body.candidates.length);
@@ -632,6 +659,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -685,6 +713,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -770,6 +799,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -909,6 +939,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -1295,6 +1326,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -1424,6 +1456,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -1558,6 +1591,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -1677,6 +1711,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -1786,6 +1821,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -1943,6 +1979,7 @@ describe('Brand Vault refinery API boundary', () => {
     const created = await createBrandVaultRefineryJobFromWebsite(
       {
         userId: 'user_vault',
+        orgId: 'org_vaultline',
         body: {
           websiteUrl: 'vaultline.example',
           brandId: 'brand_vaultline',
@@ -2063,6 +2100,47 @@ describe('Brand Vault refinery API boundary', () => {
     expect(wrongUserProfile.status).toBe(404);
   });
 
+  it('does not leak jobs, profiles, or draft review across active org scopes', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      {
+        userId: 'owner_user',
+        orgId: 'org_a',
+        body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' },
+      },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const sameOrgJob = await getBrandVaultRefineryJob(
+      { userId: 'owner_user', orgId: 'org_a', jobId: created.body.job.id },
+      { store },
+    );
+    const wrongOrgJob = await getBrandVaultRefineryJob(
+      { userId: 'owner_user', orgId: 'org_b', jobId: created.body.job.id },
+      { store },
+    );
+    const wrongOrgProfile = await getBrandVaultSignalProfile(
+      { userId: 'owner_user', orgId: 'org_b', recordId: created.body.record.id },
+      { store },
+    );
+    const wrongOrgReview = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'owner_user',
+        orgId: 'org_b',
+        recordId: created.body.record.id,
+        body: { action: 'accept' },
+      },
+      { store },
+    );
+
+    expect(sameOrgJob.status).toBe(200);
+    expect(wrongOrgJob.status).toBe(404);
+    expect(wrongOrgProfile.status).toBe(404);
+    expect(wrongOrgReview.status).toBe(404);
+    expect((await store.getRecord(created.body.record.id))?.status).toBe('draft');
+  });
+
   it('awaits promise-returning store adapters for production persistence compatibility', async () => {
     const store = createPromiseBackedStore();
     const created = await createBrandVaultRefineryJobFromWebsite(
@@ -2121,6 +2199,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(accepted.body.job?.status).toBe('accepted');
     expect(accepted.body.reviewPayload?.reviewRequired).toBe(false);
     expect(accepted.body.reviewPayload?.intake.nextActions.map((action) => action.id)).not.toContain('review_candidates');
+    expect(accepted.body.learningEvents).toEqual([]);
 
     const rejectedDraft = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },
@@ -2144,6 +2223,90 @@ describe('Brand Vault refinery API boundary', () => {
     expect(rejected.body.record.status).toBe('rejected');
     expect(rejected.body.job?.status).toBe('rejected');
     expect(rejected.body.record.review.rejectionReason).toBe('Wrong client site.');
+    expect(rejected.body.learningEvents).toEqual([]);
+  });
+
+  it('blocks accepting brandless drafts so consumers can resolve accepted truth by brandId', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const accepted = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        body: { action: 'accept' },
+        now: '2026-06-09T06:18:00.000Z',
+      },
+      { store },
+    );
+
+    expect(accepted.status).toBe(400);
+    expect(accepted.body.ok).toBe(false);
+    if (accepted.body.ok) throw new Error('Expected brandless accept to fail.');
+    expect(accepted.body.error.message).toBe('brandId is required before accepting a Brand Vault profile.');
+    expect(store.getRecord(created.body.record.id)?.status).toBe('draft');
+  });
+
+  it('returns reviewed Brand Vault learning events when accepted signal edits change values', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const accepted = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        actorId: 'brand_manager_1',
+        body: {
+          action: 'accept',
+          signalEdits: [{ path: 'identity.category', value: 'creative operations platform' }],
+        },
+        now: '2026-06-09T06:25:00.000Z',
+      },
+      { store },
+    );
+
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.ok).toBe(true);
+    if (!accepted.body.ok) throw new Error(accepted.body.error.message);
+    expect(accepted.body.record.profile.identity.category.value).toBe('creative operations platform');
+    expect(accepted.body.learningEvents).toHaveLength(1);
+
+    const event = accepted.body.learningEvents[0];
+    if (!event) throw new Error('Expected reviewed learning event.');
+    expect(event).toMatchObject({
+      version: 1,
+      service: 'brand_vault',
+      signalPath: 'identity.category',
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+      observedAt: '2026-06-09T06:25:00.000Z',
+      actorId: 'brand_manager_1',
+      context: {
+        userId: 'user_vault',
+        brandId: 'brand_vaultline',
+        sourceId: created.body.record.id,
+      },
+      afterValue: 'creative operations platform',
+      observedValue: 'creative operations platform',
+      learningWeight: {
+        category: 'invented',
+        service: 'brand_vault',
+        editType: 'direct_review_edit',
+        scope: 'brand',
+        polarity: 'replace',
+        signalClass: 'strategic_identity',
+      },
+    });
+    expect(event.learningWeight.value).toBeGreaterThan(0.8);
   });
 
   it('returns deterministic errors for invalid input, fetch failure, and bad review actions', async () => {

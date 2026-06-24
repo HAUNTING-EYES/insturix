@@ -26,7 +26,7 @@ export interface SFXLibraryResult {
   gcsPath: string;
   audioAssetId: string;
   durationMs: number;
-  source: 'pixabay' | 'freesound' | 'local';
+  source: 'pixabay' | 'freesound';
   originalTitle?: string;
 }
 
@@ -35,7 +35,7 @@ interface SFXProviderCandidate {
   url: string;
   title: string;
   duration: number;
-  source: Exclude<SFXLibraryResult['source'], 'local'>;
+  source: SFXLibraryResult['source'];
   tags: string[];
   rating?: number;
 }
@@ -88,7 +88,7 @@ async function searchFreesound(
       params.set('filter', `license:"Creative Commons 0" duration:[0 TO ${maxDuration + 2}]`);
     }
 
-    const res = await fetch(`https://freesound.org/apiv2/search/text/?${params}`);
+    const res = await fetch(`https://freesound.org/apiv2/search/?${params}`);
     if (!res.ok) {
       console.warn(`[SFXLib] Freesound search failed: ${res.status}`);
       return [];

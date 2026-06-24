@@ -19,7 +19,7 @@ export const maxDuration = 300;
 let queueRunInFlight = false;
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let body: unknown;
@@ -34,13 +34,14 @@ export async function POST(req: Request) {
 
   const store = getDefaultBrandVaultRefineryStore();
   const start = await startQueuedBrandVaultRefineryJobFromWebsite(
-    { userId, actorId: userId, body },
+    { userId, orgId: orgId ?? undefined, actorId: userId, body },
     {
       store,
       fetchOptions: {
         browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
       },
-      sourceEvidenceProvider: ({ socialLinks }) => loadBrandVaultConnectedSocialEvidence(userId, socialLinks),
+      sourceEvidenceProvider: ({ userId: sourceUserId, socialLinks }) =>
+        loadBrandVaultConnectedSocialEvidence(sourceUserId, socialLinks),
       textEvidenceCompiler: createBrandVaultTextEvidenceCompilerFromEnvironment(),
     },
   );
@@ -51,13 +52,13 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   const jobId = new URL(req.url).searchParams.get('jobId') ?? '';
   const store = getDefaultBrandVaultRefineryStore();
   const result = await getBrandVaultRefineryJob(
-    { userId, jobId },
+    { userId, orgId: orgId ?? undefined, jobId },
     { store },
   );
   if (result.body.ok && isActiveRefineryJobStatus(result.body.job.status)) {

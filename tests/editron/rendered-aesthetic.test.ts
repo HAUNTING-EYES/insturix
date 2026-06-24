@@ -53,6 +53,40 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it('does not fail captions against their own text-occupancy placement hint', () => {
+    const receipt = captionReceipt({
+      words: ['one', 'clear', 'idea', 'wins'],
+      maxWordsPerLine: 2,
+      durationFrames: 66,
+      signals: {
+        text_on_screen: 1,
+        text_coverage: 0.72,
+      },
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 10.5, alphaMean: 1 },
+      overlays: [{
+        id: 'caption-self-text-occupancy',
+        receipt,
+        box: {
+          x: 220,
+          y: 1380,
+          width: 640,
+          height: 180,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.8,
+          textPixelHeight: 68,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.issues.some((issue) => issue.dimension === 'occlusion')).toBe(false);
+  });
+
   it('fails blank or missing rendered output before trusting overlay metadata', () => {
     const result = scoreRenderedFrameAesthetic({
       ...FRAME,
@@ -492,6 +526,7 @@ function captionReceipt(input: {
   durationFrames?: number;
   textColor?: string;
   backgroundColor?: string;
+  signals?: Record<string, unknown>;
 }): AtomicOverlayReceipt {
   const atoms: AtomicOverlayAtom[] = [
     overlayAtom('caption-mode', 'caption.mode', 'phrase', 1, 'decision-param'),
@@ -519,7 +554,7 @@ function captionReceipt(input: {
     intent: 'keyword-caption',
     frame: 24,
     durationFrames: input.durationFrames ?? 54,
-    signals: { negative_space_bottom: 0.7 },
+    signals: input.signals ?? { negative_space_bottom: 0.7 },
     atoms,
   });
 }

@@ -4,6 +4,7 @@ import type {
   BrandSignalProfile,
   BrandSignalTrustLevel,
 } from './brand-signal-profile';
+import type { BrandSignalLearningWeight } from './brand-signal-edit-weighting';
 import type { BrandSignalProfileRecord } from './brand-signal-lifecycle';
 
 export type BrandEvidenceCandidateSourceType =
@@ -145,6 +146,7 @@ export interface BrandEvidenceCandidate {
   confidence: number;
   trustLevel?: BrandSignalTrustLevel;
   authorityClass: BrandEvidenceCandidateAuthority;
+  learningWeight?: BrandSignalLearningWeight;
   observedAt: string;
   extractorId: string;
 }
@@ -152,6 +154,7 @@ export interface BrandEvidenceCandidate {
 export interface BrandRefineryJob {
   id: string;
   userId: string;
+  orgId?: string;
   brandId?: string;
   status: 'queued' | 'running' | 'needs_review' | 'accepted' | 'rejected' | 'failed';
   inputs: {
@@ -173,6 +176,7 @@ export interface BrandWebsiteDraftInput {
   renderedPrimitives?: BrandWebsiteRenderedPrimitiveEvidence;
   brandId?: string;
   userId?: string;
+  orgId?: string;
   companyName?: string;
   fetchedAt?: string;
   extractor?: string;
@@ -333,6 +337,12 @@ export interface BrandWebsiteProductImageCandidate {
   confidence: number;
 }
 
+export interface BrandWebsiteFontFace {
+  family: string;
+  files: string[];
+  weights: number[];
+}
+
 export interface ParsedWebsiteEvidence {
   normalizedUrl: string;
   host: string;
@@ -344,6 +354,7 @@ export interface ParsedWebsiteEvidence {
   schemaTypes: string[];
   colors: string[];
   fonts: string[];
+  fontFaces: BrandWebsiteFontFace[];
   headings: string[];
   ctas: string[];
   proofSnippets: string[];

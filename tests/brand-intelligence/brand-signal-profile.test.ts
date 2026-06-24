@@ -13,6 +13,7 @@ function brand(overrides: Partial<UnifiedBrand> = {}): UnifiedBrand {
   return {
     brandId: 'brand_123',
     userId: 'user_123',
+    orgId: 'org_123',
     name: 'Northstar Analytics',
     voice: {
       voiceLock: 'Confident, warm, technical B2B voice with direct CTAs.',
@@ -40,6 +41,7 @@ describe('BrandSignalProfile', () => {
 
     expect(profile.version).toBe(1);
     expect(profile.brandId).toBe('brand_123');
+    expect(profile.orgId).toBe('org_123');
     expect(profile.identity.brandName.value).toBe('Northstar Analytics');
     expect(profile.identity.industry?.value).toBe('B2B analytics');
     expect(profile.identity.proofStyle.value).toBe('metrics');

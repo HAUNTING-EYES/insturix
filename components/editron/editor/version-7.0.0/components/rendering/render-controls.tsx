@@ -79,19 +79,41 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   const [hasNewRender, setHasNewRender] = React.useState(false);
 
   // Quality gate: warn before render when score < 40
-  const QUALITY_WARN_THRESHOLD = 40; // ← Plan decision: "Score < 40 shows dialog"
+  const QUALITY_WARN_THRESHOLD = 40; // <- Plan decision: "Score < 40 shows dialog"
   const [qualityDialogOpen, setQualityDialogOpen] = React.useState(false);
   const [qualityScore, setQualityScore] = React.useState<number | null>(null);
   const [qualityIssueCount, setQualityIssueCount] = React.useState(0);
   const [qualityChecking, setQualityChecking] = React.useState(false);
 
+  const saveBeforeRender = React.useCallback(async () => {
+    if (!saveProject) return true;
+    try {
+      await saveProject();
+      return true;
+    } catch (err) {
+      console.error("[RenderControls] Save before render failed:", err);
+      return false;
+    }
+  }, [saveProject]);
+
   const handleRenderWithQualityCheck = React.useCallback(async () => {
+    // Immediate feedback: reflect in-progress work the instant the button is clicked, including
+    // the save below. Previously the save ran with no indicator, so a slow-saving project looked
+    // like "I hit render and nothing happened." Reset on every early-exit path.
+    setQualityChecking(true);
+
+    const saved = await saveBeforeRender();
+    if (!saved) {
+      setQualityChecking(false);
+      return;
+    }
+
     if (!projectId || renderType !== "lambda") {
+      setQualityChecking(false);
       handleRender();
       return;
     }
 
-    setQualityChecking(true);
     try {
       const res = await fetch("/api/services/editron/quality-review", {
         method: "POST",
@@ -118,7 +140,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
 
     setQualityChecking(false);
     handleRender();
-  }, [projectId, renderType, handleRender]);
+  }, [projectId, renderType, handleRender, saveBeforeRender]);
 
   // Check if rendering is disabled via environment variable
   const isRenderDisabled = process.env.NEXT_PUBLIC_DISABLE_RENDER === "true";
@@ -417,7 +439,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
             <AlertDialogDescription className="text-zinc-300">
               Quality review found {qualityIssueCount} issue{qualityIssueCount !== 1 ? 's' : ''}.
               Rendering with a low quality score may produce a video with visible problems.
-              You can still render — this is a warning, not a block.
+              You can still render - this is a warning, not a block.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -438,7 +460,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Cancel button — visible only during rendering */}
+      {/* Cancel button - visible only during rendering */}
       {(state.status === "rendering" || state.status === "invoking") && handleCancel && (
         <Button
           onClick={handleCancel}
@@ -451,7 +473,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         </Button>
       )}
 
-      {/* Chapter rendering indicator — shows when render uses chapter mode */}
+      {/* Chapter rendering indicator - shows when render uses chapter mode */}
       {state.chapterCount > 0 && (state.status === "rendering" || state.status === "invoking") && (
         <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-900/30 border border-indigo-800/50 rounded-md">
           <Layers className="w-3 h-3 text-indigo-400" />
@@ -477,7 +499,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         </div>
       )}
 
-      {/* Long video info — shown when not rendering but project > 3 min */}
+      {/* Long video info - shown when not rendering but project > 3 min */}
       {state.totalFrames > 5400 && state.status !== "rendering" && state.status !== "invoking" && (
         <div className="flex items-center gap-1 text-[10px] text-zinc-500" title="Videos over 3 minutes use parallel chapter rendering for faster export">
           <Info className="w-3 h-3" />

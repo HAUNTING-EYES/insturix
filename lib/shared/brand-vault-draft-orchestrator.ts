@@ -23,6 +23,7 @@ import {
   verifyWebsiteBrandAssetCandidates,
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
+import { resolveBrandSignalEditLearningWeight } from './brand-signal-edit-weighting';
 import { inferAudience, inferCategory, inferIndustry, parseWebsiteHtml } from './brand-website-refinery-utils';
 import {
   createBrandVaultGeminiSocialOcrProvider,
@@ -210,6 +211,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
   status: BrandRefineryJob['status'];
   brandId?: string;
   userId?: string;
+  orgId?: string;
   normalizedUrl: string;
   candidateCount: number;
   evidenceCount: number;
@@ -225,6 +227,7 @@ export interface BrandVaultWebsiteDraftReviewPayload {
 
 export interface BrandVaultWebsiteDraftJobInput {
   userId: string;
+  orgId?: string;
   websiteUrl: string;
   brandId?: string;
   companyName?: string;
@@ -257,6 +260,12 @@ export type BrandVaultTextEvidenceCompiler = (
 
 export type BrandVaultStoreResult<T> = T | Promise<T>;
 
+export interface BrandVaultAcceptedProfileFilter {
+  brandId?: string;
+  userId?: string;
+  orgId?: string | null;
+}
+
 export interface BrandVaultSignalProfileStore {
   saveRecord(
     record: BrandSignalProfileRecord,
@@ -269,7 +278,7 @@ export interface BrandVaultSignalProfileStore {
     reason: string,
     options?: BrandSignalLifecycleOptions,
   ): BrandVaultStoreResult<BrandSignalProfileRepositoryResult>;
-  getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandVaultStoreResult<BrandSignalProfile | null>;
+  getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfile | null>;
 }
 
 export interface SynchronousBrandVaultSignalProfileStore extends BrandVaultSignalProfileStore {
@@ -277,7 +286,7 @@ export interface SynchronousBrandVaultSignalProfileStore extends BrandVaultSigna
   getRecord(id: string): BrandSignalProfileRecord | null;
   acceptDraft(id: string, options?: BrandSignalLifecycleOptions): BrandSignalProfileRepositoryResult;
   rejectDraft(id: string, reason: string, options?: BrandSignalLifecycleOptions): BrandSignalProfileRepositoryResult;
-  getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandSignalProfile | null;
+  getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfile | null;
 }
 
 export interface BrandVaultWebsiteDraftJobDependencies {
@@ -399,6 +408,12 @@ interface CrawlQueueItem {
   discoveredFrom: string;
 }
 
+// How a crawl URL entered the queue. 'seed' = explicit sitemap/seed (always tried
+// first); 'discovered' = a real link found in the page or sitemap (proven to exist);
+// 'speculative' = a default-path guess that may 404. Drives crawl priority so the
+// bounded fetch budget reaches real content links before speculative guesses.
+type CrawlUrlKind = 'seed' | 'discovered' | 'speculative';
+
 interface WebsiteOcrTarget {
   imageUrl: string;
   sourceField: string;
@@ -488,6 +503,7 @@ export async function createBrandVaultWebsiteDraftJob(
         renderedPrimitives: snapshot.renderedPrimitives,
         brandId: input.brandId,
         userId: input.userId,
+        orgId: input.orgId,
         companyName: input.companyName,
         fetchedAt: snapshot.fetchedAt,
         jobId,
@@ -498,6 +514,13 @@ export async function createBrandVaultWebsiteDraftJob(
         actorId: input.actorId,
       },
     );
+    // Gate the heuristic draft audience through the same quality filter as promoted
+    // candidates so product-copy junk ("apply the perfume over a body lotion") never
+    // lands. The LLM compiler's audience is then unioned in via promotion, but it is
+    // never trusted blind: it passes the same audience-word filter as everything else.
+    draft.record.profile.identity.audience.value = draft.record.profile.identity.audience.value
+      .map(cleanPromotedAudiencePhrase)
+      .filter((item): item is string => Boolean(item));
     const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {
       ...dependencies.fetchOptions,
       allowDefaultFetch: !dependencies.fetchSnapshot,
@@ -799,6 +822,7 @@ export function createBrandVaultDraftReviewPayload(args: {
     status: args.job.status,
     brandId: args.record.profile.brandId,
     userId: args.record.profile.userId,
+    orgId: args.record.profile.orgId,
     normalizedUrl: args.normalizedUrl,
     candidateCount: args.candidates.length,
     evidenceCount: args.record.profile.evidence.length,
@@ -871,6 +895,13 @@ export function applyBrandVaultSignalValueEditsToDraftRecord(
     if (!normalizedValue.ok) return signalEditFailure('validation_failed', edit.path, normalizedValue.message);
 
     const evidenceId = createUserEditEvidenceId(evidenceIds, edit.path, now, index);
+    const learningWeight = resolveBrandSignalEditLearningWeight({
+      service: 'brand_vault',
+      signalPath: edit.path,
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+    });
     evidenceIds.add(evidenceId);
     const evidence: BrandSignalEvidence = {
       id: evidenceId,
@@ -883,6 +914,7 @@ export function applyBrandVaultSignalValueEditsToDraftRecord(
       authorityClass: authorityClassForUserEdit(signal, edit.path),
       observedAt: now,
       extractor: USER_REVIEW_EDIT_EXTRACTOR,
+      learningWeight,
     };
 
     editedRecord.profile.evidence.push(evidence);
@@ -1008,7 +1040,7 @@ export function rejectBrandVaultSignalProfileDraft(
 
 export function getLatestAcceptedBrandVaultProfile(
   repository: SynchronousBrandVaultSignalProfileStore,
-  filter: { brandId?: string; userId?: string },
+  filter: BrandVaultAcceptedProfileFilter,
 ): BrandSignalProfile | null {
   return repository.getLatestAcceptedProfile(filter);
 }
@@ -1635,8 +1667,11 @@ function isRootWebsiteProfileEvidence(evidence: BrandSignalEvidence): boolean {
   return isWebsiteProfileEvidenceSource(evidence.sourceType) && !isCrawlProfileEvidence(evidence);
 }
 
-function isWebsiteFetchFailureWarning(warning: string): boolean {
-  return /Website fetch failed/i.test(warning);
+export function isWebsiteFetchFailureWarning(warning: string): boolean {
+  // Anchor ^: only the homepage-fetch warnings start with "Website fetch failed;". A crawled
+  // sub-page 404 ("Brand Vault crawler skipped …: Website fetch failed with HTTP 404") must NOT
+  // flip the Website badge to failed. ponytail: load-bearing ^, don't drop it.
+  return /^Website fetch failed/i.test(warning);
 }
 
 function isAuthWarning(warning: string): boolean {
@@ -1727,6 +1762,7 @@ function createJob(args: {
   return {
     id: args.jobId,
     userId: args.input.userId,
+    orgId: args.input.orgId,
     brandId: args.input.brandId,
     status: args.status,
     inputs: {
@@ -1758,7 +1794,7 @@ async function fetchCrawlSnapshots(args: {
 
   enqueueDefaultBrandPages(queue, rootUrl, policy, args.root.normalizedUrl);
   for (const seed of crawlSeeds) {
-    if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, true);
+    if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, 'seed');
   }
   enqueueSitemapUrls(queue, args.root.html, rootUrl, policy, args.root.normalizedUrl);
   if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
@@ -1842,7 +1878,7 @@ function enqueueDefaultBrandPages(
     '/press',
     '/media-kit',
     '/resources',
-  ].forEach((path) => enqueueCrawlUrl(queue, path, rootUrl, policy, 1, discoveredFrom, false));
+  ].forEach((path) => enqueueCrawlUrl(queue, path, rootUrl, policy, 1, discoveredFrom, 'speculative'));
 }
 
 function enqueueCrawlLinks(
@@ -1856,7 +1892,7 @@ function enqueueCrawlLinks(
   const $ = load(html);
   $('a[href]').each((_, element) => {
     const href = $(element).attr('href');
-    if (href) enqueueCrawlUrl(queue, href, baseUrl, policy, depth, discoveredFrom, false);
+    if (href) enqueueCrawlUrl(queue, href, baseUrl, policy, depth, discoveredFrom, 'discovered');
   });
 }
 
@@ -1873,7 +1909,7 @@ function enqueueSitemapUrls(
     const href = $(element).attr('href');
     if (href) candidates.add(href);
   });
-  for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, true);
+  for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, 'seed');
 }
 
 function enqueueCrawlUrl(
@@ -1883,10 +1919,11 @@ function enqueueCrawlUrl(
   policy: CrawlPolicy,
   depth: number,
   discoveredFrom: string,
-  explicitSeed: boolean,
+  kind: CrawlUrlKind,
 ): void {
   try {
-    const normalizedHref = explicitSeed ? normalizeExplicitCrawlSeedHref(href, baseUrl) : href;
+    const isSeed = kind === 'seed';
+    const normalizedHref = isSeed ? normalizeExplicitCrawlSeedHref(href, baseUrl) : href;
     const url = new URL(normalizedHref, baseUrl);
     url.hash = '';
     url.search = '';
@@ -1895,8 +1932,8 @@ function enqueueCrawlUrl(
     if (isBlockedCrawlAsset(url.pathname) && !isSitemapPath(url.pathname)) return;
     const path = normalizeCrawlPath(url.pathname);
     if (pathMatches(path, policy.excludePaths)) return;
-    if (!explicitSeed && policy.includePaths.length > 0 && !pathMatches(path, policy.includePaths)) return;
-    const priority = crawlPriority(url.href, explicitSeed);
+    if (!isSeed && policy.includePaths.length > 0 && !pathMatches(path, policy.includePaths)) return;
+    const priority = crawlPriority(url.href, kind);
     const existing = queue.get(url.href);
     if (!existing || priority > existing.priority || depth < existing.depth) {
       queue.set(url.href, { url: url.href, depth, priority, discoveredFrom });
@@ -1953,15 +1990,32 @@ function nextCrawlQueueItem(queue: Map<string, CrawlQueueItem>, visited: Set<str
   return next;
 }
 
-function crawlPriority(url: string, explicitSeed: boolean): number {
-  if (explicitSeed) return 20;
+// Content value of a crawl path, independent of how the URL was discovered.
+// Recognizes corporate IA (/about, /services) AND e-commerce IA (/collections,
+// /products, /pages/*) so D2C storefront links are not dumped at the floor.
+function crawlPathValue(url: string): number {
   if (isSitemapPath(url)) return 12;
-  if (/\/(about|company|story|brand|mission|team)\b/i.test(url)) return 9;
-  if (/\/(case-studies|customers|work|portfolio|results)\b/i.test(url)) return 8;
-  if (/\/(services|features|product|solutions|platform)\b/i.test(url)) return 7;
-  if (/\/(pricing|plans)\b/i.test(url)) return 5;
-  if (/\/(press|media-kit|resources|blog|guides)\b/i.test(url)) return 4;
+  if (/\/(about|about-us|company|story|our-story|mission|team|brand|who-we-are)\b/i.test(url)) return 9;
+  if (/\/(collections?|shop|store|catalog|products?|range|menu)\b/i.test(url)) return 8;
+  if (/\/(case-studies|customers|work|portfolio|results|reviews|testimonials)\b/i.test(url)) return 7;
+  if (/\/(services|features|solutions|platform|ingredients|how-it-works|technology)\b/i.test(url)) return 6;
+  if (/\/(pages|blogs?|journal|learn)\b/i.test(url)) return 5;
+  if (/\/(pricing|plans)\b/i.test(url)) return 4;
+  if (/\/(press|media-kit|resources|guides)\b/i.test(url)) return 3;
   return 1;
+}
+
+// Discovered links are proven to exist in the page or sitemap, so they outrank
+// speculative default-path guesses (which 404 on storefronts like Shopify and
+// otherwise burn the bounded crawl budget before real content is reached).
+const DISCOVERED_PRIORITY_BONUS = 2;
+const SPECULATIVE_PRIORITY_PENALTY = 4;
+
+function crawlPriority(url: string, kind: CrawlUrlKind): number {
+  if (kind === 'seed') return 20;
+  const base = crawlPathValue(url);
+  if (kind === 'discovered') return base + DISCOVERED_PRIORITY_BONUS;
+  return Math.max(1, base - SPECULATIVE_PRIORITY_PENALTY);
 }
 
 function isHtmlSnapshot(snapshot: BrandWebsiteSnapshot): boolean {
@@ -1993,7 +2047,7 @@ function enqueueUrlsFromSitemap(
     .map((match) => decodeHtmlEntities(match[1] ?? '').trim())
     .filter(Boolean);
   for (const url of urls) {
-    enqueueCrawlUrl(queue, url, rootUrl, policy, 1, snapshot.normalizedUrl, false);
+    enqueueCrawlUrl(queue, url, rootUrl, policy, 1, snapshot.normalizedUrl, 'discovered');
   }
 }
 
@@ -3070,7 +3124,7 @@ function cleanPromotedProductServicePhrase(value: string): string | undefined {
   return phrase;
 }
 
-function cleanPromotedAudiencePhrase(value: string): string | undefined {
+export function cleanPromotedAudiencePhrase(value: string): string | undefined {
   let phrase = value
     .replace(/^(?:the|a|an|our|your)\s+/i, '')
     .replace(/^[\d,.]+\+?\s+/, '')
@@ -3078,7 +3132,7 @@ function cleanPromotedAudiencePhrase(value: string): string | undefined {
   phrase = phrase.split(/\s+(?:to|who|that|with|without|using|through|via|into|by|from|in|across|during|while)\s+/i)[0] ?? phrase;
   phrase = phrase.replace(/\s+(?:turn|build|launch|run|improve|ship|create|grow|manage|make|cut|drive|unlock|accept|optimise|optimize|enable|embed|monetise|monetize)\b.*$/i, '');
   phrase = cleanPromotedPhrase(phrase) ?? '';
-  if (!phrase || phrase.length < 4 || phrase.length > 72) return undefined;
+  if (!phrase || phrase.length < 3 || phrase.length > 72) return undefined;
   if (/\b(?:and|or|to|for|with|without|by|from|into|through|via)$/i.test(phrase)) return undefined;
   if (/^(?:and|or|but|by|with|without|from|into|through|via|that|this|these|those|it|its|their|while|when|where|which|building|creating|shipping|scaling|accepting|optimizing|optimising|enabling|embedding|monetizing|monetising)\b/i.test(phrase)) return undefined;
   if (/\b(?:editing stage|production workflow connected|brand drift|handoffs?|path can be|can be informal|floor running|production floor|production-grade tools?)\b/i.test(phrase)) return undefined;
@@ -3088,7 +3142,11 @@ function cleanPromotedAudiencePhrase(value: string): string | undefined {
   if (/\bbrand$/i.test(phrase) && !/\b(?:brands|brand\s+(?:teams?|leaders?|managers?|owners?|marketers?|builders?|operators?))\b/i.test(phrase)) {
     return undefined;
   }
-  if (!/\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|teams?)\b/i.test(phrase)) {
+  // Allow-list of audience vocabulary. The first group is the original B2B/creative
+  // ICP; the second group covers D2C/consumer audiences the LLM compiler infers
+  // (e.g. "parents", "families with toddlers", "men", "women") that the B2B-only
+  // list previously dropped, leaving consumer brands with an empty audience.
+  if (!/\b(?:agenc(?:y|ies)|creative|revenue|sales|marketing|product|engineering|developer|design|ops|operations|saas|b2b|enterprises?|startups?|clients?|customers?|support|finance|founders?|operators?|creators?|creator houses?|in-house|studios?|filmmakers?|editorial|content|production|video|social|brands?|businesses?|teams?|parents?|famil(?:y|ies)|mothers?|moms?|fathers?|dads?|women|men|kids?|child(?:ren)?|babies|baby|infants?|toddlers?|teen(?:s|agers?)?|adults?|seniors?|consumers?|shoppers?|households?|homeowners?|gamers?|athletes?|travel(?:l?ers?)|students?|patients?|pet owners?|cyclists?|runners?|foodies?|enthusiasts?|professionals?)\b/i.test(phrase)) {
     return undefined;
   }
   return phrase;

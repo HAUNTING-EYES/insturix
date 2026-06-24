@@ -3,9 +3,27 @@ import {
   acceptBrandVaultSignalProfileDraft,
   createBrandVaultWebsiteDraftJob,
   getLatestAcceptedBrandVaultProfile,
+  isWebsiteFetchFailureWarning,
   rejectBrandVaultSignalProfileDraft,
 } from '../../lib/shared/brand-vault-draft-orchestrator';
 import { createInMemoryBrandSignalProfileRepository } from '../../lib/shared/brand-signal-profile-repository';
+
+describe('isWebsiteFetchFailureWarning', () => {
+  it('flags a real homepage fetch failure', () => {
+    expect(
+      isWebsiteFetchFailureWarning(
+        'Website fetch failed; Brand Vault created a source-evidence draft from supplied socials/uploads instead. HTTP 403.',
+      ),
+    ).toBe(true);
+  });
+  it('ignores a crawled sub-page 404 (the /brand false-positive)', () => {
+    expect(
+      isWebsiteFetchFailureWarning(
+        'Brand Vault crawler skipped https://www.insturix.com/brand: Website fetch failed with HTTP 404.',
+      ),
+    ).toBe(false);
+  });
+});
 
 const NOW = '2026-06-09T05:00:00.000Z';
 
@@ -657,7 +675,7 @@ describe('Brand Vault draft orchestrator', () => {
         },
         websiteOcrProvider: {
           async readTextFromImage(input) {
-            ocrImageUrls.push(input.imageUrl);
+            ocrImageUrls.push(input.imageUrl ?? '');
             return { text: 'Daily Barrier Serum\nDaily skincare essentials for sensitive skin.' };
           },
         },

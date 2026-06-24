@@ -8,6 +8,7 @@ import type {
   BrandWebsiteLogoCandidateRole,
   BrandWebsiteProductImageCandidate,
   BrandWebsiteDraftInput,
+  BrandWebsiteFontFace,
   ParsedWebsiteEvidence,
   SignalSource,
 } from './brand-website-refinery-types';
@@ -255,6 +256,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const schemaTypes = readTypes(schema);
   const colors = extractColors($, stylesheetCss);
   const fonts = extractFonts($, stylesheetCss);
+  const fontFaces = extractFontFaces($, stylesheetCss, new URL(normalizedUrl));
   const logoCandidates = extractLogoCandidates($, schema, normalizedUrl);
   const productImageCandidates = extractProductImages($, normalizedUrl);
   const productImages = productImageCandidates.map((image) => image.url);
@@ -301,6 +303,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
     schemaTypes,
     colors,
     fonts,
+    fontFaces,
     headings,
     ctas,
     proofSnippets,
@@ -1214,6 +1217,113 @@ function extractFonts($: ReturnType<typeof load>, stylesheetCss: string[] = []):
     }
   }
   return uniqueText(fonts).slice(0, 8);
+}
+
+const FONT_FACE_BLOCK_PATTERN = /@font-face\s*\{([^}]*)\}/gi;
+const CSS_URL_PATTERN = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+const FONT_FILE_EXTENSION_PATTERN = /\.(?:woff2?|ttf|otf|eot)(?:[?#]|$)/i;
+
+// Beyond the CSS font-family NAMES that extractFonts returns, this resolves the
+// actual font FILES: @font-face src URLs (woff2/ttf/otf) and the weights declared
+// for them, plus weights parsed from Google Fonts <link> URLs. Files only resolve
+// when the font CSS was fetched into stylesheetCss (self-hosted, or the gstatic
+// CSS behind a Google Fonts link); Google Fonts links still yield weights for free.
+export function extractFontFaces(
+  $: ReturnType<typeof load>,
+  stylesheetCss: string[],
+  baseUrl: URL,
+): BrandWebsiteFontFace[] {
+  const byFamily = new Map<string, { family: string; files: Set<string>; weights: Set<number> }>();
+  const upsert = (rawFamily: string): { files: Set<string>; weights: Set<number> } | undefined => {
+    const family = cleanFontFamily(rawFamily);
+    if (!family) return undefined;
+    const key = family.toLowerCase();
+    const existing = byFamily.get(key);
+    if (existing) return existing;
+    const created = { family, files: new Set<string>(), weights: new Set<number>() };
+    byFamily.set(key, created);
+    return created;
+  };
+
+  const cssChunks = [...$('style').map((_, el) => $(el).text()).get(), ...stylesheetCss];
+  for (const css of cssChunks) {
+    for (const block of css.matchAll(FONT_FACE_BLOCK_PATTERN)) {
+      const body = block[1] ?? '';
+      const familyMatch = /font-family\s*:\s*([^;}]+)/i.exec(body);
+      const entry = familyMatch ? upsert(familyMatch[1] ?? '') : undefined;
+      if (!entry) continue;
+      for (const urlMatch of body.matchAll(CSS_URL_PATTERN)) {
+        const resolved = resolveWebsiteAssetUrl(urlMatch[2] ?? '', baseUrl);
+        if (resolved && FONT_FILE_EXTENSION_PATTERN.test(resolved)) entry.files.add(resolved);
+      }
+      const weightMatch = /font-weight\s*:\s*([^;}]+)/i.exec(body);
+      if (weightMatch) for (const weight of parseCssFontWeights(weightMatch[1] ?? '')) entry.weights.add(weight);
+    }
+  }
+
+  $('link[href*="fonts.googleapis.com" i]').each((_, el) => {
+    ingestGoogleFontsLink($(el).attr('href') ?? '', upsert);
+  });
+
+  return [...byFamily.values()]
+    .map((entry) => ({
+      family: entry.family,
+      files: [...entry.files].slice(0, 6),
+      weights: [...entry.weights].sort((a, b) => a - b),
+    }))
+    .filter((entry) => entry.files.length > 0 || entry.weights.length > 0)
+    .slice(0, 8);
+}
+
+function parseCssFontWeights(value: string): number[] {
+  const weights: number[] = [];
+  for (const token of value.split(/[\s,]+/)) {
+    const clean = token.trim().toLowerCase();
+    if (/^\d{2,3}$/.test(clean)) weights.push(Number(clean));
+    else if (clean === 'normal') weights.push(400);
+    else if (clean === 'bold') weights.push(700);
+  }
+  return weights;
+}
+
+// Google Fonts URLs encode the family + weights: css2 "Family:wght@400;600;800"
+// (or "ital,wght@0,400;1,700"), css v1 "Family:400,700". Files live in the gstatic
+// CSS the link points to, not the link itself, so this only contributes weights.
+function ingestGoogleFontsLink(
+  href: string,
+  upsert: (family: string) => { files: Set<string>; weights: Set<number> } | undefined,
+): void {
+  let url: URL;
+  try {
+    url = new URL(href, 'https://fonts.googleapis.com');
+  } catch {
+    return;
+  }
+  for (const spec of url.searchParams.getAll('family')) {
+    const [namePart, ...axisParts] = spec.split(':');
+    const entry = upsert((namePart ?? '').replace(/\+/g, ' '));
+    if (!entry) continue;
+    for (const weight of parseGoogleFontWeights(axisParts.join(':'))) entry.weights.add(weight);
+  }
+}
+
+function parseGoogleFontWeights(axis: string): number[] {
+  const weights: number[] = [];
+  if (axis.includes('@')) {
+    const [axesPart, valuesPart] = axis.split('@');
+    const wghtIndex = (axesPart ?? '').split(',').indexOf('wght');
+    for (const tuple of (valuesPart ?? '').split(';')) {
+      const parts = tuple.split(',');
+      const weight = wghtIndex >= 0 ? parts[wghtIndex] : parts[0];
+      if (weight && /^\d{2,3}$/.test(weight.trim())) weights.push(Number(weight.trim()));
+    }
+  } else if (axis) {
+    for (const token of axis.split(',')) {
+      const match = /^(\d{2,3})/.exec(token.trim());
+      if (match) weights.push(Number(match[1]));
+    }
+  }
+  return weights;
 }
 
 function firstUsableFontFamily(value: string): string | undefined {

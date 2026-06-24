@@ -11,22 +11,25 @@
 
 import { serializeFingerprint, serializeExemplars } from '../data/voice-signature';
 import {
-  resolveEffectiveBrandDNA,
+  resolveEffectiveBrandDNAWithProfile,
   getDataBankEntriesByUser,
   getDataBankEntriesByIds,
   getProjectScopedEntries,
   getRecentInteractionEvents,
   type BrandDNA,
   type DataBankEntry,
+  type EffectiveBrandDNAResolution,
   type ThinkForgeEvent,
   type EventType,
 } from '../services/db';
 import { queryRelevantFacts } from '../services/embedding-service';
+import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
 // ==================== Types ====================
 
 export interface RetrievedContext {
   brandDNA: BrandDNA;
+  brandSignalProfile?: BrandSignalProfile | null;
   projectFacts: SemanticFact[];
   globalFacts: SemanticFact[];
   /** @deprecated Use projectFacts + globalFacts */
@@ -118,12 +121,12 @@ async function fetchColdContext(
   userId: string,
   projectId?: string,
   brandId?: string,
-): Promise<BrandDNA> {
+): Promise<EffectiveBrandDNAResolution> {
   try {
-    return await resolveEffectiveBrandDNA(userId, projectId, brandId);
+    return await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId);
   } catch (error) {
     console.warn('[fetchContextSources] Cold fetch failed, using empty BrandDNA:', error);
-    return {};
+    return { brandDNA: {}, brandSignalProfile: null, source: 'legacy' };
   }
 }
 
@@ -384,7 +387,7 @@ export async function fetchContextSources(
   const combinedText = [currentPrompt || '', currentScript || ''].join(' ');
   const keywords = extractKeywords(combinedText);
 
-  const [brandDNA, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
+  const [brandResolution, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
     fetchColdContext(userId, projectId, brandId),
     withTimeout(
       sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
@@ -401,7 +404,8 @@ export async function fetchContextSources(
   ]);
 
   return {
-    brandDNA,
+    brandDNA: brandResolution.brandDNA,
+    brandSignalProfile: brandResolution.brandSignalProfile,
     projectFacts,
     globalFacts,
     semanticFacts: [...projectFacts, ...globalFacts],

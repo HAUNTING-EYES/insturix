@@ -23,7 +23,7 @@ import { basename, dirname, extname, join, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { config } from 'dotenv';
 import type { DecisionOutcome } from '../../lib/editron/services/decision-tracker';
-import type { BanditContext } from '../../lib/editron/services/genre-parameter-bandit';
+import { buildSignalBucket, type BanditContext } from '../../lib/editron/services/genre-parameter-bandit';
 import {
   type CalibrationArtifactStatus,
   evaluateCalibrationWriteGate,
@@ -1129,7 +1129,14 @@ async function feedBandits(
     const speechCov = scoring.signals['content.speech_coverage'] ?? scoring.signals['speech.coverage'] ?? 0;
     const durationS = scoring.signals['video.duration_s'] ?? 60;
     const context: BanditContext = {
-      contentType: label,
+      signalBucket: buildSignalBucket({
+        speechCoverage: speechCov,
+        speechEnergy: scoring.signals['speech.energy'] ?? scoring.signals['speech_energy'],
+        motionIntensity: scoring.signals['visual.motion_intensity'] ?? scoring.signals['motion_intensity'],
+        visualSignificance: scoring.signals['visual.significance'] ?? scoring.signals['visual_significance'],
+        musicEnergy: scoring.signals['audio.music_energy'] ?? scoring.signals['music_energy'],
+        beatStrength: scoring.signals['audio.music_beat'] ?? scoring.signals['beat_strength'],
+      }),
       speechCoverageBucket: speechCov > 0.6 ? 'high' : speechCov > 0.3 ? 'medium' : 'low',
       durationBucket: durationS > 300 ? 'long' : durationS > 60 ? 'medium' : 'short',
       platform: 'youtube',

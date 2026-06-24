@@ -112,6 +112,55 @@ describe('constraint-enforcer', () => {
     expect(result.totalChecked).toBe(0);
   });
 
+  it('does not invent SFX for a non-hard-cut transition without explicit SFX intent', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    const decisions: import('@/lib/editron/types/edit-decision').EditDecision[] = [{
+      type: 'transition' as const,
+      frame: 90,
+      confidence: 0.86,
+      source: 'signal-executor:test-boundary',
+      technique: 'technique:transition.zoom_punch',
+      params: { type: 'zoom-punch' },
+    }];
+
+    const result = enforceConstraints(decisions, [], graphIndex!, null, 30);
+
+    expect(decisions.some((decision) => decision.type === 'sfx-trigger')).toBe(false);
+    expect(result.violations.some((violation) =>
+      violation.constraintId === 'constraint:transition.missing_transition_sound'
+    )).toBe(false);
+  });
+
+  it('reports explicit transition SFX intent without auto-inserting fallback SFX', async () => {
+    const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const graphIndex = loadGraph();
+
+    const decisions: import('@/lib/editron/types/edit-decision').EditDecision[] = [{
+      type: 'transition' as const,
+      frame: 90,
+      confidence: 0.86,
+      source: 'signal-executor:test-boundary',
+      technique: 'technique:transition.zoom_punch',
+      params: { type: 'zoom-punch', sfxRequired: true },
+    }];
+
+    const result = enforceConstraints(decisions, [], graphIndex!, null, 30);
+    const violation = result.violations.find((item) =>
+      item.constraintId === 'constraint:transition.missing_transition_sound'
+    );
+
+    expect(decisions.some((decision) => decision.type === 'sfx-trigger')).toBe(false);
+    expect(violation).toEqual(expect.objectContaining({
+      autoCorrected: false,
+      correction: expect.stringContaining('SFX planner/provider quality gate'),
+      deduction: 0,
+    }));
+  });
+
   it('shifts cut_mid_word violations to word boundaries', async () => {
     const { enforceConstraints } = await import('@/lib/editron/services/constraint-enforcer');
     const { loadGraph } = await import('@/lib/editron/services/graph-query');
@@ -386,6 +435,197 @@ describe('signal-executor', () => {
     expect(result.decisions.some((d) => d.type === 'graphic')).toBe(false);
   });
 
+  it('does not convert diagnostic prose into a transition even when it mentions flash or cut', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph();
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[60, {
+        frame: 60,
+        timestampMs: 2000,
+        'structural.time_since_last_cut': 1,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: {},
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex!, [
+      { id: 'clip-a', type: 'video', from: 0, durationInFrames: 90 },
+      { id: 'clip-b', type: 'video', from: 90, durationInFrames: 90 },
+    ]);
+
+    expect(result.decisions.some((d) => d.source === 'mapping:cross_domain.eye_trace_continuity_across_cuts')).toBe(false);
+    expect(result.decisions.some((d) => d.type === 'transition' && d.params.transitionType === 'flash')).toBe(false);
+  });
+
+  it('does not emit EDL decisions for mappings that produce non-render technique families', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph()!;
+    const weightMap = buildMomentWeightMap(null, null);
+    const nonExecutablePrefixes = [
+      'technique:composition.',
+      'technique:flag.',
+      'technique:pacing.',
+      'technique:cut.',
+      'technique:hold.',
+      'technique:layout.',
+      'technique:silence.',
+      'technique:shot-type.',
+    ];
+    const nonExecutableMappingIds = new Set(
+      Array.from(graphIndex.producesTechnique.entries())
+        .filter(([, techniqueId]) => nonExecutablePrefixes.some((prefix) =>
+          techniqueId.toLowerCase().startsWith(prefix)
+        ))
+        .map(([mappingId]) => mappingId)
+    );
+    expect([...nonExecutableMappingIds]).toEqual(expect.arrayContaining([
+      'mapping:visual.shot_scale_monotony_break',
+      'mapping:structural.hook_zone_treatment',
+      'mapping:cross_domain.eye_trace_continuity_across_cuts',
+    ]));
+
+    const allActiveSignals = Object.fromEntries(
+      Array.from(graphIndex.signals.keys()).flatMap((signalId) => {
+        const bareId = signalId.replace(/^signal:/, '');
+        return [[signalId, 1], [bareId, 1]];
+      })
+    );
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[60, {
+        frame: 60,
+        timestampMs: 2000,
+        ...allActiveSignals,
+        'structural.time_since_last_cut': 1,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: {},
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.4,
+    }, weightMap, graphIndex, [
+      { id: 'clip-a', type: 'video', from: 0, durationInFrames: 90 },
+      { id: 'clip-b', type: 'video', from: 90, durationInFrames: 90 },
+    ]);
+
+    expect(result.decisions
+      .filter((decision) => nonExecutableMappingIds.has(decision.source))
+      .map((decision) => decision.source)
+    ).toEqual([]);
+  });
+  it('does not turn prose-only complements into executable decisions', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph()!;
+    const weightMap = buildMomentWeightMap(null, null);
+
+    expect(graphIndex.producesTechnique.get('mapping:speech.speaker_emphasis_word')).toBe('technique:caption.caption_emphasis');
+    const captionEmphasisComplements = graphIndex.edgesFrom.get('technique:caption.caption_emphasis')
+      ?.filter((edge) => edge.type === 'composes_with') ?? [];
+    expect(captionEmphasisComplements).toHaveLength(0);
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[30, {
+        frame: 30,
+        timestampMs: 1000,
+        spike: 1.8,
+        duration: 130,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [{
+        timestampMs: 1000,
+        frame: 30,
+        signal: 'speech.emphasis_word',
+        value: true,
+        context: 'process',
+      }],
+      globalSignals: { formality: 0.3 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.3,
+    }, weightMap, graphIndex, [{ id: 'video', type: 'video', from: 0, durationInFrames: 180 }]);
+
+    const decisions = result.decisions.filter((decision) => decision.source === 'mapping:speech.speaker_emphasis_word');
+    expect(decisions.some((decision) => decision.type === 'caption-emphasis')).toBe(true);
+    expect(decisions.some((decision) => decision.type === 'zoom')).toBe(false);
+    expect(decisions.map((decision) => decision.technique)).not.toContain('technique:zoom.zoom_drift');
+  });
+
+  it('creates complements only from graph-composed techniques', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph()!;
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const producedTechnique = graphIndex.producesTechnique.get('mapping:composite.cinematic_moment_emphasis');
+    expect(producedTechnique).toBe('technique:zoom.zoom_punch');
+    const graphComplementTechniques = graphIndex.edgesFrom.get(producedTechnique!)
+      ?.filter((edge) => edge.type === 'composes_with')
+      .map((edge) => edge.to) ?? [];
+    expect(graphComplementTechniques).toEqual(expect.arrayContaining([
+      'technique:sound.sfx_impact',
+      'technique:other.camera_shake',
+      'technique:transition.flash',
+    ]));
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[60, {
+        frame: 60,
+        timestampMs: 2000,
+        'composite.cinematic_moment': true,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: { formality: 0.3 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.3,
+    }, weightMap, graphIndex, [{ id: 'video', type: 'video', from: 0, durationInFrames: 180 }]);
+
+    const decisions = result.decisions.filter((decision) => decision.source === 'mapping:composite.cinematic_moment_emphasis');
+    expect(decisions.map((decision) => decision.technique)).toEqual(expect.arrayContaining([
+      'technique:zoom.zoom_punch',
+      'technique:sound.sfx_impact',
+      'technique:other.camera_shake',
+      'technique:transition.flash',
+    ]));
+    expect(decisions.some((decision) => decision.type === 'caption-emphasis')).toBe(false);
+    expect(decisions.find((decision) => decision.technique === 'technique:sound.sfx_impact')?.params).toEqual(expect.objectContaining({
+      sfxType: 'impact',
+      sfxCue: 'impact',
+    }));
+  });
   it('uses transcript phrase context for numeric events so MG labels have evidence', async () => {
     const { buildSignalTimeline } = await import('@/lib/editron/services/signal-registry');
     const timeline = buildSignalTimeline([], {
@@ -421,6 +661,16 @@ describe('graph-query', () => {
     expect(index!.mappings.size).toBe(95);
     expect(index!.techniques.size).toBe(115);
     expect(index!.constraints.size).toBe(50);
+  });
+
+  it('indexes mapping produces edges as the authored technique route', async () => {
+    const { loadGraph, getTechniqueForMapping } = await import('@/lib/editron/services/graph-query');
+    const index = loadGraph()!;
+
+    const technique = getTechniqueForMapping(index, 'mapping:cross_domain.eye_trace_continuity_across_cuts');
+
+    expect(technique?.id).toBe('technique:shot-type.center_framing');
+    expect(technique?.id).not.toBe('technique:transition.flash');
   });
 
   it('resolves aliases correctly', async () => {

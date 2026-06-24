@@ -16,7 +16,7 @@
  *   - Sample adjustment from N(mu, 1/precision), clamp to dial range
  *   - Update via Normal-Normal conjugate posterior after observing reward
  *
- * Context vector: content type, speech coverage bucket, duration bucket, platform.
+ * Context vector: signal bucket, speech coverage bucket, duration bucket, platform.
  * Reward: 0.7 * quality_normalized + 0.2 * rendered + 0.1 * published.
  *
  * Falls back to zero adjustment (pure signal computation) when < 5 projects.
@@ -29,8 +29,24 @@ import type { GenreParameters } from './graph-query';
 
 export type DialName = keyof GenreParameters;
 
+export type BanditSignalBucket =
+  | 'quiet'
+  | 'speech-led'
+  | 'visual-led'
+  | 'audio-rhythm'
+  | 'mixed';
+
+export interface BanditSignalBucketInput {
+  speechCoverage?: unknown;
+  speechEnergy?: unknown;
+  motionIntensity?: unknown;
+  visualSignificance?: unknown;
+  musicEnergy?: unknown;
+  beatStrength?: unknown;
+}
+
 export interface BanditContext {
-  contentType: string;
+  signalBucket: BanditSignalBucket;
   speechCoverageBucket: 'silent' | 'low' | 'medium' | 'high';
   durationBucket: 'short' | 'medium' | 'long';
   platform: string;
@@ -135,7 +151,7 @@ const ALL_DIALS: DialName[] = Object.keys(DIAL_RANGES) as DialName[];
 // ─── Context Key ────────────────────────────────────────────────────────────
 
 export function buildContextKey(ctx: BanditContext): string {
-  return `${ctx.contentType}:${ctx.speechCoverageBucket}:${ctx.durationBucket}:${ctx.platform || 'any'}`;
+  return `${ctx.signalBucket}:${ctx.speechCoverageBucket}:${ctx.durationBucket}:${ctx.platform || 'any'}`;
 }
 
 export function buildDurationBucket(durationSec: number): BanditContext['durationBucket'] {
@@ -149,6 +165,49 @@ export function buildSpeechCoverageBucket(coverage: number): BanditContext['spee
   if (coverage < 0.3) return 'low';
   if (coverage < 0.7) return 'medium';
   return 'high';
+}
+
+export function buildSignalBucket(input: BanditSignalBucketInput): BanditSignalBucket {
+  const speech = maxSignal(input.speechCoverage, input.speechEnergy);
+  const visual = maxSignal(input.motionIntensity, input.visualSignificance);
+  const audio = maxSignal(input.musicEnergy, input.beatStrength);
+
+  if (speech < 0.05 && visual < 0.2 && audio < 0.2) return 'quiet';
+  if (audio >= 0.62 && audio >= speech && audio >= visual) return 'audio-rhythm';
+  if (visual >= 0.55 && visual > speech + 0.1) return 'visual-led';
+  if (speech >= 0.55 && speech >= visual && speech >= audio - 0.1) return 'speech-led';
+  return 'mixed';
+}
+
+export function averageSignalValue(items: unknown, key: string): number | undefined {
+  if (!Array.isArray(items) || items.length === 0) return undefined;
+
+  let total = 0;
+  let count = 0;
+  for (const item of items) {
+    const value = readNumericProperty(item, key);
+    if (value === undefined) continue;
+    total += value;
+    count += 1;
+  }
+
+  return count > 0 ? total / count : undefined;
+}
+
+function maxSignal(...values: unknown[]): number {
+  return Math.max(0, ...values.map(clampSignal));
+}
+
+function clampSignal(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function readNumericProperty(item: unknown, key: string): number | undefined {
+  if (typeof item === 'number' && Number.isFinite(item)) return item;
+  if (!item || typeof item !== 'object') return undefined;
+  const value = (item as Record<string, unknown>)[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 // ─── Gaussian Sampling ─────────────────────────────────────────────────────
@@ -580,7 +639,14 @@ export async function recordProjectOutcome(
       : 0;
 
     const context: BanditContext = {
-      contentType: rawFootage?.contentTypeDetection?.contentType || 'unknown',
+      signalBucket: buildSignalBucket({
+        speechCoverage,
+        speechEnergy: averageSignalValue(projectDoc.wav2vecAnalysis?.segments, 'energy'),
+        motionIntensity: averageSignalValue(projectDoc.vjepaAnalysis?.segments, 'motionIntensity'),
+        visualSignificance: averageSignalValue(projectDoc.vjepaAnalysis?.segments, 'visualSignificance'),
+        musicEnergy: averageSignalValue(projectDoc.musicAnalysis?.energyCurve, 'energy'),
+        beatStrength: projectDoc.musicAnalysis?.musicPresence,
+      }),
       speechCoverageBucket: buildSpeechCoverageBucket(speechCoverage),
       durationBucket: buildDurationBucket(durationSec),
       platform: projectDoc.syntheticStoryboard?.platform || 'youtube',

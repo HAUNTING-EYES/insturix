@@ -39,7 +39,6 @@ export type AtomicSfxTexture =
 export type AtomicSfxFallbackPolicy =
   | 'silence'
   | 'library-first'
-  | 'curated-or-silence'
   | 'generated-candidate-allowed'
   | 'subtle-bed-only';
 
@@ -79,12 +78,12 @@ export interface AtomicSfxAssetPlan {
   avoidTerms: string[];
   textureTerms: string[];
   maxDurationSec: number;
-  sourcePreference: Array<'curated' | 'library' | 'generated'>;
+  sourcePreference: Array<'library' | 'generated'>;
   qualityFloor: number;
   fallbackPolicy: AtomicSfxFallbackPolicy;
 }
 
-export type AtomicSfxCandidateSource = 'curated' | 'library' | 'generated' | 'unknown';
+export type AtomicSfxCandidateSource = 'library' | 'generated' | 'unknown';
 
 export interface AtomicSfxAssetCandidate {
   durationMs?: number;
@@ -245,7 +244,7 @@ export function evaluateAtomicSfxAssetCandidate(
   if (!durationOk) score -= 0.28;
   if (avoidTermsHit.length > 0) score -= Math.min(0.36, avoidTermsHit.length * 0.18);
 
-  const effectiveFloor = hasTitleEvidence ? form.asset.qualityFloor : Math.min(form.asset.qualityFloor, 0.64);
+  const effectiveFloor = effectiveAssetQualityFloor(form, candidateSource, hasTitleEvidence);
   const hardRejected = !durationOk
     || avoidTermsHit.length > 0
     || (hasTitleEvidence && !tokenMatches && matchedTerms.length === 0);
@@ -253,7 +252,8 @@ export function evaluateAtomicSfxAssetCandidate(
   const reasons = [
     accepted ? 'candidate-accepted' : 'candidate-rejected',
     `score:${format2(clamp01(score))}`,
-    `floor:${format2(form.asset.qualityFloor)}`,
+    `floor:${format2(effectiveFloor)}`,
+    ...(effectiveFloor !== form.asset.qualityFloor ? [`base-floor:${format2(form.asset.qualityFloor)}`] : []),
     `source:${candidateSource}`,
     ...(hasTitleEvidence ? [] : ['metadata-light-candidate']),
     ...(tokenMatches ? ['token-match'] : []),
@@ -269,7 +269,7 @@ export function evaluateAtomicSfxAssetCandidate(
     accepted,
     decision: accepted ? 'accept' : fallbackDecision(form),
     score: clamp01(score),
-    qualityFloor: form.asset.qualityFloor,
+    qualityFloor: effectiveFloor,
     candidateSource,
     candidateTitle,
     matchedTerms,
@@ -730,7 +730,7 @@ function resolvePrimitiveAtoms(input: {
     },
     policy: {
       fallback: input.asset.fallbackPolicy,
-      silenceAllowed: !input.shouldPlace || input.asset.fallbackPolicy === 'silence' || input.asset.fallbackPolicy === 'curated-or-silence',
+      silenceAllowed: !input.shouldPlace || input.asset.fallbackPolicy === 'silence',
       qualityFloor: input.asset.qualityFloor,
     },
   };
@@ -899,22 +899,32 @@ function avoidTermsFor(token: AtomicSfxCompatibilityToken, restraint: number): s
   return terms;
 }
 
-function sourcePreferenceFor(token: AtomicSfxCompatibilityToken, intensity: number): Array<'curated' | 'library' | 'generated'> {
-  if (token === 'none') return ['curated'];
-  if (token === 'ambient' && intensity < 0.72) return ['curated', 'library', 'generated'];
-  return ['curated', 'library'];
+function sourcePreferenceFor(token: AtomicSfxCompatibilityToken, intensity: number): Array<'library' | 'generated'> {
+  if (token === 'none') return ['library'];
+  if (token === 'ambient' && intensity < 0.72) return ['library', 'generated'];
+  return ['library'];
 }
 
 function fallbackPolicyFor(token: AtomicSfxCompatibilityToken, restraint: number): AtomicSfxFallbackPolicy {
   if (token === 'none') return 'silence';
-  if (restraint >= 0.74) return 'curated-or-silence';
+  if (restraint >= 0.74) return 'silence';
   if (token === 'ambient') return 'subtle-bed-only';
   if (token === 'riser') return 'generated-candidate-allowed';
   return 'library-first';
 }
 
+function effectiveAssetQualityFloor(
+  form: AtomicSfxForm,
+  candidateSource: AtomicSfxCandidateSource,
+  hasTitleEvidence: boolean,
+): number {
+  let floor = form.asset.qualityFloor;
+  if (!hasTitleEvidence) floor = Math.min(floor, 0.64);
+  return floor;
+}
+
 function fallbackDecision(form: AtomicSfxForm): AtomicSfxCandidateEvaluation['decision'] {
-  return form.asset.fallbackPolicy === 'silence' || form.asset.fallbackPolicy === 'curated-or-silence'
+  return form.asset.fallbackPolicy === 'silence'
     ? 'silence'
     : 'reject';
 }
@@ -961,7 +971,6 @@ function emotionalRoleFor(intent: AtomicSfxIntent, intensity: number): AtomicSfx
 function normalizeCandidateSource(source: string | undefined): AtomicSfxCandidateSource {
   if (!source) return 'unknown';
   const normalized = source.toLowerCase();
-  if (normalized === 'local' || normalized.includes('curated')) return 'curated';
   if (normalized === 'generated' || normalized.includes('generated')) return 'generated';
   if (normalized === 'freesound' || normalized === 'pixabay' || normalized.includes('library')) return 'library';
   return 'unknown';

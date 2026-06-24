@@ -250,6 +250,7 @@ function scoreAvoidRegions(overlay: NormalizedOverlay, input: RenderedFrameAesth
     if (box.strength < 0.2) continue;
     const avoidBox = placementBoxToPixels(box, input);
     const ratio = intersectionRatio(overlay.box, avoidBox);
+    if (isCaptionSelfTextOccupancyHint(overlay, box, ratio)) continue;
     if (ratio >= 0.18 && box.strength >= 0.45) {
       addIssue('occlusion', 0.28, `overlay covers protected ${box.reason.replace('-', ' ')} region`, {
         overlay: overlay.item,
@@ -263,6 +264,17 @@ function scoreAvoidRegions(overlay: NormalizedOverlay, input: RenderedFrameAesth
       });
     }
   }
+}
+
+function isCaptionSelfTextOccupancyHint(
+  overlay: NormalizedOverlay,
+  box: { reason: string },
+  ratio: number,
+): boolean {
+  return overlay.family === 'caption'
+    && box.reason === 'text-occupancy'
+    && ratio >= 0.75
+    && overlay.item.receipt?.form.text?.channel === 'caption';
 }
 
 function scoreOverlayOverlap(normalized: NormalizedOverlay[], addIssue: AddIssue): void {

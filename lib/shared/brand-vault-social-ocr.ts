@@ -1,11 +1,13 @@
 import type { BrandVaultSourcePlatform } from './brand-website-refinery-types';
 
 export interface BrandVaultSocialOcrInput {
-  imageUrl: string;
+  imageUrl?: string;
+  imageBase64?: string;
+  mimeType?: string;
   sourceUrl?: string;
   platform?: BrandVaultSourcePlatform;
   mediaType?: string;
-  sourceKind?: 'social' | 'website';
+  sourceKind?: 'social' | 'website' | 'upload';
 }
 
 export interface BrandVaultSocialOcrResult {
@@ -48,30 +50,36 @@ export function createBrandVaultGeminiSocialOcrProvider(
   const maxImageBytes = options.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES;
   const modelName = options.modelName ?? env.BRAND_VAULT_SOCIAL_OCR_MODEL ?? DEFAULT_MODEL_NAME;
 
+  const runGeminiOcr = async (base64: string, mimeType: string, label: string, ref: string): Promise<BrandVaultSocialOcrResult> => {
+    try {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([OCR_PROMPT, { inlineData: { mimeType, data: base64 } }]);
+      const text = normalizeOcrText(result.response.text());
+      return text ? { text } : {};
+    } catch (error) {
+      return { warning: `Brand Vault skipped ${label} for ${ref}: ${errorMessage(error)}` };
+    }
+  };
+
   return {
     async readTextFromImage(input) {
-      const sourceLabel = input.sourceKind === 'website' ? 'website OCR' : 'social OCR';
-      const image = await fetchOcrImage({
-        imageUrl: input.imageUrl,
-        fetchFn,
-        maxImageBytes,
-        sourceLabel,
-      });
-      if (!image.ok) return { warning: image.warning };
-
-      try {
-        const { GoogleGenerativeAI } = await import('@google/generative-ai');
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent([
-          OCR_PROMPT,
-          { inlineData: { mimeType: image.mimeType, data: image.base64 } },
-        ]);
-        const text = normalizeOcrText(result.response.text());
-        return text ? { text } : {};
-      } catch (error) {
-        return { warning: `Brand Vault skipped ${sourceLabel} for ${input.imageUrl}: ${errorMessage(error)}` };
+      const sourceLabel =
+        input.sourceKind === 'website' ? 'website OCR' : input.sourceKind === 'upload' ? 'upload OCR' : 'social OCR';
+      // Uploaded files arrive as inline image data (no URL to fetch).
+      if (input.imageBase64) {
+        const mimeType = imageMimeType(input.mimeType ?? null);
+        if (!mimeType) return { warning: `Brand Vault skipped ${sourceLabel}: uploaded data was not a supported image.` };
+        if (Math.floor((input.imageBase64.length * 3) / 4) > maxImageBytes) {
+          return { warning: `Brand Vault skipped ${sourceLabel}: image exceeded ${maxImageBytes} bytes.` };
+        }
+        return runGeminiOcr(input.imageBase64, mimeType, sourceLabel, input.sourceUrl ?? 'upload');
       }
+      if (!input.imageUrl) return {};
+      const image = await fetchOcrImage({ imageUrl: input.imageUrl, fetchFn, maxImageBytes, sourceLabel });
+      if (!image.ok) return { warning: image.warning };
+      return runGeminiOcr(image.base64, image.mimeType, sourceLabel, input.imageUrl);
     },
   };
 }

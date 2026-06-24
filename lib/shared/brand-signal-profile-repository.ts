@@ -23,6 +23,7 @@ export interface BrandSignalProfileRepositoryEvent {
   recordId: string;
   brandId?: string;
   userId?: string;
+  orgId?: string;
   actorId?: string;
   createdAt: string;
   issues?: BrandSignalProfileIssue[];
@@ -32,6 +33,7 @@ export interface BrandSignalProfileRepositoryEvent {
 export interface BrandSignalProfileListFilter {
   brandId?: string;
   userId?: string;
+  orgId?: string | null;
   status?: BrandSignalProfileStatus;
 }
 
@@ -82,6 +84,10 @@ export class InMemoryBrandSignalProfileRepository {
 
   getLatestAcceptedProfile(filter: Omit<BrandSignalProfileListFilter, 'status'>): BrandSignalProfile | null {
     return this.listRecords({ ...filter, status: 'accepted' })[0]?.profile ?? null;
+  }
+
+  getLatestAcceptedRecord(filter: Omit<BrandSignalProfileListFilter, 'status'>): BrandSignalProfileRecord | null {
+    return this.listRecords({ ...filter, status: 'accepted' })[0] ?? null;
   }
 
   acceptDraft(id: string, options: BrandSignalLifecycleOptions = {}): BrandSignalProfileRepositoryResult {
@@ -146,7 +152,13 @@ export class InMemoryBrandSignalProfileRepository {
     const superseded: BrandSignalProfileRecord[] = [];
     for (const record of this.records.values()) {
       if (record.id === accepted.id || record.status !== 'accepted') continue;
-      if (record.profile.brandId !== accepted.profile.brandId || record.profile.userId !== accepted.profile.userId) continue;
+      if (
+        record.profile.brandId !== accepted.profile.brandId ||
+        record.profile.userId !== accepted.profile.userId ||
+        record.profile.orgId !== accepted.profile.orgId
+      ) {
+        continue;
+      }
       const next = supersedeBrandSignalProfileRecord(record, options);
       this.records.set(next.id, cloneRecord(next));
       this.appendEvent('record_superseded', next, options);
@@ -168,6 +180,7 @@ export class InMemoryBrandSignalProfileRepository {
       recordId: record.id,
       brandId: record.profile.brandId,
       userId: record.profile.userId,
+      orgId: record.profile.orgId,
       actorId: options.actorId,
       createdAt,
       ...extra,
@@ -184,6 +197,7 @@ export function createInMemoryBrandSignalProfileRepository(
 function matchesFilter(record: BrandSignalProfileRecord, filter: BrandSignalProfileListFilter): boolean {
   if (filter.brandId && record.profile.brandId !== filter.brandId) return false;
   if (filter.userId && record.profile.userId !== filter.userId) return false;
+  if (filter.orgId !== undefined && record.profile.orgId !== (filter.orgId ?? undefined)) return false;
   if (filter.status && record.status !== filter.status) return false;
   return true;
 }

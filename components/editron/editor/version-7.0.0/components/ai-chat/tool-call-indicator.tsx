@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Sparkles, CheckCircle2, Wand2, Palette, Music, Film, Zap, Scissors, Copy, Trash2, Eye, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  getChatToolCompletionLabel,
   getChatToolLoadingMessages,
   getChatToolMetadata,
   getChatToolShortLabel,
@@ -47,6 +48,7 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
   const messages = getChatToolLoadingMessages(toolName);
   const icon = metadata ? CATEGORY_ICONS[metadata.iconCategory] : <Zap className="h-3.5 w-3.5" />;
   const friendlyName = getChatToolShortLabel(toolName);
+  const completionLabel = getChatToolCompletionLabel(toolName);
 
   // Cycle through messages for generative tools only
   useEffect(() => {
@@ -77,7 +79,7 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
           icon
         )}
         <span className="font-medium">{friendlyName}</span>
-        {isComplete && <span className="opacity-60">done</span>}
+        {isComplete && <span className="opacity-60">{completionLabel}</span>}
       </span>
     );
   }
@@ -129,7 +131,7 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
           )}
 
           {isComplete && (
-            <p className="text-[11px] text-emerald-500/70">Done</p>
+            <p className="text-[11px] text-emerald-500/70">{completionLabel}</p>
           )}
         </div>
       </div>

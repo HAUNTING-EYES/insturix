@@ -8,6 +8,8 @@ import {
   type BrandVaultMongoProfileDocument,
   type BrandVaultMongoCursor,
 } from '../../lib/shared/brand-vault-mongo-store';
+import { createBrandSignalProfileDraft } from '../../lib/shared/brand-signal-lifecycle';
+import { deriveBrandSignalProfile } from '../../lib/shared/brand-signal-profile';
 import {
   createBrandVaultRefineryJobFromWebsite,
   getBrandVaultRefineryJob,
@@ -101,6 +103,55 @@ describe('Brand Vault Mongo refinery store', () => {
     );
   });
 
+  it('keeps accepted profiles isolated by organization in Mongo persistence', async () => {
+    const collections = createMemoryCollections();
+    const store = createBrandVaultMongoRefineryStore({ collections });
+
+    await store.saveRecord(draftRecord({ id: 'org_a_v1', orgId: 'org_a', name: 'Org A V1', now: '2026-06-10T06:00:00.000Z' }));
+    const firstOrgA = await store.acceptDraft('org_a_v1', { now: '2026-06-10T06:01:00.000Z' });
+    if (!firstOrgA.ok) throw new Error('Expected first org A accept to succeed.');
+
+    await store.saveRecord(draftRecord({ id: 'org_b_v1', orgId: 'org_b', name: 'Org B V1', now: '2026-06-10T06:02:00.000Z' }));
+    const firstOrgB = await store.acceptDraft('org_b_v1', { now: '2026-06-10T06:03:00.000Z' });
+    if (!firstOrgB.ok) throw new Error('Expected org B accept to succeed.');
+
+    await store.saveRecord(draftRecord({ id: 'org_a_v2', orgId: 'org_a', name: 'Org A V2', now: '2026-06-10T06:04:00.000Z' }));
+    const secondOrgA = await store.acceptDraft('org_a_v2', { now: '2026-06-10T06:05:00.000Z' });
+
+    expect(secondOrgA.ok).toBe(true);
+    if (!secondOrgA.ok) throw new Error('Expected second org A accept to succeed.');
+    expect(secondOrgA.superseded.map((record) => record.id)).toEqual(['org_a_v1']);
+    expect((await store.getRecord('org_b_v1'))?.status).toBe('accepted');
+    await store.saveRecord(draftRecord({ id: 'personal_v1', name: 'Personal V1', now: '2026-06-10T06:06:00.000Z' }));
+    const personal = await store.acceptDraft('personal_v1', { now: '2026-06-10T06:07:00.000Z' });
+    if (!personal.ok) throw new Error('Expected personal accept to succeed.');
+
+    expect((await store.getLatestAcceptedProfile({ orgId: 'org_a', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org A V2');
+    expect((await store.getLatestAcceptedProfile({ orgId: 'org_b', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org B V1');
+    expect((await store.getLatestAcceptedProfile({ orgId: null, brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Personal V1');
+    await expect(store.listAcceptedBrands({ orgId: 'org_a' })).resolves.toEqual([
+      expect.objectContaining({ brandId: 'shared_brand', name: 'Org A V2', recordId: 'org_a_v2', orgId: 'org_a' }),
+    ]);
+    await expect(store.listAcceptedBrands({ orgId: 'org_b' })).resolves.toEqual([
+      expect.objectContaining({ brandId: 'shared_brand', name: 'Org B V1', recordId: 'org_b_v1', orgId: 'org_b' }),
+    ]);
+    await expect(store.listAcceptedBrands({ orgId: null, userId: 'shared_user' })).resolves.toEqual([
+      expect.objectContaining({ brandId: 'shared_brand', name: 'Personal V1', recordId: 'personal_v1', userId: 'shared_user' }),
+    ]);
+    expect(collections.profiles.values().find((doc) => doc._id === 'personal_v1')?.orgId).toBeUndefined();
+    expect(collections.profiles.values().find((doc) => doc._id === 'org_a_v2')?.orgId).toBe('org_a');
+    expect(collections.events.values().find((event) => event.recordId === 'org_a_v2' && event.type === 'draft_accepted')?.orgId).toBe('org_a');
+    expect(collections.profiles.indexes.flat()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'org_brand_user_status_updatedAt' }),
+        expect.objectContaining({ name: 'org_status_updatedAt' }),
+      ]),
+    );
+    expect(collections.events.indexes.flat()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'org_user_createdAt' })]),
+    );
+  });
+
   it('lists queued job snapshots by status and cutoff for worker processing', async () => {
     const store = createBrandVaultMongoRefineryStore({ collections: createMemoryCollections() });
     await store.saveJobSnapshot({
@@ -152,6 +203,33 @@ describe('Brand Vault Mongo refinery store', () => {
     expect(queued.map((snapshot) => snapshot.job.id)).toEqual(['brand_refinery_job_old']);
   });
 });
+
+function draftRecord(input: { id: string; orgId?: string; name: string; now: string }) {
+  const profile = deriveBrandSignalProfile(
+    {
+      brandId: 'shared_brand',
+      userId: 'shared_user',
+      orgId: input.orgId,
+      name: input.name,
+      voice: {
+        voiceLock: 'Warm, direct operator voice.',
+        nicheMap: 'Agency operators',
+        killList: ['cheap'],
+        hookArchetypes: ['proof-led hook'],
+        structuralHabits: ['open with proof'],
+      },
+      visual: {
+        industry: 'creative operations',
+        colors: ['#183047', '#36d399', '#ffffff'],
+        visualStyle: 'minimal premium structured high contrast',
+        typography: 'Inter, sans-serif',
+      },
+      learning: { banditProjectCount: 0 },
+    },
+    { generatedAt: input.now },
+  );
+  return createBrandSignalProfileDraft(profile, { id: input.id, now: input.now });
+}
 
 function htmlResponse(): Response {
   return new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } });
@@ -237,6 +315,7 @@ function matchesFilter(doc: Record<string, unknown>, filter: Record<string, unkn
 }
 
 function matchesFilterValue(actual: unknown, expected: unknown): boolean {
+  if (expected === null) return actual == null;
   if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
     const operators = expected as Record<string, unknown>;
     if ('$in' in operators) {

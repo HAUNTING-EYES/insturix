@@ -9,11 +9,21 @@ import {
   Users,
   Upload,
   Archive,
+  CalendarDays,
 } from "lucide-react"
 import type { Product } from "./types"
 
 // Phase verbs — NO product names in the sidebar
 export const coreCreationTools: Product[] = [
+  {
+    name: "Plan",
+    path: "/dashboard/calos",
+    icon: CalendarDays,
+    description: "Calendar",
+    color: "#5CCCB8",
+    hoverColor: "#74D6C6",
+    isPro: false,
+  },
   {
     name: "Script",
     path: "/dashboard/thinkforge",

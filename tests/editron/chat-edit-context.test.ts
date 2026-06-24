@@ -9,14 +9,28 @@ import {
 import {
   applyAudioDuckingToProject,
   findAudioMomentCandidates,
+  resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
 import {
+  resolveUserAssetOverlayPlacement,
+  type NormalizedAssetCandidate,
+} from '@/lib/editron/agent/chat-asset-tools';
+import {
   findTranscriptMomentCandidates,
+  resolveStickerOverlayTiming,
+  resolveTranscriptEditRange,
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
 import {
   applyCameraShakeToProject,
+  applyFadeToProject,
+  applyFilterToProject,
+  applyLayerReorderToProject,
+  applyMoveRetimeToProject,
+  applySpeedRampToProject,
   findVisualMomentCandidates,
+  resolveKeyframeEditParams,
+  resolveVisualEditPlacement,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
@@ -161,19 +175,92 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-asset-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['list_user_assets', 'search_user_assets', 'inspect_user_asset']);
+    expect(toolNames).toEqual(['list_user_assets', 'search_user_assets', 'inspect_user_asset', 'resolve_user_asset_overlay']);
     expect(toolNames.map((toolName) => getChatToolMetadata(toolName)?.receiptLabel)).toEqual([
       'Listed uploaded assets',
       'Searched uploaded assets',
       'Inspected uploaded asset',
+      'Resolved uploaded asset',
     ]);
+    expect(getChatToolMetadata('resolve_user_asset_overlay')).toMatchObject({
+      label: 'Resolving uploaded asset',
+      shortLabel: 'Asset edit',
+      receiptLabel: 'Resolved uploaded asset',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
   });
 
-  it('covers transcript moment search with registry metadata without importing Mongo-backed tools', () => {
+  it('resolves uploaded logo asset placement into add_overlay params without mutating', () => {
+    const logoCandidate: NormalizedAssetCandidate = {
+      assetId: 'asset_logo',
+      type: 'image',
+      name: 'brand-logo-transparent.png',
+      duration: undefined,
+      dimensions: { width: 800, height: 240 },
+      thumbnailHint: 'available',
+      tags: ['logo', 'brand'],
+      score: 0.92,
+      confidence: 0.92,
+      confidenceLabel: 'high',
+      matchReasons: ['tag'],
+      usedInProject: false,
+      overlayIds: [],
+      sceneIndexes: [],
+      useWith: {
+        tool: 'add_overlay',
+        assetId: 'asset_logo',
+        note: 'Use add_overlay with this assetId when placing this uploaded asset on the timeline.',
+      },
+    };
+
+    const plan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'Use my logo in the corner during the intro',
+      minConfidence: 0.65,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      inferredType: 'image',
+      placement: 'corner',
+      candidate: { assetId: 'asset_logo' },
+      useWith: {
+        add_overlay: {
+          type: 'image',
+          assetId: 'asset_logo',
+          start: 0,
+          duration: 90,
+          styles: {
+            objectFit: 'contain',
+            opacity: 1,
+          },
+        },
+      },
+    });
+    expect(plan.useWith?.add_overlay.x).toBeGreaterThan(900);
+    expect(plan.useWith?.add_overlay.y).toBeGreaterThan(500);
+    expect(plan.useWith?.add_overlay.width).toBeGreaterThanOrEqual(96);
+    expect(plan.useWith?.add_overlay.height).toBeGreaterThanOrEqual(36);
+
+    const ambiguous = resolveUserAssetOverlayPlacement(project, [
+      logoCandidate,
+      { ...logoCandidate, assetId: 'asset_logo_alt', name: 'second-logo.png', confidence: 0.88, score: 0.88 },
+    ], { query: 'Use my logo in the corner during the intro' });
+    expect(ambiguous.status).toBe('ambiguous');
+    expect(ambiguous.useWith).toBeUndefined();
+
+    const lowConfidence = resolveUserAssetOverlayPlacement(project, [
+      { ...logoCandidate, confidence: 0.4, score: 0.4, confidenceLabel: 'low' },
+    ], { query: 'Use my logo in the corner during the intro' });
+    expect(lowConfidence.status).toBe('low-confidence');
+    expect(lowConfidence.useWith).toBeUndefined();
+  });
+
+  it('covers transcript moment search and transcript edit resolution with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-transcript-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_transcript_moment']);
+    expect(toolNames).toEqual(['find_transcript_moment', 'resolve_transcript_edit', 'resolve_sticker_overlay']);
     expect(getChatToolMetadata('find_transcript_moment')).toMatchObject({
       label: 'Finding transcript moment',
       shortLabel: 'Find speech',
@@ -181,17 +268,45 @@ describe('chat edit context bundle', () => {
       mutatesProject: false,
       riskLevel: 'read',
     });
+    expect(getChatToolMetadata('resolve_transcript_edit')).toMatchObject({
+      label: 'Resolving transcript edit',
+      shortLabel: 'Speech edit',
+      receiptLabel: 'Resolved transcript edit',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_sticker_overlay')).toMatchObject({
+      label: 'Resolving sticker timing',
+      shortLabel: 'Sticker timing',
+      receiptLabel: 'Resolved sticker timing',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
   });
 
-  it('covers visual moment search and camera shake with registry metadata without importing Mongo-backed tools', () => {
+  it('covers visual moment search, camera shake, speed ramp, fade, layer reorder, move/retime, and filter with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'apply_camera_shake']);
+    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
       receiptLabel: 'Found visual moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_visual_edit')).toMatchObject({
+      label: 'Resolving visual edit',
+      shortLabel: 'Visual edit',
+      receiptLabel: 'Resolved visual edit',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_keyframe_edit')).toMatchObject({
+      label: 'Resolving keyframes',
+      shortLabel: 'Keyframes',
+      receiptLabel: 'Resolved keyframes',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -203,17 +318,64 @@ describe('chat edit context bundle', () => {
       requiresProjectReload: true,
       riskLevel: 'medium',
     });
+    expect(getChatToolMetadata('apply_speed_ramp')).toMatchObject({
+      label: 'Applying speed ramp',
+      shortLabel: 'Speed',
+      receiptLabel: 'Applied speed ramp',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('apply_fade')).toMatchObject({
+      label: 'Applying fade',
+      shortLabel: 'Fade',
+      receiptLabel: 'Applied fade',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('reorder_layer')).toMatchObject({
+      label: 'Reordering layer',
+      shortLabel: 'Layer',
+      receiptLabel: 'Reordered layer',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('move_retime_overlay')).toMatchObject({
+      label: 'Moving/retiming element',
+      shortLabel: 'Timing',
+      receiptLabel: 'Moved/retimed element',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
+    expect(getChatToolMetadata('apply_filter')).toMatchObject({
+      label: 'Applying filter',
+      shortLabel: 'Filter',
+      receiptLabel: 'Applied filter',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'medium',
+    });
   });
 
   it('covers audio moment search with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-audio-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_audio_moment', 'apply_audio_ducking']);
+    expect(toolNames).toEqual(['find_audio_moment', 'resolve_audio_edit', 'apply_audio_ducking']);
     expect(getChatToolMetadata('find_audio_moment')).toMatchObject({
       label: 'Finding audio moment',
       shortLabel: 'Find audio',
       receiptLabel: 'Found audio moment',
+      mutatesProject: false,
+      riskLevel: 'read',
+    });
+    expect(getChatToolMetadata('resolve_audio_edit')).toMatchObject({
+      label: 'Resolving audio edit',
+      shortLabel: 'Audio edit',
+      receiptLabel: 'Resolved audio edit',
       mutatesProject: false,
       riskLevel: 'read',
     });
@@ -317,6 +479,123 @@ describe('chat edit context bundle', () => {
     expect(candidates[0].surroundingWords).toContain('in the real world');
   });
 
+  it('resolves transcript-anchored sticker timing into generate_html_sticker params without mutating', () => {
+    const words = makeTranscriptWords(['we', 'win', 'today'], 30);
+    const plan = resolveStickerOverlayTiming(words, 'win', {
+      description: 'small animated sparkle sticker',
+      durationFrames: 60,
+      width: 128,
+      height: 128,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      candidate: { text: 'win', startFrame: 36 },
+      useWith: {
+        generate_html_sticker: {
+          start: 36,
+          duration: 60,
+          description: 'small animated sparkle sticker',
+          x: '78%',
+          y: '14%',
+          width: 128,
+          height: 128,
+          enterAnimation: 'pop',
+          exitAnimation: 'fade',
+        },
+      },
+    });
+    expect(plan.warnings).toContain('Using upper-right safe placement because transcript words do not provide screen coordinates.');
+
+    const ambiguous = resolveStickerOverlayTiming(makeTimedTranscriptWords([
+      ['win', 30, 36],
+      ['again', 42, 48],
+      ['win', 60, 66],
+    ]), 'win');
+
+    expect(ambiguous.status).toBe('ambiguous');
+    expect(ambiguous.useWith).toBeUndefined();
+  });
+
+  it('resolves post-phrase transcript cut range without cutting the phrase', () => {
+    const words = makeTimedTranscriptWords([
+      ['pricing', 42, 48],
+      ['is', 48, 54],
+      ['simple', 54, 60],
+      ['next', 90, 96],
+    ]);
+    const plan = resolveTranscriptEditRange(words, 'pricing is simple', {
+      action: 'cut_after_phrase',
+      minGapFrames: 6,
+      maxCutFrames: 90,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      action: 'cut_after_phrase',
+      candidate: {
+        text: 'pricing is simple',
+        startFrame: 42,
+        endFrame: 60,
+      },
+      cutSection: {
+        startFrame: 60,
+        endFrame: 90,
+      },
+      useWith: {
+        cut_section: {
+          startFrame: 60,
+          endFrame: 90,
+        },
+      },
+    });
+    expect(plan.message).toContain('frames 60-90');
+  });
+
+  it('blocks ambiguous repeated transcript phrase before cut resolution', () => {
+    const words = makeTimedTranscriptWords([
+      ['pricing', 42, 48],
+      ['is', 48, 54],
+      ['simple', 54, 60],
+      ['again', 84, 90],
+      ['pricing', 120, 126],
+      ['is', 126, 132],
+      ['simple', 132, 138],
+      ['next', 168, 174],
+    ]);
+    const plan = resolveTranscriptEditRange(words, 'pricing is simple', {
+      action: 'cut_after_phrase',
+      minGapFrames: 6,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ambiguous',
+      action: 'cut_after_phrase',
+    });
+    expect(plan.cutSection).toBeUndefined();
+    expect(plan.message).toContain('ambiguous');
+  });
+
+  it('refuses post-phrase cut when the following word is too close', () => {
+    const words = makeTimedTranscriptWords([
+      ['pricing', 42, 48],
+      ['is', 48, 54],
+      ['simple', 54, 60],
+      ['next', 63, 69],
+    ]);
+    const plan = resolveTranscriptEditRange(words, 'pricing is simple', {
+      action: 'cut_after_phrase',
+      minGapFrames: 6,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'no-range',
+      action: 'cut_after_phrase',
+    });
+    expect(plan.cutSection).toBeUndefined();
+    expect(plan.message).toContain('minimum is 6');
+  });
+
   it('finds visual moments from stored visual analysis with frame hints for edit tools', () => {
     const candidates = findVisualMomentCandidates(project, 'logo appears on laptop', {
       limit: 3,
@@ -344,6 +623,144 @@ describe('chat edit context bundle', () => {
         },
       },
     });
+  });
+
+  it('resolves visual highlight placement from a high-confidence bounding box fact', () => {
+    const plan = resolveVisualEditPlacement({
+      fps: 30,
+      durationInFrames: 180,
+      overlays: [{ id: 1, type: 'video', from: 0, durationInFrames: 180, assetId: 'asset_video' }],
+      analysis: {
+        keyframeAnalyses: [{
+          frame: 96,
+          subjects: [{
+            label: 'logo',
+            boundingBox: { x: 0.7, y: 0.1, width: 0.2, height: 0.12 },
+            confidence: 0.92,
+          }],
+        }],
+      },
+    }, 'logo', {
+      action: 'highlight',
+      durationFrames: 36,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      action: 'highlight',
+      candidate: {
+        text: 'logo',
+        frame: 96,
+        boundingBox: {
+          x: 0.7,
+          y: 0.1,
+          width: 0.2,
+          height: 0.12,
+          units: 'normalized',
+        },
+      },
+      useWith: {
+        add_overlay: {
+          type: 'shape',
+          start: 96,
+          duration: 36,
+          x: '70%',
+          y: '10%',
+          width: '20%',
+          height: '12%',
+          styles: {
+            fill: 'transparent',
+            stroke: '#ffcc00',
+            strokeWidth: 4,
+            borderRadius: '10px',
+            opacity: 0.95,
+          },
+        },
+        visual_inspect_frame: {
+          frame: 96,
+        },
+      },
+    });
+  });
+
+  it('refuses visual highlight placement when the visual fact has no bounding box', () => {
+    const plan = resolveVisualEditPlacement(project, 'logo appears on laptop', {
+      action: 'highlight',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'no-placement',
+      action: 'highlight',
+      candidate: {
+        frame: 96,
+      },
+      useWith: {
+        visual_inspect_frame: {
+          frame: 96,
+        },
+      },
+    });
+    expect(plan.useWith?.add_overlay).toBeUndefined();
+    expect(plan.message).toContain('no bounding box');
+  });
+
+  it('resolves selected clip zoom into set_keyframes params without mutating', () => {
+    const plan = resolveKeyframeEditParams(project, {
+      overlayId: 1,
+      direction: 'in',
+      startFrame: 90,
+      endFrame: 120,
+      scaleDelta: 0.5,
+    });
+    const conflict = resolveKeyframeEditParams({
+      overlays: [{
+        id: 10,
+        type: 'video',
+        from: 0,
+        durationInFrames: 60,
+        keyframeTracks: [{
+          property: 'scale',
+          keyframes: [
+            { frame: 0, value: 1, easing: 'linear' },
+            { frame: 30, value: 1.1, easing: 'ease-out' },
+          ],
+        }],
+      }],
+    }, { overlayId: 10 });
+    const captionBlocked = resolveKeyframeEditParams(project, { overlayId: 2 });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      targetOverlayId: 1,
+      startFrame: 90,
+      endFrame: 120,
+      localStartFrame: 90,
+      localEndFrame: 120,
+      direction: 'in',
+      scaleDelta: 0.35,
+      useWith: {
+        set_keyframes: {
+          overlayId: 1,
+          property: 'scale',
+          keyframes: [
+            { frame: 90, value: 1, easing: 'ease-in-out' },
+            { frame: 120, value: 1.35, easing: 'ease-out' },
+          ],
+        },
+      },
+    });
+    expect(conflict).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 10,
+    });
+    expect(conflict.useWith).toBeUndefined();
+    expect(conflict.message).toContain('already has scale keyframes');
+    expect(captionBlocked).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+    });
+    expect(captionBlocked.useWith).toBeUndefined();
+    expect(captionBlocked.message).toContain('captions/subtitles');
   });
 
   it('plans camera shake as bounded x/y tracks on the active video overlay', () => {
@@ -406,6 +823,417 @@ describe('chat edit context bundle', () => {
     expect(plan.message).toContain('already has x/y position keyframes');
   });
 
+  it('plans speed ramp as bounded speedCurve and matching speed keyframes', () => {
+    const plan = applySpeedRampToProject(project, {
+      startFrame: 150,
+      endFrame: 175,
+      targetSpeed: 0.1,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 150,
+      endFrame: 175,
+      targetOverlayId: 1,
+      updates: [{
+        overlayId: 1,
+        localStartFrame: 150,
+        localMidFrame: 163,
+        localEndFrame: 175,
+        targetSpeed: 0.25,
+        reason: 'bounded-semantic-speed-ramp',
+      }],
+    });
+
+    expect(plan.updates[0].nextSpeedCurve).toEqual([
+      { frame: 150, value: 1, easing: 'ease-in-out' },
+      { frame: 163, value: 0.25, easing: 'ease-in-out' },
+      { frame: 175, value: 1, easing: 'ease-out' },
+    ]);
+    const speedTrack = plan.updates[0].nextKeyframeTracks.find((track: any) => track.property === 'speed');
+    expect(speedTrack).toMatchObject({
+      property: 'speed',
+      metadata: { family: 'speed-ramp', source: 'apply_speed_ramp' },
+    });
+    expect(speedTrack.keyframes).toEqual(plan.updates[0].nextSpeedCurve);
+  });
+
+  it('refuses speed ramp across caption dialogue unless explicitly allowed', () => {
+    const plan = applySpeedRampToProject(project, {
+      startFrame: 90,
+      endFrame: 120,
+      targetSpeed: 0.5,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 90,
+      endFrame: 120,
+      targetOverlayId: 1,
+      updates: [],
+    });
+    expect(plan.message).toContain('overlap captions/dialogue');
+  });
+
+  it('refuses speed ramp when existing speed motion would be overwritten', () => {
+    const plan = applySpeedRampToProject({
+      durationInFrames: 60,
+      overlays: [{
+        id: 10,
+        type: 'video',
+        from: 0,
+        durationInFrames: 60,
+        speedCurve: [
+          { frame: 0, value: 1, easing: 'linear' },
+          { frame: 30, value: 0.5, easing: 'ease-in-out' },
+        ],
+      }],
+    }, { startFrame: 10, endFrame: 40 });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 10,
+      endFrame: 40,
+      targetOverlayId: 10,
+      updates: [],
+    });
+    expect(plan.message).toContain('already has speed keyframes');
+  });
+
+  it('plans fade out as bounded opacity keyframes at the overlay end', () => {
+    const plan = applyFadeToProject(project, {
+      overlayId: 4,
+      direction: 'out',
+      durationFrames: 12,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 123,
+      endFrame: 135,
+      targetOverlayId: 4,
+      updates: [{
+        overlayId: 4,
+        localStartFrame: 33,
+        localEndFrame: 45,
+        previousKeyframeTrackCount: 0,
+        fromOpacity: 1,
+        toOpacity: 0,
+        reason: 'semantic-fade-out',
+      }],
+    });
+
+    const opacityTrack = plan.updates[0].nextKeyframeTracks.find((track: any) => track.property === 'opacity');
+    expect(opacityTrack).toEqual({
+      property: 'opacity',
+      keyframes: [
+        { frame: 33, value: 1, easing: 'ease-in' },
+        { frame: 45, value: 0, easing: 'linear' },
+      ],
+      metadata: { family: 'fade', source: 'apply_fade', direction: 'out' },
+    });
+  });
+
+  it('refuses fade on caption overlays unless explicitly allowed', () => {
+    const plan = applyFadeToProject(project, {
+      overlayId: 2,
+      direction: 'out',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions/subtitles');
+  });
+
+  it('refuses fade when existing opacity motion would be overwritten', () => {
+    const plan = applyFadeToProject({
+      durationInFrames: 80,
+      overlays: [{
+        id: 20,
+        type: 'text',
+        from: 10,
+        durationInFrames: 40,
+        content: 'CTA',
+        keyframeTracks: [{
+          property: 'opacity',
+          keyframes: [
+            { frame: 0, value: 0, easing: 'linear' },
+            { frame: 10, value: 1, easing: 'ease-out' },
+          ],
+        }],
+      }],
+    }, { overlayId: 20, direction: 'out' });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 30,
+      endFrame: 50,
+      targetOverlayId: 20,
+      updates: [],
+    });
+    expect(plan.message).toContain('already has opacity keyframes');
+  });
+
+  it('plans layer reorder as a row-only move behind a reference overlay', () => {
+    const plan = applyLayerReorderToProject({
+      overlays: [
+        { id: 30, type: 'image', from: 90, durationInFrames: 60, row: 4, content: 'Logo mark' },
+        { id: 31, type: 'text', from: 90, durationInFrames: 60, row: 1, content: 'Main title' },
+        { id: 32, type: 'shape', from: 180, durationInFrames: 30, row: 2, content: 'Later card' },
+      ],
+    }, {
+      targetQuery: 'logo',
+      referenceQuery: 'title',
+      relation: 'behind',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 30,
+      referenceOverlayId: 31,
+      updates: [{
+        overlayId: 30,
+        previousRow: 4,
+        nextRow: 2,
+        referenceOverlayId: 31,
+        relation: 'behind',
+        reason: 'semantic-layer-reorder',
+      }],
+    });
+    expect(plan.message).toContain('Moved overlay 30 from row 4 to row 2');
+  });
+
+  it('refuses layer reorder into an occupied overlapping row unless explicitly allowed', () => {
+    const plan = applyLayerReorderToProject({
+      overlays: [
+        { id: 30, type: 'image', from: 90, durationInFrames: 70, row: 4, content: 'Logo mark' },
+        { id: 31, type: 'text', from: 90, durationInFrames: 70, row: 1, content: 'Main title' },
+        { id: 32, type: 'shape', from: 120, durationInFrames: 20, row: 2, content: 'Badge' },
+      ],
+    }, {
+      overlayId: 30,
+      referenceOverlayId: 31,
+      relation: 'behind',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 30,
+      referenceOverlayId: 31,
+      updates: [],
+    });
+    expect(plan.message).toContain('Row 2 already has overlapping ordinary visual overlay(s): 32');
+  });
+
+  it('refuses layer reorder against caption render priority', () => {
+    const plan = applyLayerReorderToProject(project, {
+      overlayId: 4,
+      referenceOverlayId: 2,
+      relation: 'behind',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 4,
+      referenceOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions use fixed render priority');
+  });
+
+  it('plans move/retime as existing timing field updates only', () => {
+    const plan = applyMoveRetimeToProject(project, {
+      overlayId: 4,
+      startFrame: 120,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 4,
+      updates: [{
+        overlayId: 4,
+        previousStartFrame: 90,
+        previousEndFrame: 135,
+        previousDurationFrames: 45,
+        nextStartFrame: 120,
+        nextEndFrame: 165,
+        nextDurationFrames: 45,
+        nextUpdates: {
+          from: 120,
+          durationInFrames: 45,
+        },
+        sourceTrimFrames: 0,
+        reason: 'semantic-overlay-move',
+      }],
+    });
+  });
+
+  it('refuses move/retime into a same-row timeline collision unless explicitly allowed', () => {
+    const plan = applyMoveRetimeToProject({
+      durationInFrames: 120,
+      overlays: [
+        { id: 40, type: 'image', from: 10, durationInFrames: 30, row: 2, content: 'Badge' },
+        { id: 41, type: 'text', from: 35, durationInFrames: 25, row: 2, content: 'Title' },
+      ],
+    }, {
+      overlayId: 40,
+      startFrame: 30,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 40,
+      updates: [],
+    });
+    expect(plan.message).toContain('already overlap overlay(s): 41');
+  });
+
+  it('refuses generic move/retime on captions to protect word timing sync', () => {
+    const plan = applyMoveRetimeToProject(project, {
+      overlayId: 2,
+      startFrame: 70,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions are protected from generic retime');
+  });
+
+  it('requires explicit source trim permission before changing media source offsets', () => {
+    const mediaProject = {
+      durationInFrames: 120,
+      overlays: [
+        { id: 50, type: 'video', from: 10, durationInFrames: 60, row: 0, videoStartTime: 5 },
+      ],
+    };
+    const blocked = applyMoveRetimeToProject(mediaProject, {
+      overlayId: 50,
+      startFrame: 20,
+      endFrame: 70,
+    });
+    const allowed = applyMoveRetimeToProject(mediaProject, {
+      overlayId: 50,
+      startFrame: 20,
+      endFrame: 70,
+      allowSourceTrim: true,
+    });
+
+    expect(blocked).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 50,
+      updates: [],
+    });
+    expect(blocked.message).toContain('source-start trim');
+    expect(allowed).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 50,
+      updates: [{
+        overlayId: 50,
+        nextStartFrame: 20,
+        nextEndFrame: 70,
+        nextDurationFrames: 50,
+        nextUpdates: {
+          from: 20,
+          durationInFrames: 50,
+          videoStartTime: 15,
+        },
+        sourceTrimFrames: 10,
+        reason: 'semantic-overlay-source-trim',
+      }],
+    });
+  });
+
+  it('plans filter as a manual overlay style override only', () => {
+    const plan = applyFilterToProject(project, {
+      overlayId: 1,
+      filterIntent: 'warmer',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 1,
+      updates: [{
+        overlayId: 1,
+        previousFilter: 'none',
+        nextFilter: 'sepia(0.18) saturate(1.12) hue-rotate(-6deg) brightness(1.03)',
+        nextStyles: {
+          filter: 'sepia(0.18) saturate(1.12) hue-rotate(-6deg) brightness(1.03)',
+        },
+        reason: 'manual-overlay-filter-override',
+      }],
+    });
+    expect(plan.message).toContain('Applied manual filter');
+  });
+
+  it('refuses filter on captions unless explicitly allowed', () => {
+    const plan = applyFilterToProject(project, {
+      overlayId: 2,
+      filterIntent: 'brighter',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 2,
+      updates: [],
+    });
+    expect(plan.message).toContain('captions/subtitles');
+  });
+
+  it('refuses unsafe filter CSS and blocks accidental existing-filter overwrite', () => {
+    const unsafe = applyFilterToProject(project, {
+      overlayId: 1,
+      filterCss: 'url(https://example.com/filter.svg#x)',
+    });
+    const blocked = applyFilterToProject({
+      overlays: [
+        { id: 60, type: 'video', from: 0, durationInFrames: 60, styles: { filter: 'contrast(1.1)' } },
+      ],
+    }, {
+      overlayId: 60,
+      filterIntent: 'cooler',
+    });
+    const allowed = applyFilterToProject({
+      overlays: [
+        { id: 60, type: 'video', from: 0, durationInFrames: 60, styles: { filter: 'contrast(1.1)' } },
+      ],
+    }, {
+      overlayId: 60,
+      filterIntent: 'cooler',
+      replaceExistingFilter: true,
+    });
+
+    expect(unsafe).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 1,
+      updates: [],
+    });
+    expect(unsafe.message).toContain('Filter CSS was rejected');
+    expect(blocked).toMatchObject({
+      status: 'conflict',
+      targetOverlayId: 60,
+      updates: [],
+    });
+    expect(blocked.message).toContain('already has filter');
+    expect(allowed).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 60,
+      updates: [{
+        overlayId: 60,
+        previousFilter: 'contrast(1.1)',
+        nextFilter: 'saturate(0.95) hue-rotate(6deg) brightness(1.01)',
+        nextStyles: {
+          filter: 'saturate(0.95) hue-rotate(6deg) brightness(1.01)',
+        },
+      }],
+    });
+  });
+
   it('finds audio moments from stored audio analysis with frame hints for edit tools', () => {
     const silenceCandidates = findAudioMomentCandidates(project, 'cut the long silence', {
       limit: 3,
@@ -450,6 +1278,64 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('resolves audio references into safe edit operation params', () => {
+    const impact = resolveAudioEditTiming(project, 'add impact on the first beat drop', {
+      action: 'add_sfx',
+    });
+    const silenceCut = resolveAudioEditTiming(project, 'cut the long silence', {
+      action: 'cut_section',
+    });
+    const invalidBeatSync = resolveAudioEditTiming(project, 'sync cuts to the long silence', {
+      action: 'sync_cuts_to_beats',
+    });
+    const missing = resolveAudioEditTiming(project, 'add impact on the air horn', {
+      action: 'add_sfx',
+      minConfidence: 0.99,
+    });
+
+    expect(impact).toMatchObject({
+      status: 'ready',
+      action: 'add_sfx',
+      candidate: {
+        audioKind: 'beat-drop',
+        frame: 90,
+      },
+      useWith: {
+        add_sfx: {
+          query: 'impact hit',
+          frame: 90,
+          sync: 'audio-anchor',
+        },
+      },
+    });
+    expect(impact.warnings[0]).toContain('first audio reference');
+    expect(silenceCut).toMatchObject({
+      status: 'ready',
+      action: 'cut_section',
+      candidate: {
+        audioKind: 'silence',
+      },
+      useWith: {
+        cut_section: {
+          startFrame: 36,
+          endFrame: 66,
+        },
+      },
+    });
+    expect(invalidBeatSync).toMatchObject({
+      status: 'unsupported',
+      action: 'sync_cuts_to_beats',
+      candidate: {
+        audioKind: 'silence',
+      },
+    });
+    expect(missing).toMatchObject({
+      status: 'no-match',
+      action: 'add_sfx',
+      searchedCandidateCount: 0,
+    });
+  });
+
   it('clamps playhead and makes missing resolvers explicit in the prompt', () => {
     const bundle = buildChatEditContextBundle(project, {
       clientContext: {
@@ -470,6 +1356,23 @@ describe('chat edit context bundle', () => {
     expect(prompt).toContain('Do not ask for a timeframe when this context is enough.');
   });
 });
+
+function makeTimedTranscriptWords(items: Array<[string, number, number]>): TranscriptSearchWord[] {
+  return items.map(([word, startFrame, endFrame]) => ({
+    word,
+    startMs: Math.round((startFrame / 30) * 1000),
+    endMs: Math.round((endFrame / 30) * 1000),
+    startFrame,
+    endFrame,
+    confidence: 0.94,
+    source: {
+      type: 'video-transcription',
+      overlayId: 1,
+      assetId: 'asset_video',
+      overlayType: 'video',
+    },
+  }));
+}
 
 function makeTranscriptWords(words: string[], startFrame: number): TranscriptSearchWord[] {
   return words.map((word, index) => {

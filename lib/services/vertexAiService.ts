@@ -24,6 +24,18 @@ function initGenAI(): GoogleGenerativeAI {
 
 const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
+const MAX_BRAND_CONTEXT_CHARS = 3000;
+
+function cleanPromptText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n").trim();
+}
+
+function brandContextForPrompt(context: any): string {
+  const brandContextBlock = cleanPromptText(context?.brandContextBlock);
+  if (brandContextBlock.length <= MAX_BRAND_CONTEXT_CHARS) return brandContextBlock;
+  return `${brandContextBlock.slice(0, MAX_BRAND_CONTEXT_CHARS)}\n[brand context truncated]`;
+}
 
 export async function analyzeVideoWithGemini(
   videoUrl: string, // This will now usually be the Gemini fileUri, e.g. "https://generativelanguage.googleapis.com/... or "gemini://... " Wait, actually it just takes fileUri so we keep it named videoUrl or just pass the uri as videoUrl.
@@ -190,6 +202,8 @@ export async function analyzeVideoWithGemini(
       ...extraParams,
     });
 
+    const brandContextBlock = brandContextForPrompt(context);
+
     // analysis prompt with explicit JSON formatting instructions
     const prompt = `<role>You are a professional video content analyst specializing in compliance, quality assessment, and transcription.</role>
 
@@ -218,6 +232,12 @@ LOCATION AND LEGAL SENSITIVITY (${context.location}):
 CONTENT SAFETY:
 - Do not spread misinformation, hate, discrimination, or illegal advice.
 - Ensure the analysis is respectful, neutral, and responsible.
+${brandContextBlock ? `
+BRAND ALIGNMENT:
+- Use the supplied brand context as the comparison lens for tone, visual identity, pacing fit, proof style, audience fit, and recommendations.
+- Separate observed media facts from brand-fit judgments. If the media conflicts with the brand, report the conflict; do not rewrite the observation to match the brand.
+- Do not invent missing brand facts, product claims, or audience claims beyond the supplied brand context.
+` : ""}
 
 PERSON / FACE RECOGNITION:
 - If the video contains a WELL-KNOWN PUBLIC FIGURE (e.g., widely recognized celebrity, politician, influencer), you MAY mention their name ONLY if you are highly confident.
@@ -316,6 +336,10 @@ USER CONTEXT:
 - Platform: ${context.platform}
 - Location/Legal Context: ${context.location}
 - Additional Details: ${context.additionalDetails || "None"}
+${brandContextBlock ? `
+BRAND CONTEXT:
+${brandContextBlock}
+` : ""}
 </input_data>
 
 Be specific and reference actual content from the video with precise timestamps.

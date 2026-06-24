@@ -47,6 +47,32 @@ export interface ChatAiEditTransactionSummary {
   error?: string;
 }
 
+export type ChatAiEditRestoreAction = "undo" | "redo";
+export type ChatAiEditRestoreStatus = "ready" | "no-intent" | "no-checkpoint" | "missing-target";
+
+export interface ChatAiEditRestoreHistoryMessage {
+  role: string;
+  content?: string;
+  checkpointIds?: string[];
+  toolResults?: ChatAiToolResult[];
+}
+
+export interface ChatAiEditRestoreResolution {
+  status: ChatAiEditRestoreStatus;
+  action?: ChatAiEditRestoreAction;
+  checkpointId?: string;
+  beforeCheckpointId?: string;
+  afterCheckpointId?: string;
+  sourceMessageIndex?: number;
+  mutatingToolNames: string[];
+  message: string;
+  useWith?: {
+    restore_ai_edit_checkpoint: {
+      checkpointId: string;
+    };
+  };
+}
+
 interface CompleteTransactionOptions {
   transaction: ChatAiEditTransaction;
   toolResults: ChatAiToolResult[];
@@ -134,6 +160,92 @@ export function isSuccessfulToolResult(result: unknown): boolean {
   return parsed.status === "success" || parsed.status === undefined;
 }
 
+export function resolveChatAiEditRestoreTarget(
+  history: ChatAiEditRestoreHistoryMessage[],
+  input: { userMessage: string },
+): ChatAiEditRestoreResolution {
+  const action = restoreActionFromText(input.userMessage);
+  if (!action) {
+    return {
+      status: "no-intent",
+      mutatingToolNames: [],
+      message: "No AI edit restore intent was detected.",
+    };
+  }
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.role !== "assistant") continue;
+    if (!message.checkpointIds?.length) continue;
+
+    const beforeCheckpointId = nonEmptyString(message.checkpointIds[0]);
+    const afterCheckpointId = nonEmptyString(message.checkpointIds[1]);
+    const mutatingToolNames = mutatingSuccessfulToolNames(message.toolResults ?? []);
+    const checkpointId = checkpointIdForRestoreAction(action, {
+      beforeCheckpointId,
+      afterCheckpointId,
+      mutatingToolNames,
+    });
+
+    if (!checkpointId) {
+      return {
+        status: "missing-target",
+        action,
+        beforeCheckpointId,
+        afterCheckpointId,
+        sourceMessageIndex: index,
+        mutatingToolNames,
+        message: `Found AI edit checkpoint metadata, but no ${action} checkpoint target was available.`,
+      };
+    }
+
+    return {
+      status: "ready",
+      action,
+      checkpointId,
+      beforeCheckpointId,
+      afterCheckpointId,
+      sourceMessageIndex: index,
+      mutatingToolNames,
+      useWith: {
+        restore_ai_edit_checkpoint: { checkpointId },
+      },
+      message: `Resolved ${action} to checkpoint ${checkpointId}.`,
+    };
+  }
+
+  return {
+    status: "no-checkpoint",
+    action,
+    mutatingToolNames: [],
+    message: `No prior AI edit checkpoint was available for ${action}.`,
+  };
+}
+
+export function formatChatAiEditRestoreTargetForPrompt(resolution: ChatAiEditRestoreResolution): string {
+  if (resolution.status === "no-intent") return "";
+  if (resolution.status !== "ready" || !resolution.checkpointId || !resolution.action) {
+    return [
+      "AI edit restore resolver:",
+      `status=${resolution.status}`,
+      resolution.action ? `intent=${resolution.action}` : null,
+      "No safe checkpoint target is available. Do not manually reverse edits; ask for a checkpoint ID or explain that undo is unavailable for this chat turn.",
+    ].filter(Boolean).join("\n");
+  }
+
+  const toolNames = resolution.mutatingToolNames.length
+    ? resolution.mutatingToolNames.join(", ")
+    : "unknown mutating edit";
+  return [
+    "AI edit restore resolver:",
+    "status=ready",
+    `intent=${resolution.action}`,
+    `checkpointId=${resolution.checkpointId}`,
+    `sourceTools=${toolNames}`,
+    "Call restore_ai_edit_checkpoint with exactly this checkpointId before doing anything else. Do not manually reverse overlays.",
+  ].join("\n");
+}
+
 function parseToolResult(result: unknown): Record<string, unknown> | null {
   if (result && typeof result === "object") return result as Record<string, unknown>;
   if (typeof result !== "string") return null;
@@ -169,8 +281,9 @@ function transactionSummary(
   beforeCheckpoint: ChatCheckpoint | null,
   afterCheckpoint: ChatCheckpoint | null,
 ): ChatAiEditTransactionSummary {
-  const checkpointIds = [beforeCheckpoint?.checkpointId, afterCheckpoint?.checkpointId]
-    .filter((checkpointId): checkpointId is string => Boolean(checkpointId));
+  const checkpointIds = beforeCheckpoint || afterCheckpoint
+    ? [beforeCheckpoint?.checkpointId ?? "", afterCheckpoint?.checkpointId ?? ""]
+    : [];
   return {
     status: checkpointIds.length ? "created" : "not-needed",
     mutatingToolNames,
@@ -182,4 +295,34 @@ function transactionSummary(
 
 function cloneOverlays(overlays: Overlay[]): Overlay[] {
   return JSON.parse(JSON.stringify(overlays ?? [])) as Overlay[];
+}
+
+function restoreActionFromText(text: string): ChatAiEditRestoreAction | null {
+  const normalized = text.toLowerCase();
+  if (/\b(?:redo|re-do|reapply|bring (?:it|that) back|restore after|put (?:it|that) back)\b/.test(normalized)) {
+    return "redo";
+  }
+  if (/\b(?:undo|revert|go back|roll back|rollback|restore before|back out|remove that edit|reverse that edit)\b/.test(normalized)) {
+    return "undo";
+  }
+  return null;
+}
+
+function checkpointIdForRestoreAction(
+  action: ChatAiEditRestoreAction,
+  input: {
+    beforeCheckpointId?: string;
+    afterCheckpointId?: string;
+    mutatingToolNames: string[];
+  },
+): string | undefined {
+  if (action === "undo") return input.beforeCheckpointId;
+  if (input.mutatingToolNames.includes("restore_ai_edit_checkpoint")) {
+    return input.beforeCheckpointId;
+  }
+  return input.afterCheckpointId;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

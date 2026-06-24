@@ -8,7 +8,12 @@ import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
 import { projectService } from "@/lib/editron/services/project-service";
-
+import {
+  AlyzitronBrandContextError,
+  buildAlyzitronAnalysisContext,
+  resolveAlyzitronBrandContext,
+  resolveAlyzitronTaskBrandId,
+} from "@/lib/alyzitron/services/brand-vault-context";
 function getGcsUrl(gcsPath: string): string {
   const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) throw new Error("Server configuration error: GCS bucket name missing.");
@@ -34,9 +39,39 @@ export async function POST(request: Request) {
 
     const { userId, orgId } = session;
     const body = await request.json();
-    const { video_url, context, metadata, storage, editronProjectId } = body;
+    const { video_url, context, metadata, storage, editronProjectId, brandId } = body;
 
     if (!video_url) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
+
+    const taskBrandId = await resolveAlyzitronTaskBrandId({
+      userId,
+      orgId,
+      editronProjectId,
+      bodyBrandId: brandId,
+      context,
+      metadata,
+    });
+
+    let brandContext = null;
+    try {
+      brandContext = await resolveAlyzitronBrandContext({ userId, brandId: taskBrandId });
+    } catch (error) {
+      if (error instanceof AlyzitronBrandContextError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              type: error.code,
+              message: `Select an approved brand before running brand-aware Alyzitron analysis for ${error.brandId}.`,
+            },
+          },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
+
+    const analysisContext = buildAlyzitronAnalysisContext(context || {}, brandContext);
 
     const backend = storage || detectStorageBackend(video_url);
     const isGCS = backend === 'gcs';
@@ -113,13 +148,17 @@ export async function POST(request: Request) {
         orgId: orgId || undefined,
         createdByName,
         videoUrl: finalVideoUrl,
-        context: context || {},
+        context: analysisContext,
         metadata: {
           ...metadata,
           mimeType: isImageFile ? (metadata?.mimeType || 'image/jpeg') : (metadata?.mimeType || 'video/mp4'),
           storage: backend,
-          storageBackend: backend
+          storageBackend: backend,
+          ...(taskBrandId ? { brandId: taskBrandId } : {}),
+          ...(brandContext?.source && brandContext.source !== 'none' ? { brandContextSource: brandContext.source } : {}),
         },
+        ...(taskBrandId ? { brandId: taskBrandId } : {}),
+        ...(brandContext?.source && brandContext.source !== 'none' ? { brandContextSource: brandContext.source } : {}),
         status: "listed",
         unread: true,
         results: null,
@@ -148,8 +187,15 @@ export async function POST(request: Request) {
           taskId: taskId.toString(),
           userId,
           videoUrl: finalVideoUrl,
-          context,
-          metadata: { ...metadata, storage: backend, storageBackend: backend },
+          context: analysisContext,
+          metadata: {
+            ...metadata,
+            storage: backend,
+            storageBackend: backend,
+            ...(taskBrandId ? { brandId: taskBrandId } : {}),
+            ...(brandContext?.source && brandContext.source !== 'none' ? { brandContextSource: brandContext.source } : {}),
+          },
+          ...(taskBrandId ? { brandId: taskBrandId } : {}),
           ...(editronProjectId ? { editronProjectId } : {}),
         },
         retries: 3,

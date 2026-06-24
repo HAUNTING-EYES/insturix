@@ -16,8 +16,8 @@ export default function PlanningMode({
   return (
     <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
       <PlanningPanel
-        isOpen={true}
-        onClose={() => {}} 
+        isOpen={isVisible}
+        onClose={() => {}}
         onOpenScript={onOpenScript}
       />
     </div>

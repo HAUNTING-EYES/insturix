@@ -1,7 +1,8 @@
 import type { BrandSignalProfile } from './brand-signal-profile';
-import type {
-  BrandSignalLifecycleOptions,
-  BrandSignalProfileRecord,
+import {
+  collectBrandSignals,
+  type BrandSignalLifecycleOptions,
+  type BrandSignalProfileRecord,
 } from './brand-signal-lifecycle';
 import {
   createInMemoryBrandSignalProfileRepository,
@@ -13,6 +14,7 @@ import {
   createBrandVaultWebsiteDraftJob,
   type BrandVaultSignalProfileStore,
   type BrandVaultStoreResult,
+  type BrandVaultAcceptedProfileFilter,
   type BrandVaultSignalValueEdit,
   type BrandVaultTextEvidenceCompiler,
   type BrandVaultWebsiteDraftJobResult,
@@ -36,6 +38,10 @@ import type {
   FetchWebsiteBrandSnapshotOptions,
 } from './brand-website-refinery-types';
 import { createBrandVaultMongoRefineryStoreFromEnvironment } from './brand-vault-mongo-store';
+import {
+  createBrandSignalLearningEvent,
+  type BrandSignalLearningEvent,
+} from './brand-signal-edit-weighting';
 
 export type BrandVaultSourceEvidenceProviderResult = {
   sourceEvidence?: BrandVaultSourceInput[];
@@ -44,6 +50,7 @@ export type BrandVaultSourceEvidenceProviderResult = {
 
 export type BrandVaultSourceEvidenceProvider = (args: {
   userId: string;
+  orgId?: string;
   websiteUrl: string;
   brandId?: string;
   companyName?: string;
@@ -86,7 +93,25 @@ export type BrandVaultRefineryJobListFilter = {
   limit?: number;
 };
 
+export type BrandVaultAcceptedBrandListFilter = {
+  orgId?: string | null;
+  userId?: string;
+  limit?: number;
+};
+
+export interface BrandVaultAcceptedBrandSummary {
+  brandId: string;
+  name: string;
+  recordId: string;
+  orgId?: string;
+  userId?: string;
+  acceptedAt?: string;
+  updatedAt: string;
+}
+
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
+  getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
+  listAcceptedBrands?(filter?: BrandVaultAcceptedBrandListFilter): BrandVaultStoreResult<BrandVaultAcceptedBrandSummary[]>;
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot>;
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
@@ -191,6 +216,7 @@ export type ReviewBrandVaultSignalProfileSuccessBody = {
   job: BrandRefineryJob | null;
   reviewPayload: BrandVaultWebsiteDraftReviewPayload | null;
   superseded: BrandSignalProfileRecord[];
+  learningEvents: BrandSignalLearningEvent[];
 };
 
 const DEFAULT_REFINERY_JOB_STALE_AFTER_MS = 10 * 60 * 1000;
@@ -217,8 +243,24 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
     return this.profiles.rejectDraft(id, reason, options);
   }
 
-  getLatestAcceptedProfile(filter: { brandId?: string; userId?: string }): BrandSignalProfile | null {
+  getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfile | null {
     return this.profiles.getLatestAcceptedProfile(filter);
+  }
+
+  getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandSignalProfileRecord | null {
+    return this.profiles.getLatestAcceptedRecord(filter);
+  }
+
+  listAcceptedBrands(filter: BrandVaultAcceptedBrandListFilter = {}): BrandVaultAcceptedBrandSummary[] {
+    const userId = filter.orgId === undefined || filter.orgId === null ? filter.userId : undefined;
+    return summarizeAcceptedBrandRecords(
+      this.profiles.listRecords({
+        orgId: filter.orgId,
+        userId,
+        status: 'accepted',
+      }),
+      filter.limit,
+    );
   }
 
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultRefineryJobSnapshot {
@@ -303,6 +345,7 @@ export function getDefaultBrandVaultRefineryStore(): BrandVaultRefineryStore {
 export async function createBrandVaultRefineryJobFromWebsite(
   args: {
     userId: string;
+    orgId?: string;
     body: unknown;
     actorId?: string;
     jobId?: string;
@@ -315,6 +358,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
   const providerEvidence = await resolveSourceEvidenceProvider({
     provider: dependencies.sourceEvidenceProvider,
     userId: args.userId,
+    orgId: args.orgId,
     websiteUrl: parsed.value.websiteUrl,
     brandId: parsed.value.brandId,
     companyName: parsed.value.companyName,
@@ -326,6 +370,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
   const result = await createBrandVaultWebsiteDraftJob(
     {
       userId: args.userId,
+      orgId: args.orgId,
       websiteUrl: parsed.value.websiteUrl,
       brandId: parsed.value.brandId,
       companyName: parsed.value.companyName,
@@ -395,6 +440,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
 export async function startQueuedBrandVaultRefineryJobFromWebsite(
   args: {
     userId: string;
+    orgId?: string;
     body: unknown;
     actorId?: string;
   },
@@ -406,6 +452,7 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
   const now = dependencies.clock?.() ?? new Date().toISOString();
   const jobId = createDefaultRefineryJobId({
     userId: args.userId,
+    orgId: args.orgId,
     brandId: parsed.value.brandId,
     websiteUrl: parsed.value.websiteUrl,
     now,
@@ -413,6 +460,7 @@ export async function startQueuedBrandVaultRefineryJobFromWebsite(
   const queuedJob: BrandRefineryJob = {
     id: jobId,
     userId: args.userId,
+    orgId: args.orgId,
     brandId: parsed.value.brandId,
     status: 'queued',
     inputs: {
@@ -527,6 +575,7 @@ export async function runQueuedBrandVaultRefineryJobSnapshot(
     await createBrandVaultRefineryJobFromWebsite(
       {
         userId: runningJob.userId,
+        orgId: runningJob.orgId,
         actorId: runningJob.userId,
         jobId: runningJob.id,
         body: {
@@ -560,6 +609,7 @@ export async function runQueuedBrandVaultRefineryJobSnapshot(
 async function resolveSourceEvidenceProvider(args: {
   provider?: BrandVaultSourceEvidenceProvider;
   userId: string;
+  orgId?: string;
   websiteUrl: string;
   brandId?: string;
   companyName?: string;
@@ -570,6 +620,7 @@ async function resolveSourceEvidenceProvider(args: {
   try {
     const result = await args.provider({
       userId: args.userId,
+      orgId: args.orgId,
       websiteUrl: args.websiteUrl,
       brandId: args.brandId,
       companyName: args.companyName,
@@ -606,11 +657,12 @@ function mergeWarnings(...groups: string[][]): string[] {
 
 function createDefaultRefineryJobId(args: {
   userId: string;
+  orgId?: string;
   brandId?: string;
   websiteUrl: string;
   now: string;
 }): string {
-  const owner = idPart(args.brandId ?? args.userId, 'brand');
+  const owner = idPart(args.brandId ?? args.orgId ?? args.userId, 'brand');
   const website = idPart(args.websiteUrl, 'website');
   return `brand_refinery_job_${owner}_${website}_${Date.parse(args.now) || 0}`;
 }
@@ -625,7 +677,7 @@ function errorMessage(error: unknown): string {
 }
 
 export async function getBrandVaultRefineryJob(
-  args: { userId: string; jobId: string },
+  args: { userId: string; orgId?: string; jobId: string },
   dependencies: GetBrandVaultRefineryJobDependencies,
 ): Promise<BrandVaultApiResult<GetBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const jobId = args.jobId.trim();
@@ -635,7 +687,7 @@ export async function getBrandVaultRefineryJob(
   const snapshot = storedSnapshot
     ? await failStaleActiveJobSnapshot(storedSnapshot, dependencies)
     : null;
-  if (!snapshot || snapshot.job.userId !== args.userId) return notFound('Brand Vault refinery job was not found.');
+  if (!snapshot || !matchesAuthenticatedBrandVaultScope(snapshot.job, args)) return notFound('Brand Vault refinery job was not found.');
 
   const record = snapshot.recordId ? await dependencies.store.getRecord(snapshot.recordId) : null;
   return {
@@ -698,14 +750,14 @@ function isoBefore(now: string, deltaMs: number): string {
 }
 
 export async function getBrandVaultSignalProfile(
-  args: { userId: string; recordId: string },
+  args: { userId: string; orgId?: string; recordId: string },
   dependencies: { store: BrandVaultRefineryStore },
 ): Promise<BrandVaultApiResult<GetBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const recordId = args.recordId.trim();
   if (!recordId) return invalidRequest('Missing record id.');
 
   const record = await dependencies.store.getRecord(recordId);
-  if (!record || record.profile.userId !== args.userId) return notFound('Brand signal profile was not found.');
+  if (!record || !matchesAuthenticatedBrandVaultScope(record.profile, args)) return notFound('Brand signal profile was not found.');
 
   const snapshot = await dependencies.store.getJobSnapshotByRecordId(recordId);
   const job = snapshot?.job ?? profileOnlyJob(record);
@@ -731,6 +783,7 @@ export async function getBrandVaultSignalProfile(
 export async function reviewBrandVaultSignalProfileDraft(
   args: {
     userId: string;
+    orgId?: string;
     recordId: string;
     body: unknown;
     actorId?: string;
@@ -739,7 +792,7 @@ export async function reviewBrandVaultSignalProfileDraft(
   dependencies: { store: BrandVaultRefineryStore },
 ): Promise<BrandVaultApiResult<ReviewBrandVaultSignalProfileSuccessBody | BrandVaultApiErrorBody>> {
   const record = await dependencies.store.getRecord(args.recordId);
-  if (!record || record.profile.userId !== args.userId) return notFound('Brand signal profile was not found.');
+  if (!record || !matchesAuthenticatedBrandVaultScope(record.profile, args)) return notFound('Brand signal profile was not found.');
 
   const body = isObjectRecord(args.body) ? args.body : {};
   const action = typeof body.action === 'string' ? body.action.trim() : '';
@@ -747,6 +800,9 @@ export async function reviewBrandVaultSignalProfileDraft(
   const options = { actorId: args.actorId ?? args.userId, now };
   const parsedSignalEdits = parseSignalValueEdits(body.signalEdits);
   if (!parsedSignalEdits.ok) return invalidRequest(parsedSignalEdits.message);
+  if (action === 'accept' && !cleanString(record.profile.brandId)) {
+    return invalidRequest('brandId is required before accepting a Brand Vault profile.');
+  }
 
   const result =
     action === 'accept'
@@ -770,6 +826,14 @@ export async function reviewBrandVaultSignalProfileDraft(
   }
 
   const status = action === 'accept' ? 'accepted' : 'rejected';
+  const learningEvents = action === 'accept'
+    ? createReviewedSignalEditLearningEvents({
+        beforeRecord: record,
+        afterRecord: result.record,
+        signalEdits: parsedSignalEdits.value,
+        options,
+      })
+    : [];
   const snapshot = await dependencies.store.updateJobStatusForRecord(args.recordId, status, options);
   return {
     status: 200,
@@ -779,8 +843,81 @@ export async function reviewBrandVaultSignalProfileDraft(
       job: snapshot?.job ?? null,
       reviewPayload: snapshot?.reviewPayload ?? null,
       superseded: result.superseded,
+      learningEvents,
     },
   };
+}
+
+function createReviewedSignalEditLearningEvents(args: {
+  beforeRecord: BrandSignalProfileRecord;
+  afterRecord: BrandSignalProfileRecord;
+  signalEdits: BrandVaultSignalValueEdit[];
+  options: BrandSignalLifecycleOptions;
+}): BrandSignalLearningEvent[] {
+  const edits = normalizeReviewedLearningEdits(args.signalEdits);
+  if (edits.length === 0) return [];
+
+  const beforeSignals = new Map(
+    collectBrandSignals(args.beforeRecord.profile).map((entry) => [entry.path, entry.signal]),
+  );
+  const afterSignals = new Map(
+    collectBrandSignals(args.afterRecord.profile).map((entry) => [entry.path, entry.signal]),
+  );
+  const observedAt = args.options.now ?? new Date().toISOString();
+  const learningEvents: BrandSignalLearningEvent[] = [];
+
+  for (const edit of edits) {
+    const beforeSignal = beforeSignals.get(edit.path);
+    const afterSignal = afterSignals.get(edit.path);
+    if (!afterSignal) continue;
+
+    const beforeValue = beforeSignal?.value;
+    const afterValue = afterSignal.value;
+    if (stableLearningValueKey(beforeValue) === stableLearningValueKey(afterValue)) continue;
+
+    learningEvents.push(createBrandSignalLearningEvent({
+      service: 'brand_vault',
+      signalPath: edit.path,
+      editType: 'direct_review_edit',
+      scope: 'brand',
+      polarity: 'replace',
+      observedAt,
+      actorId: args.options.actorId,
+      context: {
+        userId: args.afterRecord.profile.userId ?? args.beforeRecord.profile.userId,
+        brandId: args.afterRecord.profile.brandId ?? args.beforeRecord.profile.brandId,
+        sourceId: args.beforeRecord.id,
+      },
+      beforeValue,
+      afterValue,
+      observedValue: afterValue,
+      note: 'Brand Vault review accepted this manual signal edit.',
+    }));
+  }
+
+  return learningEvents;
+}
+
+function normalizeReviewedLearningEdits(edits: BrandVaultSignalValueEdit[]): BrandVaultSignalValueEdit[] {
+  const byPath = new Map<string, BrandVaultSignalValueEdit>();
+  for (const edit of edits) {
+    const path = edit.path.trim();
+    if (!path) continue;
+    byPath.set(path, { path, value: edit.value });
+  }
+  return [...byPath.values()].slice(0, 100);
+}
+
+function stableLearningValueKey(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map(stableLearningValueKey).join(',')}]`;
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableLearningValueKey(record[key])}`)
+    .join(',')}}`;
 }
 
 async function acceptDraft(
@@ -1215,6 +1352,15 @@ function invalidRequest(message: string): BrandVaultApiResult<BrandVaultApiError
   return { status: 400, body: { ok: false, error: { code: 'invalid_request', message } } };
 }
 
+function matchesAuthenticatedBrandVaultScope(
+  owner: { userId?: string; orgId?: string },
+  scope: { userId: string; orgId?: string },
+): boolean {
+  if (owner.userId !== scope.userId) return false;
+  if (scope.orgId !== undefined && owner.orgId !== scope.orgId) return false;
+  return true;
+}
+
 function notFound(message: string): BrandVaultApiResult<BrandVaultApiErrorBody> {
   return { status: 404, body: { ok: false, error: { code: 'not_found', message } } };
 }
@@ -1223,6 +1369,7 @@ function profileOnlyJob(record: BrandSignalProfileRecord): BrandRefineryJob {
   return {
     id: `profile_only_${record.id}`,
     userId: record.profile.userId ?? 'unknown',
+    orgId: record.profile.orgId,
     brandId: record.profile.brandId,
     status: record.status === 'accepted' ? 'accepted' : record.status === 'rejected' ? 'rejected' : 'needs_review',
     inputs: { socialLinks: [], sourceEvidence: [] },
@@ -1234,4 +1381,33 @@ function profileOnlyJob(record: BrandSignalProfileRecord): BrandRefineryJob {
 
 function cloneSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultRefineryJobSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as BrandVaultRefineryJobSnapshot;
+}
+
+function summarizeAcceptedBrandRecords(
+  records: BrandSignalProfileRecord[],
+  limitInput?: number,
+): BrandVaultAcceptedBrandSummary[] {
+  const limit = Math.max(1, Math.min(limitInput ?? 100, 250));
+  const seen = new Set<string>();
+  const summaries: BrandVaultAcceptedBrandSummary[] = [];
+
+  for (const record of records) {
+    const brandId = record.profile.brandId?.trim();
+    if (!brandId || seen.has(brandId)) continue;
+
+    const name = record.profile.identity.brandName.value.trim() || brandId;
+    seen.add(brandId);
+    summaries.push({
+      brandId,
+      name,
+      recordId: record.id,
+      orgId: record.profile.orgId,
+      userId: record.profile.userId,
+      acceptedAt: record.review.acceptedAt,
+      updatedAt: record.updatedAt,
+    });
+    if (summaries.length >= limit) break;
+  }
+
+  return summaries;
 }

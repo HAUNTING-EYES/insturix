@@ -71,10 +71,19 @@ export const CHAT_TOOL_REGISTRY = {
   generate_html_sticker: defineTool({ name: 'generate_html_sticker', label: 'Creating custom sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created sticker', loadingMessages: ['Creating sticker', 'Adding motion', 'Finishing up'] }),
   get_video_transcription: defineTool({ name: 'get_video_transcription', label: 'Reading transcript', shortLabel: 'Transcript', iconCategory: 'file', receiptLabel: 'Read transcript' }),
   find_transcript_moment: defineTool({ name: 'find_transcript_moment', label: 'Finding transcript moment', shortLabel: 'Find speech', iconCategory: 'caption', receiptLabel: 'Found transcript moment' }),
+  resolve_transcript_edit: defineTool({ name: 'resolve_transcript_edit', label: 'Resolving transcript edit', shortLabel: 'Speech edit', iconCategory: 'caption', receiptLabel: 'Resolved transcript edit' }),
+  resolve_sticker_overlay: defineTool({ name: 'resolve_sticker_overlay', label: 'Resolving sticker timing', shortLabel: 'Sticker timing', iconCategory: 'sparkles', receiptLabel: 'Resolved sticker timing' }),
   find_visual_moment: defineTool({ name: 'find_visual_moment', label: 'Finding visual moment', shortLabel: 'Find visual', iconCategory: 'visual', receiptLabel: 'Found visual moment' }),
+  resolve_visual_edit: defineTool({ name: 'resolve_visual_edit', label: 'Resolving visual edit', shortLabel: 'Visual edit', iconCategory: 'visual', receiptLabel: 'Resolved visual edit' }),
+  resolve_keyframe_edit: defineTool({ name: 'resolve_keyframe_edit', label: 'Resolving keyframes', shortLabel: 'Keyframes', iconCategory: 'keyframe', receiptLabel: 'Resolved keyframes' }),
   find_audio_moment: defineTool({ name: 'find_audio_moment', label: 'Finding audio moment', shortLabel: 'Find audio', iconCategory: 'audio', receiptLabel: 'Found audio moment' }),
+  resolve_audio_edit: defineTool({ name: 'resolve_audio_edit', label: 'Resolving audio edit', shortLabel: 'Audio edit', iconCategory: 'audio', receiptLabel: 'Resolved audio edit' }),
   apply_audio_ducking: defineTool({ name: 'apply_audio_ducking', label: 'Applying audio ducking', shortLabel: 'Ducking', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied audio ducking' }),
   apply_camera_shake: defineTool({ name: 'apply_camera_shake', label: 'Applying camera shake', shortLabel: 'Shake', iconCategory: 'motion', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied camera shake' }),
+  apply_speed_ramp: defineTool({ name: 'apply_speed_ramp', label: 'Applying speed ramp', shortLabel: 'Speed', iconCategory: 'keyframe', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied speed ramp' }),
+  apply_fade: defineTool({ name: 'apply_fade', label: 'Applying fade', shortLabel: 'Fade', iconCategory: 'keyframe', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied fade' }),
+  reorder_layer: defineTool({ name: 'reorder_layer', label: 'Reordering layer', shortLabel: 'Layer', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Reordered layer' }),
+  move_retime_overlay: defineTool({ name: 'move_retime_overlay', label: 'Moving/retiming element', shortLabel: 'Timing', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Moved/retimed element' }),
   analyze_video_content: defineTool({ name: 'analyze_video_content', label: 'Analyzing video content', shortLabel: 'Analyze', iconCategory: 'visual', receiptLabel: 'Analyzed video' }),
   add_captions: defineTool({ name: 'add_captions', label: 'Adding captions', shortLabel: 'Captions', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added captions' }),
   add_fancy_captions: defineTool({ name: 'add_fancy_captions', label: 'Adding animated captions', shortLabel: 'Fancy', iconCategory: 'caption', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added animated captions', loadingMessages: ['Designing captions', 'Timing words', 'Finishing typography'] }),
@@ -97,28 +106,11 @@ export const CHAT_TOOL_REGISTRY = {
   list_user_assets: defineTool({ name: 'list_user_assets', label: 'Listing uploaded assets', shortLabel: 'Assets', iconCategory: 'file', receiptLabel: 'Listed uploaded assets' }),
   search_user_assets: defineTool({ name: 'search_user_assets', label: 'Searching uploaded assets', shortLabel: 'Asset search', iconCategory: 'search', executionType: 'generative', receiptLabel: 'Searched uploaded assets', loadingMessages: ['Searching your library', 'Checking asset matches', 'Ranking candidates'] }),
   inspect_user_asset: defineTool({ name: 'inspect_user_asset', label: 'Inspecting uploaded asset', shortLabel: 'Inspect asset', iconCategory: 'visual', receiptLabel: 'Inspected uploaded asset' }),
+  resolve_user_asset_overlay: defineTool({ name: 'resolve_user_asset_overlay', label: 'Resolving uploaded asset', shortLabel: 'Asset edit', iconCategory: 'search', receiptLabel: 'Resolved uploaded asset' }),
   search_stock_footage: defineTool({ name: 'search_stock_footage', label: 'Searching stock footage', shortLabel: 'Stock', iconCategory: 'stock', executionType: 'generative', receiptLabel: 'Searched stock footage', loadingMessages: ['Searching footage', 'Checking matches', 'Collecting results'] }),
   use_matching_footage: defineTool({ name: 'use_matching_footage', label: 'Using matching footage', shortLabel: 'Use footage', iconCategory: 'stock', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Used matching footage' }),
 
-  list_project_files: defineTool({ name: 'list_project_files', label: 'Listing project files', shortLabel: 'List', iconCategory: 'file', receiptLabel: 'Listed project files' }),
-  apply_project_patch: defineTool({ name: 'apply_project_patch', label: 'Applying project patch', shortLabel: 'Patch', iconCategory: 'update', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied patch' }),
-  add_text_overlay: defineTool({ name: 'add_text_overlay', label: 'Adding text', shortLabel: 'Text', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added text' }),
-  add_image_overlay: defineTool({ name: 'add_image_overlay', label: 'Adding image', shortLabel: 'Image', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added image' }),
-  add_video_overlay: defineTool({ name: 'add_video_overlay', label: 'Adding video', shortLabel: 'Video', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added video' }),
-  add_audio_overlay: defineTool({ name: 'add_audio_overlay', label: 'Adding audio', shortLabel: 'Audio', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added audio' }),
-  get_video_duration: defineTool({ name: 'get_video_duration', label: 'Checking video duration', shortLabel: 'Duration', iconCategory: 'visual', receiptLabel: 'Checked duration' }),
-  search_web: defineTool({ name: 'search_web', label: 'Searching web', shortLabel: 'Search', iconCategory: 'search', executionType: 'generative', receiptLabel: 'Searched web' }),
-  generate_image: defineTool({ name: 'generate_image', label: 'Generating image', shortLabel: 'Image', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Generated image', loadingMessages: ['Imagining visuals', 'Rendering image', 'Finishing up'] }),
-  batchEditCaptions: defineTool({ name: 'batchEditCaptions', label: 'Editing all captions', shortLabel: 'Caption edit', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Edited captions' }),
-  addTransition: defineTool({ name: 'addTransition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
-  addSFX: defineTool({ name: 'addSFX', label: 'Adding sound effect', shortLabel: 'SFX', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sound effect' }),
-  replaceSFX: defineTool({ name: 'replaceSFX', label: 'Replacing sound effect', shortLabel: 'Replace SFX', iconCategory: 'audio', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Replaced sound effect' }),
-  add_sticker: defineTool({ name: 'add_sticker', label: 'Adding sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sticker' }),
-  addSticker: defineTool({ name: 'addSticker', label: 'Adding sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added sticker' }),
   apply_filter: defineTool({ name: 'apply_filter', label: 'Applying filter', shortLabel: 'Filter', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied filter' }),
-  applyFilter: defineTool({ name: 'applyFilter', label: 'Applying filter', shortLabel: 'Filter', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied filter' }),
-  deleteOverlay: defineTool({ name: 'deleteOverlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element' }),
-  updateOverlay: defineTool({ name: 'updateOverlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element' }),
 } satisfies Record<string, ChatToolMetadata>;
 
 export type ChatToolName = keyof typeof CHAT_TOOL_REGISTRY;
@@ -141,6 +133,11 @@ export function getChatToolLoadingMessages(toolName: string): string[] {
 
 export function shouldReloadProjectAfterTool(toolName: string): boolean {
   return getChatToolMetadata(toolName)?.requiresProjectReload ?? false;
+}
+
+export function getChatToolCompletionLabel(toolName: string): string {
+  const metadata = getChatToolMetadata(toolName);
+  return metadata?.mutatesProject ? 'done' : 'checked';
 }
 
 export function formatChatToolReceipt(toolName: string): string {

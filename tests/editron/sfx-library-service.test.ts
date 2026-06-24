@@ -76,7 +76,7 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
   it('scores provider candidates before downloading and uploads only the accepted SFX', async () => {
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
       const href = String(url);
-      if (href.startsWith('https://freesound.org/apiv2/search/text/')) {
+      if (href.startsWith('https://freesound.org/apiv2/search/')) {
         return freesoundResponse([
           freesoundCandidate({
             id: 1,
@@ -142,7 +142,7 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
   it('skips download/upload when provider candidates fail the atomic quality gate', async () => {
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
       const href = String(url);
-      if (href.startsWith('https://freesound.org/apiv2/search/text/')) {
+      if (href.startsWith('https://freesound.org/apiv2/search/')) {
         return freesoundResponse([
           freesoundCandidate({
             id: 3,

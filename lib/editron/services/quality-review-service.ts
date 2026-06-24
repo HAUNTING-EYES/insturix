@@ -9,7 +9,6 @@
 
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { AssetAnalysis } from './five-track-analysis';
-import { PACING_BY_CONTENT_TYPE } from '@/lib/editron/data/creative-doc-rules';
 
 export interface QualityIssue {
   type: IssueType;
@@ -1245,61 +1244,6 @@ function isWarmColdConflict(a: string, b: string): boolean {
   return (aWarm && bCold) || (aCold && bWarm);
 }
 
-// ─── Content-Type Severity Adjustments ───────────────────────────
-// Weight per (contentType, issueType). Values < 1 reduce severity.
-// ≤ 0.3 → warning downgrades to info. ≤ 0.5 → critical downgrades to warning.
-// Missing entry = no adjustment (full weight).
-// Source: domain knowledge — how professional editors evaluate each content type.
-// Content types from content-type-detector.ts: talking-head, tutorial, interview,
-// vlog, corporate, podcast, ad, product-demo, documentary, comedy, unknown
-const CONTENT_TYPE_SEVERITY_ADJUSTMENTS: Record<string, Partial<Record<string, number>>> = {
-  'talking-head': {
-    'jump_cut': 0.2,               // jump cuts are stylistic norm (10-18 cuts/min)
-    'pacing_monotony': 0.5,        // consistent pacing is expected
-  },
-  'interview': {
-    'jump_cut': 0.2,               // standard in interview editing
-    'pacing_monotony': 0.3,        // interviews have steady rhythm
-    'transition_overuse': 0.5,     // simple cuts preferred
-  },
-  'tutorial': {
-    'excessive_graphics': 0.3,     // tutorials expect 5-8 graphics/min
-    'pacing_monotony': 0.5,        // consistent instructional pace
-    'clip_too_long': 0.5,          // long demonstrations are normal
-  },
-  'documentary': {
-    'clip_too_long': 0.3,          // long contemplative shots are intentional
-    'pacing_monotony': 0.3,        // steady pacing is a feature
-    'missing_bgm': 0.5,            // some docs are intentionally sparse
-  },
-  'product-demo': {
-    'clip_too_long': 0.3,          // product demos hold on features
-    'excessive_graphics': 0.5,     // product info overlays expected
-  },
-  'vlog': {
-    'jump_cut': 0.2,               // standard vlog editing
-    'abrupt_start': 0.5,           // vlogs often start mid-action
-  },
-  'podcast': {
-    'visual_monotony': 0.1,        // static visuals expected
-    'clip_too_long': 0.2,          // long talking segments are the format
-    'pacing_monotony': 0.2,        // steady pace is expected
-  },
-  'corporate': {
-    'transition_overuse': 0.5,     // corporate prefers fewer, cleaner transitions
-  },
-  'ad': {
-    'scene_too_short': 0.3,        // ads use fast cuts
-    'transition_overuse': 0.3,     // frequent cuts expected in ads
-    'abrupt_start': 0.3,           // hooks start immediately
-    'abrupt_end': 0.3,             // CTA endings are abrupt
-  },
-  'comedy': {
-    'jump_cut': 0.2,               // comedic timing uses hard cuts
-    'pacing_inconsistency': 0.5,   // pacing shifts for comedic effect
-    'abrupt_start': 0.5,           // comedy hooks start mid-action
-  },
-};
 
 // ─── Public API ──────────────────────────────────────────────────
 
@@ -1318,8 +1262,8 @@ export function runQualityReview(
   analyses?: Map<string, AssetAnalysis>,
   /** Optional: constraint violations from signal-driven executor (Mode 2 Path D) */
   constraintViolations?: Array<{ constraintId: string; constraintName: string; severity: 'blocker' | 'warning' | 'info'; description: string; autoCorrected: boolean; deduction: number }>,
-  /** Content type for content-aware severity adjustments */
-  contentType?: string,
+  /** Deprecated compatibility slot: content labels are report-only and never adjust severity/pacing. */
+  _contentType?: string,
   /** Optional: computed genre parameters (Mode 2 — replaces content-type pacing lookup) */
   genreParameters?: { pacing_tolerance: number; transition_density: number },
   brandConfig?: { colors: string[]; typography?: string },
@@ -1439,41 +1383,23 @@ export function runQualityReview(
       });
     }
 
-    // Check: pacing consistency — are cuts/min within the expected range?
-    // Mode 2 with genre_parameters: use computed transition_density (signal-driven, no content-type labels)
-    // Fallback: use PACING_BY_CONTENT_TYPE (v2 legacy for Mode 1)
-    if (totalDuration > 0) {
+    // Check: pacing consistency, using signal-derived genre parameters only.
+    // Content labels are report-only and must not invent cut-density expectations.
+    if (totalDuration > 0 && genreParameters) {
       const videoOverlayCount = overlays.filter(o => o.type === 'video').length;
       const durationMin = (totalDuration / fps) / 60;
       const actualCutsPerMin = durationMin > 0 ? (videoOverlayCount - 1) / durationMin : 0;
 
-      let expectedMin = 4;
-      let expectedMax = 12;
-      let pacingSource = 'default';
-
-      if (genreParameters) {
-        // Signal-computed: transition_density IS the target cuts/min
-        expectedMin = genreParameters.transition_density * 0.5;
-        expectedMax = genreParameters.transition_density * 1.5;
-        pacingSource = 'genre_parameters';
-      } else if (rawFootage.contentTypeDetection?.contentType) {
-        // Legacy fallback: content-type lookup
-        const contentType = rawFootage.contentTypeDetection.contentType;
-        const pacingRule = PACING_BY_CONTENT_TYPE[contentType] || PACING_BY_CONTENT_TYPE['talking-head'];
-        if (pacingRule) {
-          expectedMin = pacingRule.cutsPerMin[0];
-          expectedMax = pacingRule.cutsPerMin[1];
-          pacingSource = contentType;
-        }
-      }
+      const expectedMin = genreParameters.transition_density * 0.5;
+      const expectedMax = genreParameters.transition_density * 1.5;
 
       if (actualCutsPerMin < expectedMin * 0.5) {
         allIssues.push({
           type: 'pacing_too_slow' as any,
           severity: 'info',
-          description: `Pacing (${actualCutsPerMin.toFixed(1)} cuts/min) is below expected range (${expectedMin.toFixed(0)}-${expectedMax.toFixed(0)}, source: ${pacingSource}).`,
+          description: `Pacing (${actualCutsPerMin.toFixed(1)} cuts/min) is below signal-derived expected range (${expectedMin.toFixed(0)}-${expectedMax.toFixed(0)}, source: genre_parameters).`,
           autoFixable: false,
-          suggestedFix: 'Consider more aggressive silence removal or adding B-roll cuts',
+          suggestedFix: 'Review signal-derived cut density and cut-boundary evidence before changing the cut plan',
         });
       }
     }
@@ -1549,31 +1475,6 @@ export function runQualityReview(
     allIssues.push(...checkBrandTypography(overlays, brandConfig.typography));
   }
 
-  // Content-type-aware severity adjustments
-  // Downgrade severity for check types that are EXPECTED for certain content types.
-  // Source: domain knowledge — a video editor reviews vlogs differently from corporate.
-  if (contentType) {
-    const adjustments = CONTENT_TYPE_SEVERITY_ADJUSTMENTS[contentType];
-    if (adjustments) {
-      let adjusted = 0;
-      for (const issue of allIssues) {
-        const weight = adjustments[issue.type];
-        if (weight !== undefined && weight < 1) {
-          if (issue.severity === 'warning' && weight <= 0.3) {
-            issue.severity = 'info';
-            adjusted++;
-          } else if (issue.severity === 'critical' && weight <= 0.5) {
-            issue.severity = 'warning';
-            adjusted++;
-          }
-        }
-      }
-      if (adjusted > 0) {
-        console.log(`[QualityReview] Content-type "${contentType}": ${adjusted} issue(s) severity-adjusted`);
-      }
-    }
-  }
-
   // Calculate score: start at 100, deduct per issue
   let score = 100;
   for (const issue of allIssues) {
@@ -1588,7 +1489,7 @@ export function runQualityReview(
   if (score < 50) suggestions.push('Multiple issues detected. Consider re-running the Director Agent with a different profile.');
   if (allIssues.some(i => i.type === 'missing_bgm')) suggestions.push('Add background music to make the video feel complete.');
   if (allIssues.some(i => i.type === 'no_captions')) suggestions.push('Add captions — most social media viewers watch without sound.');
-  if (rawFootage) suggestions.push(`Content type: ${rawFootage.contentTypeDetection?.contentType || 'unknown'}. Clean duration: ${Math.round((rawFootage.estimatedCleanDurationMs || 0) / 1000)}s.`);
+  if (rawFootage) suggestions.push(`Raw-footage clean duration: ${Math.round((rawFootage.estimatedCleanDurationMs || 0) / 1000)}s.`);
 
   return {
     overallScore: score,

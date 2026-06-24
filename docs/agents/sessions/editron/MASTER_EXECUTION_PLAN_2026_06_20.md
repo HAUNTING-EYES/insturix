@@ -148,6 +148,26 @@ Before claiming full Path E/D unification, all of these must pass:
 - Do not tune thresholds against one project, one creator, or one screenshot.
 - Do not call shared downstream plumbing "merged."
 
+### 0.5 2026-06-23 Authority Loophole To Close
+
+Commit `278c81e7` fixed the live ranked planner path so Creative Brief overlay-family
+labels must pass the same atom/family license as signal candidates before execution.
+That is a real authority fix, but it is **not the full Phase 1 completion**.
+
+Remaining verified gap:
+
+- If `planUnifiedDecisionBundleFromCandidates(...)` receives only a Creative Brief producer
+  and no `signal-driven` producer, it falls back through `createUnifiedDecisionBundle(...)`.
+  That path still calls `licensePrimaryProducerDecisions(...)`, which currently invokes
+  `resolvePrimaryCreativeDecisionLicense(...)` without `requireFamilyAtoms`.
+- Impact: when Path D/signals are absent or fail, Creative Brief transition/zoom/SFX/caption
+  family labels can still execute without the strict atom license.
+- Required next acceptance test: Creative Brief-only upload-to-edit family labels are
+  evidence-only unless they carry the same boundary/moment/audio/caption atoms required by
+  the ranked planner.
+- Required fix shape: strict family licensing must apply to Creative Brief-only upload-to-edit
+  bundles too, with any legacy compatibility kept explicit and isolated.
+
 ---
 
 ## 1) Northstar Contract (non-negotiable)
@@ -339,6 +359,21 @@ Expand to include:
 - flatness veto
 - collision/cross-overlay arbitration
 
+Animation-layer constraint from the 2026-06-21 brief:
+- **Do not rebuild** the MG motion/choreography/easing engine. It already exists in
+  `choreography-computer.ts`, `primitive-renderers.ts`, `composition-renderer.tsx`,
+  `gsap-easing.ts`, and `motion-theme-resolver.ts`.
+- The animation issue is starvation, not a missing engine: form-breadth and element richness
+  must improve first so the existing engine has more than one card/text atom to animate.
+- Sequence after P1-P6 and MG form-breadth:
+  1. make `enterOrder` signal-driven instead of role-static,
+  2. add the two small primitive wins: `@remotion/paths` draw-on strokes and gradient shimmer,
+  3. wire beat-sync end-to-end,
+  4. calibrate only after rendered proof.
+- Scope is **Tier A only**: data/type motion, stats, comparisons, quotes, kinetic typography,
+  lower-thirds, wires, and primitives. Tier B illustrative concept scenes need a separate
+  asset-driven pipeline and are out of this plan.
+
 ### Phase 10 - Stage-aware composition
 Full-frame/split/device/interstitial modes must survive beyond metadata:
 
@@ -409,10 +444,13 @@ If any prior doc says â€œfully doneâ€, it should be treated as *histori
 3. Signal candidates drop via thresholds and first-wins dedupe before form can be considered.
 4. Merge still under-advances Path D candidates.
 5. Live reward/learning weak-score writes are gated at `recordProjectOutcome`; remaining risk is calibration quality because rendered evidence is not yet the hard truth loop.
+6. Creative Brief-only upload-to-edit bundles can still bypass strict family atom licensing when no signal producer is present.
 
 ### P2/P3 (stability and polish)
 6. Full-frame contract can downgrade into corner treatment via caption coordination.
-7. Render curves are constant fill (no real per-frame beat modulation).
+7. Render curves can synthesize BPM-derived beats when `bpm` reaches the overlay, but beat data
+   and `syncData` are not yet threaded reliably into MG render/choreography, and audio-reactive
+   modulation is hold-phase only.
 9. Visual perception is not yet part of cut planning; transcript/silence can still dominate keep/remove/shorten decisions.
 
 ---
@@ -430,7 +468,9 @@ For each phase, this is what â€œdoneâ€ means (strictly):
 - **Phase 6**: transitions carry boundary job type and not just canned names; repeated forms avoided by reason.
 - **Phase 7**: SFX mostly optional and never random; every placement has score + reason + provider status.
 - **Phase 8**: MG can emit multiple valid visual families where facts justify it.
-- **Phase 9**: `mg-expression-authority` influences stage/family/choreography, not only 3 dials.
+- **Phase 9**: `mg-expression-authority` influences stage/family/choreography, not only 3 dials;
+  `enterOrder` changes by moment signals; `@remotion/paths` draw-on and gradient shimmer render;
+  beat-sync proves an MG accent can land on a downbeat without rebuilding the motion engine.
 - **Phase 10**: full-frame intent does not auto-collapse to top-right due to caption flag alone.
 - **Phase 11**: new families have tests, feature guards, and failure reason logs.
 - **Phase 12**: critical visual failures block or downgrade output path; gates are enforce mode, not observe.
@@ -511,6 +551,8 @@ For each phase, this is what â€œdoneâ€ means (strictly):
 3. No new presets, no menu labels, no renderer-key-as-authority rewrites.
 4. Keep all threshold values sourced in a registry and flagged if invented.
 5. Every structural change must include a failure reason and rendered evidence.
+6. For MG animation work, do not add a new choreography/spring/easing engine. Wire richer forms,
+   signal-driven ordering, `@remotion/paths`, and beat-sync into the existing engine.
 
 ---
 

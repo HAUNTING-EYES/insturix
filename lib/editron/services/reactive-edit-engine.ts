@@ -20,7 +20,7 @@
  *          Beat + motion peak coincidence → zoom punch
  * MEDIUM:  B-roll suggestion → cutaway
  *          Keyword highlight → caption emphasis
- * LOW:     Aesthetic improvement → filter adjustment
+ * LOW:     Aesthetic evidence → handled by color/manual owners, not auto EDL filters
  *          Pacing normalization → duration adjustment
  */
 
@@ -39,8 +39,8 @@ import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 
 export type EditDecisionType =
   | 'cut' | 'transition' | 'zoom' | 'pan' | 'graphic'
-  | 'sfx' | 'sfx-trigger' | 'speed-change' | 'filter-change' | 'caption-emphasis'
-  | 'audio-duck' | 'fade' | 'slow-motion' | 'filter' | 'pacing' | 'camera-shake';
+  | 'sfx' | 'sfx-trigger' | 'speed-change' | 'caption-emphasis'
+  | 'audio-duck' | 'fade' | 'pacing' | 'camera-shake';
 
 export interface EditDecision {
   type: EditDecisionType;
@@ -279,16 +279,7 @@ export function generateEditDecisionList(
           }
         }
 
-        // Filter from script: "cool sophisticated palette", "warm cinematic"
-        if (ed.filterPresetId) {
-          decisions.push({
-            frame: seg.startFrame, type: 'filter',
-            trigger: { track: 'speech', signal: 'script_filter', confidence: 1.0 },
-            action: { tool: 'apply_filter', params: { filterPresetId: ed.filterPresetId } },
-            priority: 85, source: 'speech', signal: 'script_filter', reason: `Script filter: ${ed.filterPresetId}`, params: { filterPresetId: ed.filterPresetId },
-            confidence: 1.0,
-          } as EditDecision);
-        }
+        // Script filter IDs are evidence for the color/manual owner; auto EDL no longer emits filter-change.
 
         // Pacing from script: "quick cuts", "slow reveal", "building"
         if (ed.pacing) {
@@ -322,7 +313,7 @@ export function generateEditDecisionList(
       transitionCount: deduped.filter(d => d.type === 'transition').length,
       graphicCount: deduped.filter(d => d.type === 'graphic').length,
       zoomCount: deduped.filter(d => d.type === 'zoom').length,
-      speedChangeCount: deduped.filter(d => d.type === 'speed-change' || d.type === 'slow-motion').length,
+      speedChangeCount: deduped.filter(d => d.type === 'speed-change').length,
       averageConfidence: deduped.length > 0
         ? deduped.reduce((sum, d) => sum + d.confidence, 0) / deduped.length
         : 0,
@@ -440,14 +431,14 @@ function generateMusicDecisions(
   for (const breakdown of music.breakdowns) {
     if (mode === 'f1-cinematic') {
       decisions.push({
-        type: 'slow-motion',
+        type: 'speed-change',
         frame: breakdown,
-        durationFrames: 90, // 3s slow-mo
+        durationFrames: 90, // 3s speed dip
         priority: 2,
         source: 'music-structure',
         signal: 'breakdown',
-        reason: 'Music breakdown — slow-motion reveal',
-        params: { speed: 0.3 },
+        reason: 'Music breakdown — speed-dip reveal',
+        params: { speedMultiplier: 0.3 },
         confidence: 0.75,
       });
     }
@@ -536,7 +527,7 @@ function generateMotionDecisions(
       });
     }
 
-    // High → low intensity = slow-motion opportunity
+    // High → low intensity = speed-dip opportunity
     if (prev.motionIntensity > 0.7 && curr.motionIntensity < 0.3) {
       decisions.push({
         type: 'speed-change',
@@ -545,7 +536,7 @@ function generateMotionDecisions(
         priority: 4,
         source: 'motion',
         signal: 'intensity_drop',
-        reason: `Motion drops from ${Math.round(prev.motionIntensity * 100)}% → ${Math.round(curr.motionIntensity * 100)}% — slow-mo candidate`,
+        reason: `Motion drops from ${Math.round(prev.motionIntensity * 100)}% → ${Math.round(curr.motionIntensity * 100)}% — speed dip candidate`,
         params: { speedFrom: 1.0, speedTo: 0.5 },
         confidence: 0.6,
       });
@@ -795,8 +786,8 @@ function detectCinematicMoments(analysis: AssetAnalysis): EditDecision[] {
         editType = 'zoom';
         params = { scaleFrom: 1.0, scaleTo: 1.0 + combinedScore * 0.15 };
       } else if (tracks.includes('tension') && tracks.includes('motion')) {
-        editType = 'slow-motion';
-        params = { speed: 0.3 };
+        editType = 'speed-change';
+        params = { speedMultiplier: 0.3 };
       } else if (tracks.includes('speech') && tracks.includes('music')) {
         editType = 'graphic';
         params = semanticGraphicParamsFromTracks(tracks, combinedScore);
@@ -805,7 +796,7 @@ function detectCinematicMoments(analysis: AssetAnalysis): EditDecision[] {
       decisions.push({
         type: editType,
         frame,
-        durationFrames: editType === 'slow-motion' ? 60 : 15,
+        durationFrames: editType === 'speed-change' ? 60 : 15,
         priority: 1,
         source: 'cinematic-moment',
         signal: `multi_track_peak_${tracks.join('+')}`,

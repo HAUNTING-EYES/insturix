@@ -1,24 +1,37 @@
 'use client';
 
-import React from 'react';
-import PlanningPlaceholder from './PlanningPlaceholder';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 type PlanningPanelProps = {
-  isOpen: boolean; // Keep for API compatibility but unused in new mode
+  isOpen: boolean; // kept for API compatibility with PlanningMode
   onClose: () => void;
   onOpenScript?: (sessionId: string) => void;
-  onCreateCardFromIdea?: (idea: any, date: Date) => void;
+  onCreateCardFromIdea?: (idea: unknown, date: Date) => void;
 };
 
-export default function PlanningPanel({
-  isOpen: _isOpen,
-  onClose: _onClose,
-  onOpenScript: _onOpenScript,
-  onCreateCardFromIdea: _onCreateCardFromIdea
-}: PlanningPanelProps) {
+/**
+ * The content calendar now lives as the standalone CalOS service at /dashboard/calos
+ * (scoped per client, backed by the CalOS deliverables API). This ThinkForge Planning tab
+ * redirects there so there is ONE calendar, not two competing data stores. (The previous
+ * in-ThinkForge calendar + useContentPlanning hook are superseded by CalOS.)
+ */
+export default function PlanningPanel({ isOpen }: PlanningPanelProps) {
+  const router = useRouter();
+
+  // Only redirect when this tab is actually the active/visible one. PlanningMode keeps
+  // this panel mounted (CSS-visibility pattern) even while the user is in Ideation or
+  // Scripting, so an unconditional redirect-on-mount would bounce every ThinkForge visit
+  // to /dashboard/calos. Gate on isOpen so the redirect fires only when Planning is selected.
+  useEffect(() => {
+    if (isOpen) {
+      router.replace('/dashboard/calos');
+    }
+  }, [isOpen, router]);
+
   return (
-    <div className="relative w-full h-full bg-[#0B0B0A] flex flex-col">
-      <PlanningPlaceholder />
+    <div className="relative w-full h-full bg-[#0B0B0A] flex items-center justify-center">
+      <p className="text-[#7A776E] text-sm">Planning moved to the Plan tab. Redirecting…</p>
     </div>
   );
 }

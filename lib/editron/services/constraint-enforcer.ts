@@ -430,13 +430,15 @@ function enforceAudioConstraints(
 ): number {
   let checked = 0;
 
-  // 5.1 missing_transition_sound: every non-hard-cut needs a sound
+  // 5.1 missing_transition_sound: SFX is optional unless a transition explicitly requests it.
+  // The constraint layer may report unserved intent, but must not invent audio assets or SFX tokens.
   const transitions = decisions.filter(d => d.type === 'transition');
   for (const t of transitions) {
     checked++;
     if (t.params['type'] === 'hard-cut') continue;
+    if (!transitionRequestsSfx(t)) continue;
 
-    // Check if there's a paired SFX within ±5 frames
+    // Check if there's a paired SFX within +/-5 frames
     const hasPairedSfx = decisions.some(d =>
       d.type === 'sfx-trigger' && Math.abs(d.frame - t.frame) <= 5
     );
@@ -447,21 +449,10 @@ function enforceAudioConstraints(
         constraintName: 'Missing Transition Sound',
         severity: 'warning',
         frame: t.frame,
-        description: `${t.params['type']} transition at frame ${t.frame} has no paired SFX`,
-        autoCorrected: true,
-        correction: 'Auto-inserted SFX trigger',
+        description: `${t.params['type']} transition at frame ${t.frame} requested SFX but has no paired SFX`,
+        autoCorrected: false,
+        correction: 'Left for SFX planner/provider quality gate; no audio was invented',
         deduction: 0,
-      });
-
-      // Auto-insert SFX
-      decisions.push({
-        type: 'sfx-trigger',
-        frame: t.frame,
-        confidence: 0.7,
-        source: 'constraint:transition.missing_transition_sound',
-        technique: 'technique:sound.sfx_whoosh',
-        params: { type: inferSfxForTransition(t.params['type'] as string), level_db: -14 },
-        reason: 'Auto-paired by constraint enforcer',
       });
     }
   }
@@ -591,18 +582,24 @@ function enforceAccessibilityConstraints(
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function inferSfxForTransition(transitionType: string): string {
-  switch (transitionType) {
-    case 'dissolve': return 'shimmer';
-    case 'whip-pan': case 'whip_pan': return 'whoosh';
-    case 'wipe': return 'whoosh';
-    case 'zoom-punch': case 'zoom_punch': return 'impact';
-    case 'flash': return 'shutter';
-    case 'fade-to-black': case 'fade_to_black': return 'fade';
-    case 'film-burn': case 'film_burn': return 'crackle';
-    case 'iris-wipe': case 'iris_wipe': return 'mechanical';
-    case 'blur': return 'whoosh';
-    case 'slide': return 'whoosh';
-    default: return 'whoosh';
+function transitionRequestsSfx(decision: EditDecision): boolean {
+  const params = decision.params ?? {};
+  if (params['sfxRequired'] === true || params['requiresSfx'] === true) return true;
+
+  for (const key of ['sfxType', 'sfxCue', 'sfxRole', 'audioRole']) {
+    const value = params[key];
+    if (typeof value === 'string' && value.trim().length > 0) return true;
   }
+
+  const boundaryPlan = params['transitionBoundaryPlan'];
+  if (isRecord(boundaryPlan)) {
+    const crossFamily = boundaryPlan['crossFamily'];
+    if (isRecord(crossFamily) && crossFamily['sfxAllowed'] === true) return true;
+  }
+
+  return false;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

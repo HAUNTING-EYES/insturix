@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildClickatronGenerationPrompt,
   buildClickatronSourceContextBlock,
@@ -8,6 +8,16 @@ import {
 import { generateModelPayload } from "@/lib/config/clickatron-models";
 import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
+import { resolveEffectiveBrand } from "@/lib/shared/brand-effective-resolver";
+import { buildBrandContextBlock } from "@/lib/shared/brand-context-block";
+
+vi.mock("@/lib/shared/brand-effective-resolver", () => ({
+  resolveEffectiveBrand: vi.fn(),
+}));
+
+vi.mock("@/lib/shared/brand-context-block", () => ({
+  buildBrandContextBlock: vi.fn((brand: UnifiedBrand | null) => (brand ? `BrandVault: ${brand.name}` : "")),
+}));
 
 const unifiedBrand: UnifiedBrand = {
   brandId: "brand_direct",
@@ -246,6 +256,16 @@ describe("Clickatron brand prompt context", () => {
     expect(brandBlock).toBe("BrandVault: Signal Supply");
   });
 
+  it("uses the Vault-aware effective brand resolver by default", async () => {
+    vi.mocked(resolveEffectiveBrand).mockResolvedValueOnce(unifiedBrand);
+    vi.mocked(buildBrandContextBlock).mockClear();
+
+    const brandBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct");
+
+    expect(resolveEffectiveBrand).toHaveBeenCalledWith("user_1", "brand_direct", { service: "clickatron" });
+    expect(buildBrandContextBlock).toHaveBeenCalledWith(unifiedBrand);
+    expect(brandBlock).toBe("BrandVault: Signal Supply");
+  });
   it("carries resolved BrandVault context into the final model payload prompt", async () => {
     const brandContextBlock = await resolveClickatronBrandContextBlock("user_1", "brand_direct", {
       getBrand: async () => unifiedBrand,

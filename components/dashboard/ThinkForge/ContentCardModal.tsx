@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, FileText } from 'lucide-react';
+import { X, Calendar, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ContentCard as ContentCardType } from '@/app/dashboard/thinkforge/types';
 import { format } from 'date-fns';
 import ContentCard from './ContentCard';
 import TagEditor from './TagEditor';
+import { stageMeta } from '@/lib/calos/stages';
 
 export interface ContentCardModalProps {
   card: ContentCardType | null;
@@ -15,6 +16,10 @@ export interface ContentCardModalProps {
   onUpdate: (id: string, updates: Partial<ContentCardType>) => void;
   onOpenScript?: (sessionId: string) => void;
   onDelete?: (id: string) => void;
+  onGenerate?: (id: string) => void;
+  onDecision?: (id: string, decision: 'approved' | 'rejected' | 'changes_requested') => void;
+  onPrev?: () => void;
+  onNext?: () => void;
 }
 
 export default function ContentCardModal({
@@ -23,10 +28,15 @@ export default function ContentCardModal({
   onClose,
   onUpdate,
   onOpenScript,
-  onDelete
+  onDelete,
+  onGenerate,
+  onDecision,
+  onPrev,
+  onNext
 }: ContentCardModalProps) {
   const [localCard, setLocalCard] = useState<ContentCardType | null>(card);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const touchStartX = useRef<number | null>(null);
 
   // Update local card when card prop changes
   useEffect(() => {
@@ -35,19 +45,21 @@ export default function ContentCardModal({
     }
   }, [card]);
 
-  // Handle ESC key
+  // Keyboard: Escape closes; Left/Right move between cards (unless typing in a field).
   useEffect(() => {
     if (!isOpen) return;
-    
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
+
+    const handleKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (e.key === 'Escape') onClose();
+      else if (!typing && e.key === 'ArrowLeft') onPrev?.();
+      else if (!typing && e.key === 'ArrowRight') onNext?.();
     };
 
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onClose]);
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [isOpen, onClose, onPrev, onNext]);
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -62,6 +74,24 @@ export default function ContentCardModal({
   }, [isOpen]);
 
   if (!card || !localCard) return null;
+
+  const stage = stageMeta(localCard.editorialStatus);
+  const reviewable =
+    !!onDecision &&
+    ['generated', 'in_review', 'changes_requested'].includes(localCard.editorialStatus ?? '');
+  const isApproved = localCard.editorialStatus === 'approved';
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? null;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 60) return; // ignore small drags
+    if (dx < 0) onNext?.();
+    else onPrev?.();
+  };
 
   const handleUpdate = (updates: Partial<ContentCardType>) => {
     const updated = { ...localCard, ...updates };
@@ -125,6 +155,8 @@ export default function ContentCardModal({
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="fixed inset-4 sm:inset-8 z-50 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
           >
             <div className="h-full w-full bg-[#0B0B0A]/95 backdrop-blur-xl border border-[#1C1B19]/70 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
               {/* Header */}
@@ -160,6 +192,11 @@ export default function ContentCardModal({
                         {localCard.plannedDates.length} planned dates
                       </span>
                     )}
+                    {stage && (
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${stage.chip}`}>
+                        {stage.label}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -177,6 +214,36 @@ export default function ContentCardModal({
                       <span>Open Script</span>
                     </button>
                   )}
+                  {onGenerate && (
+                    <button
+                      onClick={() => onGenerate(card.id)}
+                      className="px-4 py-2 text-sm font-medium bg-[#5CCCB8]/20 border border-[#5CCCB8]/40 text-[#5CCCB8] rounded-xl hover:bg-[#5CCCB8]/30 transition-colors flex items-center gap-2"
+                    >
+                      <FileText size={14} />
+                      <span>Generate</span>
+                    </button>
+                  )}
+                  {reviewable && (
+                    <>
+                      <button
+                        onClick={() => onDecision?.(card.id, 'changes_requested')}
+                        className="px-4 py-2 text-sm font-medium bg-[#1C1B19]/60 border border-neutral-700/70 text-neutral-300 rounded-xl hover:bg-[#D4A652]/20 hover:border-[#D4A652]/40 hover:text-[#D4A652] transition-colors"
+                      >
+                        Request changes
+                      </button>
+                      <button
+                        onClick={() => onDecision?.(card.id, 'approved')}
+                        className="px-4 py-2 text-sm font-medium bg-emerald-600/20 border border-emerald-500/40 text-emerald-200 rounded-xl hover:bg-emerald-600/30 transition-colors"
+                      >
+                        Approve
+                      </button>
+                    </>
+                  )}
+                  {isApproved && (
+                    <span className="px-4 py-2 text-sm font-medium bg-emerald-600/15 border border-emerald-500/40 text-emerald-300 rounded-xl">
+                      Approved ✓
+                    </span>
+                  )}
                   {onDelete && (
                     <button
                       onClick={handleDelete}
@@ -184,6 +251,26 @@ export default function ContentCardModal({
                     >
                       Delete
                     </button>
+                  )}
+                  {(onPrev || onNext) && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onPrev?.()}
+                        disabled={!onPrev}
+                        aria-label="Previous content (←)"
+                        className="p-2 rounded-xl border border-[#1C1B19]/70 bg-[#0F0F0E]/60 hover:bg-[#0F0F0E]/80 text-neutral-400 hover:text-[#ECE9E1] disabled:opacity-30 transition-colors"
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
+                      <button
+                        onClick={() => onNext?.()}
+                        disabled={!onNext}
+                        aria-label="Next content (→)"
+                        className="p-2 rounded-xl border border-[#1C1B19]/70 bg-[#0F0F0E]/60 hover:bg-[#0F0F0E]/80 text-neutral-400 hover:text-[#ECE9E1] disabled:opacity-30 transition-colors"
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                    </div>
                   )}
                   <button
                     onClick={onClose}
@@ -200,7 +287,10 @@ export default function ContentCardModal({
                 <div className="max-w-4xl mx-auto p-6">
                   <ContentCard
                     card={localCard}
-                    onUpdate={handleUpdate}
+                    // Child ContentCard's onUpdate is (id, updates); the modal already knows
+                    // card.id. OLD: passed the 1-arg handleUpdate directly, so the child's id
+                    // landed in the `updates` slot and corrupted the edit. NEW: bridge correctly.
+                    onUpdate={(_id, updates) => handleUpdate(updates)}
                     onOpenScript={onOpenScript ? (id) => {
                       onOpenScript(id);
                       onClose();
@@ -208,27 +298,57 @@ export default function ContentCardModal({
                     compact={false}
                   />
 
-                  {/* Status Selector */}
-                  <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm font-medium text-neutral-300">Status:</span>
-                      <div className="flex gap-2">
-                        {(['draft', 'scheduled', 'in_production', 'published'] as const).map((status) => (
-                          <button
-                            key={status}
-                            onClick={() => handleStatusChange(status)}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                              localCard.status === status
-                                ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
-                                : 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-400 hover:bg-[#1C1B19]/80'
-                            } border`}
-                          >
-                            {status.replace('_', ' ')}
-                          </button>
-                        ))}
+                  {localCard.scriptPreview && (
+                    <div className="mt-6">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                        Generated draft
+                      </span>
+                      {/* Rendered as a post preview, not a raw text dump — what it'll look like posted. */}
+                      <div className="mt-2 rounded-2xl bg-[#0F0F0E] border border-[#1C1B19]/70 overflow-hidden">
+                        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 border-b border-[#1C1B19]/40">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#5CCCB8]/40 to-[#D4A652]/40 flex items-center justify-center text-[12px] font-bold text-[#ECE9E1]">
+                            {(localCard.platform || '?').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-[#ECE9E1] truncate">
+                              {localCard.clientName || 'Your brand'}
+                            </div>
+                            <div className="text-[11px] text-neutral-500 capitalize">
+                              {localCard.platform} · draft
+                            </div>
+                          </div>
+                        </div>
+                        <p className="px-4 py-4 text-[13px] text-[#D6D3CB] whitespace-pre-wrap leading-relaxed">
+                          {localCard.scriptPreview.replace(/\*\*(.+?)\*\*/g, '$1')}
+                        </p>
                       </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Legacy status selector — only for non-CalOS cards. CalOS cards have an editorial
+                      stage (the chip + Approve/Request-changes actions), so this would be redundant. */}
+                  {!stage && (
+                    <div className="mt-6 p-4 rounded-xl bg-[#0F0F0E]/40 border border-[#1C1B19]/50">
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm font-medium text-neutral-300">Status:</span>
+                        <div className="flex gap-2">
+                          {(['draft', 'scheduled', 'in_production', 'published'] as const).map((status) => (
+                            <button
+                              key={status}
+                              onClick={() => handleStatusChange(status)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                                localCard.status === status
+                                  ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
+                                  : 'bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-400 hover:bg-[#1C1B19]/80'
+                              } border`}
+                            >
+                              {status.replace('_', ' ')}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Planned Dates Manager */}
                   {localCard.plannedDates.length > 0 && (

@@ -109,6 +109,12 @@ export interface SegmentAnalysis {
   meta: {
     builtAt: string;
     hasVjepa: boolean;
+    vjepaStatus: 'absent' | 'partial' | 'complete';
+    vjepaRequestedSegmentCount: number;
+    vjepaAnalyzedSegmentCount: number;
+    vjepaDroppedSegmentCount: number;
+    vjepaCoverageRatio: number | null;
+    vjepaFailedBatchCount: number;
     hasWav2vec: boolean;
     momentWeightPhase: 0 | 1 | 2 | 3;
     segmentCount: number;

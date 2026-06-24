@@ -1,8 +1,8 @@
 /**
- * Brand Vault — UI types
+ * Brand Vault - UI types
  *
  * Re-exports the canonical contract types from lib/shared (single source of
- * truth — never redefine the signal contract here) and adds the small set of
+ * truth - never redefine the signal contract here) and adds the small set of
  * view-model types the Brand Vault review UI needs.
  */
 
@@ -78,6 +78,7 @@ export interface BrandVaultSnapshot {
 }
 
 export interface CreateBrandVaultDraftInput {
+  brandId: string;
   websiteUrl: string;
   companyName?: string;
   socialLinks?: string[];

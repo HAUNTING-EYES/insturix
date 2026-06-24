@@ -167,4 +167,98 @@ describe('signal registry V-JEPA primitive bridge', () => {
       'visual.negative_space.right': 0.82,
     }));
   });
+  it('marks partial V-JEPA coverage in SegmentAnalysis metadata', () => {
+    const rawFootage = {
+      originalDurationMs: 4_000,
+      estimatedCleanDurationMs: 4_000,
+      transcription: { segments: [], words: [] },
+      silenceGaps: [],
+      contentTypeDetection: { contentType: 'unknown', confidence: 0.5 },
+      segments: [
+        {
+          startMs: 0,
+          endMs: 2_000,
+          text: 'first visual segment',
+          wordCount: 3,
+          fillerCount: 0,
+          silenceGapCount: 0,
+          avgWordGapMs: 120,
+        },
+        {
+          startMs: 2_000,
+          endMs: 4_000,
+          text: 'missing visual segment',
+          wordCount: 3,
+          fillerCount: 0,
+          silenceGapCount: 0,
+          avgWordGapMs: 120,
+        },
+      ],
+    } as any;
+
+    const segmentAnalysis = buildSegmentAnalysis(
+      rawFootage,
+      null,
+      {
+        modelVersion: 'vjepa-2',
+        processingTimeMs: 100,
+        requestedSegmentCount: 2,
+        analyzedSegmentCount: 1,
+        droppedSegmentCount: 1,
+        coverageRatio: 0.5,
+        partial: true,
+        failedBatchCount: 1,
+        failedBatchIndices: [1],
+        segments: [{
+          startMs: 0,
+          endMs: 2_000,
+          visualSignificance: 0.88,
+          motionIntensity: 0.64,
+          actionType: 'talking',
+          motionType: 'both',
+          faceEmotion: null,
+          eyeContact: true,
+          motionVectorX: -0.42,
+          motionVectorY: 0.14,
+          mainSubject: { x: 0.18, y: 0.2, width: 0.34, height: 0.62, confidence: 0.76 },
+          mainSubjectX: 0.18,
+          mainSubjectY: 0.2,
+          mainSubjectWidth: 0.34,
+          mainSubjectHeight: 0.62,
+          textBoxes: [],
+          textBoxCount: 0,
+          textCoverage: 0,
+          objectCount: 1,
+          faceCount: 1,
+          negativeSpaceTop: 0.2,
+          negativeSpaceRight: 0.82,
+          negativeSpaceBottom: 0.18,
+          negativeSpaceLeft: 0.18,
+          primitivePresence: {
+            motionVector: true,
+            mainSubject: true,
+            textBoxes: true,
+            textCoverage: true,
+            objectCount: true,
+            faceCount: true,
+            negativeSpace: true,
+          },
+        }],
+      },
+      null,
+      null,
+    );
+
+    expect(segmentAnalysis?.meta).toEqual(expect.objectContaining({
+      hasVjepa: true,
+      vjepaStatus: 'partial',
+      vjepaRequestedSegmentCount: 2,
+      vjepaAnalyzedSegmentCount: 1,
+      vjepaDroppedSegmentCount: 1,
+      vjepaCoverageRatio: 0.5,
+      vjepaFailedBatchCount: 1,
+    }));
+    expect(segmentAnalysis?.segments[0].visual).not.toBeNull();
+    expect(segmentAnalysis?.segments[1].visual).toBeNull();
+  });
 });

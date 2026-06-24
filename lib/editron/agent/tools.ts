@@ -45,7 +45,13 @@ import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-tra
 import { DEFAULT_CONFIG } from '../config/editron-config';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
-import { resolveMotionTokens, type BrandInputs, type ContentSignals } from '../data/motion-theme-resolver';
+import {
+  resolveMotionTokens,
+  type BrandInputs,
+  type ContentSignals,
+  type DeepPartial,
+  type MotionTokens,
+} from '../data/motion-theme-resolver';
 import type { ContentShapeKind } from '../motion-graphics/engine/recipe-types';
 import { createChatAssetTools } from './chat-asset-tools';
 import { createChatAudioTools } from './chat-audio-tools';
@@ -4750,17 +4756,29 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           }
 
           let graphicBrandInputs: Partial<BrandInputs> = {};
+          let graphicBrandMotionOverrides: DeepPartial<MotionTokens> | undefined;
           try {
             if ((project as any).brandId && userId) {
-              const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
+              const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
               const { brandInputsFromUnifiedBrandAtomic } = await import(
                 '@/lib/editron/motion-graphics/engine/brand-composition-rules'
               );
-              const brand = await getUnifiedBrand(userId, (project as any).brandId);
-              graphicBrandInputs = brandInputsFromUnifiedBrandAtomic(brand);
+              const { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } = await import(
+                '@/lib/editron/motion-graphics/engine/brand-vault-to-motion'
+              );
+              const resolution = await resolveEffectiveBrandWithProfile(userId, (project as any).brandId, {
+                service: 'editron',
+              });
+              graphicBrandInputs = resolution.acceptedProfile
+                ? {
+                    ...brandInputsFromUnifiedBrandAtomic(resolution.brand),
+                    ...brandInputsFromBrandSignalProfile(resolution.acceptedProfile, resolution.brand),
+                  }
+                : brandInputsFromUnifiedBrandAtomic(resolution.brand);
+              graphicBrandMotionOverrides = brandVaultToMotionOverrides(resolution.acceptedProfile);
               if (graphicBrandInputs.accentColor) {
                 console.log(
-                  `[Tools:addMotionGraphic] Brand accent ${graphicBrandInputs.accentColor} applied for project ${project.projectId}`,
+                  `[Tools:addMotionGraphic] Brand accent ${graphicBrandInputs.accentColor} applied from ${resolution.source} for project ${project.projectId}`,
                 );
               }
             }
@@ -4773,7 +4791,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           }
 
           const compositionSignals = await resolveCompositionSignalsFromProject(project, input.start, project.overlays || [], project.fps || 30);
-          const tokens = resolveMotionTokens(compositionSignals, graphicBrandInputs);
+          const tokens = resolveMotionTokens(compositionSignals, graphicBrandInputs, graphicBrandMotionOverrides);
           const recipe = planComposition(
             { kind, content, triggerMoment: 'agent-placed' },
             tokens,
@@ -5948,7 +5966,7 @@ Never manually reverse edits when a checkpoint is available; restore the checkpo
     syncStyle,            // NEW: Style sync
     closeGaps,            // NEW: Close timeline gaps
     cutSection,           // NEW: Compound cut-and-delete
-    // visualInspectFrame,  // DISABLED: Decoy tool, not implemented
+    visualInspectFrame,   // Inspect a frame for visual/layout follow-up
     addMotionGraphic,     // NEW: Template-based motion graphics (FAST)
     generateHtmlScene,
     generateHtmlSticker,  // NEW: Animated stickers

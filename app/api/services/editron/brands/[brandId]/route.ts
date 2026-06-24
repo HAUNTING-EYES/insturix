@@ -10,6 +10,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { emitBrandEvent } from '@/lib/shared/brand-events';
 import { invalidateCache } from '@/lib/shared/brand-registry';
+import { writeEditronBrandSettingsToBrandVault } from '@/lib/editron/services/editron-brand-vault-evidence';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,7 @@ export async function PATCH(
   { params }: { params: Promise<{ brandId: string }> },
 ) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     const { brandId } = await params;
@@ -92,10 +93,30 @@ export async function PATCH(
       payload: { action: 'updated', fields: changedFieldNames },
     }).catch((e) => console.warn('[Brands] brand_updated event failed:', e));
 
+    const updated = await db.collection(BRANDS_COLLECTION).findOne({ brandId, userId });
+    const vaultSync = updated
+      ? await writeEditronBrandSettingsToBrandVault({
+        userId,
+        actorId: userId,
+        brand: {
+          brandId,
+          userId,
+          orgId: orgId ?? undefined,
+          name: updated.name,
+          industry: updated.industry,
+          colors: updated.colors,
+          voiceDescription: updated.voiceDescription,
+          visualStyle: updated.visualStyle,
+          typography: updated.typography,
+        },
+        source: 'manual_brand_update',
+        changedFields: changedFieldNames,
+      })
+      : { ok: true as const, skipped: true as const, reason: 'no_supported_updates' as const };
+
     invalidateCache(userId);
 
-    const updated = await db.collection(BRANDS_COLLECTION).findOne({ brandId, userId });
-    return NextResponse.json({ success: true, brand: updated });
+    return NextResponse.json({ success: true, brand: updated, vaultSync });
   } catch (error: unknown) {
     return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
   }

@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createAgent } from '@/lib/editron/agent/agent-graph';
-import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import { chatService } from '@/lib/editron/services/chat-service';
 import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 import { buildChatEditContextBundle, formatChatEditContextForPrompt } from '@/lib/editron/agent/chat-edit-context';
-import { beginChatAiEditTransaction, completeChatAiEditTransaction } from '@/lib/editron/agent/chat-ai-edit-transactions';
+import {
+  beginChatAiEditTransaction,
+  completeChatAiEditTransaction,
+  formatChatAiEditRestoreTargetForPrompt,
+  resolveChatAiEditRestoreTarget,
+} from '@/lib/editron/agent/chat-ai-edit-transactions';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
@@ -57,7 +62,7 @@ function appendCheckpointContextForAgent(content: string, checkpointIds?: string
   if (!parts.length) return content;
 
   const separator = content.trim() ? '\n\n' : '';
-  return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. To undo this assistant edit, call restore_ai_edit_checkpoint with beforeCheckpointId. To redo it, use afterCheckpointId.]`;
+  return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. Restore beforeCheckpointId to return to the state before this assistant edit. Restore afterCheckpointId only to return to the state after this assistant edit.]`;
 }
 
 export async function POST(req: NextRequest) {
@@ -180,6 +185,11 @@ export async function POST(req: NextRequest) {
 
     const chatEditContext = buildChatEditContextBundle(project, { clientContext, selectedOverlayId });
     contextMessage += `\n\n${formatChatEditContextForPrompt(chatEditContext)}`;
+    const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });
+    const restoreTargetPrompt = formatChatAiEditRestoreTargetForPrompt(restoreTarget);
+    if (restoreTargetPrompt) {
+      contextMessage += `\n\n${restoreTargetPrompt}`;
+    }
     const editTransaction = beginChatAiEditTransaction({
       sessionId: actualSessionId,
       projectId,

@@ -21,32 +21,44 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { checkExpensiveRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120; // Analysis can take time for multiple assets
+// Unified Intelligence (mode 'full') runs gemini-3.1-pro-preview, which editron-config budgets at 300s.
+// At 120 the function died before the model returned → guaranteed 504. Raised to 300 to match the sibling
+// AI routes that run the same model class (director, asset-analysis = 300). If pro-preview still overruns,
+// the robust fix is moving 'full' analysis to a QStash worker (the plan already supports 800s).
+export const maxDuration = 300;
+type AnalysisRequestMode = 'full' | 'cached-suggestions';
 
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    // Rate limit: 5 per hour per user
-    const rl = await checkExpensiveRateLimit(userId);
-    if (!rl.success) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded. Please wait before running another analysis.' },
-        { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
-      );
-    }
-
-    const { projectId, tracks } = await req.json();
+    const body = await req.json();
+    const { projectId, tracks } = body;
     if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });
 
-    console.log(`[Analysis] Starting 5-track analysis for project ${projectId}`);
+    const mode: AnalysisRequestMode = body?.mode === 'cached-suggestions' ? 'cached-suggestions' : 'full';
 
-    // Step 1: Run 5-track analysis on all video assets
-    const assetResults = await analyzeProjectAssets(projectId, userId);
+    if (mode === 'full') {
+      // Rate limit: 5 per hour per user. Cached editor suggestions are read-only and cheap.
+      const rl = await checkExpensiveRateLimit(userId);
+      if (!rl.success) {
+        return NextResponse.json(
+          { error: 'Rate limit exceeded. Please wait before running another analysis.' },
+          { status: 429, headers: { 'X-RateLimit-Reset': String(rl.reset) } },
+        );
+      }
+    }
+
+    console.log(`[Analysis] Starting ${mode} analysis request for project ${projectId}`);
+
+    // Step 1: Run or reuse 5-track analysis on all video assets.
+    const assetResults = mode === 'full'
+      ? await analyzeProjectAssets(projectId, userId)
+      : { analyzed: 0, cached: 0, failed: 0, timedOut: false, skipped: true };
     console.log(`[Analysis] Assets: ${assetResults.analyzed} analyzed, ${assetResults.cached} cached, ${assetResults.failed} failed`);
 
-    // Step 2: Gather all analyses
+    // Step 2: Gather all cached analyses
     const db = await getDatabase();
     const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId, userId }) as any;
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
@@ -74,34 +86,10 @@ export async function POST(req: NextRequest) {
       console.warn(`[Analysis] 0 analyses for ${videoOverlays.length} videos. Errors: ${analysisErrors.join('; ')}`);
     }
 
-    // Step 3: Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL
+    // Step 3: Generate Edit Plan. Editor suggestion cards must stay cheap/cached-only;
+    // full legacy Unified Intelligence can exceed Vercel's request ceiling on long projects.
     let edl: any;
-    try {
-      const { assembleUnifiedContext, generateUnifiedEditPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
-      const context = await assembleUnifiedContext(projectId, userId);
-      const plan = await generateUnifiedEditPlan(context);
-
-      // Convert to EDL format for backward compatibility
-      edl = {
-        projectId,
-        generatedAt: plan.generatedAt,
-        totalDecisions: plan.stats.totalDecisions,
-        decisions: plan.decisions.map(d => ({
-          type: d.type,
-          frame: d.frame,
-          durationFrames: d.durationFrames,
-          priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
-          source: d.sources.join('+'),
-          signal: d.type,
-          reason: d.reason,
-          params: d.params,
-          confidence: d.confidence,
-        })),
-        stats: plan.stats,
-      };
-      console.log(`[Analysis] Unified Intelligence: ${plan.stats.totalDecisions} decisions`);
-    } catch (unifiedErr: any) {
-      console.warn(`[Analysis] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
+    if (mode === 'cached-suggestions') {
       const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
       edl = generateEditDecisionList(analyses, totalDurationMs, {
         targetCutsPerMinute: 6,
@@ -110,6 +98,43 @@ export async function POST(req: NextRequest) {
         pacing: 'medium',
       });
       edl.projectId = projectId;
+      console.log(`[Analysis] Cached suggestions: ${edl.totalDecisions} reactive decisions`);
+    } else {
+      try {
+        const { assembleUnifiedContext, generateUnifiedEditPlan } = await import('@/lib/editron/services/unified-edit-intelligence');
+        const context = await assembleUnifiedContext(projectId, userId);
+        const plan = await generateUnifiedEditPlan(context);
+
+        // Convert to EDL format for backward compatibility
+        edl = {
+          projectId,
+          generatedAt: plan.generatedAt,
+          totalDecisions: plan.stats.totalDecisions,
+          decisions: plan.decisions.map(d => ({
+            type: d.type,
+            frame: d.frame,
+            durationFrames: d.durationFrames,
+            priority: d.confidence > 0.8 ? 2 : d.confidence > 0.6 ? 3 : 4,
+            source: d.sources.join('+'),
+            signal: d.type,
+            reason: d.reason,
+            params: d.params,
+            confidence: d.confidence,
+          })),
+          stats: plan.stats,
+        };
+        console.log(`[Analysis] Unified Intelligence: ${plan.stats.totalDecisions} decisions`);
+      } catch (unifiedErr: any) {
+        console.warn(`[Analysis] Unified Intelligence failed (${unifiedErr.message}), falling back to Reactive Engine`);
+        const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
+        edl = generateEditDecisionList(analyses, totalDurationMs, {
+          targetCutsPerMinute: 6,
+          transitionStyle: 'mixed',
+          graphicDensity: 'moderate',
+          pacing: 'medium',
+        });
+        edl.projectId = projectId;
+      }
     }
 
     // Step 4: Detect cinematic moments
@@ -124,6 +149,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      mode,
       assets: assetResults,
       editDecisionList: edl,
       cinematicMoments: topMoments,

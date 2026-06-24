@@ -54,40 +54,18 @@ export interface BeatGrid {
   source: 'heuristic' | 'audio-analysis' | 'user-specified';
 }
 
-// ─── BPM Defaults (creative_production_knowledge.md §11) ────────
+// ─── BPM Defaults (signal/mood only) ─────────────────────────────
 
-/**
- * Content-type-aware BPM defaults, used when no explicit BPM is available
- * from the script or model config. Values from creative doc §11 Tempo-to-Mood.
- */
-const BPM_DEFAULTS: Record<string, number> = {
-  // Fast / energetic / action
-  montage: 140,
-  'beat-synced': 140,
-  action: 150,
-  fitness: 145,
-  gaming: 150,
-  sports: 145,
-  // Medium / balanced
-  product: 120,
-  brand: 110,
-  tutorial: 95,
-  corporate: 95,
-  // Slow / emotional
-  testimonial: 85,
-  nostalgia: 80,
-  emotional: 75,
-  cinematic: 90,
-  luxury: 85,
-  documentary: 90,
-};
+const HIGH_ENERGY_BPM = 140;
+const LOW_ENERGY_BPM = 85;
+const MEASURED_SPEECH_BPM = 100;
 
 /** Generic fallback when no signal matches */
 const FALLBACK_BPM = 120;
 
 /**
- * Resolve a sensible default BPM from content hints (scene mood, profile ID,
- * script keywords). Used when the script doesn't explicitly specify one.
+ * Resolve a sensible default BPM from explicit script BPM or mood/energy words.
+ * Profile and content-type labels are accepted for API compatibility but ignored.
  */
 export function inferBPMFromHints(hints: {
   mood?: string;
@@ -97,16 +75,14 @@ export function inferBPMFromHints(hints: {
 }): number {
   const haystack = [
     hints.mood || '',
-    hints.profileId || '',
-    hints.contentType || '',
     (hints.scriptText || '').substring(0, 2000),
   ]
     .join(' ')
     .toLowerCase();
 
-  for (const [keyword, bpm] of Object.entries(BPM_DEFAULTS)) {
-    if (haystack.includes(keyword)) return bpm;
-  }
+  if (/\b(high[- ]energy|energetic|intense|hype|fast|beat[- ]synced|rhythmic|rapid)\b/.test(haystack)) return HIGH_ENERGY_BPM;
+  if (/\b(calm|slow|quiet|gentle|emotional|reflective|soft|nostalgic)\b/.test(haystack)) return LOW_ENERGY_BPM;
+  if (/\b(measured|clear speech|steady|explaining|educational)\b/.test(haystack)) return MEASURED_SPEECH_BPM;
   return FALLBACK_BPM;
 }
 
@@ -130,7 +106,7 @@ export function extractBPMFromScript(scriptText: string): number | null {
 /**
  * Compute a heuristic beat grid assuming 4/4 time + constant tempo.
  *
- * This is the MVP beat detector — accurate enough for BGM generated at
+ * This is the baseline beat detector — accurate enough for BGM generated at
  * a known target BPM. Real BGM may drift ±2-3 BPM from the target, which
  * this approach doesn't catch. For tight sync on variable-tempo music,
  * swap in audio analysis (same return shape).
@@ -211,7 +187,7 @@ export async function detectBeats(opts: {
       const scriptBpm = extractBPMFromScript(opts.hints.scriptText);
       if (scriptBpm) bpm = scriptBpm;
     }
-    // Then fall back to content-hint-based default
+    // Then fall back to signal/mood default
     if (!bpm) {
       bpm = inferBPMFromHints(opts.hints || {});
     }

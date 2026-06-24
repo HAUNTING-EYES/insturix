@@ -15,12 +15,13 @@ import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/dat
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
-import { resolveMotionTokens, type BrandInputs } from '@/lib/editron/data/motion-theme-resolver';
+import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { brandInputsFromUnifiedBrandAtomic } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
+import { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } from '@/lib/editron/motion-graphics/engine/brand-vault-to-motion';
+import { brandSignalProfileToCreativeSignalDefaults } from '@/lib/shared/brand-to-creative-signals';
 import { planComposition, type MgOverlayScores } from '@/lib/editron/motion-graphics/engine/composition-planner';
 import { checkCompositionStructure } from '@/lib/editron/motion-graphics/engine/structural-gate';
 import { buildAtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
@@ -32,6 +33,7 @@ import {
 import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
 import { resolveAtomicTransitionForm } from '@/lib/editron/services/transition-form';
 import { evaluateAtomicSfxAssetCandidate, resolveAtomicSfxForm, type AtomicSfxCandidateEvaluation, type AtomicSfxForm } from '@/lib/editron/services/sfx-form';
+import { normalizeEdlDecisionParams } from '@/lib/editron/services/edl-param-contract';
 import {
   resolveVjepaScreenContextPolicy,
   type VjepaScreenContextPolicy,
@@ -508,6 +510,8 @@ export async function executeEDL(
   // composition sites), but NOTHING ever populated it → every MG rendered DEFAULT_BRAND gold. Populate
   // it here, the single sink all four director paths reach. Empty/no brand → {} → DEFAULT (unchanged).
   let projectBrand: Partial<BrandInputs> = {};
+  let projectBrandMotionOverrides: DeepPartial<MotionTokens> | undefined;
+  let projectBrandSignalDefaults: Record<string, number | string> = {};
   let projectSignalContext: EDLSignalContext = {};
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
@@ -520,8 +524,20 @@ export async function executeEDL(
         : undefined,
     };
     if (projectDoc?.brandId && userId) {
-      const { getUnifiedBrand } = await import('@/lib/shared/brand-registry');
-      projectBrand = brandInputsFromUnifiedBrandAtomic(await getUnifiedBrand(userId, projectDoc.brandId));
+      const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
+      const resolution = await resolveEffectiveBrandWithProfile(userId, projectDoc.brandId, { service: 'editron' });
+      projectBrand = resolution.acceptedProfile
+        ? {
+            ...brandInputsFromUnifiedBrandAtomic(resolution.brand),
+            ...brandInputsFromBrandSignalProfile(resolution.acceptedProfile, resolution.brand),
+          }
+        : brandInputsFromUnifiedBrandAtomic(resolution.brand);
+      projectBrandMotionOverrides = brandVaultToMotionOverrides(resolution.acceptedProfile);
+      if (resolution.acceptedProfile) {
+        projectBrandSignalDefaults = normalizePlannerSignals(
+          brandSignalProfileToCreativeSignalDefaults(resolution.acceptedProfile).signals,
+        );
+      }
       if (projectBrand.accentColor) console.log(`[EDL] Brand accent ${projectBrand.accentColor} → MG (brand ${projectDoc.brandId})`);
     }
   } catch (e) {
@@ -531,6 +547,9 @@ export async function executeEDL(
     if (d.type === 'graphic' || d.type === 'caption-emphasis') {
       d.params = d.params || {};
       if (d.params.brand == null) d.params.brand = projectBrand;
+      if (projectBrandMotionOverrides && d.params.brandMotionOverrides == null) {
+        d.params.brandMotionOverrides = projectBrandMotionOverrides;
+      }
     }
   }
 
@@ -540,6 +559,12 @@ export async function executeEDL(
   // budget consumption should be linear. Confidence is for tie-breaking within the
   // same frame window, which the signal executor already handles (deduplicateDecisions).
   actionable.sort((a, b) => a.frame - b.frame || b.confidence - a.confidence);
+  for (const decision of actionable) {
+    decision.params = normalizeEdlDecisionParams(decision.type, decision.params, {
+      canvasWidth: canvasDimensions.width,
+      technique: (decision as any).technique,
+    });
+  }
 
   console.log(`[EDL-Exec] Executing ${actionable.length}/${edl.totalDecisions} decisions (confidence > ${minConfidence}) with budget enforcement, sorted by frame`);
 
@@ -623,7 +648,7 @@ export async function executeEDL(
     const currentDecisionIndex = decisionIndex++;
 
     try {
-      enrichDecisionSignals(decision, overlays, analyses, projectSignalContext);
+      enrichDecisionSignals(decision, overlays, analyses, projectSignalContext, projectBrandSignalDefaults);
       if (utilityScoringRuntime) {
         enrichDecisionWithUtilityScoring(decision, utilityScoringRuntime);
       }
@@ -632,6 +657,32 @@ export async function executeEDL(
     }
 
     const beforeTraceSnapshot = captureOverlayTraceSnapshot(overlays);
+    const visualCoverageGate = evaluateVjepaVisualOnlyExecutionGate(decision, projectSignalContext.vjepaScreenContextPolicy);
+    if (!visualCoverageGate.allowed) {
+      const gateReason = `VJEPA-COVERAGE: ${visualCoverageGate.reason}`;
+      result.decisionsSkipped++;
+      result.rejectedDecisions.push({
+        type: decision.type,
+        frame: decision.frame,
+        reason: gateReason,
+        ruleId: visualCoverageGate.ruleId,
+        params: {
+          source: decision.source,
+          signal: decision.signal,
+          visualEvidenceKeys: visualCoverageGate.evidenceKeys.slice(0, 8),
+        },
+      });
+      console.log(`[EDL-Exec] VJEPA COVERAGE REJECTED: ${decision.type} at frame ${decision.frame} - ${visualCoverageGate.reason}`);
+      appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+        decision,
+        currentDecisionIndex,
+        'guard-rejected',
+        beforeTraceSnapshot,
+        overlays,
+        { reason: gateReason, ruleId: visualCoverageGate.ruleId },
+      ));
+      continue;
+    }
     const budgetResult = budget.evaluate(decision as any);
     if (!budgetResult.allowed) {
       result.decisionsSkipped++;
@@ -769,11 +820,12 @@ function enrichDecisionSignals(
   overlays: Overlay[],
   analyses?: Map<string, any>,
   projectSignalContext: EDLSignalContext = {},
+  brandSignalDefaults: Record<string, number | string> = {},
 ): void {
   decision.params = decision.params || {};
   const existingSignals = normalizePlannerSignals(decision.params.signals);
   const derivedSignals = deriveSignalsAtDecisionFrame(decision.frame, overlays, analyses, projectSignalContext);
-  const mergedSignals = normalizePlannerSignals({ ...derivedSignals, ...existingSignals });
+  const mergedSignals = normalizePlannerSignals({ ...brandSignalDefaults, ...derivedSignals, ...existingSignals });
 
   if (Object.keys(mergedSignals).length > 0) {
     decision.params.signals = mergedSignals;
@@ -976,6 +1028,98 @@ function appendVjepaScreenContextPolicySignals(
   signals['vjepa.allow_text_avoidance'] = policy.allowTextAvoidance ? 1 : 0;
 }
 
+function evaluateVjepaVisualOnlyExecutionGate(
+  decision: EditDecision,
+  policy?: VjepaScreenContextPolicy,
+): { allowed: true; evidenceKeys: string[] } | { allowed: false; reason: string; ruleId: string; evidenceKeys: string[] } {
+  const evidenceKeys = visualCoverageEvidenceKeys(decision);
+  if (evidenceKeys.length === 0 || hasNonVisualExecutionEvidence(decision)) {
+    return { allowed: true, evidenceKeys };
+  }
+
+  if (!policy || policy.mode === 'trusted') {
+    return { allowed: true, evidenceKeys };
+  }
+
+  const mode = policy.mode;
+  const score = typeof policy?.score === 'number' ? ` score=${round4(policy.score)}` : '';
+  const reasons = policy?.reasons?.slice(0, 3).join('|');
+  return {
+    allowed: false,
+    ruleId: 'VJ-001',
+    evidenceKeys,
+    reason: `V-JEPA ${mode} screen context cannot license visual-only ${decision.type} (${evidenceKeys.slice(0, 6).join(',')})${score}${reasons ? `: ${reasons}` : ''}`,
+  };
+}
+
+function visualCoverageEvidenceKeys(decision: EditDecision): string[] {
+  const keys = new Set<string>();
+  const signals = normalizePlannerSignals(decisionSignals(decision));
+  const params = decision.params ?? {};
+  const joinedContext = [decision.source, decision.signal, params.source, params.technique, params.transitionJob]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(visual|motion|camera|subject|face|eye|gaze|negative[_ -]?space|composition)\b/.test(joinedContext)) {
+    keys.add('visual-context');
+  }
+
+  for (const key of Object.keys(signals)) {
+    if (isVisualCoverageSignalKey(key)) keys.add(key);
+  }
+
+  for (const key of Object.keys(params)) {
+    if (isVisualCoverageSignalKey(key)) keys.add(key);
+  }
+
+  return [...keys].sort();
+}
+
+function isVisualCoverageSignalKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/\./g, '_');
+  return normalized === 'visual_context'
+    || normalized.includes('visual_significance')
+    || normalized.includes('visual_change')
+    || normalized.includes('motion_intensity')
+    || normalized.includes('motion_vector')
+    || normalized.includes('motion_type')
+    || normalized.includes('action_type')
+    || normalized.includes('face_present')
+    || normalized.includes('face_count')
+    || normalized.includes('eye_contact')
+    || normalized.includes('shot_scale')
+    || normalized.includes('main_subject')
+    || normalized.includes('text_coverage')
+    || normalized.includes('text_box_count')
+    || normalized.includes('text_on_screen')
+    || normalized.includes('object_count')
+    || normalized.includes('negative_space');
+}
+
+function hasNonVisualExecutionEvidence(decision: EditDecision): boolean {
+  const signals = normalizePlannerSignals(decisionSignals(decision));
+  const params = decision.params ?? {};
+  const joinedContext = [decision.source, decision.signal, params.source, params.reason, params.sfxType, params.sfxCue]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(speech|audio|music|beat|keyword|word|phrase|semantic|narrative|topic|claim|quote|caption|sfx)\b/.test(joinedContext)) {
+    return true;
+  }
+
+  const nonVisualKeys = [
+    'speech_energy', 'speech.energy', 'emotion_intensity', 'speech.emotion_intensity', 'emotional_arousal',
+    'beat_strength', 'music_beat', 'audio.music_beat', 'music_energy', 'audio.music_energy',
+    'word_importance', 'topic_shift', 'claim_strength', 'phrase_impact', 'semanticAtoms',
+    'contentAtoms', 'contentStructure', 'momentBundle', 'text', 'value', 'label', 'quote',
+    'name', 'sfxType', 'sfxCue', 'beatFrame', 'keywordFrame', 'wordFrame', 'phraseFrame',
+  ];
+
+  return nonVisualKeys.some((key) => signals[key] !== undefined || params[key] !== undefined);
+}
+
 function resolveSourceFrame(frame: number, overlays: Overlay[]): { sourceFrame: number; assetId?: string } {
   const match = findClipAtFrame(frame, overlays, 20);
   if (!match) return { sourceFrame: frame };
@@ -1001,7 +1145,17 @@ function normalizePlannerSignals(value: unknown): Record<string, number | string
   if (!value || typeof value !== 'object') return {};
   const source = value as Record<string, unknown>;
   const signals: Record<string, number | string> = {};
-  const signedKeys = new Set(['motion_vector_x', 'motion_vector_y', 'visual.motion_vector.x', 'visual.motion_vector.y']);
+  const signedKeys = new Set([
+    'formality',
+    'content.formality',
+    'personality.formality',
+    'emotional_valence',
+    'speech.emotional_valence',
+    'motion_vector_x',
+    'motion_vector_y',
+    'visual.motion_vector.x',
+    'visual.motion_vector.y',
+  ]);
   const unboundedNumericKeys = new Set([
     'object_count', 'visual.object_count',
     'face_count', 'visual.face_count',
@@ -1652,8 +1806,6 @@ function utilityCategoryForDecision(decision: EditDecision): OverlayCategory | u
       return 'camera';
     case 'cut':
       return 'cut';
-    case 'filter-change':
-      return 'filter';
     default:
       return undefined;
   }
@@ -1727,7 +1879,7 @@ function mergeUtilityOutputValues(
     return;
   }
 
-  if (category === 'caption' || category === 'filter') {
+  if (category === 'caption') {
     for (const key of Object.keys(outputValues)) copy(key, 'fill');
   }
 }
@@ -1858,26 +2010,23 @@ async function applyDecision(
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
 
+    case 'pacing':
+      return applyPacingNoop(decision);
+
     case 'cut':
       // Cuts are informational — they indicate where scene boundaries SHOULD be
       // but don't create new overlays (the scenes already exist from ThinkForge)
       return null;
 
-    case 'filter-change':
-      // DISABLED: Profile filter (Director step 3) is the single source of truth
-      // for color grading. EDL per-frame filter-change caused "filter schizophrenia"
-      // — different CSS filters per clip based on local mood inference (e.g.,
-      // hue-rotate(160deg) turning skin blue on some clips). Profile applies ONE
-      // consistent grade to ALL clips, matching professional colorist workflow.
-      return null;
-
     case 'caption-emphasis': {
-      // Caption emphasis stays in the caption layer unless it carries enough
-      // structure to become a real atomic MG.
+      // Caption emphasis belongs in the caption layer. Only fall back to MG if
+      // there is no caption word to mark and the decision carries real standalone structure.
       const emphasisWord = (decision as any).params?.emphasisWord;
       if (!emphasisWord) return null;
+      const captionApplied = applyCaptionLayerEmphasis(decision, overlays);
+      if (captionApplied) return captionApplied;
       if (!hasStandaloneGraphicStructure((decision as any).params ?? {})) {
-        console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: kept in caption layer, not promoted to standalone MG`);
+        console.log(`[EDL-Exec] Caption emphasis at frame ${decision.frame}: no matching caption word; not promoted to standalone MG`);
         return null;
       }
       const emphasisDecision = {
@@ -1887,7 +2036,6 @@ async function applyDecision(
       };
       return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity);
     }
-
     case 'sfx':
     case 'sfx-trigger': {
       // 'sfx-trigger' from signal executor (Path D) has params.sfxType
@@ -2006,6 +2154,128 @@ async function applyDecision(
   }
 }
 
+function applyCaptionLayerEmphasis(
+  decision: EditDecision,
+  overlays: Overlay[],
+): { created: number; modified: number } | null {
+  const params = decision.params ?? {};
+  const emphasisWord = typeof params.emphasisWord === 'string' ? params.emphasisWord.trim() : '';
+  if (!emphasisWord) return null;
+
+  const targetTokens = tokenizeCaptionEmphasis(emphasisWord);
+  if (targetTokens.length === 0) return null;
+
+  const fps = DEFAULT_CONFIG.timing.fps || 30;
+  const targetMs = Math.round((decision.frame / fps) * 1000);
+  let best: { overlay: any; words: any[]; start: number; distanceMs: number } | null = null;
+
+  for (const overlay of overlays as any[]) {
+    if (overlay?.type !== 'caption' || !Array.isArray(overlay.captions)) continue;
+    for (const caption of overlay.captions) {
+      const words = Array.isArray(caption?.words) ? caption.words : [];
+      const match = findCaptionWordSequence(words, targetTokens, targetMs);
+      if (!match) continue;
+      if (!best || match.distanceMs < best.distanceMs) {
+        best = { overlay, words, start: match.start, distanceMs: match.distanceMs };
+      }
+    }
+  }
+
+  if (!best || best.distanceMs > 1200) return null;
+
+  const emphasisType = captionEmphasisType(params.emphasisType);
+  const markedWords = best.words.slice(best.start, best.start + targetTokens.length);
+  for (const word of markedWords) {
+    word.emphasis = { type: emphasisType, source: decision.source || 'edl-caption-emphasis' };
+  }
+  markOverlayWordList(best.overlay.words, targetTokens, targetMs, emphasisType, decision.source || 'edl-caption-emphasis');
+
+  best.overlay.metadata = {
+    ...(best.overlay.metadata ?? {}),
+    captionEmphasisDecisions: [
+      ...((best.overlay.metadata?.captionEmphasisDecisions as unknown[]) ?? []),
+      {
+        word: emphasisWord,
+        frame: decision.frame,
+        targetMs,
+        source: decision.source,
+        distanceMs: best.distanceMs,
+      },
+    ],
+  };
+  appendAtomicOverlayReceipt(best.overlay, buildOverlayAtomicReceipt({
+    family: 'caption',
+    intent: 'caption-emphasis',
+    frame: decision.frame,
+    durationFrames: decision.durationFrames ?? 30,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: { overlayId: best.overlay.id },
+    payload: { emphasisWord, emphasisType, markedWordCount: markedWords.length, targetMs },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.frame', decision.frame, 1, 'edl'),
+      overlayAtom('caption-word', 'caption.emphasis.word', emphasisWord, decision.confidence, 'decision-param'),
+      overlayAtom('emphasis-role', 'caption.emphasis.type', emphasisType, decision.confidence, 'decision-param'),
+    ],
+  }));
+  attachAtomicMomentBundleMetadata(best.overlay, decision);
+
+  return { created: 0, modified: 1 };
+}
+
+function tokenizeCaptionEmphasis(value: string): string[] {
+  return value
+    .split(/\s+/)
+    .map(normalizeCaptionToken)
+    .filter((token) => token.length > 0);
+}
+
+function findCaptionWordSequence(
+  words: any[],
+  targetTokens: string[],
+  targetMs: number,
+): { start: number; distanceMs: number } | null {
+  let best: { start: number; distanceMs: number } | null = null;
+  for (let start = 0; start <= words.length - targetTokens.length; start += 1) {
+    const matches = targetTokens.every((token, offset) => normalizeCaptionToken(words[start + offset]?.word) === token);
+    if (!matches) continue;
+    const startMs = Number(words[start]?.startMs ?? targetMs);
+    const endMs = Number(words[start + targetTokens.length - 1]?.endMs ?? startMs);
+    const distanceMs = targetMs >= startMs && targetMs <= endMs
+      ? 0
+      : Math.min(Math.abs(targetMs - startMs), Math.abs(targetMs - endMs));
+    if (!best || distanceMs < best.distanceMs) best = { start, distanceMs };
+  }
+  return best;
+}
+
+function markOverlayWordList(
+  words: unknown,
+  targetTokens: string[],
+  targetMs: number,
+  emphasisType: 'keyword' | 'statistic' | 'cta' | 'entity',
+  source: string,
+): void {
+  if (!Array.isArray(words)) return;
+  const match = findCaptionWordSequence(words, targetTokens, targetMs);
+  if (!match || match.distanceMs > 1200) return;
+  for (const word of words.slice(match.start, match.start + targetTokens.length) as any[]) {
+    word.emphasis = { type: emphasisType, source };
+  }
+}
+
+function normalizeCaptionToken(value: unknown): string {
+  return typeof value === 'string'
+    ? value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    : '';
+}
+
+function captionEmphasisType(value: unknown): 'keyword' | 'statistic' | 'cta' | 'entity' {
+  const normalized = typeof value === 'string' ? value.toLowerCase() : '';
+  if (normalized === 'statistic' || normalized === 'cta' || normalized === 'entity') return normalized;
+  return 'keyword';
+}
 function applyCameraShake(
   decision: EditDecision,
   overlays: Overlay[],
@@ -3013,6 +3283,81 @@ function readableGraphicWords(content: Record<string, unknown>): number {
   return text ? text.split(/\s+/).filter(Boolean).length : 0;
 }
 
+function isGraphicOverlayForDedupe(overlay: Overlay): boolean {
+  return overlay.type === 'html-scene'
+    || overlay.type === 'motion-graphic'
+    || (overlay as any).type === 'sticker';
+}
+
+function graphicDedupeKeyFromOverlay(overlay: Overlay): string {
+  const metadata = (overlay as any).metadata || {};
+  const content = ((overlay as any).content && typeof (overlay as any).content === 'object')
+    ? (overlay as any).content as Record<string, unknown>
+    : {};
+  return graphicDedupeKeyFromContent(
+    metadata.graphicType ?? metadata.creativeDecisionType ?? (overlay as any).graphicType ?? overlay.type,
+    content,
+    metadata,
+  );
+}
+
+function graphicDedupeKeyFromContent(
+  graphicType: unknown,
+  content: Record<string, unknown>,
+  params: Record<string, unknown> = {},
+): string {
+  const semanticAtoms = recordValue(params.semanticAtoms) ?? recordValue(content.semanticAtoms);
+  const quantity = recordValue(semanticAtoms?.quantity);
+  const textAtom = recordValue(semanticAtoms?.text);
+  const identity = recordValue(semanticAtoms?.identity);
+  const quote = recordValue(semanticAtoms?.quote);
+  const relation = recordValue(semanticAtoms?.relation);
+  const kind = normalizeGraphicDedupeToken(params.creativeDecisionType ?? params.graphicType ?? graphicType ?? 'graphic');
+  const body = [
+    quantity?.displayText,
+    quantity?.label,
+    textAtom?.primary,
+    textAtom?.keyword,
+    semanticAtoms?.concept,
+    semanticAtoms?.claim,
+    semanticAtoms?.evidencePhrase,
+    identity?.name,
+    identity?.role,
+    quote?.text,
+    relation?.from,
+    relation?.to,
+    content.value,
+    content.label,
+    content.title,
+    content.body,
+    content.name,
+    content.text,
+    content.quote,
+    params.value,
+    params.label,
+    params.title,
+    params.body,
+    params.name,
+    params.text,
+    params.quote,
+  ]
+    .map(normalizeGraphicDedupeToken)
+    .filter(Boolean)
+    .join('|');
+  return `${kind}:${body || 'unknown'}`;
+}
+
+function recordValue(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null;
+}
+
+function normalizeGraphicDedupeToken(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 180);
+}
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -3109,17 +3454,16 @@ async function applyGraphic(
     }
   }
 
-  // DEDUP: Don't create graphic if one already exists at this frame range.
-  // Multiple systems (finalize, EDL, Director, chat) can create graphics.
-  // First one wins — no visual clutter from overlapping graphics.
-  const _graphicCheckDur = decision.durationFrames || 90;
+  // DEDUP: block the same graphic fact near the same frame, not every nearby graphic.
+  // A stat-counter and a lower-third can coexist; two copies of the same stat cannot.
+  const currentGraphicKey = graphicDedupeKeyFromContent(graphicType, contentMap, decision.params);
   const existingGraphic = overlays.find(o =>
-    (o.type === 'html-scene' || o.type === 'motion-graphic' || (o as any).type === 'sticker') &&
-    o.from <= decision.frame + 15 &&
-    (o.from + o.durationInFrames) >= decision.frame - 15
+    isGraphicOverlayForDedupe(o)
+    && Math.abs(o.from - decision.frame) <= 15
+    && graphicDedupeKeyFromOverlay(o) === currentGraphicKey
   );
   if (existingGraphic) {
-    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — existing graphic at frame ${existingGraphic.from} (dedup)`);
+    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — duplicate ${currentGraphicKey} at frame ${existingGraphic.from}`);
     return null;
   }
 
@@ -3157,7 +3501,11 @@ async function applyGraphic(
   // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
   if (useCompositionEngine) {
     const rawSignals = buildMotionGraphicSignalSnapshot(decision);
-    const tokens = resolveMotionTokens(rawSignals, decision.params.brand || {});
+    const tokens = resolveMotionTokens(
+      rawSignals,
+      decision.params.brand || {},
+      decision.params.brandMotionOverrides as DeepPartial<MotionTokens> | undefined,
+    );
 
     let mgScores: MgOverlayScores | undefined = decision.params.mgOverlayScores as MgOverlayScores | undefined;
     if (!mgScores && rawSignals && Object.keys(rawSignals).length > 0) {
@@ -3491,7 +3839,11 @@ async function applyGraphic(
   // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
   // All other types use html-scene (Shadow DOM) until their structure components exist.
   if (graphicType === 'stat-counter') {
-    const tokens = resolveMotionTokens(decision.params.signals || {}, decision.params.brand || {});
+    const tokens = resolveMotionTokens(
+      decision.params.signals || {},
+      decision.params.brand || {},
+      decision.params.brandMotionOverrides as DeepPartial<MotionTokens> | undefined,
+    );
     const contentMap: Record<string, string> = {
       value: decision.params.value ? String(decision.params.value) : decision.params.endValue ? String(decision.params.endValue) : text,
       prefix: decision.params.prefix || '',
@@ -3609,96 +3961,9 @@ function applyAudioDuck(
   return { created: 0, modified: 1 };
 }
 
-function _applyFilterChange(
+function applyPacingNoop(
   decision: EditDecision,
-  overlays: Overlay[],
-): { created: number; modified: number } | null {
-  let { filterId, filterCss } = decision.params;
-
-  // Phase A3.5.4 fix: previously `filterId` was read but never resolved to CSS — only
-  // `filterCss` was applied. Now if filterId is set, resolve it via getFilterPresetById
-  // so server-safe preset names ("golden-hour-pro", "film-portra", etc.) actually work.
-  if (filterId && !filterCss) {
-    const preset = getFilterPresetById(filterId);
-    if (preset && preset.id !== 'none') {
-      filterCss = preset.filter;
-    }
-  }
-
-  // If Unified Intelligence didn't specify which filter, try to infer from the decision reason.
-  // Reasons often contain filter keywords like "vintage-film", "warm", "golden-hour", "crisp-vibrant".
-  if (!filterId && !filterCss && decision.reason) {
-    const reason = decision.reason.toLowerCase();
-    const filterKeywords: Record<string, string> = {
-      'vintage': 'sepia(30%) contrast(110%) brightness(95%)',
-      'golden-hour': 'contrast(108%) brightness(108%) saturate(140%) sepia(18%) hue-rotate(348deg)',
-      'warm': 'contrast(108%) brightness(105%) saturate(120%) sepia(10%)',
-      'cool': 'contrast(110%) brightness(100%) saturate(90%) hue-rotate(180deg)',
-      'cinematic': 'contrast(115%) brightness(95%) saturate(110%)',
-      'crisp': 'contrast(120%) brightness(105%) saturate(130%)',
-      'noir': 'grayscale(100%) contrast(130%) brightness(90%)',
-      'vibrant': 'contrast(110%) brightness(105%) saturate(150%)',
-    };
-    for (const [keyword, css] of Object.entries(filterKeywords)) {
-      if (reason.includes(keyword)) {
-        filterCss = css;
-        console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: inferred "${keyword}" from reason`);
-        break;
-      }
-    }
-  }
-
-  if (!filterId && !filterCss) {
-    console.log(`[EDL-Exec] Filter-change at frame ${decision.frame}: SKIPPED — no filterId, filterCss, or inferable keyword in reason`);
-    return null;
-  }
-
-  // Bundle 3 (2026-04-08): Skin-tone safety rail.
-  // Reject any filter with hue-rotate > 30deg (or < -30deg) unless the user's edit profile
-  // EXPLICITLY selected a stylistic preset (teal-orange, blade-runner, neon-nights, cool).
-  // Generic EDL filter-change decisions must not turn skin tones blue/green on emotional
-  // / human / nostalgia content. See creative_production_knowledge.md §6 Color Grading
-  // Psychology + Phase A3.5.4 disaster inventory.
-  if (filterCss) {
-    const hueMatch = filterCss.match(/hue-rotate\((-?\d+)deg\)/);
-    if (hueMatch) {
-      const degrees = parseInt(hueMatch[1], 10);
-      // Normalize to [-180, 180]
-      let normalized = degrees % 360;
-      if (normalized > 180) normalized -= 360;
-      if (normalized < -180) normalized += 360;
-      if (Math.abs(normalized) > 30) {
-        console.warn(`[EDL-Exec] Filter-change at frame ${decision.frame}: REJECTED filterCss with hue-rotate(${normalized}deg) — too extreme for skin tones. (filterId was "${filterId || '(none)'}")`);
-        return null;
-      }
-    }
-  }
-
-  let modified = 0;
-  const videoOverlays = overlays.filter(o =>
-    (o.type === 'video' || o.type === 'image') &&
-    o.from <= decision.frame &&
-    o.from + o.durationInFrames > decision.frame,
-  );
-
-  // Bundle 3 (2026-04-08): Don't overwrite a filter that finalize already set.
-  // Finalize's applyEditDirections picks a mood-appropriate filter from moodFilterMap
-  // (which Bundle 1 locked to skin-tone-safe presets only). Director's batch_update_overlays
-  // ALREADY respects this via a script-filter-preserved guard. The EDL executor didn't,
-  // which is how teal-orange hue-rotate(160deg) ended up on clips 0+2 of proj_r8E_z9WVaBX9
-  // despite mood='calm' and mood='inspirational' both mapping to golden-hour-pro.
-  // Fix: same guard here. Only apply filter-change to overlays that have no filter yet.
-  for (const overlay of videoOverlays) {
-    if (!(overlay as any).styles) (overlay as any).styles = {};
-    if ((overlay as any).styles.filter) {
-      // Finalize/Director already set a filter — respect it. Skip this overlay.
-      continue;
-    }
-    if (filterCss) {
-      (overlay as any).styles.filter = filterCss;
-    }
-    modified++;
-  }
-
-  return modified > 0 ? { created: 0, modified } : null;
+): { created: number; modified: number } {
+  console.log('[EDL-Exec] Pacing at frame ' + decision.frame + ': accepted as informational no-op');
+  return { created: 0, modified: 0 };
 }

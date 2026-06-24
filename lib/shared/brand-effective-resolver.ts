@@ -1,15 +1,11 @@
+import { brandVaultSourceEnabled, type BrandVaultSourceService } from './brand-flags';
 import type { UnifiedBrand } from './brand-registry';
-import {
-  brandVaultSourceEnabled,
-  type BrandVaultSourceService,
-} from './brand-flags';
-import type { BrandSignalProfile } from './brand-signal-profile';
 import { brandSignalProfileToUnifiedBrand } from './brand-signal-profile-adapter';
-import {
-  getDefaultBrandVaultRefineryStore,
-  type BrandVaultRefineryStore,
-} from './brand-vault-refinery-api';
+import type { BrandSignalProfile } from './brand-signal-profile';
+import { getDefaultBrandVaultRefineryStore, type BrandVaultRefineryStore } from './brand-vault-refinery-api';
 import type { BrandVaultStoreResult } from './brand-vault-draft-orchestrator';
+
+export type EffectiveBrandSource = 'legacy' | 'brand_vault' | 'none';
 
 export type BrandVaultAcceptedProfileGetter = (
   filter: { brandId?: string; userId?: string },
@@ -22,11 +18,19 @@ export interface ResolveEffectiveBrandOptions {
   enabled?: boolean;
   getLegacyBrand?: LegacyBrandGetter;
   getAcceptedProfile?: BrandVaultAcceptedProfileGetter;
-  onVaultFallback?: (message: string, error: unknown) => void;
+  store?: Pick<BrandVaultRefineryStore, 'getLatestAcceptedProfile'>;
+  onVaultFallback?: (message: string, error?: unknown) => void;
 }
 
-function defaultAcceptedProfileGetter(): BrandVaultAcceptedProfileGetter {
-  const store: BrandVaultRefineryStore = getDefaultBrandVaultRefineryStore();
+export interface EffectiveBrandResolution {
+  brand: UnifiedBrand | null;
+  acceptedProfile: BrandSignalProfile | null;
+  source: EffectiveBrandSource;
+}
+
+function defaultAcceptedProfileGetter(
+  store: Pick<BrandVaultRefineryStore, 'getLatestAcceptedProfile'> = getDefaultBrandVaultRefineryStore(),
+): BrandVaultAcceptedProfileGetter {
   return (filter) => store.getLatestAcceptedProfile(filter);
 }
 
@@ -44,20 +48,38 @@ export async function resolveEffectiveBrand(
   brandId: string,
   options: ResolveEffectiveBrandOptions,
 ): Promise<UnifiedBrand | null> {
+  return (await resolveEffectiveBrandWithProfile(userId, brandId, options)).brand;
+}
+
+export async function resolveEffectiveBrandWithProfile(
+  userId: string,
+  brandId: string,
+  options: ResolveEffectiveBrandOptions,
+): Promise<EffectiveBrandResolution> {
   const getLegacyBrand = options.getLegacyBrand ?? defaultLegacyBrandGetter;
+  const legacy = await getLegacyBrand(userId, brandId);
   const enabled = options.enabled ?? brandVaultSourceEnabled(options.service);
 
-  if (!enabled) return getLegacyBrand(userId, brandId);
+  if (!enabled) {
+    return { brand: legacy, acceptedProfile: null, source: legacy ? 'legacy' : 'none' };
+  }
 
-  const legacyPromise = getLegacyBrand(userId, brandId);
   try {
-    const getAcceptedProfile = options.getAcceptedProfile ?? defaultAcceptedProfileGetter();
+    const getAcceptedProfile = options.getAcceptedProfile
+      ?? defaultAcceptedProfileGetter(options.store);
     const profile = await getAcceptedProfile({ brandId, userId });
-    const legacy = await legacyPromise;
-    if (!profile) return legacy;
-    return brandSignalProfileToUnifiedBrand(profile, legacy);
+    if (!profile) {
+      return { brand: legacy, acceptedProfile: null, source: legacy ? 'legacy' : 'none' };
+    }
+
+    return {
+      brand: brandSignalProfileToUnifiedBrand(profile, legacy),
+      acceptedProfile: profile,
+      source: 'brand_vault',
+    };
   } catch (error) {
-    (options.onVaultFallback ?? warnVaultFallback)('vault accepted-profile read failed; using legacy brand.', error);
-    return legacyPromise;
+    const message = 'vault accepted-profile read failed; using legacy brand.';
+    (options.onVaultFallback ?? warnVaultFallback)(message, error);
+    return { brand: legacy, acceptedProfile: null, source: legacy ? 'legacy' : 'none' };
   }
 }

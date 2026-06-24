@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus
 import { motion, AnimatePresence } from "framer-motion";
 import ContentCardModal from "./ContentCardModal";
 import { ContentCard } from "@/app/dashboard/thinkforge/types";
+import { stageMeta } from "@/lib/calos/stages";
 
 const DATE_PICKER_WIDTH = 320;
 const DATE_PICKER_MARGIN = 12;
@@ -32,6 +33,8 @@ type CalendarProps = {
   onCreateCard?: (date: Date) => void;
   onDeleteCard?: (id: string) => void;
   onOpenScript?: (sessionId: string) => void;
+  onGenerate?: (id: string) => void;
+  onDecision?: (id: string, decision: 'approved' | 'rejected' | 'changes_requested') => void;
 };
 
 // Platform icon mapping with ThinkForge tints (red-forward aesthetic)
@@ -64,7 +67,10 @@ const getStatusColor = (status: string) => {
 
 // Event chip component - the small event pills shown in calendar cells
 const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | CalendarEvent; onClick: () => void; onDragEnd?: (eventId: string, newDate: Date) => void }) => {
-  const statusColor = getStatusColor(event.status);
+  // CalOS cards carry an editorial stage; color the chip by it. Legacy ThinkForge cards (no
+  // editorialStatus) fall back to the existing status coloring.
+  const stage = stageMeta((event as ContentCard).editorialStatus);
+  const statusColor = stage?.chip ?? getStatusColor(event.status);
   // Support both legacy tags and new customTags
   const allTags = ('customTags' in event && event.customTags?.length) 
     ? [...event.customTags, ...(event.tags || [])]
@@ -98,6 +104,9 @@ const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | Calenda
       className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-[#D4A652]/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
       onClick={onClick}
     >
+      {stage && (
+        <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${stage.dot}`} title={stage.label} />
+      )}
       <PlatformIcon platform={event.platform} size={10} />
       <span className="truncate flex-1">{event.title}</span>
       {firstTag && (
@@ -124,15 +133,19 @@ export default function Calendar({
   onEventUpdate,
   onCreateCard,
   onDeleteCard,
-  onOpenScript
+  onOpenScript,
+  onGenerate,
+  onDecision
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState("");
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [visibleMonths, setVisibleMonths] = useState<Date[]>([
-    subMonths(new Date(), 1),
+    // Default the view to the CURRENT month at the top; scrolling up lazy-loads past months
+    // (so previous months aren't removed, just not the default landing view).
     new Date(),
-    addMonths(new Date(), 1)
+    addMonths(new Date(), 1),
+    addMonths(new Date(), 2),
   ]);
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -843,22 +856,38 @@ export default function Calendar({
       </div>
 
       {/* Content Card Modal */}
-      {selectedCard && (
-        <ContentCardModal
-          card={selectedCard}
-          isOpen={!!selectedCard}
-          onClose={() => setSelectedCard(null)}
-          onUpdate={(id, updates) => {
-            onEventUpdate?.(id, updates);
-            setSelectedCard(prev => prev ? { ...prev, ...updates } : null);
-          }}
-          onDelete={(id) => {
-            onDeleteCard?.(id);
-            setSelectedCard(null);
-          }}
-          onOpenScript={onOpenScript}
-        />
-      )}
+      {selectedCard && (() => {
+        // Prev/next across all cards in date order — lets the modal move day-to-day (arrow keys on
+        // desktop, swipe on mobile) without close-and-reopen.
+        const ordered = [...events].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        const idx = ordered.findIndex((e) => e.id === selectedCard.id);
+        const goTo = (delta: number) => {
+          const next = ordered[idx + delta];
+          if (next) setSelectedCard(next as ContentCard);
+        };
+        return (
+          <ContentCardModal
+            card={selectedCard}
+            isOpen={!!selectedCard}
+            onClose={() => setSelectedCard(null)}
+            onUpdate={(id, updates) => {
+              onEventUpdate?.(id, updates);
+              setSelectedCard(prev => prev ? { ...prev, ...updates } : null);
+            }}
+            onDelete={(id) => {
+              onDeleteCard?.(id);
+              setSelectedCard(null);
+            }}
+            onOpenScript={onOpenScript}
+            onGenerate={onGenerate}
+            onDecision={onDecision}
+            onPrev={idx > 0 ? () => goTo(-1) : undefined}
+            onNext={idx >= 0 && idx < ordered.length - 1 ? () => goTo(1) : undefined}
+          />
+        );
+      })()}
 
       {/* Legacy Floating Panel for CalendarEvent (backward compatibility) */}
       <AnimatePresence>

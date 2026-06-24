@@ -101,7 +101,7 @@ export interface SceneContext {
 }
 
 export interface EditPlanDecision {
-  type: 'cut' | 'transition' | 'zoom' | 'speed-change' | 'graphic' | 'sfx-trigger' | 'filter-change' | 'caption-emphasis' | 'camera-shake';
+  type: 'cut' | 'transition' | 'zoom' | 'speed-change' | 'graphic' | 'sfx-trigger' | 'caption-emphasis' | 'camera-shake';
   frame: number;
   durationFrames?: number;
   reason: string;
@@ -325,7 +325,7 @@ export async function assembleUnifiedContext(
       timestampMs: sceneStartMs,
       confidence: 0.55,
       description: `Scene start: "${scene.title}" (${scene.mood})`,
-      suggestedDecisions: ['transition', 'filter-change'],
+      suggestedDecisions: ['transition'],
     });
   }
 
@@ -489,7 +489,7 @@ const CreativeIntentPlanSchema = z.object({
 
 // ─── Legacy Schema (kept for generateUnifiedEditPlan fallback) ───
 const LegacyEditDecisionSchema = z.object({
-  type: z.enum(['cut', 'transition', 'zoom', 'speed-change', 'graphic', 'sfx-trigger', 'filter-change', 'caption-emphasis', 'camera-shake']),
+  type: z.enum(['cut', 'transition', 'zoom', 'speed-change', 'graphic', 'sfx-trigger', 'caption-emphasis', 'camera-shake']),
   frame: z.number(),
   durationFrames: z.number().optional(),
   reason: z.string(),
@@ -804,11 +804,10 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
   if (context.colorPalette?.length) prompt += `COLORS: ${context.colorPalette.join(', ')}\n`;
   if (context.environmentNotes) prompt += `ENVIRONMENT: ${context.environmentNotes}\n`;
 
-  // Profile constraints (in creative language, not mechanical rules)
-  const profileName = options.editProfileName || context.editProfileName || '';
-  if (profileName) {
-    prompt += `\nEDIT PROFILE: "${profileName}"\n`;
-    prompt += `Target pacing: ${options.targetCutsPerMinute || 10} cuts/min. Graphics density: ${options.graphicDensity || 'moderate'}.\n`;
+  // Signal-owned constraints (creative language, not mechanical profile rules)
+  prompt += `\nSIGNAL POLICY\n`;
+  prompt += `Target pacing: ${options.targetCutsPerMinute || 10} cuts/min. Graphics density: ${options.graphicDensity || 'moderate'}.\n`;
+  {
     const densityGuidance = options.graphicDensity === 'minimal'
       ? `GRAPHIC RULES (minimal density):
 - At most 1 graphic per 5 scenes. Most scenes: graphicIntents should contain only {type: "none"}.
@@ -820,16 +819,14 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
 - Up to 2 graphics per scene.
 - Place graphics for: all named people, statistics, key terms, CTAs, brand mentions.
 - Fill the exact evidence fields for each visual explanation; do not choose graphic types.
-- onScreenText entries: include all that are relevant.`
+- onScreenText entries: include if they are evidence-backed by narration or visible source.`
       : `GRAPHIC RULES (moderate density):
-- At most 1 graphic per 2 scenes. Many scenes should have no graphics.
-- ONLY place a graphic if the scene contains evidence for: (a) first appearance of a named person/entity, (b) a specific number/metric, (c) brand/logo or CTA at opening/closing, (d) a direct quote/proof, (e) a comparison/process that needs visual structure.
-- Default for scenes without a matching condition: no graphics.
-- onScreenText entries: include only if they match a condition above.`;
-    prompt += `<graphic_density_rules>\n${densityGuidance}\nNarrative arc: opening scenes get introductions, closing scenes get brand moments, middle scenes only get graphics if content matches a condition above.\n</graphic_density_rules>\n`;
+- Place graphics only for evidence-backed moments: named people/entities, numbers/statistics, CTAs, or strong claims.
+- Most scenes should have 0-1 graphics.
+- Fill evidence fields; do not choose graphic types.`;
+    prompt += densityGuidance + '\n';
   }
 
-  // Narrative arc (same detection as before)
   const narrativeArc = context.globalEditDirections?.narrativeArc || '';
   if (narrativeArc) {
     prompt += `\nNARRATIVE ARC: ${narrativeArc}\n`;
@@ -839,13 +836,6 @@ ${totalSec}s, ${fps}fps, ${context.scenes.length} scenes
     )) {
       prompt += `NOSTALGIA PROGRESSION: early=vintage filter/slow dissolves, middle=sharper/faster, present=crisp/zoom-punches allowed, resolution=brightest/cleanest.\n`;
     }
-  }
-
-  // Platform overrides (same as before, condensed)
-  if (profileName.toLowerCase().includes('tiktok') || profileName.toLowerCase().includes('reel')) {
-    prompt += `PLATFORM: Short-form — hook in 2-3s, captions mandatory, faster transitions.\n`;
-  } else if (profileName.toLowerCase().includes('linkedin')) {
-    prompt += `PLATFORM: LinkedIn — NO aggressive shake, MAX 1 zoom-punch/30s, clean professional graphics.\n`;
   }
 
   // ─── Per-scene context (using asset briefings if available) ────
@@ -991,7 +981,7 @@ Track your previous decision intensity. After a high-intensity decision (zoom-pu
 | Professional | Minimal push | Hard-cut, dissolve | None | Minimal-grade |
 </rules>
 
-<output_format>Edit decisions per scene with Murch reasoning: zoom, transition, shake, filter, graphics, pacing — each justified by which Rule of Six criterion it serves.</output_format>
+<output_format>Edit decisions per scene with Murch reasoning: zoom, transition, shake, graphics, pacing — each justified by which Rule of Six criterion it serves.</output_format>
 
 `;
 
@@ -1060,34 +1050,6 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
     }
   }
 
-  // ─── Part 14: Platform Overrides ──────────────────────────────
-  const profileName = (options.editProfileName || context.editProfileName || '').toLowerCase();
-  if (profileName.includes('tiktok') || profileName.includes('reel') || profileName.includes('short')) {
-    prompt += `\n## PLATFORM: Short-Form (TikTok/Reels/Shorts) — Rule PL-001 OVERRIDES:
-- PREFER shorter scene durations (2-5s) but DO NOT force a hard cap. Script durations take priority.
-- Hook in first 2-3s recommended but respect the script's pacing — tutorials and educational shorts may need longer setups.
-- Captions MANDATORY, position center-screen (not bottom)
-- Zoom-punch budget INCREASED to 5 per 30s
-- Keyword graphic density INCREASED: 1 per 2.5s allowed
-- Transitions must be fast: dissolves < 0.5s, wipes < 0.3s
-- NO dip-to-black longer than 0.5s (kills retention)
-- BGM must have clear beat for first 5 seconds\n`;
-  } else if (profileName.includes('youtube') && profileName.includes('long')) {
-    prompt += `\n## PLATFORM: YouTube Long Form — Rule PL-010:
-- Scene durations follow the script — can be 5s to 60s+ depending on content
-- Graphics LESS frequent (1 per 5-6s max)
-- Transitions can be longer (dissolves up to 1.0s)
-- Allow establishing shots and slower openings (hook within first 10s)\n`;
-  } else if (profileName.includes('linkedin')) {
-    prompt += `\n## PLATFORM: LinkedIn — Rule PL-020 OVERRIDES:
-- Captions MANDATORY (autoplay is muted)
-- NO aggressive camera shake, NO snap zoom, NO glitch transitions
-- Maximum 1 zoom-punch per 30s
-- Graphic style: clean, data-focused (stat-counters, charts, lower-thirds)
-- Filter: neutral to slightly warm
-- Close with professional CTA (lower-third with link)\n`;
-  }
-
   // ─── Part 5: Speed Change Rules ───────────────────────────────
   prompt += `\n## SPEED CHANGE RULES:
 - S-001: Slow-mo (0.5x-0.7x) for THE emotional peak moment only. Use ONCE per video, max twice.
@@ -1104,7 +1066,7 @@ The visual treatment must SHOW time passing, not just rely on voiceover.\n`;
 - **OVERTONAL**: Multiple signals layered — motion + color + composition + sound all influence cuts simultaneously. For: cinematic trailers, luxury brand films, music videos.
 - **INTELLECTUAL**: Contrasting images juxtaposed to create NEW meaning neither has alone. For: social commentary, before/after, problem-solution ads.
 
-Select ONE method per scene based on content type and mood. Default to RHYTHMIC for most content.\n`;
+Select ONE method per scene based on motion, rhythm, visual density, and mood. Default to RHYTHMIC when signals are mixed.\n`;
 
   // ─── Part 9: SFX Pairing Rules ────────────────────────────────
   prompt += `\n## SFX PAIRING TABLE (transition type → sound):
@@ -1263,10 +1225,6 @@ OTHER SFX RULES:
 - Highlights a specific word in the voiceover captions with bold/color/animation
 - Use on: key emotional words, brand names, action verbs, statistics
 - Creates Hormozi-style keyword highlighting in the subtitle text
-
-### FILTER CHANGES (type: 'filter-change')
-- Apply visual filter at a specific frame (brightness, saturation, contrast, blur)
-- Use for: mood transitions (warm→cool), memory→present shifts, dramatic moments
 
 ### CUTS (type: 'cut')
 - Scene boundary marker — informational only, no visual overlay created
