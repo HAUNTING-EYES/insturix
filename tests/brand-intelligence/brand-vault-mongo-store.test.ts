@@ -152,6 +152,29 @@ describe('Brand Vault Mongo refinery store', () => {
     );
   });
 
+  it('surfaces a pre-stack (null-org) brand for an org member until backfill, org row winning (R5 fallback)', async () => {
+    const collections = createMemoryCollections();
+    const store = createBrandVaultMongoRefineryStore({ collections });
+
+    // A brand accepted before org-scoping existed: orgId is absent.
+    await store.saveRecord(draftRecord({ id: 'legacy_v1', name: 'Legacy Brand', now: '2026-06-10T07:00:00.000Z' }));
+    const legacy = await store.acceptDraft('legacy_v1', { now: '2026-06-10T07:01:00.000Z' });
+    if (!legacy.ok) throw new Error('Expected legacy accept to succeed.');
+
+    // The user is now in an org with no org-scoped row yet → the legacy brand must not vanish.
+    expect((await store.getLatestAcceptedProfile({ orgId: 'org_x', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Legacy Brand');
+    expect((await store.getLatestAcceptedRecord({ orgId: 'org_x', brandId: 'shared_brand', userId: 'shared_user' }))?.id).toBe('legacy_v1');
+
+    // Once an org-scoped row exists, it wins over the legacy fallback.
+    await store.saveRecord(draftRecord({ id: 'org_x_v1', orgId: 'org_x', name: 'Org X V1', now: '2026-06-10T07:02:00.000Z' }));
+    const orgX = await store.acceptDraft('org_x_v1', { now: '2026-06-10T07:03:00.000Z' });
+    if (!orgX.ok) throw new Error('Expected org X accept to succeed.');
+    expect((await store.getLatestAcceptedProfile({ orgId: 'org_x', brandId: 'shared_brand', userId: 'shared_user' }))?.identity.brandName.value).toBe('Org X V1');
+
+    // A different org member (no legacy of their own) sees the org brand, never the first user's legacy.
+    expect((await store.getLatestAcceptedProfile({ orgId: 'org_x', brandId: 'shared_brand', userId: 'other_user' }))?.identity.brandName.value).toBe('Org X V1');
+  });
+
   it('lists queued job snapshots by status and cutoff for worker processing', async () => {
     const store = createBrandVaultMongoRefineryStore({ collections: createMemoryCollections() });
     await store.saveJobSnapshot({
