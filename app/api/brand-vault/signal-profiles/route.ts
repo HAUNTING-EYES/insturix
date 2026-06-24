@@ -15,13 +15,9 @@ export async function GET(request: Request) {
   const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-  const brandId = new URL(request.url).searchParams.get('brandId')?.trim();
-  if (!brandId) {
-    return NextResponse.json(
-      { ok: false, error: { code: 'brand_required', message: 'brandId is required.' } },
-      { status: 400 },
-    );
-  }
+  // brandId is optional: when present, scope to that brand; when absent, fall back to the user's latest
+  // accepted brand so the vault still loads on a fresh visit instead of failing with no brand selected.
+  const brandId = new URL(request.url).searchParams.get('brandId')?.trim() || undefined;
 
   const record = await getDefaultBrandVaultRefineryStore().getLatestAcceptedRecord({
     userId,
