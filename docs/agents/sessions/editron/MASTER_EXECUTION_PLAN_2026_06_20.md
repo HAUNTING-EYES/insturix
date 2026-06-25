@@ -778,3 +778,21 @@ formality provenance conflict (`genreParameters=0.2` / `genreParametersSignalCom
 
 ### 15.4 Cross-cutting themes
 (A) **real-vs-AI-gen confusion** (#1) → architectural, §13. (B) **gates observe, never enforce** (#3) → Phase 0/12. (C) **log integrity** (#6, #7) — logs mislead and cost debug time. (D) **over-production** (#4) → Path-D + the MG flood.
+
+## 16) Signal-Provenance Audit (2026-06-26) — same concept, different values across subsystems
+
+Triggered by the formality conflict (§15.3). Dedicated investigation (subagent + verification on the 6 real signal sets).
+
+### 16.1 FORMALITY — ✅ FIXED + VERIFIED (`fb05499a`)
+Root = a **SCALE bug**, not a value bug. Every producer emits formality on **0..1** (`computeFormality` clamp(f,0,1) @`genre-parameter-computer.ts:358`; `estimateFormality` buckets @`signal-registry.ts:1110`), but the MG resolver did `(s.formality+1)/2` assuming -1..+1 (the type contract @`motion-theme-resolver.ts:25` wrongly said so) → a real 0.7 became formalityNorm 0.85 → tripped `formalityNorm>0.7→fade` on ~all content. Fixed: 5 sites → `clamp(s.formality,0,1)` + contract. VERIFIED: entrancePattern flips **fade×5 → slide-up×5**. The three stored values explained: `genreParameters.formality=0.2` (post-bandit, `video-analysis/route.ts:317`), `genreParametersSignalComputed.formality=0.4` (pre-bandit snapshot, `:281`), `contentSignals.formality=0.7` (Director Path E re-computes from scratch, `director-agent.ts:722,875,899`). One underlying ~0.4, three transforms.
+
+### 16.2 ARCHITECTURAL ROOT — `signalCtx` vs `personality.*` duplication (NOT fixed; needs a real run to verify)
+Personality signals are derived TWICE: `signalCtx` (bare keys, `director-agent.ts:895-924`) and `personality.*` (namespaced, `signal-registry.ts:664-727`), near-identical formulas but DIFFERENT inputs. The resolver's fallback key-order prefers bare keys; the Path-D bridge (`director-agent.ts:1284-1291`) overwrites bare WITH `personality.*`. So **Path D and Path E feed the resolver different numbers for the same concept.** Confirmed:
+- **pacing_velocity:** director 0.53 (V-JEPA segment motion) vs registry 0.75 (grid-frame motion) → energy/duration/stagger differ between paths.
+- **emotional_arousal:** same formula, different segment source.
+- **humor:** director HARDCODES `0.1` (`director-agent.ts:921`); registry computes a real blend (`:722-727`) → Path E MGs never get playful emphasis/`pop`.
+- **warmth:** different face-coverage predicate (`eyeContact > 0.3` numeric @:891 vs `=== true` boolean @:683).
+**FIX (single highest-leverage):** collapse to ONE source — delete the `signalCtx` block, have Director consume `personality.*` globals. CAVEAT: formality isn't in `personality.*` (no writer) → thread it separately. Director-signal-flow refactor; verify against a real run's decision log. Every formula in BOTH is self-labeled ⚠️ INVENTED — unifying removes the *conflict*, not the calibration debt.
+
+### 16.3 Secondary (deferred)
+Director Path E RE-RUNS `computeGenreParameters` from scratch (`director-agent.ts:722`) instead of reading the persisted `genreParameters`, so the genre-param bandit the user's runs learned (0.2) never reaches the MG (it sees the re-computed ~0.4). Director should read persisted genre params.
