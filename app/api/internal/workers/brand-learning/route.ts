@@ -602,27 +602,72 @@ async function createClickatronThumbnailLearningEvents(input: {
   const { createBrandSignalLearningEvent } = await import(
     '@/lib/shared/brand-signal-edit-weighting'
   );
-  return [
+  const observedAt = observedAtForBrandEvent(input.event);
+  const context = {
+    userId: input.event.userId,
+    brandId: input.brandId,
+    projectId: input.projectId,
+    contentId: input.thumbnailId,
+    sourceId: input.sourceId ?? input.thumbnailId,
+    sourceUrl: input.thumbnailUrl,
+  };
+
+  const events: unknown[] = [
     createBrandSignalLearningEvent({
       service: 'clickatron',
       signalPath: 'assets.socialPreviewImages',
       editType: 'accepted_output_confirmation',
       scope: 'project',
       polarity: 'affirm',
-      observedAt: observedAtForBrandEvent(input.event),
+      observedAt,
       actorId: input.event.userId,
-      context: {
-        userId: input.event.userId,
-        brandId: input.brandId,
-        projectId: input.projectId,
-        contentId: input.thumbnailId,
-        sourceId: input.sourceId ?? input.thumbnailId,
-        sourceUrl: input.thumbnailUrl,
-      },
+      context,
       observedValue: [input.thumbnailUrl],
       note: 'User committed this Clickatron thumbnail output; stage as a weak social-preview asset signal until human review.',
     }),
   ];
+
+  // Mine the committed image for the brand's actual visual language (palette + a few reliably-judgeable
+  // visual dials), so Brand Vault learns more than "a thumbnail existed at this URL". Best-effort: any
+  // failure leaves just the asset signal above (no regression). These single-sample inferences stay weak
+  // and stage for human review like every other learning event.
+  try {
+    const { analyzeThumbnailVisualSignals } = await import('@/lib/shared/brand-vault-thumbnail-visual');
+    const signals = await analyzeThumbnailVisualSignals({ imageUrl: input.thumbnailUrl });
+    if (signals) {
+      const VISUAL_NOTE =
+        'Inferred from a committed Clickatron thumbnail; weak single-sample visual signal, staged until human review.';
+      const affirm = (signalPath: string, afterValue: unknown) =>
+        createBrandSignalLearningEvent({
+          service: 'clickatron',
+          signalPath,
+          editType: 'accepted_output_confirmation',
+          scope: 'project',
+          polarity: 'affirm',
+          observedAt,
+          actorId: input.event.userId,
+          context,
+          afterValue,
+          note: VISUAL_NOTE,
+        });
+      if (signals.palette.primary) events.push(affirm('palette.primary', signals.palette.primary));
+      if (signals.palette.accent) events.push(affirm('palette.accent', signals.palette.accent));
+      if (signals.palette.supporting.length) events.push(affirm('palette.supporting', signals.palette.supporting));
+      if (signals.visual.minimalism !== undefined) events.push(affirm('visual.minimalism', signals.visual.minimalism));
+      if (signals.visual.contrastPreference !== undefined) {
+        events.push(affirm('visual.contrastPreference', signals.visual.contrastPreference));
+      }
+      if (signals.visual.expressiveness !== undefined) {
+        events.push(affirm('visual.expressiveness', signals.visual.expressiveness));
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[BrandLearning] thumbnail visual analysis failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return events;
 }
 
 function observedAtForBrandEvent(event: BrandEvent): string {
