@@ -796,3 +796,22 @@ Personality signals are derived TWICE: `signalCtx` (bare keys, `director-agent.t
 
 ### 16.3 Secondary (deferred)
 Director Path E RE-RUNS `computeGenreParameters` from scratch (`director-agent.ts:722`) instead of reading the persisted `genreParameters`, so the genre-param bandit the user's runs learned (0.2) never reaches the MG (it sees the re-computed ~0.4). Director should read persisted genre params.
+
+## 17) Fail-Loud Instrumentation (2026-06-26) — TEMPORARY, remove when stable
+
+The 2026-06-26 session's code (10 commits) was audited for SILENT/SOFT failures (subagent over the commit diffs). Each high-value spot got a minimal `[FAILLOUD]` diagnostic log + a `// FAILLOUD-TEMP` comment (no behavior change) so a test run's logs surface any hidden failure. **★ TO-DO (do this when the editron pipeline is verified stable): `grep -rn "FAILLOUD" lib/ components/ app/` and delete every such log line + its `// FAILLOUD-TEMP` comment.** This is diagnostic scaffolding, NOT permanent.
+
+### 17.1 Instances instrumented
+1. **Brief-timestamp remap silent gap-drop** (`edited-timeline-context.ts`) — decisions whose original-time timestamp lands in a removed-silence gap are dropped (`return []`) BEFORE the executor's out-of-range tally → invisible; could delete most of a brief silently. Now logs the dropped count.
+2. **Remap no-op on bad fps** (`edited-timeline-context.ts`) — `fps<=0` returned decisions untouched AND missed NaN (`NaN<=0` is false → NaN frames → drops everything). Now guards `!(fps>0)` + logs.
+3. **Remap negative-timestamp passthrough** (`edited-timeline-context.ts`) — corrupt negative timestamps passed unmapped. Now logs.
+4. **Caller no-clip path** (`director-agent.ts:~826`) — editedTimelineContext present but sourceClips empty → remap skipped silently → out-of-range drop downstream. Now logs (else branch).
+5. **momentEmphasis missing-signal →0** (`motion-theme-resolver.ts resolveMomentEmphasis`) — absent cinematic/narrative/motion signals silently collapse sizeScale to baseline = re-freezes the monotony `4acb71f2` fixed. Now logs the missing signal.
+6. **formality clamp NaN/out-of-range** (`motion-theme-resolver.ts:288`) — `clamp(NaN)=NaN` propagates silently into 5 token families; a legacy -1..+1 producer would be floored to 0. Highest fanout. Now logs a non-0..1 formality.
+7. **Aesthetic-gate error/empty/schema** (`aesthetic-gate.ts`) — already loud about the FACT; enriched with the CAUSE (err.name + JSON-parse hint; finishReason/blockReason on empty; missing-`reasoning` schema-drift warn).
+
+### 17.2 Documented soft-spots NOT instrumented (verify by QA/render, not logs)
+- **Caption hold-last-word** (`caption-layer-content.tsx`) — if word timings are systematically wrong the hold masks it; but it's per-frame render code so a log would flood. Verify via visual QA.
+- **Scrim opacity 0.3** (`composition-renderer.tsx:151`) + **full-frame→overlay** (`visual-explanation-contract.ts`) — magic-number / routing visual assumptions with no runtime trace; verify by render.
+- **Structural-gate aggregate** — the per-MG `SUPPRESSED` log is already loud; a run-level drop count is just `grep -c` of that tag.
+- **maxDuration 800 / proxy keyframes** — config/arg constants, no swallow path of their own.
