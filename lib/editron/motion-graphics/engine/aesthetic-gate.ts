@@ -67,8 +67,12 @@ export async function runAestheticGate(
 
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
-    console.warn('[MG-AestheticGate] No API key — gate disabled, auto-pass');
-    return { pass: true, score: 100, issues: [], reasoning: 'Gate disabled (no API key)', processingTimeMs: 0 };
+    // Phase 0: do NOT auto-pass. A keyless run is UNGATED, not a perfect 100 — returning pass:true/score:100
+    // poisons any downstream gate/reward (every keyless run would "pass perfect", incl. CI/local). pass:false +
+    // score:0 so nothing treats it as a pass or reward. The wiring step adds an explicit 'ungated' status so
+    // callers SKIP gating (ungated != fail) rather than dropping the MG.
+    console.warn('[MG-AestheticGate] No API key — UNGATED (not a pass; score withheld)');
+    return { pass: false, score: 0, issues: [], reasoning: 'Ungated — no GEMINI_API_KEY (not a pass)', processingTimeMs: 0 };
   }
 
   try {
