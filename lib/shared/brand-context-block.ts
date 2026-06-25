@@ -201,6 +201,16 @@ export function buildRichBrandContextBlock(
     (fallbackBrand?.voice.nicheMap ? [fallbackBrand.voice.nicheMap] : undefined);
   if (audience?.length) lines.push(`Audience: ${audience.join(', ')}`);
 
+  const psycho = profile.identity.audiencePsychographics;
+  if (psycho) {
+    const drivers = actionableListOf(psycho.valueDrivers);
+    const pains = actionableListOf(psycho.painPoints);
+    const jtbd = actionableListOf(psycho.jobsToBeDone);
+    if (drivers?.length) lines.push(`Audience values: ${drivers.join(', ')}`);
+    if (pains?.length) lines.push(`Audience pain points: ${pains.join(', ')}`);
+    if (jtbd?.length) lines.push(`Audience is trying to: ${jtbd.join(', ')}`);
+  }
+
   const productServices = actionableListOf(profile.identity.productServices);
   if (productServices?.length) lines.push(`Products/services: ${productServices.join(', ')}`);
 

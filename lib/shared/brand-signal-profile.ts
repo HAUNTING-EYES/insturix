@@ -75,6 +75,11 @@ export interface BrandSignalProfile {
     industry?: BrandSignal<string>;
     category: BrandSignal<string>;
     audience: BrandSignal<string[]>;
+    audiencePsychographics?: {
+      valueDrivers: BrandSignal<string[]>;
+      painPoints: BrandSignal<string[]>;
+      jobsToBeDone: BrandSignal<string[]>;
+    };
     productServices?: BrandSignal<string[]>;
     proofStyle: BrandSignal<BrandProofStyle>;
   };
