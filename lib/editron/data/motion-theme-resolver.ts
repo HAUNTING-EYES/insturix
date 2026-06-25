@@ -80,6 +80,12 @@ export interface BrandInputs {
   overshootTolerance?: number;
   transitionSharpness?: number;
   rhythmRegularity?: number;
+  emotionalArc?: number;
+  pacePreference?: number;
+  anticipationStyle?: number;
+  easingTaste?: number;
+  safeZones?: number;
+  figureGroundRatio?: number;
 }
 
 export interface MotionTokens {
@@ -269,8 +275,16 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
   // stress_detected (Wav2Vec): vocal stress → more overshoot, emphasis
   const hasStress = s.stress_detected === true;
 
+  const motionIntensity = typeof s.motion_intensity === 'number' && isFinite(s.motion_intensity) ? s.motion_intensity : 0;
+  const narrativePressure = typeof s.narrative_pressure === 'number' && isFinite(s.narrative_pressure) ? s.narrative_pressure : 0;
+  const cinematicMoment = typeof s.cinematic_moment === 'number' && isFinite(s.cinematic_moment) ? s.cinematic_moment : 0;
+  const momentKinetics = clamp(motionIntensity * 0.35 + narrativePressure * 0.35 + cinematicMoment * 0.3, 0, 1);
   const brandEnergyBias = biasFromNeutral(b.motionEnergy, 0.18);
-  const energy = clamp((s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost + brandEnergyBias, 0, 1);
+  const pacePreference = dial01(b.pacePreference);
+  const emotionalArc = dial01(b.emotionalArc);
+  const brandPaceBias = biasFromNeutral(pacePreference, 0.14);
+  const arcMomentBoost = emotionalArc === undefined ? 0 : (emotionalArc - 0.5) * momentKinetics * 0.18;
+  const energy = clamp((s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost + brandEnergyBias + brandPaceBias + arcMomentBoost, 0, 1);
   const formalityNorm = (s.formality + 1) / 2; // normalize -1..+1 to 0..1
 
   // Entrance easing: energy + formality together determine the curve personality
@@ -296,6 +310,12 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
       entranceEasing = EASING_PRESETS.gentle;
     }
   }
+  const easingTaste = dial01(b.easingTaste);
+  if (easingTaste !== undefined) {
+    const crispPressure = clamp(momentKinetics * 0.65 + energy * 0.35 + biasFromNeutral(easingTaste, 0.25), 0, 1);
+    if (easingTaste >= 0.68 && crispPressure >= 0.56) entranceEasing = crispPressure > 0.74 ? EASING_PRESETS.sharp : EASING_PRESETS.snappy;
+    if (easingTaste <= 0.32 && crispPressure <= 0.58) entranceEasing = formalityNorm > 0.55 ? EASING_PRESETS.gentle : EASING_PRESETS.smooth;
+  }
 
   // Exit easing: always simpler than entrance (professional convention)
   const exitEasing = formalityNorm > 0.6 ? 'power1.in' : 'power2.in';
@@ -307,6 +327,8 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
   let emphasisEasing: string;
   if (s.humor > 0.5 || (s.visceral_impact > 0.6 && formalityNorm < 0.4)) {
     emphasisEasing = EASING_PRESETS.pop;
+  } else if (momentKinetics > 0.72 && (easingTaste === undefined || easingTaste >= 0.45)) {
+    emphasisEasing = EASING_PRESETS.snappy;
   } else if (s.enthusiasm > 0.7 || emotionBoost > 0.7) {
     emphasisEasing = EASING_PRESETS.snappy;
   } else if (emotionBoost > 0.5) {
@@ -317,7 +339,12 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
 
   // Duration: high energy = fast, high formality = slow
   // Range: 120ms (explosive) to 700ms (cinematic) ← value ranges from Director research
-  const entranceDurationMs = Math.round(lerp(energy, 0, 1, 600, 150) * lerp(formalityNorm, 0, 1, 0.85, 1.3));
+  const anticipationStyle = dial01(b.anticipationStyle);
+  const paceDurationMod = pacePreference === undefined ? 1 : lerp(pacePreference, 0, 1, 1.12, 0.88);
+  const anticipationDurationMod = anticipationStyle === undefined ? 1 : lerp(anticipationStyle * momentKinetics, 0, 1, 0.96, 1.14);
+  const entranceDurationMs = Math.round(
+    lerp(energy, 0, 1, 600, 150) * lerp(formalityNorm, 0, 1, 0.85, 1.3) * paceDurationMod * anticipationDurationMod,
+  );
   const exitDurationMs = Math.round(entranceDurationMs * 0.8); // exits 20% faster ← creative_production_knowledge_v3:5702
 
   // Stagger: time between sequential elements in multi-part graphics
@@ -333,25 +360,30 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
   const sectionMod = typeof s.music_section === 'string' ? (sectionMultipliers[s.music_section] ?? 1.0) : 1.0;
   const rhythmRegularity = dial01(b.rhythmRegularity);
   const rhythmMod = rhythmRegularity === undefined ? 1.0 : lerp(rhythmRegularity, 0, 1, 0.85, 1.15);
+  const paceStaggerMod = pacePreference === undefined ? 1.0 : lerp(pacePreference, 0, 1, 1.12, 0.88);
+  const anticipationStaggerMod = anticipationStyle === undefined ? 1.0 : lerp(anticipationStyle * momentKinetics, 0, 1, 0.96, 1.12);
   const staggerMs = Math.round(
-    lerp(energy, 0, 1, 130, 40) * lerp(formalityNorm, 0, 1, 0.8, 1.2) * pitchMod * sectionMod * rhythmMod,
+    lerp(energy, 0, 1, 130, 40) * lerp(formalityNorm, 0, 1, 0.8, 1.2) * pitchMod * sectionMod * rhythmMod * paceStaggerMod * anticipationStaggerMod,
   );
 
   // Overshoot: bounce past target. Casual + energetic, OR high narrative pressure.
   // ← signal:composite.narrative_pressure → overshoot. Threshold 0.6 ← creative_production_knowledge_v3:1820
-  const narrativePressure = typeof s.narrative_pressure === 'number' && isFinite(s.narrative_pressure) ? s.narrative_pressure : 0;
   // stress_detected: vocal stress also triggers overshoot (speaker emphasis = visual emphasis)
   const overshootTolerance = dial01(b.overshootTolerance);
   const contentOvershoot = formalityNorm < 0.4 && energy > 0.5;
   const brandOvershoot = overshootTolerance !== undefined && overshootTolerance > 0.62;
+  const brandArcOvershoot = emotionalArc !== undefined && emotionalArc > 0.64 && momentKinetics > 0.52;
   const overshoot = narrativePressure > 0.6
     || hasStress
     || brandOvershoot
+    || brandArcOvershoot
     || (contentOvershoot && (overshootTolerance === undefined || overshootTolerance >= 0.35));
 
   // Entrance pattern: formality drives conservatism
   let entrancePattern: MotionTokens['animation']['entrancePattern'];
-  if (formalityNorm > 0.7) {
+  if (cinematicMoment > 0.7 && momentKinetics > 0.62) {
+    entrancePattern = 'scale-up';
+  } else if (formalityNorm > 0.7) {
     entrancePattern = 'fade';
   } else if (energy > 0.6 && s.humor > 0.3) {
     entrancePattern = 'pop';
@@ -403,7 +435,11 @@ function resolveTypography(s: ContentSignals, b: BrandInputs): MotionTokens['typ
   }
 
   // Size scale: visual_dependency drives how much screen space text occupies
-  const sizeScale = lerp(s.visual_dependency, 0, 1, 0.9, 1.15);
+  const figureGroundRatio = dial01(b.figureGroundRatio);
+  const safeZones = dial01(b.safeZones);
+  const sizeScale = lerp(s.visual_dependency, 0, 1, 0.9, 1.15)
+    * biasMultiplier(figureGroundRatio, 0.12)
+    * biasMultiplier(safeZones, -0.08);
 
   return {
     headingFamily: b.headingFont || DEFAULT_BRAND.headingFont!,
@@ -439,8 +475,13 @@ function resolveColor(s: ContentSignals, b: BrandInputs): MotionTokens['color'] 
 
   // Surface opacity: high formality = more transparent (let footage breathe)
   // High visual_dependency = more opaque (graphics carry information)
+  const figureGroundRatio = dial01(b.figureGroundRatio);
+  const safeZones = dial01(b.safeZones);
   const surfaceOpacity = clamp(
-    lerp(formalityNorm, 0, 1, 0.9, 0.7) + lerp(s.visual_dependency, 0, 1, -0.05, 0.1),
+    lerp(formalityNorm, 0, 1, 0.9, 0.7)
+      + lerp(s.visual_dependency, 0, 1, -0.05, 0.1)
+      + biasFromNeutral(figureGroundRatio, 0.08)
+      + biasFromNeutral(safeZones, -0.04),
     0.5, 0.95,
   );
 
@@ -542,6 +583,8 @@ function resolveLayout(s: ContentSignals, b: BrandInputs): MotionTokens['layout'
   // motion_intensity: high motion frames → simpler MG (avoid visual clutter over moving content)
   // ← signal:visual.motion_intensity → density. ⚠️ threshold 0.7 INVENTED, needs calibration
   const motionIntensity = typeof s.motion_intensity === 'number' && isFinite(s.motion_intensity) ? s.motion_intensity : 0;
+  const safeZones = dial01(b.safeZones);
+  const figureGroundRatio = dial01(b.figureGroundRatio);
   if (motionIntensity > 0.7 && density !== 'minimal') {
     density = density === 'rich' ? 'standard' : 'minimal';
   }
@@ -554,10 +597,13 @@ function resolveLayout(s: ContentSignals, b: BrandInputs): MotionTokens['layout'
   }
 
   const densityTolerance = dial01(b.densityTolerance);
-  const densityProtectedByFootage = motionIntensity > 0.7 || timeSinceCut < 30;
+  const densityProtectedByFootage = motionIntensity > 0.7 || timeSinceCut < 30 || (safeZones !== undefined && safeZones > 0.72 && motionIntensity > 0.45);
   if (densityTolerance !== undefined) {
     if (densityTolerance < 0.3 && density !== 'minimal') density = shiftDensity(density, -1);
     if (densityTolerance > 0.7 && !densityProtectedByFootage && density !== 'rich') density = shiftDensity(density, 1);
+  }
+  if (figureGroundRatio !== undefined && figureGroundRatio > 0.72 && !densityProtectedByFootage && density !== 'rich') {
+    density = shiftDensity(density, 1);
   }
 
   // Max simultaneous: limits how many graphics can overlap
@@ -568,7 +614,12 @@ function resolveLayout(s: ContentSignals, b: BrandInputs): MotionTokens['layout'
   // speaking_rate_wpm refines: fast speakers = shorter hold, slow = longer
   // ← signal:speech.speaking_rate_wpm → holdDurationMs. ⚠️ blend factor INVENTED
   const energy = (s.enthusiasm + s.pacing_velocity) / 2;
+  const pacePreference = dial01(b.pacePreference);
+  const emotionalArc = dial01(b.emotionalArc);
+  const narrativePressure = typeof s.narrative_pressure === 'number' && isFinite(s.narrative_pressure) ? s.narrative_pressure : 0;
   let holdDurationMs = Math.round(lerp(energy, 0, 1, 4500, 2000));
+  if (pacePreference !== undefined) holdDurationMs = Math.round(holdDurationMs * lerp(pacePreference, 0, 1, 1.15, 0.82));
+  if (emotionalArc !== undefined) holdDurationMs = Math.round(holdDurationMs * lerp(emotionalArc * narrativePressure, 0, 1, 1, 1.12));
   if (typeof s.speaking_rate_wpm === 'number' && isFinite(s.speaking_rate_wpm) && s.speaking_rate_wpm > 0) {
     const wpmFactor = lerp(clamp(s.speaking_rate_wpm, 80, 220), 80, 220, 1.15, 0.75);
     holdDurationMs = Math.round(holdDurationMs * wpmFactor); // fast speech = shorter hold
@@ -586,7 +637,8 @@ function resolveLayout(s: ContentSignals, b: BrandInputs): MotionTokens['layout'
   // Padding scale: warmth + formality = generous spacing
   const paddingScale = lerp(formalityNorm, 0, 1, 0.85, 1.2)
     * lerp(s.warmth, 0, 1, 0.9, 1.1)
-    * biasMultiplier(b.minimalism, 0.15);
+    * biasMultiplier(b.minimalism, 0.15)
+    * biasMultiplier(safeZones, 0.08);
 
   return {
     density,

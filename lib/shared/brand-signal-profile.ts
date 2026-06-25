@@ -109,7 +109,23 @@ export interface BrandSignalProfile {
     | 'contrastPreference',
     BrandSignal<number>
   >;
-  motion: Record<'motionEnergy' | 'overshootTolerance' | 'transitionSharpness' | 'rhythmRegularity', BrandSignal<number>>;
+  narrative: {
+    emotionalArc: BrandSignal<number>;
+    pacePreference: BrandSignal<number>;
+  };
+  motion: Record<
+    | 'motionEnergy'
+    | 'overshootTolerance'
+    | 'transitionSharpness'
+    | 'rhythmRegularity'
+    | 'anticipationStyle'
+    | 'easingTaste',
+    BrandSignal<number>
+  >;
+  composition: {
+    safeZones: BrandSignal<number>;
+    figureGroundRatio: BrandSignal<number>;
+  };
   voice: {
     assertiveness: BrandSignal<number>;
     warmth: BrandSignal<number>;
@@ -232,7 +248,9 @@ export function deriveBrandSignalProfile(
       casingBias: makeSignal('typography.casingBias', inferCasingBias(brand.visual.typography ?? ''), brand.visual.typography ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'visual.typography', brand.visual.typography ?? 'No typography evidence.'),
     },
     visual: deriveVisualSignals(styleText, makeSignal),
+    narrative: deriveNarrativeSignals(`${styleText} ${voiceText}`, makeSignal),
     motion: deriveMotionSignals(styleText, makeSignal),
+    composition: deriveCompositionSignals(styleText, makeSignal),
     voice: {
       assertiveness: makeSignal('voice.assertiveness', score(voiceText, ['bold', 'direct', 'confident', 'sharp'], ['soft', 'gentle']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
       warmth: makeSignal('voice.warmth', score(voiceText, ['warm', 'friendly', 'human', 'community'], ['clinical', 'formal']), voiceText ? 0.5 : BRAND_CONFIDENCE.FALLBACK_SIGNAL, 'inferred_hint', 'voice.voiceLock', voiceText || 'No voice evidence.', voiceText ? 'manual_user_entry' : 'fallback_default', voiceText ? undefined : 'No voice evidence.'),
@@ -278,7 +296,9 @@ function buildFallbackProfile(
     palette: { neutrals: fallback('palette.neutrals', [], noBrand), supporting: fallback('palette.supporting', [], noBrand), unsafeOnDark: fallback('palette.unsafeOnDark', [], noBrand), unsafeOnLight: fallback('palette.unsafeOnLight', [], noBrand), contrastBias: fallback('palette.contrastBias', 0.5, noBrand), harmony: fallback('palette.harmony', 'unknown', noBrand) },
     typography: { category: fallback('typography.category', 'unknown', noBrand), casingBias: fallback('typography.casingBias', 'unknown', noBrand) },
     visual: deriveVisualSignals('', makeSignal),
+    narrative: deriveNarrativeSignals('', makeSignal),
     motion: deriveMotionSignals('', makeSignal),
+    composition: deriveCompositionSignals('', makeSignal),
     voice: { assertiveness: fallback('voice.assertiveness', 0.5, noBrand), warmth: fallback('voice.warmth', 0.5, noBrand), jargonDensity: fallback('voice.jargonDensity', 0.5, noBrand), humor: fallback('voice.humor', 0.2, noBrand), defaultFormality: fallback('voice.defaultFormality', 0.5, noBrand), ctaDirectness: fallback('voice.ctaDirectness', 0.5, noBrand), recurringPhrases: fallback('voice.recurringPhrases', [], noBrand), killList: fallback('voice.killList', [], noBrand), hookArchetypes: fallback('voice.hookArchetypes', [], noBrand) },
     evidence,
   };
@@ -312,6 +332,30 @@ function deriveMotionSignals(text: string, makeSignal: <T>(path: string, value: 
     overshootTolerance: makeSignal('motion.overshootTolerance', score(text, ['playful', 'bouncy', 'creator'], ['premium', 'luxury', 'restrained']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
     transitionSharpness: makeSignal('motion.transitionSharpness', score(text, ['sharp', 'technical', 'bold'], ['soft', 'warm']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
     rhythmRegularity: makeSignal('motion.rhythmRegularity', score(text, ['corporate', 'technical', 'structured'], ['playful', 'chaotic']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
+    anticipationStyle: makeSignal('motion.anticipationStyle', score(text, ['cinematic', 'build', 'anticipation', 'reveal', 'dramatic'], ['instant', 'direct', 'simple']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
+    easingTaste: makeSignal('motion.easingTaste', score(text, ['sharp', 'snappy', 'crisp', 'technical', 'bold'], ['soft', 'smooth', 'gentle', 'warm']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
+  };
+}
+
+function deriveNarrativeSignals(text: string, makeSignal: <T>(path: string, value: T, confidence: number, authorityClass: BrandSignalAuthorityClass, sourceField?: string, excerpt?: string, trustLevel?: BrandSignalTrustLevel, fallbackReason?: string) => BrandSignal<T>): BrandSignalProfile['narrative'] {
+  const confidence = text ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL;
+  const excerpt = text || 'No narrative style evidence.';
+  const trustLevel = text ? 'manual_user_entry' : 'fallback_default';
+  const fallbackReason = text ? undefined : 'No narrative style evidence.';
+  return {
+    emotionalArc: makeSignal('narrative.emotionalArc', score(text, ['cinematic', 'story', 'narrative', 'dramatic', 'transformation', 'journey'], ['static', 'functional', 'plain']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
+    pacePreference: makeSignal('narrative.pacePreference', score(text, ['fast', 'energetic', 'snappy', 'rapid', 'dynamic'], ['slow', 'calm', 'deliberate', 'restrained']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
+  };
+}
+
+function deriveCompositionSignals(text: string, makeSignal: <T>(path: string, value: T, confidence: number, authorityClass: BrandSignalAuthorityClass, sourceField?: string, excerpt?: string, trustLevel?: BrandSignalTrustLevel, fallbackReason?: string) => BrandSignal<T>): BrandSignalProfile['composition'] {
+  const confidence = text ? 0.45 : BRAND_CONFIDENCE.FALLBACK_SIGNAL;
+  const excerpt = text || 'No composition style evidence.';
+  const trustLevel = text ? 'manual_user_entry' : 'fallback_default';
+  const fallbackReason = text ? undefined : 'No composition style evidence.';
+  return {
+    safeZones: makeSignal('composition.safeZones', score(text, ['clean', 'spacious', 'minimal', 'premium', 'editorial'], ['busy', 'maximal', 'loud', 'edge-to-edge']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
+    figureGroundRatio: makeSignal('composition.figureGroundRatio', score(text, ['bold', 'graphic', 'data', 'dashboard', 'expressive', 'poster'], ['minimal', 'human', 'editorial', 'subtle']), confidence, 'inferred_hint', 'visual.visualStyle', excerpt, trustLevel, fallbackReason),
   };
 }
 

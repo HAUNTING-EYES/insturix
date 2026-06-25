@@ -162,6 +162,9 @@ describe('Brand website refinery', () => {
     expect(result.candidates.every((candidate) => candidate.sourceUrl === 'https://northstar.example/')).toBe(true);
     const dataVizCandidate = result.candidates.find((candidate) => candidate.signalPath === 'visual.dataVizAffinity');
     const motionEnergyCandidate = result.candidates.find((candidate) => candidate.signalPath === 'motion.motionEnergy');
+    const emotionalArcCandidate = result.candidates.find((candidate) => candidate.signalPath === 'narrative.emotionalArc');
+    const anticipationCandidate = result.candidates.find((candidate) => candidate.signalPath === 'motion.anticipationStyle');
+    const safeZonesCandidate = result.candidates.find((candidate) => candidate.signalPath === 'composition.safeZones');
     expect(dataVizCandidate?.normalizedValue).toBe(result.profile.visual.dataVizAffinity.value);
     expect(dataVizCandidate?.normalizedValue).toBeGreaterThan(0.5);
     expect(dataVizCandidate?.sourceField).toBe('website.visualPrimitives');
@@ -175,6 +178,12 @@ describe('Brand website refinery', () => {
       'website.motion_intensity': expect.any(Number),
       'website.transition_density': expect.any(Number),
     });
+    expect(result.profile.narrative.emotionalArc.trustLevel).toBe('first_party_website');
+    expect(emotionalArcCandidate?.sourceField).toBe('website.copy');
+    expect(anticipationCandidate?.normalizedValue).toBe(result.profile.motion.anticipationStyle.value);
+    expect(anticipationCandidate?.sourceField).toBe('website.motionPrimitives');
+    expect(safeZonesCandidate?.normalizedValue).toBe(result.profile.composition.safeZones.value);
+    expect(safeZonesCandidate?.sourceField).toBe('website.visualPrimitives');
 
     const validation = validateBrandSignalProfile(result.profile);
     expect(validation.valid).toBe(true);

@@ -50,6 +50,12 @@ function acceptedProfile(): BrandSignalProfile {
   setSignal(draft.motion.overshootTolerance, 0.24, 0.84, 'brand_preference');
   setSignal(draft.motion.transitionSharpness, 0.82, 0.84, 'brand_preference');
   setSignal(draft.motion.rhythmRegularity, 0.72, 0.84, 'brand_preference');
+  setSignal(draft.narrative.emotionalArc, 0.82, 0.84, 'brand_preference');
+  setSignal(draft.narrative.pacePreference, 0.76, 0.84, 'brand_preference');
+  setSignal(draft.motion.anticipationStyle, 0.74, 0.84, 'brand_preference');
+  setSignal(draft.motion.easingTaste, 0.82, 0.84, 'brand_preference');
+  setSignal(draft.composition.safeZones, 0.78, 0.84, 'brand_preference');
+  setSignal(draft.composition.figureGroundRatio, 0.78, 0.84, 'brand_preference');
 
   return draft;
 }
@@ -131,6 +137,12 @@ describe('Brand Vault Editron motion socket', () => {
       accentColor: '#ffcc00',
       motionEnergy: 0.78,
       transitionSharpness: 0.82,
+      emotionalArc: 0.82,
+      pacePreference: 0.76,
+      anticipationStyle: 0.74,
+      easingTaste: 0.82,
+      safeZones: 0.78,
+      figureGroundRatio: 0.78,
     });
     expect(tokens.color.primary).toBe('#101820');
     expect(tokens.color.accent).toBe('#ffcc00');
@@ -143,6 +155,32 @@ describe('Brand Vault Editron motion socket', () => {
       pivot_intensity: 0.82,
       formality: -0.5,
     });
+  });
+
+  it('blends Brand Vault narrative and kinetic taste with per-moment signals', () => {
+    const profile = acceptedProfile();
+    const inputs = brandInputsFromBrandSignalProfile(profile, legacyBrand());
+    const calm = resolveMotionTokens({
+      ...BASE_SIGNALS,
+      motion_intensity: 0.04,
+      narrative_pressure: 0.04,
+      cinematic_moment: 0.04,
+      speech_energy: 0.04,
+    }, inputs);
+    const peak = resolveMotionTokens({
+      ...BASE_SIGNALS,
+      motion_intensity: 0.94,
+      narrative_pressure: 0.9,
+      cinematic_moment: 0.92,
+      speech_energy: 0.84,
+    }, inputs);
+
+    expect(peak.animation.entranceDurationMs).not.toBe(calm.animation.entranceDurationMs);
+    expect(peak.animation.staggerMs).not.toBe(calm.animation.staggerMs);
+    expect(peak.animation.entrancePattern).toBe('scale-up');
+    expect(calm.animation.entrancePattern).not.toBe(peak.animation.entrancePattern);
+    expect(peak.layout.holdDurationMs).not.toBe(calm.layout.holdDurationMs);
+    expect(peak.layout.density).not.toBe(calm.layout.density);
   });
 
   it('uses brand visual and motion dials as bias inputs, not presets', () => {
