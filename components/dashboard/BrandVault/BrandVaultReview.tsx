@@ -22,6 +22,7 @@ import {
   extractBrandVaultUploadEvidence,
   type BrandVaultUploadSourceEvidence,
 } from '@/lib/frontend/services/brand-vault-upload-extraction';
+import { setActiveBrandIdInStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { BrandHero } from './BrandHero';
 import { SourceStrip } from './SourceStrip';
 import { BrandVaultStats } from './BrandVaultStats';
@@ -135,8 +136,9 @@ function readStoredBrandId(): string | null {
 }
 
 function persistSelectedBrandId(brandId: string): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(BRAND_VAULT_SELECTED_BRAND_KEY, brandId);
+  // Route through the shared writer so the global switcher pill (and any other reader) updates live —
+  // a raw localStorage.setItem fires no same-tab event, which left the pill showing a stale brand.
+  setActiveBrandIdInStorage(brandId);
 }
 
 function selectInitialBrandId(options: BrandVaultBrandOption[], preferredBrandId: string | null): string | null {

@@ -69,7 +69,10 @@ describe('Brand Vault effective brand resolver', () => {
     expect(brandVaultSourceFlagName('editron')).toBe('BRAND_VAULT_SOURCE_EDITRON');
     expect(brandVaultSourceEnabled('editron', { BRAND_VAULT_SOURCE_EDITRON: 'true' })).toBe(true);
     expect(brandVaultSourceEnabled('thinkforge', { BRAND_VAULT_SOURCE_THINKFORGE: 'false' })).toBe(false);
-    expect(brandVaultSourceEnabled('clickatron', {})).toBe(false);
+    // All three default ON now; the env var is a kill switch.
+    expect(brandVaultSourceEnabled('clickatron', {})).toBe(true);
+    expect(brandVaultSourceEnabled('editron', {})).toBe(true);
+    expect(brandVaultSourceEnabled('clickatron', { BRAND_VAULT_SOURCE_CLICKATRON: 'false' })).toBe(false);
   });
 
   it('adapts only actionable Vault signals and keeps learned legacy voice fields', () => {

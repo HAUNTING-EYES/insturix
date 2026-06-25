@@ -31,6 +31,22 @@ export function getActiveBrandIdFromStorage(): string | undefined {
   return window.localStorage.getItem(ACTIVE_BRAND_KEY) ?? undefined;
 }
 
+/**
+ * localStorage fires NO event in the same tab, so a component that wrote the key can't notify other
+ * components that read it — the switcher pill would show a stale brand until it remounted. This custom
+ * event is the missing signal: any writer dispatches it, every reader listens, so the selection stays in
+ * sync live across the pill and the Brand Vault page. (Cross-tab is already covered by the native
+ * 'storage' event.) All brand-selection writes MUST go through setActiveBrandIdInStorage.
+ */
+export const ACTIVE_BRAND_CHANGED_EVENT = 'active-brand-changed';
+
+export function setActiveBrandIdInStorage(brandId: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (brandId) window.localStorage.setItem(ACTIVE_BRAND_KEY, brandId);
+  else window.localStorage.removeItem(ACTIVE_BRAND_KEY);
+  window.dispatchEvent(new Event(ACTIVE_BRAND_CHANGED_EVENT));
+}
+
 export interface ActiveBrandOption {
   brandId: string;
   name: string;
@@ -92,7 +108,15 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    setActiveBrandIdState(window.localStorage.getItem(ACTIVE_BRAND_KEY));
+    const sync = () => setActiveBrandIdState(window.localStorage.getItem(ACTIVE_BRAND_KEY));
+    sync();
+    // Same-tab writes signal via the custom event; cross-tab writes via the native 'storage' event.
+    window.addEventListener(ACTIVE_BRAND_CHANGED_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(ACTIVE_BRAND_CHANGED_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
   }, []);
 
   const { data: brands = [], isLoading } = useQuery({
@@ -104,9 +128,7 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
 
   const setActiveBrandId = useCallback((brandId: string | null) => {
     setActiveBrandIdState(brandId);
-    if (typeof window === 'undefined') return;
-    if (brandId) window.localStorage.setItem(ACTIVE_BRAND_KEY, brandId);
-    else window.localStorage.removeItem(ACTIVE_BRAND_KEY);
+    setActiveBrandIdInStorage(brandId);
   }, []);
 
   // Default to the first brand when none is selected, or the stored one no longer exists.
