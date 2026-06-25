@@ -230,6 +230,19 @@ function pushListField(lines: string[], label: string, values: string[] | undefi
   if (values?.length) lines.push(`${label}: ${values.join(", ")}`);
 }
 
+// Join a string[] spec field (e.g. keyClaims, hardConstraints) into one labelled line.
+// Distinct from pushListField above (which takes a typed string[]); this takes raw
+// untyped metadata values and no-ops on non-arrays/empties, so specs lacking these
+// fields are unchanged.
+function pushGroundingList(lines: string[], label: string, value: unknown, max = 8): void {
+  if (!Array.isArray(value)) return;
+  const items = value
+    .map((entry) => cleanText(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, max);
+  if (items.length > 0) lines.push(`${label}: ${items.join("; ")}`);
+}
+
 function pushVisualDirective(
   directives: string[],
   signal: BrandSignal<number> | undefined,
@@ -337,6 +350,13 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Audience", creativeBrief?.audience);
   pushConceptField(lines, "CTA concepts", creativeBrief?.cta);
   pushField(lines, "Visual metaphor", creativeBrief?.visualMetaphor);
+  // Grounding fields the contract carries but the prompt builder used to drop:
+  // keyClaims = proof points the image should EVOKE as concept (image stays text-free);
+  // brand.hardConstraints/softPreferences = brand rules. See clickatron-creative-contract.ts:193-202.
+  pushGroundingList(lines, "Key claims to evoke visually (do not render as text)", creativeBrief?.keyClaims);
+  const brand = asRecord(creativeSpec?.brand);
+  pushGroundingList(lines, "Brand hard constraints (must respect)", brand?.hardConstraints);
+  pushGroundingList(lines, "Brand style preferences", brand?.softPreferences);
   pushField(lines, "Visual mode", userIntent?.visualMode);
   pushField(lines, "Text density", userIntent?.textDensity);
   pushField(lines, "Image prompt", renderPlan?.imagePrompt);
@@ -375,6 +395,7 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
     "</clickatron_thumbnail_request>",
     "<clickatron_generation_rules>",
     "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
+    "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
     "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
     "Do not render readable words, letters, numbers, headings, body copy, CTA text, labels, UI text, watermarks, signatures, or logo text.",
     "Use Clickatron text-layer summaries only to reserve safe zones; exact copy is added later as editable overlays.",
