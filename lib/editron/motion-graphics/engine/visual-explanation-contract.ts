@@ -254,13 +254,17 @@ function resolveStageMode(
   if (hasSearchEvidence(content) || hasDeviceEvidence(content)) return 'device-or-screen-scene';
   if (transitionBoundaryStrength >= 0.72) return 'mg-led-transition';
   if (hasObligation(obligations, 'compare-peers') && screenPressure >= 0.42) return 'split-footage-graphic';
+  // ponytail: full-frame-graphic-scene BLACKS OUT the footage — its 'full-frame' stage chrome
+  // (composition-renderer) covers the whole frame. Render-confirmed: identity MGs render dark while
+  // overlay-on-footage MGs show the footage. Point these at overlay-on-footage so the video stays
+  // visible; restore 'full-frame-graphic-scene' once the MG-phase composites the scene OVER footage.
   if (
     hasConceptContextRelation(structure)
     && hasObligation(obligations, 'summarize-section')
     && communicationGain >= 0.32
     && hasTextCollision(signals)
   ) {
-    return 'full-frame-graphic-scene';
+    return 'overlay-on-footage';
   }
   if (
     hasIdentityAnchor(structure)
@@ -268,7 +272,7 @@ function resolveStageMode(
     && communicationGain >= 0.32
     && hasTextCollision(signals)
   ) {
-    return 'full-frame-graphic-scene';
+    return 'overlay-on-footage';
   }
   if (
     communicationGain >= 0.58
@@ -278,7 +282,7 @@ function resolveStageMode(
       || negativeSpace <= 0.22
     )
   ) {
-    return 'full-frame-graphic-scene';
+    return 'overlay-on-footage';
   }
   return 'overlay-on-footage';
 }
