@@ -3579,10 +3579,21 @@ async function applyGraphic(
       mgExpressionAuthority,
     );
 
-    // Tier 1 Aesthetic Gate: structural quality check (observe-only, no blocking)
+    // Tier 1 Structural Gate: WCAG contrast + CRG font floors + density/hierarchy.
+    // ENFORCING (2026-06-26, was observe-only). The Rule-29 sweep over 302 real CURRENT MGs
+    // (scripts/eval-mg-gate.ts) measured 1/302 would-suppress and that 1 was a genuinely
+    // unreadable+cluttered graphic — FP-suppression ≈ 0, the bar to flip observe→enforce. A
+    // hard-failing graphic is DROPPED rather than shipped as an unreadable/occluding card.
+    // Escape hatch: MG_STRUCTURAL_GATE=observe reverts to log-only if production diversity ever
+    // shows false positives. This is a SAFETY NET for the egregious tail, NOT the cure — good MGs
+    // come from Phase 9 token rebind + Rule-11 generative form, not from dropping bad ones.
     const gateResult = checkCompositionStructure(recipe, tokens);
     if (!gateResult.pass) {
-      console.warn(`[EDL] Structural gate WARN for ${graphicType} @frame ${decision.frame}: score=${gateResult.score}/100, issues=${gateResult.issues.length}`);
+      if (process.env.MG_STRUCTURAL_GATE !== 'observe') {
+        console.warn(`[EDL] Structural gate SUPPRESSED ${graphicType} @frame ${decision.frame}: score=${gateResult.score}/100, issues=${gateResult.issues.length} — dropped (unreadable/cluttered). Set MG_STRUCTURAL_GATE=observe to disable.`);
+        return { created: 0, modified: 0 };
+      }
+      console.warn(`[EDL] Structural gate WARN (observe) for ${graphicType} @frame ${decision.frame}: score=${gateResult.score}/100, issues=${gateResult.issues.length}`);
     }
     const atomicOverlayPlan = buildAtomicOverlayPlan(recipe, tokens, contentMap, rawSignals, mgScores, decision.params.brand || {});
     const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);

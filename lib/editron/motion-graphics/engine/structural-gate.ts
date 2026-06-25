@@ -19,10 +19,12 @@
  * render-time text fit (composition-renderer.tsx computeFittedSize, which fails loud via
  * [MG-Fit]). A plan-time title-safe heuristic would be redundant + false-positive-prone.
  *
- * Phase E — OBSERVE MODE. Called inline by the EDL executor after planComposition
- * (edl-executor.ts:1169). The result's `pass` is LOGGED, never acted on (no blocking, no
- * correction). The log line is structured so an offline sweep over real projects can tally
- * the would-suppress rate by dimension BEFORE we ever flip the gate to enforce (Rule 29).
+ * Phase E — ENFORCING (2026-06-26, was observe-mode). Called inline by the EDL executor's
+ * graphic builder (edl-executor.ts:3583). `pass` IS now acted on: a hard-failing graphic is
+ * DROPPED at the caller (gated behind MG_STRUCTURAL_GATE=observe for revert). The flip is
+ * justified by the Rule-29 sweep (scripts/eval-mg-gate.ts over 302 real current MGs:
+ * 1/302 would-suppress, FP-suppression ≈ 0). This function stays pure — it returns the
+ * verdict; the enforcement lives at the caller.
  */
 
 import type { Recipe } from './recipe-types';
@@ -167,12 +169,13 @@ export function checkCompositionStructure(
   const score = Math.max(0, 100 - deductions);
   const pass = score >= PASS_THRESHOLD;
 
-  // OBSERVE-ONLY: the caller (edl-executor.ts:1169) does NOT block on `pass`. Structured so an
-  // offline sweep (scripts/eval-mg-gate.ts) can tally the would-suppress rate by dimension over
-  // real projects before we flip to enforce (Rule 29: enforce only at FP-suppression ≈ 0).
+  // ENFORCING: the caller (edl-executor.ts:3584) DROPS a hard-fail (MG_STRUCTURAL_GATE=observe
+  // reverts). The Rule-29 FP-suppression≈0 bar was met by the scripts/eval-mg-gate.ts sweep over
+  // 302 real current MGs (1/302, a genuine unreadable+cluttered fail). This warn is the verdict
+  // trail; the caller logs the action.
   if (!pass) {
     const dims = [...new Set(issues.map(i => i.dimension))].join(',');
-    console.warn(`[MG-Gate] WOULD-SUPPRESS ${recipe.id} (${score}/100) dims=[${dims}]: ${issues.map(i => i.description).join('; ')}`);
+    console.warn(`[MG-Gate] FAIL ${recipe.id} (${score}/100) dims=[${dims}]: ${issues.map(i => i.description).join('; ')}`);
   }
 
   return { pass, score, issues };
