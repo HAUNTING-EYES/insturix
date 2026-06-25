@@ -245,7 +245,13 @@ async function handler(req: Request) {
         ...asPromptMetadataRecord(variation.metadata),
       };
       const promptBrandId = resolveClickatronPromptBrandId(task.brandId, promptMetadata);
-      const brandContextBlock = await resolveClickatronBrandContextBlock(job.userId, promptBrandId);
+      // Org-scope the brand resolution (Phase A.3) — task carries orgId on ClickatronTask.
+      const brandContextBlock = await resolveClickatronBrandContextBlock(
+        job.userId,
+        promptBrandId,
+        undefined,
+        task.orgId ?? null,
+      );
       const enrichedPrompt = buildClickatronGenerationPrompt({
         prompt: job.prompt,
         metadata: promptMetadata,

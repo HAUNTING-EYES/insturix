@@ -178,6 +178,7 @@ export async function resolveClickatronBrandContextBlock(
   userId: string,
   brandId: string | undefined,
   deps: BrandContextResolverDeps = {},
+  orgId?: string | null,
 ): Promise<string> {
   const resolvedBrandId = cleanText(brandId);
   if (!resolvedBrandId) return "";
@@ -193,15 +194,21 @@ export async function resolveClickatronBrandContextBlock(
     )).trim();
   }
 
-  return (await formatClickatronBrandResolution(await resolveDefaultClickatronBrandResolution(userId, resolvedBrandId), deps)).trim();
+  return (await formatClickatronBrandResolution(await resolveDefaultClickatronBrandResolution(userId, resolvedBrandId, orgId), deps)).trim();
 }
 
 async function resolveDefaultClickatronBrandResolution(
   userId: string,
   brandId: string,
+  orgId?: string | null,
 ): Promise<EffectiveBrandResolution> {
   const { resolveEffectiveBrandWithProfile } = await import("@/lib/shared/brand-effective-resolver");
-  return resolveEffectiveBrandWithProfile(userId, brandId, { service: "clickatron" });
+  // orgId is included only when the caller provides it (the worker passes task.orgId; the
+  // deps-injection test path omits it, keeping the resolver call shape backward-compatible).
+  return resolveEffectiveBrandWithProfile(userId, brandId, {
+    service: "clickatron",
+    ...(orgId !== undefined ? { orgId } : {}),
+  });
 }
 
 async function formatClickatronBrandResolution(
