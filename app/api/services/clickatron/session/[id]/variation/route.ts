@@ -22,20 +22,37 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { id } = await params;
+
+    if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
+      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+    }
+
+    // Idempotency check MUST happen before any credit deduction so a retried
+    // request with the same Idempotency-Key returns the original job without
+    // charging again (a double-click / client retry must not double-deduct).
+    const idempotencyKey = request.headers.get('Idempotency-Key');
+    if (idempotencyKey) {
+      const existingJobId = await getIdempotencyKey(idempotencyKey);
+      if (existingJobId) {
+        return NextResponse.json({
+          success: true,
+          variationId: `var_${existingJobId.split('_')[1]}_${existingJobId.split('_')[2]}`,
+          jobId: existingJobId,
+          status: 'queued',
+          estimatedTime: 30, // seconds
+        });
+      }
+    }
+
     // Check credits (3 credits for a variation)
     const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
     if (!creditCheck.allowed) {
       return creditCheck.errorResponse;
     }
 
-    const { id } = await params;
-
-    // Deduct credits before enqueuing
+    // Deduct credits before enqueuing (only reached when no cached job exists)
     await creditCheck.deduct();
-
-    if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
-      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
-    }
 
     await getClickatronDb();
     const objectId = new Types.ObjectId(id);
@@ -61,21 +78,6 @@ export async function POST(
 
     // Extract reference images
     const referenceImages = formData.getAll('referenceImages') as File[];
-
-    // Check for idempotency key
-    const idempotencyKey = request.headers.get('Idempotency-Key');
-    if (idempotencyKey) {
-      const existingJobId = await getIdempotencyKey(idempotencyKey);
-      if (existingJobId) {
-        return NextResponse.json({
-          success: true,
-          variationId: `var_${existingJobId.split('_')[1]}_${existingJobId.split('_')[2]}`,
-          jobId: existingJobId,
-          status: 'queued',
-          estimatedTime: 30, // seconds
-        });
-      }
-    }
 
     // Upload reference images to R2 and get their URLs
     const referenceImageRefs: string[] = [];

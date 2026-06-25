@@ -5,10 +5,12 @@ import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { CreateSessionRequestSchema, type ClickatronSourceContext } from '@/types/clickatron';
 import { z } from 'zod';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
-import { createJob } from '@/lib/clickatron-jobs';
+import { createJob, getIdempotencyKey, setIdempotencyKey } from '@/lib/clickatron-jobs';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { nanoid } from 'nanoid';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { getCreditCost } from '@/lib/config/creditCosts';
+import { CreditsService } from '@/lib/services/creditsService';
 import { getDefaultClickatronModelIdForInput } from '@/lib/config/clickatron-models';
 
 // Hard upper bound on carousel slides we will fan out into variations/jobs.
@@ -65,6 +67,37 @@ export async function POST(request: Request) {
   const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Idempotency check MUST run before any credit deduction or task creation so a
+  // retried request (double-click / client retry) with the same Idempotency-Key
+  // returns the already-created session instead of creating a duplicate task and
+  // charging again. The stored value is the sessionId of the originally created task.
+  // (The credit check itself runs inside the try below, where the carousel slide
+  // count is known so the per-slide quantity multiplier can be applied.)
+  const idempotencyKey = request.headers.get('Idempotency-Key');
+  if (idempotencyKey) {
+    try {
+      const existingSessionId = await getIdempotencyKey(idempotencyKey);
+      if (existingSessionId) {
+        await getClickatronDb();
+        const existingTask = await ClickatronTask.findOne({ _id: existingSessionId, clerkUserId: userId });
+        if (existingTask) {
+          // Carousel-aware: return the full variation set, not just the first slide.
+          const existingVariations = existingTask.details?.canvas?.variations ?? [];
+          return NextResponse.json({
+            success: true,
+            sessionId: existingSessionId,
+            variation: existingVariations[0],
+            variations: existingVariations,
+          });
+        }
+      }
+    } catch (idemError) {
+      // Fail open to normal creation (worst case = pre-existing behavior). Never
+      // block a paid request on the idempotency cache, but surface the error.
+      console.error('[Clickatron] Idempotency lookup failed, proceeding without it:', idemError);
+    }
   }
 
   try {
@@ -253,7 +286,16 @@ export async function POST(request: Request) {
       // 5. Deduct credits once for the whole batch (cost already = quantity * baseCost).
       await creditCheck.deduct();
 
-      // 6. Create and Enqueue one Generation Job per variation.
+      // Per-slide refund unit (3 credits). A mid-batch enqueue failure must refund
+      // ONLY the failed slide, not the whole batch — earlier slides already enqueued
+      // and will generate (and bill). We also mark the failed slide 'failed' so the
+      // stuck-slide watchdog (which only refunds 'generating' slides) never refunds
+      // it again: every slide is refunded by exactly one mechanism, never both.
+      const refundPerSlide = getCreditCost('clickatron', 'variation', {});
+
+      // 6. Create and Enqueue one Generation Job per variation. Best-effort: a single
+      // slide's failure fails+refunds that slide and continues, rather than aborting
+      // the whole carousel.
       for (const variation of variationsToCreate) {
         const jobData = {
           userId,
@@ -274,10 +316,51 @@ export async function POST(request: Request) {
           await enqueueClickatronJob({ jobId, ...jobData });
         } catch (jobError) {
           console.error(`Failed to enqueue job for variation ${variation.id}:`, jobError);
-          // Refund credits if job enqueue fails
-          await creditCheck.refund(`Failed to enqueue generation job for variation ${variation.id}`);
-          throw jobError;
+          // Fail this slide (in-memory so the response reflects it, and in the DB so
+          // the watchdog skips it), then refund ONLY this slide.
+          variation.status = 'failed';
+          variation.error = 'Failed to enqueue generation job.';
+          if (refundPerSlide > 0) {
+            try {
+              await CreditsService.refundCredits(
+                userId,
+                refundPerSlide,
+                `Failed to enqueue generation job for variation ${variation.id}`,
+                { service: 'clickatron', action: 'variation' },
+              );
+            } catch (refundError) {
+              console.error(`Failed to refund un-enqueued variation ${variation.id}:`, refundError);
+            }
+          }
+          try {
+            await ClickatronTask.updateOne(
+              { _id: newTask._id, 'details.canvas.variations.id': variation.id },
+              {
+                $set: {
+                  'details.canvas.variations.$.status': 'failed',
+                  'details.canvas.variations.$.error': 'Failed to enqueue generation job.',
+                  'details.canvas.variations.$.updatedAt': new Date(),
+                },
+              },
+            );
+          } catch (markError) {
+            console.error(`Failed to mark un-enqueued variation ${variation.id} as failed:`, markError);
+          }
+          // Continue to the next slide — do not abort the whole batch.
         }
+      }
+    }
+
+    // Persist the idempotency key -> sessionId mapping so a retried request with
+    // the same key returns this session instead of creating a duplicate + charging
+    // again. Set for both blank (no charge) and non-blank paths once the task
+    // exists. A Redis write failure must not fail an already-successful (and
+    // already-charged) request, so it is logged but not thrown.
+    if (idempotencyKey) {
+      try {
+        await setIdempotencyKey(idempotencyKey, newTask._id.toString());
+      } catch (idemError) {
+        console.error('[Clickatron] Failed to persist idempotency key:', idemError);
       }
     }
 
