@@ -53,7 +53,9 @@ export function parseCopyVoiceSignals(raw: string | undefined): CopyVoiceSignals
   let data: unknown;
   try {
     data = JSON.parse(stripped);
-  } catch {
+  } catch (err) {
+    // FAILLOUD: remove after brand-vault verify (revert to `} catch { return null; }`)
+    console.error('[FAILLOUD][BrandVault copy-voice] JSON.parse failed', { raw: stripped.slice(0, 500), err });
     return null;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -118,7 +120,7 @@ export async function analyzeCopyVoiceSignals(
     const result = await model.generateContent([PROMPT, `\n\nCOPY TO ANALYZE:\n${text.slice(0, maxChars)}`]);
     const signals = parseCopyVoiceSignals(result.response.text());
     if (!signals) {
-      console.warn(`${TAG} model returned no parseable signals`);
+      console.error(`[FAILLOUD]${TAG} model returned no parseable signals`); // FAILLOUD: remove after brand-vault verify (revert to console.warn)
       return null;
     }
     const dials = Object.entries(signals.dials)
@@ -128,7 +130,8 @@ export async function analyzeCopyVoiceSignals(
     console.log(`${TAG} extracted ${dials || 'no dials'}; ${signals.recurringPhrases.length} phrase(s)`);
     return signals;
   } catch (err) {
-    console.warn(`${TAG} failed: ${err instanceof Error ? err.message : String(err)}`);
+    // FAILLOUD: remove after brand-vault verify (revert to console.warn message-only)
+    console.error(`[FAILLOUD]${TAG} failed`, err);
     return null;
   }
 }

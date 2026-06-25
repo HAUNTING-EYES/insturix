@@ -449,9 +449,8 @@ async function handleUserOverride(
         }
       }
     } catch (err) {
-      console.warn(
-        `[BrandLearning] copy voice analysis failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      // FAILLOUD: remove after brand-vault verify (revert to console.warn non-fatal)
+      console.error('[FAILLOUD][BrandLearning] copy voice analysis failed', err);
     }
   }
 
@@ -716,9 +715,8 @@ async function createClickatronThumbnailLearningEvents(input: {
       }
     }
   } catch (err) {
-    console.warn(
-      `[BrandLearning] thumbnail visual analysis failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-    );
+    // FAILLOUD: remove after brand-vault verify (revert to console.warn non-fatal)
+    console.error('[FAILLOUD][BrandLearning] thumbnail visual analysis failed', err);
   }
 
   return events;

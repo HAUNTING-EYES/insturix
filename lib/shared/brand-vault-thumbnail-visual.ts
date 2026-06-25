@@ -50,7 +50,9 @@ export function parseThumbnailVisualSignals(raw: string | undefined): ThumbnailV
   let data: unknown;
   try {
     data = JSON.parse(stripped);
-  } catch {
+  } catch (err) {
+    // FAILLOUD: remove after brand-vault verify (revert to `} catch { return null; }`)
+    console.error('[FAILLOUD][BrandVault thumbnail-visual] JSON.parse failed', { raw: stripped.slice(0, 500), err });
     return null;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -134,7 +136,7 @@ export async function analyzeThumbnailVisualSignals(
     ]);
     const signals = parseThumbnailVisualSignals(result.response.text());
     if (!signals) {
-      console.warn(`${TAG} model returned no parseable signals`);
+      console.error(`[FAILLOUD]${TAG} model returned no parseable signals`); // FAILLOUD: remove after brand-vault verify (revert to console.warn)
       return null;
     }
     const colors = [signals.palette.primary, signals.palette.accent, ...signals.palette.supporting].filter(Boolean);
@@ -145,7 +147,8 @@ export async function analyzeThumbnailVisualSignals(
     console.log(`${TAG} extracted palette(${colors.join(',') || 'none'})${dials ? ` ${dials}` : ''}`);
     return signals;
   } catch (err) {
-    console.warn(`${TAG} failed: ${err instanceof Error ? err.message : String(err)}`);
+    // FAILLOUD: remove after brand-vault verify (revert to console.warn message-only)
+    console.error(`[FAILLOUD]${TAG} failed`, err);
     return null;
   }
 }

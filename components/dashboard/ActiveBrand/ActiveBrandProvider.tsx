@@ -90,8 +90,10 @@ function normalizeBrands(value: unknown): ActiveBrandOption[] {
 
 async function fetchAllBrands(): Promise<ActiveBrandOption[]> {
   const [editron, vault] = await Promise.all([
-    fetch('/api/services/editron/brands', { credentials: 'include' }).then((r) => r.json()).catch(() => null),
-    fetch('/api/brand-vault/brands', { credentials: 'include' }).then((r) => r.json()).catch(() => null),
+    // FAILLOUD: remove after brand-vault verify (revert to `.catch(() => null)`). These were TRULY
+    // silent — a failed brand-list fetch showed an empty switcher with zero log trail.
+    fetch('/api/services/editron/brands', { credentials: 'include' }).then((r) => r.json()).catch((err) => { console.error('[FAILLOUD][ActiveBrand] editron brands fetch failed', err); return null; }),
+    fetch('/api/brand-vault/brands', { credentials: 'include' }).then((r) => r.json()).catch((err) => { console.error('[FAILLOUD][ActiveBrand] vault brands fetch failed', err); return null; }),
   ]);
   const editronBrands = editron && editron.success ? normalizeBrands(editron.brands) : [];
   const vaultBrands = vault && vault.ok ? normalizeBrands(vault.brands) : [];

@@ -60,7 +60,9 @@ export function parseAudiencePsychographics(raw: string | undefined): AudiencePs
   let data: unknown;
   try {
     data = JSON.parse(stripped);
-  } catch {
+  } catch (err) {
+    // FAILLOUD: remove after brand-vault verify (revert to `} catch { return null; }`)
+    console.error('[FAILLOUD][BrandVault audience] JSON.parse failed', { raw: stripped.slice(0, 500), err });
     return null;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -101,7 +103,7 @@ export async function analyzeAudiencePsychographics(
     const result = await model.generateContent([PROMPT, `\n\nBRAND COPY:\n${text.slice(0, maxChars)}`]);
     const signals = parseAudiencePsychographics(result.response.text());
     if (!signals) {
-      console.warn(`${TAG} model returned no parseable audience signals`);
+      console.error(`[FAILLOUD]${TAG} model returned no parseable audience signals`); // FAILLOUD: remove after brand-vault verify (revert to console.warn)
       return null;
     }
     console.log(
@@ -109,7 +111,8 @@ export async function analyzeAudiencePsychographics(
     );
     return signals;
   } catch (err) {
-    console.warn(`${TAG} failed: ${err instanceof Error ? err.message : String(err)}`);
+    // FAILLOUD: remove after brand-vault verify (revert to console.warn message-only)
+    console.error(`[FAILLOUD]${TAG} failed`, err);
     return null;
   }
 }

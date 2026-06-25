@@ -43,7 +43,9 @@ function defaultAcceptedProfileGetter(
 }
 
 function warnVaultFallback(message: string, error: unknown): void {
-  console.warn(`[resolveEffectiveBrand] ${message}`, error);
+  // FAILLOUD: remove after brand-vault verify (revert to console.warn). A silent legacy fallback on a
+  // vault read error is exactly what you can't see otherwise — make it scream during testing.
+  console.error(`[FAILLOUD][resolveEffectiveBrand] ${message}`, error);
 }
 
 async function defaultLegacyBrandGetter(userId: string, brandId: string): Promise<UnifiedBrand | null> {
