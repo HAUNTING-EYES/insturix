@@ -378,6 +378,8 @@ Animation-layer constraint from the 2026-06-21 brief:
 - **Bonus bug to fix alongside:** `formality` has 3 different values across subsystems — `genreParameters=0.2`, `genreParametersSignalComputed=0.4`, MG `contentSignals=0.7` (provenance conflict).
 - Brand narrative is not consumed here at all (no brand fired this run; `editron_tech_inventory.md:95-97` flags `narrativeArc`/`graphicsDensity` "extracted but not consumed").
 
+**★ FIX PROGRESS (2026-06-26).** The animation half already landed (`resolveAnimation`'s `momentKinetics` drives entrancePattern/overshoot/stagger/duration — VERIFIED varying on the 6 real signal sets; proj_GNctpvqAdXCC predates it). **sizeScale REBOUND `4acb71f2`** (`resolveMomentEmphasis`, graph-grounded by `cinematic_moment_emphasis`; VERIFIED sizeScale now spans 1.07-1.17 across the 6 MGs, was 1.0939×6). `density`/`holdDuration` already per-moment; `temperature`/`surfaceOpacity` left brand-stable by design. STILL OPEN: entrancePattern 5/6-fade (`formalityNorm>0.7→fade`, rooted in the formality-provenance conflict §15.3); `enterOrder` role-static (property-resolver.ts:114); beat-sync built-but-unwired.
+
 - Scope is **Tier A only**: data/type motion, stats, comparisons, quotes, kinetic typography,
   lower-thirds, wires, and primitives. Tier B illustrative concept scenes need a separate
   asset-driven pipeline and are out of this plan.
