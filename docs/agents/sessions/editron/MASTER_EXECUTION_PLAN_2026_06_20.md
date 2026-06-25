@@ -754,3 +754,25 @@ VISION ONLY. Sequence: sort internals → `/office-hours` + `/plan-ceo-review` o
 DONE+wired: **1** (genuine unified ranking, not a relabel), **5, 6, 8, 14**. PARTIAL: **2, 3, 7, 9, 10, 11, 15**.
 Built-but-DORMANT: **0** (rendered-truth, zero live callers), **12** (visual gates toothless). NOT BUILT: **4** (visual
 perception), **13** (cross-overlay choreography), **Rule-11 generative form**. The missing half = evidence/perception/form.
+
+## 15) 2026-06-26 Run Audit — non-MG findings (proj_GNctpvqAdXCC, /investigate)
+
+Code-level investigation of one real auto-edit's log (2010 rows) for everything BEYOND the MG monotony (that is the §9 note + memory `editron-mg-monotony-personality-globals`). The run SUCCEEDED (status 200, video edited) but surfaced the below. Full detail in memory `editron-run-audit-nonmg-2026-06-26`. Analysis only — nothing fixed. 3 parallel subagents + own verification of the P1 file:line.
+
+### 15.1 P1 — real, fix-worthy
+1. **AI-artifact logic treats REAL footage as AI-gen.** `getAiArtifactRiskAt` (`signal-registry.ts:842`) zeroes artifact risk ONLY when `analysisQuality === 'high'`; real uploads whose Gemini analysis came back medium/low/fallback get fake "AI degradation" risk ramped after 70% of each clip → fires `mapping:visual.ai_artifact_prevention` → forces hard-cuts → kills would-be transitions. Conflates low analysis confidence with AI-generation. **Ties to §13 points-of-entry** (the system must KNOW real-upload vs AI-gen, not infer it from quality). Fix: gate on an explicit source / `isAiGenerated` flag.
+2. **Dead Gemini embedding model.** `text-embedding-004` is 404 (Google retired it), hardcoded in 5 sites (`asset-search-service.ts:204`, `graph-service.ts:874`, `app/api/internal/workers/asset-analysis/route.ts:175`, `app/api/services/editron/media/search/route.ts:87`, `app/api/internal/workers/graphiti-episode/route.py:62`). Fail-soft but = 100% silent failure of semantic media search AND Neo4j graph enrichment (asset-analysis:207 gates the graph-sync dispatch on `if (embedding)`). Fix: → `gemini-embedding-001` (verify name, keep 768-dim for index compat), centralize the constant.
+3. **THREE quality gates all toothless** (reinforces Phase 12). Structural MG gate observe-only (`structural-gate.ts:22-25` "OBSERVE MODE... pass is LOGGED, never acted on"; overlay pushed unconditionally → a 29/100 graphic shipped); aesthetic gate (the no-key auto-pass just fixed in Phase 0); constraint enforcer count-only (`constraint-enforcer.ts:97` — 1484 uncorrectable violations never drop the decision). The system MEASURES bad output and ships it anyway.
+4. **Path-D over-production.** Director 3581 mappings → 1425 decisions (8080 suppressed) → 2326 violations (1484 uncorrectable). Path E (37 decisions → 22 violations) is healthy by comparison. The signal path over-generates → floods the constraints + monotony. Fix: throttle Path-D generation upstream, not just deduct score downstream.
+
+### 15.2 P2 — cleanup / infra / log-integrity
+5. **Recurring Mongo timeout** — 8× `[Instrumentation] Brand events indexes failed: MongoServerSelectionError ... timed out after 5000ms` (+1 socket timeout 132s). Separate infra/connectivity ticket.
+6. **Transition skip log LIES** (`edl-executor.ts:776`) — echoes the decision's upstream `reason` (the gen-video "AI models maintain quality 3-4s" string from `mapping.details.why`) instead of the real skip cause. Most of the "101 returned null" are hard-cuts correctly producing no tile (`edl-executor.ts:2365`), NOT killed transitions.
+7. **Stale drift log + the real misalignment** (`edl-executor.ts:2375` says "no boundary within 45 frames"; real window is 120, `:120-122`). Underlying Director↔EDL frame-reference misalignment (median 36-frame drift, up to 110) = **the root of the §14.2 overlap/lag symptom** (relates to Phase 13).
+8. **Clerk favicon log-noise** — `/dashboard/editron/project/favicon.ico` hits the `[projectId]` dynamic route, matcher excludes `.ico`, `auth()` throws → caught in `getUserData`. Not user-facing.
+
+### 15.3 P3 — minor / by-design
+formality provenance conflict (`genreParameters=0.2` / `genreParametersSignalComputed=0.4` / MG `contentSignals=0.7`); CreativeBrief "3 semantic-context decisions missing semanticAtoms"; KEYWORD FILTER suppressed 3 keyword MGs (intentional — captions carry emphasis).
+
+### 15.4 Cross-cutting themes
+(A) **real-vs-AI-gen confusion** (#1) → architectural, §13. (B) **gates observe, never enforce** (#3) → Phase 0/12. (C) **log integrity** (#6, #7) — logs mislead and cost debug time. (D) **over-production** (#4) → Path-D + the MG flood.
