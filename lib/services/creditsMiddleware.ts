@@ -30,6 +30,8 @@ export async function checkCredits(
     tokenCount?: number;
     durationMinutes?: number;
     taskId?: string;
+    /** Batch/fan-out multiplier (e.g. N carousel slides => N image variations). Defaults to 1. */
+    quantity?: number;
   }
 ): Promise<CreditCheckResult> {
   const cost = getCreditCost(service, action, options);

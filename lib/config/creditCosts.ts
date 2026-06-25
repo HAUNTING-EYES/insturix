@@ -326,6 +326,7 @@ export function getCreditCost(
     requestType?: string;
     tokenCount?: number; // For token-based billing
     durationMinutes?: number; // For per-minute billing
+    quantity?: number; // For batch/fan-out billing (e.g. N carousel slides -> N images)
   }
 ): number {
   const serviceCosts = CREDIT_COSTS[service];
@@ -361,6 +362,12 @@ export function getCreditCost(
   // Handle per-minute billing
   if (costConfig.billingType === 'per_minute' && options?.durationMinutes) {
     cost *= options.durationMinutes;
+  }
+
+  // Apply batch/fan-out quantity multiplier (e.g. N carousel slides => N image variations).
+  // Clamped to >= 1 so a missing/invalid quantity never reduces or zeroes the charge.
+  if (options?.quantity && options.quantity > 1) {
+    cost *= Math.floor(options.quantity);
   }
 
   // Round to 2 decimal places
