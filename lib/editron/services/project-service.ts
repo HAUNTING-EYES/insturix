@@ -42,7 +42,7 @@ export interface Project {
   updatedAt: Date;
   lastAutosaveAt?: Date;
   // Organization support
-  orgId?: string;
+  orgId?: string | null;
   sharedWith?: string[];
   visibility: 'private' | 'org' | 'shared';
   // Dashboard fields (added for production floor dashboard)
@@ -98,7 +98,7 @@ export class ProjectService {
   /**
    * Create new personal project
    */
-  async createProject(userId: string, name: string, options?: { templateId?: string; brandId?: string }): Promise<Project> {
+  async createProject(userId: string, name: string, options?: { templateId?: string; brandId?: string; orgId?: string | null }): Promise<Project> {
     const projectId = `proj_${nanoid(12)}`;
 
     const project: Project = {
@@ -114,6 +114,7 @@ export class ProjectService {
       fps: 30,
       durationInFrames: 0,
       visibility: 'private',
+      orgId: options?.orgId ?? null,
       pipelineStage: 'edit',
       projectStatus: 'active',
       ...(options?.brandId ? { brandId: options.brandId } : {}),

@@ -4758,7 +4758,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           let graphicBrandInputs: Partial<BrandInputs> = {};
           let graphicBrandMotionOverrides: DeepPartial<MotionTokens> | undefined;
           try {
-            if ((project as any).brandId && userId) {
+            if (project.brandId && userId) {
               const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
               const { brandInputsFromUnifiedBrandAtomic } = await import(
                 '@/lib/editron/motion-graphics/engine/brand-composition-rules'
@@ -4766,8 +4766,9 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               const { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } = await import(
                 '@/lib/editron/motion-graphics/engine/brand-vault-to-motion'
               );
-              const resolution = await resolveEffectiveBrandWithProfile(userId, (project as any).brandId, {
+              const resolution = await resolveEffectiveBrandWithProfile(userId, project.brandId, {
                 service: 'editron',
+                orgId: project.orgId ?? null,
               });
               graphicBrandInputs = resolution.acceptedProfile
                 ? {

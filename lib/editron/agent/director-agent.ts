@@ -1577,6 +1577,7 @@ export async function executeDirectorPlan(
                 const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
                 const resolution = await resolveEffectiveBrandWithProfile(userId, project.brandId, {
                   service: 'editron',
+                  orgId: project.orgId ?? null,
                 });
                 brandBlock = buildBrandContextBlock(resolution.brand);
                 if (brandBlock) {

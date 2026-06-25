@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, templateId, brandId } = body;
 
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
 
     if (!userId) {
       return NextResponse.json(
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const project = await projectService.createProject(userId, name, { templateId, brandId });
+    const project = await projectService.createProject(userId, name, { templateId, brandId, orgId: orgId ?? null });
 
     return NextResponse.json({
       success: true,

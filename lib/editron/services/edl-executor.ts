@@ -525,7 +525,10 @@ export async function executeEDL(
     };
     if (projectDoc?.brandId && userId) {
       const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
-      const resolution = await resolveEffectiveBrandWithProfile(userId, projectDoc.brandId, { service: 'editron' });
+      const resolution = await resolveEffectiveBrandWithProfile(userId, projectDoc.brandId, {
+        service: 'editron',
+        orgId: projectDoc.orgId ?? null,
+      });
       projectBrand = resolution.acceptedProfile
         ? {
             ...brandInputsFromUnifiedBrandAtomic(resolution.brand),
