@@ -4,6 +4,8 @@ import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { getCollections as getAlyzitronCollections } from '@/app/api/services/alyzitron/utils/mongodb';
 import { logger } from '@/app/api/services/alyzitron/utils/logger';
+import { CreditsService } from '@/lib/services/creditsService';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { Types } from 'mongoose';
 
 export async function GET(request: Request) {
@@ -20,40 +22,103 @@ export async function GET(request: Request) {
   };
 
   // 2. Handle Clickatron Timeouts
+  //
+  // Clickatron stuck-ness lives at the VARIATION level, not the task level. The
+  // ClickatronTask schema has no top-level `status` field — only each variation in
+  // details.canvas.variations carries status ('generating'|'completed'|'failed'|
+  // 'blank'). The worker flips 'generating'->'completed'/'failed' and refunds on
+  // failure, but if the worker is killed (Vercel maxDuration=300s) or QStash never
+  // delivers, the variation is left 'generating' forever with no refund while Fal
+  // still bills. This watchdog finds those stale 'generating' variations, fails
+  // them, and refunds each one.
   try {
     await getClickatronDb();
-    const clickatronTimeout = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes
-    const stuckClickatronTasks = await ClickatronTask.find({
-      status: { $in: ['processing', 'queued', 'listed'] },
-      updatedAt: { $lt: clickatronTimeout },
-      refunded: { $ne: true } // Ensure we don't re-process
+
+    // Timeout must safely exceed the worker's maxDuration (300s) so we never race a
+    // still-running generation. 10 min matches the existing Redis job watchdog
+    // (failExpiredJobs in lib/clickatron-jobs.ts).
+    const variationStuckTimeout = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes
+
+    // Canonical Clickatron generation cost (baseCost 3). The worker refunds the
+    // same amount via { service:'clickatron', action:'variation' }.
+    const refundPerVariation = getCreditCost('clickatron', 'variation', {});
+
+    const tasksWithStuckVariations = await ClickatronTask.find({
+      'details.canvas.variations': {
+        $elemMatch: { status: 'generating', updatedAt: { $lt: variationStuckTimeout } },
+      },
     }).lean();
 
-    for (const task of stuckClickatronTasks) {
-      // Update status in MongoDB
-      await ClickatronTask.updateOne(
-        { _id: task._id },
-        {
-          $set: {
-            status: 'failed',
-            error_message: 'Task timed out and was marked as failed by the system.',
-            updatedAt: new Date()
-          }
-        }
+    for (const task of tasksWithStuckVariations) {
+      const taskId = (task._id as Types.ObjectId).toString();
+      const variations = (task.details?.canvas?.variations ?? []) as Array<{
+        id: string;
+        status: string;
+        updatedAt?: Date;
+      }>;
+
+      const stuckVariations = variations.filter(
+        (v) =>
+          v.status === 'generating' &&
+          v.updatedAt != null &&
+          new Date(v.updatedAt) < variationStuckTimeout,
       );
-      await handleTaskFailure({
-        taskId: (task._id as Types.ObjectId).toString(),
-        serviceName: 'clickatron',
-        userId: task.userId,
-        error: {
-          code: 'TIMEOUT',
-          message: 'Task timed out and was marked as failed by the system.',
-        },
-        taskType: task.type,
-        task: task,
-      });
-      results.processed++;
-      results.details.push(`Processed Clickatron task ${(task._id as Types.ObjectId).toString()}`);
+
+      for (const variation of stuckVariations) {
+        // Atomically flip THIS variation 'generating' -> 'failed'. The filter
+        // requires it to still be 'generating', so if the worker terminal'd it
+        // first this matches zero docs (modifiedCount 0) and we skip the refund —
+        // this is the per-slide guard that prevents double-refunds.
+        const flip = await ClickatronTask.updateOne(
+          {
+            _id: task._id,
+            'details.canvas.variations': {
+              $elemMatch: { id: variation.id, status: 'generating' },
+            },
+          },
+          {
+            $set: {
+              'details.canvas.variations.$.status': 'failed',
+              'details.canvas.variations.$.error':
+                'Generation timed out and was marked as failed by the system.',
+              'details.canvas.variations.$.updatedAt': new Date(),
+            },
+          },
+        );
+
+        if (flip.modifiedCount !== 1) {
+          // Lost the race to the worker (already completed/failed). Do not refund.
+          continue;
+        }
+
+        // We own this failure: refund exactly one variation cost to the task owner.
+        if (refundPerVariation > 0) {
+          try {
+            await CreditsService.refundCredits(
+              task.clerkUserId,
+              refundPerVariation,
+              `Variation timeout - ${taskId} / ${variation.id}`,
+              { service: 'clickatron', action: 'variation' },
+            );
+            results.processed++;
+            results.details.push(
+              `Refunded ${refundPerVariation} credits for stuck Clickatron variation ${variation.id} (task ${taskId})`,
+            );
+          } catch (refundError) {
+            results.errors++;
+            results.details.push(
+              `Failed to refund stuck Clickatron variation ${variation.id} (task ${taskId}): ${refundError instanceof Error ? refundError.message : String(refundError)}`,
+            );
+          }
+        } else {
+          // Fail loud: a zero cost means the credit-cost config lost the 'variation'
+          // action (regression). The variation is still correctly failed above.
+          results.errors++;
+          results.details.push(
+            `Clickatron variation ${variation.id} failed but refund skipped: getCreditCost returned ${refundPerVariation}`,
+          );
+        }
+      }
     }
   } catch (e) {
     logger.error('Error processing Clickatron timeouts in cron job', { error: e });

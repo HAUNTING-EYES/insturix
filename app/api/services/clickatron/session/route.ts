@@ -5,7 +5,7 @@ import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { CreateSessionRequestSchema, type ClickatronSourceContext } from '@/types/clickatron';
 import { z } from 'zod';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
-import { createJob } from '@/lib/clickatron-jobs';
+import { createJob, getIdempotencyKey, setIdempotencyKey } from '@/lib/clickatron-jobs';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { nanoid } from 'nanoid';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
@@ -17,6 +17,33 @@ export async function POST(request: Request) {
   const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Idempotency check MUST run before any credit deduction or task creation so a
+  // retried request (double-click / client retry) with the same Idempotency-Key
+  // returns the already-created session instead of creating a duplicate task and
+  // charging again. The stored value is the sessionId of the originally created task.
+  const idempotencyKey = request.headers.get('Idempotency-Key');
+  if (idempotencyKey) {
+    try {
+      const existingSessionId = await getIdempotencyKey(idempotencyKey);
+      if (existingSessionId) {
+        await getClickatronDb();
+        const existingTask = await ClickatronTask.findOne({ _id: existingSessionId, clerkUserId: userId });
+        if (existingTask) {
+          const firstVariation = existingTask.details?.canvas?.variations?.[0];
+          return NextResponse.json({
+            success: true,
+            sessionId: existingSessionId,
+            variation: firstVariation,
+          });
+        }
+      }
+    } catch (idemError) {
+      // Fail open to normal creation (worst case = pre-existing behavior). Never
+      // block a paid request on the idempotency cache, but surface the error.
+      console.error('[Clickatron] Idempotency lookup failed, proceeding without it:', idemError);
+    }
   }
 
   // Check credits (3 credits for a variation)
@@ -176,6 +203,19 @@ export async function POST(request: Request) {
         // Refund credits if job enqueue fails
         await creditCheck.refund('Failed to enqueue generation job');
         throw jobError;
+      }
+    }
+
+    // Persist the idempotency key -> sessionId mapping so a retried request with
+    // the same key returns this session instead of creating a duplicate + charging
+    // again. Set for both blank (no charge) and non-blank paths once the task
+    // exists. A Redis write failure must not fail an already-successful (and
+    // already-charged) request, so it is logged but not thrown.
+    if (idempotencyKey) {
+      try {
+        await setIdempotencyKey(idempotencyKey, newTask._id.toString());
+      } catch (idemError) {
+        console.error('[Clickatron] Failed to persist idempotency key:', idemError);
       }
     }
 

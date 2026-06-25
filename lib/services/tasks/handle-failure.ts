@@ -60,20 +60,31 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
   // Handle credits refund for Clickatron
   if (serviceName === 'clickatron') {
     try {
-      // Determine the action from taskType
-      const action = taskType === 'variation' ? 'generate_variation' : 'generate_ad';
-      
+      // Clickatron bills every generation under the single 'variation' action
+      // (see CREDIT_COSTS.clickatron in lib/config/creditCosts.ts — baseCost 3).
+      // The previous keys 'generate_variation' / 'generate_ad' do not exist in the
+      // config, so getCreditCost returned 0 and failed tasks refunded nothing.
+      const action = 'variation';
+
       // Calculate credits to refund (base cost for the action)
       const creditsToRefund = getCreditCost('clickatron', action, {});
 
-      await CreditsService.refundCredits(
-        userId,
-        creditsToRefund,
-        `Task timeout - ${taskId}`,
-        { service: 'clickatron', action }
-      );
+      if (creditsToRefund <= 0) {
+        // Fail loud rather than issue a silent no-op refund: a zero here means the
+        // credit-cost config no longer has the 'variation' action (regression).
+        console.error(
+          `[handleTaskFailure] Refund aborted: getCreditCost('clickatron','${action}') returned ${creditsToRefund} for task ${taskId}`,
+        );
+      } else {
+        await CreditsService.refundCredits(
+          userId,
+          creditsToRefund,
+          `Task timeout - ${taskId}`,
+          { service: 'clickatron', action },
+        );
 
-      console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Clickatron task ${taskId}`);
+        console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Clickatron task ${taskId}`);
+      }
     } catch (refundError) {
       console.error('[handleTaskFailure] Failed to refund Clickatron credits:', refundError);
     }
