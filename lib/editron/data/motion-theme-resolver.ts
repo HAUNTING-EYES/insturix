@@ -22,7 +22,7 @@
 
 export interface ContentSignals {
   // ── Original 8 signals (launch) ──
-  formality: number;          // -1 (irreverent) to +1 (luxury)
+  formality: number;          // 0 (casual/irreverent) to 1 (formal/luxury). Every producer emits 0..1 — NOT -1..+1.
   enthusiasm: number;         // 0-1
   warmth: number;             // 0-1
   emotional_arousal: number;  // 0-1
@@ -285,7 +285,7 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
   const brandPaceBias = biasFromNeutral(pacePreference, 0.14);
   const arcMomentBoost = emotionalArc === undefined ? 0 : (emotionalArc - 0.5) * momentKinetics * 0.18;
   const energy = clamp((s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost + brandEnergyBias + brandPaceBias + arcMomentBoost, 0, 1);
-  const formalityNorm = (s.formality + 1) / 2; // normalize -1..+1 to 0..1
+  const formalityNorm = clamp(s.formality, 0, 1); // formality is 0..1 (every producer emits 0..1). Was (s.formality+1)/2 assuming -1..+1 — that inflated a real 0.4 to 0.7 and force-tripped formalityNorm>0.7→fade on ~all content.
 
   // Entrance easing: energy + formality together determine the curve personality
   let entranceEasing: string;
@@ -423,7 +423,7 @@ function resolveMomentEmphasis(s: ContentSignals): number {
 // ─── Typography Resolution ──────────────────────────────
 
 function resolveTypography(s: ContentSignals, b: BrandInputs): MotionTokens['typography'] {
-  const formalityNorm = (s.formality + 1) / 2;
+  const formalityNorm = clamp(s.formality, 0, 1);
 
   // Heading weight: casual = bold (700-800), formal = medium (400-500)
   // With warmth influence: warmer = slightly lighter
@@ -470,7 +470,7 @@ function resolveTypography(s: ContentSignals, b: BrandInputs): MotionTokens['typ
 // ─── Color Resolution ───────────────────────────────────
 
 function resolveColor(s: ContentSignals, b: BrandInputs): MotionTokens['color'] {
-  const formalityNorm = (s.formality + 1) / 2;
+  const formalityNorm = clamp(s.formality, 0, 1);
 
   // Temperature: warmth signal is the primary driver
   // face_emotion (V-JEPA): happy/excited faces bias toward warm, sad/angry toward cool
@@ -518,7 +518,7 @@ function resolveColor(s: ContentSignals, b: BrandInputs): MotionTokens['color'] 
 // ─── Surface Resolution ─────────────────────────────────
 
 function resolveSurface(s: ContentSignals, b: BrandInputs): MotionTokens['surface'] {
-  const formalityNorm = (s.formality + 1) / 2;
+  const formalityNorm = clamp(s.formality, 0, 1);
   const energy = (s.enthusiasm + s.emotional_arousal) / 2;
   const minimalism = dial01(b.minimalism);
   const expressiveness = dial01(b.expressiveness);
@@ -640,7 +640,7 @@ function resolveLayout(s: ContentSignals, b: BrandInputs): MotionTokens['layout'
   }
 
   // Alignment: formality drives center vs left
-  const formalityNorm = (s.formality + 1) / 2;
+  const formalityNorm = clamp(s.formality, 0, 1);
   let alignment: MotionTokens['layout']['alignment'] = formalityNorm > 0.6 ? 'center' : 'left';
   const layoutSymmetry = dial01(b.layoutSymmetry);
   if (layoutSymmetry !== undefined) {
