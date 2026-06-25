@@ -24,7 +24,8 @@ export async function resolveSystemBrief(
       ? buildRichBrandContextBlock(acceptedProfile, brand)
       : buildBrandContextBlock(brand);
   } catch (e) {
-    console.warn("[CalOS] brand resolve failed:", e);
+    // TODO(CALOS_LOUD): revert to warn once stable.
+    console.error("[CALOS_LOUD] _brand-brief resolveSystemBrief failed (generation proceeds BRAND-LESS):", e);
     return "";
   }
 }

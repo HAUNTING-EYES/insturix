@@ -70,7 +70,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       try {
         await enqueueApprovedPublish(deliverable, userId, brandId);
       } catch (e) {
-        console.warn("[CalOS] publish enqueue failed (non-fatal):", e);
+        // TODO(CALOS_LOUD): revert to warn once stable. APPROVED but NOT enqueued = silently won't publish.
+        console.error("[CALOS_LOUD] decision: publish enqueue FAILED after approval — card is approved but will NOT post:", e);
       }
     }
 

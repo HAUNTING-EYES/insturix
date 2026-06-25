@@ -146,7 +146,15 @@ export async function GET(request: NextRequest) {
  * deliverable returns false, so the sweeper never publishes unapproved (or unresolvable) content.
  */
 async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boolean> {
-  if (!row.deliverableId || !row.ownerUserId || !row.brandId) return false;
+  if (!row.deliverableId || !row.ownerUserId || !row.brandId) {
+    // TODO(CALOS_LOUD): remove once stable.
+    console.error("[CALOS_LOUD] publish-queue approval: row missing scope keys — refusing", {
+      deliverableId: row.deliverableId,
+      ownerUserId: row.ownerUserId,
+      brandId: row.brandId,
+    });
+    return false;
+  }
   const deliverable = await CalosDeliverable.findOne({
     "card.id": row.deliverableId,
     ownerUserId: row.ownerUserId,
@@ -155,7 +163,16 @@ async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boole
   })
     .select("editorialStatus")
     .lean<{ editorialStatus?: string } | null>();
-  return deliverable?.editorialStatus === "approved";
+  // TODO(CALOS_LOUD): remove once stable — distinguish "not found" from "not approved".
+  if (!deliverable) {
+    console.error(`[CALOS_LOUD] publish-queue approval: deliverable NOT FOUND (card.id=${row.deliverableId}, owner=${row.ownerUserId}, brand=${row.brandId}) — scope mismatch or deleted`);
+    return false;
+  }
+  if (deliverable.editorialStatus !== "approved") {
+    console.error(`[CALOS_LOUD] publish-queue approval: deliverable status="${deliverable.editorialStatus}" (not approved) — refusing`);
+    return false;
+  }
+  return true;
 }
 
 async function markFailed(
@@ -165,6 +182,8 @@ async function markFailed(
   summary: { failed: number }
 ): Promise<void> {
   const willRetry = retryable && row.attempts < row.maxAttempts;
+  // TODO(CALOS_LOUD): remove once stable — every publish failure must be visible in logs during testing.
+  console.error(`[CALOS_LOUD] publish-queue markFailed (platform=${row.platform}, deliverable=${row.deliverableId}, willRetry=${willRetry}, attempts=${row.attempts}/${row.maxAttempts}): ${message}`);
   row.status = willRetry ? "pending" : "failed"; // back to pending so a later tick re-claims it
   row.lastError = message;
   row.lockedAt = null;

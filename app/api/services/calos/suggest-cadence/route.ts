@@ -19,7 +19,11 @@ export async function GET(req: NextRequest) {
 
   // Best-effort brand resolution; suggestCadence falls back to the default when brand is null.
   const brand = await resolveEffectiveBrand(userId, brandId, { service: "thinkforge", orgId: orgId ?? null }).catch(
-    () => null,
+    (e) => {
+      // TODO(CALOS_LOUD): remove once stable.
+      console.error("[CALOS_LOUD] suggest-cadence: brand resolve failed (default cadence fallback):", e);
+      return null;
+    },
   );
   return NextResponse.json(suggestCadence(brand));
 }

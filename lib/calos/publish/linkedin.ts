@@ -154,7 +154,8 @@ async function resolveOwnerLinkedInToken(
         }
       }
     } catch (e) {
-      console.warn("[calos-publish:linkedin] /v2/me lookup failed", e);
+      // TODO(CALOS_LOUD): revert to warn once stable.
+      console.error("[CALOS_LOUD] linkedin /v2/me lookup failed (no memberId → personal post may fail):", e);
     }
   }
 
@@ -191,7 +192,9 @@ async function resolveOwnerLinkedInToken(
           },
         },
       );
-    } catch {
+    } catch (err) {
+      // TODO(CALOS_LOUD): remove once stable.
+      console.error("[CALOS_LOUD] linkedin token refresh threw:", err);
       return { error: "LinkedIn token refresh error — reconnect required", retryable: true };
     }
   }

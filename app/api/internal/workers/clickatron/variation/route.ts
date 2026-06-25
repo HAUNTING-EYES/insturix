@@ -624,7 +624,8 @@ async function handler(req: Request) {
             serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
           });
         } catch (e) {
-          console.warn('[clickatron] CalOS asset attach failed', e);
+          // TODO(CALOS_LOUD): revert to warn once stable. Image generated but never lands on the card.
+          console.error('[CALOS_LOUD] clickatron CalOS asset attach FAILED (image not landed on card):', e);
         }
       }
     } catch (generationError: any) {
@@ -707,7 +708,8 @@ async function handler(req: Request) {
             serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
           });
         } catch (e) {
-          console.warn('[clickatron] CalOS asset-failed callback failed', e);
+          // TODO(CALOS_LOUD): revert to warn once stable.
+          console.error('[CALOS_LOUD] clickatron CalOS asset-failed callback FAILED (card not marked failed):', e);
         }
       }
 

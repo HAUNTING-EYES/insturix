@@ -48,18 +48,19 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
     setLoading(true);
     try {
       const [accRes, assignRes, fbAccRes, fbAssignRes] = await Promise.all([
+        // TODO(CALOS_LOUD): revert these .catch logs to `.catch(() => null)` once stable.
         fetch('/api/services/calos/connect/linkedin/accounts', { cache: 'no-store' })
           .then((r) => r.json())
-          .catch(() => null),
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: linkedin accounts fetch failed:', e); return null; }),
         fetch(`${LINKEDIN_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
           .then((r) => r.json())
-          .catch(() => null),
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: linkedin assignments fetch failed:', e); return null; }),
         fetch('/api/services/calos/connect/facebook/accounts', { cache: 'no-store' })
           .then((r) => r.json())
-          .catch(() => null),
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: facebook accounts fetch failed:', e); return null; }),
         fetch(`${FACEBOOK_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
           .then((r) => r.json())
-          .catch(() => null),
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: facebook assignments fetch failed:', e); return null; }),
       ]);
 
       setConnected(!!accRes?.connected);
@@ -103,7 +104,8 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
           fetch(
             `${LINKEDIN_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(ref)}`,
             { method: 'DELETE' },
-          ).catch(() => null),
+            // TODO(CALOS_LOUD): revert to `.catch(() => null)` once stable.
+          ).catch((e) => { console.error('[CALOS_LOUD] BrandConnections: linkedin unassign DELETE failed:', e); return null; }),
         ),
       );
     },
@@ -118,7 +120,8 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
           fetch(
             `${FACEBOOK_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(ref)}`,
             { method: 'DELETE' },
-          ).catch(() => null),
+            // TODO(CALOS_LOUD): revert to `.catch(() => null)` once stable.
+          ).catch((e) => { console.error('[CALOS_LOUD] BrandConnections: facebook unassign DELETE failed:', e); return null; }),
         ),
       );
     },

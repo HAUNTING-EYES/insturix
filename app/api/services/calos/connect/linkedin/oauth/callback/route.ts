@@ -117,8 +117,9 @@ export async function GET(request: NextRequest) {
             const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
             person = { id: decoded.sub, name: decoded.name };
           }
-        } catch {
-          /* fall through to userinfo */
+        } catch (err) {
+          // TODO(CALOS_LOUD): remove once stable.
+          console.error("[CALOS_LOUD] oauth/callback: id_token decode failed (falling through to userinfo):", err);
         }
       }
       if (!person.id) {
@@ -130,8 +131,9 @@ export async function GET(request: NextRequest) {
             const ud = await ui.json();
             if (ud?.sub) person = { id: ud.sub, name: ud.name };
           }
-        } catch {
-          /* no person available */
+        } catch (err) {
+          // TODO(CALOS_LOUD): remove once stable.
+          console.error("[CALOS_LOUD] oauth/callback: /v2/userinfo failed (personal account dropped):", err);
         }
       }
       if (person.id) {
@@ -157,8 +159,9 @@ export async function GET(request: NextRequest) {
             }
           }
         }
-      } catch {
-        /* org discovery best-effort */
+      } catch (err) {
+        // TODO(CALOS_LOUD): remove once stable.
+        console.error("[CALOS_LOUD] oauth/callback: org discovery failed (company pages dropped):", err);
       }
     }
 
@@ -172,7 +175,9 @@ export async function GET(request: NextRequest) {
     try {
       accessTokenEnc = encryptToken(accessToken);
       refreshTokenEnc = refreshToken ? encryptToken(refreshToken) : null;
-    } catch {
+    } catch (err) {
+      // TODO(CALOS_LOUD): remove once stable.
+      console.error("[CALOS_LOUD] oauth/callback: token encryption failed (CALOS_TOKEN_ENCRYPTION_KEY missing/invalid?):", err);
       return popupResponse(request, { success: false, error: "encryption_not_configured" });
     }
 

@@ -58,7 +58,9 @@ export function verifyCalosConnectState(state: string | null | undefined): Calos
   let expected: string;
   try {
     expected = sign(body);
-  } catch {
+  } catch (err) {
+    // TODO(CALOS_LOUD): remove once stable.
+    console.error("[CALOS_LOUD] connect-state.verify: cannot sign (CALOS_TOKEN_ENCRYPTION_KEY missing?):", err);
     return null; // key missing — treat as unverifiable
   }
   const a = Buffer.from(sig);
@@ -75,7 +77,9 @@ export function verifyCalosConnectState(state: string | null | undefined): Calos
       brandId: payload.brandId,
       platform: payload.platform,
     };
-  } catch {
+  } catch (err) {
+    // TODO(CALOS_LOUD): remove once stable.
+    console.error("[CALOS_LOUD] connect-state.verify: malformed/tampered state payload:", err);
     return null;
   }
 }

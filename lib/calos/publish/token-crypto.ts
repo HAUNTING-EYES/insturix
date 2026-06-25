@@ -48,7 +48,9 @@ export function decryptToken(blob: string | null | undefined): string | null {
     decipher.setAuthTag(Buffer.from(tagB64, "base64"));
     const dec = Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]);
     return dec.toString("utf8");
-  } catch {
+  } catch (err) {
+    // TODO(CALOS_LOUD): remove temporary loud logging once CalOS connect/publish verified stable.
+    console.error("[CALOS_LOUD] token-crypto.decryptToken failed (bad key / tampered blob / wrong format):", err);
     return null;
   }
 }

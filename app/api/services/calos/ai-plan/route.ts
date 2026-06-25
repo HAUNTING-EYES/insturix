@@ -110,7 +110,8 @@ export async function POST(req: NextRequest) {
       enabled: true,
       orgId: orgId ?? null,
     }).catch((e) => {
-      console.warn("[CalOS] ai-plan brand resolve failed:", e);
+      // TODO(CALOS_LOUD): revert to warn once stable.
+      console.error("[CALOS_LOUD] ai-plan brand resolve failed (planning proceeds BRAND-LESS):", e);
       return null;
     });
     const brand = resolution?.brand ?? null;
