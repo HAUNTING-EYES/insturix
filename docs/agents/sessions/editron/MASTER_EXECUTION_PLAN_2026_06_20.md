@@ -370,6 +370,14 @@ Animation-layer constraint from the 2026-06-21 brief:
   2. add the two small primitive wins: `@remotion/paths` draw-on strokes and gradient shimmer,
   3. wire beat-sync end-to-end,
   4. calibrate only after rendered proof.
+
+**Empirical confirmation + refinement (2026-06-26, proj_GNctpvqAdXCC — 6 MGs read from the DB; full detail in memory `editron-mg-monotony-personality-globals`).** The "starvation" hypothesis is confirmed AND sharper than "not enough atoms to animate":
+- Each MG overlay's `contentSignals` carries a **BYTE-IDENTICAL `personality.*` block across all 6 MGs** (enthusiasm 0.917916470588235, warmth 0.1747058823529417, pacing 0.748691088609226, formality 0.7, humor 0.385991568627451…) — a video-global bag stamped on every moment.
+- That frozen block **dominates** the resolved tokens: `entrancePattern=fade` on ALL 6, `sizeScale=1.093884787087912` and `surfaceOpacity=0.7963308722527472` identical to 15 decimals ×6, temperature/alignment/easings identical. Only `staggerMs` (49–76), `entranceDurationMs` (447 vs ~319, from the single binary `speech_energy` 0↔0.77), and `overshoot` move.
+- **KEY REFINEMENT:** per-moment signals DO vary per MG (speech_energy, pitch_variability, music_section, narrative_pressure 0→0.6, motion_intensity) — they are just **wired to marginal tokens** (stagger ms, overshoot) while the *visible* tokens (entrancePattern, sizeScale, temperature, density) are bound to the frozen personality. So Phase 9 step #1 ("`enterOrder` signal-driven") is necessary but **not sufficient** — the bigger lever is **rebinding the dominant tokens** (entrancePattern / sizeScale / temperature / density) to the per-moment + narrative signals that already vary, in `motion-theme-resolver.ts:resolveAnimation` (today `energy`/`formalityNorm` come from the frozen launch signals).
+- **Bonus bug to fix alongside:** `formality` has 3 different values across subsystems — `genreParameters=0.2`, `genreParametersSignalComputed=0.4`, MG `contentSignals=0.7` (provenance conflict).
+- Brand narrative is not consumed here at all (no brand fired this run; `editron_tech_inventory.md:95-97` flags `narrativeArc`/`graphicsDensity` "extracted but not consumed").
+
 - Scope is **Tier A only**: data/type motion, stats, comparisons, quotes, kinetic typography,
   lower-thirds, wires, and primitives. Tier B illustrative concept scenes need a separate
   asset-driven pipeline and are out of this plan.
