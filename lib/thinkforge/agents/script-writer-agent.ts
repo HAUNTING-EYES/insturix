@@ -4,6 +4,7 @@ import type { AgentInput, AgentStructuredOutput } from './types';
 import type { ThinkForgeContentSignalProfile } from '../signals';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { parseAgentJson } from '../protocol/parse-agent-json';
+import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -28,6 +29,27 @@ export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
 
 export interface ScriptWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
+}
+
+const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
+  regex: new RegExp(pattern.pattern, 'i'),
+  label: pattern.label,
+}));
+
+// Mirrors PostWriter's assertUsableCachedPostResult, adapted for scripts. Rejects
+// obviously-unusable cache-path output (empty/truncated content, no scene prompts, or
+// banned AI filler) so runStructured falls back to the base structured path rather than
+// shipping it. Defensive only — the cache path can add the doc but never regress.
+function assertUsableCachedScriptResult(result: ScriptWriterResult): void {
+  const content = result.content?.trim() ?? '';
+  const failures: string[] = [];
+  if (content.length < 150) failures.push('content_under_150_chars');
+  if (!result.visualMetadata?.scenePrompts?.length) failures.push('missing_scene_prompts');
+  const filler = CACHED_SCRIPT_AI_FILLER.find((pattern) => pattern.regex.test(content));
+  if (filler) failures.push(`banned_phrase:${filler.label}`);
+  if (failures.length > 0) {
+    throw new Error(`Cached script failed usable quality gate: ${failures.join(', ')}`);
+  }
 }
 
 export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
@@ -127,6 +149,8 @@ Return your response strictly adhering to the JSON schema.`;
       });
       const parsed = parseAgentJson(text);
       const result = this.schema.parse(parsed);
+      // Reject unusable cache-path output (empty/filler/no-scene-prompts) -> falls back below.
+      assertUsableCachedScriptResult(result);
 
       return {
         result,
