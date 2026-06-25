@@ -3,17 +3,22 @@ import type { PublishParams, PublishResult } from "./contract";
 /**
  * CalOS LinkedIn publisher — SESSIONLESS (runs from the publish-queue cron, no Clerk session).
  *
- * Resolves the owner's stored LinkedIn token (refreshing if expired), then creates a TEXT post via
- * the LinkedIn REST posts API. Mirrors the text path of
- * app/api/services/uploaderx/linkedin/route.ts (createLinkedInRestPost) but keyed on
- * params.ownerUserId instead of auth().
+ * Token resolution is two-tier:
+ *  1. PER-BRAND: if the brand has its own connected LinkedIn account (calos_connected_accounts),
+ *     use it — and NEVER fall back to the owner's personal account (posting a client's content from
+ *     the wrong identity is the agency-killing failure). An existing-but-broken brand account fails
+ *     loud (reconnect), it does not silently fall through.
+ *  2. PER-USER fallback: the owner's own User.linkedinTokens (the original behavior; what a solo
+ *     business / a brand without its own connected account uses).
  *
- * Per-user today: the token comes from User.linkedinTokens by ownerUserId. Per-brand (B-second)
- * swaps ONLY the token SOURCE to the brand's connected_social_account — same post call. Media
- * (image/video/document) is a later slice; v1 posts the caption/title text.
+ * Then it creates a TEXT post via the LinkedIn REST posts API (mirrors the text path of
+ * app/api/services/uploaderx/linkedin/route.ts createLinkedInRestPost). Media is a later slice.
  */
 
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
+
+type LinkedInAuth = { accessToken: string; authorUrn: string };
+type AuthError = { error: string; retryable: boolean };
 
 function linkedInRestHeaders(accessToken: string): Record<string, string> {
   return {
@@ -31,6 +36,55 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
 
   const connectToDatabase = (await import("@/schemas/ConnectToDatabase")).default;
   await connectToDatabase();
+
+  // Per-brand first — if a brand account exists, it is authoritative (no fallback = isolation).
+  const brandAuth = params.brandId
+    ? await resolveBrandAccountAuth(params.brandId, params.accountRef)
+    : null;
+  if (brandAuth && "error" in brandAuth) return { ok: false, error: brandAuth.error, retryable: brandAuth.retryable };
+  if (brandAuth) return createLinkedInTextPost(brandAuth.accessToken, brandAuth.authorUrn, text);
+
+  // Per-user fallback (the brand has no connected account of its own).
+  const userAuth = await resolveUserAuth(params);
+  if ("error" in userAuth) return { ok: false, error: userAuth.error, retryable: userAuth.retryable };
+  return createLinkedInTextPost(userAuth.accessToken, userAuth.authorUrn, text);
+}
+
+/**
+ * Per-brand auth. null = no connected account for this brand (caller falls back to the user token).
+ * A connected account that exists but is unusable returns an error (no silent fallthrough).
+ */
+async function resolveBrandAccountAuth(
+  brandId: string,
+  accountRef?: string | null,
+): Promise<LinkedInAuth | AuthError | null> {
+  const { default: CalosConnectedAccount } = await import("@/schemas/calos-connected-account");
+  const acct = await CalosConnectedAccount.findOne({
+    brandId,
+    platform: "linkedin",
+    ...(accountRef ? { accountRef } : {}),
+  });
+  if (!acct) return null;
+
+  const { decryptToken } = await import("./token-crypto");
+  const accessToken = decryptToken(acct.accessTokenEnc);
+  if (!accessToken) {
+    return { error: "Brand LinkedIn token unreadable — reconnect the brand's LinkedIn", retryable: false };
+  }
+  if (acct.expiresAt && new Date(acct.expiresAt) < new Date()) {
+    // Refresh-write-back for brand accounts is a follow-up; until then expired = reconnect.
+    return { error: "Brand LinkedIn token expired — reconnect the brand's LinkedIn", retryable: false };
+  }
+  if (!acct.accountRef) {
+    return { error: "Brand LinkedIn account has no author target (accountRef) — reconnect", retryable: false };
+  }
+  // accountRef = the LinkedIn organization id for a brand page (the dominant agency case; the
+  // connect flow stores it). Personal-profile brand accounts are a later refinement.
+  return { accessToken, authorUrn: `urn:li:organization:${acct.accountRef}` };
+}
+
+/** Per-user auth: the owner's own connected LinkedIn (User.linkedinTokens), refreshing if expired. */
+async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | AuthError> {
   const { User } = await import("@/schemas/user");
 
   const user = await User.findOne({
@@ -38,14 +92,14 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
     linkedinTokens: { $exists: true, $ne: null },
   });
   if (!user?.linkedinTokens) {
-    return { ok: false, error: "LinkedIn not connected for this owner", retryable: false };
+    return { error: "LinkedIn not connected for this owner", retryable: false };
   }
 
   const tokens = user.linkedinTokens;
   let accessToken: string = tokens.accessToken;
   let memberId: string | undefined = tokens.userId;
 
-  // Resolve the member id (needed for a personal author URN) if missing.
+  // Resolve the member id (for a personal author URN) if missing.
   if (!memberId && !params.accountRef) {
     try {
       const meRes = await fetch("https://api.linkedin.com/v2/me", {
@@ -65,12 +119,12 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
     }
   }
 
-  // Refresh an expired token (mirrors the route's refresh).
+  // Refresh an expired token.
   if (tokens.expiresAt && new Date(tokens.expiresAt) < new Date()) {
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
     if (!tokens.refreshToken || !clientId || !clientSecret) {
-      return { ok: false, error: "LinkedIn token expired and cannot refresh — reconnect required", retryable: false };
+      return { error: "LinkedIn token expired and cannot refresh — reconnect required", retryable: false };
     }
     try {
       const refreshRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
@@ -85,7 +139,7 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
       });
       const refreshData = await refreshRes.json();
       if (!refreshRes.ok || !refreshData.access_token) {
-        return { ok: false, error: "LinkedIn token refresh failed — reconnect required", retryable: false };
+        return { error: "LinkedIn token refresh failed — reconnect required", retryable: false };
       }
       accessToken = refreshData.access_token;
       await User.updateOne(
@@ -99,21 +153,22 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
         },
       );
     } catch {
-      return { ok: false, error: "LinkedIn token refresh error — reconnect required", retryable: true };
+      return { error: "LinkedIn token refresh error — reconnect required", retryable: true };
     }
   }
 
   // Author URN: accountRef = a LinkedIn organization id → org post; else personal member.
-  let authorUrn: string;
-  if (params.accountRef) {
-    authorUrn = `urn:li:organization:${params.accountRef}`;
-  } else if (memberId) {
-    authorUrn = `urn:li:person:${memberId}`;
-  } else {
-    return { ok: false, error: "No LinkedIn author available (no member id, no accountRef)", retryable: false };
-  }
+  if (params.accountRef) return { accessToken, authorUrn: `urn:li:organization:${params.accountRef}` };
+  if (memberId) return { accessToken, authorUrn: `urn:li:person:${memberId}` };
+  return { error: "No LinkedIn author available (no member id, no accountRef)", retryable: false };
+}
 
-  // Create the text post (LinkedIn REST posts API; mirrors createLinkedInRestPost's text path).
+/** Create the text post (LinkedIn REST posts API; mirrors createLinkedInRestPost's text path). */
+async function createLinkedInTextPost(
+  accessToken: string,
+  authorUrn: string,
+  text: string,
+): Promise<PublishResult> {
   try {
     const res = await fetch("https://api.linkedin.com/rest/posts", {
       method: "POST",
@@ -137,7 +192,6 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
       }
     }
     if (!res.ok || data.error) {
-      // 5xx / 429 = transient (safe to retry); 4xx = permanent (bad token / validation).
       const retryable = res.status >= 500 || res.status === 429;
       return {
         ok: false,
