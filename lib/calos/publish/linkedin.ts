@@ -7,7 +7,9 @@ import type { PublishParams, PublishResult } from "./contract";
  *  1. PER-BRAND: if the brand has its own connected LinkedIn account (calos_connected_accounts),
  *     use it — and NEVER fall back to the owner's personal account (posting a client's content from
  *     the wrong identity is the agency-killing failure). An existing-but-broken brand account fails
- *     loud (reconnect), it does not silently fall through.
+ *     loud (reconnect), it does not silently fall through. A brand account is one of two models:
+ *     Model A (reference — resolve the assigning operator's live token) or Model B (the brand's own
+ *     encrypted token). The author URN is built from the account's accountType (org page vs person).
  *  2. PER-USER fallback: the owner's own User.linkedinTokens (the original behavior; what a solo
  *     business / a brand without its own connected account uses).
  *
@@ -53,6 +55,10 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
 /**
  * Per-brand auth. null = no connected account for this brand (caller falls back to the user token).
  * A connected account that exists but is unusable returns an error (no silent fallthrough).
+ *
+ * Model A (no accessTokenEnc): resolve the assigning operator's live token (acct.ownerUserId) — the
+ *   common case the assign flow writes (an operator binds a profile/page they control to a brand).
+ * Model B (accessTokenEnc set): the brand's OWN encrypted token (a client connected its own login).
  */
 async function resolveBrandAccountAuth(
   brandId: string,
@@ -66,29 +72,62 @@ async function resolveBrandAccountAuth(
   });
   if (!acct) return null;
 
-  const { decryptToken } = await import("./token-crypto");
-  const accessToken = decryptToken(acct.accessTokenEnc);
-  if (!accessToken) {
-    return { error: "Brand LinkedIn token unreadable — reconnect the brand's LinkedIn", retryable: false };
-  }
-  if (acct.expiresAt && new Date(acct.expiresAt) < new Date()) {
-    // Refresh-write-back for brand accounts is a follow-up; until then expired = reconnect.
-    return { error: "Brand LinkedIn token expired — reconnect the brand's LinkedIn", retryable: false };
-  }
   if (!acct.accountRef) {
     return { error: "Brand LinkedIn account has no author target (accountRef) — reconnect", retryable: false };
   }
-  // accountRef = the LinkedIn organization id for a brand page (the dominant agency case; the
-  // connect flow stores it). Personal-profile brand accounts are a later refinement.
-  return { accessToken, authorUrn: `urn:li:organization:${acct.accountRef}` };
+  const authorUrn = buildAuthorUrn(acct.accountType, acct.accountRef);
+
+  // Model B — the brand's own encrypted token.
+  if (acct.accessTokenEnc) {
+    const { decryptToken } = await import("./token-crypto");
+    const accessToken = decryptToken(acct.accessTokenEnc);
+    if (!accessToken) {
+      return { error: "Brand LinkedIn token unreadable — reconnect the brand's LinkedIn", retryable: false };
+    }
+    if (acct.expiresAt && new Date(acct.expiresAt) < new Date()) {
+      // Refresh-write-back for own-token brand accounts is a follow-up; until then expired = reconnect.
+      return { error: "Brand LinkedIn token expired — reconnect the brand's LinkedIn", retryable: false };
+    }
+    return { accessToken, authorUrn };
+  }
+
+  // Model A — reference the assigning operator's live token (refreshes via the per-user path).
+  const owner = await resolveOwnerLinkedInToken(acct.ownerUserId, false);
+  if ("error" in owner) return owner;
+  return { accessToken: owner.accessToken, authorUrn };
+}
+
+/** Build a LinkedIn author URN from the stored account type (defaults to an organization page). */
+function buildAuthorUrn(accountType: string | null | undefined, accountRef: string): string {
+  return accountType === "personal"
+    ? `urn:li:person:${accountRef}`
+    : `urn:li:organization:${accountRef}`;
 }
 
 /** Per-user auth: the owner's own connected LinkedIn (User.linkedinTokens), refreshing if expired. */
 async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | AuthError> {
+  // Need the member id only for a personal post (no org accountRef given).
+  const owner = await resolveOwnerLinkedInToken(params.ownerUserId, !params.accountRef);
+  if ("error" in owner) return owner;
+  // Author URN: accountRef = a LinkedIn organization id → org post; else personal member.
+  if (params.accountRef) return { accessToken: owner.accessToken, authorUrn: `urn:li:organization:${params.accountRef}` };
+  if (owner.memberId) return { accessToken: owner.accessToken, authorUrn: `urn:li:person:${owner.memberId}` };
+  return { error: "No LinkedIn author available (no member id, no accountRef)", retryable: false };
+}
+
+/**
+ * Resolve a usable LinkedIn access token for an owner (clerkUserId) from User.linkedinTokens:
+ * resolves the member id when needed and refreshes an expired token (with write-back). Shared by the
+ * per-user path and Model-A brand accounts so both refresh through one place.
+ */
+async function resolveOwnerLinkedInToken(
+  ownerUserId: string,
+  needMemberId: boolean,
+): Promise<{ accessToken: string; memberId?: string } | AuthError> {
   const { User } = await import("@/schemas/user");
 
   const user = await User.findOne({
-    clerkUserId: params.ownerUserId,
+    clerkUserId: ownerUserId,
     linkedinTokens: { $exists: true, $ne: null },
   });
   if (!user?.linkedinTokens) {
@@ -100,7 +139,7 @@ async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | Au
   let memberId: string | undefined = tokens.userId;
 
   // Resolve the member id (for a personal author URN) if missing.
-  if (!memberId && !params.accountRef) {
+  if (needMemberId && !memberId) {
     try {
       const meRes = await fetch("https://api.linkedin.com/v2/me", {
         headers: { Authorization: `Bearer ${accessToken}`, "X-Restli-Protocol-Version": "2.0.0" },
@@ -109,7 +148,7 @@ async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | Au
         memberId = (await meRes.json())?.id;
         if (memberId) {
           await User.updateOne(
-            { clerkUserId: params.ownerUserId },
+            { clerkUserId: ownerUserId },
             { $set: { "linkedinTokens.userId": memberId } },
           );
         }
@@ -143,7 +182,7 @@ async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | Au
       }
       accessToken = refreshData.access_token;
       await User.updateOne(
-        { clerkUserId: params.ownerUserId },
+        { clerkUserId: ownerUserId },
         {
           $set: {
             "linkedinTokens.accessToken": refreshData.access_token,
@@ -157,10 +196,7 @@ async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | Au
     }
   }
 
-  // Author URN: accountRef = a LinkedIn organization id → org post; else personal member.
-  if (params.accountRef) return { accessToken, authorUrn: `urn:li:organization:${params.accountRef}` };
-  if (memberId) return { accessToken, authorUrn: `urn:li:person:${memberId}` };
-  return { error: "No LinkedIn author available (no member id, no accountRef)", retryable: false };
+  return { accessToken, memberId };
 }
 
 /** Create the text post (LinkedIn REST posts API; mirrors createLinkedInRestPost's text path). */

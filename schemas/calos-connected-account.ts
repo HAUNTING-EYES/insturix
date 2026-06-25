@@ -6,9 +6,17 @@ import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
  * per-USER `User.<platform>Tokens` blob: a brand can connect its OWN account(s) per platform, and a
  * user managing many brands posts to each brand's own socials (not their personal accounts).
  *
- * Tokens are ENCRYPTED at rest (lib/calos/publish/token-crypto — AES-256-GCM); never stored
- * plaintext (eng-review R1). Lives in the CalOS Mongoose DB (MONGODB_DB_NAME), co-located with the
- * publish queue + deliverables so the sessionless cron resolves a token on one connection (R6).
+ * TWO account models on the one row (serves businesses AND agencies):
+ *  - Model A (reference, the default the assign flow writes): no stored token. The operator assigns
+ *    an account they ALREADY control — their personal profile or an org page they admin (read from
+ *    their existing User.linkedinTokens) — to a brand. The publisher resolves that operator's LIVE
+ *    token at publish time (refresh is free, reuses the per-user path). `accessTokenEnc` stays empty.
+ *  - Model B (own token): the brand connected its OWN login via a fresh OAuth; the brand's token is
+ *    stored here ENCRYPTED at rest (lib/calos/publish/token-crypto — AES-256-GCM; never plaintext,
+ *    eng-review R1). For clients who won't grant the operator admin access. `accessTokenEnc` is set.
+ *
+ * Lives in the CalOS Mongoose DB (MONGODB_DB_NAME), co-located with the publish queue + deliverables
+ * so the sessionless cron resolves auth on one connection (R6).
  *
  * Transition (R4): this is ADDITIVE — `User.<platform>Tokens` stays for the per-user path + the
  * legacy connect UI + brand-vault ingestion. The publisher reads a brand account if one exists for
@@ -19,9 +27,10 @@ export interface ICalosConnectedAccount extends Document {
   brandId: string;
   platform: CalosPublishPlatform;
   accountRef?: string | null; // the platform's account / page / organization / channel id (author target)
+  accountType?: "organization" | "personal"; // how to build the author URN (org page vs personal profile)
   displayName?: string | null; // human label, e.g. "Acme LinkedIn Page"
-  ownerUserId: string; // who connected it — token owner for refresh write-back
-  accessTokenEnc: string; // AES-256-GCM blob (token-crypto)
+  ownerUserId: string; // who connected/assigned it — token owner (refresh + Model-A live resolution)
+  accessTokenEnc?: string | null; // Model B only: AES-256-GCM token blob. Model A leaves this empty.
   refreshTokenEnc?: string | null;
   expiresAt?: Date | null;
   scopes?: string[];
@@ -39,9 +48,10 @@ const CalosConnectedAccountSchema = new Schema<ICalosConnectedAccount>(
       enum: ["youtube", "facebook", "instagram", "linkedin", "twitter", "tiktok"],
     },
     accountRef: { type: String, default: null },
+    accountType: { type: String, enum: ["organization", "personal"], default: "organization" },
     displayName: { type: String, default: null },
     ownerUserId: { type: String, required: true },
-    accessTokenEnc: { type: String, required: true },
+    accessTokenEnc: { type: String, default: null },
     refreshTokenEnc: { type: String, default: null },
     expiresAt: { type: Date, default: null },
     scopes: { type: [String], default: [] },
