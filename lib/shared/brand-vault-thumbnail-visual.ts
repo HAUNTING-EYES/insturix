@@ -86,14 +86,22 @@ export function parseThumbnailVisualSignals(raw: string | undefined): ThumbnailV
   };
 }
 
+const TAG = '[BrandVault thumbnail-visual]';
+
 export async function analyzeThumbnailVisualSignals(
   options: AnalyzeThumbnailVisualOptions,
 ): Promise<ThumbnailVisualSignals | null> {
   const env = options.env ?? process.env;
-  const apiKey = options.apiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY;
-  // On by default when a key exists; BRAND_VAULT_THUMBNAIL_ANALYSIS_ENABLED=false is the kill switch.
+  // Kill switch is silent (intentional config); everything else logs why it produced nothing, so a
+  // null is never a mystery in the logs.
   const enabled = options.enabled ?? env.BRAND_VAULT_THUMBNAIL_ANALYSIS_ENABLED !== 'false';
-  if (!enabled || !apiKey || !options.imageUrl) return null;
+  if (!enabled) return null;
+  const apiKey = options.apiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.warn(`${TAG} skipped: no GEMINI_API_KEY/GOOGLE_API_KEY`);
+    return null;
+  }
+  if (!options.imageUrl) return null;
 
   const fetchFn = options.fetchFn ?? fetch;
   const maxBytes = options.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES;
@@ -103,11 +111,20 @@ export async function analyzeThumbnailVisualSignals(
     // ponytail: this image fetch mirrors brand-vault-social-ocr's fetchOcrImage; extract a shared
     // helper only if a third caller appears (rule of three).
     const res = await fetchFn(options.imageUrl, { headers: { 'User-Agent': 'Mozilla/5.0 BrandVault/1.0' } });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`${TAG} skipped: image fetch returned ${res.status}`);
+      return null;
+    }
     const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
-    if (!mimeType || !mimeType.startsWith('image/') || mimeType === 'image/svg+xml') return null;
+    if (!mimeType || !mimeType.startsWith('image/') || mimeType === 'image/svg+xml') {
+      console.warn(`${TAG} skipped: not a raster image (${mimeType ?? 'unknown content-type'})`);
+      return null;
+    }
     const buffer = Buffer.from(await res.arrayBuffer());
-    if (buffer.byteLength > maxBytes) return null;
+    if (buffer.byteLength > maxBytes) {
+      console.warn(`${TAG} skipped: image ${buffer.byteLength}b exceeds ${maxBytes}b`);
+      return null;
+    }
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName });
@@ -115,8 +132,20 @@ export async function analyzeThumbnailVisualSignals(
       PROMPT,
       { inlineData: { mimeType, data: buffer.toString('base64') } },
     ]);
-    return parseThumbnailVisualSignals(result.response.text());
-  } catch {
+    const signals = parseThumbnailVisualSignals(result.response.text());
+    if (!signals) {
+      console.warn(`${TAG} model returned no parseable signals`);
+      return null;
+    }
+    const colors = [signals.palette.primary, signals.palette.accent, ...signals.palette.supporting].filter(Boolean);
+    const dials = Object.entries(signals.visual)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ');
+    console.log(`${TAG} extracted palette(${colors.join(',') || 'none'})${dials ? ` ${dials}` : ''}`);
+    return signals;
+  } catch (err) {
+    console.warn(`${TAG} failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }

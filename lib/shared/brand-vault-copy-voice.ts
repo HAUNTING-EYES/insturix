@@ -90,15 +90,23 @@ export function parseCopyVoiceSignals(raw: string | undefined): CopyVoiceSignals
   return { dials, recurringPhrases };
 }
 
+const TAG = '[BrandVault copy-voice]';
+
 export async function analyzeCopyVoiceSignals(
   options: AnalyzeCopyVoiceOptions,
 ): Promise<CopyVoiceSignals | null> {
   const env = options.env ?? process.env;
-  const apiKey = options.apiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY;
-  // On by default when a key exists; BRAND_VAULT_COPY_VOICE_ANALYSIS_ENABLED=false is the kill switch.
+  // Kill switch is silent (intentional config); everything else logs why it produced nothing, so a
+  // null is never a mystery in the logs.
   const enabled = options.enabled ?? env.BRAND_VAULT_COPY_VOICE_ANALYSIS_ENABLED !== 'false';
+  if (!enabled) return null;
+  const apiKey = options.apiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.warn(`${TAG} skipped: no GEMINI_API_KEY/GOOGLE_API_KEY`);
+    return null;
+  }
   const text = options.text?.trim();
-  if (!enabled || !apiKey || !text) return null;
+  if (!text) return null;
 
   const modelName = options.modelName ?? env.BRAND_VAULT_COPY_VOICE_ANALYSIS_MODEL ?? DEFAULT_MODEL_NAME;
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
@@ -108,8 +116,19 @@ export async function analyzeCopyVoiceSignals(
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName });
     // Rule 35: instructions first, data (the copy) last.
     const result = await model.generateContent([PROMPT, `\n\nCOPY TO ANALYZE:\n${text.slice(0, maxChars)}`]);
-    return parseCopyVoiceSignals(result.response.text());
-  } catch {
+    const signals = parseCopyVoiceSignals(result.response.text());
+    if (!signals) {
+      console.warn(`${TAG} model returned no parseable signals`);
+      return null;
+    }
+    const dials = Object.entries(signals.dials)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ');
+    console.log(`${TAG} extracted ${dials || 'no dials'}; ${signals.recurringPhrases.length} phrase(s)`);
+    return signals;
+  } catch (err) {
+    console.warn(`${TAG} failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
