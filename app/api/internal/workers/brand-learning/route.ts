@@ -400,8 +400,62 @@ async function handleBrandUpdated(
 async function handleUserOverride(
   event: BrandEvent,
 ): Promise<{ action: string; detail?: string }> {
-  const learningEvents = event.payload.learningEvents;
-  if (!Array.isArray(learningEvents) || learningEvents.length === 0) {
+  const learningEvents: unknown[] = Array.isArray(event.payload.learningEvents)
+    ? [...event.payload.learningEvents]
+    : [];
+
+  // Enrich: when the user APPROVED copy, mine it for the brand's actual voice (dials + recurring
+  // phrasings) instead of only an affirm/reject on one hook. This is the worker (not the user-facing
+  // decision route), so the model call is safe here; best-effort, so any failure leaves the base
+  // events untouched.
+  const copyText = nonEmptyString(event.payload.copyText);
+  if (copyText) {
+    try {
+      const { analyzeCopyVoiceSignals } = await import('@/lib/shared/brand-vault-copy-voice');
+      const voice = await analyzeCopyVoiceSignals({ text: copyText });
+      if (voice) {
+        const { createBrandSignalLearningEvent } = await import('@/lib/shared/brand-signal-edit-weighting');
+        const observedAt = observedAtForBrandEvent(event);
+        const context = {
+          userId: event.userId,
+          brandId: nonEmptyString(event.brandId),
+          campaignId: nonEmptyString(event.payload.campaignId),
+          contentId: nonEmptyString(event.payload.contentId),
+        };
+        const NOTE =
+          'Inferred from APPROVED ThinkForge/CalOS copy; weak single-sample voice signal, staged until human review.';
+        const affirm = (signalPath: string, afterValue: unknown) =>
+          createBrandSignalLearningEvent({
+            service: 'thinkforge',
+            signalPath,
+            editType: 'accepted_output_confirmation',
+            scope: 'project',
+            polarity: 'affirm',
+            observedAt,
+            actorId: event.userId,
+            context,
+            afterValue,
+            note: NOTE,
+          });
+        const d = voice.dials;
+        if (d.formality !== undefined) learningEvents.push(affirm('voice.defaultFormality', d.formality));
+        if (d.assertiveness !== undefined) learningEvents.push(affirm('voice.assertiveness', d.assertiveness));
+        if (d.warmth !== undefined) learningEvents.push(affirm('voice.warmth', d.warmth));
+        if (d.jargonDensity !== undefined) learningEvents.push(affirm('voice.jargonDensity', d.jargonDensity));
+        if (d.humor !== undefined) learningEvents.push(affirm('voice.humor', d.humor));
+        if (d.ctaDirectness !== undefined) learningEvents.push(affirm('voice.ctaDirectness', d.ctaDirectness));
+        if (voice.recurringPhrases.length) {
+          learningEvents.push(affirm('voice.recurringPhrases', voice.recurringPhrases));
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[BrandLearning] copy voice analysis failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  if (learningEvents.length === 0) {
     return { action: 'skipped', detail: 'No learningEvents in user_override payload' };
   }
 

@@ -88,12 +88,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         observedAt: new Date().toISOString(),
         notes: typeof notes === "string" ? notes : undefined,
       });
+      // On approval, carry the accepted copy so the brand-learning worker can mine the brand's actual
+      // voice from it in the background — never block this decision response on a model call.
+      const copyText =
+        decision === "approved"
+          ? [deliverable.card.title, deliverable.card.scriptPreview, deliverable.assetText]
+              .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+              .join("\n")
+              .slice(0, 4000) || undefined
+          : undefined;
       await emitBrandEvent({
         userId,
         brandId,
         service: "thinkforge",
         type: "user_override",
-        payload: { learningEvents: [learningEvent] },
+        payload: {
+          learningEvents: [learningEvent],
+          ...(copyText ? { copyText, contentId: id, campaignId: deliverable.campaignId } : {}),
+        },
       });
     } catch (e) {
       console.warn("[CalOS] decision brand-learning emit failed (non-fatal):", e);
