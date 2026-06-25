@@ -32,7 +32,7 @@ export const maxDuration = 60; // LLM call — needs headroom beyond the default
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
     const resolution = await resolveEffectiveBrandWithProfile(userId, brandId, {
       service: "thinkforge",
       enabled: true,
+      orgId: orgId ?? null,
     }).catch((e) => {
       console.warn("[CalOS] ai-plan brand resolve failed:", e);
       return null;

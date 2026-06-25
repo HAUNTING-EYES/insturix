@@ -8,7 +8,7 @@ import { resolveSystemBrief } from "./_brand-brief";
  * export-to-Clickatron flow at image-gen time, never surfaced to the user.)
  */
 export async function runPostWriter(params: GenerateParams): Promise<string> {
-  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId);
+  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId);
 
   const userPrompt = [
     params.title,

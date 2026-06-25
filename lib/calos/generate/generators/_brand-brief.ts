@@ -4,7 +4,11 @@
  * resolve failure must never block generation. Shared by the post writer + the script writer so the
  * dead-wire fix (read the accepted profile, not the lossy projection) lives in one place.
  */
-export async function resolveSystemBrief(ownerUserId: string, brandId: string): Promise<string> {
+export async function resolveSystemBrief(
+  ownerUserId: string,
+  brandId: string,
+  orgId?: string | null,
+): Promise<string> {
   try {
     const { resolveEffectiveBrandWithProfile } = await import("@/lib/shared/brand-effective-resolver");
     const { buildBrandContextBlock, buildRichBrandContextBlock } = await import(
@@ -14,6 +18,7 @@ export async function resolveSystemBrief(ownerUserId: string, brandId: string): 
     const { brand, acceptedProfile } = await resolveEffectiveBrandWithProfile(ownerUserId, brandId, {
       service: "thinkforge",
       enabled: true,
+      orgId: orgId ?? null,
     });
     return acceptedProfile
       ? buildRichBrandContextBlock(acceptedProfile, brand)

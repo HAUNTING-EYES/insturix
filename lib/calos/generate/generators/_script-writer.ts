@@ -10,7 +10,7 @@ import { resolveSystemBrief } from "./_brand-brief";
  * never renders the video (Editron has no headless render entry point). Returns the script markdown.
  */
 export async function runScriptWriter(params: GenerateParams): Promise<string> {
-  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId);
+  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId);
 
   const userPrompt = [
     params.title, // the idea
