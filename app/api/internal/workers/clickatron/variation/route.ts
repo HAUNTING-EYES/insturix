@@ -24,6 +24,13 @@ if (process.env.FAL_AI_API_KEY) {
   });
 }
 
+// Vercel function timeout. Fal image generation runs ~20-40s inside fal.subscribe
+// below; without this the route runs at the platform default (~10-15s) and gets
+// killed mid-generation, leaving the variation stuck "generating" while Fal still
+// bills the image. 300s matches the sibling generation workers
+// (pipeline/storyboard-image, pipeline/video, director, asset-analysis).
+export const maxDuration = 300;
+
 const workerRequestSchema = z.object({
   jobId: z.string(),
   sessionId: z.string(),
