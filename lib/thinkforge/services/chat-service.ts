@@ -979,12 +979,9 @@ CRITICAL: You are editing a SELECTION from a larger document.
             richText: finalRichText,
             content: finalContent,
             version: savedVersion,
-            ...((signalTrace || writerOutputMetadata) ? {
-              metadata: {
-                ...(signalTrace ? { signalTrace } : {}),
-                ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
-              }
-            } : {}),
+            // signalTrace/writerOutput intentionally NOT emitted to the client: internal
+            // reasoning the browser never reads. Still persisted server-side (ReplaceDocument
+            // above) and fed to the Clickatron handoff from the DB, not over the wire.
           },
           metadata: {
             workflow: 'create',

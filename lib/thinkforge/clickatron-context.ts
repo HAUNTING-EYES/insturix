@@ -564,8 +564,6 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
     creativeSpec = buildVisibleContentClickatronCreativeSpec(input);
   }
 
-  const signalTrace = toPlainRecord(input.signalTrace);
-
   const sourceContext = compactRecord({
     sourceService: "thinkforge",
     sourceSessionId,
@@ -589,8 +587,9 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
       sessionId: sourceSessionId,
       scriptId: sourceScriptId,
       projectMeta,
-      signalTrace,
-      writerOutput,
+      // signalTrace/writerOutput intentionally NOT echoed to the client: internal
+      // reasoning already baked into creativeSpec server-side (lines 292, 548-557).
+      // Client handoff reads only sessionDraft + metadata.clickatron.creativeSpec.
     }),
     projectLink: universalId ? { universalId } : undefined,
     clickatron: Object.keys(clickatron).length > 0 ? clickatron : undefined,
