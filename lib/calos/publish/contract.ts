@@ -1,4 +1,5 @@
 import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
+import { publishToLinkedIn } from "./linkedin";
 
 /**
  * Inputs a CalOS publisher needs to post on behalf of a brand from a SERVER (cron)
@@ -40,7 +41,7 @@ export type Publisher = (params: PublishParams) => Promise<PublishResult>;
  * silently dropping a scheduled post.
  */
 export const publishers: Partial<Record<CalosPublishPlatform, Publisher>> = {
-  // linkedin: publishToLinkedIn,
+  linkedin: publishToLinkedIn,
   // facebook: publishToFacebook,
   // instagram: publishToInstagram,
   // twitter: publishToTwitter,

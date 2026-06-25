@@ -22,6 +22,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosScheduledPublish, {
   type ICalosScheduledPublish,
 } from "@/schemas/calos-scheduled-publish";
+import CalosDeliverable from "@/schemas/calos-deliverable";
 import { getPublisher, type PublishParams } from "@/lib/calos/publish/contract";
 
 export const runtime = "nodejs";
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
       // FAIL CLOSED — the approval gate. A deliverable MUST be approved before publish.
       // calos_deliverables + its editorialStatus land in P0; until this can read real
       // approval, it returns false so the sweeper never publishes anything unapproved.
-      const approved = await isDeliverableApproved(row.deliverableId);
+      const approved = await isDeliverableApproved(row);
       if (!approved) {
         await markFailed(row, "Deliverable not approved (or approval unverifiable) — refusing to publish", false, summary);
         continue;
@@ -139,13 +140,22 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Approval gate. Reads the deliverable's editorialStatus from calos_deliverables.
- * That collection ships in P0; until then this returns false (FAIL CLOSED) so the
- * sweeper can never publish anything unapproved.
+ * Approval gate (the "approved = only door to delivery" contract). Reads the deliverable's
+ * editorialStatus from calos_deliverables (same Mongoose connection as the queue) scoped by
+ * owner + brand + card id (no cross-scope). FAIL CLOSED: anything but a found, approved
+ * deliverable returns false, so the sweeper never publishes unapproved (or unresolvable) content.
  */
-async function isDeliverableApproved(_deliverableId: string): Promise<boolean> {
-  // TODO(P0): query calos_deliverables and return editorialStatus === 'approved'.
-  return false;
+async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boolean> {
+  if (!row.deliverableId || !row.ownerUserId || !row.brandId) return false;
+  const deliverable = await CalosDeliverable.findOne({
+    "card.id": row.deliverableId,
+    ownerUserId: row.ownerUserId,
+    brandId: row.brandId,
+    deletedAt: null,
+  })
+    .select("editorialStatus")
+    .lean<{ editorialStatus?: string } | null>();
+  return deliverable?.editorialStatus === "approved";
 }
 
 async function markFailed(
