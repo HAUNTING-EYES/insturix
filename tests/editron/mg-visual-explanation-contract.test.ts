@@ -117,7 +117,11 @@ describe('visual explanation contract', () => {
     ]));
   });
 
-  it('chooses full-frame stage only from high gain plus busy or low-space footage evidence', () => {
+  // d808fccc routes full-frame-graphic-scene → overlay-on-footage: the full-frame chrome blacked out
+  // footage-with-content (render-confirmed on real projects). The full-frame expectations below are
+  // intentionally relaxed to overlay until the MG-phase composites the scene OVER footage; restore them
+  // (and the resolveStageMode returns) together at that point.
+  it('keeps high-gain busy/low-space footage on overlay while full-frame is deferred (d808fccc)', () => {
     const baseContent = {
       title: 'Launch checklist',
       steps: ['Hook', 'Proof', 'Offer'],
@@ -145,7 +149,7 @@ describe('visual explanation contract', () => {
     });
 
     expect(overlay.stageMode).toBe('overlay-on-footage');
-    expect(fullFrame.stageMode).toBe('full-frame-graphic-scene');
+    expect(fullFrame.stageMode).toBe('overlay-on-footage'); // full-frame deferred — d808fccc (blackout fix)
     expectEveryObligationHasEvidence(fullFrame);
   });
 
@@ -175,7 +179,7 @@ describe('visual explanation contract', () => {
       toRole: 'keyword',
     });
     expect(contract.allow).toBe(true);
-    expect(contract.stageMode).toBe('full-frame-graphic-scene');
+    expect(contract.stageMode).toBe('overlay-on-footage'); // full-frame deferred — d808fccc (blackout fix)
     expect(contract.obligations).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'summarize-section' }),
     ]));
@@ -206,7 +210,7 @@ describe('visual explanation contract', () => {
     });
 
     expect(contract.allow).toBe(true);
-    expect(contract.stageMode).toBe('full-frame-graphic-scene');
+    expect(contract.stageMode).toBe('overlay-on-footage'); // full-frame deferred — d808fccc (blackout fix)
     expect(contract.obligations).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'locate-object' }),
     ]));
@@ -248,7 +252,7 @@ describe('visual explanation contract', () => {
     });
 
     expect(overlay.stageMode).toBe('overlay-on-footage');
-    expect(fullFrame.stageMode).toBe('full-frame-graphic-scene');
+    expect(fullFrame.stageMode).toBe('overlay-on-footage'); // full-frame deferred — d808fccc (blackout fix)
     expectEveryObligationHasEvidence(fullFrame);
   });
 
