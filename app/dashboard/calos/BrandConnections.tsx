@@ -3,17 +3,18 @@
 /**
  * Per-brand publishing connections (the picker UI for the CalOS connect flow).
  *
- * Lets the user assign a LinkedIn account they control — their personal profile or a company page
- * they admin (read from their existing per-user connection) — to the active brand, so approved cards
- * for that brand publish from the right identity. This is Model A (assign, no fresh OAuth): if the
- * user hasn't connected LinkedIn at all, it opens the existing uploaderx connect popup first.
+ * Two ways to give a brand a LinkedIn identity for its approved posts:
+ *  - Model A — assign an account the OPERATOR already controls (their profile, or a page they admin,
+ *    read from their existing connection). No token stored; the operator's live token is used.
+ *  - Model B — connect the CLIENT's OWN login (fresh OAuth popup → pick which account → bind). The
+ *    client's token is stored encrypted; for clients who won't grant the operator admin access.
  *
- * Single active account per brand: assigning one removes any previously-assigned account, matching
- * the publisher's single-account resolution. No assignment → the brand falls back to the per-user token.
+ * "Assigned now" is the source of truth (covers both models). Single active account per brand:
+ * binding one removes any previous binding. No binding → the brand falls back to the per-user token.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Linkedin, Building2, User, Check, Loader2, X } from 'lucide-react';
+import { Linkedin, Building2, User, Check, Loader2, X, UserPlus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface AssignableAccount {
@@ -29,12 +30,15 @@ interface BrandConnectionsProps {
   onClose: () => void;
 }
 
+const ASSIGN_BASE = '/api/services/calos/connect/linkedin/assign';
+
 export default function BrandConnections({ brandId, brandName, open, onClose }: BrandConnectionsProps) {
   const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(false);
-  const [accounts, setAccounts] = useState<AssignableAccount[]>([]);
-  const [assignedRefs, setAssignedRefs] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<string | null>(null); // accountRef being mutated, or 'connect'
+  const [connected, setConnected] = useState(false); // operator's own LinkedIn (Model A source)
+  const [operatorAccounts, setOperatorAccounts] = useState<AssignableAccount[]>([]);
+  const [assignments, setAssignments] = useState<AssignableAccount[]>([]);
+  const [pending, setPending] = useState<{ pendingId: string; accounts: AssignableAccount[] } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null); // accountRef | 'connect-a' | 'connect-b' | pendingId
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,28 +47,21 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
         fetch('/api/services/calos/connect/linkedin/accounts', { cache: 'no-store' })
           .then((r) => r.json())
           .catch(() => null),
-        fetch(`/api/services/calos/connect/linkedin/assign?brandId=${encodeURIComponent(brandId)}`, {
-          cache: 'no-store',
-        })
+        fetch(`${ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
           .then((r) => r.json())
           .catch(() => null),
       ]);
 
       setConnected(!!accRes?.connected);
-
       const list: AssignableAccount[] = [];
       if (accRes?.person) list.push(accRes.person);
       if (Array.isArray(accRes?.organizations)) list.push(...accRes.organizations);
-      setAccounts(list);
+      setOperatorAccounts(list);
 
-      setAssignedRefs(
-        new Set<string>(
-          Array.isArray(assignRes?.assignments)
-            ? assignRes.assignments
-                .map((a: { accountRef?: string }) => a.accountRef)
-                .filter((r: string | undefined): r is string => Boolean(r))
-            : [],
-        ),
+      setAssignments(
+        Array.isArray(assignRes?.assignments)
+          ? assignRes.assignments.filter((a: AssignableAccount) => a?.accountRef)
+          : [],
       );
     } finally {
       setLoading(false);
@@ -75,77 +72,133 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
     if (open) void load();
   }, [open, load]);
 
-  // LinkedIn connect popup (reuses the per-user uploaderx OAuth) → refetch on close / postMessage.
-  const connect = useCallback(() => {
-    setBusy('connect');
-    const w = 600;
-    const h = 700;
-    const left = window.screenX + (window.outerWidth - w) / 2;
-    const top = window.screenY + (window.outerHeight - h) / 2;
-    const popup = window.open(
-      '/api/services/uploaderx/linkedin/auth',
-      'LinkedIn Connect',
-      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes`,
-    );
+  // Delete every binding except keepRef (single active account per brand).
+  const removeOtherBindings = useCallback(
+    async (keepRef: string) => {
+      const others = assignments.filter((a) => a.accountRef !== keepRef).map((a) => a.accountRef);
+      await Promise.all(
+        others.map((ref) =>
+          fetch(
+            `${ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(ref)}`,
+            { method: 'DELETE' },
+          ).catch(() => null),
+        ),
+      );
+    },
+    [assignments, brandId],
+  );
 
-    const finish = () => {
-      window.removeEventListener('message', onMessage);
+  // Popup helper: open url, resolve when it closes or posts `source`. Returns the message payload (or null).
+  const openPopup = useCallback(
+    (url: string, source: string): Promise<Record<string, unknown> | null> =>
+      new Promise((resolve) => {
+        const w = 600;
+        const h = 700;
+        const left = window.screenX + (window.outerWidth - w) / 2;
+        const top = window.screenY + (window.outerHeight - h) / 2;
+        const popup = window.open(url, 'LinkedIn Connect', `width=${w},height=${h},left=${left},top=${top},scrollbars=yes`);
+        let settled = false;
+        const finish = (payload: Record<string, unknown> | null) => {
+          if (settled) return;
+          settled = true;
+          window.removeEventListener('message', onMessage);
+          clearInterval(timer);
+          resolve(payload);
+        };
+        const onMessage = (e: MessageEvent) => {
+          if (e.origin !== window.location.origin) return;
+          if (e.data?.source !== source) return;
+          finish(e.data.payload ?? {});
+        };
+        window.addEventListener('message', onMessage);
+        const timer = setInterval(() => {
+          if (popup?.closed) finish(null);
+        }, 500);
+      }),
+    [],
+  );
+
+  // Model A: operator connects their OWN LinkedIn (reuses uploaderx OAuth), then we re-read accounts.
+  const connectOperator = useCallback(async () => {
+    setBusy('connect-a');
+    try {
+      await openPopup('/api/services/uploaderx/linkedin/auth', 'uploaderx-linkedin-oauth');
+      await load();
+    } finally {
       setBusy(null);
-      void load();
-    };
-    const onMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
-      if (e.data?.source !== 'uploaderx-linkedin-oauth') return;
-      clearInterval(timer);
-      finish();
-    };
-    window.addEventListener('message', onMessage);
-    const timer = setInterval(() => {
-      if (popup?.closed) {
-        clearInterval(timer);
-        finish();
+    }
+  }, [openPopup, load]);
+
+  // Model B: client connects their OWN login → returns a pending connect to pick from.
+  const connectClientOwn = useCallback(async () => {
+    setBusy('connect-b');
+    try {
+      const payload = await openPopup(
+        `/api/services/calos/connect/linkedin/oauth?brandId=${encodeURIComponent(brandId)}`,
+        'calos-linkedin-connect',
+      );
+      if (payload?.success && payload.pendingId) {
+        setPending({
+          pendingId: String(payload.pendingId),
+          accounts: Array.isArray(payload.accounts) ? (payload.accounts as AssignableAccount[]) : [],
+        });
+      } else if (payload && !payload.success) {
+        toast({ title: 'LinkedIn connect failed', description: String(payload.error || ''), variant: 'destructive' });
       }
-    }, 500);
-  }, [load]);
+    } finally {
+      setBusy(null);
+    }
+  }, [openPopup, brandId]);
 
   const assign = useCallback(
     async (acc: AssignableAccount) => {
       setBusy(acc.accountRef);
       try {
-        const res = await fetch('/api/services/calos/connect/linkedin/assign', {
+        const res = await fetch(ASSIGN_BASE, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            brandId,
-            accountRef: acc.accountRef,
-            accountType: acc.accountType,
-            displayName: acc.displayName,
-          }),
+          body: JSON.stringify({ brandId, accountRef: acc.accountRef, accountType: acc.accountType, displayName: acc.displayName }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           toast({ title: data?.error || `Assign failed (${res.status})`, variant: 'destructive' });
           return;
         }
-        // Single active account per brand: drop any previously-assigned different account.
-        const others = Array.from(assignedRefs).filter((ref) => ref !== acc.accountRef);
-        await Promise.all(
-          others.map((ref) =>
-            fetch(
-              `/api/services/calos/connect/linkedin/assign?brandId=${encodeURIComponent(
-                brandId,
-              )}&accountRef=${encodeURIComponent(ref)}`,
-              { method: 'DELETE' },
-            ).catch(() => null),
-          ),
-        );
+        await removeOtherBindings(acc.accountRef);
         toast({ title: `${brandName} now posts to LinkedIn as ${acc.displayName}` });
         await load();
       } finally {
         setBusy(null);
       }
     },
-    [brandId, brandName, assignedRefs, load],
+    [brandId, brandName, removeOtherBindings, load],
+  );
+
+  // Model B finalize: promote the pending connect's chosen account to a bound (encrypted) account.
+  const selectPending = useCallback(
+    async (acc: AssignableAccount) => {
+      if (!pending) return;
+      setBusy(acc.accountRef);
+      try {
+        const res = await fetch('/api/services/calos/connect/linkedin/oauth/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pendingId: pending.pendingId, accountRef: acc.accountRef }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({ title: data?.error || `Connect failed (${res.status})`, variant: 'destructive' });
+          return;
+        }
+        await removeOtherBindings(acc.accountRef);
+        toast({ title: `${brandName} now posts to LinkedIn as ${acc.displayName}` });
+        setPending(null);
+        await load();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [pending, brandName, removeOtherBindings, load],
   );
 
   const unassign = useCallback(
@@ -153,13 +206,11 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
       setBusy(acc.accountRef);
       try {
         const res = await fetch(
-          `/api/services/calos/connect/linkedin/assign?brandId=${encodeURIComponent(
-            brandId,
-          )}&accountRef=${encodeURIComponent(acc.accountRef)}`,
+          `${ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(acc.accountRef)}`,
           { method: 'DELETE' },
         );
         if (!res.ok) {
-          toast({ title: `Unassign failed (${res.status})`, variant: 'destructive' });
+          toast({ title: `Remove failed (${res.status})`, variant: 'destructive' });
           return;
         }
         toast({ title: `LinkedIn unassigned — ${brandName} falls back to your personal connection` });
@@ -173,7 +224,15 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
 
   if (!open) return null;
 
-  const hasOrgs = accounts.some((a) => a.accountType === 'organization');
+  const assignedRefs = new Set(assignments.map((a) => a.accountRef));
+  const unassignedOperatorAccounts = operatorAccounts.filter((a) => !assignedRefs.has(a.accountRef));
+
+  const AccountIcon = ({ type }: { type: AssignableAccount['accountType'] }) =>
+    type === 'organization' ? (
+      <Building2 className="h-3.5 w-3.5 shrink-0 text-[#7A776E]" />
+    ) : (
+      <User className="h-3.5 w-3.5 shrink-0 text-[#7A776E]" />
+    );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -205,78 +264,148 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
             <div className="mt-3 flex items-center gap-2 text-xs text-[#7A776E]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
             </div>
-          ) : !connected ? (
-            <div className="mt-3 space-y-3">
-              <p className="text-[11px] text-[#7A776E]">
-                Connect LinkedIn once, then assign a profile or company page to this brand.
-              </p>
-              <button
-                onClick={connect}
-                disabled={busy === 'connect'}
-                className="inline-flex items-center gap-2 rounded-lg bg-[#5CCCB8] px-3 py-1.5 text-xs font-medium text-[#0B0B0A] hover:bg-[#5CCCB8]/90 disabled:opacity-60"
-              >
-                {busy === 'connect' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Linkedin className="h-3.5 w-3.5" />}
-                Connect LinkedIn
-              </button>
-            </div>
-          ) : accounts.length === 0 ? (
-            <p className="mt-3 text-[11px] text-[#7A776E]">No assignable accounts found on your LinkedIn connection.</p>
           ) : (
-            <div className="mt-3 space-y-2">
-              {accounts.map((acc) => {
-                const isAssigned = assignedRefs.has(acc.accountRef);
-                const isBusy = busy === acc.accountRef;
-                return (
-                  <div
-                    key={acc.accountRef}
-                    className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
-                      isAssigned ? 'border-[#5CCCB8]/40 bg-[#5CCCB8]/5' : 'border-[#1C1B19] bg-[#0F0F0E]'
-                    }`}
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      {acc.accountType === 'organization' ? (
-                        <Building2 className="h-3.5 w-3.5 shrink-0 text-[#7A776E]" />
-                      ) : (
-                        <User className="h-3.5 w-3.5 shrink-0 text-[#7A776E]" />
-                      )}
-                      <div className="min-w-0">
-                        <div className="truncate text-xs">{acc.displayName}</div>
-                        <div className="text-[10px] text-[#7A776E]">
-                          {acc.accountType === 'organization' ? 'Company page' : 'Personal profile'}
+            <div className="mt-3 space-y-4">
+              {/* Assigned now (covers both models) */}
+              {assignments.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Assigned</div>
+                  {assignments.map((acc) => {
+                    const isBusy = busy === acc.accountRef;
+                    return (
+                      <div
+                        key={acc.accountRef}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-[#5CCCB8]/40 bg-[#5CCCB8]/5 px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <AccountIcon type={acc.accountType} />
+                          <div className="min-w-0">
+                            <div className="truncate text-xs">{acc.displayName || acc.accountRef}</div>
+                            <div className="text-[10px] text-[#7A776E]">
+                              {acc.accountType === 'organization' ? 'Company page' : 'Personal profile'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-[#5CCCB8]">
+                            <Check className="h-3 w-3" /> Active
+                          </span>
+                          <button
+                            onClick={() => unassign(acc)}
+                            disabled={isBusy}
+                            className="rounded-md border border-[#1C1B19] px-2 py-1 text-[10px] text-[#7A776E] hover:bg-[#1C1B19]/60 hover:text-[#ECE9E1] disabled:opacity-60"
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Remove'}
+                          </button>
                         </div>
                       </div>
-                    </div>
-                    {isAssigned ? (
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span className="inline-flex items-center gap-1 text-[10px] text-[#5CCCB8]">
-                          <Check className="h-3 w-3" /> Assigned
-                        </span>
-                        <button
-                          onClick={() => unassign(acc)}
-                          disabled={isBusy}
-                          className="rounded-md border border-[#1C1B19] px-2 py-1 text-[10px] text-[#7A776E] hover:bg-[#1C1B19]/60 hover:text-[#ECE9E1] disabled:opacity-60"
-                        >
-                          {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Remove'}
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => assign(acc)}
-                        disabled={isBusy}
-                        className="shrink-0 rounded-md border border-[#1C1B19] px-2.5 py-1 text-[10px] text-[#ECE9E1] hover:bg-[#1C1B19]/60 disabled:opacity-60"
-                      >
-                        {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Assign'}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-              {!hasOrgs && (
-                <p className="pt-1 text-[10px] text-[#7A776E]">
-                  Only your personal profile is available. To post as a company page, reconnect LinkedIn with
-                  organization access.
-                </p>
+                    );
+                  })}
+                </div>
               )}
+
+              {/* Model A — the operator's own accounts */}
+              {connected ? (
+                unassignedOperatorAccounts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Your accounts</div>
+                    {unassignedOperatorAccounts.map((acc) => {
+                      const isBusy = busy === acc.accountRef;
+                      return (
+                        <div
+                          key={acc.accountRef}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <AccountIcon type={acc.accountType} />
+                            <div className="min-w-0">
+                              <div className="truncate text-xs">{acc.displayName}</div>
+                              <div className="text-[10px] text-[#7A776E]">
+                                {acc.accountType === 'organization' ? 'Company page' : 'Personal profile'}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => assign(acc)}
+                            disabled={isBusy}
+                            className="shrink-0 rounded-md border border-[#1C1B19] px-2.5 py-1 text-[10px] text-[#ECE9E1] hover:bg-[#1C1B19]/60 disabled:opacity-60"
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Assign'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                assignments.length === 0 && (
+                  <p className="text-[11px] text-[#7A776E]">
+                    Connect LinkedIn to assign your own profile or a company page you admin.
+                  </p>
+                )
+              )}
+
+              {!connected && (
+                <button
+                  onClick={connectOperator}
+                  disabled={busy === 'connect-a'}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#5CCCB8] px-3 py-1.5 text-xs font-medium text-[#0B0B0A] hover:bg-[#5CCCB8]/90 disabled:opacity-60"
+                >
+                  {busy === 'connect-a' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Linkedin className="h-3.5 w-3.5" />}
+                  Connect your LinkedIn
+                </button>
+              )}
+
+              {/* Model B — the client's own login + pick step */}
+              <div className="border-t border-[#1C1B19] pt-3">
+                {pending ? (
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Pick the account to bind</div>
+                    {pending.accounts.length === 0 ? (
+                      <p className="text-[11px] text-[#7A776E]">That login has no postable LinkedIn account.</p>
+                    ) : (
+                      pending.accounts.map((acc) => {
+                        const isBusy = busy === acc.accountRef;
+                        return (
+                          <div
+                            key={acc.accountRef}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2"
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <AccountIcon type={acc.accountType} />
+                              <div className="min-w-0">
+                                <div className="truncate text-xs">{acc.displayName}</div>
+                                <div className="text-[10px] text-[#7A776E]">
+                                  {acc.accountType === 'organization' ? 'Company page' : 'Personal profile'}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => selectPending(acc)}
+                              disabled={isBusy}
+                              className="shrink-0 rounded-md bg-[#5CCCB8] px-2.5 py-1 text-[10px] font-medium text-[#0B0B0A] hover:bg-[#5CCCB8]/90 disabled:opacity-60"
+                            >
+                              {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Use this'}
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                    <button onClick={() => setPending(null)} className="text-[10px] text-[#7A776E] hover:text-[#ECE9E1]">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={connectClientOwn}
+                    disabled={busy === 'connect-b'}
+                    className="inline-flex items-center gap-2 text-[11px] text-[#7A776E] hover:text-[#ECE9E1] disabled:opacity-60"
+                  >
+                    {busy === 'connect-b' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+                    Connect a client&apos;s own LinkedIn instead
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
