@@ -160,7 +160,12 @@ Return your response strictly adhering to the JSON schema.`;
         },
       };
     } catch (error) {
-      console.warn('[ThinkForge:ScriptWriter] Writing context cache failed; falling back to structured path:', error);
+      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
+      // One catch covers cache-load + gen + parse + the quality gate; without this a permanent
+      // cache-miss, a 100%-fallback regression, or the gate silently rejecting every cache output
+      // all look identical. Distinguish gate-reject from an infra error so a test can count them.
+      const isGateReject = error instanceof Error && error.message.startsWith('Cached script failed usable quality gate');
+      console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
       return super.runStructured(input, overrides, abortSignal);
     }
   }
