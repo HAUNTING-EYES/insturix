@@ -79,6 +79,7 @@ export async function POST(req: Request) {
         brandId: typeof session.projectMeta?.brandId === 'string'
           ? session.projectMeta.brandId
           : undefined,
+        orgId: session.orgId ?? null,
         currentPrompt: content || '',
         currentScript: scriptContent,
         maxFacts: 5,

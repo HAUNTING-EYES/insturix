@@ -235,11 +235,12 @@ export interface BrandDNA {
 }
 
 export type BrandVaultBrandDNAProfileGetter = (
-  filter: { brandId?: string; userId?: string },
+  filter: { brandId?: string; userId?: string; orgId?: string | null },
 ) => BrandVaultStoreResult<BrandSignalProfile | null>;
 
 export interface ResolveEffectiveBrandDNAOptions {
   enabled?: boolean;
+  orgId?: string | null;
   getAcceptedProfile?: BrandVaultBrandDNAProfileGetter;
   onVaultFallback?: (message: string, error: unknown) => void;
 }
@@ -3046,7 +3047,11 @@ export async function composeBrandDNAWithBrandVaultProfile(
 
   try {
     const getAcceptedProfile = options.getAcceptedProfile ?? getDefaultBrandVaultBrandDNAProfile();
-    const profile = await getAcceptedProfile({ brandId, userId });
+    const profile = await getAcceptedProfile({
+      brandId,
+      userId,
+      ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+    });
     if (!profile) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
     if (profile.brandId && profile.brandId !== brandId) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };
     if (profile.userId && profile.userId !== userId) return { brandDNA: baseDNA, brandSignalProfile: null, source: 'legacy' };

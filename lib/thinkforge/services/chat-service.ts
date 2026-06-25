@@ -230,6 +230,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       projectId: sessionId || undefined,
       sessionId: sessionId || undefined,
       brandId: retrievalBrandId,
+      orgId: session.orgId ?? null,
       currentPrompt: prompt,
       currentScript: scriptContent,
       maxFacts: 5,

@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-	const { userId } = await auth();
+	const { userId, orgId } = await auth();
 	if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
 	let prompt: string = '';
@@ -49,6 +49,7 @@ export async function POST(req: Request) {
 			const ctx = await fetchContextSources({
 				userId,
 				brandId,
+				orgId: orgId ?? null,
 				currentPrompt: prompt,
 				maxFacts: 6,
 			});
