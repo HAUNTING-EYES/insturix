@@ -331,13 +331,15 @@ export function getCreditCost(
 ): number {
   const serviceCosts = CREDIT_COSTS[service];
   if (!serviceCosts) {
-    console.warn(`[CreditCost] Unknown service: ${service}`);
+    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+    console.error(`[LOUDFAIL][CreditCost][CONFIG-MISS][MONEY] Unknown service "${service}" -> cost 0 (FREE generation / zero refund downstream)`);
     return 0;
   }
 
   const costConfig = serviceCosts.find(c => c.action === action);
   if (!costConfig) {
-    console.warn(`[CreditCost] Unknown action: ${action} for service: ${service}`);
+    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+    console.error(`[LOUDFAIL][CreditCost][CONFIG-MISS][MONEY] Unknown action "${action}" for service "${service}" -> cost 0 (FREE generation / zero refund downstream)`);
     return 0;
   }
 
@@ -366,6 +368,10 @@ export function getCreditCost(
 
   // Apply batch/fan-out quantity multiplier (e.g. N carousel slides => N image variations).
   // Clamped to >= 1 so a missing/invalid quantity never reduces or zeroes the charge.
+  if (options?.quantity != null && !(options.quantity >= 1)) {
+    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+    console.error(`[LOUDFAIL][CreditCost][QUANTITY-INVALID][MONEY] quantity=${options.quantity} for ${service}/${action} ignored -> charging 1x (possible under-charge)`);
+  }
   if (options?.quantity && options.quantity > 1) {
     cost *= Math.floor(options.quantity);
   }

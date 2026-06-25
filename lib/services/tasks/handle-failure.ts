@@ -53,7 +53,8 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
 
       console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Alyzitron task ${taskId}`);
     } catch (refundError) {
-      console.error('[handleTaskFailure] Failed to refund Alyzitron credits:', refundError);
+      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+      console.error('[LOUDFAIL][handleTaskFailure][REFUND-FAILED][MONEY-LOSS] Alyzitron refund threw but task is still marked refunded:true below (audit-trail lie):', { taskId, userId, serviceName, refundError });
     }
   }
 
@@ -72,8 +73,9 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
       if (creditsToRefund <= 0) {
         // Fail loud rather than issue a silent no-op refund: a zero here means the
         // credit-cost config no longer has the 'variation' action (regression).
+        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
         console.error(
-          `[handleTaskFailure] Refund aborted: getCreditCost('clickatron','${action}') returned ${creditsToRefund} for task ${taskId}`,
+          `[LOUDFAIL][handleTaskFailure][CONFIG-REGRESSION][MONEY] getCreditCost('clickatron','${action}') returned ${creditsToRefund} -> refund aborted (task ${taskId}, user ${userId})`,
         );
       } else {
         await CreditsService.refundCredits(
@@ -86,7 +88,8 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
         console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Clickatron task ${taskId}`);
       }
     } catch (refundError) {
-      console.error('[handleTaskFailure] Failed to refund Clickatron credits:', refundError);
+      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+      console.error('[LOUDFAIL][handleTaskFailure][REFUND-FAILED][MONEY-LOSS] Clickatron refund threw but task is still marked refunded:true below (audit-trail lie):', { taskId, userId, refundError });
     }
   }
 

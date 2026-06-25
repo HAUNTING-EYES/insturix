@@ -106,6 +106,8 @@ export async function GET(request: Request) {
             );
           } catch (refundError) {
             results.errors++;
+            // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+            console.error('[LOUDFAIL][Cron][Clickatron][REFUND-FAILED][MONEY-LOSS] stuck-slide refund threw (slide already failed; no further recovery):', { userId: task.clerkUserId, taskId, variationId: variation.id, amount: refundPerVariation, refundError });
             results.details.push(
               `Failed to refund stuck Clickatron variation ${variation.id} (task ${taskId}): ${refundError instanceof Error ? refundError.message : String(refundError)}`,
             );
@@ -114,6 +116,8 @@ export async function GET(request: Request) {
           // Fail loud: a zero cost means the credit-cost config lost the 'variation'
           // action (regression). The variation is still correctly failed above.
           results.errors++;
+          // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+          console.error('[LOUDFAIL][Cron][Clickatron][CONFIG-REGRESSION][MONEY] getCreditCost returned 0 -> stuck slide failed but NOT refunded:', { userId: task.clerkUserId, taskId, variationId: variation.id });
           results.details.push(
             `Clickatron variation ${variation.id} failed but refund skipped: getCreditCost returned ${refundPerVariation}`,
           );
@@ -121,7 +125,9 @@ export async function GET(request: Request) {
       }
     }
   } catch (e) {
-    logger.error('Error processing Clickatron timeouts in cron job', { error: e });
+    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
+    // NOTE: the cron still returns 200 even when this fires — the whole Clickatron stuck-slide sweep was skipped this run (no refunds).
+    logger.error('[LOUDFAIL][Cron][Clickatron][WATCHDOG-DIED][MONEY] entire stuck-slide sweep failed; no stuck slides refunded this run:', { error: e });
     results.errors++;
     results.details.push(`Error in Clickatron cron: ${e instanceof Error ? e.message : String(e)}`);
   }

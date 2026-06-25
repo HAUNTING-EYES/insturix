@@ -43,7 +43,9 @@ function parseCarouselSlides(metadataField: FormDataEntryValue | null): ParsedCa
   let parsed: unknown;
   try {
     parsed = JSON.parse(metadataField);
-  } catch {
+  } catch (parseErr) {
+    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+    console.error('[LOUDFAIL][Clickatron][CAROUSEL-PARSE-DEGRADED] session metadata failed to JSON.parse — falling back to SINGLE-image billing:', parseErr);
     return [];
   }
 
@@ -51,7 +53,11 @@ function parseCarouselSlides(metadataField: FormDataEntryValue | null): ParsedCa
   if (!creativeSpec || creativeSpec.kind !== 'carousel') return [];
 
   const rawSlides = creativeSpec?.renderPlan?.slides;
-  if (!Array.isArray(rawSlides) || rawSlides.length === 0) return [];
+  if (!Array.isArray(rawSlides) || rawSlides.length === 0) {
+    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+    console.error('[LOUDFAIL][Clickatron][CAROUSEL-EMPTY] spec.kind=carousel but renderPlan.slides missing/empty — billing + generating as a SINGLE image:', { slides: rawSlides });
+    return [];
+  }
 
   return rawSlides
     .slice(0, MAX_CAROUSEL_SLIDES)
@@ -329,7 +335,8 @@ export async function POST(request: Request) {
                 { service: 'clickatron', action: 'variation' },
               );
             } catch (refundError) {
-              console.error(`Failed to refund un-enqueued variation ${variation.id}:`, refundError);
+              // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+              console.error('[LOUDFAIL][Clickatron][REFUND-FAILED][MONEY-LOSS] user CHARGED but NOT refunded; watchdog cannot recover (slide already marked failed):', { userId, sessionId: newTask._id.toString(), variationId: variation.id, amount: refundPerSlide, refundError });
             }
           }
           try {
@@ -344,7 +351,8 @@ export async function POST(request: Request) {
               },
             );
           } catch (markError) {
-            console.error(`Failed to mark un-enqueued variation ${variation.id} as failed:`, markError);
+            // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+            console.error('[LOUDFAIL][Clickatron][MARK-FAILED][DOUBLE-REFUND-RISK] slide stayed generating after in-memory refund; watchdog may refund it AGAIN:', { userId, sessionId: newTask._id.toString(), variationId: variation.id, markError });
           }
           // Continue to the next slide — do not abort the whole batch.
         }
@@ -360,7 +368,8 @@ export async function POST(request: Request) {
       try {
         await setIdempotencyKey(idempotencyKey, newTask._id.toString());
       } catch (idemError) {
-        console.error('[Clickatron] Failed to persist idempotency key:', idemError);
+        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+        console.error('[LOUDFAIL][Clickatron][IDEMPOTENCY-PERSIST-FAILED][DUP-CHARGE-RISK] key->session not stored; a retry will create + charge a duplicate:', { idempotencyKey, sessionId: newTask._id.toString(), idemError });
       }
     }
 

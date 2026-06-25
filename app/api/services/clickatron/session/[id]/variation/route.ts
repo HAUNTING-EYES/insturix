@@ -216,7 +216,16 @@ export async function POST(
 
     // Set idempotency key if provided
     if (idempotencyKey) {
-      await setIdempotencyKey(idempotencyKey, jobId);
+      try {
+        await setIdempotencyKey(idempotencyKey, jobId);
+      } catch (idemError) {
+        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
+        // Runs AFTER deduct() but BEFORE enqueue — a throw here 500s the request with credits
+        // already deducted, no job, and NO refund. Logged loud + re-thrown (behavior preserved);
+        // the real fix (guard/refund) is in the audit doc's "Design fixes for later".
+        console.error('[LOUDFAIL][Clickatron][VARIATION][IDEMPOTENCY-AFTER-DEDUCT][MONEY-LOSS] setIdempotencyKey threw after charge, before enqueue — user charged, no job, no refund:', { userId, sessionId: id, jobId, idempotencyKey, idemError });
+        throw idemError;
+      }
     }
 
     // Enqueue job with QStash
