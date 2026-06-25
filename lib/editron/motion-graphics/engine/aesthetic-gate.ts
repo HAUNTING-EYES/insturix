@@ -24,6 +24,10 @@ export interface AestheticIssue {
 
 export interface AestheticGateResult {
   pass: boolean;
+  /** Verdict category. 'ungated' = the gate could NOT judge (no API key / render or model failure) — callers
+   *  MUST treat ungated as "skip gating": it is NOT a pass and NOT a fail (do not drop the MG, do not feed it
+   *  as a reward). Only 'fail' (a real low score from a real judgement) may drop/rework an MG. */
+  status: 'pass' | 'fail' | 'ungated';
   score: number;
   issues: AestheticIssue[];
   reasoning: string;
@@ -72,7 +76,7 @@ export async function runAestheticGate(
     // score:0 so nothing treats it as a pass or reward. The wiring step adds an explicit 'ungated' status so
     // callers SKIP gating (ungated != fail) rather than dropping the MG.
     console.warn('[MG-AestheticGate] No API key — UNGATED (not a pass; score withheld)');
-    return { pass: false, score: 0, issues: [], reasoning: 'Ungated — no GEMINI_API_KEY (not a pass)', processingTimeMs: 0 };
+    return { pass: false, status: 'ungated', score: 0, issues: [], reasoning: 'Ungated — no GEMINI_API_KEY (not a pass)', processingTimeMs: 0 };
   }
 
   try {
@@ -100,8 +104,8 @@ export async function runAestheticGate(
 
     const responseText = result.response?.text?.();
     if (!responseText) {
-      console.error('[MG-AestheticGate] Empty response from Gemini');
-      return { pass: false, score: 0, issues: [{ dimension: 'readability', severity: 'high', description: 'Gate failed: empty model response' }], reasoning: 'Model returned empty', processingTimeMs: Date.now() - startTime };
+      console.error('[MG-AestheticGate] Empty response from Gemini — UNGATED');
+      return { pass: false, status: 'ungated', score: 0, issues: [], reasoning: 'Ungated — model returned empty response', processingTimeMs: Date.now() - startTime };
     }
 
     const parsed = JSON.parse(responseText);
@@ -126,18 +130,22 @@ export async function runAestheticGate(
 
     return {
       pass,
+      status: pass ? 'pass' : 'fail',
       score: total,
       issues,
       reasoning: parsed.reasoning || '',
       processingTimeMs: Date.now() - startTime,
     };
   } catch (err: any) {
-    console.error(`[MG-AestheticGate] Error: ${err.message}`);
+    // A gate ERROR (model/network/parse) means the gate could not judge — that is UNGATED, not a fail of the
+    // MG. Returning 'fail' here would let a flaky Gemini call silently drop good graphics. Skip gating instead.
+    console.error(`[MG-AestheticGate] Error: ${err.message} — UNGATED (gate could not judge)`);
     return {
       pass: false,
+      status: 'ungated',
       score: 0,
-      issues: [{ dimension: 'readability', severity: 'high', description: `Gate error: ${err.message}` }],
-      reasoning: `Error: ${err.message}`,
+      issues: [],
+      reasoning: `Ungated — gate error: ${err.message}`,
       processingTimeMs: Date.now() - startTime,
     };
   }
