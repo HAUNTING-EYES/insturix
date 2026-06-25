@@ -118,7 +118,8 @@ describe('Brand Vault Editron EDL consumer', () => {
     expect(mocks.resolveEffectiveBrandWithProfile).toHaveBeenCalledWith(
       'user_edl',
       'brand_edl',
-      { service: 'editron' },
+      // A.2 org-scoping: edl-executor threads the project's orgId (null for this no-org project).
+      { service: 'editron', orgId: null },
     );
 
     const decisionParams = edl.decisions[0]?.params as Record<string, any>;
