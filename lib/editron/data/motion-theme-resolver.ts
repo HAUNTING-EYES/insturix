@@ -411,6 +411,15 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
   };
 }
 
+// Per-moment "this is a peak" composite from the kinetic signals — drives emphasis (size).
+// cinematic_moment is the graph's named emphasis trigger (creative-knowledge-graph.json
+// mapping:composite.cinematic_moment_emphasis; quality gate "cinematic_moment + no emphasis applied =
+// wasted peak"). Mirrors the momentKinetics composite in resolveAnimation, leaning on cinematic.
+function resolveMomentEmphasis(s: ContentSignals): number {
+  const n = (v: number | undefined) => (typeof v === 'number' && isFinite(v) ? v : 0);
+  return clamp(n(s.cinematic_moment) * 0.4 + n(s.narrative_pressure) * 0.3 + n(s.motion_intensity) * 0.3, 0, 1);
+}
+
 // ─── Typography Resolution ──────────────────────────────
 
 function resolveTypography(s: ContentSignals, b: BrandInputs): MotionTokens['typography'] {
@@ -437,7 +446,12 @@ function resolveTypography(s: ContentSignals, b: BrandInputs): MotionTokens['typ
   // Size scale: visual_dependency drives how much screen space text occupies
   const figureGroundRatio = dial01(b.figureGroundRatio);
   const safeZones = dial01(b.safeZones);
+  // Per-moment emphasis un-freezes sizeScale: it was visual_dependency-only (a video global), so
+  // every MG resolved to an identical size — the §9 monotony root (proj_GNctpvqAdXCC: 1.0939 to 15
+  // decimals across all 6 MGs). Peak moments now read larger; clamped 0.85-1.2 below.
+  const momentEmphasis = resolveMomentEmphasis(s);
   const sizeScale = lerp(s.visual_dependency, 0, 1, 0.9, 1.15)
+    * lerp(momentEmphasis, 0, 1, 0.96, 1.10)
     * biasMultiplier(figureGroundRatio, 0.12)
     * biasMultiplier(safeZones, -0.08);
 
