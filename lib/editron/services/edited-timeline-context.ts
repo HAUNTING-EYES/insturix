@@ -146,14 +146,26 @@ export function remapBriefTimestampsToEditedTimeline<T extends { targetTimestamp
   sourceClips: EditedTimelineClip[],
   fps: number,
 ): T[] {
-  if (!sourceClips.length || fps <= 0) return decisions;
-  return decisions.flatMap((decision) => {
-    if (typeof decision.targetTimestampMs !== 'number' || decision.targetTimestampMs < 0) return [decision];
+  // FAILLOUD-TEMP: !(fps>0) also catches NaN (the old `fps<=0` missed it → NaN frames → everything dropped silently).
+  if (!sourceClips.length || !(fps > 0)) {
+    console.warn(`[FAILLOUD][remapBrief] no-op: sourceClips=${sourceClips.length} fps=${fps} — ${decisions.length} brief decisions left in ORIGINAL time (likely dropped downstream as out-of-range)`);
+    return decisions;
+  }
+  let dropped = 0;
+  const out = decisions.flatMap((decision) => {
+    if (typeof decision.targetTimestampMs !== 'number' || decision.targetTimestampMs < 0) {
+      // FAILLOUD-TEMP: a negative timestamp is corrupt data passed through unmapped (real word-index decisions have NO timestamp at all).
+      if (typeof decision.targetTimestampMs === 'number' && decision.targetTimestampMs < 0) console.warn(`[FAILLOUD][remapBrief] negative targetTimestampMs=${decision.targetTimestampMs} passed through unmapped (corrupt brief decision?)`);
+      return [decision];
+    }
     const sourceFrame = Math.round((decision.targetTimestampMs / 1000) * fps);
     const editedFrame = mapSourceFrameToEditedFrame(sourceFrame, sourceClips);
-    if (editedFrame === null) return [];
+    if (editedFrame === null) { dropped++; return []; }
     return [{ ...decision, targetTimestampMs: Math.round((editedFrame / fps) * 1000) }];
   });
+  // FAILLOUD-TEMP: these drops happen BEFORE executeBrief's own out-of-range tally → otherwise invisible (could eat most of a brief).
+  if (dropped > 0) console.warn(`[FAILLOUD][remapBrief] dropped ${dropped}/${decisions.length} brief decisions whose original-time timestamp landed in a removed-silence gap`);
+  return out;
 }
 
 export function projectSignalTimelineToEditedTimeline(

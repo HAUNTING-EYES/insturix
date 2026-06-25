@@ -827,6 +827,9 @@ export async function executeDirectorPlan(
             if (editedTimelineContext?.sourceClips?.length) {
               const { remapBriefTimestampsToEditedTimeline } = await import('@/lib/editron/services/edited-timeline-context');
               briefDecisionsForExecutor = remapBriefTimestampsToEditedTimeline(creativeBrief.decisions, editedTimelineContext.sourceClips, pathEFps);
+            } else if (editedTimelineContext) {
+              // FAILLOUD-TEMP: edited timeline exists but no source clips → remap skipped, brief timestamps stay in original time and get dropped as out-of-range.
+              console.warn(`[FAILLOUD][Director] editedTimelineContext present but sourceClips empty (${editedTimelineContext.sourceClips?.length ?? 'undef'}) — brief timestamps NOT remapped`);
             }
             const briefResult = executeBrief({
               brief: { ...creativeBrief, decisions: briefDecisionsForExecutor },

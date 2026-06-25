@@ -104,7 +104,8 @@ export async function runAestheticGate(
 
     const responseText = result.response?.text?.();
     if (!responseText) {
-      console.error('[MG-AestheticGate] Empty response from Gemini — UNGATED');
+      // FAILLOUD-TEMP: enrich the CAUSE — a SAFETY/RECITATION finishReason or blockReason means the gate is being blocked, not genuinely empty.
+      console.error(`[FAILLOUD][MG-AestheticGate] Empty response — UNGATED. finishReason=${(result.response as any)?.candidates?.[0]?.finishReason} blockReason=${(result.response as any)?.promptFeedback?.blockReason}`);
       return { pass: false, status: 'ungated', score: 0, issues: [], reasoning: 'Ungated — model returned empty response', processingTimeMs: Date.now() - startTime };
     }
 
@@ -127,6 +128,8 @@ export async function runAestheticGate(
 
     const pass = total >= PASS_THRESHOLD;
     console.log(`[MG-AestheticGate] Score: ${total}/100 — ${pass ? 'PASS' : 'FAIL'} (${issues.length} issues, ${Date.now() - startTime}ms)`);
+    // FAILLOUD-TEMP: valid JSON but missing 'reasoning' = the model's output schema drifted; score/issues above may be silently defaulting too.
+    if (!parsed.reasoning) console.warn(`[FAILLOUD][MG-AestheticGate] parsed verdict missing 'reasoning' (score=${total}, pass=${pass}) — schema drift? verify score/issues parsed correctly`);
 
     return {
       pass,
@@ -139,7 +142,8 @@ export async function runAestheticGate(
   } catch (err: any) {
     // A gate ERROR (model/network/parse) means the gate could not judge — that is UNGATED, not a fail of the
     // MG. Returning 'fail' here would let a flaky Gemini call silently drop good graphics. Skip gating instead.
-    console.error(`[MG-AestheticGate] Error: ${err.message} — UNGATED (gate could not judge)`);
+    // FAILLOUD-TEMP: enrich the CAUSE — SyntaxError = non-JSON model output; network/quota = the gate is effectively OFF for this run.
+    console.error(`[FAILLOUD][MG-AestheticGate] ${err?.name ?? 'Error'}: ${err?.message} — UNGATED (gate could not judge)`);
     return {
       pass: false,
       status: 'ungated',

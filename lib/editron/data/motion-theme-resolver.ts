@@ -285,6 +285,8 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
   const brandPaceBias = biasFromNeutral(pacePreference, 0.14);
   const arcMomentBoost = emotionalArc === undefined ? 0 : (emotionalArc - 0.5) * momentKinetics * 0.18;
   const energy = clamp((s.enthusiasm + s.emotional_arousal + s.pacing_velocity) / 3 + speechEnergyBoost + brandEnergyBias + brandPaceBias + arcMomentBoost, 0, 1);
+  // FAILLOUD-TEMP: clamp(NaN)=NaN propagates into 5 token families silently; a legacy -1..+1 producer floors to 0. Fires once per MG only when formality is bad.
+  if (!(typeof s.formality === 'number' && s.formality >= 0 && s.formality <= 1)) console.warn(`[FAILLOUD][formality] formality=${s.formality} not in 0..1 (NaN/missing/legacy -1..+1?) — clamped; 5 token families mis-resolve`);
   const formalityNorm = clamp(s.formality, 0, 1); // formality is 0..1 (every producer emits 0..1). Was (s.formality+1)/2 assuming -1..+1 — that inflated a real 0.4 to 0.7 and force-tripped formalityNorm>0.7→fade on ~all content.
 
   // Entrance easing: energy + formality together determine the curve personality
@@ -416,8 +418,13 @@ function resolveAnimation(s: ContentSignals, b: BrandInputs): MotionTokens['anim
 // mapping:composite.cinematic_moment_emphasis; quality gate "cinematic_moment + no emphasis applied =
 // wasted peak"). Mirrors the momentKinetics composite in resolveAnimation, leaning on cinematic.
 function resolveMomentEmphasis(s: ContentSignals): number {
-  const n = (v: number | undefined) => (typeof v === 'number' && isFinite(v) ? v : 0);
-  return clamp(n(s.cinematic_moment) * 0.4 + n(s.narrative_pressure) * 0.3 + n(s.motion_intensity) * 0.3, 0, 1);
+  // FAILLOUD-TEMP: a missing/NaN signal silently becomes 0 → sizeScale collapses to baseline = re-freezes the §9 monotony with no trace.
+  const n = (v: number | undefined, name: string) => {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    console.warn(`[FAILLOUD][momentEmphasis] signal '${name}'=${v} missing/NaN → 0 (sizeScale won't lift for this moment)`);
+    return 0;
+  };
+  return clamp(n(s.cinematic_moment, 'cinematic_moment') * 0.4 + n(s.narrative_pressure, 'narrative_pressure') * 0.3 + n(s.motion_intensity, 'motion_intensity') * 0.3, 0, 1);
 }
 
 // ─── Typography Resolution ──────────────────────────────
