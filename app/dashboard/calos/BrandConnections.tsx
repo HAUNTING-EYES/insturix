@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Linkedin, Facebook, Instagram, Building2, User, Check, Loader2, X, UserPlus } from 'lucide-react';
+import { Linkedin, Facebook, Instagram, Twitter, Building2, User, Check, Loader2, X, UserPlus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface AssignableAccount {
@@ -33,6 +33,7 @@ interface BrandConnectionsProps {
 const LINKEDIN_ASSIGN_BASE = '/api/services/calos/connect/linkedin/assign';
 const FACEBOOK_ASSIGN_BASE = '/api/services/calos/connect/facebook/assign';
 const INSTAGRAM_ASSIGN_BASE = '/api/services/calos/connect/instagram/assign';
+const TWITTER_ASSIGN_BASE = '/api/services/calos/connect/twitter/assign';
 
 export default function BrandConnections({ brandId, brandName, open, onClose }: BrandConnectionsProps) {
   const [loading, setLoading] = useState(true);
@@ -45,13 +46,16 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
   const [instagramConnected, setInstagramConnected] = useState(false);
   const [instagramAccounts, setInstagramAccounts] = useState<AssignableAccount[]>([]);
   const [instagramAssignments, setInstagramAssignments] = useState<AssignableAccount[]>([]);
+  const [twitterConnected, setTwitterConnected] = useState(false);
+  const [twitterAccounts, setTwitterAccounts] = useState<AssignableAccount[]>([]);
+  const [twitterAssignments, setTwitterAssignments] = useState<AssignableAccount[]>([]);
   const [pending, setPending] = useState<{ pendingId: string; accounts: AssignableAccount[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // accountRef | 'connect-a' | 'connect-b' | pendingId
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [accRes, assignRes, fbAccRes, fbAssignRes, igAccRes, igAssignRes] = await Promise.all([
+      const [accRes, assignRes, fbAccRes, fbAssignRes, igAccRes, igAssignRes, twAccRes, twAssignRes] = await Promise.all([
         // TODO(CALOS_LOUD): revert these .catch logs to `.catch(() => null)` once stable.
         fetch('/api/services/calos/connect/linkedin/accounts', { cache: 'no-store' })
           .then((r) => r.json())
@@ -71,6 +75,12 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
         fetch(`${INSTAGRAM_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
           .then((r) => r.json())
           .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: instagram assignments fetch failed:', e); return null; }),
+        fetch('/api/services/calos/connect/twitter/accounts', { cache: 'no-store' })
+          .then((r) => r.json())
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: twitter accounts fetch failed:', e); return null; }),
+        fetch(`${TWITTER_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: twitter assignments fetch failed:', e); return null; }),
       ]);
 
       setConnected(!!accRes?.connected);
@@ -106,6 +116,18 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
       setInstagramAssignments(
         Array.isArray(igAssignRes?.assignments)
           ? igAssignRes.assignments.filter((a: AssignableAccount) => a?.accountRef)
+          : [],
+      );
+
+      setTwitterConnected(!!twAccRes?.connected);
+      setTwitterAccounts(
+        Array.isArray(twAccRes?.accounts)
+          ? twAccRes.accounts.filter((a: AssignableAccount) => a?.accountRef)
+          : [],
+      );
+      setTwitterAssignments(
+        Array.isArray(twAssignRes?.assignments)
+          ? twAssignRes.assignments.filter((a: AssignableAccount) => a?.accountRef)
           : [],
       );
     } finally {
@@ -164,6 +186,22 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
       );
     },
     [instagramAssignments, brandId],
+  );
+
+  const removeOtherTwitterBindings = useCallback(
+    async (keepRef: string) => {
+      const others = twitterAssignments.filter((a) => a.accountRef !== keepRef).map((a) => a.accountRef);
+      await Promise.all(
+        others.map((ref) =>
+          fetch(
+            `${TWITTER_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(ref)}`,
+            { method: 'DELETE' },
+            // TODO(CALOS_LOUD): revert to `.catch(() => null)` once stable.
+          ).catch((e) => { console.error('[CALOS_LOUD] BrandConnections: twitter unassign DELETE failed:', e); return null; }),
+        ),
+      );
+    },
+    [twitterAssignments, brandId],
   );
 
   // Popup helper: open url, resolve when it closes or posts `source`. Returns the message payload (or null).
@@ -276,6 +314,16 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
     setBusy('connect-instagram');
     try {
       await openFacebookPopup('/api/services/uploaderx/instagram/auth');
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }, [openFacebookPopup, load]);
+
+  const connectTwitter = useCallback(async () => {
+    setBusy('connect-twitter');
+    try {
+      await openFacebookPopup('/api/services/uploaderx/twitter/auth');
       await load();
     } finally {
       setBusy(null);
@@ -446,6 +494,51 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
     [brandId, brandName, load],
   );
 
+  const assignTwitter = useCallback(
+    async (acc: AssignableAccount) => {
+      setBusy(`twitter:${acc.accountRef}`);
+      try {
+        const res = await fetch(TWITTER_ASSIGN_BASE, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, accountRef: acc.accountRef, displayName: acc.displayName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({ title: data?.error || `Assign failed (${res.status})`, variant: 'destructive' });
+          return;
+        }
+        await removeOtherTwitterBindings(acc.accountRef);
+        toast({ title: `${brandName} now posts to X as ${acc.displayName}` });
+        await load();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [brandId, brandName, removeOtherTwitterBindings, load],
+  );
+
+  const unassignTwitter = useCallback(
+    async (acc: AssignableAccount) => {
+      setBusy(`twitter:${acc.accountRef}`);
+      try {
+        const res = await fetch(
+          `${TWITTER_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(acc.accountRef)}`,
+          { method: 'DELETE' },
+        );
+        if (!res.ok) {
+          toast({ title: `Remove failed (${res.status})`, variant: 'destructive' });
+          return;
+        }
+        toast({ title: `X unassigned - ${brandName} needs an account assignment before posting` });
+        await load();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [brandId, brandName, load],
+  );
+
   if (!open) return null;
 
   const assignedRefs = new Set(assignments.map((a) => a.accountRef));
@@ -454,6 +547,8 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
   const unassignedFacebookPages = facebookPages.filter((a) => !facebookAssignedRefs.has(a.accountRef));
   const instagramAssignedRefs = new Set(instagramAssignments.map((a) => a.accountRef));
   const unassignedInstagramAccounts = instagramAccounts.filter((a) => !instagramAssignedRefs.has(a.accountRef));
+  const twitterAssignedRefs = new Set(twitterAssignments.map((a) => a.accountRef));
+  const unassignedTwitterAccounts = twitterAccounts.filter((a) => !twitterAssignedRefs.has(a.accountRef));
 
   const AccountIcon = ({ type }: { type: AssignableAccount['accountType'] }) =>
     type === 'organization' ? (
@@ -857,9 +952,106 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
           )}
         </div>
 
+        <div className="mt-4 rounded-xl border border-[#1C1B19] bg-[#0B0B0A] p-4">
+          <div className="flex items-center gap-2">
+            <Twitter className="h-4 w-4 text-[#1D9BF0]" />
+            <span className="text-xs font-medium">X (Twitter)</span>
+          </div>
+
+          {loading ? (
+            <div className="mt-3 flex items-center gap-2 text-xs text-[#7A776E]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...
+            </div>
+          ) : (
+            <div className="mt-3 space-y-4">
+              {twitterAssignments.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Assigned account</div>
+                  {twitterAssignments.map((acc) => {
+                    const isBusy = busy === `twitter:${acc.accountRef}`;
+                    return (
+                      <div
+                        key={acc.accountRef}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-[#1D9BF0]/40 bg-[#1D9BF0]/5 px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <AccountIcon type="personal" />
+                          <div className="min-w-0">
+                            <div className="truncate text-xs">{acc.displayName || acc.accountRef}</div>
+                            <div className="text-[10px] text-[#7A776E]">X account</div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-[#1D9BF0]">
+                            <Check className="h-3 w-3" /> Active
+                          </span>
+                          <button
+                            onClick={() => unassignTwitter(acc)}
+                            disabled={isBusy}
+                            className="rounded-md border border-[#1C1B19] px-2 py-1 text-[10px] text-[#7A776E] hover:bg-[#1C1B19]/60 hover:text-[#ECE9E1] disabled:opacity-60"
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Remove'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {twitterConnected ? (
+                unassignedTwitterAccounts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Your account</div>
+                    {unassignedTwitterAccounts.map((acc) => {
+                      const isBusy = busy === `twitter:${acc.accountRef}`;
+                      return (
+                        <div
+                          key={acc.accountRef}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <AccountIcon type="personal" />
+                            <div className="min-w-0">
+                              <div className="truncate text-xs">{acc.displayName}</div>
+                              <div className="text-[10px] text-[#7A776E]">X account</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => assignTwitter(acc)}
+                            disabled={isBusy}
+                            className="shrink-0 rounded-md border border-[#1C1B19] px-2.5 py-1 text-[10px] text-[#ECE9E1] hover:bg-[#1C1B19]/60 disabled:opacity-60"
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Assign'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                twitterAssignments.length === 0 && (
+                  <p className="text-[11px] text-[#7A776E]">Connect X to assign your account.</p>
+                )
+              )}
+
+              {!twitterConnected && (
+                <button
+                  onClick={connectTwitter}
+                  disabled={busy === 'connect-twitter'}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#1D9BF0] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9BF0]/90 disabled:opacity-60"
+                >
+                  {busy === 'connect-twitter' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Twitter className="h-3.5 w-3.5" />}
+                  Connect X
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <p className="mt-3 text-[10px] leading-relaxed text-[#5A5851]">
           Approved cards publish to the assigned account at their scheduled time. LinkedIn can use your
-          personal connection when unassigned; Facebook needs a Page; Instagram needs an account + an image.
+          personal connection when unassigned; Facebook needs a Page; Instagram needs an account + an image; X posts text.
         </p>
       </div>
     </div>

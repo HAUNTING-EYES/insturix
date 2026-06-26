@@ -2,6 +2,7 @@ import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { publishToFacebook } from "./facebook";
 import { publishToInstagram } from "./instagram";
 import { publishToLinkedIn } from "./linkedin";
+import { publishToTwitter } from "./twitter";
 
 /**
  * Inputs a CalOS publisher needs to post on behalf of a brand from a SERVER (cron)
@@ -47,7 +48,7 @@ export const publishers: Partial<Record<CalosPublishPlatform, Publisher>> = {
   facebook: publishToFacebook,
   instagram: publishToInstagram,
   linkedin: publishToLinkedIn,
-  // twitter: publishToTwitter,
+  twitter: publishToTwitter,
   // youtube: publishToYouTube,
 };
 
