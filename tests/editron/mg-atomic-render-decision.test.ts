@@ -204,7 +204,10 @@ describe('atomic render decision adapter', () => {
     }), stageTokens);
 
     expect(chrome?.kind).toBe('full-frame');
-    expect(String(chrome?.rootStyle.background)).toContain('rgba(1, 2, 3, 0.86)');
+    // Surface (backgroundColor #010203 → surfaceBase) flows into the chrome at the LIGHTENED
+    // legibility-scrim alpha 0.3 — the full-frame blackout (was surface@0.86) was deliberately
+    // removed (8b9e7d1d) so footage stays visible behind full-frame/scene MGs.
+    expect(String(chrome?.rootStyle.background)).toContain('rgba(1, 2, 3, 0.3)');
     expect(String(chrome?.rootStyle.background)).toContain('radial-gradient');
     expect(chrome?.frameStyle).toBeUndefined();
   });

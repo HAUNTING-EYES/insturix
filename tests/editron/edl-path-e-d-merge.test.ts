@@ -495,6 +495,8 @@ describe('EDL Path E+D merge', () => {
             title: 'One thing',
             body: 'Changed everything',
             contextPhrase: 'this is the one thing that changed everything',
+            contextStartMs: 1500,
+            contextEndMs: 3000,
             creativeDecisionType: 'graphic_keyword_highlight',
             signals: {
               speech_energy: 0.9,
@@ -637,6 +639,7 @@ describe('EDL Path E+D merge', () => {
             fromLabel: 'Before',
             toLabel: 'After',
             relation: 'arrow',
+            sourceSpan: { text: 'manual edits versus automated edits', startMs: 1000, endMs: 2000 },
             creativeDecisionType: 'graphic_callout',
             signals: {
               visual_significance: 0.55,
@@ -702,6 +705,8 @@ describe('EDL Path E+D merge', () => {
           params: {
             value: '0.02',
             label: 'human beings per day',
+            salience: 0.72,
+            sourceSpan: { text: 'about 0.02 human beings per day', startMs: 2000, endMs: 2250 },
             creativeDecisionType: 'graphic_stat_counter',
             targetWordStartMs: 2000,
             targetWordEndMs: 2250,
