@@ -30,7 +30,7 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { detectContentPath } from '../agents/prompt-utils';
-import { resolveContentSignalProfile, formatContentSignalProfileForPrompt } from '../signals';
+import { resolveContentSignalProfile, formatContentSignalProfileForPrompt, type ThinkForgeContentSignalProfile } from '../signals';
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import crypto from 'crypto';
 
@@ -839,6 +839,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // Clickatron handoff. ponytail: reuse the systemBrief injection the writers already read --
         // no writer-agent changes. Fails soft to the un-grounded brief.
         let groundedSystemBrief = systemBrief;
+        // Resolved profile is also threaded to the writers (baseInput.contentSignalProfile) so the
+        // flat Post/Script writers can drive writing-graph technique selection from the structured
+        // signals, not just the folded brief. Fails soft to the un-grounded brief.
+        let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
@@ -847,6 +851,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             sessionId: sessionState.sessionId,
             retrievedContext: retrievedCtx || undefined,
           });
+          resolvedSignalProfile = contentSignalProfile;
           groundedSystemBrief = [systemBrief, formatContentSignalProfileForPrompt(contentSignalProfile)]
             .filter(Boolean)
             .join('\n\n');
@@ -870,6 +875,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             project: sessionState.metadata,
             sessionId: sessionState.sessionId,
             brandId: sessionState.metadata.brandId,
+            contentSignalProfile: resolvedSignalProfile,
           };
 
           if (contentPath === 'post') {

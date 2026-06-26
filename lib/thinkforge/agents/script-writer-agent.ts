@@ -4,7 +4,8 @@ import type { AgentInput, AgentStructuredOutput } from './types';
 import type { ThinkForgeContentSignalProfile } from '../signals';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { parseAgentJson } from '../protocol/parse-agent-json';
-import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
+import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
+import { extractSignalsFromContext } from '../data/extract-signals';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -68,9 +69,23 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
 
   buildPrompt(input: ScriptWriterInput): string {
     const { context, userPrompt, retrievedContext } = input;
-    
+
     // We default to generic video scripts if no explicit platform is passed via prompt.
     // Platform detection could be added here similar to PostWriter if needed.
+
+    // Writing knowledge graph: select techniques (DO/WHY/NEVER) from the content signals so the
+    // flat ScriptWriter gets the same craft guidance the orchestrated ScriptAuthor path gets, not
+    // just the cached-result filler gate. Signals come from the resolved profile when threaded,
+    // else derived from the brief.
+    const signalDocType = input.contentSignalProfile?.profile.constraints.output_format;
+    const writingBlock = buildWritingKnowledgeBlock(
+      input.contentSignalProfile?.profile.signals ?? extractSignalsFromContext({
+        documentType: signalDocType,
+        medium: signalDocType,
+        projectSummary: context.projectSummary,
+        userPrompt,
+      }),
+    );
 
     let prompt = `You are an elite Video Scriptwriter and Creative Director.
 Your task is to write a high-retention, engaging video script.
@@ -94,6 +109,11 @@ Your task is to write a high-retention, engaging video script.
         prompt += `[Source ${i + 1} - ${fact.title}]: ${fact.summary}\n`;
       });
       prompt += '\n';
+    }
+
+    // Writing knowledge graph techniques, injected before the generation rules.
+    if (writingBlock) {
+      prompt += `${writingBlock}\n\n`;
     }
 
     // 3. Script Writing Rules

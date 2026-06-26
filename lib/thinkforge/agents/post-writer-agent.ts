@@ -8,7 +8,8 @@ import {
 import type { ThinkForgeContentSignalProfile } from '../signals';
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
-import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
+import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
+import { extractSignalsFromContext } from '../data/extract-signals';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -108,6 +109,19 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
       : 'No retrieved project or global facts loaded.';
     const brandBlock = context.systemBrief || 'No Brand DNA or memory loaded.';
 
+    // Writing knowledge graph: select techniques (DO/WHY/NEVER) from the content signals so the
+    // flat writers get the same craft guidance the orchestrated ScriptAuthor path gets, not just
+    // the anti-filler gate. Signals come from the resolved profile when threaded, else derived.
+    const signalDocType = input.contentSignalProfile?.profile.constraints.output_format;
+    const writingBlock = buildWritingKnowledgeBlock(
+      input.contentSignalProfile?.profile.signals ?? extractSignalsFromContext({
+        documentType: signalDocType,
+        medium: signalDocType,
+        projectSummary: context.projectSummary,
+        userPrompt,
+      }),
+    );
+
     return `<role>You are an elite ${platform} copywriter and content strategist.</role>
 <task>Write ONE final, publishable post for the detected platform. Return JSON that matches the schema exactly.</task>
 
@@ -137,7 +151,7 @@ VISUAL HANDOFF
 - Image prompts must carry the same source facts as the post and include editable overlay text when text appears.
 </rules>
 
-${outputFormat}
+${writingBlock ? `${writingBlock}\n\n` : ''}${outputFormat}
 
 <input_data>
 Project Summary:
