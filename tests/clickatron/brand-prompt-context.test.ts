@@ -257,6 +257,23 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).not.toContain("blk_secret");
   });
 
+  it("bakes text into the image when the picked model is text-capable (C2), default policy", () => {
+    // Same default 'editable_text_layers' fixture, but the user picked a text-capable model.
+    const base = {
+      prompt: "Create the Clickatron graphic.",
+      metadata: { clickatron: { title: "Carousel handoff", creativeSpec: creativeSpec() } },
+    };
+    const rendered = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/nano-banana-pro" });
+    expect(rendered).toContain("Text-layer copy handling: render this exact copy accurately and legibly");
+    expect(rendered).toContain("render exactly that copy in the image");
+    expect(rendered).not.toContain("Generate the raster image as a text-free visual/background");
+
+    // A weak-text model on the same default policy stays suppressed.
+    const suppressed = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/imagen4/preview" });
+    expect(suppressed).toContain("Generate the raster image as a text-free visual/background");
+    expect(suppressed).not.toContain("render exactly that copy in the image");
+  });
+
   it("prefers task brandId and resolves BrandVault context through injected deps", async () => {
     expect(
       resolveClickatronPromptBrandId("brand_direct", {

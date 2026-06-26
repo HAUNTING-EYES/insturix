@@ -1,6 +1,7 @@
 import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-resolver";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
+import { modelSupportsTextRendering } from "@/lib/config/clickatron-models";
 
 type MetadataRecord = Record<string, unknown>;
 
@@ -8,6 +9,8 @@ export interface ClickatronPromptContextInput {
   prompt: string;
   metadata?: MetadataRecord | null;
   brandContextBlock?: string | null;
+  /** Model the user picked. Decides in-image text rendering on the default text policy (C2). */
+  modelId?: string | null;
 }
 
 export interface BrandContextResolverDeps {
@@ -329,7 +332,7 @@ function buildClickatronBrandSignalContextBlock(
   return lines.join("\n");
 }
 
-export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | null): string {
+export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | null, modelId?: string | null): string {
   const safeMetadata = asRecord(metadata);
   if (!safeMetadata) return "";
 
@@ -375,7 +378,11 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   const textLayerSummary = summarizeTextLayers(renderPlan?.textLayers, renderPlan?.textPolicy);
   pushField(lines, "Text layers", textLayerSummary);
   if (textLayerSummary) {
-    lines.push("Text-layer copy handling: exact copy is metadata only; do not rasterize it in the generated image.");
+    // C2: when the resolved policy/model wants in-image text, the exact copy above is what the
+    // model should RENDER; otherwise it stays overlay-only metadata.
+    lines.push(shouldRenderTextInImage(renderPlan?.textPolicy, modelId)
+      ? "Text-layer copy handling: render this exact copy accurately and legibly in the image."
+      : "Text-layer copy handling: exact copy is metadata only; do not rasterize it in the generated image.");
   }
   pushField(lines, "Carousel slides", summarizeSlides(renderPlan?.slides));
 
@@ -390,13 +397,49 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   return lines.join("\n");
 }
 
+// C2: read renderPlan.textPolicy off the handoff metadata.
+function readClickatronTextPolicy(metadata?: MetadataRecord | null): string | undefined {
+  const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
+  return cleanText(asRecord(creativeSpec?.renderPlan)?.textPolicy);
+}
+
+// C2: decide whether generation bakes the supplied copy INTO the image, or keeps the image
+// text-free so copy is layered as editable overlays (the historical default). Reality of the
+// upstream contract: the only policies anything actually sets are 'no_generated_text' and
+// 'editable_text_layers' — 'minimal_generated_text' is contract-valid but currently never
+// produced. So the live trigger is the MODEL the user picked: on the default policy a
+// text-capable model renders the copy, everything else stays text-free. Explicit policies win.
+function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): boolean {
+  const policy = cleanText(textPolicy);
+  if (policy === "no_generated_text") return false; // explicit: never bake text
+  if (policy === "minimal_generated_text") return true; // explicit: always bake text
+  // editable_text_layers / unset (the default): the user's model pick decides.
+  return modelSupportsTextRendering(modelId ?? undefined);
+}
+
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
   const prompt = input.prompt.trim();
-  const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata);
+  const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
   const brandContextBlock = input.brandContextBlock?.trim() || "";
   const contextBlocks = [sourceContextBlock, brandContextBlock].filter(Boolean);
 
   if (contextBlocks.length === 0) return prompt;
+
+  // C2: explicit 'no_generated_text'/'minimal_generated_text' policies win; otherwise the user's
+  // model pick decides — a text-capable model (Nano Banana / Seedream / Gemini 3 Image) renders
+  // the copy, weaker models (Imagen4 / Flux) stay suppressed (they render text as gibberish).
+  const renderTextInImage = shouldRenderTextInImage(readClickatronTextPolicy(input.metadata), input.modelId);
+  const textRules = renderTextInImage
+    ? [
+        "If the source context supplies text-layer copy, render exactly that copy in the image — accurate spelling, brand-appropriate type, high contrast, balanced placement, overlay-safe margins.",
+        "Render ONLY the supplied text-layer copy. If no copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.",
+      ]
+    : [
+        "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
+        "Do not render readable words, letters, numbers, headings, body copy, CTA text, labels, UI text, watermarks, signatures, or logo text.",
+        "Use Clickatron text-layer summaries only to reserve safe zones; exact copy is added later as editable overlays.",
+        "If the request contains long post, caption, or script copy, treat it as meaning and layout intent, not as words to draw.",
+      ];
 
   const enriched = [
     ...contextBlocks,
@@ -406,10 +449,7 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
     "<clickatron_generation_rules>",
     "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
     "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
-    "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
-    "Do not render readable words, letters, numbers, headings, body copy, CTA text, labels, UI text, watermarks, signatures, or logo text.",
-    "Use Clickatron text-layer summaries only to reserve safe zones; exact copy is added later as editable overlays.",
-    "If the request contains long post, caption, or script copy, treat it as meaning and layout intent, not as words to draw.",
+    ...textRules,
     "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
     "Do not render source IDs or internal metadata text in the thumbnail.",
     "</clickatron_generation_rules>",

@@ -256,6 +256,8 @@ async function handler(req: Request) {
         prompt: job.prompt,
         metadata: promptMetadata,
         brandContextBlock,
+        // C2: the picked model decides in-image text rendering on the default text policy.
+        modelId: variation.modelId,
       });
 
       if (enrichedPrompt !== job.prompt) {
