@@ -30,7 +30,14 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { detectContentPath } from '../agents/prompt-utils';
-import { resolveContentSignalProfile, formatContentSignalProfileForPrompt, type ThinkForgeContentSignalProfile } from '../signals';
+import {
+  resolveContentSignalProfile,
+  formatContentSignalProfileForPrompt,
+  evaluateContentProfileCompliance,
+  formatContentProfileComplianceViolations,
+  shouldAutoRepairContentProfileViolations,
+  type ThinkForgeContentSignalProfile,
+} from '../signals';
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import crypto from 'crypto';
 
@@ -937,6 +944,27 @@ CRITICAL: You are editing a SELECTION from a larger document.
             
             // Log analytics
             console.log(`[ThinkForge:ScriptWriter] Score: ${result.contentAnalysis?.qualityScore}`);
+          }
+
+          // Stack A profile-compliance: run the same post-gen scoring Stack B runs (forbidden
+          // terms, missing proof points, platform length, format mismatch, internal metadata
+          // leakage, missing CTA) on the flat writers' output. Stack A has no stylist rewrite
+          // stage, so this measures + persists + logs loud on critical (rather than auto-repairing);
+          // criticals are real defects (leaked metadata, forbidden brand term, script labels in a
+          // social post) that should be visible. Needs the resolved profile to have facts to check.
+          if (resolvedSignalProfile && finalContent) {
+            const compliance = evaluateContentProfileCompliance(finalContent, resolvedSignalProfile);
+            if (compliance.violations.length > 0 && writerOutputMetadata) {
+              const hasCritical = shouldAutoRepairContentProfileViolations(compliance.violations);
+              writerOutputMetadata.profileCompliance = {
+                score: compliance.score,
+                hasCritical,
+                violations: formatContentProfileComplianceViolations(compliance.violations),
+              };
+              (hasCritical ? console.error : console.warn)(
+                `[ThinkForge:ProfileCompliance] Stack A score ${compliance.score}/100${hasCritical ? ' — CRITICAL' : ''}. Violations: ${compliance.violations.map((v) => v.id).join(', ')}`,
+              );
+            }
           }
         } catch (writerError) {
           console.error('[chat-service] Writer agent failed:', writerError);
