@@ -99,6 +99,17 @@ function pushField(lines: string[], label: string, value: unknown): void {
   if (text) lines.push(`${label}: ${text}`);
 }
 
+// Join a string[] field (e.g. keyClaims, hardConstraints) into one labelled line.
+// No-ops on non-arrays/empties, so specs lacking these fields are unchanged.
+function pushGroundingList(lines: string[], label: string, value: unknown, max = 8): void {
+  if (!Array.isArray(value)) return;
+  const items = value
+    .map((entry) => cleanText(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, max);
+  if (items.length > 0) lines.push(`${label}: ${items.join("; ")}`);
+}
+
 function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
