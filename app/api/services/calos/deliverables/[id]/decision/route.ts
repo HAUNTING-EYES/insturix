@@ -150,6 +150,8 @@ async function enqueueApprovedPublish(
 
   const caption =
     deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
+  // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
+  const imageUrl = deliverable.assetUrl ?? null;
 
   const idempotencyKey = `${deliverable.card.id}:${platform}`;
   await CalosScheduledPublish.findOneAndUpdate(
@@ -162,7 +164,7 @@ async function enqueueApprovedPublish(
         brandId,
         platform,
         accountRef: null,
-        payload: { caption },
+        payload: { caption, imageUrl },
         publishAt,
         status: "pending",
         attempts: 0,

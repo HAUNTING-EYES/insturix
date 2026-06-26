@@ -1,5 +1,6 @@
 import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { publishToFacebook } from "./facebook";
+import { publishToInstagram } from "./instagram";
 import { publishToLinkedIn } from "./linkedin";
 
 /**
@@ -15,6 +16,7 @@ export interface PublishParams {
   accountRef?: string; // page / account / organization id on the platform
   caption?: string;
   title?: string;
+  imageUrl?: string | null; // public image URL for media platforms (Instagram requires it)
   videoUuid?: string;
   gcsPath?: string;
   options?: Record<string, unknown>;
@@ -43,8 +45,8 @@ export type Publisher = (params: PublishParams) => Promise<PublishResult>;
  */
 export const publishers: Partial<Record<CalosPublishPlatform, Publisher>> = {
   facebook: publishToFacebook,
+  instagram: publishToInstagram,
   linkedin: publishToLinkedIn,
-  // instagram: publishToInstagram,
   // twitter: publishToTwitter,
   // youtube: publishToYouTube,
 };
