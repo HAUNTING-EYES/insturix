@@ -2,6 +2,8 @@ import type { CalosService, CalosServiceRef } from "@/schemas/calos-deliverable"
 
 export interface GenerateParams {
   ownerUserId: string;
+  /** Active org for brand-resolution scope (agency isolation; null for solo/no-org). */
+  orgId?: string | null;
   brandId: string;
   campaignId?: string | null;
   deliverableId: string; // the card.id

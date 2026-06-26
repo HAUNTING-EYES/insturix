@@ -150,33 +150,20 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
 
   async getLatestAcceptedProfile(filter: BrandVaultAcceptedProfileFilter): Promise<BrandSignalProfile | null> {
     const collections = await this.getCollections();
-    const docs = await collections.profiles
-      .find(toProfileFilter({ ...filter, status: 'accepted' }))
-      .sort({ updatedAt: -1 })
-      .limit(1)
-      .toArray();
+    const docs = await findAcceptedDocs(collections, filter, 1);
     return docs[0]?.record.profile ? clone(docs[0].record.profile) : null;
   }
 
   async getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): Promise<BrandSignalProfileRecord | null> {
     const collections = await this.getCollections();
-    const docs = await collections.profiles
-      .find(toProfileFilter({ ...filter, status: 'accepted' }))
-      .sort({ updatedAt: -1 })
-      .limit(1)
-      .toArray();
+    const docs = await findAcceptedDocs(collections, filter, 1);
     return docs[0]?.record ? clone(docs[0].record) : null;
   }
 
   async listAcceptedBrands(filter: BrandVaultAcceptedBrandListFilter = {}): Promise<BrandVaultAcceptedBrandSummary[]> {
     const collections = await this.getCollections();
     const limit = Math.max(1, Math.min(filter.limit ?? 100, 250));
-    const userId = filter.orgId === undefined || filter.orgId === null ? filter.userId : undefined;
-    const docs = await collections.profiles
-      .find(toProfileFilter({ orgId: filter.orgId, userId, status: 'accepted' }))
-      .sort({ updatedAt: -1 })
-      .limit(limit * 4)
-      .toArray();
+    const docs = await findAcceptedDocs(collections, { orgId: filter.orgId, userId: filter.userId }, limit * 4);
     return summarizeAcceptedBrandRecords(docs.map((doc) => doc.record), limit);
   }
 
@@ -433,6 +420,45 @@ function toProfileFilter(filter: {
   return Object.fromEntries(
     Object.entries(filter).filter(([, value]) => value !== undefined),
   ) as Filter<BrandVaultMongoProfileDocument>;
+}
+
+/**
+ * R5 transitional read: accepted docs for the filter, org-first with a legacy fallback.
+ *
+ * Org-scoping was added after brands already existed, so a member's pre-stack (null-org) brands would
+ * vanish from an org-scoped query. We read the org-owned rows first, then append the requesting user's
+ * own legacy null-org rows — never replacing an org row (callers take the first match / dedupe by
+ * brandId, so an org row always wins over a legacy one of the same brand). Reads only; supersede/write
+ * paths keep exact scope via toProfileFilter. Drop the fallback once the R5 backfill stamps orgId on
+ * every legacy record.
+ */
+async function findAcceptedDocs(
+  collections: BrandVaultMongoCollections,
+  filter: { brandId?: string; userId?: string; orgId?: string | null },
+  perQueryLimit: number,
+): Promise<BrandVaultMongoProfileDocument[]> {
+  const hasOrg = filter.orgId !== undefined && filter.orgId !== null;
+
+  // Primary scope: org-wide rows when in an org, else the user's own (incl. null-org) rows.
+  const primary = await collections.profiles
+    .find(toProfileFilter({
+      brandId: filter.brandId,
+      userId: hasOrg ? undefined : filter.userId,
+      orgId: filter.orgId,
+      status: 'accepted',
+    }))
+    .sort({ updatedAt: -1 })
+    .limit(perQueryLimit)
+    .toArray();
+
+  // Legacy fallback only matters for an org member who still owns pre-stack (null-org) brands.
+  if (!hasOrg || filter.userId === undefined) return primary;
+  const legacy = await collections.profiles
+    .find(toProfileFilter({ brandId: filter.brandId, userId: filter.userId, orgId: null, status: 'accepted' }))
+    .sort({ updatedAt: -1 })
+    .limit(perQueryLimit)
+    .toArray();
+  return [...primary, ...legacy];
 }
 
 function failure(

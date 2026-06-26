@@ -1,4 +1,7 @@
 import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
+import { publishToFacebook } from "./facebook";
+import { publishToInstagram } from "./instagram";
+import { publishToLinkedIn } from "./linkedin";
 
 /**
  * Inputs a CalOS publisher needs to post on behalf of a brand from a SERVER (cron)
@@ -13,6 +16,7 @@ export interface PublishParams {
   accountRef?: string; // page / account / organization id on the platform
   caption?: string;
   title?: string;
+  imageUrl?: string | null; // public image URL for media platforms (Instagram requires it)
   videoUuid?: string;
   gcsPath?: string;
   options?: Record<string, unknown>;
@@ -40,9 +44,9 @@ export type Publisher = (params: PublishParams) => Promise<PublishResult>;
  * silently dropping a scheduled post.
  */
 export const publishers: Partial<Record<CalosPublishPlatform, Publisher>> = {
-  // linkedin: publishToLinkedIn,
-  // facebook: publishToFacebook,
-  // instagram: publishToInstagram,
+  facebook: publishToFacebook,
+  instagram: publishToInstagram,
+  linkedin: publishToLinkedIn,
   // twitter: publishToTwitter,
   // youtube: publishToYouTube,
 };

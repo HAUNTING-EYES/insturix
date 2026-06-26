@@ -69,7 +69,10 @@ describe('Brand Vault effective brand resolver', () => {
     expect(brandVaultSourceFlagName('editron')).toBe('BRAND_VAULT_SOURCE_EDITRON');
     expect(brandVaultSourceEnabled('editron', { BRAND_VAULT_SOURCE_EDITRON: 'true' })).toBe(true);
     expect(brandVaultSourceEnabled('thinkforge', { BRAND_VAULT_SOURCE_THINKFORGE: 'false' })).toBe(false);
-    expect(brandVaultSourceEnabled('clickatron', {})).toBe(false);
+    // All three default ON now; the env var is a kill switch.
+    expect(brandVaultSourceEnabled('clickatron', {})).toBe(true);
+    expect(brandVaultSourceEnabled('editron', {})).toBe(true);
+    expect(brandVaultSourceEnabled('clickatron', { BRAND_VAULT_SOURCE_CLICKATRON: 'false' })).toBe(false);
   });
 
   it('adapts only actionable Vault signals and keeps learned legacy voice fields', () => {
@@ -149,5 +152,52 @@ describe('Brand Vault effective brand resolver', () => {
     })).resolves.toBe(legacy);
 
     expect(warnings).toEqual(['vault accepted-profile read failed; using legacy brand.']);
+  });
+
+  it('passes orgId into the accepted-profile lookup for agency isolation', async () => {
+    let seenFilter: unknown;
+    await resolveEffectiveBrand('user_effective', 'brand_effective', {
+      service: 'editron',
+      enabled: true,
+      orgId: 'org_a',
+      getLegacyBrand: async () => legacyBrand(),
+      getAcceptedProfile: async (filter) => {
+        seenFilter = filter;
+        return vaultProfile();
+      },
+    });
+    expect(seenFilter).toEqual({ brandId: 'brand_effective', userId: 'user_effective', orgId: 'org_a' });
+  });
+
+  it('strict mode fails closed: no Vault profile means no brand, and never reads the legacy brand', async () => {
+    let legacyReads = 0;
+    const result = await resolveEffectiveBrand('user_effective', 'brand_effective', {
+      service: 'editron',
+      enabled: true,
+      strict: true,
+      getLegacyBrand: async () => {
+        legacyReads += 1;
+        return legacyBrand();
+      },
+      getAcceptedProfile: async () => null,
+    });
+    expect(result).toBeNull();
+    expect(legacyReads).toBe(0);
+  });
+
+  it('strict mode fails closed on a Vault read error (no legacy fallback)', async () => {
+    const warnings: string[] = [];
+    const result = await resolveEffectiveBrand('user_effective', 'brand_effective', {
+      service: 'editron',
+      enabled: true,
+      strict: true,
+      getLegacyBrand: async () => legacyBrand(),
+      getAcceptedProfile: async () => {
+        throw new Error('mongo unavailable');
+      },
+      onVaultFallback: (message) => warnings.push(message),
+    });
+    expect(result).toBeNull();
+    expect(warnings).toEqual(['vault accepted-profile read failed; strict mode refuses legacy fallback.']);
   });
 });

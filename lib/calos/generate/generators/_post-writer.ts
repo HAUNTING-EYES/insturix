@@ -1,4 +1,5 @@
 import type { GenerateParams } from "../contract";
+import { resolveSystemBrief } from "./_brand-brief";
 
 /**
  * Shared PostWriter call for the text + graphics generators. Resolves brand context (best-effort)
@@ -7,18 +8,7 @@ import type { GenerateParams } from "../contract";
  * export-to-Clickatron flow at image-gen time, never surfaced to the user.)
  */
 export async function runPostWriter(params: GenerateParams): Promise<string> {
-  let systemBrief = "";
-  try {
-    const { resolveEffectiveBrand } = await import("@/lib/shared/brand-effective-resolver");
-    const { buildBrandContextBlock } = await import("@/lib/shared/brand-context-block");
-    const brand = await resolveEffectiveBrand(params.ownerUserId, params.brandId, {
-      service: "thinkforge",
-      enabled: true, // CalOS always wants the vault, not the thin legacy fallback
-    });
-    systemBrief = buildBrandContextBlock(brand);
-  } catch (e) {
-    console.warn("[CalOS] runPostWriter brand resolve failed:", e);
-  }
+  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId);
 
   const userPrompt = [
     params.title,

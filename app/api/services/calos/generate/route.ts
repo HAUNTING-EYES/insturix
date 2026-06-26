@@ -20,7 +20,7 @@ export const maxDuration = 60; // a wired generator may call an LLM/render — n
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { brandId, deliverableId } = await req.json();
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     const params: GenerateParams = {
       ownerUserId: userId,
+      orgId: orgId ?? null,
       brandId,
       campaignId: deliverable.campaignId ?? null,
       deliverableId,

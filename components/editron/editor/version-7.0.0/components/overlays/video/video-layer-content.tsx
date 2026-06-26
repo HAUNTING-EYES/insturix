@@ -204,7 +204,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
               style={videoStyle}
               volume={resolvedVolume}
               playbackRate={seg.playbackRate}
-              {...(isRendering ? { toneMapped: false } : { pauseWhenBuffering: false })}
+              {...(isRendering ? { toneMapped: false } : { pauseWhenBuffering: true })}
             />
           </Sequence>
         ))}
@@ -234,9 +234,12 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
         src={videoSrc}
         startFrom={overlay.videoStartTime || 0}
         style={videoStyle}
-        volume={resolvedVolume}
         playbackRate={overlay.speed ?? 1}
-        pauseWhenBuffering={false}
+        volume={resolvedVolume}
+        // pauseWhenBuffering=true: the preview WAITS for a clip to seek instead of showing black+silent while
+        // the player advances (the "video+sound vanish at a cut/MG, but captions keep moving" bug). The proxy
+        // now has 1s keyframes so seeks are brief. The render path (OffthreadVideo) is frame-exact + unaffected.
+        pauseWhenBuffering={true}
       />
     </div>
   );

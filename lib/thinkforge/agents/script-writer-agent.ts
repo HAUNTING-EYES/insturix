@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
-import type { AgentInput } from './types';
+import type { AgentInput, AgentStructuredOutput } from './types';
 import type { ThinkForgeContentSignalProfile } from '../signals';
+import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
+import { parseAgentJson } from '../protocol/parse-agent-json';
+import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -26,6 +29,27 @@ export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
 
 export interface ScriptWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
+}
+
+const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
+  regex: new RegExp(pattern.pattern, 'i'),
+  label: pattern.label,
+}));
+
+// Mirrors PostWriter's assertUsableCachedPostResult, adapted for scripts. Rejects
+// obviously-unusable cache-path output (empty/truncated content, no scene prompts, or
+// banned AI filler) so runStructured falls back to the base structured path rather than
+// shipping it. Defensive only — the cache path can add the doc but never regress.
+function assertUsableCachedScriptResult(result: ScriptWriterResult): void {
+  const content = result.content?.trim() ?? '';
+  const failures: string[] = [];
+  if (content.length < 150) failures.push('content_under_150_chars');
+  if (!result.visualMetadata?.scenePrompts?.length) failures.push('missing_scene_prompts');
+  const filler = CACHED_SCRIPT_AI_FILLER.find((pattern) => pattern.regex.test(content));
+  if (filler) failures.push(`banned_phrase:${filler.label}`);
+  if (failures.length > 0) {
+    throw new Error(`Cached script failed usable quality gate: ${failures.join(', ')}`);
+  }
 }
 
 export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
@@ -88,6 +112,62 @@ Your task is to write a high-retention, engaging video script.
 Return your response strictly adhering to the JSON schema.`;
 
     return prompt;
+  }
+
+  // Mirrors PostWriterAgent: route generation through the writing-context cache so
+  // video scripts receive the creative-content-knowledge doc that the base structured
+  // path never loaded. Falls back to the base path on any cache/parse error, so this
+  // can only add the doc, never regress. (Quality delta needs a live Gemini eval.)
+  async runStructured(
+    input: ScriptWriterInput,
+    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    abortSignal?: AbortSignal,
+  ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
+    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const gen = this.resolveGenConfig(overrides);
+
+    try {
+      const jsonContract = [
+        'Return ONLY valid JSON. Do not include markdown fences or commentary.',
+        'Required JSON shape:',
+        '{',
+        '  "content": "the full script as markdown with ## Scene headers; no JSON inside",',
+        '  "contentAnalysis": { "hooks": ["string"], "theme": "string", "emphasisPoints": ["string"], "qualityScore": 0 },',
+        '  "visualMetadata": { "motionInfo": "string", "scenePrompts": ["string"] },',
+        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string" }',
+        '}',
+        'hooks, emphasisPoints, and scenePrompts must be arrays of strings only.',
+        'scenePrompts must map 1:1 with the scenes in content.',
+        'Do not add keys outside the required JSON shape.',
+      ].join('\n');
+      const { text, cacheStatus, modelName } = await generateWithWritingContextCache({
+        prompt: `${prompt}\n\n${jsonContract}`,
+        modelName: this.config.modelName,
+        temperature: gen.temperature,
+        maxTokens: gen.maxTokens,
+        abortSignal,
+      });
+      const parsed = parseAgentJson(text);
+      const result = this.schema.parse(parsed);
+      // Reject unusable cache-path output (empty/filler/no-scene-prompts) -> falls back below.
+      assertUsableCachedScriptResult(result);
+
+      return {
+        result,
+        metadata: {
+          model: modelName,
+          notes: `writing_context_cache:${cacheStatus}`,
+        },
+      };
+    } catch (error) {
+      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
+      // One catch covers cache-load + gen + parse + the quality gate; without this a permanent
+      // cache-miss, a 100%-fallback regression, or the gate silently rejecting every cache output
+      // all look identical. Distinguish gate-reject from an infra error so a test can count them.
+      const isGateReject = error instanceof Error && error.message.startsWith('Cached script failed usable quality gate');
+      console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
+      return super.runStructured(input, overrides, abortSignal);
+    }
   }
 }
 

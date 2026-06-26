@@ -52,7 +52,13 @@ describe('BrandSignalProfile', () => {
     expect(profile.typography.casingBias.value).toBe('uppercase');
     expect(profile.visual.minimalism.value).toBeGreaterThan(0.5);
     expect(profile.visual.dataVizAffinity.value).toBeGreaterThan(0.5);
+    expect(typeof profile.narrative.emotionalArc.value).toBe('number');
+    expect(typeof profile.narrative.pacePreference.value).toBe('number');
     expect(profile.motion.transitionSharpness.value).toBeGreaterThan(0.5);
+    expect(typeof profile.motion.anticipationStyle.value).toBe('number');
+    expect(typeof profile.motion.easingTaste.value).toBe('number');
+    expect(typeof profile.composition.safeZones.value).toBe('number');
+    expect(typeof profile.composition.figureGroundRatio.value).toBe('number');
     expect(profile.voice.killList.authorityClass).toBe('brand_constraint');
     expect(profile.voice.killList.value).toEqual(['cheap', 'hack']);
     expect(profile.evidence.length).toBeGreaterThan(20);

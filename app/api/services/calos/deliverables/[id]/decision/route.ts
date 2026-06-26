@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import CalosDeliverable, { type CalosEditorialStatus } from "@/schemas/calos-deliverable";
+import CalosDeliverable, {
+  type CalosEditorialStatus,
+  type ICalosDeliverable,
+} from "@/schemas/calos-deliverable";
+import CalosScheduledPublish, { type CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { toContentCard } from "@/lib/calos/deliverable-mapper";
 import { emitBrandEvent } from "@/lib/shared/brand-events";
 import { createCalosDecisionLearningEvent } from "@/lib/calos/calos-brand-learning-events";
@@ -59,6 +63,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     await deliverable.save();
 
+    // On approval, enqueue the publish (the produce side of the delivery queue; the
+    // process-publish-queue cron consumes it). Best-effort — an enqueue failure must never fail
+    // the decision, and nothing else writes the queue.
+    if (decision === "approved") {
+      try {
+        await enqueueApprovedPublish(deliverable, userId, brandId);
+      } catch (e) {
+        // TODO(CALOS_LOUD): revert to warn once stable. APPROVED but NOT enqueued = silently won't publish.
+        console.error("[CALOS_LOUD] decision: publish enqueue FAILED after approval — card is approved but will NOT post:", e);
+      }
+    }
+
     // Teach the brand vault from the decision (staged as a DRAFT by the brand-learning worker;
     // applied only after a human accepts it). Best-effort: a learning-emit failure must never fail
     // the decision itself.
@@ -73,12 +89,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         observedAt: new Date().toISOString(),
         notes: typeof notes === "string" ? notes : undefined,
       });
+      // On approval, carry the accepted copy so the brand-learning worker can mine the brand's actual
+      // voice from it in the background — never block this decision response on a model call.
+      const copyText =
+        decision === "approved"
+          ? [deliverable.card.title, deliverable.card.scriptPreview, deliverable.assetText]
+              .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+              .join("\n")
+              .slice(0, 4000) || undefined
+          : undefined;
       await emitBrandEvent({
         userId,
         brandId,
         service: "thinkforge",
         type: "user_override",
-        payload: { learningEvents: [learningEvent] },
+        payload: {
+          learningEvents: [learningEvent],
+          ...(copyText ? { copyText, contentId: id, campaignId: deliverable.campaignId } : {}),
+        },
       });
     } catch (e) {
       console.warn("[CalOS] decision brand-learning emit failed (non-fatal):", e);
@@ -89,4 +117,60 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     console.error("[CalOS] decision error:", error);
     return NextResponse.json({ error: "Failed to record decision" }, { status: 500 });
   }
+}
+
+const PUBLISH_PLATFORMS = new Set<CalosPublishPlatform>([
+  "youtube",
+  "facebook",
+  "instagram",
+  "linkedin",
+  "twitter",
+  "tiktok",
+]);
+
+/**
+ * Enqueue a delivery-queue row when a deliverable is approved (the produce side; the
+ * process-publish-queue cron consumes it). Idempotent per (deliverable, platform) via $setOnInsert
+ * on the unique idempotencyKey — never double-posts, never clobbers an already-published or in-flight
+ * row. Per-user account today (accountRef null); per-brand connected-account swaps in later.
+ * ponytail: if the content is later edited + re-approved, the existing row is intentionally left as
+ * is (no silent re-post); revisit when an explicit "republish edited content" flow is needed.
+ */
+async function enqueueApprovedPublish(
+  deliverable: ICalosDeliverable,
+  ownerUserId: string,
+  brandId: string,
+): Promise<void> {
+  const platform = String(deliverable.platform || "").toLowerCase() as CalosPublishPlatform;
+  if (!PUBLISH_PLATFORMS.has(platform)) return; // e.g. 'generic' — not a publishable platform
+
+  const scheduled = deliverable.plannedDates?.[0] ?? deliverable.card?.date;
+  const parsed = scheduled ? new Date(scheduled) : new Date();
+  const publishAt = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+
+  const caption =
+    deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
+  // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
+  const imageUrl = deliverable.assetUrl ?? null;
+
+  const idempotencyKey = `${deliverable.card.id}:${platform}`;
+  await CalosScheduledPublish.findOneAndUpdate(
+    { idempotencyKey },
+    {
+      $setOnInsert: {
+        deliverableId: deliverable.card.id,
+        ownerUserId,
+        orgId: deliverable.orgId ?? null,
+        brandId,
+        platform,
+        accountRef: null,
+        payload: { caption, imageUrl },
+        publishAt,
+        status: "pending",
+        attempts: 0,
+        idempotencyKey,
+      },
+    },
+    { upsert: true, new: false },
+  );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Easing, getRemotionEnvironment, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { CompositionRendererProps } from './recipe-types';
 import type { ResolvedElement, ComputedChoreography, DepthLayer } from './recipe-types';
 import { resolveElements } from './property-resolver';
@@ -148,7 +148,10 @@ export function resolveVisualIntentStageChrome(
           background: [
             `radial-gradient(circle at 50% 42%, ${withAlpha(accent, 0.2)} 0%, transparent 44%)`,
             `radial-gradient(circle at 12% 94%, ${withAlpha(primary, 0.28)} 0%, transparent 38%)`,
-            `linear-gradient(135deg, ${withAlpha(surface, 0.86)} 0%, ${withAlpha(primary, 0.38)} 58%, ${withAlpha(accent, 0.24)} 100%)`,
+            // ponytail: was surface@0.86 — a full-frame BLACKOUT that hid the footage behind identity/
+            // scene MGs (the "blank video" + mid-clip interruptions). Light legibility scrim so the
+            // video stays visible through the graphic. Tune in the MG-taste phase.
+            `linear-gradient(135deg, ${withAlpha(surface, 0.3)} 0%, ${withAlpha(primary, 0.2)} 58%, ${withAlpha(accent, 0.14)} 100%)`,
           ].join(', '),
         },
       };
@@ -2601,9 +2604,16 @@ const ParticleElement: React.FC<{
   const p = element.resolvedProps;
   const presetName = String(p.particlePreset || 'confetti');
   const preset = PARTICLE_PRESETS[presetName] || PARTICLE_PRESETS.confetti;
-  // ⚠️ INVENTED — max 100 (DOM perf ceiling), default 40 (moderate density)
   const density = atomicDecision?.multipliers.structureDensity ?? 1;
-  const count = Math.min(100, Math.max(1, Math.round(Number(p.particleCount || 40) * density)));
+  // Particle ceiling is PREVIEW-aware. The export (OffthreadVideo) has no real-time deadline → full density.
+  // The browser preview renders every particle each frame (2× Perlin-noise + a reconciled <div> each) on the
+  // main thread WHILE decoding video — 40+ starves the decode and picture+audio drop for the MG's span
+  // (proven via render-still: the export composites video+MG cleanly on the exact frames the preview blanks,
+  // and the first clips are contiguous so it is NOT a seek). Decorative ambient particles are near-invisible
+  // over real footage, so a lower preview ceiling costs nothing visible while keeping the editor real-time.
+  // ⚠️ INVENTED — preview 16 (real-time main-thread budget; needs profiling to tune), render 100 (DOM perf ceiling), default 40.
+  const maxParticles = getRemotionEnvironment().isRendering ? 100 : 16;
+  const count = Math.min(maxParticles, Math.max(1, Math.round(Number(p.particleCount || 40) * density)));
   const baseColor = String(p.color || '#FFFFFF');
   const altColor = String(p.secondaryColor || '#FFD700');
   // ⚠️ INVENTED — 6px base, typical MG overlay particle size

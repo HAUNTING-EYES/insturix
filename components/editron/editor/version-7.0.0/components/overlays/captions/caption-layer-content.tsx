@@ -249,19 +249,24 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       .slice(0, overlay.captions.indexOf(caption))
       .reduce((sum, item) => sum + (item.words?.length ?? 0), 0);
     
-    // Find the currently active word index
-    const activeWordIndex = words.findIndex(
+    if (words.length === 0) return [];
+    // Find the active word. ponytail: between words (1335 gaps here, up to 5s) no word is "exactly"
+    // active — hold the last-started word instead of blanking, so captions don't flicker out
+    // (was: `return []` on -1 -> caption blank ~32% of the time on this project).
+    let activeWordIndex = words.findIndex(
       (word) => frameMs >= word.startMs && frameMs <= word.endMs
     );
+    if (activeWordIndex === -1) {
+      for (let i = 0; i < words.length && words[i].startMs <= frameMs; i++) activeWordIndex = i;
+      if (activeWordIndex === -1) activeWordIndex = 0; // before the first word -> show the first
+    }
 
     if (mode === "word-by-word") {
       // Only show the current word
-      if (activeWordIndex === -1) return [];
       return [{ word: words[activeWordIndex], state: "active", globalIndex: captionWordOffset + activeWordIndex }];
     }
 
     if (mode === "phrase" || mode === "instagram" || mode === "hormozi") {
-      if (activeWordIndex === -1) return [];
       const halfWindow = Math.floor(displayConfig.wordsPerGroup / 2);
       const start = Math.max(0, activeWordIndex - halfWindow);
       const end = Math.min(words.length, start + displayConfig.wordsPerGroup);

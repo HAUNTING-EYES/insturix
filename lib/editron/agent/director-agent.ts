@@ -820,8 +820,19 @@ export async function executeDirectorPlan(
             // mapping is kept separately for V-JEPA/Wav2Vec lookup; decisions themselves
             // must land on the final cut timeline.
             const totalDurationMs = editedTimelineContext?.durationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000;
+            // Brief timestamps are in ORIGINAL-video time (Gemini watches the source clip); the executor
+            // resolves against the CUT timeline, so they'd land "out of range" and get dropped (regression
+            // from the 2026-06-13 editedTimelineContext switch). Map them onto the cut timeline first.
+            let briefDecisionsForExecutor = creativeBrief.decisions;
+            if (editedTimelineContext?.sourceClips?.length) {
+              const { remapBriefTimestampsToEditedTimeline } = await import('@/lib/editron/services/edited-timeline-context');
+              briefDecisionsForExecutor = remapBriefTimestampsToEditedTimeline(creativeBrief.decisions, editedTimelineContext.sourceClips, pathEFps);
+            } else if (editedTimelineContext) {
+              // FAILLOUD-TEMP: edited timeline exists but no source clips → remap skipped, brief timestamps stay in original time and get dropped as out-of-range.
+              console.warn(`[FAILLOUD][Director] editedTimelineContext present but sourceClips empty (${editedTimelineContext.sourceClips?.length ?? 'undef'}) — brief timestamps NOT remapped`);
+            }
             const briefResult = executeBrief({
-              brief: creativeBrief,
+              brief: { ...creativeBrief, decisions: briefDecisionsForExecutor },
               transcription,
               fps: pathEFps,
               audioEnergyCurve: audioEnergyCurve.length > 0 ? audioEnergyCurve : undefined,
@@ -1569,6 +1580,7 @@ export async function executeDirectorPlan(
                 const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
                 const resolution = await resolveEffectiveBrandWithProfile(userId, project.brandId, {
                   service: 'editron',
+                  orgId: project.orgId ?? null,
                 });
                 brandBlock = buildBrandContextBlock(resolution.brand);
                 if (brandBlock) {

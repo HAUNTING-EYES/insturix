@@ -104,16 +104,20 @@ describe('Brand Vault signal profile routes', () => {
     expect(mocks.listAcceptedBrands).toHaveBeenCalledWith({ orgId: null, userId: 'user_route' });
   });
 
-  it('requires brandId when loading the latest accepted profile', async () => {
+  it('falls back to the user\'s latest accepted profile when no brandId is given', async () => {
+    // brandId is optional so the vault still loads on a fresh visit before any brand is selected.
+    mocks.getLatestAcceptedRecord.mockResolvedValue({ id: 'accepted_latest' });
+
     const response = await GET(listRequest());
     const payload = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(payload).toEqual({
-      ok: false,
-      error: { code: 'brand_required', message: 'brandId is required.' },
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ ok: true, recordId: 'accepted_latest' });
+    expect(mocks.getLatestAcceptedRecord).toHaveBeenCalledWith({
+      userId: 'user_route',
+      orgId: 'org_route',
+      brandId: undefined,
     });
-    expect(mocks.getLatestAcceptedRecord).not.toHaveBeenCalled();
   });
 
   it('loads the latest accepted profile for the selected brand', async () => {

@@ -523,6 +523,7 @@ describe('EDL executor atomic overlay observe mode', () => {
           graphicType: 'stat-counter',
           value: '47%',
           label: 'conversion lift',
+          sourceSpan: { text: 'conversion lift of 47 percent', startMs: 1000, endMs: 2000 },
           brand: {
             accentColor: '#00ff00',
             primaryColor: '#f8f8f8',
@@ -659,6 +660,11 @@ describe('EDL executor atomic overlay observe mode', () => {
         params: {
           graphicType: 'keyword-highlight',
           text: 'traction',
+          keyword: 'traction',
+          body: 'is the only metric that matters',
+          contextPhrase: 'traction is the only metric that matters',
+          contextStartMs: 1000,
+          contextEndMs: 2500,
           placementAdjustment: {
             candidateRegion: 'bottom-right',
             multiplier: 1.15,
@@ -744,6 +750,7 @@ describe('EDL executor atomic overlay observe mode', () => {
           graphicType: 'stat-counter',
           value: '82%',
           label: 'watch time lift',
+          sourceSpan: { text: 'watch time lift of 82 percent', startMs: 1000, endMs: 2000 },
           brand: {
             accentColor: '#00ff00',
             primaryColor: '#f8f8f8',
@@ -922,6 +929,7 @@ describe('EDL executor atomic overlay observe mode', () => {
           graphicType: 'stat-counter',
           value: '42%',
           label: 'Completion',
+          sourceSpan: { text: '42 percent completion rate', startMs: 1000, endMs: 2000 },
           brand: {
             accentColor: '#00ff00',
             primaryColor: '#f8f8f8',
@@ -1053,6 +1061,7 @@ describe('EDL executor atomic overlay observe mode', () => {
           graphicType: 'stat-counter',
           value: '64%',
           label: 'higher retention',
+          sourceSpan: { text: '64 percent higher retention', startMs: 1000, endMs: 2000 },
           brand: {
             accentColor: '#12d18e',
             primaryColor: '#f8f8f8',

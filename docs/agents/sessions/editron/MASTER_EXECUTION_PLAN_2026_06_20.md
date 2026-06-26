@@ -370,6 +370,16 @@ Animation-layer constraint from the 2026-06-21 brief:
   2. add the two small primitive wins: `@remotion/paths` draw-on strokes and gradient shimmer,
   3. wire beat-sync end-to-end,
   4. calibrate only after rendered proof.
+
+**Empirical confirmation + refinement (2026-06-26, proj_GNctpvqAdXCC — 6 MGs read from the DB; full detail in memory `editron-mg-monotony-personality-globals`).** The "starvation" hypothesis is confirmed AND sharper than "not enough atoms to animate":
+- Each MG overlay's `contentSignals` carries a **BYTE-IDENTICAL `personality.*` block across all 6 MGs** (enthusiasm 0.917916470588235, warmth 0.1747058823529417, pacing 0.748691088609226, formality 0.7, humor 0.385991568627451…) — a video-global bag stamped on every moment.
+- That frozen block **dominates** the resolved tokens: `entrancePattern=fade` on ALL 6, `sizeScale=1.093884787087912` and `surfaceOpacity=0.7963308722527472` identical to 15 decimals ×6, temperature/alignment/easings identical. Only `staggerMs` (49–76), `entranceDurationMs` (447 vs ~319, from the single binary `speech_energy` 0↔0.77), and `overshoot` move.
+- **KEY REFINEMENT:** per-moment signals DO vary per MG (speech_energy, pitch_variability, music_section, narrative_pressure 0→0.6, motion_intensity) — they are just **wired to marginal tokens** (stagger ms, overshoot) while the *visible* tokens (entrancePattern, sizeScale, temperature, density) are bound to the frozen personality. So Phase 9 step #1 ("`enterOrder` signal-driven") is necessary but **not sufficient** — the bigger lever is **rebinding the dominant tokens** (entrancePattern / sizeScale / temperature / density) to the per-moment + narrative signals that already vary, in `motion-theme-resolver.ts:resolveAnimation` (today `energy`/`formalityNorm` come from the frozen launch signals).
+- **Bonus bug to fix alongside:** `formality` has 3 different values across subsystems — `genreParameters=0.2`, `genreParametersSignalComputed=0.4`, MG `contentSignals=0.7` (provenance conflict).
+- Brand narrative is not consumed here at all (no brand fired this run; `editron_tech_inventory.md:95-97` flags `narrativeArc`/`graphicsDensity` "extracted but not consumed").
+
+**★ FIX PROGRESS (2026-06-26).** The animation half already landed (`resolveAnimation`'s `momentKinetics` drives entrancePattern/overshoot/stagger/duration — VERIFIED varying on the 6 real signal sets; proj_GNctpvqAdXCC predates it). **sizeScale REBOUND `4acb71f2`** (`resolveMomentEmphasis`, graph-grounded by `cinematic_moment_emphasis`; VERIFIED sizeScale now spans 1.07-1.17 across the 6 MGs, was 1.0939×6). `density`/`holdDuration` already per-moment; `temperature`/`surfaceOpacity` left brand-stable by design. STILL OPEN: entrancePattern 5/6-fade (`formalityNorm>0.7→fade`, rooted in the formality-provenance conflict §15.3); `enterOrder` role-static (property-resolver.ts:114); beat-sync built-but-unwired.
+
 - Scope is **Tier A only**: data/type motion, stats, comparisons, quotes, kinetic typography,
   lower-thirds, wires, and primitives. Tier B illustrative concept scenes need a separate
   asset-driven pipeline and are out of this plan.
@@ -572,3 +582,236 @@ This plan resolves that in order:
 1) visible truth, 2) one owner, 3) richer family-aware form, 4) hard gate, 5) calibrated tuning on holdout.
 
 That is how we avoid building â€œfancier cardsâ€ and move to premium AutoAE-style craftsmanship.
+
+---
+
+## 11) Reference-Driven & Generative Workstream — 2026-06-24
+
+Full strategy: `Editron-Reference-Driven-Generative-Strategy-2026-06-24.md`. This EXTENDS existing phases
+(4 perception, 7 SFX, 8 semantic, 9 expression, 13 choreography) — it does not replace them.
+
+### 11.0 MG-state correction (record accuracy)
+"MGs are word-boxes" is STALE (June-3). Phases 8-9 landed real work (June 17-22: semantic candidate ledger
+grounds MG text in facts; `mg-expression-authority.ts` maps signals/semantics -> tier/layout/typography/motion;
+quote-proof + refutation + concept scene atoms varied by semantic facts). Output is materially richer. STILL
+open: the deepest generative form -- `detectShapes` (`content-shape-analyzer.ts:248`) still selects shape-KIND
+by structure, not free primitive composition (Rule 11). So reference-copy (below) aims a much better engine
+than "word-boxes," but the Rule-11 frontier (dissolve the shape menu) remains the long game.
+
+### 11.1 The reframe -- reference replaces profile
+Profiles are dead. Ask the user FORMAT + EXPECTATION + REFERENCE. Reference -> visual-language TOKENS (a VLM,
+extending Phase 4 perception pointed at the reference) -> drives the form/expression engine (Phases 8-9). NOT
+reference -> template (Rule 11 trap). This also REMOVES the Tier-B frontier (autonomous concept->metaphor):
+the human supplies creative direction; we copy/adapt + render. New build = the reference-video -> token
+extractor. WIRE it into generation (see 11.5).
+
+### 11.2 "Delivery" clarified -- the EDIT's output feel (NOT on-camera performance)
+The video's delivery = pacing, cut rhythm, music sync, transition/MG timing, overall polished feel. This is
+OUR craft: Phases 4 (cut intelligence), 5 (zoom/motion), 6 (transitions), 13 (cross-overlay choreography) +
+beat-frame sync (Phase 11). Handleable + improvable, and the REFERENCE sets the target rhythm/pacing tokens.
+The ONLY un-automatable moat is the on-camera PERFORMANCE (real footage = the user; generated = avatar,
+limited). So with footage + a reference we CAN deliver a well-paced cut.
+
+### 11.3 SFX -- full system (extends Phase 7; founder: "not lazy")
+Root cause today (audit): single Freesound provider + selection by FILENAME string-match + most SFX killed
+before search (only transitions request them). The full system:
+- **a) Taxonomy (event -> SFX).** EVERY overlay family AND every cut-type emits an SFX request:
+  cut-types (hard/match/jump/J/L/whip/zoom-cut -> whoosh/swoosh/impact/glitch/riser); overlay-appears
+  (caption tick/pop/type, MG build whoosh-in/shimmer/mechanical, stat-count tick-up/ding/cash-register,
+  zoom-punch impact/bass-thud, highlight ding/sparkle, lower-third whoosh+click, logo/outro stinger/swell);
+  emotional beats (tension riser, comedic boing/record-scratch, dramatic boom, success chime, error buzz);
+  ambient/foley (room tone, keyboard, paper).
+- **b) Per-clip metadata schema** (selection by sound, not filename): `{eventTypes[], energy, durationMs,
+  brightness, layerRole: riser|impact|oneshot|loop, trendTag, brandFit}`.
+- **c) Library "in bunches"** -- many per event-type (a few hundred clips), curated royalty-free + a TRENDY
+  set. `public/sfx/<category>/` + `manifest.json` to the schema. Refreshable.
+- **d) Trend-refresh** -- pipeline to pull + tag currently-trending SFX (the "vine boom"-class) reusing the
+  trends infra with a sound source; SFX trends move fast, keep it current.
+- **e) Selection engine** -- given a moment (eventType + energy + brand/reference tokens), best multi-factor
+  match. Replaces the title-match wall in `sfx-form.ts`.
+- **f) Sync + build** -- anchor to the exact event frame; 2-part builds (riser leads INTO the cut -> impact
+  lands ON it). Extend `transition-sfx-placer` to ALL event types.
+- **g) Layer + duck + density** -- duck music under SFX, layer riser+impact, cap density (no spam).
+- **h) Brand/reference palette** -- the reference/brand sets SFX style (punchy-meme vs subtle-premium) via tokens.
+
+### 11.4 Generated shoot
+Avatar (image+audio->talking head) + gen-video image->video (BUILT: `video-generation-service.ts`, fal
+Kling/Runway/Kie) + **video+text->video** (Luma Ray3 Modify / Runway Gen-4.5 / motion-transfer -- add adapters
+to `VIDEO_MODEL_REGISTRY`). Explicit per-model credit-cost + quality selection surfaced to the user. Honest:
+look-not-virality; concept stays human; generated = good-not-perfect, costs per clip.
+**B-roll & clip sourcing** (editors' "b-rolls = clips"): provider module like `lib/calos/trends/` returning a
+`license` status per clip — `cleared` (Pexels/Pixabay/stock, DEFAULT, safe for client delivery) / `attribution`
+/ `copyrighted` (YouTube/found, OPT-IN). UI flags non-cleared with the yellow-bell (informed consent, NOT a
+license — Content ID + client liability still apply). "Someone saying X" reusable = avatar-gen, not clip-reuse.
+Full design in the strategy doc.
+
+### 11.5 Brand-vault wiring (verified gap)
+Editron FEEDS the vault (`editron-brand-learning-events`), DRAWS the thin UnifiedBrand (colors/fonts -> MG
+tokens, `edl-executor.ts:529`), but does NOT draw the rich `BrandSignalProfile` (`getLatestAcceptedProfile`
+= 0 Editron callers -> island). When reference-tokens land, wire them into generation -- do not repeat the
+build-but-never-wire mistake. Vault classifies reference uploads but does not extract edit-style from a
+reference VIDEO (that extractor is new, 11.1).
+
+### 11.6 Codex role
+Codex EXECUTES bounded phases FROM this plan via tight, reference-heavy briefs (cf. the P1-P6 brief).
+It does NOT own the plan -- without a tight spec it over-builds and wanders. Founder + Claude shape; codex implements one verified phase at a time.
+
+---
+
+## 12) 2026-06-24 Session Status & Deltas
+
+All work below is on branch `infrastructure-improvs-+Editron` (86+ commits ahead of `origin/main`). **Prod = main;
+preview deploys from the branch → testable on PREVIEW with no merge.** Merge→main is for production only.
+
+### 12.1 Render thread — SHIPPED this session (commits)
+- `713a0b78` composition-id centralized (`REMOTION_COMPOSITION_ID`).
+- `ebe02a55` chapter-split threshold 3min→15min (single-render handles long videos again).
+- `10afdf98` multi-chapter **fail-loud** guard (no more silent truncation).
+- `b0e70ef1` + `455ddf5b` chapter **concat**: Modal ffmpeg worker built + wired (chapter-renderer→QStash→worker→Modal).
+- `77f7f905` render-button immediate feedback.
+- `81bb39b3` **the "delayRender not cleared after 598000ms" fix** — prod render calls never set `isRendering:true`,
+  so the composition used `<Video>` (Html5Video, browser) which hangs on a large/slow-proxied clip instead of
+  OffthreadVideo (ffmpeg). Now set in both render inputProps (`cloudrun/render` + `chapter-renderer`).
+
+### 12.2 Deploy / config state (verified)
+- **Modal concat worker LIVE** (`jainnimit728--editron-chapter-concat-concat.modal.run`) + secret + smoke-tested (401/400/502).
+- **Vercel env** `REMOTION_LAMBDA_FUNCTION_NAME` → `…mem3008mb-disk4096mb-900sec` + `EDITRON_CHAPTER_CONCAT_*` set on
+  **Production** AND **Preview (`infrastructure-improvs-+Editron`)**. Development scope still old (local uses `.env.local`).
+  CLI gotcha: preview env add needs `vercel env add NAME preview <branch> --value <v> --yes` (the all-branches `--yes`
+  path returns `git_branch_required`).
+- **⚠️ Serve-bundle (the Remotion render "site", separate from Vercel):** deployed sites = `editron-prod` (2026-04-06),
+  `editron` (Jan), `editron-dev` (Jan). `editron-prod` (Apr 6) **postdates** the OffthreadVideo (`95b57872`, Mar 24) +
+  `isRendering` plumbing (`6cdb400a`, Mar 21) → it HAS the render fix. BUT it is **months stale for composition changes
+  since April** (MG Phases 8-9, etc.). **TODO: confirm which site each scope's `REMOTION_LAMBDA_SERVE_URL` points to; the
+  render only reflects composition code that's in the deployed site — redeploy via `remotion lambda sites create` to ship
+  post-April composition work.**
+  **RESOLVED (`49ee7886`, 2026-06-24):** root cause = `remotion.config.ts` had **no `@/` webpack alias**, so a
+  `@/lib/...` composition import broke EVERY `lambda sites create` since ~April (silently) → frozen bundle. Alias added
+  → `editron-dev` **redeployed fresh** from current code + preview `REMOTION_LAMBDA_SERVE_URL` (branch-scoped) repointed
+  to it → **preview now renders the latest composition.** `editron-prod` (production) untouched/stable; on merge run
+  `npm run deploy:remotion:prod` (now works) to refresh prod.
+
+### 12.3 MG-state correction
+NOT "word-boxes" anymore — Phases 8-9 landed (semantic candidate ledger + `mg-expression-authority.ts` + atoms varied by
+semantic facts, commits Jun17-22). Only the deepest Rule-11 generative form (`detectShapes` shape-menu) remains.
+
+### 12.4 What's left (3 buckets)
+1. **Render closeout:** the delayRender fix is in; remaining = (a) ensure the SERVE_URL points to a current site / redeploy
+   it, (b) prove concat on a real >15-min render.
+2. **Master plan Phases 0-16 — mostly REMAINING** (codex executes): the rendered-truth gate (Phase 0/12, the plan's own
+   #1 P0), authority/Path E-D unification (Phase 1), visual perception (Phase 4), SFX system (Phase 7 = §11.3), calibration (15).
+3. **Workstream 11 builds (all unbuilt):** reference→token extractor, route trends into Editron, deep SFX, Tier B Stage 3+4,
+   gen-shoot (avatar + video+text→video), b-roll providers + copyright flag, brand-vault rich wiring.
+
+## 13) Points of Entry + AI Video Gen Studio (VISION — 2026-06-25, NEEDS REVIEW BEFORE BUILD)
+
+Founder brain-dump, captured verbatim-in-intent. **NOT YET REVIEWED / NOT PLANNED.** Flagged for `/office-hours`
+(is-this-worth-building, find the wedge) **and** `/plan-ceo-review` (10-star, scope) in a DEDICATED session,
+**after** the current internals (Phases 0-15) are sorted. Do NOT start building before that review.
+
+### 13.1 Entry points (today Editron is ThinkForge→Editron ONLY)
+Editron has **no "upload a script" path** today. Need first-class entry modes, each with its own normalization:
+- **ThinkForge → Editron** (existing handoff).
+- **Upload a SCRIPT** → factor/normalize it the way ThinkForge would build a script, or straight to Editron's
+  expected script contract. (The **script contract** is the keystone — define exactly what shape Editron expects.)
+- **Upload-to-edit** (video + script).
+- **AI-video-gen-only.**
+- **Hybrid** (gen + uploaded).
+- **Avatar-based.**
+Plan these points of entry THOROUGHLY once the internals are sorted.
+
+### 13.2 AI video gen — its own page/functionality
+- A dedicated **AI-video-gen surface** (new page, gen-on-its-own).
+- **Preset prompts** (e.g. Higgsfield format) — sourced from open-source Higgsfield and/or prompt-database
+  sites that supply specific prompts + how/where to use them.
+- Goal: **"all Higgsfield functionalities"** — product shoots, etc.
+
+### 13.3 Dynamic stencil (Editron AND Clickatron)
+- Let the user set a **stencil** of how the video/image should look — a hand-drawn, pencil-style sketch of the
+  desired composition/shot — as a dynamic alternative/complement to text prompts. Applies to video (Editron) and image (Clickatron).
+
+### 13.4 Status
+VISION ONLY. Sequence: sort internals → `/office-hours` + `/plan-ceo-review` on a fleshed-out version → then plan the build.
+
+## 14) 2026-06-25 Session — fixes shipped + open items
+
+### 14.1 Shipped (branch `infrastructure-improvs-+Editron`, preview)
+- Director timeout `maxDuration 300→800` (`6ec10708`).
+- No-graphics regression: brief timestamps remapped to the cut timeline (`4fbfaf5b`).
+- Caption flicker: hold the last word through inter-word gaps (`8b9e7d1d`).
+- Full-frame MG scrim `0.86→0.3` (`8b9e7d1d`) — largely superseded by the stage-mode fix below.
+- **Blank video — TWO layers, both fixed:** (a) **proxy seek** — the client compressor now forces **1s keyframes**
+  (`9f35513d`; was libx264 default ~250-frame GOP = ~10.4s @ 23.98fps → seek-to-black; CONFIRMED 1s on a fresh upload);
+  (b) **full-frame-graphic-scene MG chrome blacked out the footage** — identity/section MGs now `overlay-on-footage`
+  (`d808fccc`). BOTH apply to NEW uploads/director runs → **re-run a project to verify** (stageMode/proxy are baked).
+
+### 14.2 Open (NOT fixed)
+- **Zoom/transition OVERLAP + lag** (a transition fires inside an MG span; 57-frame snap drift) = **Phase 13
+  cross-overlay choreography, UNBUILT** (per-family silos, no shared timeline memory).
+- **brandId** → Editron resolves the **legacy** brand (`BRAND_VAULT_SOURCE_EDITRON` off); scan-accept brands live
+  only in the rich vault → near-zero brand effect = the **brand-vault-island** gap (rich vault has no generation reader).
+- `resolveDirectorCompletionHealth` non-route export (tsc noise) — chipped (task `task_4993b493`).
+
+### 14.3 Phase status — see `Phase-Status-Audit-2026-06-25.md` (code-level, corrects §12.4's stale "mostly REMAINING")
+DONE+wired: **1** (genuine unified ranking, not a relabel), **5, 6, 8, 14**. PARTIAL: **2, 3, 7, 9, 10, 11, 15**.
+Built-but-DORMANT: **0** (rendered-truth, zero live callers), **12** (visual gates toothless). NOT BUILT: **4** (visual
+perception), **13** (cross-overlay choreography), **Rule-11 generative form**. The missing half = evidence/perception/form.
+
+## 15) 2026-06-26 Run Audit — non-MG findings (proj_GNctpvqAdXCC, /investigate)
+
+Code-level investigation of one real auto-edit's log (2010 rows) for everything BEYOND the MG monotony (that is the §9 note + memory `editron-mg-monotony-personality-globals`). The run SUCCEEDED (status 200, video edited) but surfaced the below. Full detail in memory `editron-run-audit-nonmg-2026-06-26`. Analysis only — nothing fixed. 3 parallel subagents + own verification of the P1 file:line.
+
+### 15.1 P1 — real, fix-worthy
+1. **AI-artifact logic treats REAL footage as AI-gen.** `getAiArtifactRiskAt` (`signal-registry.ts:842`) zeroes artifact risk ONLY when `analysisQuality === 'high'`; real uploads whose Gemini analysis came back medium/low/fallback get fake "AI degradation" risk ramped after 70% of each clip → fires `mapping:visual.ai_artifact_prevention` → forces hard-cuts → kills would-be transitions. Conflates low analysis confidence with AI-generation. **Ties to §13 points-of-entry** (the system must KNOW real-upload vs AI-gen, not infer it from quality). Fix: gate on an explicit source / `isAiGenerated` flag.
+2. **Dead Gemini embedding model.** `text-embedding-004` is 404 (Google retired it), hardcoded in 5 sites (`asset-search-service.ts:204`, `graph-service.ts:874`, `app/api/internal/workers/asset-analysis/route.ts:175`, `app/api/services/editron/media/search/route.ts:87`, `app/api/internal/workers/graphiti-episode/route.py:62`). Fail-soft but = 100% silent failure of semantic media search AND Neo4j graph enrichment (asset-analysis:207 gates the graph-sync dispatch on `if (embedding)`). Fix: → `gemini-embedding-001` (verify name, keep 768-dim for index compat), centralize the constant.
+3. **THREE quality gates all toothless** (reinforces Phase 12). Structural MG gate observe-only (`structural-gate.ts:22-25` "OBSERVE MODE... pass is LOGGED, never acted on"; overlay pushed unconditionally → a 29/100 graphic shipped); aesthetic gate (the no-key auto-pass just fixed in Phase 0); constraint enforcer count-only (`constraint-enforcer.ts:97` — 1484 uncorrectable violations never drop the decision). The system MEASURES bad output and ships it anyway. **★ SHIPPED 2026-06-26 (`936e506f`): the STRUCTURAL gate now ENFORCES** — drops score<60 graphics at `edl-executor.ts:3584`; evidence = a Rule-29 observe-sweep over 302 real current MGs (1/302 would-suppress, that 1 a genuine fail = FP≈0); `MG_STRUCTURAL_GATE=observe` reverts. Aesthetic gate (Phase 0 Step B, briefed/needs Lambda) + constraint enforcer (count-only) still toothless.
+4. **Path-D over-production.** Director 3581 mappings → 1425 decisions (8080 suppressed) → 2326 violations (1484 uncorrectable). Path E (37 decisions → 22 violations) is healthy by comparison. The signal path over-generates → floods the constraints + monotony. Fix: throttle Path-D generation upstream, not just deduct score downstream.
+
+### 15.2 P2 — cleanup / infra / log-integrity
+5. **Recurring Mongo timeout** — 8× `[Instrumentation] Brand events indexes failed: MongoServerSelectionError ... timed out after 5000ms` (+1 socket timeout 132s). Separate infra/connectivity ticket.
+6. **Transition skip log LIES** (`edl-executor.ts:776`) — echoes the decision's upstream `reason` (the gen-video "AI models maintain quality 3-4s" string from `mapping.details.why`) instead of the real skip cause. Most of the "101 returned null" are hard-cuts correctly producing no tile (`edl-executor.ts:2365`), NOT killed transitions.
+7. **Stale drift log + the real misalignment** (`edl-executor.ts:2375` says "no boundary within 45 frames"; real window is 120, `:120-122`). Underlying Director↔EDL frame-reference misalignment (median 36-frame drift, up to 110) = **the root of the §14.2 overlap/lag symptom** (relates to Phase 13).
+8. **Clerk favicon log-noise** — `/dashboard/editron/project/favicon.ico` hits the `[projectId]` dynamic route, matcher excludes `.ico`, `auth()` throws → caught in `getUserData`. Not user-facing.
+
+### 15.3 P3 — minor / by-design
+formality provenance conflict (`genreParameters=0.2` / `genreParametersSignalComputed=0.4` / MG `contentSignals=0.7`); CreativeBrief "3 semantic-context decisions missing semanticAtoms"; KEYWORD FILTER suppressed 3 keyword MGs (intentional — captions carry emphasis).
+
+### 15.4 Cross-cutting themes
+(A) **real-vs-AI-gen confusion** (#1) → architectural, §13. (B) **gates observe, never enforce** (#3) → Phase 0/12. (C) **log integrity** (#6, #7) — logs mislead and cost debug time. (D) **over-production** (#4) → Path-D + the MG flood.
+
+## 16) Signal-Provenance Audit (2026-06-26) — same concept, different values across subsystems
+
+Triggered by the formality conflict (§15.3). Dedicated investigation (subagent + verification on the 6 real signal sets).
+
+### 16.1 FORMALITY — ✅ FIXED + VERIFIED (`fb05499a`)
+Root = a **SCALE bug**, not a value bug. Every producer emits formality on **0..1** (`computeFormality` clamp(f,0,1) @`genre-parameter-computer.ts:358`; `estimateFormality` buckets @`signal-registry.ts:1110`), but the MG resolver did `(s.formality+1)/2` assuming -1..+1 (the type contract @`motion-theme-resolver.ts:25` wrongly said so) → a real 0.7 became formalityNorm 0.85 → tripped `formalityNorm>0.7→fade` on ~all content. Fixed: 5 sites → `clamp(s.formality,0,1)` + contract. VERIFIED: entrancePattern flips **fade×5 → slide-up×5**. The three stored values explained: `genreParameters.formality=0.2` (post-bandit, `video-analysis/route.ts:317`), `genreParametersSignalComputed.formality=0.4` (pre-bandit snapshot, `:281`), `contentSignals.formality=0.7` (Director Path E re-computes from scratch, `director-agent.ts:722,875,899`). One underlying ~0.4, three transforms.
+
+### 16.2 ARCHITECTURAL ROOT — `signalCtx` vs `personality.*` duplication (NOT fixed; needs a real run to verify)
+Personality signals are derived TWICE: `signalCtx` (bare keys, `director-agent.ts:895-924`) and `personality.*` (namespaced, `signal-registry.ts:664-727`), near-identical formulas but DIFFERENT inputs. The resolver's fallback key-order prefers bare keys; the Path-D bridge (`director-agent.ts:1284-1291`) overwrites bare WITH `personality.*`. So **Path D and Path E feed the resolver different numbers for the same concept.** Confirmed:
+- **pacing_velocity:** director 0.53 (V-JEPA segment motion) vs registry 0.75 (grid-frame motion) → energy/duration/stagger differ between paths.
+- **emotional_arousal:** same formula, different segment source.
+- **humor:** director HARDCODES `0.1` (`director-agent.ts:921`); registry computes a real blend (`:722-727`) → Path E MGs never get playful emphasis/`pop`.
+- **warmth:** different face-coverage predicate (`eyeContact > 0.3` numeric @:891 vs `=== true` boolean @:683).
+**FIX (single highest-leverage):** collapse to ONE source — delete the `signalCtx` block, have Director consume `personality.*` globals. CAVEAT: formality isn't in `personality.*` (no writer) → thread it separately. Director-signal-flow refactor; verify against a real run's decision log. Every formula in BOTH is self-labeled ⚠️ INVENTED — unifying removes the *conflict*, not the calibration debt.
+
+### 16.3 Secondary (deferred)
+Director Path E RE-RUNS `computeGenreParameters` from scratch (`director-agent.ts:722`) instead of reading the persisted `genreParameters`, so the genre-param bandit the user's runs learned (0.2) never reaches the MG (it sees the re-computed ~0.4). Director should read persisted genre params.
+
+## 17) Fail-Loud Instrumentation (2026-06-26) — TEMPORARY, remove when stable
+
+The 2026-06-26 session's code (10 commits) was audited for SILENT/SOFT failures (subagent over the commit diffs). Each high-value spot got a minimal `[FAILLOUD]` diagnostic log + a `// FAILLOUD-TEMP` comment (no behavior change) so a test run's logs surface any hidden failure. **★ TO-DO (do this when the editron pipeline is verified stable): `grep -rn "FAILLOUD" lib/ components/ app/` and delete every such log line + its `// FAILLOUD-TEMP` comment.** This is diagnostic scaffolding, NOT permanent.
+
+### 17.1 Instances instrumented
+1. **Brief-timestamp remap silent gap-drop** (`edited-timeline-context.ts`) — decisions whose original-time timestamp lands in a removed-silence gap are dropped (`return []`) BEFORE the executor's out-of-range tally → invisible; could delete most of a brief silently. Now logs the dropped count.
+2. **Remap no-op on bad fps** (`edited-timeline-context.ts`) — `fps<=0` returned decisions untouched AND missed NaN (`NaN<=0` is false → NaN frames → drops everything). Now guards `!(fps>0)` + logs.
+3. **Remap negative-timestamp passthrough** (`edited-timeline-context.ts`) — corrupt negative timestamps passed unmapped. Now logs.
+4. **Caller no-clip path** (`director-agent.ts:~826`) — editedTimelineContext present but sourceClips empty → remap skipped silently → out-of-range drop downstream. Now logs (else branch).
+5. **momentEmphasis missing-signal →0** (`motion-theme-resolver.ts resolveMomentEmphasis`) — absent cinematic/narrative/motion signals silently collapse sizeScale to baseline = re-freezes the monotony `4acb71f2` fixed. Now logs the missing signal.
+6. **formality clamp NaN/out-of-range** (`motion-theme-resolver.ts:288`) — `clamp(NaN)=NaN` propagates silently into 5 token families; a legacy -1..+1 producer would be floored to 0. Highest fanout. Now logs a non-0..1 formality.
+7. **Aesthetic-gate error/empty/schema** (`aesthetic-gate.ts`) — already loud about the FACT; enriched with the CAUSE (err.name + JSON-parse hint; finishReason/blockReason on empty; missing-`reasoning` schema-drift warn).
+
+### 17.2 Documented soft-spots NOT instrumented (verify by QA/render, not logs)
+- **Caption hold-last-word** (`caption-layer-content.tsx`) — if word timings are systematically wrong the hold masks it; but it's per-frame render code so a log would flood. Verify via visual QA.
+- **Scrim opacity 0.3** (`composition-renderer.tsx:151`) + **full-frame→overlay** (`visual-explanation-contract.ts`) — magic-number / routing visual assumptions with no runtime trace; verify by render.
+- **Structural-gate aggregate** — the per-MG `SUPPRESSED` log is already loud; a run-level drop count is just `grep -c` of that tag.
+- **maxDuration 800 / proxy keyframes** — config/arg constants, no swallow path of their own.

@@ -206,7 +206,7 @@ describe("ThinkForge to Clickatron context", () => {
     });
   });
 
-  it("carries ThinkForge signalTrace into Clickatron handoff metadata", () => {
+  it("does NOT leak ThinkForge signalTrace into the client handoff metadata", () => {
     const signalTrace = {
       outputFormat: "linkedin_carousel",
       platform: "linkedin",
@@ -261,8 +261,12 @@ describe("ThinkForge to Clickatron context", () => {
       },
     });
 
-    expect(context.metadata.thinkforge).toMatchObject({ signalTrace });
-    expect(context.sessionDraft?.metadata.thinkforge).toMatchObject({ signalTrace });
+    // signalTrace is internal signal-profile reasoning. It is intentionally NOT echoed to the
+    // client handoff (65059c7e) — Clickatron consumes the distilled creativeSpec/keyClaims/
+    // hardConstraints (persisted server-side) instead. Assert the raw trace does not leak.
+    expect((context.metadata.thinkforge as Record<string, unknown>).signalTrace).toBeUndefined();
+    expect((context.sessionDraft?.metadata.thinkforge as Record<string, unknown> | undefined)?.signalTrace).toBeUndefined();
+    expect(JSON.stringify(context.metadata)).not.toContain("turn market news into a brand-safe carousel");
   });
 
   it("derives carousel fallback from visible blocks without putting exact copy in the raster prompt", () => {
@@ -329,6 +333,7 @@ describe("ThinkForge to Clickatron context", () => {
     expect(context.sessionDraft?.prompt).toContain("Text rendering policy: do not rasterize readable text");
     expect(context.sessionDraft?.prompt).not.toContain("Your brand team just hit 500 video requests for Q3.");
     expect(context.sessionDraft?.prompt).not.toContain("Bridge the 10x production gap without burnout.");
-    expect(context.metadata.thinkforge).toMatchObject({ signalTrace });
+    // signalTrace intentionally not echoed to the client handoff (65059c7e).
+    expect((context.metadata.thinkforge as Record<string, unknown>).signalTrace).toBeUndefined();
   });
 });

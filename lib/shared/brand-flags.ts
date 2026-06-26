@@ -12,9 +12,9 @@ const BRAND_VAULT_SOURCE_ENV_BY_SERVICE: Record<BrandVaultSourceService, string>
 // The env var is now a kill switch: BRAND_VAULT_SOURCE_<SERVICE>=false force-disables,
 // =true force-enables, unset falls back to the default below.
 const BRAND_VAULT_SOURCE_DEFAULT_ON: Record<BrandVaultSourceService, boolean> = {
-  editron: false,
+  editron: true,
   thinkforge: true,
-  clickatron: false,
+  clickatron: true,
 };
 
 export function brandVaultSourceEnabled(

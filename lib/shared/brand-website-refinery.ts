@@ -771,7 +771,9 @@ export function createWebsiteBrandSignalProfile(input: BrandWebsiteDraftInput): 
       casingBias: parsed.headings.length ? makeSignal('typography.casingBias', inferCasingBias(parsed.headings), source('website', 'website.headings', parsed.headings, parsed.headings, 0.45, 'inferred_hint')) : fallback('typography.casingBias', 'unknown', 'No heading evidence.'),
     },
     visual: makeVisualSignals(primitiveSignals, makeSignal, fallback),
+    narrative: makeNarrativeSignals(textForInference, makeSignal, fallback),
     motion: makeMotionSignals(primitiveSignals, makeSignal, fallback),
+    composition: makeCompositionSignals(primitiveSignals, makeSignal, fallback),
     voice: {
       assertiveness: makeSignal('voice.assertiveness', score(textForInference, ['bold', 'direct', 'guarantee', 'fast'], ['gentle', 'soft']), source('website', 'website.copy', textForInference, textForInference, 0.48, 'inferred_hint')),
       warmth: makeSignal('voice.warmth', score(textForInference, ['human', 'friendly', 'community', 'together'], ['enterprise-grade', 'compliance']), source('website', 'website.copy', textForInference, textForInference, 0.48, 'inferred_hint')),
@@ -1268,6 +1270,66 @@ function makeVisualSignals(
   };
 }
 
+function makeNarrativeSignals(
+  text: string,
+  makeSignal: MakeSignal,
+  fallback: FallbackSignal,
+): BrandSignalProfile['narrative'] {
+  const clean = text.trim();
+  if (!clean) {
+    return {
+      emotionalArc: fallback('narrative.emotionalArc', 0.5, 'No website copy narrative evidence.'),
+      pacePreference: fallback('narrative.pacePreference', 0.5, 'No website copy narrative evidence.'),
+    };
+  }
+  const narrativeSource = (value: number): SignalSource =>
+    source('website', 'website.copy', clean, value, 0.56, 'inferred_hint');
+  const emotionalArc = score(clean, ['story', 'journey', 'transformation', 'dramatic', 'cinematic', 'before-after', 'breakthrough'], ['static', 'plain', 'basic']);
+  const pacePreference = score(clean, ['fast', 'faster', 'rapid', 'snappy', 'instant', 'velocity', 'scale', 'quick'], ['slow', 'calm', 'deliberate', 'gentle']);
+  return {
+    emotionalArc: makeSignal('narrative.emotionalArc', emotionalArc, narrativeSource(emotionalArc)),
+    pacePreference: makeSignal('narrative.pacePreference', pacePreference, narrativeSource(pacePreference)),
+  };
+}
+
+function makeCompositionSignals(
+  primitives: WebsitePrimitiveSignals | null,
+  makeSignal: MakeSignal,
+  fallback: FallbackSignal,
+): BrandSignalProfile['composition'] {
+  if (!primitives) {
+    return {
+      safeZones: fallback('composition.safeZones', 0.5, 'No website DOM/CSS composition primitives.'),
+      figureGroundRatio: fallback('composition.figureGroundRatio', 0.5, 'No website DOM/CSS composition primitives.'),
+    };
+  }
+  const compositionSource = (value: number): SignalSource => ({
+    candidateSourceType: 'website',
+    sourceField: primitives.sourceField,
+    rawValue: primitives.atoms,
+    normalizedValue: value,
+    excerpt: primitives.excerpt,
+    confidence: primitives.confidence ?? 0.58,
+    authorityClass: 'inferred_hint',
+  });
+  const safeZones = roundSignal(clamp01(
+    primitives.visual.minimalism * 0.45
+      + primitives.visual.layoutSymmetry * 0.25
+      + (1 - primitives.visual.densityTolerance) * 0.2
+      + (1 - primitives.visual.decorationTolerance) * 0.1,
+  ));
+  const figureGroundRatio = roundSignal(clamp01(
+    primitives.visual.expressiveness * 0.35
+      + primitives.visual.dataVizAffinity * 0.25
+      + primitives.visual.densityTolerance * 0.2
+      + primitives.visual.contrastPreference * 0.2,
+  ));
+  return {
+    safeZones: makeSignal('composition.safeZones', safeZones, compositionSource(safeZones)),
+    figureGroundRatio: makeSignal('composition.figureGroundRatio', figureGroundRatio, compositionSource(figureGroundRatio)),
+  };
+}
+
 function makeMotionSignals(
   primitives: WebsitePrimitiveSignals | null,
   makeSignal: MakeSignal,
@@ -1279,6 +1341,8 @@ function makeMotionSignals(
       overshootTolerance: fallback('motion.overshootTolerance', 0.5, 'No website CSS motion primitives.'),
       transitionSharpness: fallback('motion.transitionSharpness', 0.5, 'No website CSS motion primitives.'),
       rhythmRegularity: fallback('motion.rhythmRegularity', 0.5, 'No website CSS motion primitives.'),
+      anticipationStyle: fallback('motion.anticipationStyle', 0.5, 'No website CSS motion primitives.'),
+      easingTaste: fallback('motion.easingTaste', 0.5, 'No website CSS motion primitives.'),
     };
   }
   const motionSource = (value: number): SignalSource => ({
@@ -1287,14 +1351,26 @@ function makeMotionSignals(
     rawValue: primitives.atoms,
     normalizedValue: value,
     excerpt: primitives.excerpt,
-    confidence: primitives.motionConfidence ?? 0.54,
+    confidence: primitives.motionConfidence ?? 0.56,
     authorityClass: 'inferred_hint',
   });
+  const anticipationStyle = roundSignal(clamp01(
+    primitives.motion.motionEnergy * 0.35
+      + primitives.motion.rhythmRegularity * 0.25
+      + primitives.motion.overshootTolerance * 0.4,
+  ));
+  const easingTaste = roundSignal(clamp01(
+    primitives.motion.transitionSharpness * 0.65
+      + primitives.motion.motionEnergy * 0.2
+      + (1 - primitives.motion.overshootTolerance) * 0.15,
+  ));
   return {
     motionEnergy: makeSignal('motion.motionEnergy', primitives.motion.motionEnergy, motionSource(primitives.motion.motionEnergy)),
     overshootTolerance: makeSignal('motion.overshootTolerance', primitives.motion.overshootTolerance, motionSource(primitives.motion.overshootTolerance)),
     transitionSharpness: makeSignal('motion.transitionSharpness', primitives.motion.transitionSharpness, motionSource(primitives.motion.transitionSharpness)),
     rhythmRegularity: makeSignal('motion.rhythmRegularity', primitives.motion.rhythmRegularity, motionSource(primitives.motion.rhythmRegularity)),
+    anticipationStyle: makeSignal('motion.anticipationStyle', anticipationStyle, motionSource(anticipationStyle)),
+    easingTaste: makeSignal('motion.easingTaste', easingTaste, motionSource(easingTaste)),
   };
 }
 

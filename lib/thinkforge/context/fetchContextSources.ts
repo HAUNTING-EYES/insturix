@@ -57,6 +57,8 @@ export interface FetchContextOptions {
   sessionId?: string;
   /** Current brand scope. Brand-scoped global memory is visible only when this matches. */
   brandId?: string;
+  /** Active org for Brand Vault scoping; null/undefined keeps personal behavior. */
+  orgId?: string | null;
   /** The current user prompt – used to match relevant facts by keyword overlap */
   currentPrompt?: string;
   /** Current script content – used for keyword extraction */
@@ -121,9 +123,12 @@ async function fetchColdContext(
   userId: string,
   projectId?: string,
   brandId?: string,
+  orgId?: string | null,
 ): Promise<EffectiveBrandDNAResolution> {
   try {
-    return await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId);
+    return orgId !== undefined
+      ? await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId, { orgId })
+      : await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId);
   } catch (error) {
     console.warn('[fetchContextSources] Cold fetch failed, using empty BrandDNA:', error);
     return { brandDNA: {}, brandSignalProfile: null, source: 'legacy' };
@@ -378,6 +383,7 @@ export async function fetchContextSources(
     projectId,
     sessionId,
     brandId,
+    orgId,
     currentPrompt,
     currentScript,
     maxFacts = 5,
@@ -388,7 +394,7 @@ export async function fetchContextSources(
   const keywords = extractKeywords(combinedText);
 
   const [brandResolution, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
-    fetchColdContext(userId, projectId, brandId),
+    fetchColdContext(userId, projectId, brandId, orgId),
     withTimeout(
       sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
       [],

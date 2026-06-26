@@ -7,6 +7,8 @@ import { useCalosDeliverables } from './hooks/useCalosDeliverables';
 import CampaignBar from './CampaignBar';
 import { toast } from '@/hooks/use-toast';
 import { EDITORIAL_STAGE_META } from '@/lib/calos/stages';
+import BrandConnections from './BrandConnections';
+import { Linkedin } from 'lucide-react';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -22,6 +24,7 @@ export default function CalosPage() {
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [brandId, setBrandId] = useState<string | null>(null);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -141,6 +144,10 @@ export default function CalosPage() {
     }
   };
 
+  const brandName =
+    brands.find((b) => b.brandId === brandId)?.name ??
+    (brandId === DEFAULT_BRAND ? 'Personal' : brandId ?? '');
+
   return (
     <div className="w-full h-full flex flex-col bg-[#0B0B0A]">
       <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60 bg-[#0B0B0A]/95 backdrop-blur-xl">
@@ -165,13 +172,22 @@ export default function CalosPage() {
           {brandId && <CampaignBar brandId={brandId} onAutoFilled={refresh} />}
         </div>
         {!loading && brandId && (
-          <div className="hidden lg:flex items-center gap-2.5 text-[10px] text-[#7A776E]">
-            {Object.values(EDITORIAL_STAGE_META).map((m) => (
-              <span key={m.label} className="flex items-center gap-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
-                {m.label}
-              </span>
-            ))}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setConnectionsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#1C1B19] px-2.5 py-1.5 text-[11px] text-[#ECE9E1] hover:bg-[#1C1B19]/60"
+            >
+              <Linkedin className="h-3.5 w-3.5 text-[#5CCCB8]" />
+              Publishing
+            </button>
+            <div className="hidden lg:flex items-center gap-2.5 text-[10px] text-[#7A776E]">
+              {Object.values(EDITORIAL_STAGE_META).map((m) => (
+                <span key={m.label} className="flex items-center gap-1">
+                  <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+                  {m.label}
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -206,6 +222,15 @@ export default function CalosPage() {
           />
         )}
       </div>
+
+      {brandId && (
+        <BrandConnections
+          brandId={brandId}
+          brandName={brandName}
+          open={connectionsOpen}
+          onClose={() => setConnectionsOpen(false)}
+        />
+      )}
     </div>
   );
 }

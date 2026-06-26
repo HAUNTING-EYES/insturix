@@ -68,7 +68,9 @@ export function shouldRequestClickatronCreativeSidecar(
   profile?: ThinkForgeContentSignalProfile,
 ): boolean {
   const userPrompt = compactText([input.userPrompt]);
-  const supportingContext = compactText([input.context.projectSummary, input.context.systemBrief]);
+  // systemBrief can contain retrieved brand examples like <voice_example type="linkedin">;
+  // export intent must come from the user, project summary, current script, or resolved profile.
+  const supportingContext = compactText([input.context.projectSummary]);
   const currentScript = compactText([input.context.currentScript]);
 
   const promptRequestsCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(userPrompt);

@@ -148,6 +148,23 @@ export function computeSpeedSegments(
   const segments: SpeedSegment[] = [];
   let sourceOffset = 0;
 
+  // Lead-in coverage: a speed curve whose first keyframe is after frame 0 leaves the span
+  // [0, firstFrame) with NO segment. video-layer-content maps each segment to a <Sequence>/
+  // <OffthreadVideo>, so an uncovered span mounts NO video and the clip renders BLACK there —
+  // in BOTH the live preview and the Lambda render. (Observed: clip with curve starting at
+  // frame 119 went black for local 0–118.) Cover the lead-in at normal speed so the clip plays
+  // its footage up to the ramp; rate 1.0 consumes source frames 1:1, keeping the ramp segments
+  // below source-continuous.
+  if (sorted[0].frame > 0) {
+    segments.push({
+      compositionStartFrame: 0,
+      compositionEndFrame: sorted[0].frame,
+      playbackRate: 1,
+      sourceStartFrame: 0,
+    });
+    sourceOffset = sorted[0].frame;
+  }
+
   for (let i = 0; i < sorted.length; i++) {
     const startFrame = sorted[i].frame;
     const endFrame = i < sorted.length - 1 ? sorted[i + 1].frame : totalDurationFrames;

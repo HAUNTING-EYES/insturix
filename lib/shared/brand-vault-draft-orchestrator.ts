@@ -29,6 +29,7 @@ import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
 } from './brand-vault-social-ocr';
+import { analyzeAudiencePsychographics, applyAudiencePsychographics } from './brand-vault-audience';
 import {
   createBrandVaultVisualIdentitySummary,
   type BrandVaultVisualIdentitySummary,
@@ -521,6 +522,24 @@ export async function createBrandVaultWebsiteDraftJob(
     draft.record.profile.identity.audience.value = draft.record.profile.identity.audience.value
       .map(cleanPromotedAudiencePhrase)
       .filter((item): item is string => Boolean(item));
+
+    // Mine audience PSYCHOGRAPHICS (value drivers / pain points / jobs-to-be-done) from the extracted
+    // brand copy — the WHY behind the WHO (a thin label list can't carry motivation). Best-effort: any
+    // failure leaves the existing audience labels untouched (no regression).
+    const audienceCopy = draft.record.profile.evidence
+      .map((item) => item.excerpt)
+      .filter((excerpt): excerpt is string => Boolean(excerpt))
+      .join('\n')
+      .slice(0, 6000);
+    if (audienceCopy) {
+      const psychographics = await analyzeAudiencePsychographics({ text: audienceCopy });
+      if (psychographics) {
+        applyAudiencePsychographics(draft.record.profile, psychographics);
+      } else {
+        // FAILLOUD: remove after brand-vault verify (analyzer logs its own reason; this marks the no-op)
+        console.error('[FAILLOUD][BrandVault audience] no psychographics extracted from scan copy (analyzer returned null)');
+      }
+    }
     const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {
       ...dependencies.fetchOptions,
       allowDefaultFetch: !dependencies.fetchSnapshot,

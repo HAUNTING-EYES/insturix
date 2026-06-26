@@ -22,6 +22,7 @@ import {
   extractBrandVaultUploadEvidence,
   type BrandVaultUploadSourceEvidence,
 } from '@/lib/frontend/services/brand-vault-upload-extraction';
+import { setActiveBrandIdInStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { BrandHero } from './BrandHero';
 import { SourceStrip } from './SourceStrip';
 import { BrandVaultStats } from './BrandVaultStats';
@@ -53,7 +54,13 @@ import type {
   SignalRow,
   SourceLane,
 } from './brand-vault-types';
-import { useBrandVaultJob, useBrandVaultMutations, useBrandVaultProfile, useLatestAcceptedBrandVaultRecordId } from './useBrandVault';
+import {
+  useAcceptedBrandVaultBrands,
+  useBrandVaultJob,
+  useBrandVaultMutations,
+  useBrandVaultProfile,
+  useLatestAcceptedBrandVaultRecordId,
+} from './useBrandVault';
 
 type ToastTone = 'good' | 'warn' | 'risk';
 type UploadStatus = 'idle' | 'extracting';
@@ -129,13 +136,34 @@ function readStoredBrandId(): string | null {
 }
 
 function persistSelectedBrandId(brandId: string): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(BRAND_VAULT_SELECTED_BRAND_KEY, brandId);
+  // Route through the shared writer so the global switcher pill (and any other reader) updates live —
+  // a raw localStorage.setItem fires no same-tab event, which left the pill showing a stale brand.
+  setActiveBrandIdInStorage(brandId);
 }
 
 function selectInitialBrandId(options: BrandVaultBrandOption[], preferredBrandId: string | null): string | null {
   if (preferredBrandId && options.some((option) => option.brandId === preferredBrandId)) return preferredBrandId;
   return options[0]?.brandId ?? null;
+}
+
+function mergeBrandOptions(...groups: BrandVaultBrandOption[][]): BrandVaultBrandOption[] {
+  const byId = new Map<string, BrandVaultBrandOption>();
+
+  for (const group of groups) {
+    for (const option of group) {
+      const brandId = option.brandId.trim();
+      if (!brandId) continue;
+      const name = option.name.trim() || brandId;
+      const current = byId.get(brandId);
+      if (!current || current.name === current.brandId) byId.set(brandId, { brandId, name });
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+function sameBrandOptions(left: BrandVaultBrandOption[], right: BrandVaultBrandOption[]): boolean {
+  return left.length === right.length && left.every((option, index) => option.brandId === right[index]?.brandId && option.name === right[index]?.name);
 }
 
 export function BrandVaultReview() {
@@ -170,6 +198,7 @@ export function BrandVaultReview() {
   const profileQuery = useBrandVaultProfile(profileId);
   const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
   const latestAccepted = useLatestAcceptedBrandVaultRecordId(activeBrandId);
+  const acceptedBrands = useAcceptedBrandVaultBrands();
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
@@ -194,12 +223,15 @@ export function BrandVaultReview() {
         if (cancelled) return;
         setBrandOptions(options);
         setActiveBrandId(nextBrandId);
-        setBrandOptionsError(nextBrandId ? null : 'Create a brand/client before scanning in Brand Vault.');
+        // First-run with no brand is valid — you scan to create one, so don't surface a blocking error.
+        setBrandOptionsError(null);
       } catch (error) {
         if (cancelled) return;
         setBrandOptions([]);
         setActiveBrandId(null);
-        setBrandOptionsError(error instanceof Error ? error.message : 'Could not load brands.');
+        // acceptedBrands (the brand-vault hook) is the real source; a failed editron brands fetch
+        // must not block the vault. Keep the error non-blocking.
+        setBrandOptionsError(null);
       } finally {
         if (!cancelled) setBrandOptionsLoaded(true);
       }
@@ -210,6 +242,19 @@ export function BrandVaultReview() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const acceptedOptions = normalizeBrandOptions(acceptedBrands.data);
+    if (acceptedOptions.length === 0) return;
+
+    const mergedOptions = mergeBrandOptions(brandOptions, acceptedOptions);
+    if (!sameBrandOptions(brandOptions, mergedOptions)) setBrandOptions(mergedOptions);
+    if (!activeBrandId) {
+      const nextBrandId = selectInitialBrandId(mergedOptions, readStoredBrandId());
+      if (nextBrandId) setActiveBrandId(nextBrandId);
+    }
+    setBrandOptionsError(null);
+  }, [acceptedBrands.data, activeBrandId, brandOptions, brandOptionsLoaded]);
 
   useEffect(() => {
     if (!jobQuery.data) return;
@@ -228,10 +273,9 @@ export function BrandVaultReview() {
   // Fresh visit (no in-session scan/draft): load the user's saved accepted vault so the tab shows
   // it instead of the build screen. Reuses the by-id load path via setProfileId.
   useEffect(() => {
-    if (!activeBrandId) return;
     const recordId = latestAccepted.data;
     if (recordId && !jobId && !profileId) setProfileId(recordId);
-  }, [activeBrandId, latestAccepted.data, jobId, profileId]);
+  }, [latestAccepted.data, jobId, profileId]);
 
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
@@ -280,15 +324,15 @@ export function BrandVaultReview() {
     errorMessage(rejectDraft.error) ??
     errorMessage(jobQuery.error) ??
     errorMessage(profileQuery.error) ??
-    errorMessage(latestAccepted.error);
+    errorMessage(latestAccepted.error) ??
+    errorMessage(acceptedBrands.error);
   const statusLabel = snapshot.record?.status ?? snapshot.job?.status ?? 'draft';
   const needsCount = activeConflicts.length;
   const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';
-  const brandReady = Boolean(activeBrandId);
   const activeBrandName = activeBrandId
     ? brandOptions.find((option) => option.brandId === activeBrandId)?.name ?? activeBrandId
     : 'No brand selected';
-  const canRescanWithEvidence = Boolean(scanWebsiteUrl && brandReady) && !busy;
+  const canRescanWithEvidence = Boolean(scanWebsiteUrl) && !busy;
 
   useEffect(() => {
     if (!toast) return;
@@ -318,15 +362,17 @@ export function BrandVaultReview() {
       setLocalError('Enter a client website before scanning.');
       return;
     }
-    if (!activeBrandId) {
-      setLocalError('Select a brand/client before scanning.');
-      return;
+    // No brand selected yet (first run) → mint one so the first scan creates the brand. Fail-open.
+    const scanBrandId = activeBrandId ?? `brand_${crypto.randomUUID()}`;
+    if (scanBrandId !== activeBrandId) {
+      persistSelectedBrandId(scanBrandId);
+      setActiveBrandId(scanBrandId);
     }
 
     setLocalError(null);
     setScanLatchActive(true);
     const input: CreateBrandVaultDraftInput = {
-      brandId: activeBrandId,
+      brandId: scanBrandId,
       websiteUrl: cleanUrl,
       companyName: companyName.trim() || undefined,
       socialLinks: parseSocialLinks(socialLinksText),
@@ -641,7 +687,7 @@ export function BrandVaultReview() {
           <IntakeGuidancePanel
             guidance={intakeGuidance}
             activeWorkflow={activeGuidanceWorkflow}
-            busy={busy || !brandReady}
+            busy={busy}
             scanBusy={scanBusy}
             socialLinksText={socialLinksText}
             uploadStatus={uploadStatus}
@@ -667,7 +713,7 @@ export function BrandVaultReview() {
               lookupId={lookupId}
               uploadedSources={uploadedSources}
               uploadWarnings={uploadWarnings}
-              busy={busy || !brandReady}
+              busy={busy}
               scanBusy={scanBusy}
               uploadStatus={uploadStatus}
               onWebsiteUrlChange={setWebsiteUrl}

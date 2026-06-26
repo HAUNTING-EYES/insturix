@@ -122,6 +122,11 @@ export async function compressToProxy(
       '-b:v', `${videoBitrateKbps}k`,
       '-maxrate', `${Math.round(videoBitrateKbps * 1.5)}k`,
       '-bufsize', `${Math.round(videoBitrateKbps * 2)}k`,
+      // Force a keyframe every 1s (fps-independent). Without this, libx264 defaults to a ~250-frame GOP
+      // (~10s at 24fps) -> seeking to mid-shot positions returns BLACK in the editor preview AND the
+      // Remotion render (the long forward-decode from a distant keyframe fails). 1s keyframes = reliable
+      // seeking, no black frames. Size stays bitrate-capped, so no file-size blowout.
+      '-force_key_frames', 'expr:gte(t,n_forced*1)',
       '-c:a', 'aac',
       '-b:a', '64k',
       '-ac', '1',

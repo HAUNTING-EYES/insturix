@@ -1,0 +1,122 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  connectToDatabase: vi.fn(),
+  connectedAccountFindOne: vi.fn(),
+  userFindOne: vi.fn(),
+}));
+
+vi.mock("@/schemas/ConnectToDatabase", () => ({ default: mocks.connectToDatabase }));
+vi.mock("@/schemas/calos-connected-account", () => ({ default: { findOne: mocks.connectedAccountFindOne } }));
+vi.mock("@/schemas/user", () => ({ User: { findOne: mocks.userFindOne } }));
+
+import { getPublisher } from "@/lib/calos/publish/contract";
+import { publishToInstagram } from "@/lib/calos/publish/instagram";
+
+function mockUserRecord(record: unknown) {
+  const lean = vi.fn(async () => record);
+  const select = vi.fn(() => ({ lean }));
+  mocks.userFindOne.mockReturnValue({ select });
+  return { lean, select };
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status });
+}
+
+const BASE = {
+  ownerUserId: "queue_owner",
+  deliverableId: "deliverable_1",
+  brandId: "brand_1",
+  caption: "  Hello IG  ",
+  imageUrl: "https://cdn.example.com/card.png",
+};
+
+describe("publishToInstagram", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.connectToDatabase.mockReset().mockResolvedValue(undefined);
+    mocks.connectedAccountFindOne.mockReset();
+    mocks.userFindOne.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is registered as the CalOS Instagram publisher", () => {
+    expect(getPublisher("instagram")).toBe(publishToInstagram);
+  });
+
+  it("posts the image to the assigned account via container -> publish using the owner's token", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token" } });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "media_99" }));
+
+    const result = await publishToInstagram({ ...BASE, accountRef: "ig_1" });
+
+    expect(result).toEqual({
+      ok: true,
+      postId: "media_99",
+      postUrl: "https://www.instagram.com/p/media_99",
+    });
+    expect(mocks.userFindOne).toHaveBeenCalledWith({ clerkUserId: "owner_1" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const [containerUrl] = fetchMock.mock.calls[0] as [string];
+    expect(containerUrl).toContain("/me/media?");
+    expect(containerUrl).toContain("image_url=https%3A%2F%2Fcdn.example.com%2Fcard.png");
+    expect(containerUrl).toContain("access_token=ig_token");
+    expect(containerUrl).toContain("caption=Hello+IG");
+
+    const [publishUrl] = fetchMock.mock.calls[1] as [string];
+    expect(publishUrl).toContain("/me/media_publish?");
+    expect(publishUrl).toContain("creation_id=container_1");
+  });
+
+  it("fails loud (no DB hit) when there is no image", async () => {
+    const result = await publishToInstagram({ ...BASE, imageUrl: undefined });
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(false);
+    expect(result.error).toContain("requires an image");
+    expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails loud when the brand has no assigned Instagram account", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue(null);
+    const result = await publishToInstagram(BASE);
+    expect(result).toEqual({
+      ok: false,
+      error: "No Instagram account assigned for this brand",
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails loud when the assigned account's owner is no longer connected", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: null });
+    const result = await publishToInstagram(BASE);
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(false);
+    expect(result.error).toContain("no longer connected");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("marks a Graph rate limit on the container step as retryable", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token" } });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: "rate limit" } }, 429));
+
+    const result = await publishToInstagram(BASE);
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(true);
+    expect(result.error).toContain("429");
+  });
+});
