@@ -8,7 +8,7 @@ import CampaignBar from './CampaignBar';
 import { toast } from '@/hooks/use-toast';
 import { EDITORIAL_STAGE_META } from '@/lib/calos/stages';
 import BrandConnections from './BrandConnections';
-import { Linkedin } from 'lucide-react';
+import { Linkedin, Share2 } from 'lucide-react';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -144,6 +144,35 @@ export default function CalosPage() {
     }
   };
 
+  const handleShare = async () => {
+    if (!brandId) return;
+    try {
+      const res = await fetch('/api/services/calos/client-view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.url) {
+        toast({ title: data?.error || `Couldn't create link (${res.status})`, variant: 'destructive' });
+        return;
+      }
+      // Copy to clipboard when available; otherwise surface the URL so the user can copy it manually.
+      try {
+        await navigator.clipboard.writeText(data.url);
+        toast({ title: 'Client link copied', description: 'Read-only calendar link is on your clipboard.' });
+      } catch {
+        toast({ title: 'Client link ready', description: data.url });
+      }
+    } catch (err) {
+      toast({
+        title: 'Share failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const brandName =
     brands.find((b) => b.brandId === brandId)?.name ??
     (brandId === DEFAULT_BRAND ? 'Personal' : brandId ?? '');
@@ -173,6 +202,14 @@ export default function CalosPage() {
         </div>
         {!loading && brandId && (
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleShare}
+              title="Copy a read-only calendar link to share with this client"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#1C1B19] px-2.5 py-1.5 text-[11px] text-[#ECE9E1] hover:bg-[#1C1B19]/60"
+            >
+              <Share2 className="h-3.5 w-3.5 text-[#5CCCB8]" />
+              Share
+            </button>
             <button
               onClick={() => setConnectionsOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#1C1B19] px-2.5 py-1.5 text-[11px] text-[#ECE9E1] hover:bg-[#1C1B19]/60"
