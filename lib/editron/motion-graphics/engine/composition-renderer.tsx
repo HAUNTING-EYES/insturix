@@ -1,5 +1,5 @@
 import React from 'react';
-import { Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Easing, getRemotionEnvironment, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { CompositionRendererProps } from './recipe-types';
 import type { ResolvedElement, ComputedChoreography, DepthLayer } from './recipe-types';
 import { resolveElements } from './property-resolver';
@@ -2604,9 +2604,16 @@ const ParticleElement: React.FC<{
   const p = element.resolvedProps;
   const presetName = String(p.particlePreset || 'confetti');
   const preset = PARTICLE_PRESETS[presetName] || PARTICLE_PRESETS.confetti;
-  // ⚠️ INVENTED — max 100 (DOM perf ceiling), default 40 (moderate density)
   const density = atomicDecision?.multipliers.structureDensity ?? 1;
-  const count = Math.min(100, Math.max(1, Math.round(Number(p.particleCount || 40) * density)));
+  // Particle ceiling is PREVIEW-aware. The export (OffthreadVideo) has no real-time deadline → full density.
+  // The browser preview renders every particle each frame (2× Perlin-noise + a reconciled <div> each) on the
+  // main thread WHILE decoding video — 40+ starves the decode and picture+audio drop for the MG's span
+  // (proven via render-still: the export composites video+MG cleanly on the exact frames the preview blanks,
+  // and the first clips are contiguous so it is NOT a seek). Decorative ambient particles are near-invisible
+  // over real footage, so a lower preview ceiling costs nothing visible while keeping the editor real-time.
+  // ⚠️ INVENTED — preview 16 (real-time main-thread budget; needs profiling to tune), render 100 (DOM perf ceiling), default 40.
+  const maxParticles = getRemotionEnvironment().isRendering ? 100 : 16;
+  const count = Math.min(maxParticles, Math.max(1, Math.round(Number(p.particleCount || 40) * density)));
   const baseColor = String(p.color || '#FFFFFF');
   const altColor = String(p.secondaryColor || '#FFD700');
   // ⚠️ INVENTED — 6px base, typical MG overlay particle size
