@@ -20,12 +20,12 @@ There are **two parallel writer stacks**, reached by different routes:
 | Reached by | chat draft (`chat-service.ts:876/906`) — the default | `/script/edit`, `/script/edit-blocks`, blueprint builds (`chat-service.ts:379`) |
 | Prompt | XML-structured, single-shot | multi-stage (outline→contract→author→stylist) |
 | Writing knowledge graph | techniques **now injected** (this session) + filler gate | techniques + filler |
-| Post-gen compliance scoring | no | yes (`evaluateContentProfileCompliance`) |
+| Post-gen compliance scoring | **yes (this session)** — scoring + surfacing, no auto-repair | yes + stylist auto-repair |
 | Writing-context cache (doc) | yes (both writers) | yes |
 | Eval | `eval-thinkforge-writers.ts` (current, regression baselines, judge) | `eval-thinkforge-author.ts` |
 | Latency | lower | higher |
 
-**Stack A vs Stack B parity:** not identical, different trade-offs. After this session wired the knowledge graph into Stack A, Stack A is the better-engineered *generation* path (XML prompt hygiene + seed + context cache + technique graph + the current regression eval). Stack B's remaining unique edge is **post-generation profile compliance scoring** (forbidden-term / proof-point / leakage / CTA checks) and **multi-artifact orchestration** for blueprint/edit. Neither strictly dominates: Stack A is stronger for single drafts; Stack B still owns compliance QA + orchestration. Closing the last gap = give Stack A `evaluateContentProfileCompliance` too (follow-up, not yet done).
+**Stack A vs Stack B parity:** after this session, Stack A is the stronger *generation* path on every axis except one. It now has XML prompt hygiene + seed + context cache + the technique graph + the current regression eval + **post-gen profile-compliance scoring** (wired this session). Stack B's only remaining unique edge is the **stylist auto-repair stage** (it rewrites on a critical compliance violation; Stack A scores + surfaces + logs loud but does not auto-rewrite) and **multi-artifact orchestration** for blueprint/edit. So for a single draft, Stack A now leads; Stack B is retained for edit/blueprint orchestration and its repair loop. The last optional step to full parity = give Stack A a repair pass (regenerate on critical) — deliberately deferred (needs its own eval).
 
 ### 1.2 Capabilities
 
@@ -115,11 +115,12 @@ ThinkForge authors a post/carousel and emits a hidden creative spec that pre-fil
 - `0243f455` — C2 model-driven in-image text rendering.
 - `27a3d60e` — merge: land P6 carousel fan-out + P7 credit fixes onto infra.
 - `9e2a38b6` — wire the writing knowledge graph into the flat Post/Script writers (Stack A); DRY the technique block into `writing-graph-query.ts`.
+- `038cf8ad` — run profile-compliance scoring on Stack A output (scores + surfaces + logs critical; closes the A↔B scoring gap).
 - Earlier infra: `a1c8a7de` (inject keyClaims + brand hardConstraints into the Fal prompt), `13b3b439` (worker maxDuration=300), plus brand-learning + orgId-threading work.
 
 ## Part 5 — Top follow-ups
 
-1. Give Stack A the post-gen compliance scorer (`evaluateContentProfileCompliance`) — closes the last Stack A↔B gap.
+1. ~~Give Stack A the post-gen compliance scorer~~ — **done** (`038cf8ad`). Optional next: a Stack A repair pass (regenerate on critical violation) to match Stack B's stylist auto-repair (needs its own eval).
 2. Land P5 (edit paths → flat writers) so edits stop running the legacy chain.
 3. Fix the Clickatron auth holes (`r2/sign`, `utils/get-signed-url`, `save-sketch-result`).
 4. Decide brand `strict` adoption (currently fail-open everywhere).
