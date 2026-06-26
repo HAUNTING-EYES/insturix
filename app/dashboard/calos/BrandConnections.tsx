@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Linkedin, Facebook, Instagram, Twitter, Building2, User, Check, Loader2, X, UserPlus } from 'lucide-react';
+import { Linkedin, Facebook, Instagram, Twitter, Youtube, Building2, User, Check, Loader2, X, UserPlus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface AssignableAccount {
@@ -34,6 +34,7 @@ const LINKEDIN_ASSIGN_BASE = '/api/services/calos/connect/linkedin/assign';
 const FACEBOOK_ASSIGN_BASE = '/api/services/calos/connect/facebook/assign';
 const INSTAGRAM_ASSIGN_BASE = '/api/services/calos/connect/instagram/assign';
 const TWITTER_ASSIGN_BASE = '/api/services/calos/connect/twitter/assign';
+const YOUTUBE_ASSIGN_BASE = '/api/services/calos/connect/youtube/assign';
 
 export default function BrandConnections({ brandId, brandName, open, onClose }: BrandConnectionsProps) {
   const [loading, setLoading] = useState(true);
@@ -49,13 +50,16 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterAccounts, setTwitterAccounts] = useState<AssignableAccount[]>([]);
   const [twitterAssignments, setTwitterAssignments] = useState<AssignableAccount[]>([]);
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [youtubeAccounts, setYoutubeAccounts] = useState<AssignableAccount[]>([]);
+  const [youtubeAssignments, setYoutubeAssignments] = useState<AssignableAccount[]>([]);
   const [pending, setPending] = useState<{ pendingId: string; accounts: AssignableAccount[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // accountRef | 'connect-a' | 'connect-b' | pendingId
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [accRes, assignRes, fbAccRes, fbAssignRes, igAccRes, igAssignRes, twAccRes, twAssignRes] = await Promise.all([
+      const [accRes, assignRes, fbAccRes, fbAssignRes, igAccRes, igAssignRes, twAccRes, twAssignRes, ytAccRes, ytAssignRes] = await Promise.all([
         // TODO(CALOS_LOUD): revert these .catch logs to `.catch(() => null)` once stable.
         fetch('/api/services/calos/connect/linkedin/accounts', { cache: 'no-store' })
           .then((r) => r.json())
@@ -81,6 +85,12 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
         fetch(`${TWITTER_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
           .then((r) => r.json())
           .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: twitter assignments fetch failed:', e); return null; }),
+        fetch('/api/services/calos/connect/youtube/accounts', { cache: 'no-store' })
+          .then((r) => r.json())
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: youtube accounts fetch failed:', e); return null; }),
+        fetch(`${YOUTUBE_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .catch((e) => { console.error('[CALOS_LOUD] BrandConnections: youtube assignments fetch failed:', e); return null; }),
       ]);
 
       setConnected(!!accRes?.connected);
@@ -128,6 +138,18 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
       setTwitterAssignments(
         Array.isArray(twAssignRes?.assignments)
           ? twAssignRes.assignments.filter((a: AssignableAccount) => a?.accountRef)
+          : [],
+      );
+
+      setYoutubeConnected(!!ytAccRes?.connected);
+      setYoutubeAccounts(
+        Array.isArray(ytAccRes?.accounts)
+          ? ytAccRes.accounts.filter((a: AssignableAccount) => a?.accountRef)
+          : [],
+      );
+      setYoutubeAssignments(
+        Array.isArray(ytAssignRes?.assignments)
+          ? ytAssignRes.assignments.filter((a: AssignableAccount) => a?.accountRef)
           : [],
       );
     } finally {
@@ -202,6 +224,22 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
       );
     },
     [twitterAssignments, brandId],
+  );
+
+  const removeOtherYoutubeBindings = useCallback(
+    async (keepRef: string) => {
+      const others = youtubeAssignments.filter((a) => a.accountRef !== keepRef).map((a) => a.accountRef);
+      await Promise.all(
+        others.map((ref) =>
+          fetch(
+            `${YOUTUBE_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(ref)}`,
+            { method: 'DELETE' },
+            // TODO(CALOS_LOUD): revert to `.catch(() => null)` once stable.
+          ).catch((e) => { console.error('[CALOS_LOUD] BrandConnections: youtube unassign DELETE failed:', e); return null; }),
+        ),
+      );
+    },
+    [youtubeAssignments, brandId],
   );
 
   // Popup helper: open url, resolve when it closes or posts `source`. Returns the message payload (or null).
@@ -324,6 +362,16 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
     setBusy('connect-twitter');
     try {
       await openFacebookPopup('/api/services/uploaderx/twitter/auth');
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }, [openFacebookPopup, load]);
+
+  const connectYoutube = useCallback(async () => {
+    setBusy('connect-youtube');
+    try {
+      await openFacebookPopup('/api/services/uploaderx/youtube/auth');
       await load();
     } finally {
       setBusy(null);
@@ -539,6 +587,51 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
     [brandId, brandName, load],
   );
 
+  const assignYoutube = useCallback(
+    async (acc: AssignableAccount) => {
+      setBusy(`youtube:${acc.accountRef}`);
+      try {
+        const res = await fetch(YOUTUBE_ASSIGN_BASE, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, accountRef: acc.accountRef, displayName: acc.displayName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({ title: data?.error || `Assign failed (${res.status})`, variant: 'destructive' });
+          return;
+        }
+        await removeOtherYoutubeBindings(acc.accountRef);
+        toast({ title: `${brandName} now posts to YouTube on ${acc.displayName}` });
+        await load();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [brandId, brandName, removeOtherYoutubeBindings, load],
+  );
+
+  const unassignYoutube = useCallback(
+    async (acc: AssignableAccount) => {
+      setBusy(`youtube:${acc.accountRef}`);
+      try {
+        const res = await fetch(
+          `${YOUTUBE_ASSIGN_BASE}?brandId=${encodeURIComponent(brandId)}&accountRef=${encodeURIComponent(acc.accountRef)}`,
+          { method: 'DELETE' },
+        );
+        if (!res.ok) {
+          toast({ title: `Remove failed (${res.status})`, variant: 'destructive' });
+          return;
+        }
+        toast({ title: `YouTube unassigned - ${brandName} needs a channel assignment before posting` });
+        await load();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [brandId, brandName, load],
+  );
+
   if (!open) return null;
 
   const assignedRefs = new Set(assignments.map((a) => a.accountRef));
@@ -549,6 +642,8 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
   const unassignedInstagramAccounts = instagramAccounts.filter((a) => !instagramAssignedRefs.has(a.accountRef));
   const twitterAssignedRefs = new Set(twitterAssignments.map((a) => a.accountRef));
   const unassignedTwitterAccounts = twitterAccounts.filter((a) => !twitterAssignedRefs.has(a.accountRef));
+  const youtubeAssignedRefs = new Set(youtubeAssignments.map((a) => a.accountRef));
+  const unassignedYoutubeAccounts = youtubeAccounts.filter((a) => !youtubeAssignedRefs.has(a.accountRef));
 
   const AccountIcon = ({ type }: { type: AssignableAccount['accountType'] }) =>
     type === 'organization' ? (
@@ -1049,9 +1144,111 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
           )}
         </div>
 
+        <div className="mt-4 rounded-xl border border-[#1C1B19] bg-[#0B0B0A] p-4">
+          <div className="flex items-center gap-2">
+            <Youtube className="h-4 w-4 text-[#FF0000]" />
+            <span className="text-xs font-medium">YouTube</span>
+            <span className="rounded-full border border-[#1C1B19] px-2 py-0.5 text-[9px] uppercase tracking-wide text-[#7A776E]">
+              Video only
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="mt-3 flex items-center gap-2 text-xs text-[#7A776E]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...
+            </div>
+          ) : (
+            <div className="mt-3 space-y-4">
+              {youtubeAssignments.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Assigned channel</div>
+                  {youtubeAssignments.map((acc) => {
+                    const isBusy = busy === `youtube:${acc.accountRef}`;
+                    return (
+                      <div
+                        key={acc.accountRef}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-[#FF0000]/40 bg-[#FF0000]/5 px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <AccountIcon type="organization" />
+                          <div className="min-w-0">
+                            <div className="truncate text-xs">{acc.displayName || acc.accountRef}</div>
+                            <div className="text-[10px] text-[#7A776E]">YouTube channel</div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-[#FF6B6B]">
+                            <Check className="h-3 w-3" /> Active
+                          </span>
+                          <button
+                            onClick={() => unassignYoutube(acc)}
+                            disabled={isBusy}
+                            className="rounded-md border border-[#1C1B19] px-2 py-1 text-[10px] text-[#7A776E] hover:bg-[#1C1B19]/60 hover:text-[#ECE9E1] disabled:opacity-60"
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Remove'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {youtubeConnected ? (
+                unassignedYoutubeAccounts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-wide text-[#5A5851]">Your channel</div>
+                    {unassignedYoutubeAccounts.map((acc) => {
+                      const isBusy = busy === `youtube:${acc.accountRef}`;
+                      return (
+                        <div
+                          key={acc.accountRef}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <AccountIcon type="organization" />
+                            <div className="min-w-0">
+                              <div className="truncate text-xs">{acc.displayName}</div>
+                              <div className="text-[10px] text-[#7A776E]">YouTube channel</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => assignYoutube(acc)}
+                            disabled={isBusy}
+                            className="shrink-0 rounded-md border border-[#1C1B19] px-2.5 py-1 text-[10px] text-[#ECE9E1] hover:bg-[#1C1B19]/60 disabled:opacity-60"
+                          >
+                            {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Assign'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                youtubeAssignments.length === 0 && (
+                  <p className="text-[11px] text-[#7A776E]">
+                    Connect YouTube to assign your channel. YouTube posts a card&apos;s video (attach one to the card).
+                  </p>
+                )
+              )}
+
+              {!youtubeConnected && (
+                <button
+                  onClick={connectYoutube}
+                  disabled={busy === 'connect-youtube'}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#FF0000] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#FF0000]/90 disabled:opacity-60"
+                >
+                  {busy === 'connect-youtube' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Youtube className="h-3.5 w-3.5" />}
+                  Connect YouTube
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <p className="mt-3 text-[10px] leading-relaxed text-[#5A5851]">
           Approved cards publish to the assigned account at their scheduled time. LinkedIn can use your
-          personal connection when unassigned; Facebook needs a Page; Instagram needs an account + an image; X posts text.
+          personal connection when unassigned; Facebook needs a Page; Instagram needs an account + an image; X posts text; YouTube needs a video on the card.
         </p>
       </div>
     </div>
