@@ -30,6 +30,8 @@ export async function checkCredits(
     tokenCount?: number;
     durationMinutes?: number;
     taskId?: string;
+    /** Batch/fan-out multiplier (e.g. N carousel slides => N image variations). Defaults to 1. */
+    quantity?: number;
   }
 ): Promise<CreditCheckResult> {
   const cost = getCreditCost(service, action, options);
@@ -87,6 +89,9 @@ export async function checkCredits(
           reason,
           { service, action, originalTransactionId: transactionId }
         );
+      } else {
+        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+        console.error('[LOUDFAIL][checkCredits][REFUND-SKIPPED][MONEY] refund() called but no transactionId — refund did NOT run (caller believes it refunded):', { clerkUserId, service, action, cost, reason, transactionId });
       }
     },
   };

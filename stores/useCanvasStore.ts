@@ -83,7 +83,11 @@ const useClickatronStore = create<ClickatronStore>()(
                 videoIdea: data.variation.prompt,
                 aspectRatio: data.variation.aspectRatio,
                 canvas: {
-                  variations: [data.variation],
+                  // A carousel handoff returns N slide variations; fall back to the
+                  // single variation for the normal (non-carousel) path.
+                  variations: Array.isArray(data.variations) && data.variations.length > 0
+                    ? data.variations
+                    : [data.variation],
                   chatHistory: [],
                 },
               },

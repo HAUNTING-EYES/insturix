@@ -101,6 +101,7 @@ export class CreditsService {
       requestType?: string;
       tokenCount?: number;
       durationMinutes?: number;
+      quantity?: number;
     }
   ): Promise<{ hasCredits: boolean; required: number; available: number }> {
     const balance = await this.getBalance(clerkUserId);
@@ -152,8 +153,9 @@ export class CreditsService {
       return { success: false, creditsDeducted: 0, error: 'Credits initialized, please retry' };
     }
 
-    const baseCost = getCreditCost(service, action, options);
-    const cost = baseCost * (options?.quantity || 1);
+    // getCreditCost already applies options.quantity (batch/fan-out multiplier), so do NOT
+    // multiply again here or the charge becomes quantity-squared.
+    const cost = getCreditCost(service, action, options);
     const balance = user.creditsBalance;
     const totalAvailable = balance.subscriptionCredits + balance.topupCredits;
 
