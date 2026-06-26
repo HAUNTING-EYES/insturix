@@ -25,15 +25,17 @@ export function BrandSwitcher() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
-  // Stay out of the way on public report embeds and before anything has loaded.
+  // Stay out of the way on public report embeds and before anything has loaded. NOTE: we intentionally
+  // do NOT hide when the brand list is empty — a switcher that vanishes with zero brands is
+  // undiscoverable (you can't find the thing that tells you to scan a brand). Show "No brand" instead.
+  // If the list is unexpectedly empty, the brand-list fetch FAILLOUD-logs in ActiveBrandProvider.
   if (pathname.includes('/report/')) return null;
-  if (isLoading && !activeBrand) return null;
-  if (!brands.length && !activeBrand) return null;
+  if (isLoading && !activeBrand && !brands.length) return null;
 
   const label = activeBrand?.name ?? 'No brand';
 
   return (
-    <div ref={ref} className="fixed top-3 right-4 z-40 hidden sm:block">
+    <div ref={ref} className="fixed top-3 right-4 z-[60] hidden sm:block">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
