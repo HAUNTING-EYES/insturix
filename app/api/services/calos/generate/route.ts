@@ -4,6 +4,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import { serviceForFormat } from "@/lib/calos/generate/route-map";
 import { getGenerator, type GenerateParams } from "@/lib/calos/generate/contract";
+import { calosScope } from "@/lib/calos/scope";
 import "@/lib/calos/generate/register"; // side-effect: wires the live generators
 
 export const dynamic = "force-dynamic";
@@ -31,8 +32,7 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
     const deliverable = await CalosDeliverable.findOne({
       "card.id": deliverableId,
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     });
     if (!deliverable) {

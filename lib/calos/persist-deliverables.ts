@@ -13,7 +13,7 @@ import {
  */
 export async function persistDraftDeliverables(
   partials: Partial<ContentCard>[],
-  scope: { userId: string; brandId: string },
+  scope: { userId: string; brandId: string; orgId?: string | null },
 ): Promise<number> {
   if (partials.length === 0) return 0;
   const docs = partials.map((p) => {
@@ -22,7 +22,8 @@ export async function persistDraftDeliverables(
     return toDeliverableDoc(card, {
       ownerUserId: scope.userId,
       brandId: scope.brandId,
-      orgId: null,
+      // Phase D: stamp the creator's session org so teammates see auto-filled / AI-planned drafts.
+      orgId: scope.orgId ?? null,
     });
   });
   const inserted = await CalosDeliverable.insertMany(docs);

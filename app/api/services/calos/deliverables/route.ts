@@ -8,18 +8,20 @@ import {
   isContentCardValidationError,
 } from "@/lib/thinkforge/planning/content-card-contract";
 import { toDeliverableDoc, toContentCard } from "@/lib/calos/deliverable-mapper";
+import { calosScope } from "@/lib/calos/scope";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/services/calos/deliverables?brandId=
- * List the caller's deliverables for a client/brand. Scoped by ownerUserId (from the Clerk
- * session) + brandId — a user only ever sees their own deliverables, never another user's.
- * (orgId is an optional future agency/team-share layer; not required here.)
+ * List deliverables for a client/brand. Scoped via calosScope: org-shared when the caller is in a
+ * Clerk org (any member sees the org's brand calendar — Phase D team calendar), else creator-scoped
+ * (solo users see only their own), always intersected with brandId. orgId comes only from the trusted
+ * session, never the request — no cross-org leak.
  */
 export async function GET(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -32,8 +34,7 @@ export async function GET(req: NextRequest) {
 
     await connectToDatabase();
     const docs = await CalosDeliverable.find({
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     }).lean<ICalosDeliverable[]>();
     const cards = docs.map((doc) => toContentCard(doc));
@@ -46,19 +47,21 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/services/calos/deliverables  { brandId, card, orgId? }
+ * POST /api/services/calos/deliverables  { brandId, card }
  * Create a deliverable for a client/brand. The card payload is validated by the shared
- * content-card contract (DRY) before it is wrapped into a deliverable.
+ * content-card contract (DRY) before it is wrapped into a deliverable. The deliverable is stamped
+ * with the creator's session orgId (Phase D) so org teammates see it on the shared calendar;
+ * ownerUserId stays the creator (attribution + whose connected account posts it).
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json();
-    const { brandId, card, orgId } = body;
+    const { brandId, card } = body;
     if (!brandId) {
       return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }

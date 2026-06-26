@@ -9,6 +9,7 @@ import CalosScheduledPublish, { type CalosPublishPlatform } from "@/schemas/calo
 import { toContentCard } from "@/lib/calos/deliverable-mapper";
 import { emitBrandEvent } from "@/lib/shared/brand-events";
 import { createCalosDecisionLearningEvent } from "@/lib/calos/calos-brand-learning-events";
+import { calosScope } from "@/lib/calos/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ const DECISION_STATUS: Record<Decision, CalosEditorialStatus> = {
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id } = await params;
@@ -45,10 +46,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     await connectToDatabase();
+    // Phase D: an org teammate (not just the creator) can decide on the org's brand cards.
     const deliverable = await CalosDeliverable.findOne({
       "card.id": id,
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     });
     if (!deliverable) return NextResponse.json({ error: "Deliverable not found" }, { status: 404 });
@@ -68,7 +69,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // the decision, and nothing else writes the queue.
     if (decision === "approved") {
       try {
-        await enqueueApprovedPublish(deliverable, userId, brandId);
+        // Phase D: the publish row carries the *creator's* ownerUserId (deliverable.ownerUserId), NOT
+        // the approver's — the cron's approval check + the connected-account/token resolution both key
+        // off the card owner, so a teammate approving must not retarget publishing to the approver.
+        await enqueueApprovedPublish(deliverable, deliverable.ownerUserId, brandId);
       } catch (e) {
         // TODO(CALOS_LOUD): revert to warn once stable. APPROVED but NOT enqueued = silently won't publish.
         console.error("[CALOS_LOUD] decision: publish enqueue FAILED after approval — card is approved but will NOT post:", e);

@@ -4,6 +4,7 @@ import { Types } from "mongoose";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign from "@/schemas/calos-campaign";
 import { isCalosObjective } from "@/lib/calos/campaign-intent";
+import { calosScope } from "@/lib/calos/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ type RouteParams = { params: Promise<{ id: string }> };
  */
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -37,8 +38,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     await connectToDatabase();
     const campaign = await CalosCampaign.findOne({
       _id: id,
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     });
     if (!campaign) {
@@ -71,7 +71,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
  */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -89,8 +89,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     await connectToDatabase();
     const campaign = await CalosCampaign.findOne({
       _id: id,
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     });
     if (!campaign) {

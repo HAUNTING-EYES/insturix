@@ -14,6 +14,7 @@ import { getTrendsProvider } from "@/lib/calos/trends";
 import type { Trend } from "@/lib/calos/trends/types";
 import { proposePlan } from "@/lib/calos/planner";
 import { DEFAULT_OBJECTIVE, type CalosObjective } from "@/lib/calos/campaign-intent";
+import { calosScope } from "@/lib/calos/scope";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // LLM call — needs headroom beyond the default route timeout.
@@ -65,8 +66,7 @@ export async function POST(req: NextRequest) {
       }
       const campaign = await CalosCampaign.findOne({
         _id: campaignId,
-        ownerUserId: userId,
-        brandId,
+        ...calosScope({ userId, orgId }, brandId),
         deletedAt: null,
       });
       if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
@@ -89,10 +89,10 @@ export async function POST(req: NextRequest) {
     }
     const slots = proposals.map((p) => ({ date: p.date, platform: p.platform }));
 
-    // Avoid repeating ideas already planned for this brand (across months + re-runs).
+    // Avoid repeating ideas already planned for this brand (across months + re-runs). Org-scoped so
+    // the planner dedupes against the whole team's calendar, not just the acting user's cards.
     const existingDocs = await CalosDeliverable.find({
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     })
       .select("card")
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const created = await persistDraftDeliverables(partials, { userId, brandId });
+    const created = await persistDraftDeliverables(partials, { userId, brandId, orgId });
     return NextResponse.json(
       {
         created,
