@@ -10,6 +10,7 @@ import { parseAgentJson } from '../protocol/parse-agent-json';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
+import { repairAiFillerContent } from '../services/ai-filler-repair';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -177,6 +178,7 @@ Return your response strictly adhering to the JSON schema.`;
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
 
+    let output: AgentStructuredOutput<PostWriterResult>;
     try {
       const jsonContract = [
         'Return ONLY valid JSON. Do not include markdown fences or commentary.',
@@ -203,7 +205,7 @@ Return your response strictly adhering to the JSON schema.`;
       const result = this.schema.parse(parsed);
       assertUsableCachedPostResult(result, input);
 
-      return {
+      output = {
         result,
         metadata: {
           model: modelName,
@@ -212,8 +214,13 @@ Return your response strictly adhering to the JSON schema.`;
       };
     } catch (error) {
       console.warn('[ThinkForge:PostWriter] Writing context cache failed; falling back to structured path:', error);
-      return super.runStructured(input, overrides, abortSignal);
+      output = await super.runStructured(input, overrides, abortSignal);
     }
+
+    // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
+    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
+    output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
+    return output;
   }
 }
 
