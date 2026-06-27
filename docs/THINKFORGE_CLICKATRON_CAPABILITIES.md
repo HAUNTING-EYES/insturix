@@ -19,7 +19,7 @@ There are **two parallel writer stacks**, reached by different routes:
 | Agents | `PostWriterAgent`, `ScriptWriterAgent` | `generateScriptDraft` → `ScriptOutlineAgent` + `ScriptContractAgent` + `ScriptAuthorAgent` + `StylistAgent` |
 | Reached by | chat draft (`chat-service.ts:876/906`) — the default | `/script/edit`, `/script/edit-blocks`, blueprint builds (`chat-service.ts:379`) |
 | Prompt | XML-structured, single-shot | multi-stage (outline→contract→author→stylist) |
-| Writing knowledge graph | techniques **now injected** (this session) + filler gate | techniques + filler |
+| Writing knowledge graph | **PostWriter only** (this session) + filler gate — removed from ScriptWriter (A/B-proven regression, min 92→75) | techniques + filler |
 | Post-gen compliance scoring | **yes (this session)** — scoring + surfacing, no auto-repair | yes + stylist auto-repair |
 | Writing-context cache (doc) | yes (both writers) | yes |
 | Eval | `eval-thinkforge-writers.ts` (current, regression baselines, judge) | `eval-thinkforge-author.ts` |
@@ -31,7 +31,7 @@ There are **two parallel writer stacks**, reached by different routes:
 
 **Ideation** — LIVE. 4 diverse, platform-tagged idea cards. `POST /thinkforge/ideas` → `IdeasAgent` (`ideas-agent.ts`), code-enforced platform/intent correctness, seed 42. Brand-aware via systemBrief only. Sibling: `/enhance` streams a raw concept expansion.
 
-**Script writing** — LIVE (Stack A). Markdown scripts with Narration/Visual split + 1:1 scene prompts for handoff. `ScriptWriterAgent.runStructured` (`script-writer-agent.ts`). Uses the writing-context cache, the filler gate, content-signal grounding, and (this session) technique selection.
+**Script writing** — LIVE (Stack A). Markdown scripts with Narration/Visual split + 1:1 scene prompts for handoff. `ScriptWriterAgent.runStructured` (`script-writer-agent.ts`). Uses the writing-context cache, the filler gate (+ self-repair), content-signal grounding. The writing-graph technique block is deliberately NOT injected here — a 10-seed A/B showed it regresses the rigid script format (min 92%→75%, variance 8→25pp); it stays on PostWriter only.
 
 **Post / social writing** — LIVE (Stack A). Platform-tuned posts (hook/body/CTA/hashtags) + embedded Clickatron prompts (`singleImagePrompt` / `carouselPrompts`). `PostWriterAgent` (`post-writer-agent.ts`). XML prompt, publishable-quality gate.
 
@@ -43,7 +43,7 @@ There are **two parallel writer stacks**, reached by different routes:
 
 **Content-signal quality** — LIVE. `resolveContentSignalProfile` (`content-signal-resolver.ts`) deterministically resolves rhetorical/format signals + a resolved creative intent, folded into the system brief and persisted as a signal trace (used for the Clickatron handoff). Threaded into the writers this session.
 
-**Writing knowledge graph** — LIVE in both stacks (this session). `buildWritingKnowledgeBlock(signals)` (`writing-graph-query.ts`) selects the top technique per category (DO/WHY/NEVER) from the signals. Plus `getAntiAiConstraintBundle()` filler patterns and `quality-scorer.ts`.
+**Writing knowledge graph** — LIVE on **PostWriter + ScriptAuthor (Stack B)**; removed from ScriptWriter (A/B-proven regression). `buildWritingKnowledgeBlock(signals)` (`writing-graph-query.ts`) selects the top technique per category (DO/WHY/NEVER) from the signals. Plus `getAntiAiConstraintBundle()` filler patterns and `quality-scorer.ts`.
 
 **Handoffs** — LIVE. To Clickatron (the creative-spec sidecar — see Part 3). To Editron: `/script/export-for-editron` (LLM scene parser + regex fallback guarded by a quality gate that 422s on narration==visual or leaked editorial metadata).
 
@@ -114,7 +114,9 @@ ThinkForge authors a post/carousel and emits a hidden creative spec that pre-fil
 
 - `0243f455` — C2 model-driven in-image text rendering.
 - `27a3d60e` — merge: land P6 carousel fan-out + P7 credit fixes onto infra.
-- `9e2a38b6` — wire the writing knowledge graph into the flat Post/Script writers (Stack A); DRY the technique block into `writing-graph-query.ts`.
+- `9e2a38b6` — wire the writing knowledge graph into the flat Post/Script writers (Stack A); DRY the technique block into `writing-graph-query.ts`. **Partly reverted by `28f48280`** — removed from ScriptWriter (10-seed A/B showed it regressed scripts min 92→75); kept on PostWriter.
+- `0efbc7cd` — AI-filler self-repair guard (bounded LLM rewrite, fail-soft); cleans posts, can't fully zero long scripts.
+- `28f48280` — remove graph from ScriptWriter + baseline held-out eval cases 9–15 (kept 5/7 at 0.92 — fixed cause, not gate).
 - `038cf8ad` — run profile-compliance scoring on Stack A output (scores + surfaces + logs critical; closes the A↔B scoring gap).
 - Earlier infra: `a1c8a7de` (inject keyClaims + brand hardConstraints into the Fal prompt), `13b3b439` (worker maxDuration=300), plus brand-learning + orgId-threading work.
 
