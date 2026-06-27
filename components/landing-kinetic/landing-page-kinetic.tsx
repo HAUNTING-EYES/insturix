@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SiteFooter } from "@/components/shared/site-footer";
+import { LogoBrand } from "@/components/shared/site-navbar";
 
 /**
  * Landing — Kinetic ("Your entire studio").
@@ -26,15 +27,13 @@ const CSS = `
 .ikin{--bg:#0B0B0A;--s1:#131312;--border:#1C1B19;--borderL:#282724;--text:#ECE9E1;--soft:#B5B2A8;--muted:#7A776E;--dim:#454340;--gold:#D4A652;--ease:cubic-bezier(0.16,1,0.3,1);
   position:relative;overflow-x:hidden;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;-webkit-font-smoothing:antialiased}
 .ikin *,.ikin *::before,.ikin *::after{margin:0;padding:0;box-sizing:border-box}
-.ikin .m{font-family:'JetBrains Mono',monospace}.ikin a{color:inherit;text-decoration:none;cursor:pointer}
-.ikin .ph{cursor:pointer}
+.ikin .m{font-family:'JetBrains Mono',monospace}.ikin a{color:inherit;text-decoration:none}
 .ikin ::selection{background:rgba(212,166,82,.18)}
 .ikin .wrap{max-width:1280px;margin:0 auto;padding:0 clamp(16px,4vw,48px)}
 .ikin .kick{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);display:inline-flex;gap:11px;align-items:center}
 .ikin .kick::before{content:'';width:22px;height:1px;background:var(--gold)}
 .ikin nav{position:fixed;inset:0 0 auto 0;z-index:70;display:flex;justify-content:space-between;align-items:center;padding:18px clamp(16px,4vw,48px)}
-.ikin nav .brand{display:inline-flex;align-items:center;gap:7px;font-weight:800;font-size:18px;letter-spacing:-.02em;color:var(--text)}
-.ikin nav .brand .dot{width:7px;height:7px;border-radius:50%;background:var(--gold)}
+.ikin nav .brandlink{display:inline-flex;align-items:center}
 .ikin nav .navlinks{display:flex;align-items:center;gap:clamp(16px,2.4vw,30px)}
 .ikin nav .navmid{display:flex;align-items:center;gap:clamp(16px,2.4vw,30px)}
 .ikin nav .navlinks a{font-size:14px;color:var(--soft);transition:color .2s var(--ease)}
@@ -126,6 +125,11 @@ const CSS = `
 .ikin .cta .acts{justify-content:center}
 .ikin footer{border-top:1px solid var(--border);padding:30px 0;text-align:center}.ikin footer .m{font-size:11px;color:var(--dim);letter-spacing:.06em}
 
+/* custom cursor ring — always visible inside .ikin so the pointer never vanishes in empty/nav
+   gaps; matches the invert-lens radius (50px). JS sets --cx/--cy, toggles opacity over .ikin,
+   and hides it on touch/coarse pointers. */
+.ikin .cursor{position:fixed;left:var(--cx,-200px);top:var(--cy,-200px);width:100px;height:100px;border:1px solid rgba(212,166,82,.4);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:100;opacity:0;transition:opacity .2s var(--ease)}
+.ikin .cursor::after{content:'';position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;background:rgba(212,166,82,.85);transform:translate(-50%,-50%)}
 /* invert lens — second copy of content, masked to cursor, colors swapped */
 .ikin .kinv{position:absolute;top:0;left:0;width:100%;z-index:60;pointer-events:none;
   -webkit-mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%);
@@ -212,16 +216,26 @@ export const LandingKinetic: React.FC = () => {
     const mws = Array.from(root.querySelectorAll<HTMLElement>(".markwrap"));
     const wls = Array.from(root.querySelectorAll<HTMLElement>(".wl"));
 
+    const cursorEl = root.querySelector<HTMLElement>(".cursor");
     let onMove: ((e: MouseEvent) => void) | null = null;
     if (fine && !reduce && kinv) {
       onMove = (e: MouseEvent) => {
         kinv.style.setProperty("--mx", e.clientX + "px");
         kinv.style.setProperty("--my", e.clientY + window.scrollY + "px");
+        if (cursorEl) {
+          // Ring uses viewport coords (position:fixed). Show it only while the pointer is over
+          // .ikin so the footer (a sibling outside .ikin) keeps its normal OS cursor — otherwise
+          // the ring would double up over the footer's form/links.
+          cursorEl.style.setProperty("--cx", e.clientX + "px");
+          cursorEl.style.setProperty("--cy", e.clientY + "px");
+          cursorEl.style.opacity = root.contains(e.target as Node) ? "1" : "0";
+        }
       };
       document.addEventListener("mousemove", onMove, { passive: true });
-      root.style.cursor = "none"; // the lens circle IS the cursor
-    } else if (kinv) {
-      kinv.style.display = "none";
+      root.style.cursor = "none"; // OS cursor hidden — the ring (.cursor) is the cursor
+    } else {
+      if (kinv) kinv.style.display = "none";
+      if (cursorEl) cursorEl.style.display = "none"; // touch/coarse/reduced-motion: no custom cursor
     }
 
     let raf = 0;
@@ -283,8 +297,9 @@ export const LandingKinetic: React.FC = () => {
     <>
     <div className="ikin" ref={rootRef}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <div className="cursor" aria-hidden="true" />
       <nav>
-        <span className="brand">Insturix<span className="dot" /></span>
+        <Link href="/" className="brandlink" aria-label="Insturix home"><LogoBrand /></Link>
         <div className="navlinks">
           <span className="navmid">
             <a href="#how">How it works</a>
