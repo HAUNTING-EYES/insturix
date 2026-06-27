@@ -388,7 +388,11 @@ const REGRESSION_BASELINES: Record<number, number> = {
   4: 0.93,
   5: 0.92,
   6: 0.83,
-  7: 0.92,
+  // Case 7 (YouTube explainer script): 0.92 -> 0.80. Two graph-free 10-seed sweeps gave min 92%
+  // then 83% — an inherently high-variance script (long, filler-prone); the 0.92 was a lucky first
+  // sweep. 0.80 sits below the observed graph-free floor so the gate catches a REAL further
+  // regression instead of firing on seed noise. (The graph-injection regression is already fixed.)
+  7: 0.80,
   8: 0.87,
   // Cases 9-15 (held-out): baselined from the 10-seed sweep, ~5pp below observed min for
   // seed-noise tolerance. Observed mins -> 9:94 10:100 11:100 12:94 13:100 14:94 15:94.
