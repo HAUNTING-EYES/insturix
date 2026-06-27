@@ -66,6 +66,10 @@ export default function CampaignWorkspacePage() {
   const [period, setPeriod] = useState<Period>('next_30_days');
   const [pending, setPending] = useState<'' | 'auto' | 'ai'>('');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [discovered, setDiscovered] = useState<
+    { title: string; summary?: string; url?: string; platform?: string }[] | null
+  >(null);
+  const [trendsBusy, setTrendsBusy] = useState(false);
 
   // brandId: query param wins (the "Open" link passes it), else the calendar's last selection.
   useEffect(() => {
@@ -163,6 +167,25 @@ export default function CampaignWorkspacePage() {
     }
     return Array.from(seen.values()).slice(0, 6);
   }, [cards]);
+
+  // On-demand live trend discovery (the route hits Gemini/Apify, so never auto-fired).
+  const findTrends = useCallback(async () => {
+    if (!brandId) return;
+    setTrendsBusy(true);
+    try {
+      const res = await fetch(`/api/services/calos/trends?brandId=${encodeURIComponent(brandId)}`, {
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      setDiscovered(Array.isArray(data?.trends) ? data.trends : []);
+      if (data?.note) toast({ title: data.note });
+    } catch {
+      setDiscovered([]);
+      toast({ title: 'Could not load trends', variant: 'destructive' });
+    } finally {
+      setTrendsBusy(false);
+    }
+  }, [brandId]);
 
   const runFill = useCallback(
     async (kind: 'auto' | 'ai') => {
@@ -404,21 +427,50 @@ export default function CampaignWorkspacePage() {
               </div>
             )}
 
-            {trends.length > 0 && (
-              <div className="mt-4">
-                <div className="text-[11px] text-[#7A776E] uppercase tracking-wide mb-2">Trends in this campaign</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {trends.map((t) => (
-                    <span
-                      key={t}
-                      className="text-[11px] rounded-full px-2.5 py-1 bg-[#0F0F0E] border border-[#1C1B19] text-[#B8B4A8]"
-                    >
-                      {t}
-                    </span>
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] text-[#7A776E] uppercase tracking-wide">Trends</span>
+                <button
+                  onClick={findTrends}
+                  disabled={trendsBusy}
+                  className="text-[10.5px] text-[#D4A652] hover:underline disabled:opacity-50"
+                >
+                  {trendsBusy ? 'Finding…' : 'Discover trends'}
+                </button>
+              </div>
+              {discovered && discovered.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {discovered.map((t, i) => (
+                    <div key={i} className={`${card} px-3 py-2`}>
+                      <div className="text-[12px] text-[#ECE9E1]">{t.title}</div>
+                      {t.summary && (
+                        <div className="text-[10.5px] text-[#7A776E] mt-0.5 line-clamp-2">{t.summary}</div>
+                      )}
+                    </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+              {discovered && discovered.length === 0 && (
+                <div className="text-[11px] text-[#7A776E] mb-3">
+                  No live trends right now. AI-plan still drafts on-brand ideas.
+                </div>
+              )}
+              {trends.length > 0 && (
+                <>
+                  <div className="text-[10px] text-[#7A776E] uppercase tracking-wide mb-1.5">In this campaign</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {trends.map((t) => (
+                      <span
+                        key={t}
+                        className="text-[11px] rounded-full px-2.5 py-1 bg-[#0F0F0E] border border-[#1C1B19] text-[#B8B4A8]"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
