@@ -10,6 +10,7 @@ import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { AtomicCaptionPresentation } from './caption-form';
 import type { EditedTimelineContext } from './edited-timeline-context';
 import { createDisplayConfig, groupWordsIntoCaptions } from '../utils/caption-utils';
+import { selectCaptionPreset } from './caption-preset-registry';
 
 export const CANONICAL_CAPTION_TRACK_SOURCE = 'canonical-caption-track';
 
@@ -659,39 +660,25 @@ function measureSpeakingRateWpm(words: CaptionWord[]): number {
 }
 
 function stylesForPresentation(presentation: AtomicCaptionPresentation): CaptionStyles {
-  const isFormal = presentation.signals.formality > 0.68;
-  const isHighEnergy = presentation.signals.energy > 0.68;
+  // The registry row owns the style IDENTITY (font, palette, highlight mode/effect/animation). The
+  // explicitly-chosen style (presentation.style) wins selection; signals only break ties. The aesthetic
+  // carries the SIGNAL-DRIVEN MAGNITUDE — size + emphasis scale move with energy/surface — so size and
+  // pop stay on the signal rail while the picked style owns the look. A shadow floor guards readability
+  // for any row that ships neither its own background nor its own text-shadow (e.g. karaoke).
+  // (Per-MOMENT modulation of size/colour, and the per-word role/case/stroke atoms, are the next steps.)
+  const preset = selectCaptionPreset(presentation.signals, presentation.style);
   const aesthetic = presentation.aesthetic;
-  const panelSurface = aesthetic.surface === 'subtitle-panel';
-  const activeWordPill = aesthetic.surface === 'active-word-pill';
-  const readabilitySurface = panelSurface || activeWordPill;
-  const fontSize = `${aesthetic.fontSizePx}px`;
-  const accentColor = isHighEnergy ? '#FFD84D' : isFormal ? '#A7D3FF' : '#FF8A8A';
   const shadowAlpha = Math.max(0.65, Math.min(0.95, aesthetic.shadowStrength));
-  const surfaceAlpha = panelSurface ? 0.88 : activeWordPill ? 0.56 : 0.44;
+  const shadowFloor = `0 4px 16px rgba(0,0,0,${shadowAlpha}), 0 0 5px rgba(0,0,0,0.98), 0 1px 1px rgba(0,0,0,1)`;
 
   return {
-    fontFamily: isFormal ? 'font-sans' : 'font-league-spartan',
-    fontSize,
-    fontWeight: isHighEnergy ? 850 : isFormal ? 700 : 800,
-    color: '#ffffff',
-    textAlign: 'center',
+    ...preset.styles,
+    fontSize: `${Math.round(aesthetic.fontSizePx)}px`,
     lineHeight: aesthetic.lineHeight,
-    textShadow: `0 4px 16px rgba(0,0,0,${shadowAlpha}), 0 0 5px rgba(0,0,0,0.98), 0 1px 1px rgba(0,0,0,1)`,
-    backgroundColor: readabilitySurface || !isFormal ? `rgba(0,0,0,${surfaceAlpha})` : 'rgba(0,0,0,0.36)',
-    backdropFilter: 'blur(3px)',
-    padding: panelSurface ? '9px 18px' : '8px 14px',
-    borderRadius: panelSurface ? '8px' : undefined,
+    textShadow: preset.styles.textShadow ?? shadowFloor,
     highlight: {
-      color: accentColor,
-      backgroundColor: activeWordPill ? 'rgba(0,0,0,0.88)' : 'rgba(0,0,0,0.82)',
+      ...preset.styles.highlight,
       scale: aesthetic.emphasisScale,
-      fontWeight: 900,
-      effect: isHighEnergy ? 'pop' : 'glow',
-      animation: isHighEnergy ? 'bounce' : 'none',
-      textShadow: `0 2px 12px rgba(0,0,0,${shadowAlpha}), 0 0 3px rgba(0,0,0,1)`,
-      padding: activeWordPill ? '5px 9px' : '4px 8px',
-      borderRadius: activeWordPill ? '7px' : '4px',
     },
   };
 }
