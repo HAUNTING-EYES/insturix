@@ -125,11 +125,10 @@ const CSS = `
 .ikin .cta .acts{justify-content:center}
 .ikin footer{border-top:1px solid var(--border);padding:30px 0;text-align:center}.ikin footer .m{font-size:11px;color:var(--dim);letter-spacing:.06em}
 
-/* custom cursor ring — always visible inside .ikin so the pointer never vanishes in empty/nav
-   gaps; matches the invert-lens radius (50px). JS sets --cx/--cy, toggles opacity over .ikin,
-   and hides it on touch/coarse pointers. */
-.ikin .cursor{position:fixed;left:var(--cx,-200px);top:var(--cy,-200px);width:100px;height:100px;border:1px solid rgba(212,166,82,.4);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:100;opacity:0;transition:opacity .2s var(--ease)}
-.ikin .cursor::after{content:'';position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;background:rgba(212,166,82,.85);transform:translate(-50%,-50%)}
+/* cursor: keep the normal OS mouse everywhere (nav, gaps, footer) — only hide it over the big
+   display text, where the invert-lens circle IS the cursor. Fixes "mouse disappears in the nav"
+   without any custom ring. */
+.ikin .kline,.ikin .wl,.ikin .cta h2{cursor:none}
 /* invert lens — second copy of content, masked to cursor, colors swapped */
 .ikin .kinv{position:absolute;top:0;left:0;width:100%;z-index:60;pointer-events:none;
   -webkit-mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%);
@@ -216,26 +215,17 @@ export const LandingKinetic: React.FC = () => {
     const mws = Array.from(root.querySelectorAll<HTMLElement>(".markwrap"));
     const wls = Array.from(root.querySelectorAll<HTMLElement>(".wl"));
 
-    const cursorEl = root.querySelector<HTMLElement>(".cursor");
     let onMove: ((e: MouseEvent) => void) | null = null;
     if (fine && !reduce && kinv) {
       onMove = (e: MouseEvent) => {
         kinv.style.setProperty("--mx", e.clientX + "px");
         kinv.style.setProperty("--my", e.clientY + window.scrollY + "px");
-        if (cursorEl) {
-          // Ring uses viewport coords (position:fixed). Show it only while the pointer is over
-          // .ikin so the footer (a sibling outside .ikin) keeps its normal OS cursor — otherwise
-          // the ring would double up over the footer's form/links.
-          cursorEl.style.setProperty("--cx", e.clientX + "px");
-          cursorEl.style.setProperty("--cy", e.clientY + "px");
-          cursorEl.style.opacity = root.contains(e.target as Node) ? "1" : "0";
-        }
       };
       document.addEventListener("mousemove", onMove, { passive: true });
-      root.style.cursor = "none"; // OS cursor hidden — the ring (.cursor) is the cursor
-    } else {
-      if (kinv) kinv.style.display = "none";
-      if (cursorEl) cursorEl.style.display = "none"; // touch/coarse/reduced-motion: no custom cursor
+      // No global cursor:none — the normal mouse stays visible everywhere; CSS hides it only over
+      // the big display text (.kline/.wl/.cta h2) where the lens circle is the cursor.
+    } else if (kinv) {
+      kinv.style.display = "none";
     }
 
     let raf = 0;
@@ -297,7 +287,6 @@ export const LandingKinetic: React.FC = () => {
     <>
     <div className="ikin" ref={rootRef}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div className="cursor" aria-hidden="true" />
       <nav>
         <Link href="/" className="brandlink" aria-label="Insturix home"><LogoBrand /></Link>
         <div className="navlinks">
