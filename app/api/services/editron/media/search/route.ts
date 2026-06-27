@@ -2,7 +2,7 @@
  * POST /api/services/editron/media/search
  *
  * Semantic search across user's media assets.
- * Uses Gemini text-embedding-004 to embed the query, then cosine similarity
+ * Uses Gemini text-embedding-005 to embed the query, then cosine similarity
  * against stored embeddings from asset analysis.
  *
  * Also supports tag-based search as fallback when embeddings aren't available.
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
       const embResult = await embModel.embedContent(query);
       queryEmbedding = embResult.embedding?.values || null;
     } catch (embErr: any) {

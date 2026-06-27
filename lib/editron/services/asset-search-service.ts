@@ -201,7 +201,7 @@ async function embedQuery(text: string): Promise<number[] | null> {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
     if (!apiKey) return null;
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const model = genAI.getGenerativeModel({ model: 'text-embedding-005' });
     const result = await model.embedContent(text);
     return result.embedding?.values ?? null;
   } catch (err: unknown) {

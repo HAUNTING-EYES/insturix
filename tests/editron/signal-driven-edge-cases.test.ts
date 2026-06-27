@@ -618,12 +618,61 @@ describe('signal-executor', () => {
       'technique:zoom.zoom_punch',
       'technique:sound.sfx_impact',
       'technique:other.camera_shake',
-      'technique:transition.flash',
     ]));
+    expect(decisions.map((decision) => decision.technique)).not.toContain('technique:transition.flash');
     expect(decisions.some((decision) => decision.type === 'caption-emphasis')).toBe(false);
     expect(decisions.find((decision) => decision.technique === 'technique:sound.sfx_impact')?.params).toEqual(expect.objectContaining({
       sfxType: 'impact',
       sfxCue: 'impact',
+    }));
+  });
+  it('pre-gates graph transition complements to real clip boundaries with boundary evidence', async () => {
+    const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
+    const { loadGraph } = await import('@/lib/editron/services/graph-query');
+    const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const graphIndex = loadGraph()!;
+    const weightMap = buildMomentWeightMap(null, null);
+
+    const result = executeSignalDrivenEdit({
+      gridSignals: new Map([[60, {
+        frame: 60,
+        timestampMs: 2000,
+        'composite.cinematic_moment': true,
+        'structural.active_overlays_count': 0,
+        'composite.montage_mode': false,
+      }]]),
+      eventSignals: [],
+      globalSignals: { formality: 0.3 },
+      fps: 30,
+      totalFrames: 180,
+      gridInterval: 15,
+    }, {
+      pacing_tolerance: 5, energy_baseline: 0.45, transition_density: 10,
+      graphic_density: 3, silence_tolerance: 1, zoom_budget: 5,
+      sfx_density: 0.5, color_temperature: 5500, formality: 0.3,
+    }, weightMap, graphIndex, [
+      { id: 'clip-a', type: 'video', from: 0, durationInFrames: 60 },
+      { id: 'clip-b', type: 'video', from: 60, durationInFrames: 120 },
+    ]);
+
+    const transition = result.decisions.find((decision) =>
+      decision.source === 'mapping:composite.cinematic_moment_emphasis' &&
+      decision.technique === 'technique:transition.flash'
+    );
+
+    expect(transition).toEqual(expect.objectContaining({
+      type: 'transition',
+      frame: 60,
+      params: expect.objectContaining({
+        boundaryFrame: 60,
+        transitionFrame: 60,
+        clipAId: 'clip-a',
+        clipBId: 'clip-b',
+        transitionProducerGate: expect.objectContaining({
+          version: 'signal-transition-boundary-pregate-v1',
+          driftFrames: 0,
+        }),
+      }),
     }));
   });
   it('uses transcript phrase context for numeric events so MG labels have evidence', async () => {

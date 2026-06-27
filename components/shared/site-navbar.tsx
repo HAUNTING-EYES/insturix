@@ -33,7 +33,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 // ─── Menu structure ─────────────────────────────────────────────
 // Verb-based naming. No old product names.
-const menuItems = [
+export const menuItems = [
   { title: "Products", href: "/products" },
   {
     title: "About",
@@ -296,7 +296,7 @@ type MenuItem = {
   subItems?: { title: string; href: string }[];
 };
 
-function NavItem({
+export function NavItem({
   item,
   activeDropdown,
   setActiveDropdown,

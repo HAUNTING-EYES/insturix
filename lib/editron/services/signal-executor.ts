@@ -31,6 +31,10 @@ import type { SignalTimeline, SignalSnapshot, EventSignal, OverlayInfo } from '.
 import type { MomentWeightMap } from './moment-weight-service';
 import { getWeightAtTimestamp } from './moment-weight-service';
 import { enrichMotionGraphicFactParams } from './mg-semantic-facts';
+import {
+  findNearestVisualClipBoundary,
+  TRANSITION_BOUNDARY_SNAP_TOLERANCE_FRAMES,
+} from './transition-boundary';
 
 // ─── Output Types (compatible with EDL Executor) ────────────────────────────
 
@@ -73,6 +77,7 @@ interface BudgetState {
   lastShakeFrame: number;
   lastSfxFrame: number;
   transitionCounts: Map<string, number>;
+  transitionClipPairs: Set<string>;
   // Scaled budgets (computed from video duration)
   shakeBudget: number;
   sfxBudget: number;
@@ -177,6 +182,7 @@ export function executeSignalDrivenEdit(
     lastShakeFrame: -999,
     lastSfxFrame: -999,
     transitionCounts: new Map(),
+    transitionClipPairs: new Set(),
     shakeBudget: Math.ceil(SHAKE_PER_30S * durationScale),         // KB CS-020
     sfxBudget: Math.ceil(SFX_PER_30S * durationScale),             // KB A-100
     captionEmphasisBudget: Math.ceil(CAPTION_EMPHASIS_PER_30S * durationScale), // KB C-012
@@ -284,6 +290,11 @@ export function executeSignalDrivenEdit(
       const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget, signals);
       if (!decision) continue;
 
+      if (!gateTransitionDecisionAtSource(decision, videoOverlays, budget)) {
+        decisionsSuppressed++;
+        continue;
+      }
+
       // Budget check
       if (!checkBudget(decision, budget, momentWeight)) {
         decisionsSuppressed++;
@@ -303,7 +314,7 @@ export function executeSignalDrivenEdit(
       decisions.push(decision);
 
       // Add complement decisions (SFX pairings, caption emphasis)
-      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex, budget);
+      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex, budget, videoOverlays);
       decisions.push(...complements);
     }
   }
@@ -356,6 +367,11 @@ export function executeSignalDrivenEdit(
       const decision = buildDecision(mapping, tier, momentWeight, frame, graphIndex, budget, signals);
       if (!decision) continue;
 
+      if (!gateTransitionDecisionAtSource(decision, videoOverlays, budget)) {
+        decisionsSuppressed++;
+        continue;
+      }
+
       if (context && decision.type === 'graphic') {
         if (event.signal === 'entity.name') {
           const normalized = context.toLowerCase();
@@ -376,7 +392,7 @@ export function executeSignalDrivenEdit(
       updateBudget(decision, frame, budget);
       decisions.push(decision);
 
-      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex, budget);
+      const complements = buildComplements(mapping, decision, momentWeight, frame, graphIndex, budget, videoOverlays);
       decisions.push(...complements);
     }
   }
@@ -751,7 +767,8 @@ function buildComplements(
   momentWeight: number,
   frame: number,
   graphIndex: GraphIndex,
-  budget?: BudgetState
+  budget?: BudgetState,
+  videoOverlays: OverlayInfo[] = [],
 ): EditDecision[] {
   const complements: EditDecision[] = [];
   if (!mapping.details.complements?.length) return complements;
@@ -801,6 +818,10 @@ function buildComplements(
       reason: `Graph complement for ${primaryDecision.technique}`,
     };
 
+    if (!gateTransitionDecisionAtSource(decision, videoOverlays, budget)) {
+      continue;
+    }
+
     if (!budget || checkBudget(decision, budget, momentWeight)) {
       complements.push(decision);
       if (budget) updateBudget(decision, frame, budget);
@@ -843,6 +864,8 @@ function checkBudget(decision: EditDecision, budget: BudgetState, weight: number
       const transType = (decision.params['transitionType'] as string) ?? (decision.params['type'] as string) ?? 'hard-cut';
       const count = budget.transitionCounts.get(transType) ?? 0;
       if (count >= MAX_TRANSITIONS_PER_TYPE && transType !== 'hard-cut') return false;
+      const pairKey = transitionClipPairKeyFromParams(decision.params);
+      if (pairKey && budget.transitionClipPairs.has(pairKey)) return false;
       return true;
     }
 
@@ -878,6 +901,8 @@ function updateBudget(decision: EditDecision, frame: number, budget: BudgetState
     case 'transition': {
       const transType = (decision.params['transitionType'] as string) ?? (decision.params['type'] as string) ?? 'hard-cut';
       budget.transitionCounts.set(transType, (budget.transitionCounts.get(transType) ?? 0) + 1);
+      const pairKey = transitionClipPairKeyFromParams(decision.params);
+      if (pairKey) budget.transitionClipPairs.add(pairKey);
       break;
     }
     case 'cut':
@@ -897,6 +922,50 @@ function updateBudget(decision: EditDecision, frame: number, budget: BudgetState
   }
 }
 
+function gateTransitionDecisionAtSource(
+  decision: EditDecision,
+  videoOverlays: OverlayInfo[],
+  budget?: BudgetState,
+): boolean {
+  if (decision.type !== 'transition') return true;
+
+  const boundaryMatch = findNearestVisualClipBoundary(
+    decision.frame,
+    videoOverlays,
+    TRANSITION_BOUNDARY_SNAP_TOLERANCE_FRAMES,
+  );
+  if (!boundaryMatch) return false;
+
+  const clipAId = String(boundaryMatch.clipA.id);
+  const clipBId = String(boundaryMatch.clipB.id);
+  const pairKey = `${clipAId}->${clipBId}`;
+  if (budget?.transitionClipPairs.has(pairKey)) return false;
+
+  decision.params.boundaryFrame ??= boundaryMatch.boundaryFrame;
+  decision.params.transitionFrame ??= boundaryMatch.boundaryFrame;
+  decision.params.clipAId ??= clipAId;
+  decision.params.clipBId ??= clipBId;
+  decision.params.boundaryDriftFrames ??= boundaryMatch.drift;
+  decision.params.transitionProducerGate ??= {
+    version: 'signal-transition-boundary-pregate-v1',
+    boundaryFrame: boundaryMatch.boundaryFrame,
+    clipAId,
+    clipBId,
+    driftFrames: boundaryMatch.drift,
+    toleranceFrames: TRANSITION_BOUNDARY_SNAP_TOLERANCE_FRAMES,
+  };
+
+  return true;
+}
+
+function transitionClipPairKeyFromParams(params: Record<string, unknown>): string | null {
+  const clipAId = params.clipAId;
+  const clipBId = params.clipBId;
+  return (typeof clipAId === 'string' || typeof clipAId === 'number')
+    && (typeof clipBId === 'string' || typeof clipBId === 'number')
+    ? `${clipAId}->${clipBId}`
+    : null;
+}
 function deduplicateDecisions(decisions: EditDecision[]): EditDecision[] {
   const bestByWindow = new Map<string, EditDecision>();
   const insertionOrder: string[] = [];

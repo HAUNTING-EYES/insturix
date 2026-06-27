@@ -1143,7 +1143,6 @@ function FastSetupPanel({
   companyName,
   socialLinksText,
   sourceNotes,
-  lookupId,
   uploadedSources,
   uploadWarnings,
   busy,
@@ -1153,38 +1152,22 @@ function FastSetupPanel({
   onCompanyNameChange,
   onSocialLinksTextChange,
   onSourceNotesChange,
-  onLookupIdChange,
   onCreateDraft,
   onUploadFiles,
   onRemoveUpload,
-  onReloadJob,
-  onOpenProfile,
 }: FastSetupPanelProps) {
   return (
     <section className="mb-10 rounded-[14px] border border-[#1C1B19] bg-[#0F0F0E] p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <span className="bv-c1-mono">Fast setup</span>
+          <span className="bv-c1-mono">Get started</span>
           <h2 className="mt-2 text-[24px] font-extrabold leading-tight tracking-[-0.02em]">
-            Create a website-derived draft
+            Add your brand
           </h2>
           <p className="mt-2 max-w-[620px] text-[13px] leading-6 text-[#7A776E]">
-            Paste the client site, add social links, and stage brand files. Website evidence is live; social and uploads stay visibly staged until the backend attaches source evidence.
+            Paste your website, add your social links, and upload any brand files. We&apos;ll build your
+            brand profile from them.
           </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={lookupId}
-            onChange={(event) => onLookupIdChange(event.target.value)}
-            placeholder="Job or profile id"
-            className="bv-c1-input w-[220px]"
-          />
-          <button type="button" className="bv-c1-button" disabled={busy} onClick={onReloadJob}>
-            Reload job
-          </button>
-          <button type="button" className="bv-c1-button" disabled={busy} onClick={onOpenProfile}>
-            Open profile
-          </button>
         </div>
       </div>
 

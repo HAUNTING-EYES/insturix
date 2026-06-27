@@ -31,6 +31,16 @@ export function brandAccessKey(orgId: string | null | undefined, brandId: string
   return `${orgId ?? ''}::${brandId}`;
 }
 
+/**
+ * A new brand id. Uses Web Crypto when present, else a timestamp+random fallback — `globalThis.crypto`
+ * is NOT guaranteed on every Node runtime (Node 18 without global webcrypto has none), and calling
+ * `.randomUUID()` on it would throw and silently break accept/heal. No node:crypto import (client-safe).
+ */
+export function mintBrandId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return `brand_${uuid ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`}`;
+}
+
 /** A brand is accessible when it has no (non-empty) assignment, the user is an org admin, or is assigned. */
 export function isBrandAccessible(
   brandId: string,

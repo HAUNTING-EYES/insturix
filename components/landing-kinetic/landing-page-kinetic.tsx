@@ -2,8 +2,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { SiteFooter } from "@/components/shared/site-footer";
-import { LogoBrand, AuthButtons } from "@/components/shared/site-navbar";
+import { LogoBrand, AuthButtons, NavItem, menuItems } from "@/components/shared/site-navbar";
 
 /**
  * Landing — Kinetic ("Your entire studio").
@@ -124,22 +125,38 @@ const CSS = `
 .ikin .cta .acts{justify-content:center}
 .ikin footer{border-top:1px solid var(--border);padding:30px 0;text-align:center}.ikin footer .m{font-size:11px;color:var(--dim);letter-spacing:.06em}
 
-/* cursor: when the lens is active (fine pointer + motion ok — JS adds .haslens) hide the OS
-   cursor across ALL the kinetic CONTENT so the invert-lens circle is the cursor over every text,
-   big and small. Keep the normal mouse in the nav + mobile drawer; the footer is outside .ikin. */
-.ikin.haslens{cursor:none}
+/* cursor/lens: keep the OS cursor visible; JS reveals the lens only over text targets. */
+.ikin.haslens{cursor:auto}
 .ikin.haslens nav,.ikin.haslens nav *,.ikin.haslens .mobilemenu,.ikin.haslens .mobilemenu *{cursor:auto}
 .ikin.haslens nav a,.ikin.haslens nav button,.ikin.haslens .mobilemenu a,.ikin.haslens .mobilemenu button,.ikin.haslens .btn{cursor:pointer}
 /* invert lens — second copy of content, masked to cursor, colors swapped */
 .ikin .kinv{position:absolute;top:0;left:0;width:100%;z-index:60;pointer-events:none;
   -webkit-mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%);
-  mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%)}
+  mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%);opacity:0;transition:opacity .12s var(--ease)}
+.ikin.textlens .kinv{opacity:1}
 .ikin .kinv *{color:var(--gold)!important;animation:none!important}
 .ikin .kinv .l2,.ikin .kinv .v.g,.ikin .kinv .wl b,.ikin .kinv .cta h2 span{color:var(--text)!important}
 .ikin .kinv .markwrap,.ikin .kinv .cta .mark{display:none!important}
 .ikin .kinv .acts{visibility:hidden!important}
 @media(prefers-reduced-motion:reduce){.ikin .kline,.ikin .markwrap{transform:none!important}.ikin .kinv{display:none}.ikin .hero .kick,.ikin .hero .sub,.ikin .hero .acts,.ikin .kline{animation:none!important;opacity:1!important}}
 `;
+
+const TEXT_LENS_TARGET_SELECTOR = [
+  ".hero .kick",
+  ".hero .kline",
+  ".hero .sub",
+  ".verbs .v",
+  ".weigh .kick",
+  ".weigh .wl",
+  ".stages .kick",
+  ".ph .no",
+  ".ph .nm",
+  ".ph .ds",
+  ".trust .tl",
+  ".trust .names span",
+  ".cta h2",
+  ".cta p",
+].join(",");
 
 const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
   <>
@@ -204,6 +221,8 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
 export const LandingKinetic: React.FC = () => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     const root = rootRef.current;
@@ -219,12 +238,30 @@ export const LandingKinetic: React.FC = () => {
     let onMove: ((e: MouseEvent) => void) | null = null;
     if (fine && !reduce && kinv) {
       onMove = (e: MouseEvent) => {
+        let target: Element | null = null;
+        if (e.target instanceof Element) {
+          target = e.target;
+        } else if (e.target instanceof Node) {
+          target = e.target.parentElement;
+        }
+
+        const showLens = Boolean(
+          target &&
+          root.contains(target) &&
+          target.closest(TEXT_LENS_TARGET_SELECTOR)
+        );
+        root.classList.toggle("textlens", showLens);
+        if (!showLens) {
+          kinv.style.setProperty("--mx", "-999px");
+          kinv.style.setProperty("--my", "-999px");
+          return;
+        }
+
         kinv.style.setProperty("--mx", e.clientX + "px");
         kinv.style.setProperty("--my", e.clientY + window.scrollY + "px");
       };
       document.addEventListener("mousemove", onMove, { passive: true });
-      // Lens is live: CSS (.ikin.haslens) hides the OS cursor across all content text so the
-      // circle is the cursor; nav + drawer keep the normal mouse.
+      // Lens is available, but the native cursor remains visible.
       root.classList.add("haslens");
     } else if (kinv) {
       kinv.style.display = "none";
@@ -259,6 +296,7 @@ export const LandingKinetic: React.FC = () => {
 
     return () => {
       cancelAnimationFrame(raf);
+      root.classList.remove("haslens", "textlens");
       if (onMove) document.removeEventListener("mousemove", onMove);
     };
   }, []);
@@ -293,11 +331,15 @@ export const LandingKinetic: React.FC = () => {
         <Link href="/" className="brandlink" aria-label="Insturix home"><LogoBrand /></Link>
         <div className="navlinks">
           <span className="navmid">
-            <a href="#how">How it works</a>
-            <a href="#changes">What changes</a>
-            <a href="#backed">Backed by</a>
-            <Link href="/products">Products</Link>
-            <Link href="/upgrade">Pricing</Link>
+            {menuItems.map((item) => (
+              <NavItem
+                key={item.title}
+                item={item}
+                activeDropdown={activeDropdown}
+                setActiveDropdown={setActiveDropdown}
+                pathname={pathname}
+              />
+            ))}
           </span>
           <span className="navauth"><AuthButtons /></span>
           <button
@@ -322,11 +364,15 @@ export const LandingKinetic: React.FC = () => {
         aria-hidden={!menuOpen}
       >
         <button type="button" className="mm-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}>✕</button>
-        <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
-        <a href="#changes" onClick={() => setMenuOpen(false)}>What changes</a>
-        <a href="#backed" onClick={() => setMenuOpen(false)}>Backed by</a>
-        <Link href="/products" onClick={() => setMenuOpen(false)}>Products</Link>
-        <Link href="/upgrade" onClick={() => setMenuOpen(false)}>Pricing</Link>
+        {menuItems.map((item) => (
+          <Link
+            key={item.title}
+            href={item.href === "#" ? (item.subItems?.[0]?.href ?? "#") : item.href}
+            onClick={() => setMenuOpen(false)}
+          >
+            {item.title}
+          </Link>
+        ))}
         <div className="mm-foot">
           <AuthButtons />
         </div>
