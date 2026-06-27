@@ -3,9 +3,9 @@
  *
  * Replaces hardcoded model references across the codebase with a single configurable factory.
  *
- * Model hierarchy (updated 2026-06-27 — the gemini-3.1-*-preview models were pulled / return 503):
+ * Model hierarchy (updated 2026-06-27 — gemini-3.1-flash-lite-preview was pulled / returns 503):
  *   gemini-2.5-flash     — Analysis, chat, captions, classification (fast + cheap)
- *   gemini-2.5-pro       — Intelligence, transcript editing, creative intent (best reasoning)
+ *   gemini-3.1-pro-preview — Intelligence, transcript editing, creative intent (best reasoning)
  *
  * The factory uses the native @google/generative-ai SDK (not @ai-sdk/google).
  * The Vercel AI SDK callers (llm-scene-parser, unified-intelligence, reference-image)
@@ -59,7 +59,7 @@ export async function getChatModel() {
  */
 export async function getGeneralModel() {
   const genAI = await getGenAI();
-  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-2.5-pro';
+  const modelName = process.env.LLM_GENERAL_MODEL || 'gemini-3.1-pro-preview';
   return genAI.getGenerativeModel({ model: modelName });
 }
 

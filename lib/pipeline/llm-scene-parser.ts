@@ -1512,8 +1512,8 @@ export async function extractSubjectsFromScenes(
   // parser prompt which needs 2.5-flash for instruction-following quality.
   const modelsToTry = [
     DEFAULT_CONFIG.aiModels.subjectExtractionModel,
-    'gemini-3.1-flash-lite-preview', // fallback for rate-limit / capacity
-    'gemini-2.5-flash',              // second fallback (different endpoint sometimes has capacity)
+    'gemini-2.5-flash',              // fallback for rate-limit / capacity
+    'gemini-2.5-flash-lite',         // second fallback (different endpoint sometimes has capacity)
   ];
   // De-dupe in case primary is already one of the fallbacks
   const uniqueModels = [...new Set(modelsToTry)];

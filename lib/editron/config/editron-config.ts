@@ -175,8 +175,10 @@ export interface MusicConfig {
 // Models verified working on Google generativelanguage.googleapis.com API.
 // VERIFIED 2026-05-16: gemini-3.1-flash and gemini-3.1-pro DO NOT EXIST (404).
 // Only -preview suffix variants are valid for the 3.1 family.
+// 2026-06-27: gemini-3.1-flash-lite-preview was PULLED (503) and removed from the allow-list so a
+// stale LLM_* override can't green-light a dead model. gemini-3.1-pro-preview is still live (kept).
 const VALID_GOOGLE_AI_MODELS = [
-  'gemini-2.5-pro', 'gemini-2.5-flash',
+  'gemini-3.1-pro-preview',
   'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
 ];
 
@@ -443,10 +445,11 @@ export const DEFAULT_CONFIG: EditronConfig = {
     montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-2.5-pro', 'gemini-2.5-flash'),
-    // 2026-06-27: the gemini-3.1-*-preview models were PULLED (503 in prod) — all defaults moved to the
-    // stable gemini-2.5 family. (History: bare gemini-3.1-flash/pro 404'd; the -preview variants worked
-    // briefly, then were removed.) Override via LLM_* env vars if/when a newer stable model ships.
+    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
+    // 2026-06-27: gemini-3.1-flash-lite-preview was PULLED (503 in prod) — the flash-tier defaults
+    // (montage/reference/analysis) moved to the stable gemini-2.5-flash. gemini-3.1-pro-preview is still
+    // live, so intelligence stays on it. (History: bare gemini-3.1-flash/pro 404'd; -preview required.)
+    // Override via LLM_* env vars if/when a newer stable model ships.
     analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
