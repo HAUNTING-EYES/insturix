@@ -1530,6 +1530,58 @@ export async function executeDirectorPlan(
             signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
 
+          // ─── Auto-BGM dispatch ────────────────────────────────────────────────
+          // The director auto-edit path (raw footage) never enqueued the async BGM worker —
+          // only storyboard finalize does (finalize/route.ts:961) — so signal-driven BGM was
+          // DECIDED (shouldAddBgm) but never PRODUCED ("we never received a BGM"). Enqueue the
+          // same worker here, gated on (a) the signal AND (b) this being a NON-storyboard
+          // project: storyboard projects already get BGM from finalize, so dispatching here too
+          // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
+          // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
+          try {
+            const bgmRec = (pathDGenreParams as any)?.bgmRecommendation;
+            const isStoryboardProject = !!(projectDoc as any)?.sourceStoryboardId;
+            if (bgmRec?.shouldAddBgm === true && !isStoryboardProject) {
+              const { isBGMAvailable, buildMusicPrompt } = await import('@/lib/pipeline/bgm-service');
+              const bgmFps = project.fps || 30;
+              const bgmTotalFrames = overlays.reduce(
+                (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
+                0,
+              );
+              const bgmDurationSec = Math.round(bgmTotalFrames / bgmFps);
+              if (isBGMAvailable() && bgmDurationSec >= 10) {
+                // No scene descriptors / overallMusicPrompt on the auto-edit path — derive a music
+                // mood from genre signals; buildMusicPrompt maps mood+pacing -> BPM tier + key/mode.
+                const bgmEnergy = typeof pathDGenreParams?.energy_baseline === 'number' ? pathDGenreParams.energy_baseline : 0.5;
+                const bgmFormality = typeof pathDGenreParams?.formality === 'number' ? pathDGenreParams.formality : 0.5;
+                const bgmMood = bgmEnergy > 0.6 ? 'energetic'
+                  : bgmEnergy < 0.35 ? (bgmFormality > 0.55 ? 'calm' : 'nostalgic')
+                  : (bgmFormality > 0.6 ? 'sophisticated' : 'inspirational');
+                const bgmPacing = bgmEnergy > 0.6 ? 'fast' : bgmEnergy < 0.35 ? 'slow' : 'medium';
+                const bgmMusicPrompt = buildMusicPrompt(
+                  [{ mood: bgmMood, editDirections: { pacing: bgmPacing }, narration: 'voiceover' }],
+                  bgmDurationSec,
+                );
+                const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
+                await dispatchAudioJob({
+                  type: 'bgm',
+                  projectId,
+                  userId,
+                  storyboardId: '',
+                  musicPrompt: bgmMusicPrompt,
+                  totalDurationSec: bgmDurationSec,
+                  totalFrames: bgmTotalFrames,
+                  fps: bgmFps,
+                }, 'BGM(auto-edit)');
+                console.log(`[Director] Auto-BGM dispatched (mood=${bgmMood}, pacing=${bgmPacing}, ${bgmDurationSec}s) — signal shouldAddBgm=true, non-storyboard`);
+              } else {
+                console.log(`[Director] Auto-BGM skipped: isBGMAvailable=${isBGMAvailable()}, durationSec=${bgmDurationSec}`);
+              }
+            }
+          } catch (bgmErr: any) {
+            console.warn(`[Director] Auto-BGM dispatch failed (non-fatal): ${bgmErr?.message ?? bgmErr}`);
+          }
+
           pathDHandled = true;
           unifiedDecisionBundleExecuted = true;
           console.log(
