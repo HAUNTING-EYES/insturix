@@ -96,6 +96,8 @@ export interface QualityReport {
   analyzedAt: Date;
 }
 
+const QUALITY_WARNING_TYPE_CAP = 5; // INVENTED-needs-calibration: one warning type should not dominate long edits.
+const QUALITY_CRITICAL_TYPE_CAP = 15; // INVENTED-needs-calibration: one critical type remains visibly costly.
 // ─── Overlay Types for Analysis ──────────────────────────────────
 
 interface AnalyzableOverlay {
@@ -152,6 +154,39 @@ function captionVisibleSpans(caption: AnalyzableOverlay, fps: number): CaptionVi
     text: String(caption.content ?? (caption as any).text ?? '').trim(),
     source: 'overlay',
   }];
+}
+
+function captionCoverageRatio(overlays: AnalyzableOverlay[], fps: number, totalDuration: number): number {
+  if (totalDuration <= 0) return 0;
+  const intervals = overlays
+    .filter(o => o.type === 'caption')
+    .flatMap(c => captionVisibleSpans(c, fps))
+    .map(span => ({
+      start: Math.max(0, Math.min(totalDuration, span.startFrame)),
+      end: Math.max(0, Math.min(totalDuration, span.endFrame)),
+    }))
+    .filter(interval => interval.end > interval.start)
+    .sort((a, b) => a.start - b.start);
+
+  let covered = 0;
+  let currentStart: number | null = null;
+  let currentEnd = 0;
+  for (const interval of intervals) {
+    if (currentStart == null) {
+      currentStart = interval.start;
+      currentEnd = interval.end;
+      continue;
+    }
+    if (interval.start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, interval.end);
+    } else {
+      covered += currentEnd - currentStart;
+      currentStart = interval.start;
+      currentEnd = interval.end;
+    }
+  }
+  if (currentStart != null) covered += currentEnd - currentStart;
+  return Math.max(0, Math.min(1, covered / totalDuration));
 }
 
 function captionGroupTimingMs(group: Record<string, any>): { startMs: number; endMs: number } | null {
@@ -238,6 +273,38 @@ function isPlainRecord(value: unknown): value is Record<string, any> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function readNestedNumber(source: unknown, path: string): number | null {
+  if (!isPlainRecord(source)) return null;
+  const value = path.split('.').reduce<unknown>((cursor, key) => {
+    if (!isPlainRecord(cursor)) return undefined;
+    return cursor[key];
+  }, source);
+  return finiteNumber(value);
+}
+
+function readOverlaySignalNumber(overlay: AnalyzableOverlay, keys: string[]): number | null {
+  const metadata = isPlainRecord(overlay.metadata) ? overlay.metadata : {};
+  const atomicReceipt = isPlainRecord(metadata.atomicOverlayReceipt) ? metadata.atomicOverlayReceipt : {};
+  const payload = isPlainRecord(atomicReceipt.payload) ? atomicReceipt.payload : {};
+  const candidates = [
+    metadata,
+    metadata.signals,
+    metadata.signalValues,
+    metadata.atomicSignals,
+    atomicReceipt,
+    payload,
+    payload.signals,
+  ];
+  for (const candidate of candidates) {
+    for (const key of keys) {
+      const value = key.includes('.')
+        ? readNestedNumber(candidate, key)
+        : (isPlainRecord(candidate) ? finiteNumber(candidate[key]) : null);
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
 // ─── Check Functions ─────────────────────────────────────────────
 
 function checkTimelineGaps(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
@@ -693,28 +760,36 @@ function checkAudioLevelSpike(overlays: AnalyzableOverlay[]): QualityIssue[] {
 }
 
 function checkCaptionReadingSpeed(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
-  const issues: QualityIssue[] = [];
-  const captions = overlays.filter(o => o.type === 'caption');
-  for (const c of captions) {
-    const fastSpans: Array<{ span: CaptionVisibleSpan; wpm: number }> = [];
+  let totalFastSpans = 0;
+  let affectedCaptions = 0;
+  let worst: { span: CaptionVisibleSpan; wpm: number } | null = null;
+
+  for (const c of overlays.filter(o => o.type === 'caption')) {
+    let captionFastSpans = 0;
     for (const span of captionVisibleSpans(c, fps)) {
       const wordCount = span.text.split(/\s+/).filter(Boolean).length;
       const durationSec = (span.endFrame - span.startFrame) / fps;
       if (durationSec <= 0 || wordCount === 0) continue;
       const wpm = (wordCount / durationSec) * 60;
-      if (wpm > 200) {
-        fastSpans.push({ span, wpm });
-      }
+      if (wpm <= 200) continue;
+      totalFastSpans++;
+      captionFastSpans++;
+      if (!worst || wpm > worst.wpm) worst = { span, wpm };
     }
-    const firstFast = fastSpans[0];
-    if (firstFast) {
-      const maxWpm = Math.max(...fastSpans.map((item) => item.wpm));
-      issues.push({ type: 'caption_reading_speed', severity: 'warning', description: `Caption ${c.id} has ${fastSpans.length} visible group(s) above readable speed; max ${Math.round(maxWpm)} words/min (target <=200)`, overlayId: c.id, frameRange: { start: firstFast.span.startFrame, end: firstFast.span.endFrame }, autoFixable: false, suggestedFix: 'Reduce words per group, merge flash groups into longer windows, or extend display time' });
-    }
+    if (captionFastSpans > 0) affectedCaptions++;
   }
-  return issues;
-}
 
+  if (!worst) return [];
+  return [{
+    type: 'caption_reading_speed',
+    severity: 'warning',
+    description: `${affectedCaptions} caption overlay(s) contain ${totalFastSpans} visible group(s) above readable speed; worst ${Math.round(worst.wpm)} words/min (target <=200)`,
+    overlayId: worst.span.overlayId,
+    frameRange: { start: worst.span.startFrame, end: worst.span.endFrame },
+    autoFixable: false,
+    suggestedFix: 'Reduce words per group, merge flash groups into longer windows, or extend display time',
+  }];
+}
 // ← constraint:audio.sfx_timing_drift
 // Rule: SFX trigger point > 3 frames (100ms @30fps) from its visual event
 // Threshold: > 3 frames offset | severity: warning | deduction: -5
@@ -755,27 +830,37 @@ function checkOrphanSfx(overlays: AnalyzableOverlay[], fps: number): QualityIssu
 // ← constraint:transition.transition_during_speech
 // Rule: transition effect (dissolve, wipe, flash, whip-pan) begins while speech_energy > 0.3
 // Threshold: any occurrence during active speech | severity: warning | deduction: -5
-function checkTransitionDuringSpeech(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
+function checkTransitionDuringSpeech(overlays: AnalyzableOverlay[], fps: number, totalDuration: number): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const transitions = overlays.filter(o => o.type === 'transition');
   const captions = overlays.filter(o => o.type === 'caption');
+  const broadCaptionProxy = captionCoverageRatio(overlays, fps, totalDuration) > 0.8;
 
   for (const t of transitions) {
     const style = getTransitionStyle(t);
     if (style === 'hard-cut' || style === 'match-cut') continue; // exempt per CRG
     const transStart = t.from;
-    // Caption as proxy for speech_energy > 0.3. Buffer 0.5s (fps/2) inside caption edges
-    // to avoid false positives at caption boundaries
-    const duringSpeech = captions.some(c =>
-      transStart > c.from + fps / 2 && transStart < c.from + c.durationInFrames - fps / 2,
-    );
+    // Caption timing is only a speech proxy. A full-video caption track is too broad to punish.
+    const duringSpeech = captions.some(c => captionVisibleSpans(c, fps).some(span =>
+      transStart > span.startFrame + fps / 2 && transStart < span.endFrame - fps / 2,
+    ));
     if (duringSpeech) {
-      issues.push({ type: 'transition_during_speech', severity: 'warning', description: `"${style}" transition at frame ${t.from} occurs during active speech — splits viewer attention`, frameRange: { start: t.from, end: t.from + t.durationInFrames }, autoFixable: false, suggestedFix: 'Shift transition to nearest speech gap (silence > 200ms) or use hard cut' });
+      issues.push({
+        type: 'transition_during_speech',
+        severity: broadCaptionProxy ? 'info' : 'warning',
+        description: broadCaptionProxy
+          ? `"${style}" transition at frame ${t.from} overlaps broad caption coverage; kept advisory because captions are an imprecise speech proxy`
+          : `"${style}" transition at frame ${t.from} occurs during active speech - splits viewer attention`,
+        frameRange: { start: t.from, end: t.from + t.durationInFrames },
+        autoFixable: false,
+        suggestedFix: broadCaptionProxy
+          ? 'Use transcript/energy speech windows before treating this as a blocking transition issue'
+          : 'Shift transition to nearest speech gap (silence > 200ms) or use hard cut',
+      });
     }
   }
   return issues;
 }
-
 // ← constraint:transition.missing_transition_sound
 // Rule: non-hard-cut, non-match-cut transition without paired SFX within ±3 frames
 // Threshold: any non-hard-cut transition without sound | severity: warning | deduction: -5
@@ -857,18 +942,37 @@ function checkAbruptEnd(overlays: AnalyzableOverlay[], totalDuration: number, fp
 function checkClipTooLong(overlays: AnalyzableOverlay[], fps: number, pacingTolerance?: number): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const videos = overlays.filter(o => o.type === 'video');
-  const tolerance = pacingTolerance || 8; // 8s default when no genre params — conservative
+  const tolerance = pacingTolerance || 8; // 8s default when no genre params - conservative
   const threshold = tolerance * 1.5;
 
   for (const v of videos) {
     const durSec = v.durationInFrames / fps;
-    if (durSec > threshold) {
-      issues.push({ type: 'clip_too_long', severity: durSec > tolerance * 3 ? 'critical' : 'warning', description: `Clip ${v.id} held ${durSec.toFixed(1)}s — exceeds ${threshold.toFixed(0)}s limit (pacing_tolerance × 1.5)`, overlayId: v.id, frameRange: { start: v.from, end: v.from + v.durationInFrames }, autoFixable: false, suggestedFix: 'Find nearest viable cut point — prefer speech boundary or motion peak' });
-    }
+    if (durSec <= threshold) continue;
+    const narrativePressure = readOverlaySignalNumber(v, [
+      'narrative_pressure',
+      'narrativePressure',
+      'composite.narrative_pressure',
+    ]);
+    const hasLowNarrativePressure = narrativePressure != null && narrativePressure < 0.5;
+    const severity: QualityIssue['severity'] = hasLowNarrativePressure
+      ? (durSec > tolerance * 3 ? 'critical' : 'warning')
+      : 'info';
+    issues.push({
+      type: 'clip_too_long',
+      severity,
+      description: hasLowNarrativePressure
+        ? `Clip ${v.id} held ${durSec.toFixed(1)}s with narrative_pressure=${narrativePressure.toFixed(2)} - exceeds ${threshold.toFixed(0)}s limit (pacing_tolerance x 1.5)`
+        : `Clip ${v.id} held ${durSec.toFixed(1)}s - advisory only because shot-overheld needs low narrative_pressure evidence`,
+      overlayId: v.id,
+      frameRange: { start: v.from, end: v.from + v.durationInFrames },
+      autoFixable: false,
+      suggestedFix: hasLowNarrativePressure
+        ? 'Find nearest viable cut point - prefer speech boundary or motion peak'
+        : 'Inspect narrative-pressure or visual-dead-air evidence before adding cuts',
+    });
   }
   return issues;
 }
-
 // ← constraint:rhythm.identical_zoom_targets
 // Rule: 3+ zoom decisions with identical target scale (e.g., three consecutive zoom_pushes all to exactly 1.1x)
 // Threshold: 3+ identical zoom scales | severity: info | deduction: -1
@@ -969,18 +1073,26 @@ function checkExcessiveGraphics(overlays: AnalyzableOverlay[], fps: number, grap
 }
 
 function checkDuplicateAdjacentTransition(overlays: AnalyzableOverlay[]): QualityIssue[] {
-  const issues: QualityIssue[] = [];
   const transitions = overlays.filter(o => o.type === 'transition').sort((a, b) => a.from - b.from);
+  const duplicates: Array<{ style: string; firstFrame: number; secondFrame: number }> = [];
   for (let i = 0; i < transitions.length - 1; i++) {
     const styleA = getTransitionStyle(transitions[i]);
     const styleB = getTransitionStyle(transitions[i + 1]);
     if (styleA === styleB && styleA !== 'hard-cut') {
-      issues.push({ type: 'duplicate_adjacent_transition', severity: 'info', description: `Consecutive "${styleA}" transitions at frames ${transitions[i].from} and ${transitions[i + 1].from}`, autoFixable: false, suggestedFix: 'Vary transition types between consecutive boundaries' });
+      duplicates.push({ style: styleA, firstFrame: transitions[i].from, secondFrame: transitions[i + 1].from });
     }
   }
-  return issues;
+  if (duplicates.length === 0) return [];
+  const first = duplicates[0];
+  return [{
+    type: 'duplicate_adjacent_transition',
+    severity: 'info',
+    description: `${duplicates.length} adjacent non-hard-cut transition pair(s) repeat a style; first "${first.style}" repeat at frames ${first.firstFrame} and ${first.secondFrame}`,
+    frameRange: { start: first.firstFrame, end: first.secondFrame },
+    autoFixable: false,
+    suggestedFix: 'Vary transition jobs between consecutive boundaries or keep one boundary clean',
+  }];
 }
-
 function checkFadeToBlackOveruse(overlays: AnalyzableOverlay[]): QualityIssue[] {
   const transitions = overlays.filter(o => o.type === 'transition');
   if (transitions.length < 2) return [];
@@ -1250,6 +1362,23 @@ function isWarmColdConflict(a: string, b: string): boolean {
 }
 
 
+export function scoreQualityIssues(issues: QualityIssue[]): number {
+  const byType = new Map<IssueType, { raw: number; hasCritical: boolean }>();
+  for (const issue of issues) {
+    if (issue.severity === 'info') continue;
+    const current = byType.get(issue.type) ?? { raw: 0, hasCritical: false };
+    current.raw += issue.severity === 'critical' ? QUALITY_CRITICAL_TYPE_CAP : QUALITY_WARNING_TYPE_CAP;
+    current.hasCritical = current.hasCritical || issue.severity === 'critical';
+    byType.set(issue.type, current);
+  }
+
+  let deduction = 0;
+  for (const value of byType.values()) {
+    deduction += Math.min(value.raw, value.hasCritical ? QUALITY_CRITICAL_TYPE_CAP : QUALITY_WARNING_TYPE_CAP);
+  }
+  return Math.max(0, 100 - deduction);
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
@@ -1306,7 +1435,7 @@ export function runQualityReview(
     ...checkAudioLevelSpike(overlays),
     ...checkCaptionReadingSpeed(overlays, fps),
     ...checkOrphanSfx(overlays, fps),
-    ...checkTransitionDuringSpeech(overlays, fps),
+    ...checkTransitionDuringSpeech(overlays, fps, totalDuration),
     ...checkMissingTransitionSfx(overlays, fps),
     ...checkGraphicOcclusion(overlays),
     ...checkAbruptStart(overlays, fps),
@@ -1481,14 +1610,7 @@ export function runQualityReview(
     allIssues.push(...checkBrandTypography(overlays, brandConfig.typography));
   }
 
-  // Calculate score: start at 100, deduct per issue
-  let score = 100;
-  for (const issue of allIssues) {
-    if (issue.severity === 'critical') score -= 15;
-    else if (issue.severity === 'warning') score -= 5;
-    else score -= 1;
-  }
-  score = Math.max(0, score);
+  const score = scoreQualityIssues(allIssues);
 
   // Suggestions
   const suggestions: string[] = [];
