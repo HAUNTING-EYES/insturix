@@ -780,10 +780,10 @@ export function BrandVaultReview() {
             >
               <span>
                 <span className="block font-['JetBrains_Mono'] text-[10px] uppercase tracking-[0.18em] text-[#7A776E]">
-                  All signals &amp; evidence
+                  All your brand details
                 </span>
                 <span className="mt-0.5 block text-[12px] text-[#5F5E5A]">
-                  {editedSignals.length} signals · {summary.reviewOnly} review-only · expand to inspect
+                  {editedSignals.length} details · expand to review
                 </span>
               </span>
               {showSignals ? (
@@ -806,37 +806,13 @@ export function BrandVaultReview() {
           </div>
 
           <footer className="py-10 pb-[72px] text-center">
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 10,
-                fontWeight: 500,
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase',
-                color: '#5F5E5A',
-              }}
-            >
-              {summary.reviewOnly} review-only signals / evidence-backed until accepted
-            </span>
-            {snapshot.record && (
-              <div ref={decisionControlsRef} className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
-                <input
-                  value={lookupId}
-                  onChange={(event) => setLookupId(event.target.value)}
-                  placeholder="Job or profile id"
-                  className="bv-c1-input w-[260px]"
-                />
-                <button type="button" className="bv-c1-button" disabled={busy} onClick={reloadJob}>
-                  <RefreshCw size={14} /> Reload
-                </button>
-                <button type="button" className="bv-c1-button" disabled={busy} onClick={openProfile}>
-                  Open profile
-                </button>
+            {snapshot.record?.status === 'draft' && (
+              <div ref={decisionControlsRef} className="flex flex-wrap items-center justify-center gap-2.5">
                 <input
                   value={rejectReason}
                   onChange={(event) => setRejectReason(event.target.value)}
-                  placeholder="Reject reason"
-                  className="bv-c1-input w-[220px]"
+                  placeholder="Reason (only if you reject this)"
+                  className="bv-c1-input w-[280px]"
                   disabled={!canReview}
                 />
                 <button type="button" className="bv-c1-button danger" disabled={!canReview || busy} onClick={rejectProfile}>
