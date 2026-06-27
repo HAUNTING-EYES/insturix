@@ -10,6 +10,7 @@
  */
 
 import { getSession, runCypher, isNeo4jAvailable } from '@/lib/editron/db/neo4j';
+import { generateEditronEmbedding } from './gemini-embedding';
 
 // ─── Write Result ───────────────────────────────────────────────
 // Every write returns this so callers (QStash workers) can handle failures
@@ -201,8 +202,8 @@ export async function createIndicesAndConstraints(): Promise<GraphWriteResult> {
       'CREATE INDEX project_user IF NOT EXISTS FOR (p:Project) ON (p.userId)'
     );
 
-    // Vector index on Asset.embedding for similarity search
-    // 768-dim matches Gemini text-embedding-005 output
+    // Vector index on Asset.embedding for similarity search.
+    // Editron forces Gemini embeddings to 768 dims for index compatibility.
     await session.run(`
       CREATE VECTOR INDEX asset_embedding IF NOT EXISTS
       FOR (a:Asset) ON (a.embedding)
@@ -861,19 +862,12 @@ export async function searchAssets(
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Generate a 768-dim embedding via Gemini text-embedding-005.
- * Same model as profile-detection-service and asset-search-service.
+ * Generate a 768-dim embedding using the shared Editron Gemini embedding contract.
  * Returns null on failure (caller degrades gracefully).
  */
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const apiKey = process.env.GRAPH_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    if (!apiKey) return null;
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-005' });
-    const result = await model.embedContent(text);
-    return result.embedding?.values ?? null;
+    return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_QUERY' });
   } catch (err: unknown) {
     console.warn('[GraphService] embedding failed:', err instanceof Error ? err.message : err);
     return null;

@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { EDITRON_EMBEDDING_MODEL, generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -170,14 +171,12 @@ Return JSON only:
 
     // ─── Generate Semantic Embedding ────────────────────────────
     try {
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
-
       // Build a text description from tags + filename for embedding
       const embeddingText = `${filename} ${type} ${tags.join(' ')}`;
-      const embResult = await embModel.embedContent(embeddingText);
-      embedding = embResult.embedding?.values || null;
+      embedding = await generateEditronEmbedding(embeddingText, {
+        taskType: 'RETRIEVAL_DOCUMENT',
+        title: filename,
+      });
 
       if (embedding) {
         console.log(`[AssetAnalysis] ${assetId}: embedding generated (${embedding.length} dims)`);
@@ -194,6 +193,8 @@ Return JSON only:
     };
     if (embedding) {
       updateDoc.semanticEmbedding = embedding;
+      updateDoc.semanticEmbeddingModel = EDITRON_EMBEDDING_MODEL;
+      updateDoc.semanticEmbeddingUpdatedAt = new Date();
     }
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(

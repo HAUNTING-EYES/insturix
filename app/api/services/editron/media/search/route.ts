@@ -2,7 +2,7 @@
  * POST /api/services/editron/media/search
  *
  * Semantic search across user's media assets.
- * Uses Gemini text-embedding-005 to embed the query, then cosine similarity
+ * Uses the shared Editron Gemini embedding contract, then cosine similarity
  * against stored embeddings from asset analysis.
  *
  * Also supports tag-based search as fallback when embeddings aren't available.
@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
+import { generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
@@ -82,11 +83,7 @@ export async function POST(request: NextRequest) {
     // ── Embed the query ──
     let queryEmbedding: number[] | null = null;
     try {
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
-      const embResult = await embModel.embedContent(query);
-      queryEmbedding = embResult.embedding?.values || null;
+      queryEmbedding = await generateEditronEmbedding(query, { taskType: 'RETRIEVAL_QUERY' });
     } catch (embErr: any) {
       console.warn(`[MediaSearch] Embedding failed: ${embErr.message}, falling back to tag search`);
     }
