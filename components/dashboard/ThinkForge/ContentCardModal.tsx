@@ -7,7 +7,7 @@ import { ContentCard as ContentCardType } from '@/app/dashboard/thinkforge/types
 import { format } from 'date-fns';
 import ContentCard from './ContentCard';
 import TagEditor from './TagEditor';
-import { stageMeta } from '@/lib/calos/stages';
+import { stageMeta, EDITORIAL_STAGE_META } from '@/lib/calos/stages';
 
 export interface ContentCardModalProps {
   card: ContentCardType | null;
@@ -80,6 +80,13 @@ export default function ContentCardModal({
     !!onDecision &&
     ['generated', 'in_review', 'changes_requested'].includes(localCard.editorialStatus ?? '');
   const isApproved = localCard.editorialStatus === 'approved';
+  // Stage rail: the editorial pipeline position (CalOS cards only). changes_requested sits on the
+  // In-review step, marked distinctly. Publishing (scheduled/posted) lives in the queue, not on the
+  // deliverable, so the rail honestly stops at Approved.
+  const STAGE_ORDER = ['idea', 'drafting', 'generated', 'in_review', 'approved'] as const;
+  const changesActive = localCard.editorialStatus === 'changes_requested';
+  const railStatus = changesActive ? 'in_review' : localCard.editorialStatus;
+  const railIdx = railStatus ? (STAGE_ORDER as readonly string[]).indexOf(railStatus) : -1;
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0]?.clientX ?? null;
@@ -285,6 +292,30 @@ export default function ContentCardModal({
               {/* Content */}
               <div className="flex-1 overflow-y-auto">
                 <div className="max-w-4xl mx-auto p-6">
+                  {stage && (
+                    <div className="mb-6">
+                      <div className="text-[10px] font-medium uppercase tracking-wide text-neutral-500 mb-2">Stage</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {STAGE_ORDER.map((s, i) => {
+                          const done = railIdx > i;
+                          const current = railIdx === i;
+                          const label = changesActive && current ? 'Changes' : EDITORIAL_STAGE_META[s].label;
+                          const cls = current
+                            ? changesActive
+                              ? 'bg-red-600/15 border-red-500/40 text-red-200'
+                              : 'bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652]'
+                            : done
+                              ? 'bg-emerald-600/10 border-emerald-500/30 text-emerald-300/80'
+                              : 'bg-[#1C1B19]/40 border-neutral-700/50 text-neutral-500';
+                          return (
+                            <span key={s} className={`text-[11px] rounded-md border px-2 py-1 ${cls}`}>
+                              {label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <ContentCard
                     card={localCard}
                     // Child ContentCard's onUpdate is (id, updates); the modal already knows
