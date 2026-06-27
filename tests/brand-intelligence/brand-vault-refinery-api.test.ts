@@ -2257,6 +2257,40 @@ describe('Brand Vault refinery API boundary', () => {
     expect(stored?.profile.brandId).toMatch(/^brand_/);
   });
 
+  it('mints a brandId without global Web Crypto so production accepts do not disappear', async () => {
+    const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+
+    try {
+      const store = createInMemoryBrandVaultRefineryStore();
+      const created = await createBrandVaultRefineryJobFromWebsite(
+        { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },
+        { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+      );
+      if (!created.body.ok) throw new Error(created.body.error.message);
+
+      const accepted = await reviewBrandVaultSignalProfileDraft(
+        {
+          userId: 'user_vault',
+          recordId: created.body.record.id,
+          body: { action: 'accept' },
+          now: '2026-06-09T06:19:00.000Z',
+        },
+        { store },
+      );
+
+      expect(accepted.status).toBe(200);
+      expect(accepted.body.ok).toBe(true);
+      if (!accepted.body.ok) throw new Error('Expected accept to succeed without global Web Crypto.');
+      expect(accepted.body.record.status).toBe('accepted');
+      expect(accepted.body.record.profile.brandId).toMatch(/^brand_/);
+      expect(store.getLatestAcceptedRecord({ userId: 'user_vault', orgId: null })?.id).toBe(created.body.record.id);
+    } finally {
+      if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+      else Reflect.deleteProperty(globalThis, 'crypto');
+    }
+  });
+
   it('returns reviewed Brand Vault learning events when accepted signal edits change values', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const created = await createBrandVaultRefineryJobFromWebsite(
