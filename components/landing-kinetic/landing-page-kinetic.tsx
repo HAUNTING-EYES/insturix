@@ -129,7 +129,7 @@ const CSS = `
    big and small. Keep the normal mouse in the nav + mobile drawer; the footer is outside .ikin. */
 .ikin.haslens{cursor:none}
 .ikin.haslens nav,.ikin.haslens nav *,.ikin.haslens .mobilemenu,.ikin.haslens .mobilemenu *{cursor:auto}
-.ikin.haslens nav a,.ikin.haslens nav button,.ikin.haslens .mobilemenu a,.ikin.haslens .mobilemenu button{cursor:pointer}
+.ikin.haslens nav a,.ikin.haslens nav button,.ikin.haslens .mobilemenu a,.ikin.haslens .mobilemenu button,.ikin.haslens .btn{cursor:pointer}
 /* invert lens — second copy of content, masked to cursor, colors swapped */
 .ikin .kinv{position:absolute;top:0;left:0;width:100%;z-index:60;pointer-events:none;
   -webkit-mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%);
@@ -137,7 +137,7 @@ const CSS = `
 .ikin .kinv *{color:var(--gold)!important;animation:none!important}
 .ikin .kinv .l2,.ikin .kinv .v.g,.ikin .kinv .wl b,.ikin .kinv .cta h2 span{color:var(--text)!important}
 .ikin .kinv .markwrap,.ikin .kinv .cta .mark{display:none!important}
-.ikin .kinv .acts,.ikin .kinv .stages{visibility:hidden!important}
+.ikin .kinv .acts{visibility:hidden!important}
 @media(prefers-reduced-motion:reduce){.ikin .kline,.ikin .markwrap{transform:none!important}.ikin .kinv{display:none}.ikin .hero .kick,.ikin .hero .sub,.ikin .hero .acts,.ikin .kline{animation:none!important;opacity:1!important}}
 `;
 

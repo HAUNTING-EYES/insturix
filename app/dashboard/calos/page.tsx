@@ -8,6 +8,7 @@ import CampaignBar from './CampaignBar';
 import { toast } from '@/hooks/use-toast';
 import { EDITORIAL_STAGE_META } from '@/lib/calos/stages';
 import BrandConnections from './BrandConnections';
+import CommandBrief from './CommandBrief';
 import { Linkedin, Share2 } from 'lucide-react';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
@@ -228,6 +229,10 @@ export default function CalosPage() {
           </div>
         )}
       </div>
+
+      {!loading && brandId && (
+        <CommandBrief cards={cards} brandId={brandId} onDecision={handleDecision} />
+      )}
 
       <div className="flex-1 min-h-0">
         {loading || !brandId ? (
