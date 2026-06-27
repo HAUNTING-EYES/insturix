@@ -288,13 +288,14 @@ describe('canonical caption track', () => {
     expect(caption.width).toBe(1120);
     expect(caption.height).toBeLessThanOrEqual(150);
     expect(caption.top).toBeGreaterThan(800);
+    // Signal-resolved: formality 0.7 / energy 0.45 selects the registry `minimal` preset
+    // (clean dark pill + blue active-word box) — a signal-driven aesthetic, not a fixed band.
     expect(caption.styles).toMatchObject({
-      backgroundColor: 'rgba(0,0,0,0.88)',
+      backgroundColor: 'rgba(0,0,0,0.6)',
       fontSize: '38px',
       lineHeight: 1.26,
-      backdropFilter: 'blur(3px)',
       highlight: expect.objectContaining({
-        backgroundColor: 'rgba(0,0,0,0.82)',
+        backgroundColor: 'rgba(59, 130, 246, 0.8)',
       }),
     });
     expect(caption.metadata.evidence.captionAesthetic).toMatchObject({
@@ -307,7 +308,8 @@ describe('canonical caption track', () => {
       renderMode: 'phrase',
       maxWordsPerLine: 4,
       maxCharsPerCaption: 84,
-      groupWordsPerCaption: 14,
+      // measured speaking-rate pacing (same as the karaoke-window test): 12, not the old 14.
+      groupWordsPerCaption: 12,
       contrastFloor: 4.5,
       status: 'invented-needs-calibration',
     });
@@ -356,11 +358,13 @@ describe('canonical caption track', () => {
       sourceDisplayMode: 'karaoke',
       renderDisplayMode: 'phrase',
     });
+    // Paces to the MEASURED speaking rate of the supplied word timings (~170ms/word = fast),
+    // which packs fewer words per caption than the old genre-guess default of 14.
     expect(caption.metadata.evidence.readability).toMatchObject({
       sourceMode: 'karaoke',
       renderMode: 'phrase',
       wordsPerGroup: 1,
-      groupWordsPerCaption: 14,
+      groupWordsPerCaption: 12,
       maxWordsPerLine: 4,
     });
   });
@@ -434,12 +438,13 @@ describe('canonical caption track', () => {
       maxWordsPerLine: 2,
       useSpringScale: true,
     });
+    // High energy (0.88) selects the registry `hormozi` preset: transparent background,
+    // saturated-yellow active word that pops/bounces (no dark band).
     expect(caption.styles).toMatchObject({
-      backgroundColor: 'rgba(0,0,0,0.56)',
-      backdropFilter: 'blur(3px)',
-      padding: '8px 14px',
+      backgroundColor: 'transparent',
       highlight: expect.objectContaining({
-        backgroundColor: 'rgba(0,0,0,0.88)',
+        color: '#FFD93D',
+        backgroundColor: 'transparent',
         animation: 'bounce',
         effect: 'pop',
       }),
