@@ -668,10 +668,16 @@ export function BrandVaultReview() {
             {needsCount === 0 ? <Check size={13} /> : <AlertTriangle size={13} />}
             {needsCount === 0 ? 'all clear' : `${needsCount} needs you`}
           </button>
-          <button type="button" className="bv-c1-primary" disabled={!canReview || busy} onClick={acceptProfile}>
-            {acceptDraft.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            {editedSignalCount ? `Accept profile (${editedSignalCount})` : 'Accept profile'}
-          </button>
+          {snapshot.record?.status === 'accepted' ? (
+            <span className="bv-c1-pill clear" title="This profile is saved as your accepted brand truth">
+              <Check size={13} /> Accepted
+            </span>
+          ) : (
+            <button type="button" className="bv-c1-primary" disabled={!canReview || busy} onClick={acceptProfile}>
+              {acceptDraft.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              {editedSignalCount ? `Accept profile (${editedSignalCount})` : 'Accept profile'}
+            </button>
+          )}
         </header>
 
         {isScanning ? (
