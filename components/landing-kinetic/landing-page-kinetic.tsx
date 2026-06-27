@@ -124,10 +124,12 @@ const CSS = `
 .ikin .cta .acts{justify-content:center}
 .ikin footer{border-top:1px solid var(--border);padding:30px 0;text-align:center}.ikin footer .m{font-size:11px;color:var(--dim);letter-spacing:.06em}
 
-/* cursor: keep the normal OS mouse everywhere (nav, gaps, footer) — only hide it over the big
-   display text, where the invert-lens circle IS the cursor. Fixes "mouse disappears in the nav"
-   without any custom ring. */
-.ikin .kline,.ikin .wl,.ikin .cta h2{cursor:none}
+/* cursor: when the lens is active (fine pointer + motion ok — JS adds .haslens) hide the OS
+   cursor across ALL the kinetic CONTENT so the invert-lens circle is the cursor over every text,
+   big and small. Keep the normal mouse in the nav + mobile drawer; the footer is outside .ikin. */
+.ikin.haslens{cursor:none}
+.ikin.haslens nav,.ikin.haslens nav *,.ikin.haslens .mobilemenu,.ikin.haslens .mobilemenu *{cursor:auto}
+.ikin.haslens nav a,.ikin.haslens nav button,.ikin.haslens .mobilemenu a,.ikin.haslens .mobilemenu button{cursor:pointer}
 /* invert lens — second copy of content, masked to cursor, colors swapped */
 .ikin .kinv{position:absolute;top:0;left:0;width:100%;z-index:60;pointer-events:none;
   -webkit-mask-image:radial-gradient(circle var(--r,50px) at var(--mx,-999px) var(--my,-999px),#000 0 96%,transparent 100%);
@@ -221,8 +223,9 @@ export const LandingKinetic: React.FC = () => {
         kinv.style.setProperty("--my", e.clientY + window.scrollY + "px");
       };
       document.addEventListener("mousemove", onMove, { passive: true });
-      // No global cursor:none — the normal mouse stays visible everywhere; CSS hides it only over
-      // the big display text (.kline/.wl/.cta h2) where the lens circle is the cursor.
+      // Lens is live: CSS (.ikin.haslens) hides the OS cursor across all content text so the
+      // circle is the cursor; nav + drawer keep the normal mouse.
+      root.classList.add("haslens");
     } else if (kinv) {
       kinv.style.display = "none";
     }
