@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { SiteFooter } from "@/components/shared/site-footer";
 
 /**
  * Landing — Kinetic ("Your entire studio").
@@ -148,7 +149,7 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
         <div className="kline l1">YOUR ENTIRE</div>
         <div className="kline l2">STUDIO.</div>
         <p className="sub">Hand it a brief. Every cut comes back <b>shaped for its channel — and on brand.</b> The whole studio runs in one browser tab. Nothing to install.</p>
-        <div className="acts"><a className="btn go" href="#cta">Start free →</a><a className="btn ghost" href="#cta">Talk to sales</a></div>
+        <div className="acts"><Link className="btn go" href="/signup">Start free →</Link><Link className="btn ghost" href="/contactus">Talk to sales</Link></div>
       </div>
     </header>
 
@@ -190,10 +191,9 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
       <div className="wrap inner">
         <h2>One tab. <span>Everything in it.</span></h2>
         <p>Start with a brief. Leave with the whole slate, ready to post — all in one tab.</p>
-        <div className="acts"><a className="btn go" href="#cta">Start free →</a><a className="btn ghost" href="#cta">Talk to sales</a></div>
+        <div className="acts"><Link className="btn go" href="/signup">Start free →</Link><Link className="btn ghost" href="/contactus">Talk to sales</Link></div>
       </div>
     </section>
-    <footer><span className="m">© 2026 Insturix · One platform, entire production</span></footer>
   </>
 );
 
@@ -280,6 +280,7 @@ export const LandingKinetic: React.FC = () => {
   }, []);
 
   return (
+    <>
     <div className="ikin" ref={rootRef}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <nav>
@@ -329,6 +330,8 @@ export const LandingKinetic: React.FC = () => {
       <Content ids />
       <div className="kinv" aria-hidden="true"><Content /></div>
     </div>
+      <SiteFooter />
+    </>
   );
 };
 
