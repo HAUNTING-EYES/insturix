@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * plus explicit null org scope instead of a global latest/default brand.
  */
 export async function GET() {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   const store = getDefaultBrandVaultRefineryStore();
@@ -24,8 +24,11 @@ export async function GET() {
     );
   }
 
+  // Pass userId in the org case too: the R5 dual-read fallback needs it to return the user's pre-stack /
+  // solo (null-org) brands. Without it, an org member whose brand was accepted as a personal brand sees
+  // NOTHING here ("No brand"). isOrgAdmin lets an admin see every brand in the org (they bypass access).
   const brands = await store.listAcceptedBrands(
-    orgId ? { orgId } : { orgId: null, userId },
+    orgId ? { orgId, userId, isOrgAdmin: has({ role: 'org:admin' }) } : { orgId: null, userId },
   );
   return NextResponse.json({ ok: true, brands });
 }
