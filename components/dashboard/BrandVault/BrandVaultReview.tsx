@@ -202,6 +202,7 @@ export function BrandVaultReview() {
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
+  const conflictRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -653,10 +654,20 @@ export function BrandVaultReview() {
             {activeBrandName} / {brandName} / {statusLabel}
           </span>
           <span className="flex-1" />
-          <span className={`bv-c1-pill ${needsCount === 0 ? 'clear' : ''}`}>
+          <button
+            type="button"
+            className={`bv-c1-pill ${needsCount === 0 ? 'clear' : ''}`}
+            style={{ cursor: needsCount === 0 ? 'default' : 'pointer' }}
+            title={needsCount === 0 ? 'No conflicts to resolve' : 'Jump to what needs your review'}
+            aria-label={needsCount === 0 ? 'All conflicts resolved' : `${needsCount} item${needsCount === 1 ? '' : 's'} need your review — jump to them`}
+            onClick={() => {
+              if (needsCount === 0) return;
+              conflictRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+          >
             {needsCount === 0 ? <Check size={13} /> : <AlertTriangle size={13} />}
             {needsCount === 0 ? 'all clear' : `${needsCount} needs you`}
-          </span>
+          </button>
           <button type="button" className="bv-c1-primary" disabled={!canReview || busy} onClick={acceptProfile}>
             {acceptDraft.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             {editedSignalCount ? `Accept profile (${editedSignalCount})` : 'Accept profile'}
@@ -740,17 +751,19 @@ export function BrandVaultReview() {
             </div>
           )}
 
-          <ConflictCard
-            conflict={displayedConflict}
-            resolved={Boolean(resolvingConflictPath)}
-            onAccept={resolveConflict}
-            onEdit={(path) => {
-              setShowSignals(true);
-              showToast(`Open ${path} in the signal table to edit it.`, 'warn');
-              requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-            }}
-            onReject={(path) => resolveConflict(path, 'rejected')}
-          />
+          <div ref={conflictRef}>
+            <ConflictCard
+              conflict={displayedConflict}
+              resolved={Boolean(resolvingConflictPath)}
+              onAccept={resolveConflict}
+              onEdit={(path) => {
+                setShowSignals(true);
+                showToast(`Open ${path} in the signal table to edit it.`, 'warn');
+                requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+              }}
+              onReject={(path) => resolveConflict(path, 'rejected')}
+            />
+          </div>
 
           <div ref={signalTableRef} className="mt-2">
             <button
