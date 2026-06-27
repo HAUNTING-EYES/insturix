@@ -7,6 +7,12 @@ import {
   type BrandSignalLifecycleOptions,
   type BrandSignalProfileRecord,
 } from './brand-signal-lifecycle';
+import {
+  brandAccessKey,
+  filterAccessibleBrands,
+  normalizeBrandAccessUserIds,
+  type BrandAccessGrants,
+} from './brand-access';
 import type {
   BrandSignalProfileRepositoryEvent,
   BrandSignalProfileRepositoryEventType,
@@ -17,6 +23,7 @@ import {
   type BrandVaultAcceptedProfileFilter,
 } from './brand-vault-draft-orchestrator';
 import type {
+  BrandAccessAssignmentInput,
   BrandVaultAcceptedBrandListFilter,
   BrandVaultAcceptedBrandSummary,
   BrandVaultRefineryJobListFilter,
@@ -29,7 +36,17 @@ export const BRAND_VAULT_COLLECTIONS = {
   profiles: 'brand_signal_profile_records',
   events: 'brand_signal_profile_events',
   jobs: 'brand_refinery_jobs',
+  brandAccess: 'brand_access_grants',
 } as const;
+
+/** Agency ACL grant. _id = `${orgId}::${brandId}`. Empty userIds = restriction cleared (brand open). */
+export interface BrandVaultMongoBrandAccessDocument {
+  _id: string;
+  orgId: string;
+  brandId: string;
+  userIds: string[];
+  updatedAt: string;
+}
 
 export interface BrandVaultMongoProfileDocument {
   _id: string;
@@ -61,6 +78,8 @@ export interface BrandVaultMongoCollections {
   profiles: BrandVaultMongoCollection<BrandVaultMongoProfileDocument>;
   events: BrandVaultMongoCollection<BrandVaultMongoEventDocument>;
   jobs: BrandVaultMongoCollection<BrandVaultMongoJobDocument>;
+  /** Optional: agency ACL grants. Absent => no restrictions enforced (every brand open), the legacy default. */
+  brandAccess?: BrandVaultMongoCollection<BrandVaultMongoBrandAccessDocument>;
 }
 
 export interface BrandVaultMongoCollection<TDocument extends { _id: string }> {
@@ -163,8 +182,51 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
   async listAcceptedBrands(filter: BrandVaultAcceptedBrandListFilter = {}): Promise<BrandVaultAcceptedBrandSummary[]> {
     const collections = await this.getCollections();
     const limit = Math.max(1, Math.min(filter.limit ?? 100, 250));
+    const inOrg = filter.orgId !== undefined && filter.orgId !== null;
     const docs = await findAcceptedDocs(collections, { orgId: filter.orgId, userId: filter.userId }, limit * 4);
-    return summarizeAcceptedBrandRecords(docs.map((doc) => doc.record), limit);
+    // Org context: summarize broad (up to the 250 cap) so the access filter runs BEFORE the limit — a
+    // restricted brand must never consume a returned slot. Personal context keeps the limit semantics.
+    const summaries = summarizeAcceptedBrandRecords(docs.map((doc) => doc.record), inOrg ? 250 : limit);
+    if (!inOrg) return summaries;
+    const grants = await this.readBrandAccessGrants(collections, filter.orgId as string);
+    const accessible = filterAccessibleBrands(summaries, grants, {
+      userId: filter.userId,
+      isOrgAdmin: filter.isOrgAdmin,
+    });
+    return accessible.slice(0, limit);
+  }
+
+  async setBrandAccess(input: BrandAccessAssignmentInput): Promise<void> {
+    const collections = await this.getCollections();
+    if (!collections.brandAccess) return; // persistence not wired -> no-op (brand stays open to the org)
+    const userIds = normalizeBrandAccessUserIds(input.userIds);
+    const _id = brandAccessKey(input.orgId, input.brandId);
+    const now = new Date().toISOString();
+    await collections.brandAccess.updateOne(
+      { _id } as Filter<BrandVaultMongoBrandAccessDocument>,
+      { $set: { _id, orgId: input.orgId, brandId: input.brandId, userIds, updatedAt: now } },
+      { upsert: true },
+    );
+  }
+
+  async getBrandAccessGrants(orgId: string): Promise<BrandAccessGrants> {
+    return this.readBrandAccessGrants(await this.getCollections(), orgId);
+  }
+
+  private async readBrandAccessGrants(
+    collections: BrandVaultMongoCollections,
+    orgId: string,
+  ): Promise<BrandAccessGrants> {
+    if (!collections.brandAccess) return new Map();
+    const docs = await collections.brandAccess
+      .find({ orgId } as Filter<BrandVaultMongoBrandAccessDocument>)
+      .toArray();
+    const grants = new Map<string, string[]>();
+    for (const doc of docs) {
+      const userIds = normalizeBrandAccessUserIds(doc.userIds);
+      if (userIds.length > 0) grants.set(doc.brandId, userIds);
+    }
+    return grants;
   }
 
   async saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): Promise<BrandVaultRefineryJobSnapshot> {
@@ -294,6 +356,7 @@ function collectionsFromDb(db: Db): BrandVaultMongoCollections {
     profiles: db.collection<BrandVaultMongoProfileDocument>(BRAND_VAULT_COLLECTIONS.profiles),
     events: db.collection<BrandVaultMongoEventDocument>(BRAND_VAULT_COLLECTIONS.events),
     jobs: db.collection<BrandVaultMongoJobDocument>(BRAND_VAULT_COLLECTIONS.jobs),
+    brandAccess: db.collection<BrandVaultMongoBrandAccessDocument>(BRAND_VAULT_COLLECTIONS.brandAccess),
   };
 }
 
@@ -323,6 +386,9 @@ async function ensureIndexes(collections: BrandVaultMongoCollections): Promise<v
     { key: { recordId: 1, createdAt: -1 }, name: 'record_createdAt' },
     { key: { userId: 1, createdAt: -1 }, name: 'user_createdAt' },
     { key: { orgId: 1, userId: 1, createdAt: -1 }, name: 'org_user_createdAt' },
+  ]);
+  await collections.brandAccess?.createIndexes?.([
+    { key: { orgId: 1, brandId: 1 }, name: 'org_brand', unique: true },
   ]);
 }
 

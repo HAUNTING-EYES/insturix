@@ -1,5 +1,11 @@
 import type { BrandSignalProfile } from './brand-signal-profile';
 import {
+  brandAccessKey,
+  filterAccessibleBrands,
+  normalizeBrandAccessUserIds,
+  type BrandAccessGrants,
+} from './brand-access';
+import {
   collectBrandSignals,
   type BrandSignalLifecycleOptions,
   type BrandSignalProfileRecord,
@@ -97,7 +103,16 @@ export type BrandVaultAcceptedBrandListFilter = {
   orgId?: string | null;
   userId?: string;
   limit?: number;
+  /** Org context only: when true the requester bypasses brand-access restrictions (agency admin). */
+  isOrgAdmin?: boolean;
 };
+
+/** Agency ACL: assign a brand to specific org users. An empty userIds list CLEARS the restriction. */
+export interface BrandAccessAssignmentInput {
+  orgId: string;
+  brandId: string;
+  userIds: string[];
+}
 
 export interface BrandVaultAcceptedBrandSummary {
   brandId: string;
@@ -112,6 +127,10 @@ export interface BrandVaultAcceptedBrandSummary {
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
   getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
   listAcceptedBrands?(filter?: BrandVaultAcceptedBrandListFilter): BrandVaultStoreResult<BrandVaultAcceptedBrandSummary[]>;
+  /** Agency ACL: assign a brand to specific org users ([] clears). Optional — stores omitting it grant all. */
+  setBrandAccess?(input: BrandAccessAssignmentInput): BrandVaultStoreResult<void>;
+  /** Agency ACL: brand->users assignments for an org (only RESTRICTED brands appear). */
+  getBrandAccessGrants?(orgId: string): BrandVaultStoreResult<BrandAccessGrants>;
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot>;
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
@@ -226,6 +245,8 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
   private readonly profiles = createInMemoryBrandSignalProfileRepository();
   private readonly jobs = new Map<string, BrandVaultRefineryJobSnapshot>();
   private readonly recordToJob = new Map<string, string>();
+  // Agency ACL: `${orgId}::${brandId}` -> allowed userIds. Only RESTRICTED brands are stored.
+  private readonly brandAccess = new Map<string, string[]>();
 
   saveRecord(record: BrandSignalProfileRecord, options: BrandSignalLifecycleOptions = {}): BrandSignalProfileRecord {
     return this.profiles.saveRecord(record, options);
@@ -252,15 +273,39 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
   }
 
   listAcceptedBrands(filter: BrandVaultAcceptedBrandListFilter = {}): BrandVaultAcceptedBrandSummary[] {
-    const userId = filter.orgId === undefined || filter.orgId === null ? filter.userId : undefined;
-    return summarizeAcceptedBrandRecords(
-      this.profiles.listRecords({
-        orgId: filter.orgId,
-        userId,
-        status: 'accepted',
-      }),
-      filter.limit,
+    const inOrg = filter.orgId !== undefined && filter.orgId !== null;
+    const scopedUserId = inOrg ? undefined : filter.userId;
+    const summaries = summarizeAcceptedBrandRecords(
+      this.profiles.listRecords({ orgId: filter.orgId, userId: scopedUserId, status: 'accepted' }),
+      // In an org we summarize broad, filter by access, THEN slice — so a restricted brand never eats a slot.
+      inOrg ? undefined : filter.limit,
     );
+    if (!inOrg) return summaries;
+    const accessible = filterAccessibleBrands(summaries, this.readBrandAccessGrants(filter.orgId as string), {
+      userId: filter.userId,
+      isOrgAdmin: filter.isOrgAdmin,
+    });
+    return typeof filter.limit === 'number' ? accessible.slice(0, Math.max(1, filter.limit)) : accessible;
+  }
+
+  setBrandAccess(input: BrandAccessAssignmentInput): void {
+    const key = brandAccessKey(input.orgId, input.brandId);
+    const userIds = normalizeBrandAccessUserIds(input.userIds);
+    if (userIds.length === 0) this.brandAccess.delete(key); // empty = reopen the brand to the whole org
+    else this.brandAccess.set(key, userIds);
+  }
+
+  getBrandAccessGrants(orgId: string): BrandAccessGrants {
+    return this.readBrandAccessGrants(orgId);
+  }
+
+  private readBrandAccessGrants(orgId: string): Map<string, string[]> {
+    const prefix = brandAccessKey(orgId, '');
+    const grants = new Map<string, string[]>();
+    for (const [key, userIds] of this.brandAccess) {
+      if (key.startsWith(prefix)) grants.set(key.slice(prefix.length), [...userIds]);
+    }
+    return grants;
   }
 
   saveJobSnapshot(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultRefineryJobSnapshot {
@@ -801,7 +846,12 @@ export async function reviewBrandVaultSignalProfileDraft(
   const parsedSignalEdits = parseSignalValueEdits(body.signalEdits);
   if (!parsedSignalEdits.ok) return invalidRequest(parsedSignalEdits.message);
   if (action === 'accept' && !cleanString(record.profile.brandId)) {
-    return invalidRequest('brandId is required before accepting a Brand Vault profile.');
+    // First-run / pre-mint drafts can lack a brandId, which would make them PERMANENTLY un-acceptable
+    // (and the user's review work unrecoverable — the old behavior just refused). Mint a stable one and
+    // persist it BEFORE accept (which only flips status), so the accepted profile carries the brandId and
+    // shows up in the switcher. Format matches the client scan-mint (`brand_<uuid>`).
+    record.profile.brandId = `brand_${globalThis.crypto.randomUUID()}`;
+    await dependencies.store.saveRecord(record, options);
   }
 
   const result =

@@ -100,7 +100,7 @@ export async function writeBrandSignalLearningEventsToBrandVault(
     if (learningEvents.length === 0) return { ok: true, skipped: true, reason: 'no_learning_events' };
 
     const now = input.now ?? new Date().toISOString();
-    const profile = createLearningProfile(input, now);
+    const profile = await resolveLearningProfileBase(input, now);
     const rawCandidates = learningEvents
       .map((event, index) => createLearningEventCandidate(input, event, index, now))
       .filter((candidate): candidate is BrandEvidenceCandidate => Boolean(candidate));
@@ -324,6 +324,38 @@ function repetitionConfidenceBoost(count: number): number {
 function repetitionWeightBoost(count: number): number {
   if (count <= 1) return 0;
   return Math.min(0.18, Math.log2(count) * 0.055);
+}
+
+/**
+ * Base profile a learning draft is built on. Seeds from the brand's CURRENT accepted profile so that
+ * accepting the draft ENRICHES the brand (the learned candidates overlay onto the full profile — arrays
+ * merge, dials update) instead of replacing it with a sparse learning-only profile that would shadow the
+ * real brand at read time (getLatestAcceptedProfile returns the latest record whole, no cross-record
+ * merge). First-time brands with no accepted profile fall back to the sparse base — there is nothing to
+ * shadow. Fail-soft: a read error also falls back to the sparse base rather than dropping the learning.
+ */
+async function resolveLearningProfileBase(
+  input: BrandVaultLearningEventWriteInput,
+  generatedAt: string,
+): Promise<BrandSignalProfile> {
+  const store = input.store ?? getDefaultBrandVaultRefineryStore();
+  if (input.brandId && typeof store.getLatestAcceptedProfile === 'function') {
+    try {
+      const existing = await store.getLatestAcceptedProfile({ brandId: input.brandId, userId: input.userId });
+      if (existing) {
+        const base = JSON.parse(JSON.stringify(existing)) as BrandSignalProfile;
+        base.generatedAt = generatedAt;
+        base.brandId = input.brandId;
+        return base;
+      }
+    } catch (error) {
+      console.warn(
+        '[BrandVault:LearningEvents] could not seed from accepted profile; using sparse base:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  return createLearningProfile(input, generatedAt);
 }
 
 function createLearningProfile(input: BrandVaultLearningEventWriteInput, generatedAt: string): BrandSignalProfile {

@@ -1,13 +1,15 @@
 'use client';
 
 /**
- * ConflictCard
+ * ConflictCard — "Pick what fits"
  *
- * The C1 decision focal point: one signal path, multiple disagreeing evidence
- * candidates, and a clear local resolution action.
+ * When a few different values were found for one piece of brand info, the user picks the one that fits.
+ * Deliberately plain: it shows the candidate VALUES (deduped) as selectable options with one suggested —
+ * never the signal path, source type, authority/trust tier, confidence %, or "N sources disagree". The
+ * user decides; they never see the voting mechanics behind the disagreement (founder IP directive).
  */
 
-import { AlertTriangle } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { SignalConflict } from './brand-vault-types';
 import { formatValue } from './brand-vault-data';
 
@@ -27,197 +29,115 @@ function candidateValue(candidate: SignalConflict['candidates'][number]): unknow
   return candidate.normalizedValue ?? candidate.rawValue;
 }
 
-function authorityLabel(candidate: SignalConflict['candidates'][number]): string {
-  const authority = candidate.authorityClass.replace(/_/g, ' ');
-  return `${authority} / ${Math.round(candidate.confidence * 100)}%`;
-}
+export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onReject }: ConflictCardProps) {
+  // Distinct candidate values, highest-confidence first (candidates arrive pre-sorted). Hooks run before
+  // the null guard so the order is stable.
+  const options = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { value: unknown; label: string; isColor: boolean }[] = [];
+    for (const candidate of conflict?.candidates ?? []) {
+      const value = candidateValue(candidate);
+      const label = formatValue(value);
+      const key = label.trim().toLowerCase();
+      if (!label || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ value, label, isColor: isColorValue(value) });
+    }
+    return out;
+  }, [conflict]);
+  const [selected, setSelected] = useState(0);
 
-function sourceLabel(candidate: SignalConflict['candidates'][number]): string {
-  return candidate.sourceType.replace(/_/g, ' ');
-}
-
-export function ConflictCard({
-  conflict,
-  resolved = false,
-  onAccept,
-  onEdit,
-  onReject,
-}: ConflictCardProps) {
   if (!conflict) return null;
-
-  const recommended = conflict.candidates[0];
-  const recommendation = recommended ? candidateValue(recommended) : undefined;
-  const recommendationLabel = formatValue(recommendation);
-  const swatchColor = isColorValue(recommendation) ? recommendation : '#282724';
+  const chosen = options[selected] ?? options[0];
 
   return (
     <div
       style={{
         marginBottom: resolved ? 0 : 40,
-        maxHeight: resolved ? 0 : 560,
+        maxHeight: resolved ? 0 : 640,
         opacity: resolved ? 0 : 1,
         overflow: 'hidden',
         transition:
           'max-height 0.6s cubic-bezier(.16,1,.3,1), opacity 0.5s cubic-bezier(.16,1,.3,1), margin 0.6s cubic-bezier(.16,1,.3,1)',
       }}
     >
-      <div className="mb-4 flex items-center gap-3">
-        <span
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            color: '#D4A652',
-          }}
-        >
-          Needs decision
-        </span>
-        <span
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-            padding: '3px 10px',
-            borderRadius: 6,
-            background: '#1B1A18',
-            border: '1px solid #1C1B19',
-            color: '#7A776E',
-          }}
-        >
-          1
-        </span>
-      </div>
+      <div className="mb-3" style={{ fontSize: 13, fontWeight: 500, color: '#D4A652' }}>Needs your pick</div>
 
       <article
         className="relative overflow-hidden rounded-[14px]"
-        style={{
-          background: '#0F0F0E',
-          border: '1px solid rgba(212,166,82,0.22)',
-          padding: '22px 24px',
-        }}
+        style={{ background: '#0F0F0E', border: '1px solid rgba(212,166,82,0.22)', padding: '22px 24px' }}
       >
         <div className="absolute left-0 right-0 top-0 h-0.5" style={{ background: '#D4A652' }} />
 
-        <div className="mb-4 flex items-center gap-3.5">
-          <span
-            aria-hidden="true"
-            style={{
-              width: 40,
-              height: 40,
-              flex: '0 0 auto',
-              borderRadius: 5,
-              border: '1px solid #282724',
-              background: swatchColor,
-            }}
-          />
-          <div className="min-w-0 flex-1">
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 500, color: '#ECE9E1' }}>
-              {conflict.label}
-            </h2>
-            <div style={{ marginTop: 2, fontSize: 12, color: '#7A776E' }}>
-              {conflict.path} / {conflict.candidates.length} sources disagree
-            </div>
-          </div>
-          <span
-            className="inline-flex items-center gap-1.5"
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              padding: '4px 9px',
-              borderRadius: 6,
-              border: '1px solid rgba(212,106,92,0.35)',
-              background: 'rgba(212,106,92,0.08)',
-              color: '#D46A5C',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <AlertTriangle size={12} /> conflict
-          </span>
-        </div>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 500, color: '#ECE9E1' }}>
+          {conflict.label} — which fits?
+        </h2>
+        <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#9A978E', lineHeight: 1.5 }}>
+          We saw a few possibilities across your content. Pick the one that sounds like you.
+        </p>
 
-        <div>
-          {conflict.candidates.map((candidate) => {
-            const value = candidateValue(candidate);
-            const color = isColorValue(value) ? value : '#282724';
+        <div className="grid gap-2">
+          {options.map((option, index) => {
+            const isSelected = index === selected;
+            const isSuggested = index === 0;
             return (
-              <div
-                key={candidate.id}
-                className="flex items-center gap-3"
+              <button
+                key={option.label}
+                type="button"
+                onClick={() => setSelected(index)}
+                className="flex items-center gap-3 text-left"
                 style={{
-                  padding: '11px 0',
-                  borderTop: '1px solid #131312',
+                  padding: '11px 13px',
+                  borderRadius: 9,
+                  border: isSelected ? '1px solid rgba(212,166,82,0.45)' : '1px solid #1C1B19',
+                  background: isSelected ? 'rgba(212,166,82,0.08)' : 'transparent',
+                  color: '#ECE9E1',
                 }}
               >
-                <div className="flex min-w-0 flex-1 items-center gap-2.5" style={{ color: '#B5B2A8', fontSize: 13 }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 16,
+                    height: 16,
+                    flex: '0 0 auto',
+                    borderRadius: '50%',
+                    border: isSelected ? '4px solid #D4A652' : '1px solid #5F5E5A',
+                  }}
+                />
+                {option.isColor && (
                   <span
                     aria-hidden="true"
-                    style={{
-                      width: 18,
-                      height: 18,
-                      flex: '0 0 auto',
-                      borderRadius: 5,
-                      border: '1px solid #282724',
-                      background: color,
-                    }}
+                    style={{ width: 18, height: 18, flex: '0 0 auto', borderRadius: 5, border: '1px solid #282724', background: String(option.value) }}
                   />
-                  <span className="truncate">
-                    {sourceLabel(candidate)} / {formatValue(value)}
+                )}
+                <span className="flex-1 truncate" style={{ fontSize: 13 }}>{option.label}</span>
+                {isSuggested && (
+                  <span
+                    style={{
+                      flex: '0 0 auto',
+                      fontSize: 11,
+                      color: '#D4A652',
+                      background: 'rgba(212,166,82,0.14)',
+                      borderRadius: 999,
+                      padding: '2px 9px',
+                    }}
+                  >
+                    Suggested
                   </span>
-                </div>
-                <span
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                    padding: '4px 9px',
-                    borderRadius: 6,
-                    border: candidate === recommended ? '1px solid rgba(94,201,126,0.35)' : '1px solid #282724',
-                    background: candidate === recommended ? 'rgba(94,201,126,0.08)' : 'transparent',
-                    color: candidate === recommended ? '#5EC97E' : '#7A776E',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {authorityLabel(candidate)}
-                </span>
-              </div>
+                )}
+              </button>
             );
           })}
         </div>
 
-        <p
-          style={{
-            margin: '16px 0 0',
-            paddingTop: 14,
-            borderTop: '1px solid #131312',
-            color: '#B5B2A8',
-            fontSize: 13,
-            lineHeight: 1.6,
-          }}
-        >
-          Highest-confidence evidence recommends{' '}
-          <b style={{ color: '#5EC97E', fontWeight: 500 }}>{recommendationLabel}</b>. Resolving here clears the review anomaly; accepting the profile still publishes the full draft.
-        </p>
-
         <div className="mt-4 flex flex-wrap gap-2.5">
           <button
             type="button"
-            onClick={() => onAccept(conflict.path, recommendation)}
-            className="inline-flex min-h-8 items-center gap-2 rounded-[7px] px-3"
-            style={{
-              background: '#D4A652',
-              border: '1px solid #D4A652',
-              color: '#0B0B0A',
-              fontSize: 11,
-              fontWeight: 800,
-            }}
+            onClick={() => onAccept(conflict.path, chosen?.value)}
+            className="inline-flex min-h-8 items-center gap-2 rounded-[7px] px-4"
+            style={{ background: '#D4A652', border: '1px solid #D4A652', color: '#0B0B0A', fontSize: 13, fontWeight: 500 }}
           >
-            Accept {recommendationLabel}
+            Use this
           </button>
           <button type="button" onClick={() => onEdit(conflict.path)} className="bv-c1-button">
             Edit
@@ -226,13 +146,9 @@ export function ConflictCard({
             type="button"
             onClick={() => onReject(conflict.path)}
             className="bv-c1-button"
-            style={{
-              color: '#D46A5C',
-              borderColor: 'rgba(212,106,92,0.3)',
-              background: 'transparent',
-            }}
+            style={{ color: '#9A978E', borderColor: '#282724', background: 'transparent' }}
           >
-            Reject
+            Skip
           </button>
         </div>
       </article>

@@ -1198,6 +1198,25 @@ export function modelSupportsSeed(modelId: string): boolean {
 }
 
 /**
+ * Whether a model renders legible in-image text well enough to bake copy into the raster,
+ * instead of keeping the image text-free for editable overlays (the suppress-text default).
+ * Text-strong families only: Nano Banana (Gemini-based) / Seedream / Gemini 3 Pro Image.
+ * Imagen4 + Flux render words as gibberish, so they stay in suppress-text mode.
+ * ponytail: family substring match so new Seedream / Nano-Banana variants are covered
+ * without editing a hardcoded id list.
+ * @param modelId - The model ID the user picked
+ * @returns True if the model can render readable text in the image
+ */
+export function modelSupportsTextRendering(modelId: string | undefined | null): boolean {
+  if (!modelId) return false;
+  return (
+    modelId.includes('nano-banana') ||
+    modelId.includes('seedream') ||
+    modelId.includes('gemini-3-pro-image')
+  );
+}
+
+/**
  * Process parent variation image URL
  * @param parentVariationId - The parent variation ID
  * @param variations - The variations array

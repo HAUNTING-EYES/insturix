@@ -464,6 +464,51 @@ export function getAntiAiConstraintBundle(): AntiAiConstraintBundle {
 
   return { constraints, fillerPatterns, promptGuidance };
 }
+
+/**
+ * Render the writing knowledge graph into a prompt block: the top technique per category
+ * (DO / EXAMPLE / WHY / NEVER), selected deterministically from the creative signals, plus a
+ * grounded-specificity quality line. Single source of truth shared by every writer
+ * (ScriptAuthor + the flat Post/Script writers) so technique injection can't drift between
+ * stacks. Returns '' when nothing matches (caller omits the block). Never throws.
+ */
+export function buildWritingKnowledgeBlock(signals: Partial<CreativeSignals>): string {
+  try {
+    const techniqueMap = selectAllTechniques(signals, 2);
+    const antiAiConstraints = getConstraints('Anti-AI Constraints');
+
+    if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
+      console.log('[ThinkForge:WritingKnowledge] No techniques or constraints matched. Signals provided:', Object.keys(signals).length);
+      return '';
+    }
+
+    const lines: string[] = ['<writing_knowledge>'];
+    let techniqueCount = 0;
+
+    techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
+      const top = techniques[0];
+      if (!top) return;
+      techniqueCount++;
+      lines.push(`${category.toUpperCase()}: ${top.id}`);
+      if (top.primary) lines.push(`  DO: ${top.primary}`);
+      if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
+      if (top.why) lines.push(`  WHY: ${top.why}`);
+      if (top.antiPatterns && top.antiPatterns.length > 0) {
+        lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
+      }
+    });
+
+    lines.push('');
+    lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
+    lines.push('</writing_knowledge>');
+    console.log(`[ThinkForge:WritingKnowledge] Injected ${techniqueCount} techniques + ${antiAiConstraints.length} constraints`);
+    return lines.join('\n');
+  } catch (e) {
+    console.error('[ThinkForge:WritingKnowledge] Failed to build knowledge block:', e);
+    return '';
+  }
+}
+
 export function getPlatform(name: string): PlatformSpec | null {
   const index = loadWritingGraph();
   return index?.platforms.get(name.toLowerCase()) ?? null;

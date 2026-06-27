@@ -5,7 +5,7 @@ import type { ScriptOutline } from './script-outline-agent';
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { ScriptIntent, type AgentScriptResponse } from '../protocol/intent';
 import { parseAgentJson } from '../protocol/parse-agent-json';
-import { selectAllTechniques, selectTechniques, getConstraints, type TechniqueResult } from '../data/writing-graph-query';
+import { buildWritingKnowledgeBlock } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
 import {
   formatContentSignalProfileForPrompt,
@@ -46,47 +46,6 @@ export class ScriptAuthorAgent extends BaseAgent {
       maxTokens: config?.maxTokens ?? 3500,
       temperature: config?.temperature ?? 0.7,
     });
-  }
-
-  // ─── Writing Knowledge Injection ──────────────────────────────────
-  private buildWritingKnowledgeBlock(
-    signals: Partial<import('../../shared/signals/types').CreativeSignals>,
-  ): string {
-    try {
-      const techniqueMap = selectAllTechniques(signals, 2);
-      const antiAiConstraints = getConstraints('Anti-AI Constraints');
-
-      if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
-        console.log('[ThinkForge:WritingKnowledge] No techniques or constraints matched. Signals provided:', Object.keys(signals).length);
-        return '';
-      }
-
-      const lines: string[] = ['<writing_knowledge>'];
-      let techniqueCount = 0;
-
-      techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
-        const top = techniques[0];
-        if (!top) return;
-        techniqueCount++;
-        lines.push(`${category.toUpperCase()}: ${top.id}`);
-        if (top.primary) lines.push(`  DO: ${top.primary}`);
-        if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
-        if (top.why) lines.push(`  WHY: ${top.why}`);
-        if (top.antiPatterns && top.antiPatterns.length > 0) {
-          lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
-        }
-      });
-
-      lines.push('');
-      lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
-
-      lines.push('</writing_knowledge>');
-      console.log(`[ThinkForge:WritingKnowledge] Injected ${techniqueCount} techniques + ${antiAiConstraints.length} constraints`);
-      return lines.join('\n');
-    } catch (e) {
-      console.error('[ThinkForge:WritingKnowledge] Failed to build knowledge block:', e);
-      return '';
-    }
   }
 
   private buildContentSignalProfileBlock(profile?: ThinkForgeContentSignalProfile): string {
@@ -514,7 +473,7 @@ Final rule: This must feel like something a professional would use immediately �
       userPrompt,
     });
 
-    const writingBlock = this.buildWritingKnowledgeBlock(signals);
+    const writingBlock = buildWritingKnowledgeBlock(signals);
     const outputFormat = this.buildOutputFormatBlock({
       documentType,
       medium,

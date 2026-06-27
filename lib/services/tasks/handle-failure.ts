@@ -53,29 +53,43 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
 
       console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Alyzitron task ${taskId}`);
     } catch (refundError) {
-      console.error('[handleTaskFailure] Failed to refund Alyzitron credits:', refundError);
+      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+      console.error('[LOUDFAIL][handleTaskFailure][REFUND-FAILED][MONEY-LOSS] Alyzitron refund threw but task is still marked refunded:true below (audit-trail lie):', { taskId, userId, serviceName, refundError });
     }
   }
 
   // Handle credits refund for Clickatron
   if (serviceName === 'clickatron') {
     try {
-      // Determine the action from taskType
-      const action = taskType === 'variation' ? 'generate_variation' : 'generate_ad';
-      
+      // Clickatron bills every generation under the single 'variation' action
+      // (see CREDIT_COSTS.clickatron in lib/config/creditCosts.ts — baseCost 3).
+      // The previous keys 'generate_variation' / 'generate_ad' do not exist in the
+      // config, so getCreditCost returned 0 and failed tasks refunded nothing.
+      const action = 'variation';
+
       // Calculate credits to refund (base cost for the action)
       const creditsToRefund = getCreditCost('clickatron', action, {});
 
-      await CreditsService.refundCredits(
-        userId,
-        creditsToRefund,
-        `Task timeout - ${taskId}`,
-        { service: 'clickatron', action }
-      );
+      if (creditsToRefund <= 0) {
+        // Fail loud rather than issue a silent no-op refund: a zero here means the
+        // credit-cost config no longer has the 'variation' action (regression).
+        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+        console.error(
+          `[LOUDFAIL][handleTaskFailure][CONFIG-REGRESSION][MONEY] getCreditCost('clickatron','${action}') returned ${creditsToRefund} -> refund aborted (task ${taskId}, user ${userId})`,
+        );
+      } else {
+        await CreditsService.refundCredits(
+          userId,
+          creditsToRefund,
+          `Task timeout - ${taskId}`,
+          { service: 'clickatron', action },
+        );
 
-      console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Clickatron task ${taskId}`);
+        console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Clickatron task ${taskId}`);
+      }
     } catch (refundError) {
-      console.error('[handleTaskFailure] Failed to refund Clickatron credits:', refundError);
+      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+      console.error('[LOUDFAIL][handleTaskFailure][REFUND-FAILED][MONEY-LOSS] Clickatron refund threw but task is still marked refunded:true below (audit-trail lie):', { taskId, userId, refundError });
     }
   }
 

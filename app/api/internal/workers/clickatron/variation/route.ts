@@ -15,6 +15,7 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from '@/lib/clickatron/brand-prompt-context';
+import { resolveClickatronBrandReferenceImages } from '@/lib/clickatron/brand-reference-images';
 import sharp from 'sharp';
 
 // Configure Fal AI client
@@ -256,6 +257,8 @@ async function handler(req: Request) {
         prompt: job.prompt,
         metadata: promptMetadata,
         brandContextBlock,
+        // C2: the picked model decides in-image text rendering on the default text policy.
+        modelId: variation.modelId,
       });
 
       if (enrichedPrompt !== job.prompt) {
@@ -295,6 +298,21 @@ async function handler(req: Request) {
         console.log('Worker: Added parent image URL:', parentImageUrl);
       }
       imageUrls.push(...referenceImageUrls);
+      // #4 (brand asset island): an explicit product mockup with NO parent/user image seeds the brand's
+      // own scanned product imagery as reference, so the output is brand-faithful. Intent-gated
+      // (product_mockup only — Rule 29) and never overrides a user's parent/reference images. Fail-soft.
+      if (!parentImageUrl && referenceImageUrls.length === 0) {
+        const brandReferenceImages = await resolveClickatronBrandReferenceImages({
+          userId: job.userId,
+          brandId: promptBrandId,
+          metadata: promptMetadata,
+          orgId: task.orgId ?? null,
+        });
+        if (brandReferenceImages.length > 0) {
+          imageUrls.push(...brandReferenceImages);
+          console.log('[Worker] Clickatron brand product reference images added:', brandReferenceImages.length);
+        }
+      }
       console.log('Worker: Total image URLs:', imageUrls.length);
 
       // Only add image_urls to generationParams if we have images

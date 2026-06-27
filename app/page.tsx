@@ -1,8 +1,7 @@
 import { Metadata } from "next";
 import Script from "next/script";
 import { getBaseUrl } from "@/lib/env";
-import { SiteNavbar } from "@/components/shared/site-navbar";
-import { LandingPageA } from "@/components/landing-a/landing-page-a";
+import { LandingKinetic } from "@/components/landing-kinetic/landing-page-kinetic";
 
 export const metadata: Metadata = {
   title: "Insturix | Automated Content Production Platform",
@@ -96,9 +95,10 @@ export default function Home() {
           __html: JSON.stringify(websiteStructuredData),
         }}
       />
-      <SiteNavbar />
-      <LandingPageA />
-      {/* SiteFooter is rendered inside LandingPageA's marketing scroll container */}
+      {/* Home swapped to the founder-finalized kinetic landing — it ships its own fixed nav
+          and footer, so SiteNavbar/LandingPageA are no longer rendered here. The SEO JSON-LD
+          scripts above are preserved. Was: <SiteNavbar /> + <LandingPageA /> marketing scroll. */}
+      <LandingKinetic />
     </>
   );
 }

@@ -222,7 +222,7 @@ export function SiteNavbar() {
 // LOGO — image ↔ text toggle (preserved from current navbar)
 // ═══════════════════════════════════════════════════════════════
 
-function LogoBrand() {
+export function LogoBrand() {
   const [showLogo, setShowLogo] = useState(true);
   const [mounted, setMounted] = useState(false);
 
@@ -529,7 +529,7 @@ function MobileNavItem({
 // AUTH BUTTONS
 // ═══════════════════════════════════════════════════════════════
 
-function AuthButtons() {
+export function AuthButtons() {
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
   const [mounted, setMounted] = useState(false);

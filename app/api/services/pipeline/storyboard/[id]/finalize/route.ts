@@ -7,6 +7,7 @@ import { CreditsService } from '@/lib/services/creditsService';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
+import { dispatchAudioJob } from '@/lib/editron/services/audio-worker-dispatch';
 import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -810,32 +811,8 @@ export async function POST(
     // These run asynchronously AFTER the project is created. Each worker
     // has its own 300s timeout. They add overlays to the project via
     // MongoDB $push when complete. User refreshes Editron to see them.
-    const audioWorkerUrl = (() => {
-      const base = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-      return `${base}/api/internal/workers/pipeline/audio`;
-    })();
-
-    const dispatchAudio = async (body: any, label: string) => {
-      try {
-        if (process.env.QSTASH_TOKEN) {
-          const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
-          const result = await qstash.publishJSON({ url: audioWorkerUrl, body, retries: 2 });
-          console.log(`[Finalize] ${label} dispatched via QStash: ${(result as any)?.messageId || 'ok'}`);
-        } else {
-          // Fallback: fire-and-forget fetch
-          fetch(audioWorkerUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          }).catch(() => {});
-          console.log(`[Finalize] ${label} dispatched via fetch (no QStash)`);
-        }
-      } catch (err: any) {
-        console.error(`[Finalize] ${label} dispatch failed:`, err.message);
-      }
-    };
+    // BGM/SFX dispatch goes through the shared audio-worker dispatcher (dispatchAudioJob) —
+    // same QStash fire-and-forget path, now shared with the director auto-edit BGM dispatch.
 
     // ─── Beat-sync: synchronous BGM path when parser flagged beatSyncActive ──
     // Design: pipeline_investigations.md "Beat-sync design doc (Option C)"
@@ -969,7 +946,7 @@ export async function POST(
           })),
         );
       console.log(`[Finalize] Dispatching BGM worker: "${musicPrompt.substring(0, 80)}", ${totalDurationSec}s`);
-      await dispatchAudio({
+      await dispatchAudioJob({
         type: 'bgm',
         projectId: project.projectId,
         userId,
@@ -1052,7 +1029,7 @@ export async function POST(
           `[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes ` +
           `(from ${hasSfxIntent} with sfxDescription/sfxCue; ${nativeAudioSceneCount} skipped due to hasNativeAudio — those rely on the clip's own audio)`,
         );
-        await dispatchAudio({
+        await dispatchAudioJob({
           type: 'sfx',
           projectId: project.projectId,
           userId,

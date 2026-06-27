@@ -38,8 +38,12 @@ export default function DashboardClientLayout({
               <Suspense fallback={<div className="fixed left-0 top-0 w-16 h-screen bg-[#0B0B0A] animate-pulse lg:block hidden" />}>
                 <DashboardSidebar />
               </Suspense>
-              <BrandSwitcher />
               <main className="min-h-screen bg-[#0B0B0A] lg:pl-[64px] pt-16 lg:pt-0">
+                {/* In-flow desktop top bar (matches the lg-only sidebar) so the brand switcher sits in its
+                    own row instead of floating over page controls. Sticky so it stays on scroll. */}
+                <div className="sticky top-0 z-40 hidden h-12 items-center justify-end border-b border-[#1C1B19] bg-[#0B0B0A]/85 px-4 backdrop-blur-md lg:flex">
+                  <BrandSwitcher />
+                </div>
                 <div className="min-h-screen">
                   {children}
                 </div>

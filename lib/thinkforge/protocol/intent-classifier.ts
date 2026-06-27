@@ -16,7 +16,11 @@ const CLASSIFIER_PROMPT = `<role>You are a strict intent classifier.</role>
 function normalizeIntent(raw: string): ScriptIntent | null {
   const value = raw.trim().toUpperCase();
   if (value in ScriptIntent) {
-    return ScriptIntent[value as keyof typeof ScriptIntent];
+    const intent = ScriptIntent[value as keyof typeof ScriptIntent];
+    // FORK (new branch preserving the original) has no separate-document path yet, so it used to
+    // dead-end at a 501 in /script/edit-blocks. Treat it as REWRITE (a new version in place) so the
+    // request does something useful. True fork-to-new-document is a later feature.
+    return intent === ScriptIntent.FORK ? ScriptIntent.REWRITE : intent;
   }
   return null;
 }

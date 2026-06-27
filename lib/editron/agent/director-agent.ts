@@ -726,6 +726,9 @@ export async function executeDirectorPlan(
               videoDurationSec: cleanDurationSec,
             });
             pathEGenreParams = genreResult.genreParams;
+            // Surface the signal-driven BGM decision so the quality gate doesn't flag "missing BGM"
+            // when the system correctly decided no BGM was needed (e.g. moderate speech / formal / short).
+            (pathEGenreParams as any).bgmRecommendation = genreResult.bgmRecommendation;
             console.log(`[Director] Path E: Genre params computed (confidence: ${genreResult.confidence}, zoom_budget=${pathEGenreParams.zoom_budget}, transition_density=${pathEGenreParams.transition_density})`);
           } catch (gpErr: any) {
             console.warn(`[Director] Path E: Genre param computation failed (non-fatal): ${gpErr.message}`);
@@ -1322,6 +1325,8 @@ export async function executeDirectorPlan(
             // Hoist for quality review step 11
             pathDConstraintViolations = constraintResult.violations;
             pathDGenreParams = genreOutput.genreParams;
+            // Surface the signal-driven BGM decision for the quality gate (see Path E note above).
+            (pathDGenreParams as any).bgmRecommendation = genreOutput.bgmRecommendation;
 
             // Convert to standard EDL format for executeEDL (backward compatible)
             edlSummary.totalDecisions = humanizedEdl.decisions.length;
@@ -1452,6 +1457,38 @@ export async function executeDirectorPlan(
             );
           }
 
+          // Install the canonical caption track BEFORE executeEDL so caption-emphasis decisions can
+          // find it. applyCaptionLayerEmphasis (edl-executor) searches `overlays` for a caption track;
+          // when the track was installed AFTER executeEDL, every caption-emphasis returned null -> 0
+          // emphasized words (observed in proj_e4BGPZza2CAl: 0/1739). Installing it here puts the track
+          // in `overlays` for the EDL pass so per-word emphasis can be marked.
+          if (editedTimelineContext) {
+            const captionPresentation = resolveAtomicCaptionPresentation({
+              requestedStyle: briefCaptionStyle,
+              profileStyle: undefined,
+              genreParams: pathDGenreParams,
+            });
+            const captionTrackResult = installCanonicalCaptionTrack({
+              overlays,
+              editedTimelineContext,
+              playerDimensions: canvas,
+              presentation: captionPresentation,
+            });
+            if (captionTrackResult.created > 0) {
+              result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
+              console.log(
+                `[Director] Canonical caption track: ${captionTrackResult.captionCount} groups, ` +
+                `${captionTrackResult.wordCount} words, style=${captionPresentation.style}, ` +
+                `mode=${captionPresentation.displayMode}, removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            } else {
+              console.log(
+                `[Director] Canonical caption track skipped (${captionTrackResult.skippedReason || 'unknown'}), ` +
+                `removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            }
+          }
+
           const unifiedExecutionResult = await executeEDL(
             unifiedDecisionBundle.edl,
             projectId,
@@ -1493,31 +1530,56 @@ export async function executeDirectorPlan(
             signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
 
-          if (editedTimelineContext) {
-            const captionPresentation = resolveAtomicCaptionPresentation({
-              requestedStyle: briefCaptionStyle,
-              profileStyle: undefined,
-              genreParams: pathDGenreParams,
-            });
-            const captionTrackResult = installCanonicalCaptionTrack({
-              overlays,
-              editedTimelineContext,
-              playerDimensions: canvas,
-              presentation: captionPresentation,
-            });
-            if (captionTrackResult.created > 0) {
-              result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
-              console.log(
-                `[Director] Canonical caption track: ${captionTrackResult.captionCount} groups, ` +
-                `${captionTrackResult.wordCount} words, style=${captionPresentation.style}, ` +
-                `mode=${captionPresentation.displayMode}, removedGenerated=${captionTrackResult.removedGenerated}`,
+          // ─── Auto-BGM dispatch ────────────────────────────────────────────────
+          // The director auto-edit path (raw footage) never enqueued the async BGM worker —
+          // only storyboard finalize does (finalize/route.ts:961) — so signal-driven BGM was
+          // DECIDED (shouldAddBgm) but never PRODUCED ("we never received a BGM"). Enqueue the
+          // same worker here, gated on (a) the signal AND (b) this being a NON-storyboard
+          // project: storyboard projects already get BGM from finalize, so dispatching here too
+          // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
+          // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
+          try {
+            const bgmRec = (pathDGenreParams as any)?.bgmRecommendation;
+            const isStoryboardProject = !!(projectDoc as any)?.sourceStoryboardId;
+            if (bgmRec?.shouldAddBgm === true && !isStoryboardProject) {
+              const { isBGMAvailable, buildMusicPrompt } = await import('@/lib/pipeline/bgm-service');
+              const bgmFps = project.fps || 30;
+              const bgmTotalFrames = overlays.reduce(
+                (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
+                0,
               );
-            } else {
-              console.log(
-                `[Director] Canonical caption track skipped (${captionTrackResult.skippedReason || 'unknown'}), ` +
-                `removedGenerated=${captionTrackResult.removedGenerated}`,
-              );
+              const bgmDurationSec = Math.round(bgmTotalFrames / bgmFps);
+              if (isBGMAvailable() && bgmDurationSec >= 10) {
+                // No scene descriptors / overallMusicPrompt on the auto-edit path — derive a music
+                // mood from genre signals; buildMusicPrompt maps mood+pacing -> BPM tier + key/mode.
+                const bgmEnergy = typeof pathDGenreParams?.energy_baseline === 'number' ? pathDGenreParams.energy_baseline : 0.5;
+                const bgmFormality = typeof pathDGenreParams?.formality === 'number' ? pathDGenreParams.formality : 0.5;
+                const bgmMood = bgmEnergy > 0.6 ? 'energetic'
+                  : bgmEnergy < 0.35 ? (bgmFormality > 0.55 ? 'calm' : 'nostalgic')
+                  : (bgmFormality > 0.6 ? 'sophisticated' : 'inspirational');
+                const bgmPacing = bgmEnergy > 0.6 ? 'fast' : bgmEnergy < 0.35 ? 'slow' : 'medium';
+                const bgmMusicPrompt = buildMusicPrompt(
+                  [{ mood: bgmMood, editDirections: { pacing: bgmPacing }, narration: 'voiceover' }],
+                  bgmDurationSec,
+                );
+                const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
+                await dispatchAudioJob({
+                  type: 'bgm',
+                  projectId,
+                  userId,
+                  storyboardId: '',
+                  musicPrompt: bgmMusicPrompt,
+                  totalDurationSec: bgmDurationSec,
+                  totalFrames: bgmTotalFrames,
+                  fps: bgmFps,
+                }, 'BGM(auto-edit)');
+                console.log(`[Director] Auto-BGM dispatched (mood=${bgmMood}, pacing=${bgmPacing}, ${bgmDurationSec}s) — signal shouldAddBgm=true, non-storyboard`);
+              } else {
+                console.log(`[Director] Auto-BGM skipped: isBGMAvailable=${isBGMAvailable()}, durationSec=${bgmDurationSec}`);
+              }
             }
+          } catch (bgmErr: any) {
+            console.warn(`[Director] Auto-BGM dispatch failed (non-fatal): ${bgmErr?.message ?? bgmErr}`);
           }
 
           pathDHandled = true;

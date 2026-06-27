@@ -29,7 +29,7 @@ describe('ThinkForge provider route resolution', () => {
     });
 
     expect(route.provider).toBe('gemini');
-    expect(route.model).toBe('gemini-3.1-flash-lite-preview');
+    expect(route.model).toBe('gemini-2.5-flash');
     expect(ModelTier.Structural).toBe('structural');
   });
 

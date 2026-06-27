@@ -3,9 +3,9 @@
  *
  * Replaces hardcoded model references across the codebase with a single configurable factory.
  *
- * Model hierarchy (updated 2026-05-15):
- *   gemini-3.1-flash     — Analysis, chat, captions, classification (fast + cheap)
- *   gemini-3.1-pro       — Intelligence, transcript editing, creative intent (best reasoning)
+ * Model hierarchy (updated 2026-06-27 — gemini-3.1-flash-lite-preview was pulled / returns 503):
+ *   gemini-2.5-flash     — Analysis, chat, captions, classification (fast + cheap)
+ *   gemini-3.1-pro-preview — Intelligence, transcript editing, creative intent (best reasoning)
  *
  * The factory uses the native @google/generative-ai SDK (not @ai-sdk/google).
  * The Vercel AI SDK callers (llm-scene-parser, unified-intelligence, reference-image)
@@ -29,8 +29,8 @@ async function getGenAI() {
 // ─── Model Getters ───────────────────────────────────────────────
 
 /** Canonical model name — single source of truth. Import this instead of hardcoding. */
-export const ANALYSIS_MODEL_NAME = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
-export const CHAT_MODEL_NAME = 'gemini-3.1-flash-lite-preview';
+export const ANALYSIS_MODEL_NAME = process.env.LLM_ANALYSIS_MODEL || 'gemini-2.5-flash';
+export const CHAT_MODEL_NAME = 'gemini-2.5-flash';
 
 /**
  * Get a model for video/image analysis (fast + cheap).
@@ -49,7 +49,7 @@ export async function getAnalysisModel() {
  */
 export async function getChatModel() {
   const genAI = await getGenAI();
-  return genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
+  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 }
 
 /**
@@ -133,7 +133,7 @@ export async function withAnalysisFallback<T>(
     return await fn(primaryModel);
   } catch (err: any) {
     if (isModelUnsupportedError(err)) {
-      const primaryName = process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview';
+      const primaryName = process.env.LLM_ANALYSIS_MODEL || 'gemini-2.5-flash';
       const fallbackName = 'gemini-2.5-flash';
       console.warn(`[ModelFactory] ${primaryName} unsupported for this operation, falling back to ${fallbackName}: ${err.message}`);
       const genAI = await getGenAI();

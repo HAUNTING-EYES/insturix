@@ -22,7 +22,7 @@ function initGenAI(): GoogleGenerativeAI {
   }
 }
 
-const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
+const PRIMARY_MODEL = "gemini-2.5-flash";
 const FALLBACK_MODEL = "gemini-2.5-flash";
 const MAX_BRAND_CONTEXT_CHARS = 3000;
 

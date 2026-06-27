@@ -131,6 +131,9 @@ function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, 
 
   queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.latestAcceptedRoot() });
   queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.acceptedBrandsRoot() });
+  // The global brand switcher (ActiveBrandProvider) keeps its own brand list under this key. Without this
+  // it stays stale after accept — the just-accepted brand never appears and the pill reads "No brand".
+  queryClient.invalidateQueries({ queryKey: ['active-brand', 'brands'] });
   if (data.record?.status === 'accepted' && recordId && brandId) {
     queryClient.setQueryData(BRAND_VAULT_KEYS.latestAccepted(brandId), recordId);
   }

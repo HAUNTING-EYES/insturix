@@ -202,6 +202,7 @@ export function BrandVaultReview() {
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
+  const conflictRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -535,13 +536,18 @@ export function BrandVaultReview() {
       setLocalError('Create or open a draft before accepting it.');
       return;
     }
-    if (!snapshot.record.profile.brandId) {
-      setLocalError('Select a brand/client and rescan before accepting this draft.');
-      return;
-    }
+    // NOTE: a missing brandId no longer blocks accept — the server mints one (see refinery-api), so even
+    // a first-run / pre-mint draft accepts cleanly instead of dead-ending with "rescan".
     const edits = Object.entries(signalEdits).map(([path, value]) => ({ path, value }));
     const result = await acceptDraft.mutateAsync({ recordId: snapshot.record.id, signalEdits: edits });
     setSnapshot((current) => mergeSnapshot(current, result));
+    // Bind the accepted brand (which the server may have just minted) as the active brand, so it appears
+    // and stays selected in the global switcher.
+    const acceptedBrandId = result.record?.profile?.brandId;
+    if (acceptedBrandId && acceptedBrandId !== activeBrandId) {
+      persistSelectedBrandId(acceptedBrandId);
+      setActiveBrandId(acceptedBrandId);
+    }
     setSignalEdits({});
     showToast(edits.length ? `Profile accepted with ${edits.length} user edit${edits.length === 1 ? '' : 's'}.` : 'Profile accepted as brand truth.', 'good');
   }
@@ -648,14 +654,30 @@ export function BrandVaultReview() {
             {activeBrandName} / {brandName} / {statusLabel}
           </span>
           <span className="flex-1" />
-          <span className={`bv-c1-pill ${needsCount === 0 ? 'clear' : ''}`}>
+          <button
+            type="button"
+            className={`bv-c1-pill ${needsCount === 0 ? 'clear' : ''}`}
+            style={{ cursor: needsCount === 0 ? 'default' : 'pointer' }}
+            title={needsCount === 0 ? 'No conflicts to resolve' : 'Jump to what needs your review'}
+            aria-label={needsCount === 0 ? 'All conflicts resolved' : `${needsCount} item${needsCount === 1 ? '' : 's'} need your review — jump to them`}
+            onClick={() => {
+              if (needsCount === 0) return;
+              conflictRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+          >
             {needsCount === 0 ? <Check size={13} /> : <AlertTriangle size={13} />}
             {needsCount === 0 ? 'all clear' : `${needsCount} needs you`}
-          </span>
-          <button type="button" className="bv-c1-primary" disabled={!canReview || busy} onClick={acceptProfile}>
-            {acceptDraft.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            {editedSignalCount ? `Accept profile (${editedSignalCount})` : 'Accept profile'}
           </button>
+          {snapshot.record?.status === 'accepted' ? (
+            <span className="bv-c1-pill clear" title="This profile is saved as your accepted brand truth">
+              <Check size={13} /> Accepted
+            </span>
+          ) : (
+            <button type="button" className="bv-c1-primary" disabled={!canReview || busy} onClick={acceptProfile}>
+              {acceptDraft.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              {editedSignalCount ? `Accept profile (${editedSignalCount})` : 'Accept profile'}
+            </button>
+          )}
         </header>
 
         {isScanning ? (
@@ -735,17 +757,19 @@ export function BrandVaultReview() {
             </div>
           )}
 
-          <ConflictCard
-            conflict={displayedConflict}
-            resolved={Boolean(resolvingConflictPath)}
-            onAccept={resolveConflict}
-            onEdit={(path) => {
-              setShowSignals(true);
-              showToast(`Open ${path} in the signal table to edit it.`, 'warn');
-              requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-            }}
-            onReject={(path) => resolveConflict(path, 'rejected')}
-          />
+          <div ref={conflictRef}>
+            <ConflictCard
+              conflict={displayedConflict}
+              resolved={Boolean(resolvingConflictPath)}
+              onAccept={resolveConflict}
+              onEdit={(path) => {
+                setShowSignals(true);
+                showToast(`Open ${path} in the signal table to edit it.`, 'warn');
+                requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+              }}
+              onReject={(path) => resolveConflict(path, 'rejected')}
+            />
+          </div>
 
           <div ref={signalTableRef} className="mt-2">
             <button
@@ -756,10 +780,10 @@ export function BrandVaultReview() {
             >
               <span>
                 <span className="block font-['JetBrains_Mono'] text-[10px] uppercase tracking-[0.18em] text-[#7A776E]">
-                  All signals &amp; evidence
+                  All your brand details
                 </span>
                 <span className="mt-0.5 block text-[12px] text-[#5F5E5A]">
-                  {editedSignals.length} signals · {summary.reviewOnly} review-only · expand to inspect
+                  {editedSignals.length} details · expand to review
                 </span>
               </span>
               {showSignals ? (
@@ -782,37 +806,13 @@ export function BrandVaultReview() {
           </div>
 
           <footer className="py-10 pb-[72px] text-center">
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 10,
-                fontWeight: 500,
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase',
-                color: '#5F5E5A',
-              }}
-            >
-              {summary.reviewOnly} review-only signals / evidence-backed until accepted
-            </span>
-            {snapshot.record && (
-              <div ref={decisionControlsRef} className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
-                <input
-                  value={lookupId}
-                  onChange={(event) => setLookupId(event.target.value)}
-                  placeholder="Job or profile id"
-                  className="bv-c1-input w-[260px]"
-                />
-                <button type="button" className="bv-c1-button" disabled={busy} onClick={reloadJob}>
-                  <RefreshCw size={14} /> Reload
-                </button>
-                <button type="button" className="bv-c1-button" disabled={busy} onClick={openProfile}>
-                  Open profile
-                </button>
+            {snapshot.record?.status === 'draft' && (
+              <div ref={decisionControlsRef} className="flex flex-wrap items-center justify-center gap-2.5">
                 <input
                   value={rejectReason}
                   onChange={(event) => setRejectReason(event.target.value)}
-                  placeholder="Reject reason"
-                  className="bv-c1-input w-[220px]"
+                  placeholder="Reason (only if you reject this)"
+                  className="bv-c1-input w-[280px]"
                   disabled={!canReview}
                 />
                 <button type="button" className="bv-c1-button danger" disabled={!canReview || busy} onClick={rejectProfile}>

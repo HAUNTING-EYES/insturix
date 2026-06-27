@@ -35,7 +35,7 @@ export class GeminiTrendsProvider implements TrendsProvider {
 
     const genAI = await getGenAI();
     const model = genAI.getGenerativeModel({
-      model: process.env.LLM_TRENDS_MODEL || "gemini-3.1-flash-lite-preview",
+      model: process.env.LLM_TRENDS_MODEL || "gemini-2.5-flash",
       tools: [{ googleSearch: {} }],
       // Rule 35: always seed. Grounding still varies with live web results, but this removes
       // model-side sampling nondeterminism. value(7) <- fixed arbitrary seed.

@@ -7,6 +7,35 @@ This document is the **authoritative** operating plan for the next implementatio
 No one-off patches. No â€œPath E vs Path D mergeâ€ claims unless the control flow is
 proven in code for producer â†’ authority â†’ final consumer.
 
+## START HERE -- 2026-06-27 Codex Handoff (current remaining work)
+
+**Full execute-cold instructions:** [`Editron-Codex-Handoff-2026-06-27.md`](./Editron-Codex-Handoff-2026-06-27.md)
+-- every task has a verified root cause (file:line, read 2026-06-27), a concrete fix, acceptance criteria, and
+verification steps. Read its Section 0 (git + verification constraints) FIRST.
+
+Shipped 2026-06-27 (done -- context in the handoff Section 1): gemini flash-lite-preview pull -> 2.5-flash
+(`a566b433`/`a65ca257`, 3.1-pro KEPT), caption per-word emphasis ordering (`48cba338`), BGM false-warning gate
+(`a4cb2cf9`), black-video speed-segment lead-in (`be91771c`), caption registry + measured read-speed + renderer
+atoms (`906a2727`/`705cda69`/`c60b2836`/`803d4c28`), auto-BGM dispatch + shared audio-worker dispatcher
+(`45925eb3`, L2 only -- needs L3 verify).
+
+Open tasks (priority order -- full detail in the handoff):
+1. **P1 Quality score saturates at 0** (`quality-review-service.ts:1484-1491`): flat, uncapped -5/warning floors the
+   score at 0 after just 20 warnings; the persisted 0 **poisons the genre-parameter bandit reward**
+   (`genre-parameter-bandit.ts:227`). Fix = per-type cap + advisory/blocking split.
+2. **P1 `text-embedding-004` 404 -> silent search degradation** (5 call sites): swap to `text-embedding-005`
+   (768-dim, legacy-SDK-safe; do NOT use `gemini-embedding-001` = 3072-dim, which silently corrupts the 768 index)
+   + backfill old vectors.
+3. **P1 Auto-BGM L3 verify**: confirm `45925eb3` actually lands a BGM overlay on a real raw-footage auto-edit
+   (needs `FAL_AI_API_KEY` + `QSTASH_TOKEN`).
+4. **P2 Transition produce-then-suppress** (`signal-executor.ts`): pre-gate transitions at the producer
+   (boundary/pair/direction) instead of letting 3 downstream layers discard them.
+5. **P2 Chapter-concat for >15-min renders is BUILT (`455ddf5b`), only NOT DEPLOYED** -- Modal deploy + 2 Vercel
+   env vars + secret + smoke test. (The earlier "unbuilt P0 / fails at >3min" claim is STALE -- corrected.)
+6. **P3 TRIBE perf** (V-JEPA frame sampling is the lever) and **MEMORY.md compaction** (Claude memory, not repo).
+
+---
+
 ## 0) 2026-06-21 Binding Update From Codex Plan Brief
 
 Source brief: `Editron-Codex-Plan-Brief-2026-06-20.md`.

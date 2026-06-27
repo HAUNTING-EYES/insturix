@@ -17,6 +17,13 @@ import {
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 
+// Hard upper bound on carousel slides. The writers (carouselPrompts/scenePrompts)
+// and the creative contract do not cap slide count, so we clamp here at the point
+// where prompts become slides — keeping the persisted spec, the session-draft
+// prompt, and the Clickatron fan-out all consistent at <= 7 slides.
+// 7 ← product requirement (P6 carousel spec). Mirrored in the clickatron session route.
+const MAX_CAROUSEL_SLIDES = 7;
+
 const PROJECT_META_KEYS = [
   "idea",
   "purpose",
@@ -336,7 +343,10 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
 
   let slides: any[] | undefined;
   if (wantsCarousel) {
-    const promptsArray: string[] = hasCarousel ? carouselPrompts as string[] : hasScene ? scenePrompts as string[] : [];
+    const allPrompts: string[] = hasCarousel ? carouselPrompts as string[] : hasScene ? scenePrompts as string[] : [];
+    // Clamp to the max carousel length so an over-long writer array can't produce
+    // more slides than we render/charge for downstream.
+    const promptsArray = allPrompts.slice(0, MAX_CAROUSEL_SLIDES);
     if (promptsArray.length > 0) {
       slides = promptsArray.map((promptText, index) => {
         const block = summary.sourceBlocks[index] || summary.sourceBlocks[0];

@@ -6,6 +6,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
 import { proposeCadenceCards } from "@/lib/calos/cadence";
 import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
+import { calosScope } from "@/lib/calos/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -46,8 +47,7 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
     const campaign = await CalosCampaign.findOne({
       _id: campaignId,
-      ownerUserId: userId,
-      brandId,
+      ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     });
     if (!campaign) {
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     const created = await persistDraftDeliverables(
       proposals.map((p) => ({ ...p, campaignId })),
-      { userId, brandId },
+      { userId, brandId, orgId },
     );
     return NextResponse.json({ created }, { status: 201 });
   } catch (error) {

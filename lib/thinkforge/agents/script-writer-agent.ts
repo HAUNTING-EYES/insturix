@@ -5,6 +5,7 @@ import type { ThinkForgeContentSignalProfile } from '../signals';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
+import { repairAiFillerContent } from '../services/ai-filler-repair';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -68,9 +69,14 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
 
   buildPrompt(input: ScriptWriterInput): string {
     const { context, userPrompt, retrievedContext } = input;
-    
+
     // We default to generic video scripts if no explicit platform is passed via prompt.
     // Platform detection could be added here similar to PostWriter if needed.
+    //
+    // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
+    // (graph ON vs OFF) showed it regresses the script writer — min 92% -> 75% and variance
+    // 8pp -> 25pp — because the technique block's negation-primed filler list and extra guidance
+    // fight the script's rigid scene structure. It stays on PostWriter (free-form, no regression).
 
     let prompt = `You are an elite Video Scriptwriter and Creative Director.
 Your task is to write a high-retention, engaging video script.
@@ -126,6 +132,7 @@ Return your response strictly adhering to the JSON schema.`;
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
 
+    let output: AgentStructuredOutput<ScriptWriterResult>;
     try {
       const jsonContract = [
         'Return ONLY valid JSON. Do not include markdown fences or commentary.',
@@ -152,7 +159,7 @@ Return your response strictly adhering to the JSON schema.`;
       // Reject unusable cache-path output (empty/filler/no-scene-prompts) -> falls back below.
       assertUsableCachedScriptResult(result);
 
-      return {
+      output = {
         result,
         metadata: {
           model: modelName,
@@ -166,8 +173,13 @@ Return your response strictly adhering to the JSON schema.`;
       // all look identical. Distinguish gate-reject from an infra error so a test can count them.
       const isGateReject = error instanceof Error && error.message.startsWith('Cached script failed usable quality gate');
       console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
-      return super.runStructured(input, overrides, abortSignal);
+      output = await super.runStructured(input, overrides, abortSignal);
     }
+
+    // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
+    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
+    output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
+    return output;
   }
 }
 

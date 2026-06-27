@@ -37,7 +37,7 @@ export enum ModelTier {
  * Model spec map by tier
  */
 const TIER_MODEL_MAP: Record<ModelTier, string> = {
-  [ModelTier.Structural]: 'gemini-3.1-flash-lite-preview',
+  [ModelTier.Structural]: 'gemini-2.5-flash',
   [ModelTier.Reasoning]: 'gemini-2.5-flash',
 };
 

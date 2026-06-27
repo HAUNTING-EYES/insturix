@@ -307,6 +307,14 @@ export interface CaptionStyles {
   
   // Legacy compat (deprecated, use highlight)
   highlightStyle?: CaptionHighlightStyle;
+
+  // ── Registry-driven atoms (optional; applied by caption-layer-content). See caption-preset-registry.ts. ──
+  /** Letter casing for the whole caption (CSS text-transform). */
+  textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
+  /** Text outline (CSS -webkit-text-stroke) — the MrBeast look. */
+  stroke?: { widthPx: number; color: string };
+  /** Per-emphasis-role overrides (keyword/statistic/cta/entity) — coloured-bold per word. */
+  roles?: Partial<Record<"keyword" | "statistic" | "cta" | "entity", { color?: string; fontWeight?: number; scale?: number }>>;
 }
 
 export interface CaptionOverlay extends BaseOverlay {

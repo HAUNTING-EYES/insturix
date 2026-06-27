@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-resolver';
+import { getDefaultBrandVaultRefineryStore } from '@/lib/shared/brand-vault-refinery-api';
 import {
   brandVaultSourceEnabled,
   brandVaultSourceFlagName,
@@ -25,10 +26,32 @@ export async function GET(request: Request) {
 
   const brandId = new URL(request.url).searchParams.get('brandId')?.trim();
   if (!brandId) {
-    return NextResponse.json(
-      { ok: false, error: { code: 'brand_required', message: 'brandId is required.' } },
-      { status: 400 },
-    );
+    // No brandId -> ground-truth dump of the user's latest accepted record, so we can see whether it has
+    // a brandId at all (an accepted record with an empty brandId is dropped from the brand list).
+    const record = await getDefaultBrandVaultRefineryStore().getLatestAcceptedRecord({
+      userId,
+      orgId: orgId ?? null,
+    });
+    const recordBrandId = record?.profile.brandId?.trim() || null;
+    return NextResponse.json({
+      ok: true,
+      mode: 'latest-accepted-record',
+      orgId: orgId ?? null,
+      record: record
+        ? {
+            recordId: record.id,
+            status: record.status,
+            brandId: recordBrandId,
+            brandName: record.profile.identity?.brandName?.value ?? null,
+            recordOrgId: record.profile.orgId ?? null,
+          }
+        : null,
+      diagnosis: !record
+        ? 'No accepted record found for this user — accept never persisted.'
+        : recordBrandId
+          ? 'Accepted record HAS a brandId. If the switcher is still empty it is a stale-cache/refetch issue.'
+          : 'Accepted record has NO brandId, so the brand list drops it. This is the bug — needs a brandId backfill.',
+    });
   }
 
   const services = await Promise.all(
