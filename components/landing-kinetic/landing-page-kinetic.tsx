@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SiteFooter } from "@/components/shared/site-footer";
-import { LogoBrand } from "@/components/shared/site-navbar";
+import { LogoBrand, AuthButtons } from "@/components/shared/site-navbar";
 
 /**
  * Landing — Kinetic ("Your entire studio").
@@ -38,15 +38,14 @@ const CSS = `
 .ikin nav .navmid{display:flex;align-items:center;gap:clamp(16px,2.4vw,30px)}
 .ikin nav .navlinks a{font-size:14px;color:var(--soft);transition:color .2s var(--ease)}
 .ikin nav .navlinks a:hover{color:var(--text)}
-.ikin nav .navlinks a.navcta{font-weight:800;color:var(--bg);background:var(--gold);padding:10px 20px;border-radius:8px}
-.ikin nav .navlinks a.navcta:hover{background:#E0B868;color:var(--bg)}
+.ikin nav .navlinks .navauth{display:inline-flex;align-items:center}
 @media(max-width:720px){.ikin nav .navmid{display:none}}
 
 /* mobile nav — burger (≤720px) + full-screen drawer. lens/cursor-none is off on touch (pointer:fine gate). */
 .ikin nav .burger{display:none;flex-direction:column;justify-content:center;gap:5px;width:42px;height:42px;border:1px solid var(--borderL);border-radius:9px;background:transparent;cursor:pointer;transition:border-color .2s var(--ease)}
 .ikin nav .burger:hover{border-color:rgba(212,166,82,.4)}
 .ikin nav .burger span{display:block;width:18px;height:1.5px;margin:0 auto;background:var(--text)}
-@media(max-width:720px){.ikin nav .navlinks .signin,.ikin nav .navlinks .navcta{display:none}.ikin nav .burger{display:flex}}
+@media(max-width:720px){.ikin nav .navlinks .navauth{display:none}.ikin nav .burger{display:flex}}
 .ikin .mobilemenu{position:fixed;inset:0;z-index:90;background:rgba(11,11,10,.9);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;flex-direction:column;padding:88px clamp(20px,7vw,40px) 40px;opacity:0;visibility:hidden;transition:opacity .32s var(--ease),visibility .32s var(--ease)}
 .ikin .mobilemenu.open{opacity:1;visibility:visible}
 .ikin .mobilemenu a{font-weight:800;font-size:clamp(26px,7vw,40px);letter-spacing:-.03em;color:var(--text);padding:15px 0;border-bottom:1px solid var(--border);transition:color .2s var(--ease)}
@@ -297,8 +296,7 @@ export const LandingKinetic: React.FC = () => {
             <Link href="/products">Products</Link>
             <Link href="/upgrade">Pricing</Link>
           </span>
-          <Link href="/signin" className="signin">Sign in</Link>
-          <Link href="/signup" className="navcta">Start free</Link>
+          <span className="navauth"><AuthButtons /></span>
           <button
             type="button"
             className="burger"
@@ -327,8 +325,7 @@ export const LandingKinetic: React.FC = () => {
         <Link href="/products" onClick={() => setMenuOpen(false)}>Products</Link>
         <Link href="/upgrade" onClick={() => setMenuOpen(false)}>Pricing</Link>
         <div className="mm-foot">
-          <Link href="/signin" className="mm-signin" onClick={() => setMenuOpen(false)}>Sign in</Link>
-          <Link href="/signup" className="mm-start" onClick={() => setMenuOpen(false)}>Start free →</Link>
+          <AuthButtons />
         </div>
       </div>
       <Content ids />

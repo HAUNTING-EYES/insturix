@@ -529,7 +529,7 @@ function MobileNavItem({
 // AUTH BUTTONS
 // ═══════════════════════════════════════════════════════════════
 
-function AuthButtons() {
+export function AuthButtons() {
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
   const [mounted, setMounted] = useState(false);
