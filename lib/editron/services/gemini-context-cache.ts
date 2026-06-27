@@ -20,10 +20,10 @@ import { getCreativeRulesPromptText } from '@/lib/editron/data/creative-doc-rule
 
 const CACHE_TTL_SECONDS = 1800; // 30 min — balances cost vs freshness
 const REDIS_KEY = 'editron:gemini:creative-doc-cache';
-// gemini-3.1-pro-preview: thinking model, full video understanding, context caching verified.
-// Tested 2026-05-19: API OK (outputTokenLimit=65536), caching OK, 404 models eliminated.
-// Previous: gemini-2.5-flash (fast but no thinking — produced 246 jump_cuts, 27% coverage).
-const CACHE_MODEL = 'models/gemini-3.1-pro-preview'; // Must match the model used for generation
+// gemini-2.5-pro: thinking model, full video understanding, context caching supported.
+// 2026-06-27: switched from gemini-3.1-pro-preview (pulled / 503). Must match the generation model.
+// NOTE: gemini-2.5-flash earlier produced 246 jump_cuts / 27% coverage — keep this on the pro tier.
+const CACHE_MODEL = 'models/gemini-2.5-pro'; // Must match the model used for generation
 
 // ─── Redis Helpers ───────────────────────────────────────────────
 

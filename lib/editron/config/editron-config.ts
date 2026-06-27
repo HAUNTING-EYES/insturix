@@ -176,7 +176,7 @@ export interface MusicConfig {
 // VERIFIED 2026-05-16: gemini-3.1-flash and gemini-3.1-pro DO NOT EXIST (404).
 // Only -preview suffix variants are valid for the 3.1 family.
 const VALID_GOOGLE_AI_MODELS = [
-  'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview',
+  'gemini-2.5-pro', 'gemini-2.5-flash',
   'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
 ];
 
@@ -440,14 +440,14 @@ export const DEFAULT_CONFIG: EditronConfig = {
     //   subjectExtractionModel stays on 2.5-flash for the same reason (structured output reliability).
     //   montageDetectionModel stays on flash-lite because it's a narrower task (simpler prompt).
     sceneParserModel: validateModel(process.env.LLM_PARSER_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    montageDetectionModel: validateModel(process.env.LLM_MONTAGE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     subjectExtractionModel: validateModel(process.env.LLM_SUBJECT_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
-    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
-    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-3.1-pro-preview', 'gemini-2.5-flash'),
-    // REVERTED 2026-05-15: gemini-3.1-flash / gemini-3.1-pro are NOT valid model IDs.
-    // Google API returns 404: "models/gemini-3.1-pro is not found for API version v1beta".
-    // The -preview suffix IS required. Keeping verified-working models.
-    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash'),
+    referencePromptModel: validateModel(process.env.LLM_REFERENCE_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
+    unifiedIntelligenceModel: validateModel(process.env.LLM_INTELLIGENCE_MODEL || 'gemini-2.5-pro', 'gemini-2.5-flash'),
+    // 2026-06-27: the gemini-3.1-*-preview models were PULLED (503 in prod) — all defaults moved to the
+    // stable gemini-2.5 family. (History: bare gemini-3.1-flash/pro 404'd; the -preview variants worked
+    // briefly, then were removed.) Override via LLM_* env vars if/when a newer stable model ships.
+    analysisModel: validateModel(process.env.LLM_ANALYSIS_MODEL || 'gemini-2.5-flash', 'gemini-2.5-flash'),
     editingTemperature: 0.3,
     parsingTemperature: 0.3,
   },
