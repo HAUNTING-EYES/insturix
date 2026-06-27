@@ -59,7 +59,7 @@ class handler(BaseHTTPRequestHandler):
             graphiti = Graphiti(
                 graph_driver=driver,
                 llm_client=GeminiClient(LLMConfig(api_key=api_key, model="gemini-2.5-flash")),
-                embedder=GeminiEmbedder(GeminiEmbedderConfig(api_key=api_key, embedding_model="text-embedding-004")),
+                embedder=GeminiEmbedder(GeminiEmbedderConfig(api_key=api_key, embedding_model="text-embedding-005")),
                 cross_encoder=GeminiRerankerClient(LLMConfig(api_key=api_key, model="gemini-2.5-flash")),
             )
 

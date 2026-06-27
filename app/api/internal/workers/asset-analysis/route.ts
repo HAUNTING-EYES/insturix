@@ -172,7 +172,7 @@ Return JSON only:
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
 
       // Build a text description from tags + filename for embedding
       const embeddingText = `${filename} ${type} ${tags.join(' ')}`;
