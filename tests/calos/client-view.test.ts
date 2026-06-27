@@ -3,16 +3,32 @@ import { createHmac } from "crypto";
 
 const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
-  find: vi.fn(),
+  deliverableFind: vi.fn(),
+  shareCreate: vi.fn(),
+  shareFindOneAndUpdate: vi.fn(),
+  shareFind: vi.fn(),
+  shareUpdateOne: vi.fn(),
 }));
 
 vi.mock("@/schemas/ConnectToDatabase", () => ({ default: mocks.connectToDatabase }));
-vi.mock("@/schemas/calos-deliverable", () => ({ default: { find: mocks.find } }));
+vi.mock("@/schemas/calos-deliverable", () => ({ default: { find: mocks.deliverableFind } }));
+vi.mock("@/schemas/calos-share-link", () => ({
+  default: {
+    create: mocks.shareCreate,
+    findOneAndUpdate: mocks.shareFindOneAndUpdate,
+    find: mocks.shareFind,
+    updateOne: mocks.shareUpdateOne,
+  },
+}));
 
 import {
   signClientViewToken,
   verifyClientViewToken,
   loadSharedCalendar,
+  recordShareLink,
+  touchAndCheckShareLink,
+  listShareLinks,
+  revokeShareLink,
   type CalosClientViewScope,
 } from "@/lib/calos/client-view";
 
@@ -37,24 +53,27 @@ describe("client-view token", () => {
     vi.unstubAllEnvs();
   });
 
-  it("round-trips an org scope", () => {
-    const token = signClientViewToken(ORG_SCOPE);
-    expect(verifyClientViewToken(token)).toEqual(ORG_SCOPE);
+  it("mints token + tokenId + expiry, and round-trips an org scope", () => {
+    const minted = signClientViewToken(ORG_SCOPE);
+    expect(typeof minted.token).toBe("string");
+    expect(minted.tokenId).toMatch(/^[a-f0-9]{24}$/);
+    expect(minted.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(verifyClientViewToken(minted.token)).toEqual({ ...ORG_SCOPE, tokenId: minted.tokenId });
   });
 
   it("round-trips a solo scope (orgId null)", () => {
-    const token = signClientViewToken(SOLO_SCOPE);
-    expect(verifyClientViewToken(token)).toEqual(SOLO_SCOPE);
+    const { token, tokenId } = signClientViewToken(SOLO_SCOPE);
+    expect(verifyClientViewToken(token)).toEqual({ ...SOLO_SCOPE, tokenId });
   });
 
   it("rejects a tampered signature", () => {
-    const token = signClientViewToken(ORG_SCOPE);
+    const { token } = signClientViewToken(ORG_SCOPE);
     const [body] = token.split(".");
     expect(verifyClientViewToken(`${body}.deadbeef`)).toBeNull();
   });
 
   it("rejects a tampered payload (re-pointed to another brand) under the original signature", () => {
-    const token = signClientViewToken(ORG_SCOPE);
+    const { token } = signClientViewToken(ORG_SCOPE);
     const sig = token.split(".")[1];
     const forgedBody = Buffer.from(
       JSON.stringify({ ...ORG_SCOPE, brandId: "brand_VICTIM", n: "x", x: Date.now() + 1000 }),
@@ -74,7 +93,7 @@ describe("client-view token", () => {
   });
 
   it("returns null when the signing key is missing", () => {
-    const token = signClientViewToken(ORG_SCOPE);
+    const { token } = signClientViewToken(ORG_SCOPE);
     vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", "");
     expect(verifyClientViewToken(token)).toBeNull();
   });
@@ -95,23 +114,27 @@ describe("client-view token", () => {
 describe("loadSharedCalendar", () => {
   beforeEach(() => {
     mocks.connectToDatabase.mockReset().mockResolvedValue(undefined);
-    mocks.find.mockReset();
+    mocks.deliverableFind.mockReset();
   });
 
   function mockDocs(docs: unknown[]) {
-    mocks.find.mockReturnValue({ select: vi.fn(() => ({ lean: vi.fn(async () => docs) })) });
+    mocks.deliverableFind.mockReturnValue({ select: vi.fn(() => ({ lean: vi.fn(async () => docs) })) });
   }
 
   it("scopes the query by org when the scope has an orgId", async () => {
     mockDocs([]);
     await loadSharedCalendar(ORG_SCOPE);
-    expect(mocks.find).toHaveBeenCalledWith({ brandId: "brand_1", orgId: "org_1", deletedAt: null });
+    expect(mocks.deliverableFind).toHaveBeenCalledWith({ brandId: "brand_1", orgId: "org_1", deletedAt: null });
   });
 
   it("scopes the query by creator when the scope has no orgId", async () => {
     mockDocs([]);
     await loadSharedCalendar(SOLO_SCOPE);
-    expect(mocks.find).toHaveBeenCalledWith({ brandId: "brand_1", ownerUserId: "user_1", deletedAt: null });
+    expect(mocks.deliverableFind).toHaveBeenCalledWith({
+      brandId: "brand_1",
+      ownerUserId: "user_1",
+      deletedAt: null,
+    });
   });
 
   it("returns a sanitized projection — no owner/org/approvals leak", async () => {
@@ -157,5 +180,91 @@ describe("loadSharedCalendar", () => {
     ]);
     const out = await loadSharedCalendar(ORG_SCOPE);
     expect(out.map((c) => c.id)).toEqual(["ok"]);
+  });
+});
+
+describe("share-link records (revocation)", () => {
+  beforeEach(() => {
+    mocks.connectToDatabase.mockReset().mockResolvedValue(undefined);
+    mocks.shareCreate.mockReset();
+    mocks.shareFindOneAndUpdate.mockReset();
+    mocks.shareFind.mockReset();
+    mocks.shareUpdateOne.mockReset();
+  });
+
+  it("records a minted link with its scope + tokenId", async () => {
+    const expiresAt = new Date(Date.now() + 1000);
+    await recordShareLink({ tokenId: "tok1", scope: ORG_SCOPE, createdBy: "user_1", expiresAt, label: "Acme" });
+    expect(mocks.shareCreate).toHaveBeenCalledWith({
+      tokenId: "tok1",
+      brandId: "brand_1",
+      orgId: "org_1",
+      ownerUserId: "user_1",
+      createdBy: "user_1",
+      label: "Acme",
+      expiresAt,
+      revoked: false,
+    });
+  });
+
+  it("touchAndCheckShareLink is true for a live link and records the view", async () => {
+    mocks.shareFindOneAndUpdate.mockReturnValue({ lean: vi.fn(async () => ({ tokenId: "tok1" })) });
+    const ok = await touchAndCheckShareLink("tok1");
+    expect(ok).toBe(true);
+    const [filter, update] = mocks.shareFindOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({ tokenId: "tok1", revoked: false });
+    expect(filter.expiresAt).toHaveProperty("$gt");
+    expect(update).toMatchObject({ $inc: { viewCount: 1 } });
+  });
+
+  it("touchAndCheckShareLink is false for a revoked/missing/expired link", async () => {
+    mocks.shareFindOneAndUpdate.mockReturnValue({ lean: vi.fn(async () => null) });
+    expect(await touchAndCheckShareLink("tok1")).toBe(false);
+  });
+
+  it("listShareLinks scopes by org and maps to client-safe summaries", async () => {
+    const now = new Date("2026-06-27T00:00:00.000Z");
+    mocks.shareFind.mockReturnValue({
+      sort: vi.fn(() => ({
+        lean: vi.fn(async () => [
+          {
+            tokenId: "tok1",
+            label: "Acme",
+            revoked: false,
+            createdAt: now,
+            expiresAt: now,
+            viewCount: 3,
+            lastViewedAt: now,
+          },
+        ]),
+      })),
+    });
+    const out = await listShareLinks({ userId: "user_1", orgId: "org_1" }, "brand_1");
+    expect(mocks.shareFind).toHaveBeenCalledWith({ brandId: "brand_1", orgId: "org_1" });
+    expect(out).toEqual([
+      {
+        tokenId: "tok1",
+        label: "Acme",
+        revoked: false,
+        createdAt: now.toISOString(),
+        expiresAt: now.toISOString(),
+        viewCount: 3,
+        lastViewedAt: now.toISOString(),
+      },
+    ]);
+  });
+
+  it("revokeShareLink scopes by creator (solo) and reports success", async () => {
+    mocks.shareUpdateOne.mockResolvedValue({ modifiedCount: 1 });
+    const ok = await revokeShareLink({ userId: "user_1", orgId: null }, "brand_1", "tok1");
+    expect(ok).toBe(true);
+    const [filter, update] = mocks.shareUpdateOne.mock.calls[0];
+    expect(filter).toEqual({ tokenId: "tok1", brandId: "brand_1", ownerUserId: "user_1" });
+    expect(update).toEqual({ $set: { revoked: true } });
+  });
+
+  it("revokeShareLink reports false when nothing matched the caller's scope", async () => {
+    mocks.shareUpdateOne.mockResolvedValue({ modifiedCount: 0 });
+    expect(await revokeShareLink({ userId: "user_1", orgId: "org_1" }, "brand_1", "tok1")).toBe(false);
   });
 });
