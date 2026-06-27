@@ -78,11 +78,6 @@ export {
   NarrativeContractSchema,
 } from './script-contract-agent';
 
-export {
-  ScriptCoherenceAgent,
-  createScriptCoherenceAgent,
-} from './script-coherence-agent';
-
 // Script Refinement Agent
 export {
   ScriptRefinementAgent,
