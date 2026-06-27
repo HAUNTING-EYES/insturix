@@ -75,9 +75,8 @@ export async function POST(req: Request) {
     }
 
     const intent = await classifyIntent({ userMessage: enrichedInstruction });
-    if (intent === ScriptIntent.FORK) {
-      return NextResponse.json({ error: 'Forking not implemented yet' }, { status: 501 });
-    }
+    // FORK is mapped to REWRITE inside classifyIntent (no separate-document path yet), so it no
+    // longer dead-ends here — a fork-style request now does a useful in-place new version.
 
     const existingBlocks = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
     if ((intent === ScriptIntent.EDIT || intent === ScriptIntent.CONTINUE) && existingBlocks.length === 0) {
