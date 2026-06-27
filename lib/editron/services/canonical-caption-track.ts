@@ -82,8 +82,17 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
 
   if (words.length === 0) return null;
 
+  // Read-speed must follow the ACTUAL speaking pace, not the genre-derived estimate carried in
+  // input.presentation.signals.speakingRate (caption-form.ts maps a video-level `pacing_tolerance`
+  // to a guessed WPM). We have the real word timings here, so measure the true rate and feed it to
+  // the readability policy. For VO-based edits these ARE the VO's word timings, so the pace matches
+  // what the viewer hears. Style/displayMode were chosen upstream and are intentionally left as-is.
+  const measuredSpeakingRateWpm = measureSpeakingRateWpm(words);
+  const pacedPresentation = measuredSpeakingRateWpm > 0
+    ? { ...input.presentation, signals: { ...input.presentation.signals, speakingRate: measuredSpeakingRateWpm } }
+    : input.presentation;
   const displayConfig = resolveDisplayConfig(input.presentation);
-  const readability = captionReadabilityPolicy(input.presentation, displayConfig);
+  const readability = captionReadabilityPolicy(pacedPresentation, displayConfig);
   const groupingConfig = {
     wordsPerGroup: readability.groupWordsPerCaption,
     groupByPunctuation: true,
@@ -123,6 +132,8 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
       captionPresentation: input.presentation,
       evidence: {
         editedWordCount: words.length,
+        measuredSpeakingRateWpm,
+        presentationSpeakingRateWpm: input.presentation.signals.speakingRate,
         durationFrames: input.editedTimelineContext.durationFrames,
         sourceClipCount: input.editedTimelineContext.sourceClips.length,
         captionBoundaryCount: captionBoundaries.allMs.length,
@@ -622,6 +633,29 @@ function nextNumericOverlayId(overlays: any[]): number {
       : max;
   }, 0);
   return maxId + 1;
+}
+
+/**
+ * Measure the REAL speaking rate (words/min) from the cut's word timings — the actual pace, not the
+ * genre-derived estimate the presentation carries (caption-form.ts maps a video-level `pacing_tolerance`
+ * to a guessed WPM). Long pauses (> 600ms, ~ the readability policy's speech-pause boundary) are excluded
+ * so the figure reflects how fast the person actually talks. For VO-based edits these are the VO's word
+ * timings, so the pace matches what the viewer hears.
+ * Clamp 80-320 WPM = human speech range (cf. VOICE_WPM_BY_TONE 100-200) to reject transcription glitches.
+ */
+function measureSpeakingRateWpm(words: CaptionWord[]): number {
+  if (words.length < 2) return 0;
+  let activeMs = 0;
+  for (let i = 0; i < words.length; i++) {
+    activeMs += Math.max(0, words[i].endMs - words[i].startMs);
+    if (i > 0) {
+      const gap = words[i].startMs - words[i - 1].endMs;
+      if (gap > 0 && gap <= 600) activeMs += gap;
+    }
+  }
+  if (activeMs <= 0) return 0;
+  const wpm = words.length / (activeMs / 60000);
+  return Math.max(80, Math.min(320, wpm));
 }
 
 function stylesForPresentation(presentation: AtomicCaptionPresentation): CaptionStyles {
