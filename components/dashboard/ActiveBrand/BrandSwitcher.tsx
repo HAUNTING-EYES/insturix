@@ -56,7 +56,7 @@ export function BrandSwitcher() {
 
   return (
     <>
-      <div ref={ref} className="fixed top-3 right-4 z-[60] hidden sm:block">
+      <div ref={ref} className="relative">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
