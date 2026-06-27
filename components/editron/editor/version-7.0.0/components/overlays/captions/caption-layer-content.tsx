@@ -305,7 +305,10 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
       const isFaded = state === "faded";
       const atomicGlyph = atomicText?.glyphs.find((glyph) => glyph.index === globalIndex);
       const glyphRole = atomicGlyph?.emphasis?.role ?? atomicGlyph?.role ?? word.emphasis?.type ?? "word";
-      const roleColor = atomicGlyphColor(atomicText, atomicGlyph, highlight.color) ?? roleAccentColor(glyphRole, highlight.color);
+      // Registry per-role colour (e.g. Hormozi keyword #FFD93D) wins; then atomic-glyph colour; then the
+      // built-in role accents. Drives the "coloured-bold per word" look from the picked style's row.
+      const registryRoleColor = styles.roles?.[glyphRole as "keyword" | "statistic" | "cta" | "entity"]?.color;
+      const roleColor = registryRoleColor ?? atomicGlyphColor(atomicText, atomicGlyph, highlight.color) ?? roleAccentColor(glyphRole, highlight.color);
       const glyphScale = atomicGlyph?.visual?.scale ?? 1;
       const glyphFontFamily = atomicGlyphFontFamily(atomicText, atomicGlyph);
       
@@ -386,6 +389,9 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
               borderRadius: highlight.borderRadius || "4px",
               margin: "0 2px",
               transition: "color 150ms, background-color 150ms, opacity 150ms",
+              // MrBeast-style outline — only when the picked style ships a stroke. paintOrder keeps the
+              // fill full (stroke drawn behind), so the letterforms don't thin out.
+              ...(styles.stroke ? { WebkitTextStroke: `${styles.stroke.widthPx}px ${styles.stroke.color}`, paintOrder: "stroke fill" } : {}),
               ...effectStyles,
               ...emphasisBorder,
             }}
@@ -435,6 +441,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
           letterSpacing: styles.letterSpacing || '0.025em',
           lineHeight: styles.lineHeight,
           textAlign: styles.textAlign,
+          textTransform: styles.textTransform,
           whiteSpace: 'pre-wrap',
           width: '100%',
           wordBreak: 'break-word',

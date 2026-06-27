@@ -680,5 +680,9 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
       ...preset.styles.highlight,
       scale: aesthetic.emphasisScale,
     },
+    // Carry the row's renderer atoms — caption-layer-content applies these per caption/word.
+    textTransform: preset.textCase === 'upper' ? 'uppercase' : preset.textCase === 'lower' ? 'lowercase' : undefined,
+    stroke: preset.stroke,
+    roles: preset.roles,
   };
 }
