@@ -39,9 +39,11 @@ export default function DashboardClientLayout({
                 <DashboardSidebar />
               </Suspense>
               <main className="min-h-screen bg-[#0B0B0A] lg:pl-[64px] pt-16 lg:pt-0">
-                {/* In-flow desktop top bar (matches the lg-only sidebar) so the brand switcher sits in its
-                    own row instead of floating over page controls. Sticky so it stays on scroll. */}
-                <div className="sticky top-0 z-40 hidden h-12 items-center justify-end border-b border-[#1C1B19] bg-[#0B0B0A]/85 px-4 backdrop-blur-md lg:flex">
+                {/* In-flow desktop top bar so the brand switcher sits in its own row instead of floating
+                    over page controls. NOT sticky: pages (e.g. Brand Vault) have their own sticky top-0
+                    header, and a second sticky bar collided + clipped this dropdown. z-50 keeps the
+                    dropdown above those page headers (z-40). */}
+                <div className="relative z-50 hidden h-12 items-center justify-end border-b border-[#1C1B19] bg-[#0B0B0A] px-4 lg:flex">
                   <BrandSwitcher />
                 </div>
                 <div className="min-h-screen">
