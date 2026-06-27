@@ -726,6 +726,9 @@ export async function executeDirectorPlan(
               videoDurationSec: cleanDurationSec,
             });
             pathEGenreParams = genreResult.genreParams;
+            // Surface the signal-driven BGM decision so the quality gate doesn't flag "missing BGM"
+            // when the system correctly decided no BGM was needed (e.g. moderate speech / formal / short).
+            (pathEGenreParams as any).bgmRecommendation = genreResult.bgmRecommendation;
             console.log(`[Director] Path E: Genre params computed (confidence: ${genreResult.confidence}, zoom_budget=${pathEGenreParams.zoom_budget}, transition_density=${pathEGenreParams.transition_density})`);
           } catch (gpErr: any) {
             console.warn(`[Director] Path E: Genre param computation failed (non-fatal): ${gpErr.message}`);
@@ -1322,6 +1325,8 @@ export async function executeDirectorPlan(
             // Hoist for quality review step 11
             pathDConstraintViolations = constraintResult.violations;
             pathDGenreParams = genreOutput.genreParams;
+            // Surface the signal-driven BGM decision for the quality gate (see Path E note above).
+            (pathDGenreParams as any).bgmRecommendation = genreOutput.bgmRecommendation;
 
             // Convert to standard EDL format for executeEDL (backward compatible)
             edlSummary.totalDecisions = humanizedEdl.decisions.length;

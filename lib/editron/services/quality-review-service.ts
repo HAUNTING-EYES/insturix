@@ -269,7 +269,12 @@ function checkTimelineGaps(overlays: AnalyzableOverlay[], fps: number): QualityI
   return issues;
 }
 
-function checkMissingBGM(overlays: AnalyzableOverlay[]): QualityIssue[] {
+function checkMissingBGM(overlays: AnalyzableOverlay[], shouldAddBgm?: boolean): QualityIssue[] {
+  // BGM is a signal-driven decision (genre-parameter-computer.computeBgmRecommendation) — not every
+  // video needs it. When the system computed shouldAddBgm=false (moderate/low speech coverage, formal
+  // content, short clip, or music already in the footage), the absence of BGM is CORRECT, not a defect,
+  // so don't flag it. Only flag when BGM was expected (true) or the decision is unknown (undefined).
+  if (shouldAddBgm === false) return [];
   const hasBGM = overlays.some(o => o.type === 'sound' && o.row === ROW.BGM);
   if (!hasBGM) {
     return [{
@@ -1264,8 +1269,9 @@ export function runQualityReview(
   constraintViolations?: Array<{ constraintId: string; constraintName: string; severity: 'blocker' | 'warning' | 'info'; description: string; autoCorrected: boolean; deduction: number }>,
   /** Deprecated compatibility slot: content labels are report-only and never adjust severity/pacing. */
   _contentType?: string,
-  /** Optional: computed genre parameters (Mode 2 — replaces content-type pacing lookup) */
-  genreParameters?: { pacing_tolerance: number; transition_density: number },
+  /** Optional: computed genre parameters (Mode 2 — replaces content-type pacing lookup).
+   *  `bgmRecommendation.shouldAddBgm` (signal-driven) gates the missing-BGM check. */
+  genreParameters?: { pacing_tolerance: number; transition_density: number; bgmRecommendation?: { shouldAddBgm?: boolean } },
   brandConfig?: { colors: string[]; typography?: string },
 ): QualityReport {
   const totalDuration = projectDuration || Math.max(...overlays.map(o => o.from + o.durationInFrames), 0);
@@ -1273,7 +1279,7 @@ export function runQualityReview(
   const allIssues: QualityIssue[] = [
     // Original 7 checks
     ...checkTimelineGaps(overlays, fps),
-    ...checkMissingBGM(overlays),
+    ...checkMissingBGM(overlays, genreParameters?.bgmRecommendation?.shouldAddBgm),
     ...checkBGMFadeOut(overlays, totalDuration),
     ...checkMissingCaptions(overlays),
     ...checkBGMDucking(overlays),
