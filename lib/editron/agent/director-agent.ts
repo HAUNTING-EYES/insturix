@@ -1452,6 +1452,38 @@ export async function executeDirectorPlan(
             );
           }
 
+          // Install the canonical caption track BEFORE executeEDL so caption-emphasis decisions can
+          // find it. applyCaptionLayerEmphasis (edl-executor) searches `overlays` for a caption track;
+          // when the track was installed AFTER executeEDL, every caption-emphasis returned null -> 0
+          // emphasized words (observed in proj_e4BGPZza2CAl: 0/1739). Installing it here puts the track
+          // in `overlays` for the EDL pass so per-word emphasis can be marked.
+          if (editedTimelineContext) {
+            const captionPresentation = resolveAtomicCaptionPresentation({
+              requestedStyle: briefCaptionStyle,
+              profileStyle: undefined,
+              genreParams: pathDGenreParams,
+            });
+            const captionTrackResult = installCanonicalCaptionTrack({
+              overlays,
+              editedTimelineContext,
+              playerDimensions: canvas,
+              presentation: captionPresentation,
+            });
+            if (captionTrackResult.created > 0) {
+              result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
+              console.log(
+                `[Director] Canonical caption track: ${captionTrackResult.captionCount} groups, ` +
+                `${captionTrackResult.wordCount} words, style=${captionPresentation.style}, ` +
+                `mode=${captionPresentation.displayMode}, removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            } else {
+              console.log(
+                `[Director] Canonical caption track skipped (${captionTrackResult.skippedReason || 'unknown'}), ` +
+                `removedGenerated=${captionTrackResult.removedGenerated}`,
+              );
+            }
+          }
+
           const unifiedExecutionResult = await executeEDL(
             unifiedDecisionBundle.edl,
             projectId,
@@ -1492,33 +1524,6 @@ export async function executeDirectorPlan(
             executedDecisions: unifiedExecutionResult.decisionsExecuted,
             signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
-
-          if (editedTimelineContext) {
-            const captionPresentation = resolveAtomicCaptionPresentation({
-              requestedStyle: briefCaptionStyle,
-              profileStyle: undefined,
-              genreParams: pathDGenreParams,
-            });
-            const captionTrackResult = installCanonicalCaptionTrack({
-              overlays,
-              editedTimelineContext,
-              playerDimensions: canvas,
-              presentation: captionPresentation,
-            });
-            if (captionTrackResult.created > 0) {
-              result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
-              console.log(
-                `[Director] Canonical caption track: ${captionTrackResult.captionCount} groups, ` +
-                `${captionTrackResult.wordCount} words, style=${captionPresentation.style}, ` +
-                `mode=${captionPresentation.displayMode}, removedGenerated=${captionTrackResult.removedGenerated}`,
-              );
-            } else {
-              console.log(
-                `[Director] Canonical caption track skipped (${captionTrackResult.skippedReason || 'unknown'}), ` +
-                `removedGenerated=${captionTrackResult.removedGenerated}`,
-              );
-            }
-          }
 
           pathDHandled = true;
           unifiedDecisionBundleExecuted = true;
