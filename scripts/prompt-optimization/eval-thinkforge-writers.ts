@@ -376,7 +376,59 @@ const TEST_CASES: TestCase[] = [
       hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
       groundingFloor: 0.8,
     },
-  },];
+  },
+  {
+    id: 16,
+    suite: 'heldout',
+    name: 'Held-out software tutorial script',
+    documentType: 'video_script',
+    projectSummary: 'TaskFlow - a project management app for small remote teams.',
+    userPrompt:
+      'Write a 60-second screen-recording tutorial script for TaskFlow showing a new user how to create their first board: sign up, click New Board, add the columns To Do, Doing, and Done, then invite a teammate by email. Include on-screen visual direction for each step.',
+    systemBrief: 'Brand: TaskFlow. Voice: clear, friendly, jargon-free. Audience: first-time users and non-technical team leads.',
+    expectedPath: 'script',
+    grounding: ['TaskFlow', 'New Board'],
+    criteria: {
+      minScenes: 3, maxScenes: 9, hasNarration: true, hasVisual: true,
+      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
+    },
+  },
+  {
+    id: 17,
+    suite: 'heldout',
+    name: 'Held-out data-rich metrics list post',
+    documentType: 'post',
+    projectSummary: 'DataPulse - a weekly analytics digest for Shopify store owners.',
+    userPrompt:
+      'Write a LinkedIn post for DataPulse listing three metrics every Shopify owner should check weekly: repeat purchase rate, cart abandonment rate, and average order value. For each, give one concrete reason it matters. Practical, not hypey.',
+    systemBrief: 'Brand: DataPulse. Voice: practical, numbers-first, no hype. Audience: ecommerce founders and operators.',
+    expectedPath: 'post',
+    grounding: ['DataPulse', 'repeat purchase rate', 'cart abandonment', 'average order value'],
+    criteria: {
+      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
+      hasHashtags: true, charRange: [700, 3000], noAiFiller: true,
+      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
+      groundingFloor: 0.75,
+    },
+  },
+  {
+    id: 18,
+    suite: 'heldout',
+    name: 'Held-out short founder milestone post',
+    documentType: 'post',
+    projectSummary: 'Streaky - a solo-founder habit-tracking app.',
+    userPrompt:
+      'Write a short, honest X post: Streaky just passed 1,000 paying users after 8 months. No growth hack, just shipping every week and reading every support email. Thank the early users.',
+    systemBrief: 'Brand: Streaky. Voice: honest, humble, builder-to-builder. No hype.',
+    expectedPath: 'post',
+    grounding: ['Streaky', ['1,000', '1000', '1k'], ['8 months', 'eight months']],
+    criteria: {
+      charRange: [50, 700], noSceneHeadings: true, noVisualLabels: true,
+      noAiFiller: true, hashtagRange: [0, 3], hasSpecificDetails: true,
+      groundingFloor: 0.66,
+    },
+  },
+];
 
 // ---- Regression Baselines --------------------------------------------
 // Rule 31: no fabricated numbers. These come from the first real Gemini multi-seed run
