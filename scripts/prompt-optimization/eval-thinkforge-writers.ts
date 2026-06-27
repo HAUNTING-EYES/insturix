@@ -390,6 +390,15 @@ const REGRESSION_BASELINES: Record<number, number> = {
   6: 0.83,
   7: 0.92,
   8: 0.87,
+  // Cases 9-15 (held-out): baselined from the 10-seed sweep, ~5pp below observed min for
+  // seed-noise tolerance. Observed mins -> 9:94 10:100 11:100 12:94 13:100 14:94 15:94.
+  9: 0.88,
+  10: 0.93,
+  11: 0.93,
+  12: 0.88,
+  13: 0.93,
+  14: 0.88,
+  15: 0.88,
 };
 
 // ---- Scoring: structure + filler + specificity -----------------------
