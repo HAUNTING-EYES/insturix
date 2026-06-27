@@ -7,14 +7,34 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Building2, Check, ChevronDown } from 'lucide-react';
+import { useAuth } from '@clerk/nextjs';
+import { useQuery } from '@tanstack/react-query';
+import { Building2, Check, ChevronDown, Globe, Lock } from 'lucide-react';
 import { useActiveBrand } from './ActiveBrandProvider';
+import { BrandAccessEditor } from './BrandAccessEditor';
 
 export function BrandSwitcher() {
   const pathname = usePathname();
   const { brands, activeBrand, setActiveBrandId, isLoading } = useActiveBrand();
+  const { orgRole } = useAuth();
+  const isAdmin = orgRole === 'org:admin';
   const [open, setOpen] = useState(false);
+  const [editingBrand, setEditingBrand] = useState<{ brandId: string; name: string } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
+
+  // Access chips (#3 — option C): the org's restricted-brand map. Admin-only data; the endpoint returns
+  // an empty map for non-admins, and chips render only when isAdmin, so members never see them.
+  const { data: accessData } = useQuery({
+    queryKey: ['brand-access-map'],
+    queryFn: async (): Promise<{ ok: boolean; grants: Record<string, string[]> }> => {
+      const res = await fetch('/api/brand-vault/brands/access', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load brand access map');
+      return res.json();
+    },
+    enabled: open && isAdmin,
+    staleTime: 30 * 1000,
+  });
+  const accessGrants = accessData?.grants ?? {};
 
   useEffect(() => {
     if (!open) return;
@@ -35,47 +55,85 @@ export function BrandSwitcher() {
   const label = activeBrand?.name ?? 'No brand';
 
   return (
-    <div ref={ref} className="fixed top-3 right-4 z-[60] hidden sm:block">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-[#1C1B19] bg-[#0F0F0E]/90 px-3 py-1.5 text-sm text-[#ECE9E1] shadow-lg backdrop-blur-md transition-colors hover:border-[#D4A652]/40"
-        title="Active brand"
-      >
-        <Building2 size={14} className="text-[#D4A652]" />
-        <span className="max-w-[160px] truncate">{label}</span>
-        <ChevronDown size={14} className="text-[#5F5E5A]" />
-      </button>
+    <>
+      <div ref={ref} className="fixed top-3 right-4 z-[60] hidden sm:block">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 rounded-full border border-[#1C1B19] bg-[#0F0F0E]/90 px-3 py-1.5 text-sm text-[#ECE9E1] shadow-lg backdrop-blur-md transition-colors hover:border-[#D4A652]/40"
+          title="Active brand"
+        >
+          <Building2 size={14} className="text-[#D4A652]" />
+          <span className="max-w-[160px] truncate">{label}</span>
+          <ChevronDown size={14} className="text-[#5F5E5A]" />
+        </button>
 
-      {open && (
-        <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-[#1C1B19] bg-[#0F0F0E] shadow-2xl">
-          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-[#5F5E5A]">Active brand</div>
-          {brands.length === 0 && (
-            <div className="px-3 py-2 text-sm text-[#7A776E]">No brands yet — scan or create one in Brand Vault.</div>
-          )}
-          <div className="max-h-72 overflow-y-auto pb-1">
-            {brands.map((brand) => {
-              const active = brand.brandId === activeBrand?.brandId;
-              return (
-                <button
-                  key={brand.brandId}
-                  type="button"
-                  onClick={() => {
-                    setActiveBrandId(brand.brandId);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                    active ? 'bg-[#D4A652]/10 text-[#D4A652]' : 'text-[#ECE9E1] hover:bg-[#1C1B19]/60'
-                  }`}
-                >
-                  <span className="truncate">{brand.name}</span>
-                  {active && <Check size={14} />}
-                </button>
-              );
-            })}
+        {open && (
+          <div className="absolute right-0 mt-2 w-72 overflow-hidden rounded-xl border border-[#1C1B19] bg-[#0F0F0E] shadow-2xl">
+            <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-[#5F5E5A]">Active brand</div>
+            {brands.length === 0 && (
+              <div className="px-3 py-2 text-sm text-[#7A776E]">No brands yet — scan or create one in Brand Vault.</div>
+            )}
+            <div className="max-h-72 overflow-y-auto pb-1">
+              {brands.map((brand) => {
+                const active = brand.brandId === activeBrand?.brandId;
+                const grant = accessGrants[brand.brandId];
+                const restricted = Array.isArray(grant) && grant.length > 0;
+                return (
+                  <div
+                    key={brand.brandId}
+                    className={`flex items-center gap-1 pr-1.5 transition-colors ${
+                      active ? 'bg-[#D4A652]/10' : 'hover:bg-[#1C1B19]/60'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveBrandId(brand.brandId);
+                        setOpen(false);
+                      }}
+                      className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm ${
+                        active ? 'text-[#D4A652]' : 'text-[#ECE9E1]'
+                      }`}
+                    >
+                      {active && <Check size={14} className="shrink-0" />}
+                      <span className="truncate">{brand.name}</span>
+                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingBrand({ brandId: brand.brandId, name: brand.name });
+                          setOpen(false);
+                        }}
+                        title="Manage access"
+                        aria-label={`Manage access for ${brand.name}`}
+                        className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition-colors ${
+                          restricted
+                            ? 'border border-[#D4A652]/40 bg-[#D4A652]/10 text-[#D4A652]'
+                            : 'border border-[#1C1B19] text-[#7A776E] hover:text-[#ECE9E1]'
+                        }`}
+                      >
+                        {restricted ? <Lock size={11} /> : <Globe size={11} />}
+                        {restricted ? grant.length : 'All'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+
+      {editingBrand && (
+        <BrandAccessEditor
+          brandId={editingBrand.brandId}
+          brandName={editingBrand.name}
+          open
+          onClose={() => setEditingBrand(null)}
+        />
       )}
-    </div>
+    </>
   );
 }
