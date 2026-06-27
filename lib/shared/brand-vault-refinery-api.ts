@@ -846,7 +846,12 @@ export async function reviewBrandVaultSignalProfileDraft(
   const parsedSignalEdits = parseSignalValueEdits(body.signalEdits);
   if (!parsedSignalEdits.ok) return invalidRequest(parsedSignalEdits.message);
   if (action === 'accept' && !cleanString(record.profile.brandId)) {
-    return invalidRequest('brandId is required before accepting a Brand Vault profile.');
+    // First-run / pre-mint drafts can lack a brandId, which would make them PERMANENTLY un-acceptable
+    // (and the user's review work unrecoverable — the old behavior just refused). Mint a stable one and
+    // persist it BEFORE accept (which only flips status), so the accepted profile carries the brandId and
+    // shows up in the switcher. Format matches the client scan-mint (`brand_<uuid>`).
+    record.profile.brandId = `brand_${globalThis.crypto.randomUUID()}`;
+    await dependencies.store.saveRecord(record, options);
   }
 
   const result =

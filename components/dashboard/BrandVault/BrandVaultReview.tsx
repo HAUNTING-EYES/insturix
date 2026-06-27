@@ -535,13 +535,18 @@ export function BrandVaultReview() {
       setLocalError('Create or open a draft before accepting it.');
       return;
     }
-    if (!snapshot.record.profile.brandId) {
-      setLocalError('Select a brand/client and rescan before accepting this draft.');
-      return;
-    }
+    // NOTE: a missing brandId no longer blocks accept — the server mints one (see refinery-api), so even
+    // a first-run / pre-mint draft accepts cleanly instead of dead-ending with "rescan".
     const edits = Object.entries(signalEdits).map(([path, value]) => ({ path, value }));
     const result = await acceptDraft.mutateAsync({ recordId: snapshot.record.id, signalEdits: edits });
     setSnapshot((current) => mergeSnapshot(current, result));
+    // Bind the accepted brand (which the server may have just minted) as the active brand, so it appears
+    // and stays selected in the global switcher.
+    const acceptedBrandId = result.record?.profile?.brandId;
+    if (acceptedBrandId && acceptedBrandId !== activeBrandId) {
+      persistSelectedBrandId(acceptedBrandId);
+      setActiveBrandId(acceptedBrandId);
+    }
     setSignalEdits({});
     showToast(edits.length ? `Profile accepted with ${edits.length} user edit${edits.length === 1 ? '' : 's'}.` : 'Profile accepted as brand truth.', 'good');
   }

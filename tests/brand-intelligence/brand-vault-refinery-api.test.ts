@@ -2226,7 +2226,7 @@ describe('Brand Vault refinery API boundary', () => {
     expect(rejected.body.learningEvents).toEqual([]);
   });
 
-  it('blocks accepting brandless drafts so consumers can resolve accepted truth by brandId', async () => {
+  it('mints a brandId when accepting a brandless draft so consumers can still resolve accepted truth by brandId', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
     const created = await createBrandVaultRefineryJobFromWebsite(
       { userId: 'user_vault', body: { websiteUrl: 'vaultline.example' } },
@@ -2244,11 +2244,17 @@ describe('Brand Vault refinery API boundary', () => {
       { store },
     );
 
-    expect(accepted.status).toBe(400);
-    expect(accepted.body.ok).toBe(false);
-    if (accepted.body.ok) throw new Error('Expected brandless accept to fail.');
-    expect(accepted.body.error.message).toBe('brandId is required before accepting a Brand Vault profile.');
-    expect(store.getRecord(created.body.record.id)?.status).toBe('draft');
+    // A brandless draft is no longer a dead end: accept mints a brandId rather than refusing, so the
+    // user's review work survives AND the invariant still holds — the accepted profile carries a brandId
+    // that generation consumers can resolve.
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.ok).toBe(true);
+    if (!accepted.body.ok) throw new Error('Expected brandless accept to succeed with a minted brandId.');
+    expect(accepted.body.record.status).toBe('accepted');
+    expect(accepted.body.record.profile.brandId).toMatch(/^brand_/);
+    const stored = store.getRecord(created.body.record.id);
+    expect(stored?.status).toBe('accepted');
+    expect(stored?.profile.brandId).toMatch(/^brand_/);
   });
 
   it('returns reviewed Brand Vault learning events when accepted signal edits change values', async () => {
