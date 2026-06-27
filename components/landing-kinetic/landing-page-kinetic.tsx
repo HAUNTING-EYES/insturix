@@ -2,8 +2,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { SiteFooter } from "@/components/shared/site-footer";
-import { LogoBrand, AuthButtons } from "@/components/shared/site-navbar";
+import { LogoBrand, AuthButtons, NavItem, menuItems } from "@/components/shared/site-navbar";
 
 /**
  * Landing — Kinetic ("Your entire studio").
@@ -220,6 +221,8 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
 export const LandingKinetic: React.FC = () => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     const root = rootRef.current;
@@ -328,11 +331,15 @@ export const LandingKinetic: React.FC = () => {
         <Link href="/" className="brandlink" aria-label="Insturix home"><LogoBrand /></Link>
         <div className="navlinks">
           <span className="navmid">
-            <a href="#how">How it works</a>
-            <a href="#changes">What changes</a>
-            <a href="#backed">Backed by</a>
-            <Link href="/products">Products</Link>
-            <Link href="/upgrade">Pricing</Link>
+            {menuItems.map((item) => (
+              <NavItem
+                key={item.title}
+                item={item}
+                activeDropdown={activeDropdown}
+                setActiveDropdown={setActiveDropdown}
+                pathname={pathname}
+              />
+            ))}
           </span>
           <span className="navauth"><AuthButtons /></span>
           <button
@@ -357,11 +364,15 @@ export const LandingKinetic: React.FC = () => {
         aria-hidden={!menuOpen}
       >
         <button type="button" className="mm-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}>✕</button>
-        <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
-        <a href="#changes" onClick={() => setMenuOpen(false)}>What changes</a>
-        <a href="#backed" onClick={() => setMenuOpen(false)}>Backed by</a>
-        <Link href="/products" onClick={() => setMenuOpen(false)}>Products</Link>
-        <Link href="/upgrade" onClick={() => setMenuOpen(false)}>Pricing</Link>
+        {menuItems.map((item) => (
+          <Link
+            key={item.title}
+            href={item.href === "#" ? (item.subItems?.[0]?.href ?? "#") : item.href}
+            onClick={() => setMenuOpen(false)}
+          >
+            {item.title}
+          </Link>
+        ))}
         <div className="mm-foot">
           <AuthButtons />
         </div>
