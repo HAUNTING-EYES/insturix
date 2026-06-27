@@ -38,6 +38,11 @@ import {
   resolveVjepaScreenContextPolicy,
   type VjepaScreenContextPolicy,
 } from '@/lib/editron/services/vjepa-coverage-audit';
+import {
+  findNearestVisualClipBoundary,
+  TRANSITION_BOUNDARY_SNAP_TOLERANCE_FRAMES,
+  type ClipBoundaryMatch as SharedClipBoundaryMatch,
+} from '@/lib/editron/services/transition-boundary';
 import { resolveAtomicPlacement } from '@/lib/editron/services/atomic-placement';
 import { normalizeMotionGraphicContent } from '@/lib/editron/services/mg-content-atoms';
 import {
@@ -91,16 +96,7 @@ function mulberry32(seed: number): () => number {
 // modifications that happen between decision generation and EDL execution.
 // These helpers snap decision frames to the nearest actual clip positions.
 
-export interface ClipBoundaryMatch {
-  /** The clip boundary frame (end of clipA / start of clipB) */
-  boundaryFrame: number;
-  /** Clip ending at/before the boundary */
-  clipA: Overlay;
-  /** Clip starting at/after the boundary */
-  clipB: Overlay;
-  /** Drift in frames between decision.frame and actual boundary */
-  drift: number;
-}
+export type ClipBoundaryMatch = SharedClipBoundaryMatch<Overlay>;
 
 /**
  * Find the nearest clip boundary to a decision frame.
@@ -109,32 +105,9 @@ export interface ClipBoundaryMatch {
 export function snapToClipBoundary(
   decisionFrame: number,
   overlays: Overlay[],
-  maxTolerance: number = 90,
+  maxTolerance: number = TRANSITION_BOUNDARY_SNAP_TOLERANCE_FRAMES,
 ): ClipBoundaryMatch | null {
-  const visualOverlays = overlays
-    .filter(o => o.type === 'video' || o.type === 'image')
-    .sort((a, b) => a.from - b.from);
-
-  // Post-silence-removal projects have many small clips with shifted boundaries.
-  // ⚠️ tolerance 90 INVENTED (was 45) — 53% silence removal on 1175s video caused >60-frame gaps
-  const effectiveTolerance = visualOverlays.length > 20
-    ? Math.max(maxTolerance, 120)
-    : maxTolerance;
-
-  let best: ClipBoundaryMatch | null = null;
-
-  for (let i = 0; i < visualOverlays.length - 1; i++) {
-    const a = visualOverlays[i];
-    const b = visualOverlays[i + 1];
-    const boundary = a.from + a.durationInFrames;
-    const drift = Math.abs(boundary - decisionFrame);
-
-    if (drift <= effectiveTolerance && (!best || drift < best.drift)) {
-      best = { boundaryFrame: boundary, clipA: a, clipB: b, drift };
-    }
-  }
-
-  return best;
+  return findNearestVisualClipBoundary(decisionFrame, overlays, maxTolerance);
 }
 
 /**
