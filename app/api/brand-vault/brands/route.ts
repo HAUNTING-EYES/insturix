@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { getDefaultBrandVaultRefineryStore } from '@/lib/shared/brand-vault-refinery-api';
+import { mintBrandId } from '@/lib/shared/brand-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function GET() {
   try {
     const latest = await store.getLatestAcceptedRecord({ userId, orgId: orgId ?? null });
     if (latest && latest.status === 'accepted' && !latest.profile.brandId?.trim()) {
-      latest.profile.brandId = `brand_${globalThis.crypto.randomUUID()}`;
+      latest.profile.brandId = mintBrandId();
       await store.saveRecord(latest);
     }
   } catch (error) {

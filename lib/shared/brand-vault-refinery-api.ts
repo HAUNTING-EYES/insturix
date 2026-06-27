@@ -2,6 +2,7 @@ import type { BrandSignalProfile } from './brand-signal-profile';
 import {
   brandAccessKey,
   filterAccessibleBrands,
+  mintBrandId,
   normalizeBrandAccessUserIds,
   type BrandAccessGrants,
 } from './brand-access';
@@ -850,7 +851,7 @@ export async function reviewBrandVaultSignalProfileDraft(
     // (and the user's review work unrecoverable — the old behavior just refused). Mint a stable one and
     // persist it BEFORE accept (which only flips status), so the accepted profile carries the brandId and
     // shows up in the switcher. Format matches the client scan-mint (`brand_<uuid>`).
-    record.profile.brandId = `brand_${globalThis.crypto.randomUUID()}`;
+    record.profile.brandId = mintBrandId();
     await dependencies.store.saveRecord(record, options);
   }
 
