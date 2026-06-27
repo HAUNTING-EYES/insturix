@@ -1,5 +1,6 @@
 import {
   verifyClientViewToken,
+  touchAndCheckShareLink,
   loadSharedCalendar,
   type SharedCalendarCard,
 } from "@/lib/calos/client-view";
@@ -44,12 +45,17 @@ export default async function SharedCalendarPage({ params }: PageProps) {
   const { token } = await params;
   const scope = verifyClientViewToken(token);
 
-  if (!scope) {
+  // Signature/expiry valid AND the record isn't revoked. touchAndCheckShareLink also records the view.
+  // If the signature is bad we never hit the DB (scope is null). A revoked/missing record reads as
+  // invalid too — same neutral message, so a revoked link can't be distinguished from a forged one.
+  const active = scope ? await touchAndCheckShareLink(scope.tokenId).catch(() => false) : false;
+
+  if (!scope || !active) {
     return (
       <Shell>
         <h1 className="text-lg font-semibold">Content Calendar</h1>
         <p className="mt-3 text-sm text-[#7A776E]">
-          This share link is invalid or has expired. Ask whoever shared it for a fresh link.
+          This share link is invalid, revoked, or has expired. Ask whoever shared it for a fresh link.
         </p>
       </Shell>
     );
