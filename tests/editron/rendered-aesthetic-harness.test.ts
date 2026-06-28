@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
@@ -445,6 +445,64 @@ describe('rendered aesthetic harness helpers', () => {
       expect(hydrated.renderInput.overlays[0]?.id).toBe(44);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('hydrates Phase 0 artifact packs whose render input path is cwd-relative', () => {
+    const root = path.join(process.cwd(), '.calibration-temp', 'phase0-live-path-test');
+    mkdirSync(root, { recursive: true });
+    const tempDir = mkdtempSync(path.join(root, 'run-'));
+    try {
+      const renderInputPath = path.join(tempDir, 'render-input.json');
+      writeFileSync(renderInputPath, JSON.stringify({
+        projectId: 'proj_phase0_live',
+        tag: 'proj-phase0-live',
+        width: 1080,
+        height: 1920,
+        fps: 30,
+        durationInFrames: 90,
+        overlays: [textOverlay({ id: 45 })],
+      }), 'utf8');
+
+      const cwdRelativeRenderInputPath = path.relative(process.cwd(), renderInputPath);
+      const hydrated = hydratePhase0RenderArtifactPackForTaxonomy({
+        version: 'editron-phase0-render-artifact-pack-v1',
+        projectId: 'proj_phase0_live',
+        status: 'ready',
+        issues: [],
+        artifactDir: tempDir,
+        paths: {
+          renderInput: cwdRelativeRenderInputPath,
+          renderedAestheticDir: path.join(tempDir, 'rendered-aesthetic'),
+          renderedAestheticJson: path.join(tempDir, 'rendered-aesthetic', 'rendered-aesthetic.json'),
+          renderedAestheticHtml: path.join(tempDir, 'rendered-aesthetic', 'report.html'),
+        },
+        renderCommand: '',
+        familyCoverage: {
+          auditedOverlayTypes: ['text'],
+          auditedVisualTypes: ['text'],
+          auditedMotionTypes: [],
+          auditedAudioTypes: [],
+          requiredFamilies: [],
+          auditedVisualCount: 1,
+          auditedMotionCount: 0,
+          auditedAudioCount: 0,
+          auditedOverlayCount: 1,
+          counts: { text: 1 },
+          countsByFamily: { text: 1 },
+          presentAuditedFamilies: ['text'],
+          missingAuditedFamilies: [],
+          presentRequiredFamilies: [],
+          missingRequiredFamilies: [],
+          evidenceCompleteness: {},
+          incompleteFamilies: [],
+        },
+      } as any, tempDir);
+
+      expect(hydrated.renderInput.overlays).toHaveLength(1);
+      expect(hydrated.renderInput.overlays[0]?.id).toBe(45);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

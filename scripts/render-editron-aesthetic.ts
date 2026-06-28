@@ -372,10 +372,7 @@ export function hydratePhase0RenderArtifactPackForTaxonomy(
   const renderInputPath = typeof artifactPack.paths?.renderInput === 'string' && artifactPack.paths.renderInput.trim()
     ? artifactPack.paths.renderInput
     : path.join(runDir, 'render-input.json');
-  const resolvedRenderInputPath = path.resolve(runDir, renderInputPath);
-  if (!fs.existsSync(resolvedRenderInputPath)) {
-    throw new Error(`Phase 0 render input missing for taxonomy update: ${resolvedRenderInputPath}`);
-  }
+  const resolvedRenderInputPath = resolvePhase0RenderInputPath(renderInputPath, runDir);
 
   const renderInput = JSON.parse(fs.readFileSync(resolvedRenderInputPath, 'utf8')) as Phase0RenderInput;
   if (!Array.isArray(renderInput.overlays)) {
@@ -386,6 +383,21 @@ export function hydratePhase0RenderArtifactPackForTaxonomy(
     ...artifactPack,
     renderInput,
   };
+}
+
+
+function resolvePhase0RenderInputPath(renderInputPath: string, runDir: string): string {
+  const candidates = uniqueStrings([
+    path.isAbsolute(renderInputPath)
+      ? renderInputPath
+      : path.resolve(process.cwd(), renderInputPath),
+    path.resolve(runDir, renderInputPath),
+    path.join(runDir, 'render-input.json'),
+  ]);
+  const existing = candidates.find((candidate) => fs.existsSync(candidate));
+  if (existing) return existing;
+
+  throw new Error(`Phase 0 render input missing for taxonomy update. Checked: ${candidates.join(', ')}`);
 }
 
 export function planRenderedAestheticSamples(
@@ -1396,6 +1408,7 @@ function resetOutputDir(outputDir: string): void {
   const allowedRoots = [
     path.resolve(process.cwd(), '.calibration-temp', 'rendered-aesthetic'),
     path.resolve(process.cwd(), '.calibration-temp', 'phase0-fixtures'),
+    path.resolve(process.cwd(), '.calibration-temp', 'phase0-live'),
   ];
   const resolved = path.resolve(outputDir);
   if (!allowedRoots.some((root) => isInsideAllowedRoot(resolved, root))) {
