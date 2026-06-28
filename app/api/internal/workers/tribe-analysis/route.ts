@@ -77,11 +77,19 @@ async function handler(request: NextRequest) {
     }
     console.log(`[TribeWorker] Claimed ${projectId} (tribe lock acquired)`);
 
+    const precomputedProjectDoc = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { vjepaAnalysis: 1 } },
+    );
+    const precomputedVjepaAnalysis = precomputedProjectDoc?.vjepaAnalysis;
+
     // ─── Step 3.5: V-JEPA + Wav2Vec + Essentia GPU analysis ────────
     // Run visual significance (V-JEPA), vocal emotion (Wav2Vec), and music
     // analysis (Essentia) in parallel. All are non-fatal — pipeline falls
     // back to Phase 0 (Gemini-only) weights if GPU analysis fails.
-    let vjepaAnalysis: any = null;
+    let vjepaAnalysis: any = Array.isArray(precomputedVjepaAnalysis?.segments) && precomputedVjepaAnalysis.segments.length > 0
+      ? precomputedVjepaAnalysis
+      : null;
     let wav2vecAnalysis: any = null;
 
     if (segmentInputs?.length > 0) {
@@ -95,13 +103,21 @@ async function handler(request: NextRequest) {
           ? visualSegmentInputs
           : segmentInputs;
 
-        console.log(`[TribeWorker] TRIBE Phase 2: Dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
+        console.log(
+          `[TribeWorker] TRIBE Phase 2: ${
+            vjepaAnalysis
+              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
+              : `dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments`
+          }; Wav2Vec for ${segmentInputs.length} speech segments...`
+        );
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-          (async () => {
-            const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
-            return analyzeVideoWithVjepa(videoUrl, vjepaSegmentInputs);
-          })(),
+          vjepaAnalysis
+            ? Promise.resolve(vjepaAnalysis)
+            : (async () => {
+                const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
+                return analyzeVideoWithVjepa(videoUrl, vjepaSegmentInputs);
+              })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
             return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);

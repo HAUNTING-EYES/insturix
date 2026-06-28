@@ -28,11 +28,11 @@ export interface SilenceRemovalAction {
   action: 'remove' | 'shorten' | 'split';
   /** Target duration in ms (only for 'shorten') */
   shortenToMs?: number;
-  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard' | 'transcript-edit' | 'pacing-split';
+  reason: 'silence' | 'filler' | 'inferior-take' | 'meta-discard' | 'transcript-edit' | 'pacing-split' | 'visual-dead-air';
   /** Evidence for non-destructive pacing boundaries. */
   metadata?: {
-    kind?: 'pacing-split';
-    source?: 'transcript-segment-boundary';
+    kind?: 'pacing-split' | 'visual-cut' | 'visual-protection';
+    source?: 'transcript-segment-boundary' | 'vjepa-visual-boundary' | 'vjepa-visual-dead-air' | 'vjepa-visual-protection';
     calibrationStatus?: 'invented-threshold';
     previousSegmentIndex?: number;
     nextSegmentIndex?: number;
@@ -47,10 +47,31 @@ export interface SilenceRemovalAction {
     keptRangeEndMs?: number;
     keptRangeDurationMs?: number;
     minSplitIntervalMs?: number;
+    visualCut?: {
+      decision: 'protect-existing-cut' | 'remove-visual-dead-air' | 'split-visual-boundary';
+      confidence: number;
+      visualSegmentStartMs: number;
+      visualSegmentEndMs: number;
+      visualSignificance?: number;
+      motionIntensity?: number;
+      actionType?: string;
+      motionType?: string;
+      objectCount?: number;
+      faceCount?: number;
+      textCoverage?: number;
+      reasons: string[];
+    };
   };
 }
 
-export type PacingSplitBoundaryReason = 'speech-pause' | 'sentence-boundary' | 'transcript-segment-boundary';
+export type PacingSplitBoundaryReason =
+  | 'speech-pause'
+  | 'sentence-boundary'
+  | 'transcript-segment-boundary'
+  | 'visual-state-change'
+  | 'visual-motion-change'
+  | 'visual-subject-change'
+  | 'visual-text-change';
 
 export interface TranscriptBoundaryEvidence {
   gapMs: number;

@@ -89,6 +89,8 @@ async function handler(request: NextRequest) {
     // Step 2 with segment context so it analyzes what the viewer will see.
     let syntheticStoryboard: any = null;
     let rawFootageAnalysis: any = null;
+    let precutVjepaAnalysis: any = null;
+    let visualCutIntelligence: any = null;
 
     console.log(`[VideoAnalysisWorker] Step 1: Transcribing + cutting ${Math.round(durationSec)}s video (${assetId})...`);
 
@@ -193,6 +195,50 @@ async function handler(request: NextRequest) {
       }
     }
 
+    // Step 1.58: Visual cut intelligence runs only when transcript coverage is insufficient.
+    if (rawFootageAnalysis?.needsVisualDrivenEditing || (rawFootageAnalysis && (rawFootageAnalysis.speechCoverage ?? 1) < 0.3)) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'analyzing_visual_cuts' } },
+        );
+
+        const segmentInputs = (rawFootageAnalysis.segments || []).map((seg: any) => ({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+        }));
+        const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs, {
+          maxSegments: 180,
+        });
+
+        console.log(`[VideoAnalysisWorker] Step 1.58: Visual cut intelligence via V-JEPA (${visualSegmentInputs.length} visual segments, speechCoverage=${((rawFootageAnalysis.speechCoverage ?? 0) * 100).toFixed(1)}%)...`);
+        precutVjepaAnalysis = await analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
+
+        const { refineCutPlanWithVisualIntelligence } = await import('@/lib/editron/services/visual-cut-intelligence');
+        const visualCutResult = refineCutPlanWithVisualIntelligence(rawFootageAnalysis, precutVjepaAnalysis);
+        visualCutIntelligence = visualCutResult.report;
+        rawFootageAnalysis.visualCutIntelligence = visualCutResult.report;
+        rawFootageAnalysis.silenceRemovalPlan = visualCutResult.plan;
+        rawFootageAnalysis.estimatedCleanDurationMs = rawFootageAnalysis.originalDurationMs -
+          (rawFootageAnalysis.silenceRemovalPlan || []).reduce((sum: number, action: any) => {
+            if (action.action === 'remove') return sum + (action.endMs - action.startMs);
+            if (action.action === 'shorten') return sum + (action.endMs - action.startMs) - (action.shortenToMs || 0);
+            return sum;
+          }, 0);
+
+        console.log(
+          `[VideoAnalysisWorker] Visual cuts: status=${visualCutIntelligence.status}, ` +
+          `protected=${visualCutIntelligence.protectedActionCount}, ` +
+          `addedRemovals=${visualCutIntelligence.addedRemovalCount}, ` +
+          `addedSplits=${visualCutIntelligence.addedSplitCount}, ` +
+          `actions=${visualCutIntelligence.inputActionCount}->${visualCutIntelligence.outputActionCount}`
+        );
+      } catch (visualCutErr: unknown) {
+        const msg = visualCutErr instanceof Error ? visualCutErr.message : String(visualCutErr);
+        console.warn(`[VideoAnalysisWorker] Visual cut intelligence failed (non-fatal): ${msg}`);
+      }
+    }
     // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
     if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
@@ -350,6 +396,8 @@ async function handler(request: NextRequest) {
           ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
           ...(editDNA && { referenceEditDNA: editDNA }),
           ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
+          ...(precutVjepaAnalysis && { vjepaAnalysis: precutVjepaAnalysis }),
+          ...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence }),
           ...(genreParameters && { genreParameters }),
           ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
           updatedAt: new Date(),
@@ -497,7 +545,7 @@ async function handler(request: NextRequest) {
     console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN — running TRIBE + Director inline`);
 
     // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
-    let vjepaAnalysis: any = null;
+    let vjepaAnalysis: any = precutVjepaAnalysis;
     let wav2vecAnalysis: any = null;
 
     if (hasSegments) {
@@ -514,12 +562,20 @@ async function handler(request: NextRequest) {
         const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
 
-        console.log(`[VideoAnalysisWorker] TRIBE Phase 2 (inline): V-JEPA for ${visualSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
+        console.log(
+          `[VideoAnalysisWorker] TRIBE Phase 2 (inline): ${
+            vjepaAnalysis
+              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
+              : `dispatching V-JEPA for ${visualSegmentInputs.length} visual segments`
+          }; Wav2Vec for ${segmentInputs.length} speech segments...`
+        );
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-          (async () => {
-            return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
-          })(),
+          vjepaAnalysis
+            ? Promise.resolve(vjepaAnalysis)
+            : (async () => {
+                return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
+              })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
             return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
