@@ -51,6 +51,7 @@ import {
 } from '@/lib/editron/agent/director-observability';
 import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
 import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
+import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -270,6 +271,77 @@ async function persistPostBundleProfileActionPolicy(
   }
 }
 
+async function persistFinalPhase0LiveTruth(options: {
+  projectId: string;
+  project: any;
+  projectDoc: any;
+  overlays: any[];
+  constraintViolations?: any[];
+  genreParams?: any;
+}): Promise<ReturnType<typeof buildPhase0LiveTruthSnapshot>> {
+  const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
+  const reviewedAt = new Date();
+  const fps = options.project?.fps || 30;
+  const finalQualityReport = runQualityReview(
+    options.overlays,
+    fps,
+    undefined,
+    undefined,
+    options.constraintViolations,
+    undefined,
+    options.genreParams,
+  );
+  const persistedQualityReview = buildPersistedQualityReview(finalQualityReport, reviewedAt);
+  const truthDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+  const persistedProjectDoc = await truthDb.collection('projects').findOne(
+    { projectId: options.projectId },
+    {
+      projection: {
+        projectId: 1,
+        id: 1,
+        durationInFrames: 1,
+        fps: 1,
+        playerDimensions: 1,
+        aspectRatio: 1,
+        rawFootageAnalysis: 1,
+        vjepaAnalysis: 1,
+        intelligence: 1,
+      },
+    },
+  );
+
+  const truthProject = {
+    ...(persistedProjectDoc ?? {}),
+    projectId: options.projectId,
+    id: persistedProjectDoc?.id ?? options.project?.id,
+    durationInFrames: persistedProjectDoc?.durationInFrames ?? options.project?.durationInFrames,
+    fps: persistedProjectDoc?.fps ?? options.project?.fps,
+    playerDimensions: persistedProjectDoc?.playerDimensions ?? options.project?.playerDimensions,
+    aspectRatio: persistedProjectDoc?.aspectRatio ?? options.project?.aspectRatio,
+    rawFootageAnalysis: persistedProjectDoc?.rawFootageAnalysis ?? options.projectDoc?.rawFootageAnalysis,
+    vjepaAnalysis: persistedProjectDoc?.vjepaAnalysis ?? options.projectDoc?.vjepaAnalysis,
+    intelligence: persistedProjectDoc?.intelligence ?? options.projectDoc?.intelligence,
+    overlays: options.overlays,
+    qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
+  };
+  const snapshot = buildPhase0LiveTruthSnapshot(truthProject, {
+    capturedAt: reviewedAt.toISOString(),
+    source: 'director-final-save',
+  });
+
+  await truthDb.collection('projects').updateOne(
+    { projectId: options.projectId },
+    {
+      $set: {
+        qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
+        'intelligence.phase0LiveTruth': snapshot,
+        'intelligence.renderedQualityEvidence': snapshot.qualityEvidence,
+      },
+    },
+  );
+
+  return snapshot;
+}
 function isCanonicalDecisionTimelineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('canonical decision timeline');
 }
@@ -2391,6 +2463,29 @@ export async function executeDirectorPlan(
       await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
     }
 
+    try {
+      const phase0Truth = await persistFinalPhase0LiveTruth({
+        projectId,
+        project,
+        projectDoc,
+        overlays: persistableOverlays,
+        constraintViolations: pathDConstraintViolations,
+        genreParams: pathDGenreParams,
+      });
+      (result as any).phase0LiveTruth = {
+        version: phase0Truth.version,
+        status: phase0Truth.status,
+        summary: phase0Truth.summary,
+        qualityEvidence: phase0Truth.qualityEvidence,
+      };
+      console.log(
+        `[Director] Phase0 live truth: status=${phase0Truth.status}, ` +
+        `fail=${phase0Truth.summary.fail}, warn=${phase0Truth.summary.warn}, ` +
+        `qualityEvidence=${phase0Truth.qualityEvidence.qualityEvidenceSource}/${phase0Truth.qualityEvidence.renderedAestheticStatus}`,
+      );
+    } catch (truthErr: unknown) {
+      console.warn('[Director] non-fatal Phase0 live truth persistence:', truthErr instanceof Error ? truthErr.message : truthErr);
+    }
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
 
@@ -3098,7 +3193,7 @@ async function executeAction(
             { projectId },
             {
               $set: {
-                qualityReview: persistedQualityReview,
+                qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
               },
             },
           );

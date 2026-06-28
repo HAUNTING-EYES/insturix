@@ -59,6 +59,20 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain("'intelligence.unifiedDecisionBundle'");
   });
 
+  it('persists final Phase-0 truth from the saved overlay set before completion events', () => {
+    const source = directorSource();
+    const saveIndex = source.indexOf('await projectService.saveProject');
+    const phase0Index = source.indexOf('await persistFinalPhase0LiveTruth');
+    const brandEventIndex = source.indexOf('Brand Intelligence: emit director_completed');
+
+    expect(saveIndex).toBeGreaterThan(0);
+    expect(phase0Index).toBeGreaterThan(saveIndex);
+    expect(brandEventIndex).toBeGreaterThan(phase0Index);
+    expect(source).toContain('overlays: persistableOverlays');
+    expect(source).toContain("'intelligence.phase0LiveTruth': snapshot");
+    expect(source).toContain("'intelligence.renderedQualityEvidence': snapshot.qualityEvidence");
+  });
+
   it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {
     const source = directorSource();
     const fallbackAuthorityStart = source.indexOf("source: 'fallback-reactive'");
