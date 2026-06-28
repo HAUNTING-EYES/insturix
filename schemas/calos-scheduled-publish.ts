@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, models } from "mongoose";
+import mongoose, { Schema, type Document } from "mongoose";
 
 export type CalosPublishPlatform =
   | "youtube"
@@ -78,7 +78,7 @@ CalosScheduledPublishSchema.index({ status: 1, publishAt: 1 });
 CalosScheduledPublishSchema.index({ orgId: 1, brandId: 1 });
 
 const CalosScheduledPublish =
-  models.CalosScheduledPublish ||
+  mongoose.models.CalosScheduledPublish ||
   mongoose.model<ICalosScheduledPublish>(
     "CalosScheduledPublish",
     CalosScheduledPublishSchema,

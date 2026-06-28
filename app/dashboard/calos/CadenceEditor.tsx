@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
+import { CALOS_CAMPAIGN_PLATFORMS, MAX_CAMPAIGN_POSTS_PER_WEEK } from '@/lib/calos/campaign-cadence';
 import { CALOS_OBJECTIVES, DEFAULT_OBJECTIVE, type CalosObjective } from '@/lib/calos/campaign-intent';
 
 export interface CadenceRule {
@@ -12,8 +13,16 @@ export interface CadenceRule {
   preferredDays: number[]; // 0=Sun..6=Sat
 }
 
-const PLATFORMS = ['linkedin', 'instagram', 'youtube', 'facebook', 'twitter'];
+const PLATFORMS = CALOS_CAMPAIGN_PLATFORMS;
 const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+function clampPerWeek(value: number) {
+  return Math.max(0, Math.min(MAX_CAMPAIGN_POSTS_PER_WEEK, Number.isFinite(value) ? Math.floor(value) : 0));
+}
+
+function normalizePreferredDays(days: number[]) {
+  return [...new Set(days.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
+}
 
 /**
  * Edit a campaign's per-platform cadence (posts/week + which days). Auto-fill consumes
@@ -43,9 +52,9 @@ export default function CadenceEditor({
   const [name, setName] = useState(campaignName);
   const [rules, setRules] = useState<CadenceRule[]>(
     (initialRules.length ? initialRules : DEFAULT_CADENCE).map((r) => ({
-      platform: r.platform,
-      perWeek: r.perWeek,
-      preferredDays: [...r.preferredDays],
+      platform: typeof r.platform === 'string' && r.platform.trim() ? r.platform.trim().toLowerCase() : 'instagram',
+      perWeek: clampPerWeek(r.perWeek),
+      preferredDays: normalizePreferredDays(r.preferredDays),
     }))
   );
   const [objective, setObjective] = useState<CalosObjective>(initialObjective ?? DEFAULT_OBJECTIVE);
@@ -59,12 +68,15 @@ export default function CadenceEditor({
     update(i, {
       preferredDays: rules[i].preferredDays.includes(d)
         ? rules[i].preferredDays.filter((x) => x !== d)
-        : [...rules[i].preferredDays, d].sort((a, b) => a - b),
+        : normalizePreferredDays([...rules[i].preferredDays, d]),
     });
 
-  const addRule = () =>
-    setRules((rs) => [...rs, { platform: 'instagram', perWeek: 1, preferredDays: [2, 4] }]);
+  const addRule = () => {
+    const nextPlatform = PLATFORMS.find((platform) => !rules.some((r) => r.platform === platform)) ?? 'instagram';
+    setRules((rs) => [...rs, { platform: nextPlatform, perWeek: 1, preferredDays: [2, 4] }]);
+  };
   const removeRule = (i: number) => setRules((rs) => rs.filter((_, idx) => idx !== i));
+  const platformOptions = Array.from(new Set([...PLATFORMS, ...rules.map((r) => r.platform).filter(Boolean)]));
 
   const save = async () => {
     if (isCreate && !name.trim()) {
@@ -84,8 +96,10 @@ export default function CadenceEditor({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ brandId, updates: { cadenceRules: rules, objective, theme } }),
           });
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
       const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : `Failed (${res.status})`);
+      }
       toast({ title: isCreate ? 'Campaign created' : 'Cadence saved' });
       onSaved(isCreate ? data?.campaign?._id : undefined);
       onClose();
@@ -173,7 +187,7 @@ export default function CadenceEditor({
                   aria-label="Platform"
                   className="bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-2 py-1.5 flex-1"
                 >
-                  {PLATFORMS.map((p) => (
+                  {platformOptions.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>
@@ -182,9 +196,10 @@ export default function CadenceEditor({
                 <input
                   type="number"
                   min={0}
-                  max={14}
+                  max={MAX_CAMPAIGN_POSTS_PER_WEEK}
+                  step={1}
                   value={r.perWeek}
-                  onChange={(e) => update(i, { perWeek: Math.max(0, Math.min(14, Number(e.target.value) || 0)) })}
+                  onChange={(e) => update(i, { perWeek: clampPerWeek(Number(e.target.value) || 0) })}
                   aria-label="Posts per week"
                   className="w-16 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-2 py-1.5"
                 />

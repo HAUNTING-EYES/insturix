@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, models } from "mongoose";
+import mongoose, { Schema, type Document } from "mongoose";
 import { CALOS_OBJECTIVES, DEFAULT_OBJECTIVE, type CalosObjective } from "@/lib/calos/campaign-intent";
 
 export type CalosCampaignStatus = "draft" | "active" | "archived";
@@ -75,7 +75,7 @@ CalosCampaignSchema.index({ ownerUserId: 1, brandId: 1 });
 CalosCampaignSchema.index({ brandId: 1, status: 1 });
 
 const CalosCampaign =
-  models.CalosCampaign ||
+  mongoose.models.CalosCampaign ||
   mongoose.model<ICalosCampaign>("CalosCampaign", CalosCampaignSchema, "calos_campaigns");
 
 export default CalosCampaign;
