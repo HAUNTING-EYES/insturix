@@ -52,6 +52,8 @@ import {
 import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
 import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
+import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -324,9 +326,21 @@ async function persistFinalPhase0LiveTruth(options: {
     overlays: options.overlays,
     qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
   };
-  const snapshot = buildPhase0LiveTruthSnapshot(truthProject, {
-    capturedAt: reviewedAt.toISOString(),
+  const capturedAt = reviewedAt.toISOString();
+  const artifactDir = buildLivePhase0ArtifactDir(options.projectId, capturedAt);
+  const artifactManifest = buildPhase0FixtureManifest(truthProject, {
+    capturedAt,
     source: 'director-final-save',
+    artifactDir,
+  });
+  const artifactPack = buildPhase0RenderArtifactPack(truthProject, artifactManifest, {
+    artifactDir,
+  });
+  const snapshot = buildPhase0LiveTruthSnapshot(truthProject, {
+    capturedAt,
+    source: 'director-final-save',
+    artifactDir,
+    artifactPack,
   });
 
   await truthDb.collection('projects').updateOne(
@@ -336,12 +350,59 @@ async function persistFinalPhase0LiveTruth(options: {
         qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
         'intelligence.phase0LiveTruth': snapshot,
         'intelligence.renderedQualityEvidence': snapshot.qualityEvidence,
+        'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack),
       },
     },
   );
 
   return snapshot;
 }
+function buildLivePhase0ArtifactDir(projectId: string, capturedAt: string): string {
+  const safeProjectId = safePhase0PathSegment(projectId || 'unknown-project');
+  const safeRunId = safePhase0PathSegment(capturedAt);
+  return `.calibration-temp/phase0-live/${safeProjectId}/${safeRunId}`;
+}
+
+function safePhase0PathSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96) || 'unknown';
+}
+
+function buildLivePhase0FixtureArtifact(
+  snapshot: ReturnType<typeof buildPhase0LiveTruthSnapshot>,
+  artifactPack: ReturnType<typeof buildPhase0RenderArtifactPack>,
+) {
+  return {
+    version: 'editron-phase0-live-fixture-artifact-v1' as const,
+    persistedAt: snapshot.capturedAt,
+    materialization: 'planned-not-rendered' as const,
+    artifactDir: artifactPack.artifactDir,
+    renderInputPath: artifactPack.paths.renderInput,
+    renderedAestheticDir: artifactPack.paths.renderedAestheticDir,
+    renderedAestheticJson: artifactPack.paths.renderedAestheticJson,
+    renderedAestheticHtml: artifactPack.paths.renderedAestheticHtml,
+    renderCommand: artifactPack.renderCommand,
+    artifactPackStatus: artifactPack.status,
+    artifactPackIssues: artifactPack.issues.slice(0, 20),
+    renderArtifactsStatus: snapshot.renderArtifacts.status,
+    qualityEvidenceSource: snapshot.qualityEvidence.qualityEvidenceSource,
+    sampledFrameCount: artifactPack.samplePlan.sampledFrames.length,
+    sampledFrames: artifactPack.samplePlan.sampledFrames.slice(0, 80),
+    droppedSampleCount: artifactPack.samplePlan.droppedSampleCount,
+    familyCoverage: {
+      auditedVisualCount: artifactPack.familyCoverage.auditedVisualCount,
+      auditedMotionCount: artifactPack.familyCoverage.auditedMotionCount,
+      auditedAudioCount: artifactPack.familyCoverage.auditedAudioCount,
+      presentRequiredFamilies: artifactPack.familyCoverage.presentRequiredFamilies,
+      missingRequiredFamilies: artifactPack.familyCoverage.missingRequiredFamilies,
+      incompleteFamilies: artifactPack.familyCoverage.incompleteFamilies,
+    },
+  };
+}
+
 function isCanonicalDecisionTimelineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('canonical decision timeline');
 }

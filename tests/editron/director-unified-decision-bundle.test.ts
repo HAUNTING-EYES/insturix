@@ -69,8 +69,12 @@ describe('director unified decision bundle control flow', () => {
     expect(phase0Index).toBeGreaterThan(saveIndex);
     expect(brandEventIndex).toBeGreaterThan(phase0Index);
     expect(source).toContain('overlays: persistableOverlays');
+    expect(source).toContain('buildPhase0RenderArtifactPack(truthProject, artifactManifest');
+    expect(source).toContain('artifactPack,');
     expect(source).toContain("'intelligence.phase0LiveTruth': snapshot");
     expect(source).toContain("'intelligence.renderedQualityEvidence': snapshot.qualityEvidence");
+    expect(source).toContain("'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack)");
+    expect(source).toContain("materialization: 'planned-not-rendered'");
   });
 
   it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {
