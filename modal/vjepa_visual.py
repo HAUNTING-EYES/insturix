@@ -57,6 +57,7 @@ image = (
 
 ENCODER_MODEL_ID = "facebook/vjepa2-vitl-fpc64-256"
 MAX_FRAMES_PER_SEGMENT = 64
+MIN_FRAMES_PER_SEGMENT = 8
 # ✅ Adaptive — SIGNIFICANCE_SCALE deleted. Visual significance now uses z-score
 # normalization against the video's own embedding distance distribution. No fixed
 # constant needed — each video self-calibrates. See _significance_adaptive().
@@ -107,13 +108,14 @@ class VJEPAAnalyzer:
         video_url = request.get("video_url")
         segments = request.get("segments", [])
         features = set(request.get("features", []))
+        max_frames_per_segment = _normalize_max_frames_per_segment(request.get("max_frames_per_segment"))
 
         if not video_url or not segments:
             return {"error": "video_url and segments[] required", "segments": []}
 
         # ── 1. Download video + extract frames per segment ──────────────
         try:
-            frames_by_seg = _extract_segment_frames(video_url, segments)
+            frames_by_seg = _extract_segment_frames(video_url, segments, max_frames_per_segment)
         except Exception as e:
             print(f"[VJEPAAnalyzer] Frame extraction failed: {e}")
             return {
@@ -189,9 +191,17 @@ class VJEPAAnalyzer:
 # ─── Video Frame Extraction ────────────────────────────────────────────────
 
 
+def _normalize_max_frames_per_segment(raw: object) -> int:
+    try:
+        value = int(raw) if raw is not None else MAX_FRAMES_PER_SEGMENT
+    except (TypeError, ValueError):
+        return MAX_FRAMES_PER_SEGMENT
+    return max(MIN_FRAMES_PER_SEGMENT, min(MAX_FRAMES_PER_SEGMENT, value))
+
 def _extract_segment_frames(
     video_url: str,
     segments: list[dict],
+    max_frames_per_segment: int = MAX_FRAMES_PER_SEGMENT,
 ) -> list[np.ndarray | None]:
     """Download video, extract frames per segment using OpenCV."""
     import tempfile
@@ -221,7 +231,7 @@ def _extract_segment_frames(
         for seg in segments:
             start_f = int(seg["start_ms"] / 1000.0 * fps)
             end_f = int(seg["end_ms"] / 1000.0 * fps)
-            n_frames = min(MAX_FRAMES_PER_SEGMENT, max(1, end_f - start_f))
+            n_frames = min(max_frames_per_segment, max(1, end_f - start_f))
 
             indices = np.linspace(start_f, max(start_f, end_f - 1), n_frames, dtype=int)
             indices = np.clip(indices, 0, total - 1)

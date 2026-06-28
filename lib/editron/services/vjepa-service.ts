@@ -90,6 +90,7 @@ export interface VjepaAnalysisResult {
   segments: VjepaSegmentResult[];
   modelVersion: string;
   processingTimeMs: number;
+  frameSampleCount?: number;
   requestedSegmentCount?: number;
   analyzedSegmentCount?: number;
   droppedSegmentCount?: number;
@@ -157,6 +158,9 @@ const REQUEST_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_REQUEST_TIMEOUT_MS', 
 const BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_BATCH_SIZE', 20);
 const RETRY_BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_RETRY_BATCH_SIZE', 5);
 const TOTAL_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_TOTAL_TIMEOUT_MS', 600_000);
+const MIN_FRAME_SAMPLE_COUNT = 8;
+const MAX_FRAME_SAMPLE_COUNT = 64;
+const FRAME_SAMPLE_OVERRIDE = readOptionalIntEnv('MODAL_VJEPA_MAX_FRAMES_PER_SEGMENT');
 
 // ─── Warmup ────────────────────────────────────────────────────────────────
 
@@ -220,6 +224,7 @@ export async function analyzeVideoWithVjepa(
       batches.push(segments.slice(i, i + BATCH_SIZE));
     }
 
+    const frameSampleCount = chooseVjepaFrameSampleCount(segments.length);
     console.log(`[VjepaService] ${segments.length} segments → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
     const batchStartMs = Date.now();
     const deadlineMs = batchStartMs + TOTAL_TIMEOUT_MS;
@@ -235,6 +240,7 @@ export async function analyzeVideoWithVjepa(
         tokenId,
         tokenSecret,
         deadlineMs,
+        frameSampleCount,
       });
       if (!mapped?.length) {
         failedBatchIndices.push(b);
@@ -269,6 +275,7 @@ export async function analyzeVideoWithVjepa(
       segments: allResults,
       modelVersion: 'vjepa-2',
       processingTimeMs: totalMs,
+      frameSampleCount,
       requestedSegmentCount: segments.length,
       analyzedSegmentCount: allResults.length,
       droppedSegmentCount,
@@ -292,6 +299,7 @@ async function analyzeBatchWithFallback(args: {
   tokenId: string;
   tokenSecret: string;
   deadlineMs: number;
+  frameSampleCount: number;
 }): Promise<VjepaSegmentResult[] | null> {
   if (Date.now() >= args.deadlineMs) {
     console.error(`[VjepaService] Batch ${args.batchIndex + 1}/${args.batchCount} skipped: total V-JEPA deadline exceeded`);
@@ -345,6 +353,7 @@ async function fetchVjepaBatch(args: {
   tokenId: string;
   tokenSecret: string;
   deadlineMs: number;
+  frameSampleCount: number;
 }): Promise<VjepaSegmentResult[] | null> {
   const remainingMs = args.deadlineMs - Date.now();
   if (remainingMs <= 1_000) {
@@ -370,6 +379,7 @@ async function fetchVjepaBatch(args: {
         })),
         features: ['visual_significance', 'motion', 'action', 'face', 'gaze'],
         primitive_features: ['motion_vector', 'main_subject', 'text_boxes', 'text_coverage', 'object_count', 'face_count', 'negative_space'],
+        max_frames_per_segment: args.frameSampleCount,
       }),
       signal: controller.signal,
     });
@@ -396,6 +406,30 @@ async function fetchVjepaBatch(args: {
 }
 
 // ─── Format Converters ──────────────────────────────────────────────────────
+
+/**
+ * Adaptive V-JEPA frame sampling.
+ *
+ * Long videos create hundreds of visual segments; sampling 64 frames for every segment
+ * pushes the Modal worker into its 600s ceiling. This keeps high fidelity for short
+ * jobs and lowers the per-segment frame load only when segment count is high.
+ *
+ * INVENTED-needs-calibration: thresholds are based on real 2026-06 project telemetry
+ * showing 180-236 segment runs at 4-10 minutes, including one partial timeout.
+ */
+export function chooseVjepaFrameSampleCount(segmentCount: number): number {
+  if (FRAME_SAMPLE_OVERRIDE !== null) {
+    return clampFrameSampleCount(FRAME_SAMPLE_OVERRIDE);
+  }
+  if (segmentCount >= 220) return 24;
+  if (segmentCount >= 160) return 32;
+  if (segmentCount >= 80) return 48;
+  return 64;
+}
+
+function clampFrameSampleCount(value: number): number {
+  return Math.max(MIN_FRAME_SAMPLE_COUNT, Math.min(MAX_FRAME_SAMPLE_COUNT, Math.floor(value)));
+}
 
 /**
  * Convert to the format expected by moment-weight-service.ts integrateVjepaScores().
@@ -570,6 +604,12 @@ function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readOptionalIntEnv(name: string): number | null {
+  const raw = process.env[name];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function chunkSegments(segments: VjepaSegmentInput[], size: number): VjepaSegmentInput[][] {
