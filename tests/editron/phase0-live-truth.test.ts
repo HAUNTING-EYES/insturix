@@ -4,7 +4,11 @@ import {
   PHASE0_LIVE_TRUTH_VERSION,
   buildPhase0LiveTruthSnapshot,
 } from '../../lib/editron/services/phase0-live-truth';
-import type { Phase0FixtureProject } from '../../lib/editron/services/phase0-fixture-manifest';
+import {
+  buildPhase0FixtureManifest,
+  type Phase0FixtureProject,
+} from '../../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
 
 function projectFixture(overrides: Partial<Phase0FixtureProject> = {}): Phase0FixtureProject {
   return {
@@ -97,5 +101,84 @@ describe('phase0 live truth snapshot', () => {
         'calibration.learning_writes_blocked',
       ]),
     );
+  });
+
+  it('promotes rendered evidence only when a real rendered report is supplied', () => {
+    const project = projectFixture({
+      overlays: [
+        { id: 1, type: 'video', from: 0, durationInFrames: 180, row: 2, assetId: 'asset_video' },
+        {
+          id: 'mg-1',
+          type: 'motion-graphic',
+          from: 30,
+          durationInFrames: 60,
+          content: 'rendered proof',
+          metadata: { atomicOverlayReceipt: { family: 'motion-graphic' } },
+        },
+      ],
+    });
+    const baseManifest = buildPhase0FixtureManifest(project, {
+      artifactDir: 'fixtures/proj_phase0_live_truth',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, baseManifest, {
+      artifactDir: 'fixtures/proj_phase0_live_truth',
+    });
+
+    const snapshot = buildPhase0LiveTruthSnapshot(project, {
+      capturedAt: '2026-06-28T00:03:00.000Z',
+      source: 'phase0-fixture:fixtures/proj_phase0_live_truth',
+      artifactDir: 'fixtures/proj_phase0_live_truth',
+      artifactPack,
+      renderedAestheticReport: {
+        outputDir: 'fixtures/proj_phase0_live_truth/rendered-aesthetic',
+        jsonReport: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/rendered-aesthetic.json',
+        htmlReport: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/report.html',
+        summary: {
+          status: 'warn',
+          score: 0.64,
+          passFrames: 1,
+          warnFrames: 2,
+          failFrames: 0,
+          sampledFrames: 3,
+          animationSampleFrames: 1,
+        },
+        frames: [{
+          frame: 45,
+          activeOverlayIds: ['mg-1'],
+          activeOverlayTypes: ['motion-graphic'],
+          fullStill: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/f00045/full.png',
+          baselineStill: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/f00045/baseline.png',
+          report: {
+            status: 'warn',
+            score: 0.64,
+            issues: [{
+              dimension: 'readability',
+              severity: 'warn',
+              overlayId: 'mg-1',
+              message: 'Text contrast is close to floor.',
+              evidence: 'contrast=3.1',
+            }],
+          },
+        }],
+      },
+    });
+
+    expect(snapshot.renderArtifacts.status).toBe('rendered');
+    expect(snapshot.renderArtifacts.renderedIssueCount).toBe(1);
+    expect(snapshot.renderArtifacts.renderedSummary).toMatchObject({
+      status: 'warn',
+      score: 0.64,
+      sampledFrames: 3,
+    });
+    expect(snapshot.qualityEvidence).toMatchObject({
+      qualityEvidenceSource: 'rendered-aesthetic',
+      renderedAestheticStatus: 'warn',
+      renderedQualityStatus: 'warn',
+      artifactStatus: 'warn',
+      qualityScore: 64,
+      renderedAestheticIssueCount: 1,
+      renderedAestheticJson: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/rendered-aesthetic.json',
+      renderedAestheticHtml: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/report.html',
+    });
   });
 });

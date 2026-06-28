@@ -20,6 +20,7 @@ import {
 } from '../lib/editron/services/phase0-fixture-manifest';
 import type { Phase0FixtureProject, Phase0RenderedAestheticReportLike } from '../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
+import { buildPhase0LiveTruthSnapshot } from '../lib/editron/services/phase0-live-truth';
 
 interface Phase0FixtureCliOptions {
   projectId: string;
@@ -27,6 +28,7 @@ interface Phase0FixtureCliOptions {
   runId?: string;
   keepRuns: number;
   render: boolean;
+  persist: boolean;
 }
 
 async function main() {
@@ -34,9 +36,10 @@ async function main() {
   const options = parseCliArgs(process.argv.slice(2), process.env);
   if (!options) {
     console.error([
-      'Usage: tsx scripts/build-editron-phase0-fixture.ts <projectId> [outputDir] [--render] [--run-id=<id>] [--keep-runs=<n>]',
+      'Usage: tsx scripts/build-editron-phase0-fixture.ts <projectId> [outputDir] [--render] [--persist] [--run-id=<id>] [--keep-runs=<n>]',
       '',
       '--render runs scripts/render-editron-aesthetic.ts after writing the manifest and updates failure-taxonomy.json.',
+      '--persist writes the resulting Phase 0 live truth snapshot back to the project document.',
       'Without --render, the command is read-only truth capture and prints the render command to run next.',
     ].join('\n'));
     process.exit(1);
@@ -66,6 +69,7 @@ async function main() {
     const artifactPack = buildPhase0RenderArtifactPack(typedProject, baseManifest, { artifactDir: paths.runDir });
     let manifest = withPhase0RenderArtifactPack(baseManifest, artifactPack);
     let failureTaxonomy = classifyPhase0Fixture(manifest, artifactPack);
+    let renderedReport: Phase0RenderedAestheticReportLike | undefined;
 
     await mkdir(paths.runDir, { recursive: true });
     await writeFile(paths.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -92,13 +96,27 @@ async function main() {
         paths.renderedAestheticJson,
         artifactPack.renderInput.tag,
       );
-      const renderedReport = await readRenderedAestheticReport(paths.renderedAestheticJson);
+      renderedReport = await readRenderedAestheticReport(paths.renderedAestheticJson);
       manifest = withPhase0RenderedAestheticReport(manifest, renderedReport);
       failureTaxonomy = classifyPhase0Fixture(manifest, artifactPack, renderedReport);
       await writeFile(paths.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
       await writeFile(paths.failureTaxonomyPath, `${JSON.stringify(failureTaxonomy, null, 2)}\n`, 'utf8');
       console.log(`Phase 0 rendered evidence attached to manifest: ${paths.manifestPath}`);
       console.log(`Phase 0 rendered failure taxonomy refreshed: ${paths.failureTaxonomyPath}`);
+    }
+
+    let persistedPhase0Truth = false;
+    if (options.persist) {
+      const snapshot = buildPhase0LiveTruthSnapshot(typedProject, {
+        capturedAt: capturedAt.toISOString(),
+        source: `phase0-fixture:${paths.runDir}`,
+        artifactDir: paths.runDir,
+        artifactPack,
+        ...(renderedReport ? { renderedAestheticReport: renderedReport } : {}),
+      });
+      await persistPhase0TruthSnapshot(db, COLLECTIONS.PROJECTS, projectId, snapshot, paths);
+      persistedPhase0Truth = true;
+      console.log(`Phase 0 live truth persisted to project: ${projectId}`);
     }
 
     console.log(JSON.stringify({
@@ -123,6 +141,7 @@ async function main() {
         taxonomy: paths.failureTaxonomyPath,
       } : { requested: false },
       calibrationWritesAllowed: manifest.calibrationSafety.learningWritesAllowed,
+      persistedPhase0Truth,
       codeProvenance: manifest.codeProvenance,
     }, null, 2));
   } finally {
@@ -139,10 +158,15 @@ export function parseCliArgs(
   let runId: string | undefined;
   let keepRunsValue = env.EDITRON_PHASE0_KEEP_RUNS;
   let render = false;
+  let persist = false;
 
   for (const arg of argv) {
     if (arg === '--render') {
       render = true;
+      continue;
+    }
+    if (arg === '--persist') {
+      persist = true;
       continue;
     }
     if (arg.startsWith('--run-id=')) {
@@ -175,6 +199,7 @@ export function parseCliArgs(
     ...(runId || env.EDITRON_PHASE0_RUN_ID ? { runId: runId ?? env.EDITRON_PHASE0_RUN_ID } : {}),
     keepRuns: parseKeepRuns(keepRunsValue),
     render,
+    persist,
   };
 }
 
@@ -186,6 +211,45 @@ function loadPhase0Env(): void {
 function parseKeepRuns(value: string | undefined): number {
   const parsed = value ? Number(value) : DEFAULT_PHASE0_KEEP_RUNS;
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PHASE0_KEEP_RUNS;
+}
+
+type Phase0TruthDb = {
+  collection(name: string): {
+    updateOne(filter: Record<string, unknown>, update: Record<string, unknown>): Promise<unknown>;
+  };
+};
+
+async function persistPhase0TruthSnapshot(
+  db: Phase0TruthDb,
+  collectionName: string,
+  projectId: string,
+  snapshot: ReturnType<typeof buildPhase0LiveTruthSnapshot>,
+  paths: ReturnType<typeof buildPhase0ArtifactPaths>,
+): Promise<void> {
+  await db.collection(collectionName).updateOne(
+    { projectId },
+    {
+      $set: {
+        'intelligence.phase0LiveTruth': snapshot,
+        'intelligence.renderedQualityEvidence': snapshot.qualityEvidence,
+        'intelligence.phase0FixtureArtifact': {
+          version: 'editron-phase0-fixture-artifact-v1',
+          persistedAt: new Date().toISOString(),
+          runId: paths.runId,
+          artifactDir: paths.runDir,
+          manifestPath: paths.manifestPath,
+          renderInputPath: paths.renderInputPath,
+          artifactPackPath: paths.artifactPackPath,
+          failureTaxonomyPath: paths.failureTaxonomyPath,
+          renderedAestheticDir: paths.renderedAestheticDir,
+          renderedAestheticJson: paths.renderedAestheticJson,
+          renderedAestheticHtml: paths.renderedAestheticHtml,
+          renderArtifactsStatus: snapshot.renderArtifacts.status,
+          qualityEvidenceSource: snapshot.qualityEvidence.qualityEvidenceSource,
+        },
+      },
+    },
+  );
 }
 
 async function pruneOldPhase0Runs(

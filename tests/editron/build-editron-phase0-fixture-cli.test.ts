@@ -16,6 +16,7 @@ describe('build-editron-phase0-fixture cli', () => {
       runId: 'run-from-env',
       keepRuns: 7,
       render: false,
+      persist: false,
     });
   });
 
@@ -24,6 +25,7 @@ describe('build-editron-phase0-fixture cli', () => {
       'proj_123',
       '.calibration-temp/custom-phase0',
       '--render',
+      '--persist',
       '--run-id=20260619T010203004Z',
       '--keep-runs=2',
     ], {});
@@ -34,6 +36,7 @@ describe('build-editron-phase0-fixture cli', () => {
       runId: '20260619T010203004Z',
       keepRuns: 2,
       render: true,
+      persist: true,
     });
   });
 
@@ -46,6 +49,7 @@ describe('build-editron-phase0-fixture cli', () => {
       projectId: 'proj_123',
       outputRoot: '.calibration-temp/phase0-fixtures',
       render: true,
+      persist: false,
     });
   });
 

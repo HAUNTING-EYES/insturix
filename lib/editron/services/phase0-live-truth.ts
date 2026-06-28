@@ -1,10 +1,14 @@
 import {
   buildPhase0FixtureManifest,
   buildPhase0RenderedQualityEvidencePayload,
+  withPhase0RenderArtifactPack,
+  withPhase0RenderedAestheticReport,
   type Phase0FixtureManifest,
   type Phase0FixtureProject,
+  type Phase0RenderedAestheticReportLike,
   type Phase0RenderedQualityEvidencePayload,
 } from './phase0-fixture-manifest';
+import type { Phase0RenderArtifactPack } from './phase0-render-artifact-pack';
 import {
   classifyPhase0Fixture,
   type Phase0FailureClass,
@@ -41,14 +45,27 @@ export interface Phase0LiveTruthSnapshot {
 
 export function buildPhase0LiveTruthSnapshot(
   project: Phase0FixtureProject,
-  options: { capturedAt?: string; source?: string } = {},
+  options: {
+    capturedAt?: string;
+    source?: string;
+    artifactDir?: string;
+    artifactPack?: Phase0RenderArtifactPack;
+    renderedAestheticReport?: Phase0RenderedAestheticReportLike;
+  } = {},
 ): Phase0LiveTruthSnapshot {
   const capturedAt = options.capturedAt ?? new Date().toISOString();
   const source = options.source ?? 'director-final-save';
-  const manifest = buildPhase0FixtureManifest(project, {
+  const baseManifest = buildPhase0FixtureManifest(project, {
     capturedAt,
     source,
+    artifactDir: options.artifactDir,
   });
+  const packedManifest = options.artifactPack
+    ? withPhase0RenderArtifactPack(baseManifest, options.artifactPack)
+    : baseManifest;
+  const manifest = options.renderedAestheticReport
+    ? withPhase0RenderedAestheticReport(packedManifest, options.renderedAestheticReport)
+    : packedManifest;
   const taxonomy = classifyPhase0Fixture(manifest);
   const failureClasses = taxonomy.classes.slice(0, PHASE0_LIVE_FAILURE_CLASS_LIMIT);
 
