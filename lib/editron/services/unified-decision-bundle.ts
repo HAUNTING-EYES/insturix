@@ -564,6 +564,11 @@ function resolveUnifiedPlannerCandidateLicense(
   };
 }
 
+function isPrimarySemanticContextDecision(decision: ReactiveEditDecision): boolean {
+  return normalizeParamString(decision.params.creativeDecisionAuthority) === 'semantic-context'
+    || hasAnyDirectParam(decision, ['creativeBriefSemanticCandidate', 'creativeBriefFactContract']);
+}
+
 function sourceAuthorityForPlannerCandidate(
   source: UnifiedDecisionCandidateProducer,
   decision: ReactiveEditDecision,
@@ -600,13 +605,18 @@ function licensePrimaryProducerDecisions(
   const evidenceOnlyDecisions: UnifiedSignalDecisionEvidence[] = [];
 
   for (const decision of decisions) {
-    const license = resolvePrimaryCreativeDecisionLicense(decision);
+    const license = resolvePrimaryCreativeDecisionLicense(decision, {
+      requireFamilyAtoms: isPrimarySemanticContextDecision(decision),
+    });
     if (license.executable) {
       accepted.push(decision);
       continue;
     }
 
-    const reason = `primary-graphic-unlicensed:${license.reason}`;
+    const reasonPrefix = decision.type === 'graphic'
+      ? 'primary-graphic-unlicensed'
+      : 'primary-family-unlicensed';
+    const reason = `${reasonPrefix}:${license.reason}`;
     recordSignalDecisionAudit(audit, decision, 'evidence-only', reason);
     if (evidenceOnlyDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
       evidenceOnlyDecisions.push(summarizeSignalDecisionEvidence(

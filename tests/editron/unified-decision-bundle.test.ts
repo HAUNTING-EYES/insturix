@@ -60,7 +60,6 @@ describe('unified decision bundle merge', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
-        decision({ type: 'zoom', frame: 30, source: 'creative-brief:test' }),
         decision({
           type: 'graphic',
           frame: 90,
@@ -76,11 +75,11 @@ describe('unified decision bundle merge', () => {
       ]),
     });
 
-    expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
-    expect(bundle.expectedExecuted).toBe(1);
+    expect(bundle.edl.decisions.map((d) => d.type)).toEqual([]);
+    expect(bundle.expectedExecuted).toBe(0);
     expect(bundle.expectedSkipped).toBe(1);
     expect(bundle.evidence).toEqual(expect.objectContaining({
-      primaryDecisionCount: 1,
+      primaryDecisionCount: 0,
       evidenceOnlySignalDecisionCount: 1,
     }));
     expect(bundle.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
@@ -95,6 +94,37 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('keeps Creative Brief family labels out of the primary executable EDL until atoms license them', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 30, source: 'creative-brief:zoom-label', confidence: 0.91, params: { creativeDecisionAuthority: 'semantic-context', scale: 1.08 } }),
+        decision({ type: 'transition', frame: 90, source: 'creative-brief:transition-label', confidence: 0.91, params: { creativeDecisionAuthority: 'semantic-context', transitionType: 'dissolve' } }),
+        decision({ type: 'sfx-trigger', frame: 120, source: 'creative-brief:sfx-label', confidence: 0.9, params: { creativeDecisionAuthority: 'semantic-context', sfxType: 'impact' } }),
+        decision({ type: 'caption-emphasis', frame: 150, source: 'creative-brief:caption-label', confidence: 0.9, params: { creativeDecisionAuthority: 'semantic-context' } }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toEqual([]);
+    expect(bundle.expectedExecuted).toBe(0);
+    expect(bundle.expectedSkipped).toBe(4);
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 4,
+    }));
+    expect(bundle.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'primary-family-unlicensed:missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-transition-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-audio-beat-atoms': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-caption-moment-atoms': expect.objectContaining({ count: 1 }),
+    }));
+    expect(bundle.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'zoom', reason: 'primary-family-unlicensed:missing-camera-motion-atoms' }),
+      expect.objectContaining({ type: 'transition', reason: 'primary-family-unlicensed:missing-transition-boundary-atoms' }),
+      expect.objectContaining({ type: 'sfx-trigger', reason: 'primary-family-unlicensed:missing-audio-beat-atoms' }),
+      expect.objectContaining({ type: 'caption-emphasis', reason: 'primary-family-unlicensed:missing-caption-moment-atoms' }),
+    ]));
+  });
   it('keeps licensed Creative Brief semantic MGs executable in the primary EDL', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
