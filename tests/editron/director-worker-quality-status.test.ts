@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { resolveDirectorCompletionHealth } from '../../app/api/internal/workers/director/route';
+import { resolveDirectorCompletionHealth } from '../../lib/editron/services/editron-learning-gate';
 
 describe('director worker completion health', () => {
   it('marks missing quality review as needs-attention', () => {
@@ -49,6 +49,47 @@ describe('director worker completion health', () => {
     expect(health.warning).toBeUndefined();
   });
 
+  it('marks rendered Phase 0 failures as needs-attention even when metadata quality is healthy', () => {
+    const health = resolveDirectorCompletionHealth(
+      { overallScore: 72, criticalCount: 0 },
+      {
+        qualityEvidenceSource: 'rendered-aesthetic',
+        renderedQualityStatus: 'fail',
+        qualityScore: 18,
+        renderedAestheticFailFrameCount: 2,
+      },
+    );
+
+    expect(health).toMatchObject({
+      hasQualityReview: true,
+      qualityScore: 18,
+      criticalCount: 0,
+      needsQualityAttention: true,
+      autoEditStatus: 'needs_review',
+    });
+    expect(health.warning).toContain('rendered Phase 0 quality failed');
+  });
+
+  it('does not downgrade healthy metadata when rendered evidence is still missing', () => {
+    const health = resolveDirectorCompletionHealth(
+      { overallScore: 72, criticalCount: 1 },
+      {
+        qualityEvidenceSource: 'metadata-only',
+        renderedQualityStatus: 'missing',
+        qualityScore: null,
+        renderedAestheticFailFrameCount: 0,
+      },
+    );
+
+    expect(health).toMatchObject({
+      qualityScore: 72,
+      criticalCount: 1,
+      needsQualityAttention: false,
+      autoEditStatus: 'complete',
+    });
+    expect(health.warning).toBeUndefined();
+  });
+
   it('treats malformed persisted scores as unsafe instead of learning from them', () => {
     const health = resolveDirectorCompletionHealth({ overallScore: '72', criticalCount: '0' });
 
@@ -63,9 +104,11 @@ describe('director worker completion health', () => {
   it('does not persist bad-quality Director completions as successful auto-edits', () => {
     const directorSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/director/route.ts'), 'utf8');
     const dashboardSource = readFileSync(join(process.cwd(), 'components/editron/project/project-dashboard.tsx'), 'utf8');
+    const learningGateSource = readFileSync(join(process.cwd(), 'lib/editron/services/editron-learning-gate.ts'), 'utf8');
 
+    expect(directorSource).toContain("import { resolveDirectorCompletionHealth }");
     expect(directorSource).toContain("autoEditStatus: completionHealth.autoEditStatus");
-    expect(directorSource).toContain("autoEditStatus: needsQualityAttention ? 'needs_review' : 'complete'");
+    expect(learningGateSource).toContain("autoEditStatus: needsQualityAttention ? 'needs_review' : 'complete'");
     expect(dashboardSource).toContain("if (status === 'needs_review')");
   });
 
