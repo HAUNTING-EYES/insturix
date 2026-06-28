@@ -349,6 +349,24 @@ function isTransitionType(type: BriefDecisionType): boolean {
   return type.startsWith('transition_');
 }
 
+const BRIEF_RENDER_AUTHORITY_PARAM_KEYS = new Set([
+  'zoomType', 'graphicType', 'transitionType', 'transitionCompatibilityHint',
+  'scale', 'scaleFrom', 'scaleTo', 'x', 'y', 'width', 'height',
+  'position', 'placement', 'anchor', 'region', 'direction',
+  'durationFrames', 'durationMs', 'keyframes', 'easing', 'animation', 'animationType',
+  'style', 'styleId', 'template', 'templateId', 'preset', 'presetId',
+  'component', 'componentName', 'rendererKey', 'layout', 'layoutPreset',
+  'fontSize', 'fontFamily', 'color', 'backgroundColor',
+  'volume', 'assetId', 'sfxAssetId', 'assetQuery', 'sfxSearchQuery',
+  'sfxType', 'sfxCue', 'soundEffectType', 'audioDescription', 'soundDescription',
+]);
+
+function stripBriefRenderAuthorityParams(params: Record<string, unknown>): void {
+  for (const key of BRIEF_RENDER_AUTHORITY_PARAM_KEYS) {
+    delete params[key];
+  }
+}
+
 function normalizeBriefDecisionParams(
   type: BriefDecisionType,
   params: Record<string, unknown>,
@@ -359,24 +377,9 @@ function normalizeBriefDecisionParams(
   const rawParams: Record<string, unknown> = { ...(params ?? {}) };
   const normalized: Record<string, unknown> = { ...rawParams };
 
-  // Path E owns intent and timing hints only. Concrete legacy form labels are
-  // resolved later by atomic/utility resolvers in executeEDL.
-  delete normalized.zoomType;
-  delete normalized.graphicType;
-  delete normalized.transitionType;
-  delete normalized.transitionCompatibilityHint;
-  delete normalized.scaleFrom;
-  delete normalized.scaleTo;
-  delete normalized.durationFrames;
-  delete normalized.durationMs;
-  delete normalized.direction;
-  if (type.startsWith('sfx_')) {
-    delete normalized.sfxType;
-    delete normalized.sfxCue;
-    delete normalized.soundEffectType;
-    delete normalized.audioDescription;
-    delete normalized.soundDescription;
-  }
+  // Path E owns intent and timing hints only. Concrete render authority stays
+  // inside compatibilityHints/facts and is resolved later by native planners.
+  stripBriefRenderAuthorityParams(normalized);
 
   normalized.creativeDecisionType = type;
   normalized.creativeDecisionAuthority = 'semantic-context';

@@ -408,6 +408,75 @@ describe('brief decision conversion', () => {
     expect(sfxParams).not.toHaveProperty('soundDescription');
   });
 
+  it('strips Creative Brief render-authority params while preserving facts and compatibility hints', () => {
+    const output = executeBrief({
+      brief: briefWith([
+        {
+          type: 'graphic_callout',
+          targetWordIdx: 2,
+          confidence: 0.9,
+          reason: 'emphasis_word',
+          params: {
+            graphicType: 'keyword-box',
+            layout: 'top-right',
+            keyframes: [{ frame: 0, scale: 1.4 }],
+            fontSize: 140,
+            color: '#ffffff',
+            assetId: 'unsafe-render-asset',
+            durationFrames: 300,
+            semanticAtoms: {
+              claim: 'Comments overrepresent angry people',
+              evidencePhrase: 'we grew fast',
+            },
+          },
+        },
+        {
+          type: 'sfx_impact',
+          targetWordIdx: 1,
+          confidence: 0.82,
+          reason: 'beat_accent',
+          params: {
+            sfxType: 'impact',
+            volume: 1,
+            sfxAssetId: 'unsafe-sfx-asset',
+            assetQuery: 'cinematic impact',
+            soundDescription: 'huge hit',
+          },
+        },
+      ]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    const byTechnique = new Map(output.edl.decisions.map((decision) => [decision.technique, decision]));
+    const graphicParams = byTechnique.get('graphic_callout')?.params as Record<string, unknown>;
+    const sfxParams = byTechnique.get('sfx_impact')?.params as Record<string, unknown>;
+
+    expect(graphicParams).toEqual(expect.objectContaining({
+      creativeDecisionAuthority: 'semantic-context',
+      semanticAtoms: expect.objectContaining({
+        claim: 'Comments overrepresent angry people',
+        evidencePhrase: 'we grew fast',
+      }),
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        executableAuthority: false,
+        compatibilityHints: expect.objectContaining({ graphicKind: 'callout' }),
+      }),
+    }));
+    for (const key of ['graphicType', 'layout', 'keyframes', 'fontSize', 'color', 'assetId', 'durationFrames']) {
+      expect(graphicParams).not.toHaveProperty(key);
+    }
+
+    expect(sfxParams.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      compatibilityHints: expect.objectContaining({ sfxToken: 'impact' }),
+    }));
+    for (const key of ['sfxType', 'volume', 'sfxAssetId', 'assetQuery', 'soundDescription']) {
+      expect(sfxParams).not.toHaveProperty(key);
+    }
+  });
+
   it('classifies MG semantic atoms into fact kinds before form resolving', () => {
     const output = executeBrief({
       brief: briefWith([{
