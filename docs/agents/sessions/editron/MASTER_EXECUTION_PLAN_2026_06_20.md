@@ -34,6 +34,45 @@ Open tasks (priority order -- full detail in the handoff):
    env vars + secret + smoke test. (The earlier "unbuilt P0 / fails at >3min" claim is STALE -- corrected.)
 6. **P3 TRIBE perf** (V-JEPA frame sampling is the lever) and **MEMORY.md compaction** (Claude memory, not repo).
 
+## START HERE -- 2026-06-29 Code-Verified Phase Status
+
+This section supersedes stale phase-status language below, especially the 2026-06-25 line that called Phase 0
+"zero live callers" and Phase 13 / Phase 16 "not built". Verification was done from live code on
+`infrastructure-improvs-+Editron` before editing this plan. Do not re-label a phase as done unless the producer,
+authority, source-of-truth timeline, and final consumer are all verified again.
+
+### Corrected status map
+
+| Phase | Status | Code-verified finding | Remaining production work |
+| --- | --- | --- | --- |
+| P0 Rendered truth fixture | **PARTIAL, live metadata wired** | Live Director calls `persistFinalPhase0LiveTruth` after final overlay save, persists `qualityReview`, `intelligence.phase0LiveTruth`, `intelligence.renderedQualityEvidence`, and a planned render artifact pack. The actual pixel render remains a manual script path (`scripts/render-editron-aesthetic.ts`, `scripts/build-editron-phase0-fixture.ts`). | Wire automatic rendered pixel artifact capture / hard evidence into the live loop before using it as a gate or calibration source. |
+| P1 Decision authority | **DONE for the live unified-candidate path, with compatibility caveat** | `director-agent.ts` pushes Creative Brief and signal candidates into `planUnifiedDecisionBundleFromCandidates`; `unified-decision-bundle.ts` ranks both producer candidates and stamps selected decisions with `owner: unified-planner`, `creativeBriefRole: semantic-context`, `signalRole: candidate-source`. | Keep legacy/single-producer helper paths honest in telemetry. Do not claim all historical helpers are removed. |
+| P2 Candidate normalizer | **PARTIAL** | `signal-executor.ts` now emits `momentImportance`, `candidateConfidence`, `executionConfidence`, `evidenceStrength`, and `signalNormalization`; `unified-decision-bundle.ts` normalizes family/job/timing/evidence/risk. | Upstream still starts from `momentWeight` and blends it into confidence; formulas are invented and need calibration. |
+| P3 Caption planner | **PARTIAL** | Canonical final-timeline caption track exists, creates one caption overlay with multiple readable caption groups, and caption moment planning reads speech/readability/screen-pressure atoms. | Still one track container rather than a true moment-scoped caption planner/renderer ownership model. |
+| P4 Visual perception / VLM cut intelligence | **NOT STARTED for cut ownership** | `raw-footage-processor.ts` remains transcript/silence/transcript-editor led; low speech coverage sets `needsVisualDrivenEditing`, but there is no VLM perception cut service owning cut decisions. | Build visual cut intelligence from VLM/V-JEPA primitives and feed cut plan before overlay planning. |
+| P5 Zoom / visual-motion planner | **DONE as planner infrastructure** | Zoom planner reads subject bbox, face/eye contact, shot scale, motion vectors, speech/beat/emotion, and overlay memory; it attaches `zoomMotionPlan` and anti-repeat inputs. | Rendered proof and calibration still belong to P12/P15. |
+| P6 Transition planner | **DONE as planner infrastructure** | Producer pre-gates transition decisions at clip boundaries/pairs; transition boundary planner reads topic, pause, beat, motion, visual change, shot/subject jumps, semantic contrast, audio tail, and repetition pressure. | Rendered timing/choreography proof still belongs to P13/P12. |
+| P7 SFX | **PARTIAL** | Atomic SFX form, sync anchors, provider candidate gate, R2/cache behavior, and strict timing validation exist; provider path is still Freesound-first and asset quality is provider-dependent. | Full SFX system remains: multi-provider/provider abstraction, better rejection telemetry, richer non-transition roles, and calibration of skip/place decisions. |
+| P8 MG semantic + fact enrichment | **DONE** | Creative Brief prompt asks for semantic atoms/facts; brief wrapper emits semantic candidates; semantic MG candidate ledger/gates feed EDL/MG content normalization. | Downstream MG form generation remains P9/P11/Rule-11. |
+| P9 MG expression authority | **PARTIAL** | MG expression authority, semantic obligations, draw support, choreography helpers, and brand/MG dials exist. The "no draw-on exists" claim is stale. | Visible expression is not fully signal-owned yet: enter order, beat sync, shimmer/draw usage, and form breadth still need rendered proof and calibration. |
+| P10 Stage-aware composition | **PARTIAL** | Full-frame/split/device/overlay stage modes exist and negotiate caption/screen context. | Many thresholds are explicitly invented; no hard rendered gate validates stage choices live. |
+| P11 MG family hardening | **PARTIAL** | Numeric, identity, quote, process, comparison, data-series/structured/emphasis/brand paths exist. Social-proof is not yet a first-class composer, and license strictness is uneven. | Finish missing families and even out license rules with rendered evidence. |
+| P12 Gate teeth | **PARTIAL** | Structural MG gate is now enforcing by default with `MG_STRUCTURAL_GATE=observe` as escape hatch; metadata quality evidence persists. | Pixel/aesthetic gate remains ungated/manual and must not be treated as a hard pass/fail until live rendered artifacts exist. |
+| P13 Cross-overlay choreography | **PARTIAL, not not-started** | `overlay-timeline-memory.ts` is built and wired into the unified bundle; families receive active/recent overlay pressure, zoom/transition/SFX repetition, and direction similarity atoms. | Build the actual shared scheduler/collision/arbitration layer so families do not only have memory atoms in silos. |
+| P14 Learning quarantine | **DONE** | Learning gate and genre bandit block failed/missing rendered evidence; inline workers and brand-learning route use the shared learning gate. | Keep Phase 0 rendered evidence reliable before enabling broader learning writes. |
+| P15 Calibration | **PARTIAL scaffold only** | Threshold/bandit/write-gate scaffolds exist and many fields are marked `invented-needs-calibration`. | Make rendered evidence source-of-truth, add human-labeled holdout, then tune curves/weights. |
+| P16 Per-brand taste priors | **PARTIAL, not an island anymore** | BrandSignalProfile now includes narrative/motion/composition signals and `brand-vault-to-motion.ts` maps them into MG motion inputs; tests cover the socket. | Real edit-feedback loop into per-brand taste priors is not proven complete. |
+| Rule-11 generative MG form | **NOT STARTED as true generative form** | MGs are no longer text-only, but form is still bounded by detected shapes and composer families (`numeric`, `identity`, `quote`, `process`, `comparison`, etc.). | Replace shape/composer menu authority with primitive/fact/wire-driven generative assembly after rendered truth exists. |
+
+### Immediate next work order
+
+1. **Do not rebuild P1.** It is done for the live candidate path; only telemetry/fallback cleanup is allowed.
+2. **Finish P0 rendered truth hardening** so live projects produce actual pixel/audio evidence, not only planned artifacts.
+3. **Build P4 visual perception / VLM cut intelligence** so cut decisions are not transcript-only.
+4. **Build P13 shared choreography scheduler** using the existing overlay timeline memory atoms.
+5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.
+6. **Run P15 calibration only after P0/P12 rendered gates are trustworthy.**
+
 ---
 
 ## 0) 2026-06-21 Binding Update From Codex Plan Brief
