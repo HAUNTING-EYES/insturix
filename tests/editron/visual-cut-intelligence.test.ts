@@ -126,6 +126,11 @@ describe('visual cut intelligence', () => {
       type: 'protect-existing-cut',
       affectedAction: expect.objectContaining({ reason: 'silence' }),
       reasons: expect.arrayContaining(['high-visual-significance', 'high-motion', 'multiple-objects', 'action-demonstrating']),
+      evidence: expect.objectContaining({
+        viewerValue: expect.any(Number),
+        brollUsefulness: expect.any(Number),
+        missingEvidence: [],
+      }),
     }));
   });
 
@@ -138,6 +143,11 @@ describe('visual cut intelligence', () => {
     );
 
     expect(result.plan).toHaveLength(1);
+    expect(result.report.decisions[0].evidence).toEqual(expect.objectContaining({
+      cutEligibility: expect.any(Number),
+      viewerValue: expect.any(Number),
+      missingEvidence: [],
+    }));
     expect(result.plan[0]).toEqual(expect.objectContaining({
       action: 'remove',
       reason: 'visual-dead-air',
@@ -176,6 +186,12 @@ describe('visual cut intelligence', () => {
     );
 
     const split = result.plan.find(action => action.action === 'split');
+    const splitDecision = result.report.decisions.find(decision => decision.type === 'split-visual-boundary');
+    expect(splitDecision?.evidence).toEqual(expect.objectContaining({
+      boundaryStrength: expect.any(Number),
+      cutEligibility: expect.any(Number),
+      missingEvidence: [],
+    }));
     expect(split).toEqual(expect.objectContaining({
       startMs: 5_000,
       endMs: 5_000,

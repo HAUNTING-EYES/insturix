@@ -1,4 +1,10 @@
 import type { PacingSplitBoundaryReason, RawFootageAnalysis, SilenceRemovalAction } from './raw-footage-processor';
+import {
+  scoreVisualBoundaryEvidence,
+  scoreVisualSegmentEvidence,
+  type VisualBoundaryEvidenceScore,
+  type VisualEvidenceScore,
+} from './visual-evidence-scorer';
 import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
 
 type VisualCutDecisionType = 'protect-existing-cut' | 'remove-visual-dead-air' | 'split-visual-boundary';
@@ -21,7 +27,22 @@ export interface VisualCutDecision {
     | 'faceCount'
     | 'textCoverage'
   >;
+  evidence?: VisualCutEvidenceSummary;
   affectedAction?: Pick<SilenceRemovalAction, 'startMs' | 'endMs' | 'action' | 'reason'>;
+}
+
+interface VisualCutEvidenceSummary {
+  coverageTrust: number;
+  viewerValue?: number;
+  speechLock?: number;
+  boundaryReadiness?: number;
+  visualContinuityRisk?: number;
+  artifactRisk?: number;
+  brollUsefulness?: number;
+  cutEligibility?: number;
+  boundaryStrength?: number;
+  continuityRisk?: number;
+  missingEvidence: string[];
 }
 
 export interface VisualCutIntelligenceReport {
@@ -46,16 +67,19 @@ export interface VisualCutRefinementResult {
 }
 
 const LOW_SPEECH_COVERAGE = 0.3;
-const PROTECT_SIGNIFICANCE = 0.62;
-const PROTECT_MOTION = 0.55;
-const PROTECT_TEXT_COVERAGE = 0.12;
-const DEAD_AIR_SIGNIFICANCE = 0.18;
-const DEAD_AIR_MOTION = 0.12;
-const DEAD_AIR_TEXT_COVERAGE = 0.03;
+const PROTECT_VIEWER_VALUE = 0.58;
+const PROTECT_SPEECH_LOCK = 0.58;
+const PROTECT_BROLL_USEFULNESS = 0.48;
+const PROTECT_CONTINUITY_RISK = 0.5;
+const VISUAL_DEAD_AIR_CUT_ELIGIBILITY = 0.46;
+const VISUAL_DEAD_AIR_MAX_VIEWER_VALUE = 0.28;
+const VISUAL_DEAD_AIR_MAX_SPEECH_LOCK = 0.22;
+const VISUAL_DEAD_AIR_MAX_BROLL = 0.28;
+const VISUAL_DEAD_AIR_MAX_BOUNDARY_READINESS = 0.28;
 const MIN_VISUAL_DEAD_AIR_MS = 1800;
 const MIN_VISUAL_SPLIT_GAP_MS = 2500;
-const VISUAL_BOUNDARY_DELTA = 0.42;
-const VISUAL_TEXT_BOUNDARY_DELTA = 0.16;
+const VISUAL_BOUNDARY_STRENGTH = 0.26;
+const VISUAL_BOUNDARY_CUT_ELIGIBILITY = 0.2;
 const MAX_ADDED_VISUAL_REMOVALS = 60;
 const MAX_ADDED_VISUAL_SPLITS = 120;
 
@@ -90,13 +114,14 @@ export function refineCutPlanWithVisualIntelligence(
   let protectedActionCount = 0;
   const protectedPlan = inputPlan.filter((action) => {
     if (!canVisualProtectAction(action)) return true;
-    const strongest = strongestOverlappingVisual(action.startMs, action.endMs, visualSegments);
+    const strongest = strongestOverlappingVisual(action.startMs, action.endMs, visualSegments, rawFootage);
     if (!strongest) return true;
-    const protection = visualProtectionReasons(strongest);
+    const evidence = segmentEvidence(strongest, rawFootage, action.startMs, action.endMs);
+    const protection = visualProtectionReasons(strongest, evidence);
     if (!protection.length) return true;
 
     protectedActionCount++;
-    decisions.push(buildDecision('protect-existing-cut', action.startMs, action.endMs, strongest, protection, action));
+    decisions.push(buildDecision('protect-existing-cut', action.startMs, action.endMs, strongest, protection, action, evidence));
     return false;
   });
 
@@ -108,15 +133,16 @@ export function refineCutPlanWithVisualIntelligence(
 
     for (let i = 0; i < visualSegments.length; i++) {
       const segment = visualSegments[i];
+      const evidence = segmentEvidence(segment, rawFootage);
       if (
         addedRemovalCount < MAX_ADDED_VISUAL_REMOVALS &&
-        isVisualDeadAir(segment) &&
+        isVisualDeadAir(segment, evidence) &&
         !rangeHasSpeech(rawFootage, segment.startMs, segment.endMs) &&
         !rangeIntersectsPlan(segment.startMs, segment.endMs, protectedPlan.concat(addedActions))
       ) {
-        const reasons = visualDeadAirReasons(segment);
-        addedActions.push(buildVisualDeadAirRemoval(segment, reasons));
-        decisions.push(buildDecision('remove-visual-dead-air', segment.startMs, segment.endMs, segment, reasons));
+        const reasons = visualDeadAirReasons(segment, evidence);
+        addedActions.push(buildVisualDeadAirRemoval(segment, reasons, evidence));
+        decisions.push(buildDecision('remove-visual-dead-air', segment.startMs, segment.endMs, segment, reasons, undefined, evidence));
         addedRemovalCount++;
       }
 
@@ -126,13 +152,14 @@ export function refineCutPlanWithVisualIntelligence(
         addedSplitCount < MAX_ADDED_VISUAL_SPLITS &&
         segment.startMs - lastSplitMs >= MIN_VISUAL_SPLIT_GAP_MS
       ) {
-        const boundaryReasons = visualBoundaryReasons(previous, segment);
+        const boundaryEvidence = scoreVisualBoundaryEvidence(previous, segment);
+        const boundaryReasons = visualBoundaryReasons(boundaryEvidence);
         if (
           boundaryReasons.length &&
           !splitNear(segment.startMs, protectedPlan.concat(addedActions), MIN_VISUAL_SPLIT_GAP_MS / 2)
         ) {
-          addedActions.push(buildVisualBoundarySplit(previous, segment, boundaryReasons));
-          decisions.push(buildDecision('split-visual-boundary', segment.startMs, segment.startMs, segment, boundaryReasons));
+          addedActions.push(buildVisualBoundarySplit(previous, segment, boundaryReasons, boundaryEvidence));
+          decisions.push(buildDecision('split-visual-boundary', segment.startMs, segment.startMs, segment, boundaryReasons, undefined, boundaryEvidence));
           lastSplitMs = segment.startMs;
           addedSplitCount++;
         }
@@ -185,12 +212,13 @@ function strongestOverlappingVisual(
   startMs: number,
   endMs: number,
   visualSegments: VjepaSegmentResult[],
+  rawFootage: RawFootageAnalysis,
 ): VjepaSegmentResult | null {
   let strongest: VjepaSegmentResult | null = null;
   let strongestScore = 0;
   for (const segment of visualSegments) {
     if (!rangesOverlap(startMs, endMs, segment.startMs, segment.endMs)) continue;
-    const score = visualImportanceScore(segment);
+    const score = visualImportanceScore(segment, rawFootage, startMs, endMs);
     if (score > strongestScore) {
       strongest = segment;
       strongestScore = score;
@@ -199,62 +227,76 @@ function strongestOverlappingVisual(
   return strongest;
 }
 
-function visualProtectionReasons(segment: VjepaSegmentResult): string[] {
+function visualProtectionReasons(segment: VjepaSegmentResult, evidence: VisualEvidenceScore): string[] {
   const reasons: string[] = [];
-  if (segment.visualSignificance >= PROTECT_SIGNIFICANCE) reasons.push('high-visual-significance');
-  if (segment.motionIntensity >= PROTECT_MOTION) reasons.push('high-motion');
-  if (segment.textCoverage >= PROTECT_TEXT_COVERAGE || segment.textBoxCount > 0) reasons.push('visible-text');
+  const shouldProtect = (
+    evidence.viewerValue >= PROTECT_VIEWER_VALUE ||
+    evidence.speechLock >= PROTECT_SPEECH_LOCK ||
+    evidence.brollUsefulness >= PROTECT_BROLL_USEFULNESS ||
+    evidence.visualContinuityRisk >= PROTECT_CONTINUITY_RISK
+  );
+  if (!shouldProtect) return reasons;
+
+  if (evidence.viewerValue >= PROTECT_VIEWER_VALUE || segment.visualSignificance >= 0.45) reasons.push('high-visual-significance');
+  if (evidence.visualContinuityRisk >= PROTECT_CONTINUITY_RISK || segment.motionIntensity >= 0.45) reasons.push('high-motion');
+  if (segment.textCoverage >= 0.08 || segment.textBoxCount > 0) reasons.push('visible-text');
   if (segment.faceCount > 0 || segment.eyeContact === true) reasons.push('face-or-eye-contact');
   if (segment.objectCount >= 2) reasons.push('multiple-objects');
   if (['demonstrating', 'interacting_with_object', 'walking', 'gesturing', 'writing'].includes(segment.actionType)) {
     reasons.push(`action-${segment.actionType}`);
   }
+  if (evidence.speechLock >= PROTECT_SPEECH_LOCK) reasons.push('speech-locked');
+  if (evidence.brollUsefulness >= PROTECT_BROLL_USEFULNESS) reasons.push('useful-broll');
   return reasons;
 }
 
-function isVisualDeadAir(segment: VjepaSegmentResult): boolean {
+function isVisualDeadAir(segment: VjepaSegmentResult, evidence: VisualEvidenceScore): boolean {
   const durationMs = segment.endMs - segment.startMs;
-  const hasSubject = (segment.mainSubject?.confidence ?? 0) >= 0.35 || segment.faceCount > 0 || segment.objectCount > 1;
-  const hasVisibleText = segment.textCoverage >= DEAD_AIR_TEXT_COVERAGE || segment.textBoxCount > 0;
-  const activeAction = !['still', 'other'].includes(segment.actionType);
-
   return (
     durationMs >= MIN_VISUAL_DEAD_AIR_MS &&
-    segment.visualSignificance <= DEAD_AIR_SIGNIFICANCE &&
-    segment.motionIntensity <= DEAD_AIR_MOTION &&
-    !hasSubject &&
-    !hasVisibleText &&
-    !activeAction
+    evidence.cutEligibility >= VISUAL_DEAD_AIR_CUT_ELIGIBILITY &&
+    evidence.viewerValue <= VISUAL_DEAD_AIR_MAX_VIEWER_VALUE &&
+    evidence.speechLock <= VISUAL_DEAD_AIR_MAX_SPEECH_LOCK &&
+    evidence.brollUsefulness <= VISUAL_DEAD_AIR_MAX_BROLL &&
+    evidence.boundaryReadiness <= VISUAL_DEAD_AIR_MAX_BOUNDARY_READINESS
   );
 }
 
-function visualDeadAirReasons(segment: VjepaSegmentResult): string[] {
+function visualDeadAirReasons(segment: VjepaSegmentResult, evidence: VisualEvidenceScore): string[] {
   const reasons = ['low-visual-significance', 'low-motion'];
   if (segment.actionType === 'still') reasons.push('still-action');
   if (segment.objectCount <= 1) reasons.push('low-object-presence');
   if (segment.faceCount <= 0) reasons.push('no-face');
-  if (segment.textCoverage < DEAD_AIR_TEXT_COVERAGE) reasons.push('low-text-coverage');
+  if (segment.textCoverage < 0.03) reasons.push('low-text-coverage');
+  if (evidence.coverageTrust < 0.6) reasons.push('low-vjepa-coverage');
   return reasons;
 }
 
-function visualBoundaryReasons(previous: VjepaSegmentResult, next: VjepaSegmentResult): PacingSplitBoundaryReason[] {
+function visualBoundaryReasons(evidence: VisualBoundaryEvidenceScore): PacingSplitBoundaryReason[] {
+  if (
+    evidence.boundaryStrength < VISUAL_BOUNDARY_STRENGTH ||
+    evidence.cutEligibility < VISUAL_BOUNDARY_CUT_ELIGIBILITY
+  ) {
+    return [];
+  }
+
   const reasons: PacingSplitBoundaryReason[] = [];
-  if (Math.abs(next.visualSignificance - previous.visualSignificance) >= VISUAL_BOUNDARY_DELTA) {
+  if (evidence.reasons.includes('visual-state-change')) {
     reasons.push('visual-state-change');
   }
-  if (Math.abs(next.motionIntensity - previous.motionIntensity) >= VISUAL_BOUNDARY_DELTA) {
+  if (evidence.reasons.includes('motion-change')) {
     reasons.push('visual-motion-change');
   }
-  if (Math.abs(next.objectCount - previous.objectCount) >= 2 || Math.abs(next.faceCount - previous.faceCount) >= 1) {
+  if (evidence.reasons.includes('subject-or-action-change')) {
     reasons.push('visual-subject-change');
   }
-  if (Math.abs(next.textCoverage - previous.textCoverage) >= VISUAL_TEXT_BOUNDARY_DELTA || Math.abs(next.textBoxCount - previous.textBoxCount) >= 2) {
+  if (evidence.reasons.includes('text-state-change')) {
     reasons.push('visual-text-change');
   }
   return reasons;
 }
 
-function buildVisualDeadAirRemoval(segment: VjepaSegmentResult, reasons: string[]): SilenceRemovalAction {
+function buildVisualDeadAirRemoval(segment: VjepaSegmentResult, reasons: string[], evidence: VisualEvidenceScore): SilenceRemovalAction {
   return {
     startMs: segment.startMs,
     endMs: segment.endMs,
@@ -264,7 +306,7 @@ function buildVisualDeadAirRemoval(segment: VjepaSegmentResult, reasons: string[
       kind: 'visual-cut',
       source: 'vjepa-visual-dead-air',
       calibrationStatus: 'invented-threshold',
-      visualCut: visualCutMetadata('remove-visual-dead-air', segment, reasons),
+      visualCut: visualCutMetadata('remove-visual-dead-air', segment, reasons, evidence.cutEligibility),
     },
   };
 }
@@ -273,6 +315,7 @@ function buildVisualBoundarySplit(
   previous: VjepaSegmentResult,
   next: VjepaSegmentResult,
   reasons: PacingSplitBoundaryReason[],
+  evidence: VisualBoundaryEvidenceScore,
 ): SilenceRemovalAction {
   return {
     startMs: next.startMs,
@@ -285,7 +328,7 @@ function buildVisualBoundarySplit(
       calibrationStatus: 'invented-threshold',
       boundaryReasons: reasons,
       speechGapMs: Math.max(0, Math.round(next.startMs - previous.endMs)),
-      visualCut: visualCutMetadata('split-visual-boundary', next, reasons),
+      visualCut: visualCutMetadata('split-visual-boundary', next, reasons, evidence.cutEligibility),
     },
   };
 }
@@ -294,10 +337,11 @@ function visualCutMetadata(
   decision: VisualCutDecisionType,
   segment: VjepaSegmentResult,
   reasons: string[],
+  confidence = confidenceForReasons(reasons),
 ): NonNullable<NonNullable<SilenceRemovalAction['metadata']>['visualCut']> {
   return {
     decision,
-    confidence: confidenceForReasons(reasons),
+    confidence: round01(confidence),
     visualSegmentStartMs: segment.startMs,
     visualSegmentEndMs: segment.endMs,
     visualSignificance: round01(segment.visualSignificance),
@@ -318,6 +362,7 @@ function buildDecision(
   visual: VjepaSegmentResult,
   reasons: string[],
   affectedAction?: SilenceRemovalAction,
+  evidence?: VisualEvidenceScore | VisualBoundaryEvidenceScore,
 ): VisualCutDecision {
   return {
     type,
@@ -336,6 +381,7 @@ function buildDecision(
       faceCount: visual.faceCount,
       textCoverage: round01(visual.textCoverage),
     },
+    ...(evidence && { evidence: summarizeEvidence(evidence) }),
     ...(affectedAction && {
       affectedAction: {
         startMs: affectedAction.startMs,
@@ -347,15 +393,54 @@ function buildDecision(
   };
 }
 
-function visualImportanceScore(segment: VjepaSegmentResult): number {
+function visualImportanceScore(
+  segment: VjepaSegmentResult,
+  rawFootage: RawFootageAnalysis,
+  startMs: number,
+  endMs: number,
+): number {
+  const evidence = segmentEvidence(segment, rawFootage, startMs, endMs);
   return Math.max(
-    segment.visualSignificance,
-    segment.motionIntensity * 0.9,
-    segment.textCoverage * 1.2,
-    segment.faceCount > 0 ? 0.7 : 0,
-    segment.objectCount >= 2 ? 0.62 : 0,
-    ['demonstrating', 'interacting_with_object', 'walking', 'gesturing', 'writing'].includes(segment.actionType) ? 0.68 : 0,
+    evidence.viewerValue,
+    evidence.speechLock,
+    evidence.brollUsefulness,
+    evidence.visualContinuityRisk,
   );
+}
+
+function segmentEvidence(
+  segment: VjepaSegmentResult,
+  rawFootage: RawFootageAnalysis,
+  startMs = segment.startMs,
+  endMs = segment.endMs,
+): VisualEvidenceScore {
+  return scoreVisualSegmentEvidence(segment, {
+    speechOverlapRatio: rangeSpeechOverlapRatio(rawFootage, startMs, endMs),
+  });
+}
+
+function summarizeEvidence(evidence: VisualEvidenceScore | VisualBoundaryEvidenceScore): VisualCutEvidenceSummary {
+  if ('boundaryStrength' in evidence) {
+    return {
+      coverageTrust: evidence.coverageTrust,
+      boundaryStrength: evidence.boundaryStrength,
+      continuityRisk: evidence.continuityRisk,
+      cutEligibility: evidence.cutEligibility,
+      missingEvidence: evidence.missingEvidence,
+    };
+  }
+
+  return {
+    coverageTrust: evidence.coverageTrust,
+    viewerValue: evidence.viewerValue,
+    speechLock: evidence.speechLock,
+    boundaryReadiness: evidence.boundaryReadiness,
+    visualContinuityRisk: evidence.visualContinuityRisk,
+    artifactRisk: evidence.artifactRisk,
+    brollUsefulness: evidence.brollUsefulness,
+    cutEligibility: evidence.cutEligibility,
+    missingEvidence: evidence.missingEvidence,
+  };
 }
 
 function confidenceForReasons(reasons: string[]): number {
@@ -365,6 +450,16 @@ function confidenceForReasons(reasons: string[]): number {
 function rangeHasSpeech(rawFootage: RawFootageAnalysis, startMs: number, endMs: number): boolean {
   const words = rawFootage.transcription?.words ?? [];
   return words.some(word => rangesOverlap(startMs, endMs, word.startMs, word.endMs));
+}
+
+function rangeSpeechOverlapRatio(rawFootage: RawFootageAnalysis, startMs: number, endMs: number): number {
+  const durationMs = Math.max(1, endMs - startMs);
+  const words = rawFootage.transcription?.words ?? [];
+  const overlapMs = words.reduce((total, word) => {
+    const overlap = Math.max(0, Math.min(endMs, word.endMs) - Math.max(startMs, word.startMs));
+    return total + overlap;
+  }, 0);
+  return clamp01(overlapMs / durationMs);
 }
 
 function rangeIntersectsPlan(startMs: number, endMs: number, plan: SilenceRemovalAction[]): boolean {
