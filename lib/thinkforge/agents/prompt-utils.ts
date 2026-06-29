@@ -9,17 +9,35 @@ export interface DocumentRoleProfile {
   defaultMedium: string;
 }
 
+const POST_CONTENT_REQUEST_PATTERN = /\b(linkedin\s+(?:post|carousel|article)|twitter\s+(?:post|thread)|x\s+(?:post|thread)|instagram\s+(?:post|caption|carousel)|ig\s+(?:post|caption|carousel)|facebook\s+(?:post|caption)|social\s+media\s+(?:post|caption|copy)|blog\s+post|article|newsletter|email\s+(?:campaign|copy)|carousel\s+post)\b/i;
+const SCRIPT_DOCUMENT_TYPE_PATTERN = /\b(screenplay|script|video\s+script|reel|short|youtube|tiktok|commercial|brand\s+film|product\s+ad|ugc)\b/i;
+
+function normalizeContentRequest(value?: string): string {
+  return (value || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isPostContentRequest(value?: string): boolean {
+  const normalized = normalizeContentRequest(value);
+  return normalized === 'post'
+    || normalized === 'article'
+    || normalized === 'social post'
+    || normalized === 'social media post'
+    || normalized === 'caption'
+    || normalized === 'carousel'
+    || POST_CONTENT_REQUEST_PATTERN.test(normalized);
+}
+
 export function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {
-  const docType = (explicitDocType || '').toLowerCase();
+  const docType = normalizeContentRequest(explicitDocType);
   const userLower = userPrompt.toLowerCase();
   const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
 
-  // Post/article/text content â€” check USER PROMPT first
-  if (docType === 'post' || docType === 'article' || /\b(linkedin\s*post|twitter\s*post|x\s*post|instagram\s*caption|facebook\s*post|social\s*media\s*post|blog\s*post|article|newsletter|email\s*campaign|email\s*copy|carousel\s*post)\b/i.test(userLower)) {
+  // Post/article/text content - check normalized document type and user prompt first.
+  if (!SCRIPT_DOCUMENT_TYPE_PATTERN.test(docType) && (isPostContentRequest(docType) || isPostContentRequest(userLower))) {
     return {
       role: 'a Senior Content Strategist and Copywriter',
-      executionTest: 'A social media manager should be able to say: "I can publish this immediately â€” it fits the platform, hooks the audience, and drives the action I need."',
-      outputFeeling: 'a polished, platform-ready post or article â€” not a brief, not a script, not an outline',
+      executionTest: 'A social media manager should be able to say: "I can publish this immediately - it fits the platform, hooks the audience, and drives the action I need."',
+      outputFeeling: 'a polished, platform-ready post or article - not a brief, not a script, not an outline',
       sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Match the platform voice: LinkedIn is professional-conversational, Twitter is punchy, Instagram is visual-first captions.',
       defaultVoice: 'author',
       defaultMedium: 'post',
@@ -205,9 +223,12 @@ export function detectPlatform(userPrompt: string, docType?: string, projectSumm
 }
 
 export function detectContentPath(userPrompt: string, docType?: string): 'post' | 'script' {
-  const dt = (docType || '').toLowerCase();
-  const lower = userPrompt.toLowerCase();
-  if (dt === 'post' || dt === 'article' || /\b(linkedin\s*post|twitter\s*post|x\s*post|instagram\s*caption|facebook\s*post|social\s*media\s*post|blog\s*post|article|newsletter|email\s*campaign|email\s*copy|carousel\s*post)\b/i.test(lower)) {
+  const dt = normalizeContentRequest(docType);
+  const lower = normalizeContentRequest(userPrompt);
+  if (SCRIPT_DOCUMENT_TYPE_PATTERN.test(dt)) {
+    return 'script';
+  }
+  if (isPostContentRequest(dt) || isPostContentRequest(lower)) {
     return 'post';
   }
   return 'script';

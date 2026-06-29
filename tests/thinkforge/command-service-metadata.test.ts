@@ -14,6 +14,7 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 }));
 
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
+import { detectContentPath } from '@/lib/thinkforge/agents/prompt-utils';
 
 const block: ThinkForgeBlock = {
   id: 'block_001',
@@ -27,6 +28,20 @@ const session = {
   createdAt: new Date('2026-06-15T00:00:00Z'),
   updatedAt: new Date('2026-06-15T00:00:00Z'),
 };
+
+describe('ThinkForge content-path routing', () => {
+  it('routes Instagram post requests to the post writer path', () => {
+    expect(detectContentPath('Write an Instagram post from the original user brief.')).toBe('post');
+    expect(detectContentPath('Write the post from the selected idea.', 'Instagram post')).toBe('post');
+    expect(detectContentPath('Write the post from the selected idea.', 'instagram_post')).toBe('post');
+    expect(detectContentPath('Write a LinkedIn post about video production workflows.')).toBe('post');
+  });
+
+  it('keeps explicit video/script formats on the script writer path', () => {
+    expect(detectContentPath('Write an Instagram reel script with camera direction.')).toBe('script');
+    expect(detectContentPath('Write the draft.', 'video_script')).toBe('script');
+  });
+});
 
 describe('ThinkForge command-service metadata persistence', () => {
   beforeEach(() => {
@@ -43,11 +58,43 @@ describe('ThinkForge command-service metadata persistence', () => {
         blocks: script.blocks,
         richText: script.richText,
         metadata: script.metadata,
+        documentType: script.documentType,
         version: 1,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       },
     }));
+  });
+
+  it('stores generated post documentType when replacing a document', async () => {
+    dbMock.getScript.mockResolvedValue(null);
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 0,
+      source: 'ai',
+      payload: {
+        scriptId: 'doc_002',
+        title: 'Instagram Post',
+        content: 'Draft caption',
+        blocks: [block],
+        documentType: 'post',
+      },
+    }, 'user_001');
+
+    expect(result.ok).toBe(true);
+    expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
+      'session_001',
+      expect.objectContaining({
+        documentType: 'post',
+      }),
+      0,
+      'doc_002'
+    );
+    if (result.ok) {
+      expect(result.script.documentType).toBe('post');
+    }
   });
 
   it('stores signalTrace metadata when replacing a generated document', async () => {

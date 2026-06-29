@@ -62,6 +62,7 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
   let nextTitle = existing?.title || 'Untitled Script';
   let nextRichText: TiptapJSON | null = existing?.richText ? (existing.richText as TiptapJSON) : null;
   let nextMetadata = existing?.metadata;
+  let nextDocumentType = existing?.documentType || 'screenplay';
 
   if (type === 'ReplaceDocument') {
     nextBlocks = preserveExportMetaForUnchangedBlocks(normalizeBlocksFromPayload(payload), nextBlocks);
@@ -70,6 +71,9 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
     nextMetadata = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
       ? payload.metadata
       : nextMetadata;
+    nextDocumentType = typeof payload.documentType === 'string' && payload.documentType.trim()
+      ? payload.documentType.trim()
+      : nextDocumentType;
   }
 
   if (type === 'UpdateBlock') {
@@ -128,6 +132,7 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
       blocks: nextBlocks,
       richText: nextRichText || undefined,
       metadata: nextMetadata,
+      documentType: nextDocumentType,
     },
     effectiveBaseVersion,
     scriptId
