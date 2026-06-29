@@ -19,27 +19,24 @@ Shipped 2026-06-27 (done -- context in the handoff Section 1): gemini flash-lite
 atoms (`906a2727`/`705cda69`/`c60b2836`/`803d4c28`), auto-BGM dispatch + shared audio-worker dispatcher
 (`45925eb3`, L2 only -- needs L3 verify).
 
-Open tasks (priority order -- full detail in the handoff):
-1. **P1 Quality score saturates at 0** (`quality-review-service.ts:1484-1491`): flat, uncapped -5/warning floors the
-   score at 0 after just 20 warnings; the persisted 0 **poisons the genre-parameter bandit reward**
-   (`genre-parameter-bandit.ts:227`). Fix = per-type cap + advisory/blocking split.
-2. **P1 `text-embedding-004` 404 -> silent search degradation** (5 call sites): swap to `text-embedding-005`
-   (768-dim, legacy-SDK-safe; do NOT use `gemini-embedding-001` = 3072-dim, which silently corrupts the 768 index)
-   + backfill old vectors.
-3. **P1 Auto-BGM L3 verify + source-music detector fix**: commit `45925eb3` wired auto-BGM dispatch, but
-   real project `proj_UtqhQCsK3ZkR` proved the decision gate is wrong for speech-only talking-head footage:
-   Modal Essentia reported `BPM=129`, `2458 beats`, `musicPresence=0.90`, and
-   `genre-parameter-computer.ts` treated `musicBpm > 0` as `musicAlreadyPresent`, so `shouldAddBgm=false`.
-   Result: no BGM dispatch, no BGM overlay, and `quality-review-service.ts` suppressed `missing_bgm`. Fix =
-   replace `musicBpm > 0` with a real source-music confidence check that separates speech rhythm from music
-   (speech coverage penalty plus music-section/event/energy evidence; do not trust `musicPresence` alone), persist
-   the BGM decision reason, and add a regression where speech-only talking head with detected BPM still allows BGM.
-   Requires `FAL_AI_API_KEY` + `QSTASH_TOKEN` for the final L3 production verify.
-4. **P2 Transition produce-then-suppress** (`signal-executor.ts`): pre-gate transitions at the producer
-   (boundary/pair/direction) instead of letting 3 downstream layers discard them.
-5. **P2 Chapter-concat for >15-min renders is BUILT (`455ddf5b`), only NOT DEPLOYED** -- Modal deploy + 2 Vercel
-   env vars + secret + smoke test. (The earlier "unbuilt P0 / fails at >3min" claim is STALE -- corrected.)
-6. **P3 TRIBE perf** (V-JEPA frame sampling is the lever) and **MEMORY.md compaction** (Claude memory, not repo).
+Current status of those handoff tasks (code-verified 2026-06-30):
+1. **P1 Quality score saturation -- DONE IN CODE.** `quality-review-service.ts` now uses per-type caps and
+   advisory/blocking separation; focused quality/bandit tests pass. Do not redo unless a fresh real project proves
+   the new score still misrepresents visible output.
+2. **P1 Embedding 404 -- DONE IN CODE.** Live code no longer calls `text-embedding-004`; the shared Gemini embedding
+   helper uses `gemini-embedding-001` with `outputDimensionality=768`, and the Python Graphiti path uses the same
+   768-dimensional contract. Remaining work is only data backfill/ops if old assets still have null vectors.
+3. **P1 Auto-BGM speech-rhythm false suppression -- DONE IN CODE, L3 VERIFY STILL NEEDED.** Source music detection
+   no longer treats speech-derived BPM as music by itself; regression covers speech-only talking head. A fresh run
+   with `FAL_AI_API_KEY` + `QSTASH_TOKEN` must still prove a real BGM overlay lands when the recommendation says yes.
+4. **P2 Transition produce-then-suppress -- DONE IN CODE.** `signal-executor.ts` pre-gates signal transitions against
+   clip boundaries/pairs and annotates `transitionProducerGate`; focused signal/unified-bundle tests pass.
+5. **P2 Chapter-concat for >15-min renders -- BUILT AND PLAN-MARKED LIVE, OPS VERIFY ONLY.** The Modal concat path,
+   env names, and smoke docs exist. Remaining proof is a real >15-minute render stitched through the deployed worker.
+6. **P3 TRIBE perf -- PARTIAL/DONE FOR CLIENT SAMPLING.** `vjepa-service.ts` sends adaptive `max_frames_per_segment`
+   to Modal (64/48/32/24 by segment count) and tests verify long-video requests send 24. Remaining perf work is live
+   telemetry/deploy tuning, not rebuilding the V-JEPA client wrapper.
+7. **MEMORY.md compaction -- OUT OF REPO.** Claude memory housekeeping only; do not spend Editron code time on it.
 
 ## START HERE -- 2026-06-29 Code-Verified Phase Status
 
