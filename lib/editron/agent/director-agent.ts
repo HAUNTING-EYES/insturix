@@ -54,6 +54,7 @@ import { buildPersistedQualityReview } from '@/lib/editron/services/quality-revi
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
+import { dispatchPhase0RenderedEvidenceJob } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -2544,6 +2545,15 @@ export async function executeDirectorPlan(
         `fail=${phase0Truth.summary.fail}, warn=${phase0Truth.summary.warn}, ` +
         `qualityEvidence=${phase0Truth.qualityEvidence.qualityEvidenceSource}/${phase0Truth.qualityEvidence.renderedAestheticStatus}`,
       );
+      const renderedEvidenceDispatch = await dispatchPhase0RenderedEvidenceJob({ projectId, userId });
+      if (renderedEvidenceDispatch.dispatched) {
+        console.log(
+          `[Director] Phase0 rendered evidence dispatched` +
+          `${renderedEvidenceDispatch.messageId ? ` (messageId=${renderedEvidenceDispatch.messageId})` : ''}`,
+        );
+      } else {
+        console.log(`[Director] Phase0 rendered evidence not dispatched: ${renderedEvidenceDispatch.reason}`);
+      }
     } catch (truthErr: unknown) {
       console.warn('[Director] non-fatal Phase0 live truth persistence:', truthErr instanceof Error ? truthErr.message : truthErr);
     }

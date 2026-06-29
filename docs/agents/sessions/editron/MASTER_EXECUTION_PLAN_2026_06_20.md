@@ -49,7 +49,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 
 | Phase | Status | Code-verified finding | Remaining production work |
 | --- | --- | --- | --- |
-| P0 Rendered truth fixture | **PARTIAL, live metadata wired** | Live Director calls `persistFinalPhase0LiveTruth` after final overlay save, persists `qualityReview`, `intelligence.phase0LiveTruth`, `intelligence.renderedQualityEvidence`, and a planned render artifact pack. The actual pixel render remains a manual script path (`scripts/render-editron-aesthetic.ts`, `scripts/build-editron-phase0-fixture.ts`). | Wire automatic rendered pixel artifact capture / hard evidence into the live loop before using it as a gate or calibration source. |
+| P0 Rendered truth fixture | **PARTIAL, live metadata + async Lambda stills wired** | Live Director calls `persistFinalPhase0LiveTruth` after final overlay save, persists `qualityReview`, `intelligence.phase0LiveTruth`, and planned artifact evidence, then dispatches `/api/internal/workers/phase0-rendered-evidence` to render sampled stills through Remotion Lambda and persist `intelligence.phase0RenderedStillEvidence`. | Still-evidence URLs now exist when Remotion/QStash env is configured, but pixel scoring/gate consumption is not complete yet; wire scored rendered reports into `renderedQualityEvidence` before using P0 as a hard calibration source. |
 | P1 Decision authority | **DONE for the live unified-candidate path, with compatibility caveat** | `director-agent.ts` pushes Creative Brief and signal candidates into `planUnifiedDecisionBundleFromCandidates`; `unified-decision-bundle.ts` ranks both producer candidates and stamps selected decisions with `owner: unified-planner`, `creativeBriefRole: semantic-context`, `signalRole: candidate-source`. | Keep legacy/single-producer helper paths honest in telemetry. Do not claim all historical helpers are removed. |
 | P2 Candidate normalizer | **PARTIAL** | `signal-executor.ts` now emits `momentImportance`, `candidateConfidence`, `executionConfidence`, `evidenceStrength`, and `signalNormalization`; `unified-decision-bundle.ts` normalizes family/job/timing/evidence/risk. | Upstream still starts from `momentWeight` and blends it into confidence; formulas are invented and need calibration. |
 | P3 Caption planner | **PARTIAL** | Canonical final-timeline caption track exists, creates one caption overlay with multiple readable caption groups, and caption moment planning reads speech/readability/screen-pressure atoms. | Still one track container rather than a true moment-scoped caption planner/renderer ownership model. |
@@ -71,7 +71,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 ### Immediate next work order
 
 1. **Do not rebuild P1.** It is done for the live candidate path; only telemetry/fallback cleanup is allowed.
-2. **Finish P0 rendered truth hardening** so live projects produce actual pixel/audio evidence, not only planned artifacts.
+2. **Finish P0 rendered truth scoring** so the new Lambda still artifacts become scored rendered reports/gate evidence, not only persisted still URLs.
 3. **Build P4 visual perception / VLM cut intelligence** so cut decisions are not transcript-only.
 4. **Build P13 shared choreography scheduler** using the existing overlay timeline memory atoms.
 5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.
