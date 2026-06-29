@@ -26,8 +26,15 @@ Open tasks (priority order -- full detail in the handoff):
 2. **P1 `text-embedding-004` 404 -> silent search degradation** (5 call sites): swap to `text-embedding-005`
    (768-dim, legacy-SDK-safe; do NOT use `gemini-embedding-001` = 3072-dim, which silently corrupts the 768 index)
    + backfill old vectors.
-3. **P1 Auto-BGM L3 verify**: confirm `45925eb3` actually lands a BGM overlay on a real raw-footage auto-edit
-   (needs `FAL_AI_API_KEY` + `QSTASH_TOKEN`).
+3. **P1 Auto-BGM L3 verify + source-music detector fix**: commit `45925eb3` wired auto-BGM dispatch, but
+   real project `proj_UtqhQCsK3ZkR` proved the decision gate is wrong for speech-only talking-head footage:
+   Modal Essentia reported `BPM=129`, `2458 beats`, `musicPresence=0.90`, and
+   `genre-parameter-computer.ts` treated `musicBpm > 0` as `musicAlreadyPresent`, so `shouldAddBgm=false`.
+   Result: no BGM dispatch, no BGM overlay, and `quality-review-service.ts` suppressed `missing_bgm`. Fix =
+   replace `musicBpm > 0` with a real source-music confidence check that separates speech rhythm from music
+   (speech coverage penalty plus music-section/event/energy evidence; do not trust `musicPresence` alone), persist
+   the BGM decision reason, and add a regression where speech-only talking head with detected BPM still allows BGM.
+   Requires `FAL_AI_API_KEY` + `QSTASH_TOKEN` for the final L3 production verify.
 4. **P2 Transition produce-then-suppress** (`signal-executor.ts`): pre-gate transitions at the producer
    (boundary/pair/direction) instead of letting 3 downstream layers discard them.
 5. **P2 Chapter-concat for >15-min renders is BUILT (`455ddf5b`), only NOT DEPLOYED** -- Modal deploy + 2 Vercel
@@ -52,7 +59,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 | P4 Visual perception / VLM cut intelligence | **NOT STARTED for cut ownership** | `raw-footage-processor.ts` remains transcript/silence/transcript-editor led; low speech coverage sets `needsVisualDrivenEditing`, but there is no VLM perception cut service owning cut decisions. | Build visual cut intelligence from VLM/V-JEPA primitives and feed cut plan before overlay planning. |
 | P5 Zoom / visual-motion planner | **DONE as planner infrastructure** | Zoom planner reads subject bbox, face/eye contact, shot scale, motion vectors, speech/beat/emotion, and overlay memory; it attaches `zoomMotionPlan` and anti-repeat inputs. | Rendered proof and calibration still belong to P12/P15. |
 | P6 Transition planner | **DONE as planner infrastructure** | Producer pre-gates transition decisions at clip boundaries/pairs; transition boundary planner reads topic, pause, beat, motion, visual change, shot/subject jumps, semantic contrast, audio tail, and repetition pressure. | Rendered timing/choreography proof still belongs to P13/P12. |
-| P7 SFX | **PARTIAL** | Atomic SFX form, sync anchors, provider candidate gate, R2/cache behavior, and strict timing validation exist; provider path is still Freesound-first and asset quality is provider-dependent. | Full SFX system remains: multi-provider/provider abstraction, better rejection telemetry, richer non-transition roles, and calibration of skip/place decisions. |
+| P7 SFX / BGM | **PARTIAL** | Atomic SFX form, sync anchors, provider candidate gate, R2/cache behavior, and strict timing validation exist; provider path is still Freesound-first and asset quality is provider-dependent. Auto-BGM dispatch exists, but `proj_UtqhQCsK3ZkR` showed BGM can be falsely suppressed when speech rhythm is interpreted as existing music. | Full SFX system remains: multi-provider/provider abstraction, better rejection telemetry, richer non-transition roles, and calibration of skip/place decisions. BGM source-music detection must stop using BPM alone and must persist why BGM was added/skipped. |
 | P8 MG semantic + fact enrichment | **DONE** | Creative Brief prompt asks for semantic atoms/facts; brief wrapper emits semantic candidates; semantic MG candidate ledger/gates feed EDL/MG content normalization. | Downstream MG form generation remains P9/P11/Rule-11. |
 | P9 MG expression authority | **PARTIAL** | MG expression authority, semantic obligations, draw support, choreography helpers, and brand/MG dials exist. The "no draw-on exists" claim is stale. | Visible expression is not fully signal-owned yet: enter order, beat sync, shimmer/draw usage, and form breadth still need rendered proof and calibration. |
 | P10 Stage-aware composition | **PARTIAL** | Full-frame/split/device/overlay stage modes exist and negotiate caption/screen context. | Many thresholds are explicitly invented; no hard rendered gate validates stage choices live. |
@@ -297,6 +304,7 @@ This status uses live audit documents and code-backed evidence:
 
 - **P0:** No rendered-pixel hard truth loop; bad 0/100 edits can still pass flow.
 - **P1:** MG candidate breadth is shallow (shape-bound), signal candidates are often suppressed at merge/cut floors, and gate checks are often observe-only.
+- **P1:** Auto-BGM can be falsely suppressed on speech-only talking-head uploads because speech-derived BPM/musicPresence is treated as source music.
 - **P1:** Invented constants without calibration are active in multiple places; cannot be tuned safely yet.
 - **P2:** Signal normalizer contract is incomplete (family atom + signal anchor fields not consistently projected into executable layer).
 - **P2:** `graphic_density Ã— duration` cap and 4.5s spacing budget are separate levers; can disagree unless aligned.
@@ -523,6 +531,7 @@ If any prior doc says â€œfully doneâ€, it should be treated as *histori
 4. Merge still under-advances Path D candidates.
 5. Live reward/learning weak-score writes are gated at `recordProjectOutcome`; remaining risk is calibration quality because rendered evidence is not yet the hard truth loop.
 6. Creative Brief-only upload-to-edit bundles can still bypass strict family atom licensing when no signal producer is present.
+7. Auto-BGM source-music detection is too weak: `musicBpm > 0` can classify speech rhythm as existing BGM, blocking BGM dispatch and suppressing `missing_bgm`.
 
 ### P2/P3 (stability and polish)
 6. Full-frame contract can downgrade into corner treatment via caption coordination.

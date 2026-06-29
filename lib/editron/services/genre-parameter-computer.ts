@@ -39,6 +39,13 @@ export interface BgmRecommendation {
   };
 }
 
+interface SourceMusicConfidence {
+  bpm: number;
+  confidence: number;
+  musicAlreadyPresent: boolean;
+  reason: string;
+}
+
 export interface GenreParameterOutput {
   genreParams: GenreParameters;
   bgmRecommendation: BgmRecommendation;
@@ -116,8 +123,10 @@ export function computeGenreParameters(input: GenreParameterInput): GenreParamet
   // energy_baseline: average observed energy in best takes
   const energy_baseline = clamp(speechEnergyAvg || 0.45, 0.2, 0.8);
 
-  // transition_density: f(pacing_tolerance, music_bpm, speech_coverage)
-  const musicBpm = analyses[0]?.musicStructure?.bpm ?? 0;
+  // transition_density: f(pacing_tolerance, source music, speech_coverage)
+  const sourceMusic = resolveSourceMusicConfidence(analyses, speechCoverage);
+  const musicBpm = sourceMusic.musicAlreadyPresent ? sourceMusic.bpm : 0;
+  computedFrom.push('source_music_confidence');
   let transition_density = 60 / pacing_tolerance; // baseline from pacing
   if (musicBpm > 0 && speechCoverage < 0.3) {
     // Music-driven: transitions sync to beats
@@ -165,7 +174,7 @@ export function computeGenreParameters(input: GenreParameterInput): GenreParamet
   // ── BGM Decision (FLAG 2: signal-computed, no content-type labels) ────
 
   const bgmRecommendation = computeBgmRecommendation(
-    speechCoverage, formality, videoDurationSec, musicBpm > 0, speechEnergyAvg
+    speechCoverage, formality, videoDurationSec, sourceMusic, speechEnergyAvg
   );
 
   return {
@@ -182,18 +191,20 @@ function computeBgmRecommendation(
   speechCoverage: number,
   formality: number,
   durationSec: number,
-  musicAlreadyPresent: boolean,
+  sourceMusic: SourceMusicConfidence,
   speechEnergyAvg: number
 ): BgmRecommendation {
-  // Don't add BGM if music already present
-  if (musicAlreadyPresent) {
-    return { shouldAddBgm: false, reason: 'Music already present in footage' };
+  // Don't add BGM if source music is actually evidenced, not merely speech-rhythm BPM.
+  if (sourceMusic.musicAlreadyPresent) {
+    return {
+      shouldAddBgm: false,
+      reason: `Music already present in footage (${sourceMusic.reason})`,
+    };
   }
 
   // Signal-computed decision (no content-type labels)
   const shouldAdd = (
-    speechCoverage > 0.7 &&     // mostly talking — music fills gaps
-    !musicAlreadyPresent &&     // no existing music
+    speechCoverage > 0.7 &&     // mostly talking - music fills gaps
     formality < 0.6 &&          // formal content may prefer no music
     durationSec > 30            // very short clips don't need BGM
   );
@@ -203,26 +214,87 @@ function computeBgmRecommendation(
     if (speechCoverage <= 0.7) reasons.push('low speech coverage');
     if (formality >= 0.6) reasons.push('formal content');
     if (durationSec <= 30) reasons.push('too short');
+    reasons.push(sourceMusic.reason);
     return { shouldAddBgm: false, reason: `Skipping BGM: ${reasons.join(', ')}` };
   }
 
   // Compute BGM params from signals
   const tempoBpm: [number, number] = speechEnergyAvg > 0.6
-    ? [100, 120]   // high energy speaker → upbeat
-    : [60, 80];    // low energy speaker → calm
+    ? [100, 120]   // high energy speaker -> upbeat
+    : [60, 80];    // low energy speaker -> calm
 
   const mood = speechEnergyAvg > 0.6 ? 'upbeat' : 'calm';
   const genre = formality > 0.4 ? 'corporate' : 'lo-fi';
 
   return {
     shouldAddBgm: true,
-    reason: 'High speech coverage + casual content + sufficient duration',
+    reason: `High speech coverage + casual content + sufficient duration; no source music detected (${sourceMusic.reason})`,
     params: {
       tempoBpm,
       mood,
       genre,
       levelDb: -24, // felt not heard, per creative doc sound layer specs
     },
+  };
+}
+
+function resolveSourceMusicConfidence(
+  analyses: AssetAnalysis[],
+  speechCoverage: number,
+): SourceMusicConfidence {
+  const music = analyses.find((analysis) => analysis.musicStructure)?.musicStructure;
+  if (!music) {
+    return {
+      bpm: 0,
+      confidence: 0,
+      musicAlreadyPresent: false,
+      reason: 'sourceMusicConfidence=0.00; no music-structure analysis',
+    };
+  }
+
+  const bpm = music.bpm ?? 0;
+  const sections = music.sections ?? [];
+  const validSections = sections.filter((section) => {
+    const label = String(section.type ?? '').toLowerCase();
+    return /intro|verse|chorus|drop|bridge|break|outro|music|instrumental|song|build/.test(label);
+  });
+  const energyCurve = music.energyCurve ?? [];
+  const avgMusicEnergy = energyCurve.length
+    ? clamp(
+        energyCurve.reduce((sum, point) => sum + (Number.isFinite(point.energy) ? point.energy : 0), 0) /
+          energyCurve.length,
+        0,
+        1,
+      )
+    : 0;
+  const explicitEventCount = (music.drops?.length ?? 0) + (music.builds?.length ?? 0);
+
+  const structureEvidence =
+    (bpm > 0 ? 0.25 : 0) +
+    Math.min(0.35, validSections.length * 0.08) +
+    Math.min(0.2, explicitEventCount * 0.1) +
+    (avgMusicEnergy > 0.55 ? 0.15 : avgMusicEnergy > 0.3 ? 0.08 : 0);
+  const speechPenalty = speechCoverage > 0.75 ? 0.45 : speechCoverage > 0.55 ? 0.25 : speechCoverage > 0.35 ? 0.1 : 0;
+  const confidence = clamp(structureEvidence - speechPenalty, 0, 1);
+
+  const explicitMusicEvents = explicitEventCount >= 2;
+  const lowSpeechMusicBed = speechCoverage < 0.45 && bpm > 0 && (validSections.length > 0 || avgMusicEnergy > 0.3);
+  const mediumSpeechStrongMusic = speechCoverage < 0.7 && validSections.length >= 4 && avgMusicEnergy > 0.55;
+  const musicAlreadyPresent =
+    (explicitMusicEvents && confidence >= 0.45) ||
+    (confidence >= 0.55 && (lowSpeechMusicBed || mediumSpeechStrongMusic));
+
+  return {
+    bpm,
+    confidence,
+    musicAlreadyPresent,
+    reason: [
+      `sourceMusicConfidence=${confidence.toFixed(2)}`,
+      `bpm=${bpm || 0}`,
+      `sections=${validSections.length}`,
+      `explicitEvents=${explicitEventCount}`,
+      `speechCoverage=${speechCoverage.toFixed(2)}`,
+    ].join('; '),
   };
 }
 
