@@ -195,8 +195,10 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // Step 1.58: Visual cut intelligence runs only when transcript coverage is insufficient.
-    if (rawFootageAnalysis?.needsVisualDrivenEditing || (rawFootageAnalysis && (rawFootageAnalysis.speechCoverage ?? 1) < 0.3)) {
+    // Step 1.58: Visual cut intelligence runs once for every raw-footage plan.
+    // Speech-heavy footage remains transcript-led; visual evidence can only protect/refine it.
+    // Low/no-speech footage is visual-led and may add visual removals/splits.
+    if (rawFootageAnalysis) {
       try {
         await db.collection('projects').updateOne(
           { projectId },
@@ -215,7 +217,11 @@ async function handler(request: NextRequest) {
         console.log(`[VideoAnalysisWorker] Step 1.58: Visual cut intelligence via V-JEPA (${visualSegmentInputs.length} visual segments, speechCoverage=${((rawFootageAnalysis.speechCoverage ?? 0) * 100).toFixed(1)}%)...`);
         precutVjepaAnalysis = await analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
 
-        const { refineCutPlanWithVisualIntelligence } = await import('@/lib/editron/services/visual-cut-intelligence');
+        const {
+          refineCutPlanWithVisualIntelligence,
+          resolveVisualCutRefinementMode,
+        } = await import('@/lib/editron/services/visual-cut-intelligence');
+        const visualCutMode = resolveVisualCutRefinementMode(rawFootageAnalysis);
         const visualCutResult = refineCutPlanWithVisualIntelligence(rawFootageAnalysis, precutVjepaAnalysis);
         visualCutIntelligence = visualCutResult.report;
         rawFootageAnalysis.visualCutIntelligence = visualCutResult.report;
@@ -228,7 +234,7 @@ async function handler(request: NextRequest) {
           }, 0);
 
         console.log(
-          `[VideoAnalysisWorker] Visual cuts: status=${visualCutIntelligence.status}, ` +
+          `[VideoAnalysisWorker] Visual cuts: status=${visualCutIntelligence.status}, mode=${visualCutMode.mode}, ` +
           `protected=${visualCutIntelligence.protectedActionCount}, ` +
           `addedRemovals=${visualCutIntelligence.addedRemovalCount}, ` +
           `addedSplits=${visualCutIntelligence.addedSplitCount}, ` +

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { refineCutPlanWithVisualIntelligence } from '@/lib/editron/services/visual-cut-intelligence';
+import {
+  refineCutPlanWithVisualIntelligence,
+  resolveVisualCutRefinementMode,
+} from '@/lib/editron/services/visual-cut-intelligence';
 import type { RawFootageAnalysis, SilenceRemovalAction, TranscriptSegment } from '@/lib/editron/services/raw-footage-processor';
 import type { VjepaAnalysisResult, VjepaSegmentResult } from '@/lib/editron/services/vjepa-service';
 
@@ -89,6 +92,30 @@ function visualSegment(overrides: Partial<VjepaSegmentResult>): VjepaSegmentResu
   };
 }
 
+describe('visual cut refinement mode', () => {
+  it('keeps speech-heavy footage speech-led while still licensing a visual check', () => {
+    expect(resolveVisualCutRefinementMode({ speechCoverage: 0.82, needsVisualDrivenEditing: false })).toEqual({
+      mode: 'speech-led-visual-check',
+      modeReason: 'speech-coverage-sufficient',
+      speechCoverage: 0.82,
+      needsVisualDrivenEditing: false,
+    });
+  });
+
+  it('switches to visual-led cutting when speech evidence is weak or explicitly marked visual-driven', () => {
+    expect(resolveVisualCutRefinementMode({ speechCoverage: 0.12, needsVisualDrivenEditing: false })).toEqual(expect.objectContaining({
+      mode: 'visual-led',
+      modeReason: 'low-speech-coverage',
+      needsVisualDrivenEditing: true,
+    }));
+    expect(resolveVisualCutRefinementMode({ speechCoverage: 0.8, needsVisualDrivenEditing: true })).toEqual(expect.objectContaining({
+      mode: 'visual-led',
+      modeReason: 'raw-footage-marked-visual-driven',
+      needsVisualDrivenEditing: true,
+    }));
+  });
+});
+
 describe('visual cut intelligence', () => {
   it('skips safely when no V-JEPA evidence exists', () => {
     const plan: SilenceRemovalAction[] = [{ startMs: 2_000, endMs: 4_000, action: 'remove', reason: 'silence' }];
@@ -132,6 +159,21 @@ describe('visual cut intelligence', () => {
         missingEvidence: [],
       }),
     }));
+  });
+
+  it('does not add visual removals or splits during speech-led visual sanity checks', () => {
+    const result = refineCutPlanWithVisualIntelligence(
+      rawFootage({ speechCoverage: 0.88, needsVisualDrivenEditing: false }),
+      vjepa([
+        visualSegment({ startMs: 2_000, endMs: 4_500 }),
+        visualSegment({ startMs: 5_000, endMs: 7_000, visualSignificance: 0.8, motionIntensity: 0.75, objectCount: 3 }),
+      ]),
+    );
+
+    expect(result.report.mode).toBe('speech-led-visual-check');
+    expect(result.report.addedRemovalCount).toBe(0);
+    expect(result.report.addedSplitCount).toBe(0);
+    expect(result.plan).toEqual([]);
   });
 
   it('adds visual dead-air removals only for low-speech, low-visual spans without speech overlap', () => {

@@ -8,6 +8,7 @@ import {
 import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
 
 type VisualCutDecisionType = 'protect-existing-cut' | 'remove-visual-dead-air' | 'split-visual-boundary';
+export type VisualCutRefinementMode = 'speech-led-visual-check' | 'visual-led';
 
 export interface VisualCutDecision {
   type: VisualCutDecisionType;
@@ -49,6 +50,8 @@ export interface VisualCutIntelligenceReport {
   version: 1;
   status: 'applied' | 'skipped';
   source: 'vjepa';
+  mode: VisualCutRefinementMode;
+  modeReason: string;
   speechCoverage: number;
   needsVisualDrivenEditing: boolean;
   inputActionCount: number;
@@ -83,14 +86,36 @@ const VISUAL_BOUNDARY_CUT_ELIGIBILITY = 0.2;
 const MAX_ADDED_VISUAL_REMOVALS = 60;
 const MAX_ADDED_VISUAL_SPLITS = 120;
 
+export function resolveVisualCutRefinementMode(
+  rawFootage: Partial<Pick<RawFootageAnalysis, 'speechCoverage' | 'needsVisualDrivenEditing'>> | null | undefined,
+): { mode: VisualCutRefinementMode; modeReason: string; speechCoverage: number; needsVisualDrivenEditing: boolean } {
+  const speechCoverage = clamp01(rawFootage?.speechCoverage ?? 1);
+  const needsVisualDrivenEditing = Boolean(rawFootage?.needsVisualDrivenEditing || speechCoverage < LOW_SPEECH_COVERAGE);
+  if (needsVisualDrivenEditing) {
+    return {
+      mode: 'visual-led',
+      modeReason: rawFootage?.needsVisualDrivenEditing ? 'raw-footage-marked-visual-driven' : 'low-speech-coverage',
+      speechCoverage,
+      needsVisualDrivenEditing,
+    };
+  }
+
+  return {
+    mode: 'speech-led-visual-check',
+    modeReason: 'speech-coverage-sufficient',
+    speechCoverage,
+    needsVisualDrivenEditing,
+  };
+}
+
 export function refineCutPlanWithVisualIntelligence(
   rawFootage: RawFootageAnalysis,
   vjepaAnalysis: VjepaAnalysisResult | null | undefined,
 ): VisualCutRefinementResult {
   const visualSegments = sanitizeVisualSegments(vjepaAnalysis?.segments);
   const inputPlan = [...(rawFootage.silenceRemovalPlan ?? [])];
-  const speechCoverage = clamp01(rawFootage.speechCoverage ?? 1);
-  const needsVisualDrivenEditing = Boolean(rawFootage.needsVisualDrivenEditing || speechCoverage < LOW_SPEECH_COVERAGE);
+  const cutMode = resolveVisualCutRefinementMode(rawFootage);
+  const { speechCoverage, needsVisualDrivenEditing } = cutMode;
   const decisions: VisualCutDecision[] = [];
 
   if (!visualSegments.length) {
@@ -98,6 +123,8 @@ export function refineCutPlanWithVisualIntelligence(
       plan: inputPlan,
       report: buildReport({
         status: 'skipped',
+        mode: cutMode.mode,
+        modeReason: cutMode.modeReason,
         speechCoverage,
         needsVisualDrivenEditing,
         inputActionCount: inputPlan.length,
@@ -175,6 +202,8 @@ export function refineCutPlanWithVisualIntelligence(
     plan,
     report: buildReport({
       status: 'applied',
+      mode: cutMode.mode,
+      modeReason: cutMode.modeReason,
       speechCoverage,
       needsVisualDrivenEditing,
       inputActionCount: inputPlan.length,
