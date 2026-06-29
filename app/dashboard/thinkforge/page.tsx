@@ -17,7 +17,6 @@ import StoryboardingMode from "@/components/dashboard/ThinkForge/StoryboardingMo
 import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
-const hats = ["white", "red", "black", "yellow", "green", "blue"] as const;
 const PROJECT_META_PASSTHROUGH_KEYS = [
 	'brandId',
 	'brandBrief',
@@ -68,22 +67,16 @@ const buildProjectMetaPayload = (idea: IdeaCardData | null | undefined): Record<
 	...pickProjectMetaPassthrough(idea),
 });
 
-const skeletonIdeas = (prompt: string): IdeaCardData[] => {
-	const base = (prompt.trim() || "Idea").replace(/\.$/, "");
-	const intents = ["awareness", "conversion", "engagement", "retention", "education", "community"];
-	const styles = ["fast-paced, energetic cuts", "story-driven narrative", "data-backed explainer", "emotionally resonant micro-story", "humorous pattern-interrupt", "structured how-to walkthrough"];
-	const formats = ["30s short-form video", "carousel thread", "scripted reel", "teaser snippet", "interactive Q&A", "split-screen reaction"];
-	const platforms = ["TikTok", "YouTube Shorts", "Instagram Reels", "LinkedIn", "X / Twitter", "Multi-platform"];
-	return Array.from({ length: 4 }).map((_, i) => ({
-		id: `${Date.now()}-${i}`,
-		idea: `${base} – ${intents[i % intents.length]} angle`.slice(0, 80),
-		purpose: `Drive ${intents[i % intents.length]} around the core theme via differentiated framing.`,
-		style: styles[(i * 2 + base.length) % styles.length],
-		format: formats[(i * 3 + base.length) % formats.length],
-		platform: platforms[(i + base.length) % platforms.length],
-		tone: hats[i % hats.length]
-	}));
+const buildIdeaGenerationPayload = (
+	prompt: string,
+	projectMeta?: Record<string, unknown> | null,
+): Record<string, unknown> => {
+	const scopedMeta = pickProjectMetaPassthrough(projectMeta);
+	return Object.keys(scopedMeta).length > 0
+		? { prompt, projectMeta: scopedMeta }
+		: { prompt };
 };
+
 
 export default function ThinkForgeLanding() {
 	// Mode state
@@ -160,7 +153,7 @@ export default function ThinkForgeLanding() {
 			const res = await fetch('/api/services/thinkforge/ideas', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ prompt: ideaPrompt })
+				body: JSON.stringify(buildIdeaGenerationPayload(ideaPrompt, session.projectMeta))
 			});
 			// Handle insufficient credits (new credits system)
 			if (res.status === 402) {
@@ -172,20 +165,36 @@ export default function ThinkForgeLanding() {
 				});
 				return; // do not proceed to IDEAS phase
 			}
-			if (!res.ok) throw new Error('bad');
+			if (!res.ok) {
+				const errData = await res.json().catch(() => ({}));
+				if (res.status === 409 && errData?.code === 'brand_context_required') {
+					const names = Array.isArray(errData.availableBrands)
+						? errData.availableBrands.map((brand: any) => brand?.name).filter(Boolean).slice(0, 3).join(', ')
+						: '';
+					toast({
+						title: 'Brand context needed',
+						description: names ? `${errData.message} Available: ${names}.` : (errData.message || 'Select a brand before generating brand-specific ideas.'),
+						variant: 'destructive',
+					});
+					return;
+				}
+				throw new Error(errData?.error || errData?.message || 'Idea generation failed');
+			}
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
-			const nextIdeas = list.length === 4 ? list : skeletonIdeas(ideaPrompt);
-			setIdeas(nextIdeas.map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
+			if (list.length !== 4) throw new Error('Idea generation returned an invalid idea set');
+			setIdeas(list.map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
 			setIdeationPhase('IDEAS');
-		} catch {
-			// generic failure: show skeletons and allow progression
-			setIdeas(skeletonIdeas(ideaPrompt).map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
-			setIdeationPhase('IDEAS');
+		} catch (error: any) {
+			toast({
+				title: 'Idea generation failed',
+				description: error?.message || 'ThinkForge could not generate grounded ideas. Please try again.',
+				variant: 'destructive',
+			});
 		} finally {
 			setLoading(false);
 		}
-	}, [prompt]);
+	}, [prompt, session.projectMeta]);
 
 
 	const onSubmit = (e: React.FormEvent) => {

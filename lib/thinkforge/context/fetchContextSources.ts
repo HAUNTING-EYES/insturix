@@ -459,7 +459,7 @@ export function formatSystemBrief(ctx: RetrievedContext): string {
     const factLines = ctx.globalFacts.map(
       (f) => `- ${f.title}: ${f.summary}${f.source ? ` [source](${f.source})` : ''}`,
     );
-    parts.push(`## Global Knowledge Vault\n${factLines.join('\n')}`);
+    parts.push(`## Relevant Saved Facts\n${factLines.join('\n')}`);
   }
 
   // Interaction patterns

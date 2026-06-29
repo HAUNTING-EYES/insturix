@@ -43,6 +43,94 @@ const IdeasResponseSchema = z.object({
 });
 
 type IdeasOutput = z.infer<typeof IdeasResponseSchema>;
+export interface IdeasGroundingContext {
+  systemBrief?: string;
+  brandId?: string;
+  brandName?: string;
+  requireBrandGrounding?: boolean;
+}
+
+const COMMON_ALLOWED_ACRONYMS = new Set([
+  'AI',
+  'API',
+  'B2B',
+  'B2C',
+  'CEO',
+  'CRM',
+  'CTA',
+  'FOMO',
+  'GEO',
+  'ICP',
+  'JSON',
+  'KPI',
+  'LLM',
+  'LLMO',
+  'MVP',
+  'PDF',
+  'ROI',
+  'SaaS',
+  'SEO',
+  'UGC',
+  'URL',
+  'VFX',
+]);
+
+const INTERNAL_CONTEXT_LEAK_PATTERNS: Array<{ pattern: RegExp; label: string; allowIfUserSaid?: string }> = [
+  { pattern: /\bglobal knowledge vault\b/i, label: 'Global Knowledge Vault' },
+  { pattern: /\bGKV\b/i, label: 'GKV', allowIfUserSaid: 'gkv' },
+  { pattern: /\bknowledge vault\b/i, label: 'Knowledge Vault', allowIfUserSaid: 'knowledge vault' },
+];
+
+function normalizeGroundingContext(input?: string | IdeasGroundingContext): IdeasGroundingContext {
+  if (!input) return {};
+  return typeof input === 'string' ? { systemBrief: input } : input;
+}
+
+function ideaText(idea: z.infer<typeof IdeaSchema>): string {
+  return [idea.idea, idea.purpose, idea.style, idea.format, idea.platform].join(' ');
+}
+
+function extractSourceAcronyms(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const match of text.matchAll(/\b[A-Z0-9]{2,8}\b/gi)) {
+    out.add(match[0].toUpperCase());
+  }
+  return out;
+}
+
+function findGroundingQualityIssues(
+  ideas: IdeasOutput['ideas'],
+  userPrompt: string,
+  grounding: IdeasGroundingContext,
+): string[] {
+  const issues: string[] = [];
+  const userVisibleSource = [userPrompt, grounding.brandName].filter(Boolean).join(' ').toLowerCase();
+  const sourceText = [userPrompt, grounding.systemBrief, grounding.brandName].filter(Boolean).join(' ');
+  const sourceAcronyms = extractSourceAcronyms(sourceText);
+
+  for (const idea of ideas) {
+    const text = ideaText(idea);
+
+    for (const leak of INTERNAL_CONTEXT_LEAK_PATTERNS) {
+      if (!leak.pattern.test(text)) continue;
+      if (leak.allowIfUserSaid && userVisibleSource.includes(leak.allowIfUserSaid)) continue;
+      issues.push(`Leaked internal context label "${leak.label}" into idea "${idea.idea}"`);
+    }
+
+    for (const match of text.matchAll(/\b[A-Z][A-Z0-9]{2,7}\b/g)) {
+      const acronym = match[0].toUpperCase();
+      if (COMMON_ALLOWED_ACRONYMS.has(acronym)) continue;
+      if (sourceAcronyms.has(acronym)) continue;
+      issues.push(`Invented unexplained acronym "${acronym}" in idea "${idea.idea}"`);
+    }
+
+    if (grounding.brandName && /\b(exclusive access|secret weapon|elite|inner circle)\b/i.test(text)) {
+      issues.push(`Used generic exclusivity framing without brand-specific proof in idea "${idea.idea}"`);
+    }
+  }
+
+  return [...new Set(issues)].slice(0, 6);
+}
 
 // Deterministic floor behind the no-placeholder prompt rule: strip bracketed template
 // tokens the model leaves when context is thin (e.g. "The [Problem] Solution") and tidy
@@ -94,6 +182,12 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
 "${userPrompt}"
 ${projectHint}${databankHint}
 
+## Grounding rules
+- The research/context block may contain section labels such as "Brand DNA", "Current Project Knowledge", "Relevant Saved Facts", or "User Preferences". These are INTERNAL labels. Never turn them into public-facing product names, campaign names, hooks, or acronyms.
+- Never use "Global Knowledge Vault", "Knowledge Vault", "GKV", "Brand DNA", or similar internal memory labels as creative concepts unless the user's own request explicitly named that as the product.
+- Use only product names, service names, acronyms, and audience labels that appear in the user's request or brand context. Do not invent new acronyms or sub-brands to make an idea sound specific.
+- If brand context is thin or missing, preserve the user's request with neutral category language instead of pretending to know the brand.
+
 ## Rules
 1. Every idea MUST be a concrete, actionable interpretation of the user's request — not a generic pivot away from it.
 2. Your job is ONLY to propose 4 possible angles. Do not compress, replace, or rewrite the user's full brief; the original user brief will be passed separately to the writer as the factual source of truth.
@@ -121,13 +215,43 @@ Generate 4 ideas now.`;
   // ─── Code-level platform enforcement (post-output) ────────────────
   // The prompt produces creative ideas. This code ensures platforms match
   // the user's intent. Prompt handles quality, code handles constraints.
-  async generateIdeas(prompt: string, brandContext?: string): Promise<IdeaCardData[]> {
+  async generateIdeas(prompt: string, brandContext?: string | IdeasGroundingContext): Promise<IdeaCardData[]> {
+    const grounding = normalizeGroundingContext(brandContext);
     const input: AgentInput = {
-      context: { projectSummary: '', systemBrief: brandContext || '' },
+      context: { projectSummary: '', systemBrief: grounding.systemBrief || '' },
+      brandId: grounding.brandId,
       userPrompt: prompt,
     };
 
     const { result } = await this.runStructured(input);
+    let finalResult = result;
+    const initialIssues = findGroundingQualityIssues(result.ideas, prompt, grounding);
+
+    if (initialIssues.length > 0) {
+      const repairInput: AgentInput = {
+        ...input,
+        context: {
+          ...input.context,
+          systemBrief: [
+            input.context.systemBrief || '',
+            [
+              '## Quality repair feedback',
+              'The previous ideas failed the grounding gate:',
+              ...initialIssues.map((issue) => `- ${issue}`),
+              'Rewrite all 4 ideas. Use exact brand/request nouns only. Do not use internal context labels or unexplained acronyms.',
+            ].join('\n'),
+          ].filter(Boolean).join('\n\n'),
+        },
+      };
+      const repaired = await this.runStructured(repairInput, {
+        temperature: Math.min(this.config.temperature, 0.35),
+      });
+      const repairedIssues = findGroundingQualityIssues(repaired.result.ideas, prompt, grounding);
+      if (repairedIssues.length > 0) {
+        throw new Error(`Ideas failed grounding quality gate: ${repairedIssues.join('; ')}`);
+      }
+      finalResult = repaired.result;
+    }
 
     // Intent detection for platform enforcement
     const lower = prompt.toLowerCase();
@@ -160,7 +284,7 @@ Generate 4 ideas now.`;
     const VIDEO_FORMAT = /\b(video|reels?|shorts?|vlog|clip|skit|film|tiktok|youtube)\b/i;
     const fallbackPlatform = allowedPlatforms ? [...allowedPlatforms][0] : null;
 
-    return result.ideas.map(idea => {
+    return finalResult.ideas.map(idea => {
       // Normalize multi-platform strings ("YouTube, LinkedIn") to the first, then enforce.
       const first = idea.platform.split(/[,&]/)[0].trim();
       const platform = !allowedPlatforms
