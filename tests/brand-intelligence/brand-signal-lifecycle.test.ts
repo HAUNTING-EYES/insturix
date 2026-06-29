@@ -84,6 +84,41 @@ describe('BrandSignalProfile lifecycle', () => {
     expect(result.errors.map((issue) => issue.code)).toContain('invalid_confidence');
   });
 
+  it('allows fallback placeholders without evidence while still blocking actionable evidence-free signals', () => {
+    const draftProfile = cloneProfile(profile());
+    draftProfile.identity.productServices = {
+      value: [],
+      confidence: 0,
+      trustLevel: 'fallback_default',
+      authorityClass: 'inferred_hint',
+      evidenceIds: [],
+      fallbackReason: 'No reviewed evidence for identity.productServices.',
+    };
+
+    const fallbackResult = validateBrandSignalProfile(draftProfile);
+    expect(fallbackResult.valid).toBe(true);
+    expect(fallbackResult.errors).toEqual([]);
+    expect(fallbackResult.warnings.map((issue) => issue.code)).toContain('review_required');
+
+    const accepted = acceptBrandSignalProfileDraft(
+      createBrandSignalProfileDraft(draftProfile, { id: 'draft_fallback_placeholder', now: NOW }),
+      { actorId: 'brand_manager_1', now: '2026-06-09T01:07:00.000Z' },
+    );
+    expect(accepted.ok).toBe(true);
+
+    const invalid = cloneProfile(profile());
+    invalid.identity.brandName.evidenceIds = [];
+
+    const invalidResult = validateBrandSignalProfile(invalid);
+    expect(invalidResult.valid).toBe(false);
+    expect(invalidResult.errors).toContainEqual(
+      expect.objectContaining({
+        code: 'missing_evidence',
+        path: 'identity.brandName',
+      }),
+    );
+  });
+
   it('blocks unsafe or untrusted signals from accepted brand truth', () => {
     const invalid = cloneProfile(profile());
     invalid.identity.brandName.authorityClass = 'unsafe_or_untrusted';
