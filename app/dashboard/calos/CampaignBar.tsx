@@ -7,6 +7,10 @@ import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import { type CalosObjective } from '@/lib/calos/campaign-intent';
 import { type Period, PERIOD_LABELS, periodRange } from './period';
 import CadenceEditor, { type CadenceRule } from './CadenceEditor';
+import TrendMarketSelector, {
+  LOCAL_TREND_MARKET,
+  useResolvedTrendLocation,
+} from './TrendMarketSelector';
 
 interface Campaign {
   _id: string;
@@ -37,6 +41,8 @@ export default function CampaignBar({
   const [createOpen, setCreateOpen] = useState(false);
   const [suggestedRules, setSuggestedRules] = useState<CadenceRule[]>(DEFAULT_CADENCE as CadenceRule[]);
   const [period, setPeriod] = useState<Period>('next_30_days');
+  const [trendMarket, setTrendMarket] = useState(LOCAL_TREND_MARKET);
+  const { trendLocation, isLoading: trendLocationLoading } = useResolvedTrendLocation(trendMarket);
   const router = useRouter();
 
   const loadCampaigns = useCallback(async () => {
@@ -140,7 +146,7 @@ export default function CampaignBar({
       const res = await fetch('/api/services/calos/ai-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, campaignId: campaignId || undefined, from, to }),
+        body: JSON.stringify({ brandId, campaignId: campaignId || undefined, from, to, trendLocation }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -154,11 +160,12 @@ export default function CampaignBar({
       }
       const created = data?.created ?? 0;
       const trendsUsed = data?.trendsUsed ?? 0;
+      const market = typeof data?.trendLocation === 'string' && data.trendLocation ? data.trendLocation : 'global';
       toast({
         title: `Drafted ${created} idea${created === 1 ? '' : 's'}`,
         description: `${PERIOD_LABELS[period]} · ${trendsUsed} trend${
           trendsUsed === 1 ? '' : 's'
-        } via ${data?.provider ?? 'none'}.`,
+        } in ${market} via ${data?.provider ?? 'none'}.`,
       });
       onAutoFilled();
     } catch (err) {
@@ -173,6 +180,7 @@ export default function CampaignBar({
   };
 
   const busy = pending !== '';
+  const waitingForTrendLocation = trendMarket === LOCAL_TREND_MARKET && trendLocationLoading;
   const btn =
     'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50';
   const selectCls =
@@ -234,6 +242,12 @@ export default function CampaignBar({
           </option>
         ))}
       </select>
+      <TrendMarketSelector
+        value={trendMarket}
+        onChange={setTrendMarket}
+        disabled={busy}
+        className={`${selectCls} max-w-[180px]`}
+      />
       <button
         onClick={autoFill}
         disabled={busy || !campaignId}
@@ -243,7 +257,7 @@ export default function CampaignBar({
       </button>
       <button
         onClick={aiPlan}
-        disabled={busy}
+        disabled={busy || waitingForTrendLocation}
         title="Draft on-brand ideas from your cadence + current trends for the selected period"
         className={`${btn} bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25`}
       >

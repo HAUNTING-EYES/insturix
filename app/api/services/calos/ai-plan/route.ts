@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60; // LLM call — needs headroom beyond the default route timeout.
 
 /**
- * POST /api/services/calos/ai-plan  { brandId, campaignId?, from, to }
+ * POST /api/services/calos/ai-plan  { brandId, campaignId?, from, to, trendLocation? }
  *
  * AI-proposed plan: build the cadence skeleton, fetch brand-niche trends, ask the planner to draft
  * one on-brand idea per slot (repurposing trends where they fit), and persist them as DRAFT
@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { brandId, campaignId, from, to } = body;
+    const { brandId, campaignId, from, to, trendLocation: rawTrendLocation, location } = body;
+    const trendLocation = sanitizeTrendLocation(rawTrendLocation ?? location);
     if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
 
     const fromDate = typeof from === "string" ? parseISO(from) : null;
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
     let trends: Trend[] = [];
     try {
       if (provider.available()) {
-        trends = await provider.getTrends({ niche, brandId, limit: 12 });
+        trends = await provider.getTrends({ niche, brandId, limit: 12, location: trendLocation });
       }
     } catch (e) {
       console.warn("[CalOS] ai-plan trends fetch failed, continuing without trends:", e);
@@ -197,6 +198,7 @@ export async function POST(req: NextRequest) {
         slots: slots.length,
         trendsUsed: trends.length,
         provider: provider.name,
+        trendLocation: trendLocation ?? null,
       },
       { status: 201 },
     );
@@ -204,4 +206,9 @@ export async function POST(req: NextRequest) {
     console.error("[CalOS] ai-plan error:", error);
     return NextResponse.json({ error: "Failed to generate AI plan" }, { status: 500 });
   }
+}
+function sanitizeTrendLocation(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
 }

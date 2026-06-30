@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60; // the provider hits Gemini/Apify live — needs headroom.
 
 /**
- * GET /api/services/calos/trends?brandId=
+ * GET /api/services/calos/trends?brandId=&location=
  *
  * On-demand niche-trend discovery for the campaign workspace. The same provider the AI planner uses,
  * surfaced so a user can SEE what's trending in their niche before planning. Deliberately NOT
@@ -20,6 +20,9 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const brandId = req.nextUrl.searchParams.get("brandId");
+  const trendLocation = sanitizeTrendLocation(
+    req.nextUrl.searchParams.get("location") ?? req.nextUrl.searchParams.get("trendLocation"),
+  );
   if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
 
   const brand = await resolveEffectiveBrand(userId, brandId, {
@@ -34,12 +37,13 @@ export async function GET(req: NextRequest) {
       trends: [],
       provider: provider.name,
       note: "No trends source is configured on this environment.",
+      location: trendLocation ?? null,
     });
   }
 
   try {
-    const trends = await provider.getTrends({ niche, brandId, limit: 12 });
-    return NextResponse.json({ trends, provider: provider.name, niche });
+    const trends = await provider.getTrends({ niche, brandId, limit: 12, location: trendLocation });
+    return NextResponse.json({ trends, provider: provider.name, niche, location: trendLocation ?? null });
   } catch (e) {
     // TODO(CALOS_LOUD): revert to warn once stable.
     console.error("[CALOS_LOUD] trends discovery failed:", e);
@@ -47,6 +51,12 @@ export async function GET(req: NextRequest) {
       trends: [],
       provider: provider.name,
       note: "Trends are unavailable right now. Try again shortly.",
+      location: trendLocation ?? null,
     });
   }
+}
+function sanitizeTrendLocation(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
 }

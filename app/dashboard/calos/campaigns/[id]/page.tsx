@@ -10,6 +10,10 @@ import { intentBriefFor, type CalosObjective } from '@/lib/calos/campaign-intent
 import { stageMeta } from '@/lib/calos/stages';
 import { type Period, PERIOD_LABELS, periodRange } from '../../period';
 import CadenceEditor, { type CadenceRule } from '../../CadenceEditor';
+import TrendMarketSelector, {
+  LOCAL_TREND_MARKET,
+  useResolvedTrendLocation,
+} from '../../TrendMarketSelector';
 
 const LS_SELECTED_BRAND = 'calos_selected_brand';
 const DEFAULT_BRAND = 'default';
@@ -64,6 +68,8 @@ export default function CampaignWorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [period, setPeriod] = useState<Period>('next_30_days');
+  const [trendMarket, setTrendMarket] = useState(LOCAL_TREND_MARKET);
+  const { trendLocation, isLoading: trendLocationLoading } = useResolvedTrendLocation(trendMarket);
   const [pending, setPending] = useState<'' | 'auto' | 'ai'>('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [discovered, setDiscovered] = useState<
@@ -173,7 +179,9 @@ export default function CampaignWorkspacePage() {
     if (!brandId) return;
     setTrendsBusy(true);
     try {
-      const res = await fetch(`/api/services/calos/trends?brandId=${encodeURIComponent(brandId)}`, {
+      const params = new URLSearchParams({ brandId });
+      if (trendLocation) params.set('location', trendLocation);
+      const res = await fetch(`/api/services/calos/trends?${params.toString()}`, {
         cache: 'no-store',
       });
       const data = await res.json().catch(() => ({}));
@@ -185,7 +193,7 @@ export default function CampaignWorkspacePage() {
     } finally {
       setTrendsBusy(false);
     }
-  }, [brandId]);
+  }, [brandId, trendLocation]);
 
   const runFill = useCallback(
     async (kind: 'auto' | 'ai') => {
@@ -197,7 +205,7 @@ export default function CampaignWorkspacePage() {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brandId, campaignId, from, to }),
+          body: JSON.stringify(kind === 'ai' ? { brandId, campaignId, from, to, trendLocation } : { brandId, campaignId, from, to }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -209,9 +217,13 @@ export default function CampaignWorkspacePage() {
           return;
         }
         const created = data?.created ?? 0;
+        const market =
+          kind === 'ai' && typeof data?.trendLocation === 'string' && data.trendLocation
+            ? ` - ${data.trendLocation}`
+            : '';
         toast({
           title: `${kind === 'auto' ? 'Filled' : 'Drafted'} ${created} card${created === 1 ? '' : 's'}`,
-          description: PERIOD_LABELS[period],
+          description: `${PERIOD_LABELS[period]}${market}`,
         });
         await load();
       } catch (err) {
@@ -224,7 +236,7 @@ export default function CampaignWorkspacePage() {
         setPending('');
       }
     },
-    [brandId, campaignId, period, load]
+    [brandId, campaignId, period, trendLocation, load]
   );
 
   const card = 'bg-[#0F0F0E] border border-[#1C1B19] rounded-xl';
@@ -251,6 +263,7 @@ export default function CampaignWorkspacePage() {
   }
 
   const busy = pending !== '';
+  const waitingForTrendLocation = trendMarket === LOCAL_TREND_MARKET && trendLocationLoading;
 
   return (
     <div className="w-full min-h-full bg-[#0B0B0A] text-[#ECE9E1]">
@@ -372,9 +385,15 @@ export default function CampaignWorkspacePage() {
                   </option>
                 ))}
               </select>
+              <TrendMarketSelector
+                value={trendMarket}
+                onChange={setTrendMarket}
+                disabled={busy}
+                className={`${selectCls} max-w-[180px]`}
+              />
               <button
                 onClick={() => runFill('ai')}
-                disabled={busy}
+                disabled={busy || waitingForTrendLocation}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium border bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25 disabled:opacity-50"
               >
                 {pending === 'ai' ? 'Working…' : '✨ AI-plan the gaps'}
@@ -429,10 +448,10 @@ export default function CampaignWorkspacePage() {
 
             <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] text-[#7A776E] uppercase tracking-wide">Trends</span>
+                <span className="text-[11px] text-[#7A776E] uppercase tracking-wide">Trends ({trendLocation ?? 'Global'})</span>
                 <button
                   onClick={findTrends}
-                  disabled={trendsBusy}
+                  disabled={trendsBusy || waitingForTrendLocation}
                   className="text-[10.5px] text-[#D4A652] hover:underline disabled:opacity-50"
                 >
                   {trendsBusy ? 'Finding…' : 'Discover trends'}
