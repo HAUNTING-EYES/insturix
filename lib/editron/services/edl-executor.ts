@@ -15,7 +15,7 @@ import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/dat
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
@@ -243,6 +243,7 @@ interface SfxCacheEntry {
   source?: SFXLibraryResult['source'];
   originalTitle?: string;
   assetQuality: AtomicSfxCandidateEvaluation;
+  providerSearchReport?: SFXLibrarySearchReport;
 }
 
 type SfxAssetCache = Map<string, SfxCacheEntry | null>;
@@ -572,8 +573,15 @@ export async function executeEDL(
     for (const [searchQuery, form] of uniqueForms) {
       try {
         // Atomic SFX form converts raw labels/signals into concrete search terms and timing.
-        const result = await searchAndDownloadSFX(searchQuery, userId, form.asset.maxDurationSec, form);
-        const accepted = acceptedSfxCacheEntry(form, result);
+        let providerSearchReport: SFXLibrarySearchReport | undefined;
+        const result = await searchAndDownloadSFX(
+          searchQuery,
+          userId,
+          form.asset.maxDurationSec,
+          form,
+          (report) => { providerSearchReport = report; },
+        );
+        const accepted = acceptedSfxCacheEntry(form, result, providerSearchReport);
         sfxCache.set(searchQuery, accepted);
         const token = form.intent;
         console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${accepted ? 'accepted' : 'null/rejected'}`);
@@ -1662,7 +1670,11 @@ function nearestFrameDistance(frame: number, anchors: number[]): number | null {
   return best;
 }
 
-function acceptedSfxCacheEntry(form: AtomicSfxForm, result: SFXLibraryResult | null): SfxCacheEntry | null {
+function acceptedSfxCacheEntry(
+  form: AtomicSfxForm,
+  result: SFXLibraryResult | null,
+  providerSearchReport?: SFXLibrarySearchReport,
+): SfxCacheEntry | null {
   const assetQuality = evaluateAtomicSfxAssetCandidate(form, result);
   if (!result || !assetQuality.accepted) return null;
   return {
@@ -1672,6 +1684,7 @@ function acceptedSfxCacheEntry(form: AtomicSfxForm, result: SFXLibraryResult | n
     source: result.source,
     originalTitle: result.originalTitle,
     assetQuality,
+    providerSearchReport,
   };
 }
 
@@ -2031,8 +2044,15 @@ async function applyDecision(
       const searchQuery = atomicSfxSearchQuery(atomicSfxForm);
       let cached = sfxCache.get(searchQuery);
       if (cached === undefined) {
-        const fetched = await searchAndDownloadSFX(searchQuery, userId, atomicSfxForm.asset.maxDurationSec, atomicSfxForm);
-        cached = acceptedSfxCacheEntry(atomicSfxForm, fetched);
+        let providerSearchReport: SFXLibrarySearchReport | undefined;
+        const fetched = await searchAndDownloadSFX(
+          searchQuery,
+          userId,
+          atomicSfxForm.asset.maxDurationSec,
+          atomicSfxForm,
+          (report) => { providerSearchReport = report; },
+        );
+        cached = acceptedSfxCacheEntry(atomicSfxForm, fetched, providerSearchReport);
         sfxCache.set(searchQuery, cached);
       }
       if (!cached) return null;
@@ -2107,6 +2127,7 @@ async function applyDecision(
           sfxStartFrame: atomicSfxForm.timing.startFrame,
           sfxAnchor: atomicSfxForm.timing.anchor,
           sfxAssetQuality: cached.assetQuality,
+          sfxProviderSearchReport: cached.providerSearchReport,
           ...atomicMomentBundleMetadata(decision),
           atomicSfxForm,
           atomicSfxForms: [atomicSfxForm],

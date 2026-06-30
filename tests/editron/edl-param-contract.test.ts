@@ -10,14 +10,51 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 
 vi.mock('@/lib/pipeline/sfx-library-service', () => ({
   isSFXLibraryAvailable: vi.fn(() => true),
-  searchAndDownloadSFX: vi.fn(async () => ({
-    audioUrl: 'https://cdn.example.com/param-contract-whoosh.mp3',
-    gcsPath: 'gs://insturix-test/sfx/param-contract-whoosh.mp3',
-    audioAssetId: 'sfx-param-contract-whoosh-1',
-    durationMs: 760,
-    source: 'freesound',
-    originalTitle: 'Clean whoosh sweep',
-  })),
+  searchAndDownloadSFX: vi.fn(async (
+    query: string,
+    _userId: string,
+    maxDurationSec: number,
+    _form: unknown,
+    reportSearch?: (report: any) => void,
+  ) => {
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      providerAvailable: true,
+      providerCandidateCount: 1,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: 0,
+      selectedCandidate: {
+        index: 0,
+        title: 'Clean whoosh sweep',
+        source: 'freesound',
+        durationMs: 760,
+        score: 0.91,
+        qualityFloor: 0.55,
+        decision: 'accept',
+        reasons: ['mock-accepted'],
+      },
+      candidates: [{
+        index: 0,
+        title: 'Clean whoosh sweep',
+        source: 'freesound',
+        durationMs: 760,
+        score: 0.91,
+        qualityFloor: 0.55,
+        decision: 'accept',
+        reasons: ['mock-accepted'],
+      }],
+    });
+    return {
+      audioUrl: 'https://cdn.example.com/param-contract-whoosh.mp3',
+      gcsPath: 'gs://insturix-test/sfx/param-contract-whoosh.mp3',
+      audioAssetId: 'sfx-param-contract-whoosh-1',
+      durationMs: 760,
+      source: 'freesound',
+      originalTitle: 'Clean whoosh sweep',
+    };
+  }),
 }));
 
 import { OverlayType, type Overlay } from '../../components/editron/editor/version-7.0.0/types';
@@ -194,11 +231,17 @@ describe('EDL param contract normalization', () => {
     expect(result.overlaysCreated).toBe(1);
     expect(sound.metadata.sfxType).toBe('whoosh');
     expect(sound.metadata.atomicSfxForm.compatibilityToken).toBe('whoosh');
+    expect(sound.metadata.sfxProviderSearchReport).toEqual(expect.objectContaining({
+      version: 'sfx-library-search-report-v1',
+      acceptedCandidateCount: 1,
+      selectedCandidate: expect.objectContaining({ title: 'Clean whoosh sweep' }),
+    }));
     expect(searchAndDownloadSFX).toHaveBeenCalledWith(
       expect.stringContaining('whoosh'),
       'user-1',
       expect.any(Number),
       expect.objectContaining({ compatibilityToken: 'whoosh' }),
+      expect.any(Function),
     );
   });
 
