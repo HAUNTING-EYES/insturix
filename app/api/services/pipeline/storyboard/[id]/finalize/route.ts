@@ -26,6 +26,87 @@ export const maxDuration = 120; // Reduced — no longer generates audio inline
  * Uses scene images as backgrounds, narration as text, voiceover as audio.
  * Cost: 1 credit.
  */
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function getStoryboardSourceSessionId(storyboard: { sourceSessionId?: string; projectId?: string }): string | undefined {
+  const explicit = nonEmptyString(storyboard.sourceSessionId);
+  if (explicit) return explicit;
+
+  const legacyProjectId = nonEmptyString(storyboard.projectId);
+  return legacyProjectId && !legacyProjectId.startsWith('proj_') ? legacyProjectId : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  return Math.round(numeric);
+}
+
+function sceneRequiresAiVideo(scene: Storyboard['scenes'][number]): boolean {
+  const assetRecommendation = (scene.descriptor as any)?.assetRecommendation;
+  return !assetRecommendation || assetRecommendation === 'ai-video';
+}
+
+function countGeneratedAiVideoClips(storyboard: Storyboard): number {
+  return storyboard.scenes.reduce((count, scene) => {
+    if (!sceneRequiresAiVideo(scene)) return count;
+    const subShots = Array.isArray((scene.descriptor as any)?.subShots) ? (scene.descriptor as any).subShots : [];
+    const independentSubShots = subShots.filter((subShot: any) => subShot?.independentGeneration === true);
+    if (independentSubShots.length > 0) {
+      return count + independentSubShots.filter((subShot: any) => !!subShot?.videoUrl).length;
+    }
+    return count + (scene.videoUrl ? 1 : 0);
+  }, 0);
+}
+
+function resolveProductionCoverageIssue(
+  storyboard: Storyboard,
+  options: { requireVideoCoverage: boolean },
+): { reason: string; expected: number; actual: number; message: string } | null {
+  const manifest = storyboard.productionManifest;
+  if (!manifest || typeof manifest !== 'object' || manifest.coveragePolicy === 'draft-partial-allowed') return null;
+
+  const expectedSceneCount = positiveInteger(manifest.expectedSceneCount) ?? storyboard.scenes.length;
+  if (storyboard.scenes.length < expectedSceneCount) {
+    return {
+      reason: 'scene-count-incomplete',
+      expected: expectedSceneCount,
+      actual: storyboard.scenes.length,
+      message: `Storyboard has ${storyboard.scenes.length}/${expectedSceneCount} expected scenes. Regenerate the storyboard before finalizing.`,
+    };
+  }
+
+  const expectedStoryboardImages = positiveInteger(manifest.expectedStoryboardImages) ?? storyboard.scenes.length;
+  const readyImages = storyboard.scenes.filter((scene) => !!scene.imageUrl).length;
+  if (readyImages < expectedStoryboardImages) {
+    return {
+      reason: 'storyboard-images-incomplete',
+      expected: expectedStoryboardImages,
+      actual: readyImages,
+      message: `Storyboard coverage incomplete: ${readyImages}/${expectedStoryboardImages} required scene images are ready. Regenerate or upload missing scene images before finalizing.`,
+    };
+  }
+
+  if (options.requireVideoCoverage) {
+    const expectedVideoClips = positiveInteger(manifest.expectedVideoClips) ?? 0;
+    const readyVideoClips = countGeneratedAiVideoClips(storyboard);
+    if (readyVideoClips < expectedVideoClips) {
+      return {
+        reason: 'video-clips-incomplete',
+        expected: expectedVideoClips,
+        actual: readyVideoClips,
+        message: `Video coverage incomplete: ${readyVideoClips}/${expectedVideoClips} required clips are ready. Retry failed video clips before finalizing.`,
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -38,11 +119,33 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const { aspectRatio = '16:9', includeVoiceover = true, includeCaptions = true, brandId } = body;
+    const {
+      aspectRatio = '16:9',
+      includeVoiceover = true,
+      includeCaptions = true,
+      brandId,
+      requireVideoCoverage = true,
+    } = body;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
       return NextResponse.json({ error: 'Storyboard not found' }, { status: 404 });
+    }
+
+    const coverageIssue = resolveProductionCoverageIssue(storyboard, {
+      requireVideoCoverage: requireVideoCoverage !== false,
+    });
+    if (coverageIssue) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: coverageIssue.message,
+          reason: 'production-coverage-incomplete',
+          coverageIssue,
+          retryable: true,
+        },
+        { status: 409 },
+      );
     }
 
     // Deduct 1 credit
@@ -691,20 +794,32 @@ export async function POST(
     }
 
     // Reuse existing script-stage project (created at ThinkForge session time) or create new.
-    // storyboard.projectId is the ThinkForge sessionId (confusing name — legacy schema).
+    // Older storyboard rows used projectId as the source session id before finalize.
     const projectName = storyboard.title || 'Storyboard Video';
-    const existingProject = storyboard.projectId
-      ? await projectService.findProjectBySessionId(userId, storyboard.projectId)
+    const storyboardSourceSessionId = getStoryboardSourceSessionId(storyboard);
+    const existingProject = storyboardSourceSessionId
+      ? await projectService.findProjectBySessionId(userId, storyboardSourceSessionId)
       : null;
 
-    const project = existingProject || await projectService.createProject(userId, projectName, { brandId });
+    const project = existingProject || await projectService.createProject(userId, projectName, {
+      brandId,
+      sourceSessionId: storyboardSourceSessionId,
+    });
 
     // Update name + stage on reused project (it was created with a possibly-different title)
     if (existingProject) {
       const db2 = await getDatabase();
       await db2.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId: project.projectId },
-        { $set: { name: projectName, pipelineStage: 'edit', brandId: brandId || undefined, updatedAt: new Date() } },
+        {
+          $set: {
+            name: projectName,
+            pipelineStage: 'edit',
+            ...(brandId ? { brandId } : {}),
+            ...(storyboardSourceSessionId ? { sourceSessionId: storyboardSourceSessionId } : {}),
+            updatedAt: new Date(),
+          },
+        },
       );
     }
 

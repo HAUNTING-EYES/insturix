@@ -24,7 +24,6 @@ import {
 import { buildClickatronSessionFormData } from "@/lib/thinkforge/clickatron-session-payload";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
-import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -41,6 +40,21 @@ export interface DetectedProfileInfo {
   reasoning: string[];
   name: string;
   description: string;
+}
+
+export interface EditronProductionManifest {
+  version?: number;
+  sourceService?: string;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  targetDurationSeconds?: number | null;
+  targetDurationSource?: string;
+  parsedDurationSeconds?: number;
+  expectedSceneCount?: number;
+  expectedStoryboardImages?: number;
+  expectedVideoClips?: number;
+  coveragePolicy?: "production-require-all-scenes" | "draft-partial-allowed" | string;
+  warnings?: string[];
 }
 
 // ─── Hook return type ────────────────────────────────────────────
@@ -159,7 +173,7 @@ export interface UseExportPipelineReturn {
   handleExport: () => Promise<void>;
   handlePostProfileSelection: () => Promise<void>;
   handlePhase2: (parsedScenes?: any[], projectTitle?: string) => Promise<void>;
-  handlePhase3: () => Promise<void>;
+  handlePhase3: (parsedScenes?: any[], projectTitle?: string) => Promise<void>;
   handleRegenerateSubject: (subjectId: string, feedback?: string) => Promise<void>;
   handleUploadSubjectImage: (subjectId: string, file: File) => Promise<void>;
   handleUploadSceneImage: (sceneIndex: number, file: File) => Promise<void>;
@@ -224,6 +238,7 @@ export function useExportPipeline(
   const [audioGenerating, setAudioGenerating] = useState(false);
   const [storyboardId, setStoryboardId] = useState("");
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
+  const [productionManifest, setProductionManifest] = useState<EditronProductionManifest | null>(null);
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
   const [clickatronCreating, setClickatronCreating] = useState(false);
@@ -235,6 +250,26 @@ export function useExportPipeline(
     textDensity: "medium",
   });
   const createClickatronSession = useClickatronStore((state) => state.createSession);
+  const sourceSessionId = sessionId || undefined;
+  const sourceBrandId = useMemo(() => {
+    const brandId = typeof projectMeta?.brandId === "string" ? projectMeta.brandId.trim() : "";
+    return brandId || undefined;
+  }, [projectMeta?.brandId]);
+  const requiresProductionCoverage = productionManifest?.coveragePolicy !== "draft-partial-allowed";
+  const getExpectedStoryboardImages = useCallback((currentScenes: any[]) => {
+    const expected = productionManifest?.expectedStoryboardImages;
+    return typeof expected === "number" && expected > 0 ? expected : currentScenes.length;
+  }, [productionManifest]);
+  const getExpectedVideoClips = useCallback((fallbackTotal: number) => {
+    const expected = productionManifest?.expectedVideoClips;
+    return typeof expected === "number" && expected > 0 ? expected : fallbackTotal;
+  }, [productionManifest]);
+  const buildProductionCoverageError = useCallback((kind: "storyboard" | "video", completed: number, expected: number) => {
+    if (kind === "storyboard") {
+      return `Storyboard coverage incomplete: ${completed}/${expected} required scene images are ready. Regenerate or upload missing scene images before generating production videos.`;
+    }
+    return `Video coverage incomplete: ${completed}/${expected} required clips are ready. Retry failed video clips before finalizing a production export.`;
+  }, []);
 
   // ── Reference image state ──────────────────────────────────────
   const [refSetId, setRefSetId] = useState("");
@@ -376,6 +411,7 @@ export function useExportPipeline(
     setProjectId("");
     setStoryboardId("");
     setStoryboardScenes([]);
+    setProductionManifest(null);
     setVideoProgress({ done: 0, total: 0 });
     setVideosGenerated(false);
     setClickatronCreating(false);
@@ -626,7 +662,7 @@ export function useExportPipeline(
       const exportRes = await fetch("/api/services/thinkforge/script/export-for-editron", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle }),
+        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle, brandId: sourceBrandId }),
       });
 
       if (!exportRes.ok) {
@@ -637,6 +673,7 @@ export function useExportPipeline(
       const exportData = await exportRes.json().catch(() => null);
       if (!exportData) throw new Error("Invalid response from export service");
       setScenes(exportData.scenes);
+      setProductionManifest(exportData.productionManifest || null);
       setOverallMusicPrompt(exportData.overallMusicPrompt || "");
       setColorPalette(exportData.colorPalette || []);
       setCharacterDescriptions(exportData.characterDescriptions || undefined);
@@ -799,6 +836,7 @@ export function useExportPipeline(
           body: JSON.stringify({
             scenes: currentScenes,
             title: currentTitle,
+            sourceSessionId,
             sourceScriptId: scriptId,
             aspectRatio,
             modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
@@ -813,6 +851,7 @@ export function useExportPipeline(
             approvedReferences: approved.length > 0 ? approved : undefined,
             globalEditDirections: globalEditDirections || undefined,
             suggestedProfileCategory: suggestedProfileCategory || undefined,
+            productionManifest: productionManifest || undefined,
           }),
         });
 
@@ -863,7 +902,16 @@ export function useExportPipeline(
           }
 
           const generatedCount = sbScenes.filter((s: any) => s.imageUrl).length;
+          const expectedStoryboardImages = getExpectedStoryboardImages(currentScenes);
           sendNotification("Storyboard Ready", `${generatedCount}/${sbScenes.length} scene images generated. Review them now.`);
+
+          if (requiresProductionCoverage && generateVideos && generatedCount < expectedStoryboardImages) {
+            const message = buildProductionCoverageError("storyboard", generatedCount, expectedStoryboardImages);
+            setError(message);
+            sendNotification("Storyboard Incomplete", message);
+            setStep("reviewing-storyboard");
+            return;
+          }
 
           if (generatedCount > 0) {
             setStep("reviewing-storyboard");
@@ -877,7 +925,7 @@ export function useExportPipeline(
         }
       }
 
-      await handlePhase3();
+      await handlePhase3(currentScenes, currentTitle);
     } catch (err: any) {
       setError(err.message || "Something went wrong");
       setStep("configure");
@@ -889,8 +937,10 @@ export function useExportPipeline(
   // Phase 3: Videos -> Voiceover -> Finalize -> Director
   // ═══════════════════════════════════════════════════════════════
 
-  const handlePhase3 = async () => {
+  const handlePhase3 = async (parsedScenes?: any[], projectTitle?: string) => {
     setError("");
+    const currentScenes = parsedScenes ?? scenes;
+    const currentTitle = projectTitle || title || "Untitled Script";
     const sbId = storyboardId;
     const sbImages = storyboardScenes.filter((s: any) => s.imageUrl);
     let createdProjectId = "";
@@ -898,16 +948,26 @@ export function useExportPipeline(
     let videoGenFailed = false;
 
     // Phase A3.3 — Detect zero-narration scripts
-    const scriptHasNarration = (scenes || []).some(
+    const scriptHasNarration = (currentScenes || []).some(
       (s: any) => typeof s.narration === "string" && s.narration.trim().length > 0,
     );
-    if (!scriptHasNarration && (scenes || []).length > 0) {
+    if (!scriptHasNarration && (currentScenes || []).length > 0) {
       console.log(
-        `[ExportToEditron] handlePhase3: zero narration detected across ${scenes.length} scenes — voiceover step will be skipped, caption fallback will run in finalize`,
+        `[ExportToEditron] handlePhase3: zero narration detected across ${currentScenes.length} scenes — voiceover step will be skipped, caption fallback will run in finalize`,
       );
     }
 
     try {
+      if (requiresProductionCoverage && generateVideos && sbId) {
+        const expectedStoryboardImages = getExpectedStoryboardImages(currentScenes);
+        if (sbImages.length < expectedStoryboardImages) {
+          const message = buildProductionCoverageError("storyboard", sbImages.length, expectedStoryboardImages);
+          setError(message);
+          setStep("reviewing-storyboard");
+          return;
+        }
+      }
+
       // Step 5: Generate AI video clips (optional)
       if (generateVideos && sbId && sbImages.length > 0) {
         setStep("generating-videos");
@@ -965,10 +1025,14 @@ export function useExportPipeline(
             console.log(
               `[ExportToEditron] Videos generated directly (fallback): ${completed} done, ${failed} failed`,
             );
+            const expectedVideos = getExpectedVideoClips(enqueueData.totalScenes || allSceneIndices.length);
             setVideoProgress({ done: completed + failed, total: enqueueData.totalScenes || allSceneIndices.length });
-            setVideosGenerated(completed > 0);
-            if (failed > 0 && completed > 0) {
-              setError(`${failed} of ${enqueueData.totalScenes} video clips failed. Continuing with available clips.`);
+            setVideosGenerated(completed >= expectedVideos);
+            if (requiresProductionCoverage && (failed > 0 || completed < expectedVideos)) {
+              setError(buildProductionCoverageError("video", completed, expectedVideos));
+              videoGenFailed = true;
+            } else if (failed > 0 && completed > 0) {
+              setError(`${failed} of ${enqueueData.totalScenes} video clips failed.`);
             } else if (completed === 0) {
               const sceneErrors =
                 enqueueData.scenes
@@ -1005,10 +1069,14 @@ export function useExportPipeline(
                   );
 
                   if (statusData.isComplete) {
-                    setVideosGenerated(completed > 0);
+                    const expectedVideos = getExpectedVideoClips(statusData.totalScenes || sbImages.length);
+                    setVideosGenerated(completed >= expectedVideos);
                     sendNotification("Video Clips Generated", `${completed} of ${statusData.totalScenes} video clips ready.`);
 
-                    if (completed === 0 && failed > 0) {
+                    if (requiresProductionCoverage && (failed > 0 || completed < expectedVideos)) {
+                      setError(buildProductionCoverageError("video", completed, expectedVideos));
+                      videoGenFailed = true;
+                    } else if (completed === 0 && failed > 0) {
                       const sceneErrors =
                         statusData.scenes
                           ?.filter((s: any) => s.error)
@@ -1018,7 +1086,7 @@ export function useExportPipeline(
                         `Video generation failed for all ${failed} scenes. ${sceneErrors.substring(0, 200) || "The AI video model may be temporarily unavailable."}`,
                       );
                     } else if (failed > 0) {
-                      setError(`${failed} of ${statusData.totalScenes} video clips failed. Continuing with available clips.`);
+                      setError(`${failed} of ${statusData.totalScenes} video clips failed.`);
                     }
                     videosCompleted = true;
                     break;
@@ -1086,7 +1154,8 @@ export function useExportPipeline(
             aspectRatio,
             includeVoiceover: scriptHasNarration,
             includeCaptions: true,
-            brandId: getActiveBrandIdFromStorage(),
+            brandId: sourceBrandId,
+            requireVideoCoverage: generateVideos,
           }),
         });
 
@@ -1109,11 +1178,12 @@ export function useExportPipeline(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            scenes,
-            title: title || "Untitled Script",
+            scenes: currentScenes,
+            title: currentTitle,
+            sourceSessionId,
             aspectRatio,
             sourceScriptId: scriptId,
-            brandId: getActiveBrandIdFromStorage(),
+            brandId: sourceBrandId,
           }),
         });
 

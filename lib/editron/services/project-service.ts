@@ -55,6 +55,7 @@ export interface Project {
   statusHistory?: import('@/lib/shared/project-status').StatusTransition[];
   brandId?: string;
   lastError?: import('@/lib/shared/project-status').ProjectError;
+  sourceSessionId?: string;
 }
 
 export interface ProjectListItem {
@@ -98,7 +99,7 @@ export class ProjectService {
   /**
    * Create new personal project
    */
-  async createProject(userId: string, name: string, options?: { templateId?: string; brandId?: string; orgId?: string | null }): Promise<Project> {
+  async createProject(userId: string, name: string, options?: { templateId?: string; brandId?: string; orgId?: string | null; sourceSessionId?: string }): Promise<Project> {
     const projectId = `proj_${nanoid(12)}`;
 
     const project: Project = {
@@ -118,6 +119,7 @@ export class ProjectService {
       pipelineStage: 'edit',
       projectStatus: 'active',
       ...(options?.brandId ? { brandId: options.brandId } : {}),
+      ...(options?.sourceSessionId ? { sourceSessionId: options.sourceSessionId } : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };

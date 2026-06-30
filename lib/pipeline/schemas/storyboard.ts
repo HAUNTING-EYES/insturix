@@ -277,14 +277,29 @@ export interface ConsistencyReport {
   flaggedScenes: number[];      // indices of scenes below threshold
 }
 
+export interface EditronProductionManifest {
+  version?: number;
+  sourceService?: string;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  expectedSceneCount: number;
+  expectedStoryboardImages: number;
+  expectedVideoClips: number;
+  targetDurationSeconds?: number;
+  coveragePolicy: 'production-require-all-scenes' | 'draft-partial-allowed';
+  warnings: string[];
+}
+
 export interface Storyboard {
   storyboardId: string;
   projectId?: string;
   userId: string;
+  sourceSessionId?: string;
   sourceScriptId?: string;
   title?: string;
   styleGuide?: StyleGuide;
   scenes: StoryboardScene[];
+  productionManifest?: EditronProductionManifest;
   /** Overall music prompt for BGM generation (from LLM scene parser) */
   overallMusicPrompt?: string;
   /** Generation mode: parallel (all at once) or sequential (one-by-one with approval) */
