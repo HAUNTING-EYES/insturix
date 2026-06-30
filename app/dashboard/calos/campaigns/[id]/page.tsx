@@ -241,7 +241,9 @@ export default function CampaignWorkspacePage() {
 
   const card = 'bg-[#0F0F0E] border border-[#1C1B19] rounded-xl';
   const selectCls =
-    'bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
+    'h-8 min-w-0 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
+  const controlBtn =
+    'inline-flex h-8 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 
   if (loading && !campaign) {
     return (
@@ -371,40 +373,46 @@ export default function CampaignWorkspacePage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 mt-3">
-              <select
-                value={period}
-                onChange={(e) => setPeriod(e.target.value as Period)}
-                disabled={busy}
-                aria-label="Generation period"
-                className={selectCls}
-              >
-                {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
-                  <option key={p} value={p}>
-                    {PERIOD_LABELS[p]}
-                  </option>
-                ))}
-              </select>
-              <TrendMarketSelector
-                value={trendMarket}
-                onChange={setTrendMarket}
-                disabled={busy}
-                className={`${selectCls} max-w-[180px]`}
-              />
-              <button
-                onClick={() => runFill('ai')}
-                disabled={busy || waitingForTrendLocation}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium border bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25 disabled:opacity-50"
-              >
-                {pending === 'ai' ? 'Working…' : '✨ AI-plan the gaps'}
-              </button>
-              <button
-                onClick={() => runFill('auto')}
-                disabled={busy}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium border bg-[#5CCCB8]/15 border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25 disabled:opacity-50"
-              >
-                {pending === 'auto' ? 'Working…' : 'Auto-fill'}
-              </button>
+            <div className="mt-3 space-y-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <select
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value as Period)}
+                  disabled={busy}
+                  aria-label="Generation period"
+                  className={selectCls}
+                >
+                  {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+                    <option key={p} value={p}>
+                      {PERIOD_LABELS[p]}
+                    </option>
+                  ))}
+                </select>
+                <TrendMarketSelector
+                  value={trendMarket}
+                  onChange={setTrendMarket}
+                  disabled={busy}
+                  className={selectCls}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => runFill('ai')}
+                  disabled={busy || waitingForTrendLocation}
+                  title="Draft on-brand ideas from cadence, brand context, and the selected market trends"
+                  className={`${controlBtn} bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25`}
+                >
+                  {pending === 'ai' ? 'Working…' : 'AI plan'}
+                </button>
+                <button
+                  onClick={() => runFill('auto')}
+                  disabled={busy}
+                  title="Create cadence placeholders without using AI"
+                  className={`${controlBtn} bg-[#5CCCB8]/12 border-[#5CCCB8]/35 text-[#5CCCB8] hover:bg-[#5CCCB8]/22`}
+                >
+                  {pending === 'auto' ? 'Working…' : 'Auto-fill'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -417,7 +425,7 @@ export default function CampaignWorkspacePage() {
             </div>
             {cards.length === 0 ? (
               <div className={`${card} px-3.5 py-6 text-center text-[#7A776E] text-xs`}>
-                No content yet. Auto-fill from the cadence, or AI-plan the gaps.
+                No content yet. Run AI plan for on-brand ideas, or Auto-fill cadence placeholders.
               </div>
             ) : (
               <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
@@ -447,12 +455,12 @@ export default function CampaignWorkspacePage() {
             )}
 
             <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between gap-3 mb-2">
                 <span className="text-[11px] text-[#7A776E] uppercase tracking-wide">Trends ({trendLocation ?? 'Global'})</span>
                 <button
                   onClick={findTrends}
                   disabled={trendsBusy || waitingForTrendLocation}
-                  className="text-[10.5px] text-[#D4A652] hover:underline disabled:opacity-50"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-[#D4A652]/35 bg-[#D4A652]/10 px-2.5 text-[10.5px] font-medium text-[#D4A652] transition-colors hover:bg-[#D4A652]/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {trendsBusy ? 'Finding…' : 'Discover trends'}
                 </button>
@@ -471,7 +479,7 @@ export default function CampaignWorkspacePage() {
               )}
               {discovered && discovered.length === 0 && (
                 <div className="text-[11px] text-[#7A776E] mb-3">
-                  No live trends right now. AI-plan still drafts on-brand ideas.
+                  No live trends found for this market. AI plan can still draft from brand context.
                 </div>
               )}
               {trends.length > 0 && (
