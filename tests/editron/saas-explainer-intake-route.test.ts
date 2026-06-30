@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   updateOne: vi.fn(),
   createProjectLink: vi.fn(),
   analyzeSaasExplainerReference: vi.fn(),
+  resolveSaasExplainerBrandContext: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
@@ -47,6 +48,9 @@ vi.mock("@/lib/shared/project-links", () => ({
 }));
 vi.mock("@/lib/editron/saas-explainer/reference-analysis", () => ({
   analyzeSaasExplainerReference: mocks.analyzeSaasExplainerReference,
+}));
+vi.mock("@/lib/editron/saas-explainer/brand-context", () => ({
+  resolveSaasExplainerBrandContext: mocks.resolveSaasExplainerBrandContext,
 }));
 
 function request(path: string, body: Record<string, unknown>): Request {
@@ -96,11 +100,85 @@ const acceptedReferenceAnalysis = {
   },
 };
 
+const placeholderOverlays = [
+  {
+    id: 1,
+    type: "html-scene",
+    metadata: {
+      atomicOverlayReceipts: [
+        {
+          intent: "scene-placeholder",
+          reason: "html placeholder until generated media is available",
+        },
+      ],
+    },
+  },
+  {
+    id: 2,
+    type: "sound",
+    src: "",
+    content: "VO: This is only a reserved narration slot...",
+    metadata: { isVoiceover: true },
+  },
+  {
+    id: 3,
+    type: "text",
+    content: "This is plain narration text, not validated captions.",
+    metadata: { isNarrationCaption: true },
+  },
+];
+
+const completeGeneratedSceneOverlays = [
+  {
+    id: 1,
+    type: "generated-scene",
+    sceneModel: {
+      elements: [{ id: "caption_1", role: "caption", text: "Plan launches faster." }],
+    },
+    sourceMap: {
+      elements: {
+        caption_1: { modelPath: ["elements", 0, "text"] },
+      },
+    },
+  },
+];
+
+const acceptedBrandContext = {
+  promptBlock: [
+    "<saas_explainer_brand_vault_context>",
+    "Source: accepted Brand Vault profile.",
+    "<brand_context>",
+    "Brand: Insturix",
+    "Products/services: AI content production platform",
+    "</brand_context>",
+    "<brand_render_tokens>",
+    "Primary color: #0B0B0A",
+    "Accent color: #D4A652",
+    "Typography: Plus Jakarta Sans",
+    "</brand_render_tokens>",
+    "</saas_explainer_brand_vault_context>",
+  ].join("\n"),
+  brandInputs: {
+    primaryColor: "#0B0B0A",
+    accentColor: "#D4A652",
+    typography: "Plus Jakarta Sans",
+  },
+  missingInputs: [],
+  metadata: {
+    source: "brand_vault",
+    brandId: "brand_1",
+    acceptedProfile: true,
+    promptContextProvided: true,
+    brandInputKeys: ["accentColor", "primaryColor", "typography"],
+    missingInputs: [],
+  },
+};
+
 describe("SaaS explainer routes", () => {
   beforeEach(() => {
     vi.resetModules();
     Object.values(mocks).forEach((mock) => mock.mockReset());
-    mocks.auth.mockResolvedValue({ userId: "user_1" });
+    mocks.auth.mockResolvedValue({ userId: "user_1", orgId: "org_1" });
     mocks.isLLMParserAvailable.mockReturnValue(true);
     mocks.generateScript.mockResolvedValue({
       title: "Insturix Explainer",
@@ -115,10 +193,11 @@ describe("SaaS explainer routes", () => {
     mocks.deductCredits.mockResolvedValue({ success: true });
     mocks.createProject.mockResolvedValue({ projectId: "project_1" });
     mocks.saveProject.mockResolvedValue(undefined);
-    mocks.scenesToOverlays.mockReturnValue([{ id: 1 }, { id: 2 }]);
+    mocks.scenesToOverlays.mockReturnValue(placeholderOverlays);
     mocks.scenesToTotalFrames.mockReturnValue(180);
     mocks.updateOne.mockResolvedValue({ acknowledged: true });
     mocks.createProjectLink.mockResolvedValue(undefined);
+    mocks.resolveSaasExplainerBrandContext.mockResolvedValue(acceptedBrandContext);
   });
 
   it("rejects empty upload-first intake with no creative source", async () => {
@@ -128,6 +207,20 @@ describe("SaaS explainer routes", () => {
 
     expect(response.status).toBe(400);
     expect(payload.code).toBe("empty_saas_explainer_source");
+  });
+
+  it("accepts Brand Vault as the creative source without forcing a manual brief", async () => {
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/intake/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/intake", {
+      brandId: "brand_1",
+      durationSec: 60,
+      aspectRatio: "16:9",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.success).toBe(true);
+    expect(payload.intake).toMatchObject({ brandId: "brand_1" });
   });
 
   it("accepts product context and a direct SaaS reference video without requiring main footage", async () => {
@@ -164,6 +257,7 @@ describe("SaaS explainer routes", () => {
     expect(JSON.stringify(payload)).not.toContain("PRIVATE SCRIPT");
   });
 
+
   it("rejects unsafe product URLs before downstream website analysis can fetch them", async () => {
     const { POST } = await import("@/app/api/services/editron/saas-explainer/intake/route");
     const response = await POST(request("/api/services/editron/saas-explainer/intake", {
@@ -176,7 +270,7 @@ describe("SaaS explainer routes", () => {
     expect(payload.code).toBe("invalid_product_url");
   });
 
-  it("creates an Editron project from the SaaS brief without a main footage upload", async () => {
+  it("creates a draft project instead of marking placeholder output complete", async () => {
     const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
     const response = await POST(request("/api/services/editron/saas-explainer/generate", {
       productName: "Insturix",
@@ -192,17 +286,41 @@ describe("SaaS explainer routes", () => {
     expect(payload).toMatchObject({
       success: true,
       mode: "saas_explainer",
-      status: "project_ready",
+      status: "draft_ready",
       autoEditMode: "saas_explainer",
-      autoEditStatus: "complete",
+      autoEditStatus: "needs_generation",
       projectId: "project_1",
       projectUrl: "/dashboard/editron?project=project_1",
       sceneCount: 1,
-      overlayCount: 2,
+      overlayCount: 3,
+      generationReadiness: {
+        ok: false,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: "placeholder_visuals" }),
+          expect.objectContaining({ code: "missing_renderable_visuals" }),
+          expect.objectContaining({ code: "empty_voiceover" }),
+          expect.objectContaining({ code: "narration_text_placeholders" }),
+          expect.objectContaining({ code: "missing_captions" }),
+        ]),
+      },
+      brandContext: expect.objectContaining({
+        source: "brand_vault",
+        acceptedProfile: true,
+        promptContextProvided: true,
+      }),
     });
+    expect(payload.warnings?.[0]).toContain("Draft ready");
     expect(payload.sourceSessionId).toMatch(/^saas_/);
     expect(payload.sourceScriptId).toMatch(/^script_saas_/);
     expect(mocks.generateScript).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveSaasExplainerBrandContext).toHaveBeenCalledWith({
+      userId: "user_1",
+      orgId: "org_1",
+      brandId: "brand_1",
+    });
+    const scriptInput = mocks.generateScript.mock.calls[0][0];
+    expect(scriptInput.context.projectSummary).toContain("Brand: Insturix");
+    expect(scriptInput.context.systemBrief).toContain("Primary color: #0B0B0A");
     expect(mocks.parseScriptWithLLM).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       aspectRatio: "16:9",
       brandId: "brand_1",
@@ -218,20 +336,93 @@ describe("SaaS explainer routes", () => {
       brandId: "brand_1",
     }));
     expect(mocks.saveProject).toHaveBeenCalledWith("user_1", "project_1", expect.objectContaining({
-      overlays: [{ id: 1 }, { id: 2 }],
+      overlays: placeholderOverlays,
       durationInFrames: 180,
     }));
     expect(mocks.updateOne).toHaveBeenCalledWith(
       { userId: "user_1", projectId: "project_1" },
       { $set: expect.objectContaining({
         autoEditMode: "saas_explainer",
-        autoEditStatus: "complete",
+        autoEditStatus: "needs_generation",
         autoEditStartedAt: expect.any(Date),
-        autoEditCompletedAt: expect.any(Date),
-        saasExplainer: expect.objectContaining({ status: "complete" }),
+        autoEditDraftedAt: expect.any(Date),
+        generationReadiness: expect.objectContaining({ ok: false }),
+        saasExplainer: expect.objectContaining({
+          status: "draft_ready",
+          brandContext: expect.objectContaining({ source: "brand_vault" }),
+        }),
       }) },
     );
     expect(JSON.stringify(payload)).not.toContain("PRIVATE SCRIPT");
+  });
+
+  it("surfaces missing accepted Brand Vault context instead of pretending it was used", async () => {
+    mocks.resolveSaasExplainerBrandContext.mockResolvedValueOnce({
+      promptBlock: "",
+      brandInputs: {},
+      missingInputs: ["accepted_brand_vault_profile"],
+      metadata: {
+        source: "none",
+        brandId: "brand_1",
+        acceptedProfile: false,
+        promptContextProvided: false,
+        brandInputKeys: [],
+        missingInputs: ["accepted_brand_vault_profile"],
+      },
+    });
+
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      brandId: "brand_1",
+      durationSec: 45,
+      aspectRatio: "16:9",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.brandContext).toMatchObject({
+      source: "none",
+      acceptedProfile: false,
+      missingInputs: ["accepted_brand_vault_profile"],
+    });
+    expect(payload.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("Brand Vault context is missing"),
+    ]));
+    const scriptInput = mocks.generateScript.mock.calls[0][0];
+    expect(scriptInput.context.systemBrief).not.toContain("<saas_explainer_brand_vault_context>");
+  });
+
+  it("marks generated-scene output complete only after readiness passes", async () => {
+    mocks.scenesToOverlays.mockReturnValueOnce(completeGeneratedSceneOverlays);
+
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      productName: "Insturix",
+      outcome: "Show how founders plan launches faster.",
+      durationSec: 45,
+      aspectRatio: "16:9",
+      brandId: "brand_1",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      success: true,
+      status: "project_ready",
+      autoEditStatus: "complete",
+      overlayCount: 1,
+      generationReadiness: { ok: true, issues: [] },
+    });
+    expect(payload.warnings).toBeUndefined();
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { userId: "user_1", projectId: "project_1" },
+      { $set: expect.objectContaining({
+        autoEditStatus: "complete",
+        autoEditCompletedAt: expect.any(Date),
+        generationReadiness: { ok: true, issues: [] },
+        saasExplainer: expect.objectContaining({ status: "project_ready" }),
+      }) },
+    );
   });
 
   it("persists accepted SaaS reference evidence on the created Editron project", async () => {

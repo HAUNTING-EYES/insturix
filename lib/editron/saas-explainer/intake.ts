@@ -85,13 +85,13 @@ export function validateSaasExplainerIntakePayload(raw: unknown): SaasExplainerI
   }
 
   const input = normalizeIntake(parsed.data);
-  if (!input.outcome && !input.script) {
+  if (!input.outcome && !input.script && !input.brandId) {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
-        error: "Add a goal or script before creating a SaaS explainer.",
+        error: "Add a goal, script, or Brand Vault brand before creating a SaaS explainer.",
         code: "empty_saas_explainer_source",
       },
     };

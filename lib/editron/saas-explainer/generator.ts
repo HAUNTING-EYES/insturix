@@ -7,6 +7,10 @@ import {
   type ValidReferenceVideoInput,
 } from "@/lib/editron/saas-explainer/intake";
 import {
+  resolveSaasExplainerBrandContext,
+  type SaasExplainerBrandContextMetadata,
+} from "@/lib/editron/saas-explainer/brand-context";
+import {
   analyzeSaasExplainerReference,
   type SaasExplainerReferenceStyleBrief,
 } from "@/lib/editron/saas-explainer/reference-analysis";
@@ -33,6 +37,7 @@ export class SaasExplainerGenerationError extends Error {
 
 export interface CreateSaasExplainerProjectInput {
   userId: string;
+  orgId?: string | null;
   input: NormalizedSaasExplainerIntake;
   productUrl?: string;
   referenceVideo?: ValidReferenceVideoInput;
@@ -41,9 +46,9 @@ export interface CreateSaasExplainerProjectInput {
 export interface SaasExplainerProjectResult {
   success: true;
   mode: "saas_explainer";
-  status: "project_ready";
+  status: "project_ready" | "draft_ready";
   autoEditMode: "saas_explainer";
-  autoEditStatus: "complete";
+  autoEditStatus: "complete" | "needs_generation";
   projectId: string;
   projectUrl: string;
   sceneCount: number;
@@ -51,13 +56,30 @@ export interface SaasExplainerProjectResult {
   sourceSessionId: string;
   sourceScriptId: string;
   referenceVideoAnalysis: unknown;
+  generationReadiness: SaasExplainerGenerationReadiness;
+  brandContext: SaasExplainerBrandContextMetadata;
   warnings?: string[];
+}
+
+export interface SaasExplainerGenerationReadiness {
+  ok: boolean;
+  issues: Array<{
+    code:
+      | "empty_timeline"
+      | "missing_renderable_visuals"
+      | "placeholder_visuals"
+      | "empty_voiceover"
+      | "narration_text_placeholders"
+      | "missing_captions";
+    message: string;
+    overlayIds?: number[];
+  }>;
 }
 
 export async function createSaasExplainerProject(
   args: CreateSaasExplainerProjectInput,
 ): Promise<SaasExplainerProjectResult> {
-  const { input, productUrl, referenceVideo, userId } = args;
+  const { input, orgId, productUrl, referenceVideo, userId } = args;
   if (!isLLMParserAvailable()) {
     throw new SaasExplainerGenerationError(
       503,
@@ -68,7 +90,16 @@ export async function createSaasExplainerProject(
 
   const generationStartedAt = new Date();
   const referenceLabel = referenceVideo ? `${referenceVideo.sourceKind} reference video` : undefined;
-  const referenceScriptSummary = input.script || input.outcome || buildSaasExplainerProjectSummary(input, productUrl, referenceLabel);
+  const brandContext = await resolveSaasExplainerBrandContext({
+    userId,
+    orgId,
+    brandId: input.brandId,
+  });
+  const brandContextPrompt = brandContext.promptBlock || undefined;
+  const referenceScriptSummary = [
+    input.script || input.outcome || buildSaasExplainerProjectSummary(input, productUrl, referenceLabel),
+    brandContextPrompt,
+  ].filter(Boolean).join("\n\n");
   const reference = await analyzeSaasExplainerReference({
     input,
     userId,
@@ -83,7 +114,12 @@ export async function createSaasExplainerProject(
   const referenceStyleEvidence = formatReferenceStyleEvidence(reference.analysis?.styleBrief);
   const sourceSessionId = `saas_${crypto.randomUUID()}`;
   const sourceScriptId = `script_${sourceSessionId}`;
-  const projectSummary = buildSaasExplainerProjectSummary(input, productUrl, referenceLabel, referenceStyleEvidence);
+  const baseProjectSummary = buildSaasExplainerProjectSummary(input, productUrl, referenceLabel, referenceStyleEvidence);
+  const projectSummary = [baseProjectSummary, brandContextPrompt].filter(Boolean).join("\n\n");
+  const systemBrief = [
+    "Author a production SaaS explainer; keep product UI proof readable and avoid unverifiable claims.",
+    brandContextPrompt,
+  ].filter(Boolean).join("\n\n");
   const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
     userPrompt: buildSaasExplainerAuthorPrompt(input, productUrl, referenceLabel, referenceStyleEvidence),
     sessionId: sourceSessionId,
@@ -101,7 +137,7 @@ export async function createSaasExplainerProject(
     },
     context: {
       projectSummary,
-      systemBrief: "Author a production SaaS explainer; keep product UI proof readable and avoid unverifiable claims.",
+      systemBrief,
     },
   });
 
@@ -140,6 +176,9 @@ export async function createSaasExplainerProject(
   const dimensions = dimensionsForAspectRatio(input.aspectRatio);
   const overlays = scenesToOverlays(scenes, dimensions);
   const totalFrames = scenesToTotalFrames(scenes, FPS);
+  const generationReadiness = analyzeGenerationReadiness(overlays);
+  const projectStatus = generationReadiness.ok ? "project_ready" : "draft_ready";
+  const autoEditStatus = generationReadiness.ok ? "complete" : "needs_generation";
 
   await projectService.saveProject(userId, project.projectId, {
     overlays,
@@ -149,7 +188,7 @@ export async function createSaasExplainerProject(
     durationInFrames: totalFrames,
   });
 
-  const warnings = await createLinkWarnings({
+  const linkWarnings = await createLinkWarnings({
     userId,
     sourceSessionId,
     sourceScriptId,
@@ -157,7 +196,16 @@ export async function createSaasExplainerProject(
     brandId: input.brandId,
   });
 
-  const completedAt = new Date();
+  const finishedAt = new Date();
+  const generationWarnings = generationReadiness.ok
+    ? []
+    : [
+        "Draft ready, but final SaaS explainer generation is not complete. Renderable visuals, voiceover, and captions still need generation.",
+      ];
+  const brandWarnings = brandContext.metadata.acceptedProfile
+    ? []
+    : ["Brand Vault context is missing or not accepted; generation continued without default brand context."];
+  const warnings = [...generationWarnings, ...brandWarnings, ...linkWarnings];
   const db = await getDatabase();
   await db.collection(COLLECTIONS.PROJECTS).updateOne(
     { userId, projectId: project.projectId },
@@ -165,13 +213,14 @@ export async function createSaasExplainerProject(
       $set: {
         pipelineStage: "edit",
         autoEditMode: "saas_explainer",
-        autoEditStatus: "complete",
+        autoEditStatus,
         autoEditStartedAt: generationStartedAt,
-        autoEditCompletedAt: completedAt,
+        ...(generationReadiness.ok ? { autoEditCompletedAt: finishedAt } : { autoEditDraftedAt: finishedAt }),
         sourceSessionId,
         sourceScriptId,
+        generationReadiness,
         saasExplainer: {
-          status: "complete",
+          status: projectStatus,
           productUrl,
           productName: input.productName,
           audience: input.audience,
@@ -179,6 +228,7 @@ export async function createSaasExplainerProject(
           script: summarizeTextPresence(input.script),
           durationSec: input.durationSec,
           aspectRatio: input.aspectRatio,
+          brandContext: brandContext.metadata,
           referenceVideo: input.referenceVideoUrl
             ? { provided: true, type: referenceVideo?.sourceKind, url: input.referenceVideoUrl }
             : { provided: false },
@@ -192,9 +242,9 @@ export async function createSaasExplainerProject(
   return {
     success: true,
     mode: "saas_explainer",
-    status: "project_ready",
+    status: projectStatus,
     autoEditMode: "saas_explainer",
-    autoEditStatus: "complete",
+    autoEditStatus,
     projectId: project.projectId,
     projectUrl: `/dashboard/editron?project=${encodeURIComponent(project.projectId)}`,
     sceneCount: scenes.length,
@@ -202,6 +252,8 @@ export async function createSaasExplainerProject(
     sourceSessionId,
     sourceScriptId,
     referenceVideoAnalysis: reference.analysis ?? { status: "not_provided" },
+    generationReadiness,
+    brandContext: brandContext.metadata,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
@@ -229,6 +281,117 @@ function normalizeScenes(scenes: Array<Record<string, unknown>>): SceneDescripto
     ...(scene as Omit<SceneDescriptor, "sceneIndex">),
     sceneIndex: typeof scene.sceneIndex === "number" ? scene.sceneIndex : index,
   }));
+}
+
+function analyzeGenerationReadiness(overlays: any[]): SaasExplainerGenerationReadiness {
+  const issues: SaasExplainerGenerationReadiness["issues"] = [];
+  if (overlays.length === 0) {
+    issues.push({
+      code: "empty_timeline",
+      message: "No overlays were generated.",
+    });
+  }
+
+  const placeholderVisualIds = overlays
+    .filter((overlay) => overlay.type === "html-scene" || hasPlaceholderReceipt(overlay))
+    .map(overlayId)
+    .filter((id): id is number => typeof id === "number");
+  if (placeholderVisualIds.length > 0) {
+    issues.push({
+      code: "placeholder_visuals",
+      message: "The visual track contains placeholder HTML scenes instead of generated scene/media output.",
+      overlayIds: placeholderVisualIds,
+    });
+  }
+
+  if (!overlays.some(isRenderableVisualOverlay)) {
+    issues.push({
+      code: "missing_renderable_visuals",
+      message: "No renderable video, image, or GeneratedScene visual output is present.",
+    });
+  }
+
+  const emptyVoiceoverIds = overlays
+    .filter((overlay) => overlay.type === "sound" && isVoiceoverSlot(overlay) && !hasMediaSource(overlay))
+    .map(overlayId)
+    .filter((id): id is number => typeof id === "number");
+  if (emptyVoiceoverIds.length > 0) {
+    issues.push({
+      code: "empty_voiceover",
+      message: "Voiceover overlays are reserved but have no generated audio source.",
+      overlayIds: emptyVoiceoverIds,
+    });
+  }
+
+  const narrationTextIds = overlays
+    .filter((overlay) => overlay.type === "text" && overlay.metadata?.isNarrationCaption === true)
+    .map(overlayId)
+    .filter((id): id is number => typeof id === "number");
+  if (narrationTextIds.length > 0) {
+    issues.push({
+      code: "narration_text_placeholders",
+      message: "Narration is present as plain text overlays instead of validated caption output.",
+      overlayIds: narrationTextIds,
+    });
+  }
+
+  if (!overlays.some(hasValidatedCaptionOutput)) {
+    issues.push({
+      code: "missing_captions",
+      message: "No validated caption output is present.",
+    });
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+function hasPlaceholderReceipt(overlay: any): boolean {
+  const receipts = [
+    overlay.metadata?.atomicOverlayReceipt,
+    ...(Array.isArray(overlay.metadata?.atomicOverlayReceipts) ? overlay.metadata.atomicOverlayReceipts : []),
+  ].filter(Boolean);
+
+  return receipts.some((receipt) => {
+    const intent = String(receipt.intent ?? "").toLowerCase();
+    const reason = String(receipt.reason ?? "").toLowerCase();
+    return intent.includes("placeholder") || reason.includes("placeholder");
+  });
+}
+
+function isRenderableVisualOverlay(overlay: any): boolean {
+  if ((overlay.type === "video" || overlay.type === "image") && hasMediaSource(overlay)) {
+    return true;
+  }
+
+  if (overlay.type === "generated-scene" && overlay.sceneModel && overlay.sourceMap) {
+    return true;
+  }
+
+  return false;
+}
+
+function isVoiceoverSlot(overlay: any): boolean {
+  return overlay.metadata?.isVoiceover === true || String(overlay.content ?? "").startsWith("VO:");
+}
+
+function hasMediaSource(overlay: any): boolean {
+  return Boolean(overlay.src || overlay.url || overlay.assetId || overlay.publicUrl);
+}
+
+function hasValidatedCaptionOutput(overlay: any): boolean {
+  if (overlay.type === "caption") return true;
+  if (overlay.type !== "generated-scene") return false;
+
+  const model = overlay.sceneModel;
+  return Boolean(
+    (Array.isArray(model?.captions) && model.captions.length > 0) ||
+      (Array.isArray(model?.captionTracks) && model.captionTracks.length > 0) ||
+      (Array.isArray(model?.elements) && model.elements.some((element: any) => element?.role === "caption")),
+  );
+}
+
+function overlayId(overlay: any): number | undefined {
+  return typeof overlay.id === "number" ? overlay.id : undefined;
 }
 
 function projectNameFor(input: NormalizedSaasExplainerIntake, productUrl?: string): string {

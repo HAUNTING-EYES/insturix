@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
 import {
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await createSaasExplainerProject({
       userId,
+      orgId,
       input: validation.input,
       productUrl: validation.productUrl,
       referenceVideo: validation.referenceVideo,
