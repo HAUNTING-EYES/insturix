@@ -9,6 +9,28 @@ const legacyProductRoutes = [
   "/products/thinkforge",
 ];
 
+const stalePublicRedirects = [
+  { source: "/about/team", destination: "/about" },
+  { source: "/checkout", destination: "/upgrade" },
+  { source: "/contact-sales", destination: "/contactus" },
+  { source: "/contribute", destination: "/support-us" },
+  { source: "/donate", destination: "/support-us" },
+  { source: "/enterprise", destination: "/contactus" },
+  { source: "/ics25", destination: "/showcase" },
+  { source: "/ics25/gameon", destination: "/showcase" },
+  { source: "/ics25/register", destination: "/signup" },
+  { source: "/insturix-creatives-agency", destination: "/contactus" },
+  { source: "/pricing", destination: "/upgrade" },
+  { source: "/products/ai-video-editor", destination: "/products" },
+  { source: "/products/brand-deals", destination: "/products" },
+  { source: "/products/business-analytics", destination: "/products" },
+  { source: "/products/influencer-protection", destination: "/products" },
+  { source: "/products/meditron", destination: "/products" },
+  { source: "/products/shield", destination: "/products" },
+  { source: "/sponsor", destination: "/support-us" },
+  { source: "/waitlist", destination: "/signup" },
+];
+
 const nextConfig: NextConfig = {
   // Disable React Strict Mode in production to avoid double-renders
   // Keep enabled in development for debugging
@@ -50,6 +72,11 @@ const nextConfig: NextConfig = {
       ...legacyProductRoutes.map((source) => ({
         source,
         destination: "/products",
+        permanent: true,
+      })),
+      ...stalePublicRedirects.map(({ source, destination }) => ({
+        source,
+        destination,
         permanent: true,
       })),
       {
