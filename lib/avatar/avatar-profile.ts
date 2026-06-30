@@ -1,6 +1,7 @@
 export type AvatarProfileStatus = 'draft' | 'accepted' | 'rejected' | 'disabled' | 'superseded';
 
 export type AvatarSourceType =
+  | 'virtual_person_profile'
   | 'uploaded_portrait'
   | 'generated_portrait'
   | 'stock_avatar'
@@ -14,12 +15,47 @@ export type AvatarVoiceSourceType =
 export type AvatarEvidenceSourceType =
   | 'manual_user_entry'
   | 'uploaded_portrait'
+  | 'uploaded_body_reference'
+  | 'uploaded_style_reference'
+  | 'uploaded_motion_reference'
   | 'uploaded_voice_sample'
   | 'generated_asset'
   | 'provider_receipt'
   | 'fallback_default';
 
 export type AvatarLikenessOwner = 'self' | 'client' | 'licensed' | 'unknown';
+
+export type AvatarReferenceRole =
+  | 'face_front'
+  | 'face_side'
+  | 'full_body_front'
+  | 'full_body_side'
+  | 'expression'
+  | 'pose'
+  | 'wardrobe'
+  | 'product_context';
+
+export type AvatarUsagePreset =
+  | 'product_shoot'
+  | 'speech_delivery'
+  | 'explainer_host'
+  | 'ad_actor'
+  | 'social_presenter';
+
+export interface AvatarReferenceAsset {
+  role: AvatarReferenceRole;
+  assetId?: string;
+  imageUrl?: string;
+  label?: string;
+  note?: string;
+}
+
+export interface AvatarWardrobePreset {
+  id: string;
+  label: string;
+  description: string;
+  referenceAssetIds?: string[];
+}
 
 export interface AvatarEvidence {
   id: string;
@@ -51,6 +87,33 @@ export interface AvatarProfile {
     r2Key?: string;
     faceDetected?: boolean;
     identityDescription?: string;
+  };
+  identityPack?: {
+    referenceAssets: AvatarReferenceAsset[];
+    bodyProfile?: {
+      description?: string;
+      build?: string;
+      heightRange?: string;
+      hair?: string;
+      skinTone?: string;
+      notableTraits?: string[];
+      doNotChange?: string[];
+    };
+  };
+  stylePack?: {
+    wardrobePresets: AvatarWardrobePreset[];
+    defaultLook?: string;
+    productShootLook?: string;
+    speechLook?: string;
+    grooming?: string;
+  };
+  performancePack?: {
+    usagePresets: AvatarUsagePreset[];
+    gestureStyle?: string;
+    poseLibrary?: string[];
+    productInteraction?: string;
+    cameraPresence?: string;
+    movementConstraints?: string[];
   };
   voice: {
     sourceType: AvatarVoiceSourceType;

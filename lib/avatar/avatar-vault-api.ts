@@ -48,6 +48,7 @@ type AvatarVaultErrorBody = {
 };
 
 const AVATAR_SOURCE_TYPES: AvatarSourceType[] = [
+  'virtual_person_profile',
   'uploaded_portrait',
   'generated_portrait',
   'stock_avatar',
@@ -98,6 +99,11 @@ export async function createAvatarProfileDraftFromRequest(
   if (!sourceType) return fail(400, 'invalid_body', 'Avatar sourceType is required.');
   if (!voiceSourceType || !voice) return fail(400, 'invalid_body', 'Avatar voice.sourceType is required.');
 
+  const identityPack = asRecord(profileBody.identityPack) as AvatarProfile['identityPack'] | undefined;
+  if (sourceType === 'virtual_person_profile' && !hasFullBodyReference(identityPack)) {
+    return fail(400, 'invalid_body', 'Virtual person profiles require at least one full-body reference.');
+  }
+
   const rights = (asRecord(profileBody.rights) ?? {}) as AvatarProfile['rights'];
   const profile: AvatarProfile = {
     version: 1,
@@ -109,6 +115,9 @@ export async function createAvatarProfileDraftFromRequest(
     status: 'draft',
     sourceType,
     portrait: asRecord(profileBody.portrait) as AvatarProfile['portrait'],
+    ...(identityPack ? { identityPack } : {}),
+    ...(asRecord(profileBody.stylePack) ? { stylePack: asRecord(profileBody.stylePack) as AvatarProfile['stylePack'] } : {}),
+    ...(asRecord(profileBody.performancePack) ? { performancePack: asRecord(profileBody.performancePack) as AvatarProfile['performancePack'] } : {}),
     voice: { ...voice, sourceType: voiceSourceType } as AvatarProfile['voice'],
     persona: (asRecord(profileBody.persona) ?? {}) as AvatarProfile['persona'],
     rights,
@@ -199,6 +208,13 @@ function ensureConsentEvidence(value: unknown, now: string, consentConfirmed: bo
 
 function canAccessRecord(record: AvatarProfileRecord, userId: string, orgId: string | null): boolean {
   return record.profile.userId === userId || Boolean(orgId && record.profile.orgId === orgId);
+}
+
+function hasFullBodyReference(identityPack: AvatarProfile['identityPack'] | undefined): boolean {
+  return Boolean(identityPack?.referenceAssets?.some((asset) => {
+    if (asset.role !== 'full_body_front' && asset.role !== 'full_body_side') return false;
+    return Boolean(stringValue(asset.assetId) || stringValue(asset.imageUrl));
+  }));
 }
 
 function parseAvatarSourceType(value: unknown): AvatarSourceType | undefined {

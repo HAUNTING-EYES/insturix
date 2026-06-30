@@ -14,13 +14,14 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import type { AvatarProfileStatus, AvatarVoiceSourceType } from '@/lib/avatar/avatar-profile';
+import type { AvatarProfileStatus, AvatarUsagePreset, AvatarVoiceSourceType } from '@/lib/avatar/avatar-profile';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
 import {
   DEFAULT_AVATAR_DRAFT_FORM,
   buildAvatarProfileDraftRequest,
   hasRequiredAvatarDraftFields,
+  toggleUsagePreset,
   type AvatarVaultDraftFormState,
 } from './avatar-vault-form';
 import {
@@ -32,6 +33,13 @@ import {
 type AvatarProfileFilter = AvatarProfileStatus | 'all';
 
 const STATUS_FILTERS: AvatarProfileFilter[] = ['all', 'draft', 'accepted', 'rejected', 'superseded'];
+const USAGE_PRESET_OPTIONS: Array<{ id: AvatarUsagePreset; label: string }> = [
+  { id: 'product_shoot', label: 'Product shoot' },
+  { id: 'speech_delivery', label: 'Speech' },
+  { id: 'explainer_host', label: 'Explainer host' },
+  { id: 'ad_actor', label: 'Ad actor' },
+  { id: 'social_presenter', label: 'Social host' },
+];
 
 export function AvatarVaultReview() {
   const [form, setForm] = useState<AvatarVaultDraftFormState>(DEFAULT_AVATAR_DRAFT_FORM);
@@ -77,7 +85,7 @@ export function AvatarVaultReview() {
   async function handleCreateDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canCreateDraft) {
-      setNotice({ tone: 'risk', message: 'Complete the required avatar, voice, rights, and brand fields.' });
+      setNotice({ tone: 'risk', message: 'Complete the required virtual-person identity, voice, rights, usage, and brand fields.' });
       return;
     }
 
@@ -140,14 +148,54 @@ export function AvatarVaultReview() {
         <section className="rounded-lg border border-[#2A2E31] bg-[#151819] p-5">
           <div className="mb-5 flex items-center gap-2">
             <ImageIcon size={18} className="text-[#D4A652]" />
-            <h2 className="text-lg font-semibold tracking-normal text-[#F7F1E3]">Create Avatar Draft</h2>
+            <h2 className="text-lg font-semibold tracking-normal text-[#F7F1E3]">Create Virtual Person</h2>
           </div>
 
           <form className="space-y-4" onSubmit={handleCreateDraft}>
             <TextField label="Avatar name" value={form.displayName} onChange={(value) => updateForm('displayName', value)} />
-            <TextField label="Portrait asset ID" value={form.portraitAssetId} onChange={(value) => updateForm('portraitAssetId', value)} />
-            <TextField label="Portrait image URL" value={form.portraitImageUrl} onChange={(value) => updateForm('portraitImageUrl', value)} />
-            <TextArea label="Identity note" value={form.portraitDescription} onChange={(value) => updateForm('portraitDescription', value)} />
+
+            <div className="space-y-3 border-t border-[#293034] pt-4">
+              <div className="text-sm font-semibold text-[#E8E0CF]">Identity pack</div>
+              <TextField label="Face reference asset ID" value={form.portraitAssetId} onChange={(value) => updateForm('portraitAssetId', value)} />
+              <TextField label="Face reference image URL" value={form.portraitImageUrl} onChange={(value) => updateForm('portraitImageUrl', value)} />
+              <TextField label="Full body asset ID" value={form.fullBodyAssetId} onChange={(value) => updateForm('fullBodyAssetId', value)} />
+              <TextField label="Full body image URL" value={form.fullBodyImageUrl} onChange={(value) => updateForm('fullBodyImageUrl', value)} />
+              <TextField label="Side profile URL" value={form.sideProfileImageUrl} onChange={(value) => updateForm('sideProfileImageUrl', value)} />
+              <TextArea label="Expression reference URLs" value={form.expressionReferenceUrls} onChange={(value) => updateForm('expressionReferenceUrls', value)} />
+              <TextArea label="Identity note" value={form.portraitDescription} onChange={(value) => updateForm('portraitDescription', value)} />
+              <TextArea label="Body description" value={form.bodyDescription} onChange={(value) => updateForm('bodyDescription', value)} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TextField label="Hair" value={form.hair} onChange={(value) => updateForm('hair', value)} />
+                <TextArea label="Notable traits" value={form.notableTraits} onChange={(value) => updateForm('notableTraits', value)} />
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t border-[#293034] pt-4">
+              <div className="text-sm font-semibold text-[#E8E0CF]">Look and performance</div>
+              <TextArea label="Wardrobe preset" value={form.wardrobePreset} onChange={(value) => updateForm('wardrobePreset', value)} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TextField label="Default look" value={form.defaultLook} onChange={(value) => updateForm('defaultLook', value)} />
+                <TextField label="Product shoot look" value={form.productShootLook} onChange={(value) => updateForm('productShootLook', value)} />
+              </div>
+              <TextField label="Speech look" value={form.speechLook} onChange={(value) => updateForm('speechLook', value)} />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {USAGE_PRESET_OPTIONS.map((option) => (
+                  <label key={option.id} className="flex items-center gap-2 rounded-lg border border-[#293034] bg-[#0F1213] px-3 py-2 text-sm text-[#D7D2C4]">
+                    <input
+                      type="checkbox"
+                      checked={form.usagePresets.includes(option.id)}
+                      onChange={(event) => updateForm('usagePresets', toggleUsagePreset(form.usagePresets, option.id, event.target.checked))}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+              <TextField label="Gesture style" value={form.gestureStyle} onChange={(value) => updateForm('gestureStyle', value)} />
+              <TextArea label="Pose library" value={form.poseLibrary} onChange={(value) => updateForm('poseLibrary', value)} />
+              <TextArea label="Product interaction" value={form.productInteraction} onChange={(value) => updateForm('productInteraction', value)} />
+              <TextArea label="Camera presence" value={form.cameraPresence} onChange={(value) => updateForm('cameraPresence', value)} />
+              <TextArea label="Movement constraints" value={form.movementConstraints} onChange={(value) => updateForm('movementConstraints', value)} />
+            </div>
 
             <div className="rounded-lg border border-[#293034] bg-[#111415] p-4">
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
@@ -256,7 +304,7 @@ export function AvatarVaultReview() {
               disabled={busy || !canCreateDraft}
             >
               {createDraft.isPending ? <Loader2 size={17} className="animate-spin" /> : <UserRound size={17} />}
-              Create draft
+              Create virtual person
             </button>
           </form>
         </section>
@@ -397,7 +445,7 @@ function ProfileList({
             <span className="truncate text-sm font-semibold text-[#F4F1E8]">{record.profile.displayName}</span>
             <StatusBadge status={record.status} />
           </div>
-          <div className="text-xs text-[#AEB6B3]">{record.profile.brandId ? 'Brand bound' : 'Personal / no brand'}</div>
+          <div className="text-xs text-[#AEB6B3]">{scopeLabel(record)} / {referenceCount(record)} refs</div>
           <div className="mt-2 text-xs text-[#7F8986]">{formatDate(record.updatedAt)}</div>
         </button>
       ))}
@@ -435,8 +483,8 @@ function ProfileDetail({
       <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
         <div
           className="aspect-[4/3] rounded-lg border border-[#30383B] bg-[#0B0D0E] bg-cover bg-center"
-          style={{ backgroundImage: record.profile.portrait.imageUrl ? `url("${record.profile.portrait.imageUrl}")` : undefined }}
-          aria-label={`${record.profile.displayName} portrait`}
+          style={{ backgroundImage: profilePreviewUrl(record) ? `url("${profilePreviewUrl(record)}")` : undefined }}
+          aria-label={`${record.profile.displayName} virtual person reference`}
         />
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -445,7 +493,10 @@ function ProfileDetail({
           </div>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <Info label="Avatar ID" value={record.profile.avatarId} />
-            <Info label="Scope" value={record.profile.brandId ?? 'Personal / no brand'} />
+            <Info label="Scope" value={scopeLabel(record)} />
+            <Info label="References" value={`${referenceCount(record)} saved`} />
+            <Info label="Use cases" value={usageLabel(record)} />
+            <Info label="Wardrobe" value={wardrobeLabel(record)} />
             <Info label="Voice" value={voiceLabel(record)} />
             <Info label="Likeness" value={record.profile.rights.likenessOwner} />
             <Info label="Consent" value={record.profile.rights.consentConfirmed ? 'Confirmed' : 'Missing'} />
@@ -518,6 +569,31 @@ function statusLabel(status: AvatarProfileFilter): string {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function profilePreviewUrl(record: AvatarProfileRecord): string | undefined {
+  const fullBody = record.profile.identityPack?.referenceAssets.find(
+    (asset) => asset.role === 'full_body_front' || asset.role === 'full_body_side',
+  );
+  return fullBody?.imageUrl ?? record.profile.portrait.imageUrl;
+}
+
+function scopeLabel(record: AvatarProfileRecord): string {
+  return record.profile.brandId ? 'Brand bound' : 'Personal / no brand';
+}
+
+function referenceCount(record: AvatarProfileRecord): number {
+  return record.profile.identityPack?.referenceAssets.length ?? 1;
+}
+
+function usageLabel(record: AvatarProfileRecord): string {
+  const presets = record.profile.performancePack?.usagePresets ?? [];
+  if (presets.length === 0) return 'Not set';
+  return presets.map((preset) => USAGE_PRESET_OPTIONS.find((option) => option.id === preset)?.label ?? preset).join(', ');
+}
+
+function wardrobeLabel(record: AvatarProfileRecord): string {
+  return record.profile.stylePack?.wardrobePresets[0]?.description ?? 'Not set';
 }
 
 function voiceLabel(record: AvatarProfileRecord): string {

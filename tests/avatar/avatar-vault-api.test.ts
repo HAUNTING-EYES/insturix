@@ -74,6 +74,25 @@ describe('Avatar Vault API', () => {
     expect(result.body.error.code).toBe('brand_required');
   });
 
+  it('rejects virtual person drafts without a full-body reference', async () => {
+    const result = await createAvatarProfileDraftFromRequest(
+      {
+        userId: 'user_api',
+        orgId: null,
+        body: {
+          bindBrand: false,
+          profile: avatar({ sourceType: 'virtual_person_profile' }),
+        },
+      },
+      { store: createInMemoryAvatarProfileRepository(), now: () => NOW },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body.ok).toBe(false);
+    if (result.body.ok) throw new Error('Expected full-body reference failure.');
+    expect(result.body.error.code).toBe('invalid_body');
+  });
+
   it('rejects cross-user reads before returning profile data', async () => {
     const store = createInMemoryAvatarProfileRepository();
     store.saveRecord(createAvatarProfileDraft(avatar({ userId: 'owner_user' }), { id: 'draft_private', now: NOW }));
