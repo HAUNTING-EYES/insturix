@@ -71,7 +71,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 ### Immediate next work order
 
 1. **Do not rebuild P1.** It is done for the live candidate path; only telemetry/fallback cleanup is allowed.
-2. **Finish P0 rendered truth scoring** so the new Lambda still artifacts become scored rendered reports/gate evidence, not only persisted still URLs.
+2. **Finish P0 rendered truth scoring** so the new paired Lambda full/baseline still artifacts become scored rendered reports/gate evidence, not only persisted still URLs.
 3. **Build P4 visual perception / VLM cut intelligence** so cut decisions are not transcript-only.
 4. **Build P13 shared choreography scheduler** using the existing overlay timeline memory atoms.
 5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.

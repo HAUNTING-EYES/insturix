@@ -31,6 +31,11 @@ export interface Phase0RenderedStillFrameEvidence {
   bucketName: string;
   renderId: string;
   sizeInBytes: number;
+  baselineUrl?: string;
+  baselineOutKey?: string;
+  baselineBucketName?: string;
+  baselineRenderId?: string;
+  baselineSizeInBytes?: number;
 }
 
 export interface Phase0RenderedStillEvidence {
@@ -46,7 +51,7 @@ export interface Phase0RenderedStillEvidence {
   sampleLimit: number;
   requestedSampleFrames: number[];
   renderedFrames: Phase0RenderedStillFrameEvidence[];
-  failedFrames: Array<{ frame: number; error: string }>;
+  failedFrames: Array<{ frame: number; error: string; renderKind?: 'full' | 'baseline' | 'worker' }>;
   artifactPackStatus: 'ready' | 'not-renderable';
   artifactPackIssues: string[];
 }
@@ -162,34 +167,73 @@ export async function buildPhase0RenderedStillEvidence(
   const renderStill = options.renderStill ?? renderStillOnLambda;
   const renderedFrames: Phase0RenderedStillFrameEvidence[] = [];
   const failedFrames: Phase0RenderedStillEvidence['failedFrames'] = [];
-  const inputProps = {
+  const overlayOnlyInputProps = {
     ...artifactPack.renderInput,
+    overlays: buildOverlayOnlyRenderOverlays(
+      artifactPack.renderInput.overlays,
+      artifactPack.renderInput.width,
+      artifactPack.renderInput.height,
+    ),
+    isRendering: true,
+  } as Record<string, unknown>;
+  const baselineInputProps = {
+    ...artifactPack.renderInput,
+    overlays: buildBaselineOverlays(
+      artifactPack.renderInput.overlays,
+      artifactPack.renderInput.width,
+      artifactPack.renderInput.height,
+    ),
     isRendering: true,
   } as Record<string, unknown>;
 
   for (const frame of requestedSampleFrames) {
+    let fullStill: RenderStillOnLambdaOutput | null = null;
     try {
-      const still = await renderStill({
+      fullStill = await renderStill({
         region: config.region as any,
         functionName: config.functionName,
         serveUrl: config.serveUrl,
         composition: REMOTION_COMPOSITION_ID,
-        inputProps,
+        inputProps: overlayOnlyInputProps,
         imageFormat: 'png',
         privacy: 'public',
         frame,
         maxRetries: 1,
       });
-      renderedFrames.push(toFrameEvidence(frame, still));
     } catch (err: unknown) {
       failedFrames.push({
         frame,
+        renderKind: 'full',
         error: err instanceof Error ? err.message : String(err),
       });
+      continue;
+    }
+
+    try {
+      const baselineStill = await renderStill({
+        region: config.region as any,
+        functionName: config.functionName,
+        serveUrl: config.serveUrl,
+        composition: REMOTION_COMPOSITION_ID,
+        inputProps: baselineInputProps,
+        imageFormat: 'png',
+        privacy: 'public',
+        frame,
+        maxRetries: 1,
+      });
+      renderedFrames.push(toFrameEvidence(frame, fullStill, baselineStill));
+    } catch (err: unknown) {
+      failedFrames.push({
+        frame,
+        renderKind: 'baseline',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      renderedFrames.push(toFrameEvidence(frame, fullStill));
     }
   }
 
-  const status: Phase0RenderedStillEvidenceStatus = renderedFrames.length === requestedSampleFrames.length
+  const pairedFrameCount = renderedFrames.filter((frame) => frame.baselineUrl).length;
+  const status: Phase0RenderedStillEvidenceStatus = pairedFrameCount === requestedSampleFrames.length && failedFrames.length === 0
     ? 'completed'
     : renderedFrames.length > 0
       ? 'partial'
@@ -230,7 +274,7 @@ export function buildPhase0RenderedStillEvidenceFailure(input: {
       status: 'failed',
     }),
     completedAt: new Date().toISOString(),
-    failedFrames: [{ frame: -1, error: input.error }],
+    failedFrames: [{ frame: -1, renderKind: 'worker', error: input.error }],
   };
 }
 function baseEvidence(input: {
@@ -261,7 +305,11 @@ function baseEvidence(input: {
   };
 }
 
-function toFrameEvidence(frame: number, still: RenderStillOnLambdaOutput): Phase0RenderedStillFrameEvidence {
+function toFrameEvidence(
+  frame: number,
+  still: RenderStillOnLambdaOutput,
+  baselineStill?: RenderStillOnLambdaOutput,
+): Phase0RenderedStillFrameEvidence {
   return {
     frame,
     url: still.url,
@@ -269,7 +317,74 @@ function toFrameEvidence(frame: number, still: RenderStillOnLambdaOutput): Phase
     bucketName: still.bucketName,
     renderId: still.renderId,
     sizeInBytes: still.sizeInBytes,
+    ...(baselineStill ? {
+      baselineUrl: baselineStill.url,
+      baselineOutKey: baselineStill.outKey,
+      baselineBucketName: baselineStill.bucketName,
+      baselineRenderId: baselineStill.renderId,
+      baselineSizeInBytes: baselineStill.sizeInBytes,
+    } : {}),
   };
+}
+
+function buildBaselineOverlays(
+  overlays: Phase0FixtureProject['overlays'],
+  width: number,
+  height: number,
+) {
+  return (Array.isArray(overlays) ? overlays : []).filter((overlay) => {
+    const type = String(overlay.type ?? '');
+    if (type === 'video' || type === 'sound' || type === 'audio') return false;
+    return isLikelyBackgroundOverlay(overlay, width, height);
+  });
+}
+
+function buildOverlayOnlyRenderOverlays(
+  overlays: Phase0FixtureProject['overlays'],
+  width: number,
+  height: number,
+) {
+  return (Array.isArray(overlays) ? overlays : []).filter((overlay) => {
+    const type = String(overlay.type ?? '');
+    if (type === 'video' || type === 'sound' || type === 'audio') return false;
+    return isAuditedVisualOverlay(type) || isLikelyBackgroundOverlay(overlay, width, height);
+  });
+}
+
+function isAuditedVisualOverlay(type: string): boolean {
+  return [
+    'motion-graphic',
+    'text',
+    'caption',
+    'shape',
+    'sticker',
+    'image',
+    'html-scene',
+    'html-sticker',
+    'transition',
+  ].includes(type);
+}
+
+function isLikelyBackgroundOverlay(
+  overlay: NonNullable<Phase0FixtureProject['overlays']>[number],
+  width: number,
+  height: number,
+): boolean {
+  const type = String(overlay.type ?? '');
+  if (type !== 'image' && type !== 'html-scene') return false;
+  const left = numberValue(overlay.left);
+  const top = numberValue(overlay.top);
+  const overlayWidth = numberValue(overlay.width);
+  const overlayHeight = numberValue(overlay.height);
+  if (left === undefined || top === undefined || overlayWidth === undefined || overlayHeight === undefined) return false;
+  const frameArea = Math.max(1, width * height);
+  return left <= width * 0.05
+    && top <= height * 0.05
+    && overlayWidth * overlayHeight >= frameArea * 0.72;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function clampSampleLimit(raw: string | undefined): number {

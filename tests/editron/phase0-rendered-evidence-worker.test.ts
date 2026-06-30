@@ -20,17 +20,21 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.requestedSampleFrames.length).toBeGreaterThan(0);
   });
 
-  it('renders sampled stills with the configured Lambda render stack', async () => {
-    const renderStill = vi.fn(async (input: any) => ({
-      estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
-      url: `https://example.com/f${input.frame}.png`,
-      outKey: `phase0/f${input.frame}.png`,
-      bucketName: 'remotion-bucket',
-      renderId: `render-${input.frame}`,
-      cloudWatchLogs: 'https://logs.example.com',
-      sizeInBytes: 1234,
-      artifacts: [],
-    }));
+  it('renders paired full and baseline sampled stills with the configured Lambda render stack', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);
+      const kind = overlayIds.includes(1) ? 'full' : 'baseline';
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `phase0/${kind}-f${input.frame}.png`,
+        bucketName: 'remotion-bucket',
+        renderId: `${kind}-render-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: kind === 'full' ? 1234 : 678,
+        artifacts: [],
+      };
+    });
 
     const evidence = await buildPhase0RenderedStillEvidence(projectFixture(), {
       capturedAt: '2026-06-30T00:00:00.000Z',
@@ -42,7 +46,7 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.status).toBe('completed');
     expect(evidence.sampleLimit).toBe(2);
     expect(evidence.renderedFrames).toHaveLength(2);
-    expect(renderStill).toHaveBeenCalledTimes(2);
+    expect(renderStill).toHaveBeenCalledTimes(4);
     expect(renderStill.mock.calls[0]?.[0]).toMatchObject({
       functionName: 'phase0-fn',
       serveUrl: 'https://remotion-site.example.com',
@@ -51,19 +55,28 @@ describe('phase0 rendered evidence worker service', () => {
       maxRetries: 1,
     });
     expect((renderStill.mock.calls[0]?.[0] as any).inputProps.isRendering).toBe(true);
+    expect((renderStill.mock.calls[0]?.[0] as any).inputProps.overlays.map((overlay: any) => overlay.id)).toEqual(['bg', 1]);
+    expect((renderStill.mock.calls[1]?.[0] as any).inputProps.overlays.map((overlay: any) => overlay.id)).toEqual(['bg']);
+    expect(evidence.renderedFrames[0]).toMatchObject({
+      url: expect.stringContaining('/full-f'),
+      baselineUrl: expect.stringContaining('/baseline-f'),
+      baselineSizeInBytes: 678,
+    });
   });
 
-  it('persists partial evidence instead of losing successful frames', async () => {
+  it('persists partial evidence instead of losing successful full frames when a baseline still fails', async () => {
     const renderStill = vi.fn(async (input: any) => {
-      if (renderStill.mock.calls.length === 2) {
-        throw new Error('lambda still failed');
+      const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);
+      const kind = overlayIds.includes(1) ? 'full' : 'baseline';
+      if (kind === 'baseline' && renderStill.mock.calls.length === 2) {
+        throw new Error('lambda baseline still failed');
       }
       return {
         estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
-        url: `https://example.com/f${input.frame}.png`,
-        outKey: `phase0/f${input.frame}.png`,
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `phase0/${kind}-f${input.frame}.png`,
         bucketName: 'remotion-bucket',
-        renderId: `render-${input.frame}`,
+        renderId: `${kind}-render-${input.frame}`,
         cloudWatchLogs: 'https://logs.example.com',
         sizeInBytes: 1234,
         artifacts: [],
@@ -78,9 +91,11 @@ describe('phase0 rendered evidence worker service', () => {
     });
 
     expect(evidence.status).toBe('partial');
-    expect(evidence.renderedFrames).toHaveLength(2);
+    expect(evidence.renderedFrames).toHaveLength(3);
+    expect(evidence.renderedFrames[0]?.baselineUrl).toBeUndefined();
+    expect(evidence.renderedFrames.slice(1).every((frame) => frame.baselineUrl)).toBe(true);
     expect(evidence.failedFrames).toEqual([
-      expect.objectContaining({ error: 'lambda still failed' }),
+      expect.objectContaining({ renderKind: 'baseline', error: 'lambda baseline still failed' }),
     ]);
   });
 
@@ -105,7 +120,7 @@ describe('phase0 rendered evidence worker service', () => {
 
     expect(evidence.status).toBe('failed');
     expect(evidence.artifactPackStatus).toBe('not-renderable');
-    expect(evidence.failedFrames).toEqual([{ frame: -1, error: 'asset resolution failed' }]);
+    expect(evidence.failedFrames).toEqual([{ frame: -1, renderKind: 'worker', error: 'asset resolution failed' }]);
     expect(evidence.artifactPackIssues).toEqual(['worker-error:asset resolution failed']);
   });
 });
@@ -126,6 +141,30 @@ function projectFixture() {
     fps: 30,
     playerDimensions: { width: 1080, height: 1920 },
     overlays: [
+      {
+        id: 'bg',
+        type: OverlayType.IMAGE,
+        from: 0,
+        durationInFrames: 120,
+        left: 0,
+        top: 0,
+        width: 1080,
+        height: 1920,
+        src: 'https://example.com/background.png',
+        styles: {},
+      },
+      {
+        id: 'video-source',
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 120,
+        left: 0,
+        top: 0,
+        width: 1080,
+        height: 1920,
+        src: 'https://example.com/video.mp4',
+      },
+
       {
         id: 1,
         type: OverlayType.TEXT,
