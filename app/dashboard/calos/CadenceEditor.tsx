@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
@@ -116,7 +117,7 @@ export default function CadenceEditor({
     }
   };
 
-  return (
+  const shell = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/90 px-3 py-6 backdrop-blur-sm sm:px-4 sm:py-8"
       onClick={onClose}
@@ -270,4 +271,8 @@ export default function CadenceEditor({
       </form>
     </div>
   );
+
+  if (typeof document === 'undefined') return shell;
+
+  return createPortal(shell, document.body);
 }
