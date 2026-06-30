@@ -2357,6 +2357,86 @@ describe('unified decision bundle merge', () => {
       },
     ]));
   });
+  it('runs cross-overlay choreography before final planner-owned EDL output', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'graphic',
+            frame: 180,
+            durationFrames: 70,
+            source: 'creative-brief:semantic-mg',
+            confidence: 0.94,
+            params: {
+              creativeDecisionAuthority: 'semantic-context',
+              creativeDecisionType: 'graphic_stat_counter',
+              value: '42%',
+              label: 'retention lift',
+              sourceSpan: { text: '42% retention lift', startMs: 6000, endMs: 7200 },
+              semanticAtoms: {
+                quantity: {
+                  displayText: '42%',
+                  kind: 'percentage',
+                },
+              },
+            },
+          }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({
+            type: 'caption-emphasis',
+            frame: 188,
+            durationFrames: 36,
+            source: 'signal-executor:caption-emphasis',
+            signal: 'caption.phrase_impact',
+            confidence: 0.88,
+            params: {
+              text: 'retention lift',
+              speechRate: 150,
+              wordImportance: 0.92,
+              phraseImpact: 0.85,
+              speechPeak: 0.78,
+              negativeSpaceBottom: 0.74,
+              captionDurationMs: 1400,
+              phraseWordCount: 2,
+            },
+          }),
+        ]),
+      },
+    ]);
+
+    expect(bundle?.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(bundle?.edl.decisions[0].params.crossOverlayChoreography).toEqual(expect.objectContaining({
+      family: 'mg',
+      calibrationStatus: 'invented-needs-calibration',
+    }));
+    expect(bundle?.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 1,
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
+      crossOverlayChoreography: expect.objectContaining({
+        inputDecisionCount: 2,
+        outputDecisionCount: 1,
+        suppressedDecisionCount: 1,
+      }),
+    }));
+    expect(bundle?.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'caption-emphasis',
+        outcome: 'evidence-only',
+        source: 'signal-executor:caption-emphasis',
+        reason: 'cross-overlay-choreography:text-lane-stack',
+      }),
+    ]));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'cross-overlay-choreography:text-lane-stack': expect.objectContaining({ count: 1 }),
+    }));
+  });
   it('normalizes legacy slow-motion decisions to speed-change at the bundle boundary', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'signal-driven',

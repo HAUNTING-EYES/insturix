@@ -5,6 +5,7 @@ import type {
 import { enrichDecisionsWithOverlayTimelineMemory } from './overlay-timeline-memory';
 import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { normalizeMotionGraphicContent } from './mg-content-atoms';
+import { applyCrossOverlayChoreography, type CrossOverlayChoreographyReport } from './cross-overlay-choreography';
 
 type LegacyCompatibleDecisionType = ReactiveEditDecision['type'] | 'slow-motion' | 'filter';
 
@@ -429,6 +430,7 @@ export interface UnifiedDecisionBundleEvidence {
   evidenceOnlySignalDecisionCount: number;
   evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[];
   signalDecisionAudit: UnifiedSignalDecisionAuditReport;
+  crossOverlayChoreography?: CrossOverlayChoreographyReport;
 }
 
 export interface UnifiedDecisionBundle {
@@ -786,21 +788,53 @@ function planUnifiedDecisionBundleFromRankedCandidates(
         ? markPlannerSelectedSignal(entry.decision, license.reason)
         : markPlannerSelectedPrimary(entry.decision, license.reason),
     });
-    if (entry.source === 'signal-driven') {
-      recordSignalDecisionAudit(signalDecisionAudit, entry.decision, 'added-executable', license.reason);
-    }
   }
 
   const authority = authorityForUnifiedCandidatePlanner();
+  const selectedEntrySourceByKey = new Map(
+    selectedEntries.map((entry) => [decisionSelectionKey(entry.decision), entry.source]),
+  );
+  const selectedProducerForDecision = (decision: ReactiveEditDecision): UnifiedDecisionCandidateProducer => (
+    selectedEntrySourceByKey.get(decisionSelectionKey(decision))
+      ?? (isSignalSourceDecision(decision) ? 'signal-driven' : 'creative-brief')
+  );
+  const choreographyResult = applyCrossOverlayChoreography(selectedEntries.map((entry) => entry.decision));
+
+  for (const suppression of choreographyResult.suppressed) {
+    const suppressedProducer = selectedProducerForDecision(suppression.decision);
+    const outcome: UnifiedSignalDecisionOutcome = suppressedProducer === 'signal-driven'
+      ? 'evidence-only'
+      : 'signal-primary';
+    const reason = `cross-overlay-choreography:${suppression.reason}`;
+    evidenceOnlySignalDecisionCount++;
+    recordSignalDecisionAudit(signalDecisionAudit, suppression.decision, outcome, reason);
+    if (evidenceOnlySignalDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
+      evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(
+        suppression.decision,
+        normalizeSignalExecutionCandidate(suppression.decision),
+        outcome,
+        reason,
+      ));
+    }
+  }
+
+  for (const decision of choreographyResult.decisions) {
+    if (selectedProducerForDecision(decision) !== 'signal-driven') continue;
+    recordSignalDecisionAudit(signalDecisionAudit, decision, 'added-executable', executionLicenseReason(decision));
+  }
+
   const decisions = stampUnifiedPlannerOwnership(
-    selectedEntries
-      .map((entry) => entry.decision)
+    choreographyResult.decisions
       .sort((a, b) => a.frame - b.frame || a.priority - b.priority),
     authority,
   );
   const edl = normalizeEdl({ decisions });
-  const selectedSignalCount = selectedEntries.filter((entry) => entry.source === 'signal-driven').length;
-  const selectedCreativeCount = selectedEntries.filter((entry) => entry.source === 'creative-brief').length;
+  const selectedSignalCount = choreographyResult.decisions
+    .filter((decision) => selectedProducerForDecision(decision) === 'signal-driven')
+    .length;
+  const selectedCreativeCount = choreographyResult.decisions
+    .filter((decision) => selectedProducerForDecision(decision) === 'creative-brief')
+    .length;
 
   const source: UnifiedDecisionBundleSource = selectedCreativeCount > 0
     ? 'creative-brief+signal-driven'
@@ -821,6 +855,7 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       evidenceOnlySignalDecisionCount,
       evidenceOnlySignalDecisions,
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
+      crossOverlayChoreography: choreographyResult.report,
     },
   };
 }
@@ -4051,6 +4086,23 @@ function isSignalSourceDecision(decision: ReactiveEditDecision): boolean {
   const source = String(decision.source ?? '').toLowerCase();
   if (!source) return false;
   return source.startsWith('signal') || source.includes('path-d') || source.includes('signal-driven');
+}
+
+function decisionSelectionKey(decision: ReactiveEditDecision): string {
+  return [
+    decision.type,
+    decision.frame,
+    decision.durationFrames ?? '',
+    decision.source ?? '',
+    decision.signal ?? '',
+  ].join('|');
+}
+
+function executionLicenseReason(decision: ReactiveEditDecision): string {
+  const license = readMergeMetadata(decision).executionLicense;
+  return typeof license === 'string' && license.trim().length > 0
+    ? license
+    : 'selected-by-unified-planner';
 }
 
 function normalizeParamString(value: unknown): string {
