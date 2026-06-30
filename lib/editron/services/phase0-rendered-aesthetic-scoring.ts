@@ -2,7 +2,6 @@ import sharp from 'sharp';
 
 import { ensureLiveAtomicOverlayReceipt } from '@/lib/editron/engine/overlay-atomic-receipts';
 import type { AtomicOverlayReceipt } from '@/lib/editron/engine/atomic-overlay-core';
-import { evaluateAllTracks } from '@/components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import {
   scoreRenderedFrameAesthetic,
@@ -303,7 +302,7 @@ function renderedOverlayBoxAtFrame(
 ): RenderedOverlayBox {
   const localFrame = Math.max(0, frame - readNumber(overlay.from, 0));
   const keyframes = Array.isArray((overlay as Record<string, unknown>).keyframeTracks)
-    ? evaluateAllTracks((overlay as Record<string, unknown>).keyframeTracks as any, localFrame)
+    ? evaluateScoringKeyframeTracks((overlay as Record<string, unknown>).keyframeTracks as unknown[], localFrame)
     : {};
   let x = readNumber(keyframes.x, readNumber(overlay.left, 0));
   let y = readNumber(keyframes.y, readNumber(overlay.top, 0));
@@ -537,6 +536,71 @@ function isAuditedVisualOverlay(type: string): boolean {
   ].includes(type);
 }
 
+function evaluateScoringKeyframeTracks(tracks: unknown[], localFrame: number): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const value of tracks) {
+    const track = asRecord(value);
+    const property = readString(track.property);
+    const keyframes = Array.isArray(track.keyframes)
+      ? track.keyframes.map(normalizeScoringKeyframe).filter((item): item is ScoringKeyframe => Boolean(item))
+      : [];
+    if (!property || keyframes.length === 0) continue;
+    result[property] = evaluateScoringKeyframeTrack(keyframes, localFrame);
+  }
+  return result;
+}
+
+interface ScoringKeyframe {
+  frame: number;
+  value: number;
+  easing: string;
+}
+
+function normalizeScoringKeyframe(value: unknown): ScoringKeyframe | null {
+  const record = asRecord(value);
+  const frame = numberValue(record.frame);
+  const keyframeValue = numberValue(record.value);
+  if (frame === undefined || keyframeValue === undefined) return null;
+  return {
+    frame,
+    value: keyframeValue,
+    easing: readString(record.easing) ?? 'linear',
+  };
+}
+
+function evaluateScoringKeyframeTrack(keyframes: ScoringKeyframe[], localFrame: number): number {
+  if (keyframes.length === 1) return keyframes[0].value;
+  const sorted = [...keyframes].sort((a, b) => a.frame - b.frame);
+  if (localFrame <= sorted[0].frame) return sorted[0].value;
+  if (localFrame >= sorted[sorted.length - 1].frame) return sorted[sorted.length - 1].value;
+
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const from = sorted[index];
+    const to = sorted[index + 1];
+    if (localFrame < from.frame || localFrame > to.frame) continue;
+    const span = Math.max(1, to.frame - from.frame);
+    const progress = applyScoringEasing((localFrame - from.frame) / span, from.easing);
+    return from.value + ((to.value - from.value) * progress);
+  }
+
+  return sorted[sorted.length - 1].value;
+}
+
+function applyScoringEasing(rawProgress: number, easing: string): number {
+  const progress = Math.max(0, Math.min(1, rawProgress));
+  switch (easing) {
+    case 'ease-in':
+      return progress * progress;
+    case 'ease-out':
+      return 1 - ((1 - progress) * (1 - progress));
+    case 'ease-in-out':
+      return progress < 0.5
+        ? 2 * progress * progress
+        : 1 - (((-2 * progress) + 2) ** 2) / 2;
+    default:
+      return progress;
+  }
+}
 function readOpacity(overlay: Phase0OverlayLike): number | undefined {
   const styles = asRecord(overlay.styles);
   return numberValue(styles.opacity);

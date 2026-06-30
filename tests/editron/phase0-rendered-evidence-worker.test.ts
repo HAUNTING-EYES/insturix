@@ -1,4 +1,6 @@
-﻿import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildPhase0RenderedStillEvidenceFailure,
@@ -172,6 +174,15 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.artifactPackStatus).toBe('not-renderable');
     expect(evidence.failedFrames).toEqual([{ frame: -1, renderKind: 'worker', error: 'asset resolution failed' }]);
     expect(evidence.artifactPackIssues).toEqual(['worker-error:asset resolution failed']);
+  });
+
+  it('keeps rendered aesthetic scoring safe for Next server route builds', () => {
+    const source = readFileSync('lib/editron/services/phase0-rendered-aesthetic-scoring.ts', 'utf8');
+
+    expect(source).not.toContain('keyframe-evaluator');
+    expect(source).not.toContain("from 'remotion'");
+    expect(source).not.toContain('from "remotion"');
+    expect(source).toContain('evaluateScoringKeyframeTracks');
   });
 });
 
