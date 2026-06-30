@@ -12,6 +12,7 @@ import {
   buildAlyzitronAnalysisContext,
   resolveAlyzitronBrandContext,
 } from "@/lib/alyzitron/services/brand-vault-context";
+import { normalizeAlyzitronAnalysisResults } from "@/lib/alyzitron/analysis-results";
 
 function cleanString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -210,6 +211,16 @@ async function handler(request: NextRequest) {
           wordCount: transcriptResult.wordCount,
         }).catch(() => { });
       }
+
+      if (analysisResults?.parseError) {
+        throw new Error("Alyzitron analysis returned invalid JSON. Please retry the analysis.");
+      }
+
+      const normalizedResults = normalizeAlyzitronAnalysisResults(analysisResults);
+      if (!normalizedResults) {
+        throw new Error("Alyzitron analysis returned no usable results.");
+      }
+      analysisResults = normalizedResults;
 
       await analyses.updateOne(
         { _id: task._id },

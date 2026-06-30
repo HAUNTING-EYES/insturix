@@ -23,7 +23,7 @@ export type AnalysisData = {
   strengths?: string[];
   weaknesses?: string[];
   analysis?: AnalysisCategory[];
-  compliance_risks?: { name: string; score: number; description: string }[];
+  compliance_risks?: { name: string; score: number; description: string }[] | Record<string, MetricData>;
   // ----------------------------------------------------------------
 
   creator_feedback: {

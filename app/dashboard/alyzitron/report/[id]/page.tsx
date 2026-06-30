@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
 import { AnalysisDetails, AnalysisError, PrivateAnalysisView } from "./components";
 import { getGcsSignedUrl } from "../../utils/GcsSignedUrl";
+import { normalizeAlyzitronAnalysisResults } from "@/lib/alyzitron/analysis-results";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ async function getAnalysis(id: string) {
     if (id === 'favicon.ico' || id === 'robots.txt' || id === 'manifest.json') {
       return { error: 'invalid_id' };
     }
-    
+
     // Validate if it's a valid ObjectId format
     if (!ObjectId.isValid(id)) {
       return { error: 'invalid_id' };
@@ -102,24 +103,26 @@ export default async function AnalysisReport({ params }: PageProps) {
     );
   }
 
-  // Handle new results structure
+  const normalizedResults = normalizeAlyzitronAnalysisResults(analysis.results);
+
+  // Handle current and legacy results structures
   const analysisData: AnalysisData = {
-    category: analysis.results?.category || 'Analysis',
-    overall_score: analysis.results?.overall_score || 0,
-    overview: analysis.results?.overview || '',
-    remarks: analysis.results?.remarks || '',
-    titles: analysis.results?.titles || [],
-    descriptions: analysis.results?.descriptions || [],
-    target_audience: analysis.results?.target_audience || '',
+    category: normalizedResults?.category || 'Analysis',
+    overall_score: normalizedResults?.overall_score || 0,
+    overview: normalizedResults?.overview || '',
+    remarks: normalizedResults?.remarks || '',
+    titles: normalizedResults?.titles || [],
+    descriptions: normalizedResults?.descriptions || [],
+    target_audience: normalizedResults?.target_audience || '',
     creator_feedback: {
-      strengths: analysis.results?.strengths || [],
-      improvements: analysis.results?.weaknesses || [],
+      strengths: normalizedResults?.strengths || [],
+      improvements: normalizedResults?.weaknesses || [],
     },
   };
 
   // Map analysis categories to metric groups
-  if (analysis.results?.analysis) {
-    analysis.results.analysis.forEach((category: any) => {
+  if (normalizedResults?.analysis) {
+    normalizedResults.analysis.forEach((category: any) => {
       const metrics: Record<string, MetricData> = {};
       category.metrics.forEach((metric: any) => {
         metrics[metric.name.replace(/\s+/g, '_').toLowerCase()] = {
@@ -132,9 +135,9 @@ export default async function AnalysisReport({ params }: PageProps) {
   }
 
   // Map compliance risks
-  if (analysis.results?.compliance_risks) {
+  if (normalizedResults?.compliance_risks) {
     const complianceMetrics: Record<string, MetricData> = {};
-    analysis.results.compliance_risks.forEach((risk: any) => {
+    normalizedResults.compliance_risks.forEach((risk: any) => {
       complianceMetrics[risk.name.replace(/\s+/g, '_').toLowerCase()] = {
         score: risk.score,
         description: risk.description,
@@ -146,8 +149,8 @@ export default async function AnalysisReport({ params }: PageProps) {
   const isYouTubeUrl =
     analysis.videoUrl &&
     (analysis.videoUrl.includes("youtube.com") || analysis.videoUrl.includes("youtu.be"));
-    
-  const isInstagramUrl = 
+
+  const isInstagramUrl =
     analysis.videoUrl &&
     (analysis.videoUrl.includes("instagram.com"));
 
