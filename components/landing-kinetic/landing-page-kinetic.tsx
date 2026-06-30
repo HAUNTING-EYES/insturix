@@ -167,18 +167,6 @@ function StartupBaseBadges() {
   return (
     <div className="sb-badges" aria-label="StartupBase badges">
       <a
-        href="https://startupbase.io/products/insturix?utm_source=startupbase&utm_medium=badge&utm_campaign=launch-badge-dark"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="Insturix launched on StartupBase"
-      >
-        <img
-          src="https://statics.startupbase.io/site/badges/launched-on-sb-dark.svg"
-          alt="Launched on StartupBase"
-          height={55}
-        />
-      </a>
-      <a
         href="https://startupbase.io/products/insturix?utm_source=startupbase&utm_medium=badge&utm_campaign=featured-badge-dark"
         target="_blank"
         rel="noopener noreferrer"
