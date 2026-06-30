@@ -1673,18 +1673,39 @@ export async function executeDirectorPlan(
           // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
           // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
           try {
+            const {
+              buildAutoBgmDecisionEvidence,
+              persistAutoBgmDecisionEvidence,
+            } = await import('@/lib/editron/services/auto-bgm-decision');
             const bgmRec = (pathDGenreParams as any)?.bgmRecommendation;
             const isStoryboardProject = !!(projectDoc as any)?.sourceStoryboardId;
-            if (bgmRec?.shouldAddBgm === true && !isStoryboardProject) {
+            const bgmFps = project.fps || 30;
+            const bgmTotalFrames = overlays.reduce(
+              (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
+              0,
+            );
+            const bgmDurationSec = Math.round(bgmTotalFrames / bgmFps);
+            const persistAutoBgmEvidence = async (evidenceInput: Record<string, any>) => {
+              const evidence = buildAutoBgmDecisionEvidence({
+                recommendation: bgmRec,
+                isStoryboardProject,
+                durationSec: bgmDurationSec,
+                totalFrames: bgmTotalFrames,
+                fps: bgmFps,
+                ...evidenceInput,
+              });
+              await persistAutoBgmDecisionEvidence(projectId, evidence);
+              return evidence;
+            };
+
+            if (bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
+              const evidence = await persistAutoBgmEvidence({});
+              console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
+            } else {
               const { isBGMAvailable, buildMusicPrompt } = await import('@/lib/pipeline/bgm-service');
-              const bgmFps = project.fps || 30;
-              const bgmTotalFrames = overlays.reduce(
-                (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
-                0,
-              );
-              const bgmDurationSec = Math.round(bgmTotalFrames / bgmFps);
-              if (isBGMAvailable() && bgmDurationSec >= 10) {
-                // No scene descriptors / overallMusicPrompt on the auto-edit path — derive a music
+              const providerAvailable = isBGMAvailable();
+              if (providerAvailable && bgmDurationSec >= 10) {
+                // No scene descriptors / overallMusicPrompt on the auto-edit path - derive a music
                 // mood from genre signals; buildMusicPrompt maps mood+pacing -> BPM tier + key/mode.
                 const bgmEnergy = typeof pathDGenreParams?.energy_baseline === 'number' ? pathDGenreParams.energy_baseline : 0.5;
                 const bgmFormality = typeof pathDGenreParams?.formality === 'number' ? pathDGenreParams.formality : 0.5;
@@ -1697,7 +1718,7 @@ export async function executeDirectorPlan(
                   bgmDurationSec,
                 );
                 const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
-                await dispatchAudioJob({
+                const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
                   projectId,
                   userId,
@@ -1707,15 +1728,44 @@ export async function executeDirectorPlan(
                   totalFrames: bgmTotalFrames,
                   fps: bgmFps,
                 }, 'BGM(auto-edit)');
-                console.log(`[Director] Auto-BGM dispatched (mood=${bgmMood}, pacing=${bgmPacing}, ${bgmDurationSec}s) — signal shouldAddBgm=true, non-storyboard`);
+                const evidence = await persistAutoBgmEvidence({
+                  providerAvailable,
+                  mood: bgmMood,
+                  pacing: bgmPacing,
+                  musicPrompt: bgmMusicPrompt,
+                  dispatchResult,
+                });
+                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, mood=${bgmMood}, pacing=${bgmPacing}, durationSec=${bgmDurationSec}`);
               } else {
-                console.log(`[Director] Auto-BGM skipped: isBGMAvailable=${isBGMAvailable()}, durationSec=${bgmDurationSec}`);
+                const evidence = await persistAutoBgmEvidence({ providerAvailable });
+                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, providerAvailable=${providerAvailable}, durationSec=${bgmDurationSec}`);
               }
             }
           } catch (bgmErr: any) {
             console.warn(`[Director] Auto-BGM dispatch failed (non-fatal): ${bgmErr?.message ?? bgmErr}`);
+            try {
+              const {
+                buildAutoBgmDecisionEvidence,
+                persistAutoBgmDecisionEvidence,
+              } = await import('@/lib/editron/services/auto-bgm-decision');
+              const bgmFps = project.fps || 30;
+              const bgmTotalFrames = overlays.reduce(
+                (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
+                0,
+              );
+              const evidence = buildAutoBgmDecisionEvidence({
+                recommendation: (pathDGenreParams as any)?.bgmRecommendation,
+                isStoryboardProject: !!(projectDoc as any)?.sourceStoryboardId,
+                durationSec: Math.round(bgmTotalFrames / bgmFps),
+                totalFrames: bgmTotalFrames,
+                fps: bgmFps,
+                error: bgmErr,
+              });
+              await persistAutoBgmDecisionEvidence(projectId, evidence);
+            } catch (persistBgmErr: any) {
+              console.warn(`[Director] Auto-BGM evidence persistence failed (non-fatal): ${persistBgmErr?.message ?? persistBgmErr}`);
+            }
           }
-
           pathDHandled = true;
           unifiedDecisionBundleExecuted = true;
           console.log(
