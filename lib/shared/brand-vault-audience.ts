@@ -9,7 +9,13 @@
  * scan keeps its thin label list (no regression).
  */
 
-import type { BrandSignal, BrandSignalProfile } from './brand-signal-profile';
+import { BRAND_CONFIDENCE } from './brand-confidence';
+import {
+  sanitizeEvidenceExcerpt,
+  type BrandSignal,
+  type BrandSignalEvidence,
+  type BrandSignalProfile,
+} from './brand-signal-profile';
 
 export interface AudiencePsychographics {
   valueDrivers: string[];
@@ -26,10 +32,18 @@ export interface AnalyzeAudienceOptions {
   maxChars?: number;
 }
 
+export interface ApplyAudiencePsychographicsOptions {
+  observedAt?: string;
+  sourceExcerpt?: string;
+  sourceUrl?: string;
+}
+
 const DEFAULT_MODEL_NAME = 'gemini-2.5-flash';
 const DEFAULT_MAX_CHARS = 6000;
 const MAX_PER_LIST = 5;
 const MAX_PHRASE_LEN = 120;
+const AUDIENCE_PSYCHOGRAPHICS_CONFIDENCE = 0.6;
+const AUDIENCE_PSYCHOGRAPHICS_EXTRACTOR = 'brand-vault-audience-psychographics.v1';
 
 const PROMPT = [
   'You are a brand audience analyst. From the brand copy below, infer the TARGET AUDIENCE psychographics.',
@@ -60,9 +74,7 @@ export function parseAudiencePsychographics(raw: string | undefined): AudiencePs
   let data: unknown;
   try {
     data = JSON.parse(stripped);
-  } catch (err) {
-    // FAILLOUD: remove after brand-vault verify (revert to `} catch { return null; }`)
-    console.error('[FAILLOUD][BrandVault audience] JSON.parse failed', { raw: stripped.slice(0, 500), err });
+  } catch {
     return null;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -103,38 +115,100 @@ export async function analyzeAudiencePsychographics(
     const result = await model.generateContent([PROMPT, `\n\nBRAND COPY:\n${text.slice(0, maxChars)}`]);
     const signals = parseAudiencePsychographics(result.response.text());
     if (!signals) {
-      console.error(`[FAILLOUD]${TAG} model returned no parseable audience signals`); // FAILLOUD: remove after brand-vault verify (revert to console.warn)
+      console.warn(`${TAG} skipped: model returned no parseable audience signals`);
       return null;
     }
-    console.log(
-      `${TAG} extracted drivers=${signals.valueDrivers.length} pains=${signals.painPoints.length} jtbd=${signals.jobsToBeDone.length}`,
-    );
     return signals;
   } catch (err) {
-    // FAILLOUD: remove after brand-vault verify (revert to console.warn message-only)
-    console.error(`[FAILLOUD]${TAG} failed`, err);
+    console.warn(`${TAG} failed`, err);
     return null;
   }
 }
 
-function audienceSignal(value: string[]): BrandSignal<string[]> {
+function audienceSignal(path: string, value: string[], evidenceId: string | undefined): BrandSignal<string[]> {
+  if (value.length === 0 || !evidenceId) {
+    return {
+      value: [],
+      confidence: BRAND_CONFIDENCE.FALLBACK_SIGNAL,
+      trustLevel: 'fallback_default',
+      authorityClass: 'inferred_hint',
+      evidenceIds: [],
+      fallbackReason: `No audience psychographic inference for ${path}.`,
+    };
+  }
+
   // LLM-inferred from website copy; confidence clears the accepted-profile floor (0.50) so the
-  // brand-context builders actually use it, while staying below hard-fact confidence.
-  return { value, confidence: 0.6, trustLevel: 'llm_inference', authorityClass: 'inferred_hint', evidenceIds: [] };
+  // brand-context builders can use it only when linked evidence exists, while staying below hard-fact confidence.
+  return {
+    value,
+    confidence: AUDIENCE_PSYCHOGRAPHICS_CONFIDENCE,
+    trustLevel: 'llm_inference',
+    authorityClass: 'inferred_hint',
+    evidenceIds: [evidenceId],
+  };
+}
+
+function addAudienceEvidence(
+  profile: BrandSignalProfile,
+  path: string,
+  label: string,
+  value: string[],
+  options: ApplyAudiencePsychographicsOptions,
+): string | undefined {
+  if (value.length === 0) return undefined;
+
+  const existingIds = new Set(profile.evidence.map((item) => item.id));
+  const slug = path.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase();
+  let id = `audience_psychographics_${slug}`;
+  let suffix = 1;
+  while (existingIds.has(id)) {
+    id = `audience_psychographics_${slug}_${suffix}`;
+    suffix += 1;
+  }
+
+  const sourceExcerpt = options.sourceExcerpt?.trim();
+  const excerpt = sourceExcerpt
+    ? `${label}: ${value.join(', ')}. Source: ${sourceExcerpt}`
+    : `${label}: ${value.join(', ')}`;
+  const evidence: BrandSignalEvidence = {
+    id,
+    signalPath: path,
+    sourceType: 'llm_inference',
+    sourceField: 'brandVault.audiencePsychographics',
+    excerpt: sanitizeEvidenceExcerpt(excerpt),
+    confidence: AUDIENCE_PSYCHOGRAPHICS_CONFIDENCE,
+    trustLevel: 'llm_inference',
+    authorityClass: 'inferred_hint',
+    observedAt: options.observedAt ?? profile.generatedAt,
+    extractor: AUDIENCE_PSYCHOGRAPHICS_EXTRACTOR,
+  };
+  if (options.sourceUrl) evidence.sourceUrl = options.sourceUrl;
+
+  profile.evidence.push(evidence);
+  return id;
 }
 
 /**
  * Attach extracted psychographics to a profile's identity (mutates + returns it). One-liner for the
- * scan/orchestrator: analyzeAudiencePsychographics(text) → applyAudiencePsychographics(profile, result).
+ * scan/orchestrator: analyzeAudiencePsychographics(text) -> applyAudiencePsychographics(profile, result).
  */
 export function applyAudiencePsychographics(
   profile: BrandSignalProfile,
   signals: AudiencePsychographics,
+  options: ApplyAudiencePsychographicsOptions = {},
 ): BrandSignalProfile {
+  const valueDriversPath = 'identity.audiencePsychographics.valueDrivers';
+  const painPointsPath = 'identity.audiencePsychographics.painPoints';
+  const jobsToBeDonePath = 'identity.audiencePsychographics.jobsToBeDone';
+
+  const valueDriversEvidenceId = addAudienceEvidence(profile, valueDriversPath, 'Audience value drivers', signals.valueDrivers, options);
+  const painPointsEvidenceId = addAudienceEvidence(profile, painPointsPath, 'Audience pain points', signals.painPoints, options);
+  const jobsToBeDoneEvidenceId = addAudienceEvidence(profile, jobsToBeDonePath, 'Audience jobs to be done', signals.jobsToBeDone, options);
+
   profile.identity.audiencePsychographics = {
-    valueDrivers: audienceSignal(signals.valueDrivers),
-    painPoints: audienceSignal(signals.painPoints),
-    jobsToBeDone: audienceSignal(signals.jobsToBeDone),
+    valueDrivers: audienceSignal(valueDriversPath, signals.valueDrivers, valueDriversEvidenceId),
+    painPoints: audienceSignal(painPointsPath, signals.painPoints, painPointsEvidenceId),
+    jobsToBeDone: audienceSignal(jobsToBeDonePath, signals.jobsToBeDone, jobsToBeDoneEvidenceId),
   };
   return profile;
 }

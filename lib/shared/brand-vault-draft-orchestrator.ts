@@ -534,10 +534,11 @@ export async function createBrandVaultWebsiteDraftJob(
     if (audienceCopy) {
       const psychographics = await analyzeAudiencePsychographics({ text: audienceCopy });
       if (psychographics) {
-        applyAudiencePsychographics(draft.record.profile, psychographics);
-      } else {
-        // FAILLOUD: remove after brand-vault verify (analyzer logs its own reason; this marks the no-op)
-        console.error('[FAILLOUD][BrandVault audience] no psychographics extracted from scan copy (analyzer returned null)');
+        applyAudiencePsychographics(draft.record.profile, psychographics, {
+          observedAt: snapshot.fetchedAt,
+          sourceExcerpt: audienceCopy,
+          sourceUrl: snapshot.normalizedUrl,
+        });
       }
     }
     const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {

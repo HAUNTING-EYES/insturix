@@ -113,7 +113,8 @@ function isAcceptedSignalUsable(signal: BrandSignal<unknown>): boolean {
   return (
     signal.confidence >= ACCEPTED_SIGNAL_FLOOR &&
     signal.trustLevel !== 'fallback_default' &&
-    signal.authorityClass !== 'unsafe_or_untrusted'
+    signal.authorityClass !== 'unsafe_or_untrusted' &&
+    (signal.trustLevel !== 'llm_inference' || signal.evidenceIds.length > 0)
   );
 }
 
