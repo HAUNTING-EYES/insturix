@@ -381,7 +381,13 @@ export function executeSignalDrivenEdit(
           }
           seenEntityNames.add(normalized);
         }
-        enrichMotionGraphicFactParams(decision.params, { signal: event.signal, context });
+        enrichMotionGraphicFactParams(decision.params, {
+          signal: event.signal,
+          context,
+          timestampMs,
+          frame,
+          source: 'signal-event',
+        });
       }
 
       if (!checkBudget(decision, budget, momentWeight)) {

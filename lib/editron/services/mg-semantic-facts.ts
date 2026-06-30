@@ -3,6 +3,9 @@ import { deriveContentStructure } from '@/lib/editron/motion-graphics/engine/con
 interface EnrichMotionGraphicFactParamsOptions {
   signal: string;
   context: string;
+  timestampMs?: number;
+  frame?: number;
+  source?: string;
 }
 
 interface NumericFact {
@@ -49,6 +52,7 @@ export function enrichMotionGraphicFactParams(
   params.text = stringParam(params.text) ?? context;
   params.text_source = 'transcript';
   params.contextPhrase = stringParam(params.contextPhrase) ?? context;
+  attachTranscriptSourceProof(params, context, options);
 
   if (options.signal === 'entity.number') {
     enrichNumericFacts(params, context);
@@ -66,6 +70,28 @@ export function enrichMotionGraphicFactParams(
   }
 
   attachTextSemanticFacts(params, context);
+}
+
+function attachTranscriptSourceProof(
+  params: Record<string, unknown>,
+  context: string,
+  options: EnrichMotionGraphicFactParamsOptions,
+): void {
+  if (objectParam(params.sourceSpan)) return;
+  if (!Number.isFinite(options.timestampMs)) return;
+
+  const timestampMs = options.timestampMs as number;
+  params.contextStartMs = numberParam(params.contextStartMs) ?? timestampMs;
+  params.targetWordStartMs = numberParam(params.targetWordStartMs) ?? timestampMs;
+  if (Number.isFinite(options.frame)) {
+    params.sourceFrame = numberParam(params.sourceFrame) ?? options.frame;
+  }
+  params.sourceSpan = {
+    text: context,
+    startMs: timestampMs,
+    source: options.source ?? 'signal-event',
+    ...(Number.isFinite(options.frame) ? { frame: options.frame } : {}),
+  };
 }
 
 function enrichNumericFacts(params: Record<string, unknown>, context: string): void {
@@ -357,6 +383,10 @@ function objectParam(value: unknown): Record<string, unknown> | null {
 
 function stringParam(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberParam(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function shouldReplacePlaceholder(value: unknown): boolean {
