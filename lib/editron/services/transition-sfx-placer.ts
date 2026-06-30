@@ -38,7 +38,12 @@
  * tool are visible), before the async overlay merge + save.
  */
 
-import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult } from '@/lib/pipeline/sfx-library-service';
+import {
+  searchAndDownloadSFX,
+  isSFXLibraryAvailable,
+  type SFXLibraryResult,
+  type SFXLibrarySearchReport,
+} from '@/lib/pipeline/sfx-library-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { EditProfile } from '@/lib/editron/data/edit-profile-types';
 import type { PipelineWarningCollector } from '@/lib/editron/services/pipeline-warnings';
@@ -75,6 +80,7 @@ interface SFXPlacementSpec {
 interface AcceptedTransitionSFX {
   result: SFXLibraryResult;
   assetQuality: AtomicSfxCandidateEvaluation;
+  providerSearchReport?: SFXLibrarySearchReport;
 }
 
 const TRANSITION_SFX_SYNC_WINDOW_FRAMES = 3;
@@ -553,6 +559,7 @@ interface TransitionSfxPlacementEvidence {
   soundOverlayId?: number;
   assetQualityDecision?: string;
   assetQualityScore?: number;
+  providerSearchReport?: SFXLibrarySearchReport;
 }
 
 function recordTransitionSfxPlacement(
@@ -658,12 +665,23 @@ export async function placeTransitionSFX(
   // library download (consistency + cost savings). A single dissolve's whoosh
   // should sound like every other dissolve's whoosh in the same video.
   const sfxCache = new Map<string, AcceptedTransitionSFX | null>();
+  const providerSearchReports = new Map<string, SFXLibrarySearchReport>();
 
   async function getOrFetchSFX(spec: SFXPlacementSpec): Promise<AcceptedTransitionSFX | null> {
     if (sfxCache.has(spec.searchQuery)) return sfxCache.get(spec.searchQuery) ?? null;
-    const res = await searchAndDownloadSFX(spec.searchQuery, userId, spec.form.asset.maxDurationSec, spec.form);
+    let providerSearchReport: SFXLibrarySearchReport | undefined;
+    const res = await searchAndDownloadSFX(
+      spec.searchQuery,
+      userId,
+      spec.form.asset.maxDurationSec,
+      spec.form,
+      report => {
+        providerSearchReport = report;
+        providerSearchReports.set(spec.searchQuery, report);
+      },
+    );
     const assetQuality = evaluateAtomicSfxAssetCandidate(spec.form, res);
-    const accepted = res && assetQuality.accepted ? { result: res, assetQuality } : null;
+    const accepted = res && assetQuality.accepted ? { result: res, assetQuality, providerSearchReport } : null;
     sfxCache.set(spec.searchQuery, accepted);
     if (!result.tokensUsed.includes(spec.token)) result.tokensUsed.push(spec.token);
     return accepted;
@@ -746,6 +764,7 @@ export async function placeTransitionSFX(
         syncFrame: spec.form.timing.syncFrame,
         assetQualityDecision: sfx?.assetQuality.decision,
         assetQualityScore: sfx?.assetQuality.score,
+        providerSearchReport: providerSearchReports.get(spec.searchQuery),
       });
       if (warnings) {
         warnings.degraded('sfx', `transition ${style} @ frame ${transition.from}`,
@@ -800,6 +819,7 @@ export async function placeTransitionSFX(
       soundOverlayId: sfxId,
       assetQualityDecision: sfx.assetQuality.decision,
       assetQualityScore: sfx.assetQuality.score,
+      providerSearchReport: sfx.providerSearchReport ?? providerSearchReports.get(spec.searchQuery),
     });
     result.placed++;
 

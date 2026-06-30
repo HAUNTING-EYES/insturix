@@ -22,7 +22,7 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 }));
 
 import { resolveAtomicSfxForm } from '@/lib/editron/services/sfx-form';
-import { searchAndDownloadSFX } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
 
 function freesoundResponse(results: Array<Record<string, unknown>>): Response {
   return new Response(JSON.stringify({ results }), {
@@ -112,8 +112,28 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       sceneRemainingFrames: 90,
     });
 
-    const result = await searchAndDownloadSFX('whoosh cinematic sweep', 'user-1', 2, form);
+    const reports: SFXLibrarySearchReport[] = [];
+    const result = await searchAndDownloadSFX('whoosh cinematic sweep', 'user-1', 2, form, report => reports.push(report));
 
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toEqual(expect.objectContaining({
+      version: 'sfx-library-search-report-v1',
+      query: 'whoosh cinematic sweep',
+      atomicGate: true,
+      providerCandidateCount: 2,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: 1,
+      selectedCandidate: expect.objectContaining({
+        source: 'freesound',
+        title: 'Air movement pass',
+        accepted: true,
+        decision: 'accept',
+      }),
+    }));
+    expect(reports[0].candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: 'Cartoon coin pickup meme vocal noisy', accepted: false, decision: 'reject' }),
+      expect.objectContaining({ title: 'Air movement pass', accepted: true, decision: 'accept' }),
+    ]));
     expect(result).toEqual(expect.objectContaining({
       audioUrl: 'https://r2.example.com/asset/sfx_lib_selected',
       audioAssetId: 'sfx_lib_selected',
@@ -163,9 +183,27 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       sceneRemainingFrames: 90,
     });
 
-    const result = await searchAndDownloadSFX('whoosh cinematic sweep', 'user-1', 2, form);
+    const reports: SFXLibrarySearchReport[] = [];
+    const result = await searchAndDownloadSFX('whoosh cinematic sweep', 'user-1', 2, form, report => reports.push(report));
 
     expect(result).toBeNull();
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toEqual(expect.objectContaining({
+      version: 'sfx-library-search-report-v1',
+      query: 'whoosh cinematic sweep',
+      atomicGate: true,
+      providerCandidateCount: 1,
+      acceptedCandidateCount: 0,
+      rejectedCandidateCount: 1,
+      failureReason: 'all-candidates-rejected',
+    }));
+    expect(reports[0].candidates[0]).toEqual(expect.objectContaining({
+      source: 'freesound',
+      title: 'Long noisy vocal meme ambience',
+      accepted: false,
+      decision: 'reject',
+      reasons: expect.any(Array),
+    }));
     expect(mocks.uploadMedia).not.toHaveBeenCalled();
     expect(mocks.updateOne).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
