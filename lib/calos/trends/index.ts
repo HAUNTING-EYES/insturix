@@ -2,6 +2,7 @@ import type { Trend, TrendQuery, TrendsProvider } from "./types";
 import { AgentReachTrendsProvider } from "./agent-reach";
 import { ApifyTrendsProvider } from "./apify";
 import { GeminiTrendsProvider } from "./gemini";
+import { PerplexityTrendsProvider } from "./perplexity";
 
 /** No-op provider: when no trends source is configured, the AI planner degrades to cadence-only
  * rather than failing. Deliberate graceful degradation, not a bug mask. */
@@ -45,17 +46,33 @@ class CompositeTrendsProvider implements TrendsProvider {
 }
 
 /**
- * The active trends provider. Every configured source contributes — Agent-Reach, Apify (maintained
- * scrapers for hard sites like TikTok), and Gemini (web-grounded general trends). One source -> use
- * it directly; many -> merge via the composite; none -> Null (cadence-only). Add providers here
- * without touching the planner.
+ * The active trends provider. Perplexity Sonar is preferred when configured because it is
+ * search-native and avoids spending the ai-plan budget on Gemini grounding. Set
+ * CALOS_TRENDS_PROVIDER=composite to merge every configured source.
  */
 export function getTrendsProvider(): TrendsProvider {
-  const providers = [
-    new AgentReachTrendsProvider(),
-    new ApifyTrendsProvider(),
-    new GeminiTrendsProvider(),
-  ].filter((p) => p.available());
+  const providerMode = (process.env.CALOS_TRENDS_PROVIDER ?? "").trim().toLowerCase();
+  const perplexity = new PerplexityTrendsProvider();
+  const providersByName: Record<string, TrendsProvider> = {
+    perplexity,
+    sonar: perplexity,
+    "agent-reach": new AgentReachTrendsProvider(),
+    apify: new ApifyTrendsProvider(),
+    gemini: new GeminiTrendsProvider(),
+    none: new NullTrendsProvider(),
+  };
+
+  if (providerMode && providerMode !== "composite") {
+    const selected = providersByName[providerMode];
+    return selected?.available() ? selected : new NullTrendsProvider();
+  }
+
+  if (!providerMode && perplexity.available()) return perplexity;
+
+  const providers = Object.entries(providersByName)
+    .filter(([name]) => name !== "none" && name !== "sonar")
+    .map(([, provider]) => provider)
+    .filter((p) => p.available());
 
   if (providers.length === 0) return new NullTrendsProvider();
   if (providers.length === 1) return providers[0];
