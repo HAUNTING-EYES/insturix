@@ -67,6 +67,10 @@ describe("Content calendar regressions", () => {
     expect(calendarSource).toContain("await onCreateCard?.(date)");
     expect(calendarSource).toContain("setSelectedCard(created)");
     expect(calendarSource).toContain("void handleCreateCardForDate(day)");
+    expect(calendarSource).toContain("setFreshDraftId(created.id)");
+    expect(calendarSource).toContain("isEmptyFreshDraft(cardToClose, freshDraftId)");
+    expect(calendarSource).toContain("Discard this empty draft?");
+    expect(calendarSource).toContain("onClose={handleModalClose}");
     expect(pageSource).toContain("return createCard({");
   });
 

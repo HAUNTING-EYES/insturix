@@ -65,6 +65,28 @@ const getStatusColor = (status: string) => {
   return colors[status] || colors.draft;
 };
 
+const EMPTY_DRAFT_TITLE = 'Untitled content';
+
+const hasText = (...values: Array<string | undefined>) =>
+  values.some((value) => typeof value === 'string' && value.trim().length > 0);
+
+const hasTagContent = (values: string[] | undefined) =>
+  Array.isArray(values) && values.some((value) => value.trim().length > 0);
+
+const hasIdeaContent = (idea: ContentCard['idea']) =>
+  !!idea && hasText(idea.idea, idea.purpose, idea.style, idea.format, idea.platform, idea.tone);
+
+const isEmptyFreshDraft = (card: ContentCard | null, freshDraftId: string | null) =>
+  !!card &&
+  !!freshDraftId &&
+  card.id === freshDraftId &&
+  card.title.trim() === EMPTY_DRAFT_TITLE &&
+  card.status === 'draft' &&
+  !hasTagContent(card.tags) &&
+  !hasTagContent(card.customTags) &&
+  !hasText(card.details, card.scriptPreview, card.sessionId, card.ideaId, card.contentFormat) &&
+  !hasIdeaContent(card.idea);
+
 // Event chip component - the small event pills shown in calendar cells
 const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | CalendarEvent; onClick: () => void; onDragEnd?: (eventId: string, newDate: Date) => void }) => {
   // CalOS cards carry an editorial stage; color the chip by it. Legacy ThinkForge cards (no
@@ -151,6 +173,7 @@ export default function Calendar({
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [openEventId, setOpenEventId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<ContentCard | null>(null);
+  const [freshDraftId, setFreshDraftId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -344,7 +367,10 @@ export default function Calendar({
 
   const handleCreateCardForDate = async (date: Date) => {
     const created = await onCreateCard?.(date);
-    if (created) setSelectedCard(created);
+    if (created) {
+      setFreshDraftId(created.id);
+      setSelectedCard(created);
+    }
   };
 
   const handleCreateNewCard = () => {
@@ -471,6 +497,28 @@ export default function Calendar({
   useEffect(() => {
     setPickerDate(currentDate);
   }, [currentDate]);
+
+  useEffect(() => {
+    if (!selectedCard) return;
+    const selectedId = selectedCard.id;
+    const synced = events.find(
+      (event): event is ContentCard => event.id === selectedId && 'plannedDates' in event
+    );
+    if (synced) setSelectedCard(synced);
+  }, [events, selectedCard?.id]);
+
+  const handleModalClose = () => {
+    const cardToClose = selectedCard;
+    if (cardToClose && isEmptyFreshDraft(cardToClose, freshDraftId)) {
+      const shouldDiscard = window.confirm(
+        'Discard this empty draft? It will be removed from the calendar.'
+      );
+      if (!shouldDiscard) return;
+      onDeleteCard?.(cardToClose.id);
+      setFreshDraftId(null);
+    }
+    setSelectedCard(null);
+  };
 
   // Floating Date Picker Component
   const FloatingDatePicker = () => {
@@ -876,13 +924,14 @@ export default function Calendar({
           <ContentCardModal
             card={selectedCard}
             isOpen={!!selectedCard}
-            onClose={() => setSelectedCard(null)}
+            onClose={handleModalClose}
             onUpdate={(id, updates) => {
               onEventUpdate?.(id, updates);
               setSelectedCard(prev => prev ? { ...prev, ...updates } : null);
             }}
             onDelete={(id) => {
               onDeleteCard?.(id);
+              setFreshDraftId(prev => prev === id ? null : prev);
               setSelectedCard(null);
             }}
             onOpenScript={onOpenScript}
