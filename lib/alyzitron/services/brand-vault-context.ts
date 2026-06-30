@@ -3,6 +3,7 @@ import type { UnifiedBrand } from '@/lib/shared/brand-registry';
 import { brandSignalProfileToUnifiedBrand } from '@/lib/shared/brand-signal-profile-adapter';
 import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 import { getDefaultBrandVaultRefineryStore } from '@/lib/shared/brand-vault-refinery-api';
+import type { AlyzitronIntentResolution } from '@/app/api/services/alyzitron/types';
 
 export type AlyzitronBrandContextSource = 'brand_vault' | 'legacy' | 'none';
 
@@ -43,6 +44,39 @@ function asRecord(value: unknown): MetadataRecord | null {
     : null;
 }
 
+const BRAND_CONTEXT_HEADER = 'BRAND-AWARE ANALYSIS CONTEXT:';
+const INTENT_CONTEXT_HEADER = 'ALYZITRON CONTENT INTENT:';
+
+function appendContextBlock(existing: string | undefined, header: string, block: string): string {
+  if (existing?.includes(header)) return existing;
+  return [existing, block].filter(Boolean).join('\n\n');
+}
+
+function intentInstruction(intent: AlyzitronIntentResolution): string {
+  switch (intent.contentIntent) {
+    case 'own_content':
+      return 'Analyze this as the user\'s owned content. Use Brand Vault as the standard for fit, then give concrete fixes the user can apply.';
+    case 'competitor_content':
+      return 'Analyze this as competitor or benchmark content. Use Brand Vault as the user\'s lens: identify transferable tactics, non-transferable risks, and what the user can adapt without copying.';
+    case 'reference_content':
+      return 'Analyze this as reference or inspiration content. Extract reusable principles and explain how they could be adapted to the user\'s brand context.';
+    default:
+      return 'Ownership is uncertain. Separate observed media facts from recommendations and avoid assuming whether the content belongs to the user.';
+  }
+}
+
+function buildIntentDetails(intent: AlyzitronIntentResolution): string {
+  const confidence = Math.round(intent.confidence * 100);
+  const rationale = intent.rationale.length ? intent.rationale.join(' ') : 'No rationale was supplied.';
+  return [
+    INTENT_CONTEXT_HEADER,
+    `Intent: ${intent.contentIntent}`,
+    `Source: ${intent.source}${intent.userConfirmed ? ' (user confirmed)' : ''}`,
+    `Confidence: ${confidence}%`,
+    `Rationale: ${rationale}`,
+    intentInstruction(intent),
+  ].join('\n');
+}
 async function defaultAcceptedProfileGetter(filter: { userId: string; brandId: string }) {
   return getDefaultBrandVaultRefineryStore().getLatestAcceptedProfile(filter);
 }
@@ -140,23 +174,36 @@ export async function resolveAlyzitronTaskBrandId(args: {
 export function buildAlyzitronAnalysisContext(
   baseContext: unknown,
   brandResolution: AlyzitronBrandContextResolution | null,
+  intentResolution?: AlyzitronIntentResolution | null,
 ): MetadataRecord {
   const context = { ...(asRecord(baseContext) ?? {}) };
-  if (!brandResolution?.brandContextBlock || !brandResolution.brandId) return context;
+  const result: MetadataRecord = { ...context };
+  let additionalDetails = cleanString(context.additionalDetails);
 
-  const existingAdditionalDetails = cleanString(context.additionalDetails);
-  const brandDetails = [
-    'BRAND-AWARE ANALYSIS CONTEXT:',
-    brandResolution.brandContextBlock,
-    'Use this brand context as alignment criteria when judging visual style, tone, pacing, proof style, audience fit, and recommendations. Do not invent brand facts beyond this block.',
-  ].join('\n');
+  if (brandResolution?.brandContextBlock && brandResolution.brandId) {
+    const brandDetails = [
+      BRAND_CONTEXT_HEADER,
+      brandResolution.brandContextBlock,
+      'Use this brand context as alignment criteria when judging visual style, tone, pacing, proof style, audience fit, and recommendations. Do not invent brand facts beyond this block.',
+    ].join('\n');
 
-  return {
-    ...context,
-    brandId: brandResolution.brandId,
-    brandContextSource: brandResolution.source,
-    brandContextBlock: brandResolution.brandContextBlock,
-    brandName: brandResolution.brand?.name,
-    additionalDetails: [existingAdditionalDetails, brandDetails].filter(Boolean).join('\n\n'),
-  };
+    result.brandId = brandResolution.brandId;
+    result.brandContextSource = brandResolution.source;
+    result.brandContextBlock = brandResolution.brandContextBlock;
+    result.brandName = brandResolution.brand?.name;
+    additionalDetails = appendContextBlock(additionalDetails, BRAND_CONTEXT_HEADER, brandDetails);
+  }
+
+  if (intentResolution) {
+    result.contentIntent = intentResolution.contentIntent;
+    result.intentSource = intentResolution.source;
+    result.intentConfidence = intentResolution.confidence;
+    result.intentRationale = intentResolution.rationale;
+    result.userConfirmedIntent = intentResolution.userConfirmed;
+    result.intentResolution = intentResolution;
+    additionalDetails = appendContextBlock(additionalDetails, INTENT_CONTEXT_HEADER, buildIntentDetails(intentResolution));
+  }
+
+  if (additionalDetails) result.additionalDetails = additionalDetails;
+  return result;
 }

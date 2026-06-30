@@ -14,6 +14,11 @@ import {
   resolveAlyzitronBrandContext,
   resolveAlyzitronTaskBrandId,
 } from "@/lib/alyzitron/services/brand-vault-context";
+import {
+  inferAlyzitronMediaSourceKind,
+  resolveAlyzitronContentIntent,
+} from "@/lib/alyzitron/analysis-intent";
+import type { AlyzitronIntentResolution, AlyzitronMediaSourceKind } from "../types";
 function getGcsUrl(gcsPath: string): string {
   const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) throw new Error("Server configuration error: GCS bucket name missing.");
@@ -29,6 +34,27 @@ function detectStorageBackend(url: string): 'gcs' | 'r2' | 'youtube' | 'external
   return 'external';
 }
 
+function storageBackendToMediaSourceKind(backend: string): AlyzitronMediaSourceKind | undefined {
+  if (backend === 'youtube') return 'youtube_url';
+  if (backend === 'external') return 'external_url';
+  if (backend === 'gcs' || backend === 'r2') return backend;
+  return undefined;
+}
+
+function buildIntentMetadata(
+  intentResolution: AlyzitronIntentResolution,
+  mediaSourceKind?: AlyzitronMediaSourceKind,
+): Record<string, unknown> {
+  return {
+    ...(mediaSourceKind ? { mediaSourceKind } : {}),
+    contentIntent: intentResolution.contentIntent,
+    intentSource: intentResolution.source,
+    intentConfidence: intentResolution.confidence,
+    intentRationale: intentResolution.rationale,
+    userConfirmedIntent: intentResolution.userConfirmed,
+    intentResolution,
+  };
+}
 const qstashBaseUrl = process.env.QSTASH_URL || (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
 const qstash = new Client({ token: process.env.QSTASH_TOKEN!, baseUrl: qstashBaseUrl });
 
@@ -43,6 +69,12 @@ export async function POST(request: Request) {
 
     if (!video_url) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
 
+    const backend = storage || detectStorageBackend(video_url);
+    const mediaSourceKind = inferAlyzitronMediaSourceKind({
+      mediaSourceKind: body.mediaSourceKind ?? metadata?.mediaSourceKind ?? storageBackendToMediaSourceKind(backend),
+      videoUrl: video_url,
+      metadata,
+    });
     const taskBrandId = await resolveAlyzitronTaskBrandId({
       userId,
       orgId,
@@ -71,9 +103,22 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    const analysisContext = buildAlyzitronAnalysisContext(context || {}, brandContext);
-
-    const backend = storage || detectStorageBackend(video_url);
+    const intentResolution = resolveAlyzitronContentIntent({
+      userSelectedIntent: body.userSelectedIntent,
+      contentIntent: body.contentIntent ?? body.content_intent,
+      intentSource: body.intentSource,
+      userConfirmedIntent: body.userConfirmedIntent,
+      intentResolution: body.intentResolution,
+      mediaSourceKind,
+      videoUrl: video_url,
+      brandId: taskBrandId,
+      editronProjectId,
+      metadata,
+      context,
+      userText: body.userText ?? body.prompt,
+    });
+    const intentMetadata = buildIntentMetadata(intentResolution, mediaSourceKind);
+    const analysisContext = buildAlyzitronAnalysisContext(context || {}, brandContext, intentResolution);
     const isGCS = backend === 'gcs';
     const isR2 = backend === 'r2';
     const isMaybeYouTube = backend === 'youtube';
@@ -154,10 +199,14 @@ export async function POST(request: Request) {
           mimeType: isImageFile ? (metadata?.mimeType || 'image/jpeg') : (metadata?.mimeType || 'video/mp4'),
           storage: backend,
           storageBackend: backend,
+          ...intentMetadata,
           ...(taskBrandId ? { brandId: taskBrandId } : {}),
           ...(brandContext?.source && brandContext.source !== 'none' ? { brandContextSource: brandContext.source } : {}),
         },
         ...(taskBrandId ? { brandId: taskBrandId } : {}),
+        ...(mediaSourceKind ? { mediaSourceKind } : {}),
+        contentIntent: intentResolution.contentIntent,
+        intentResolution,
         ...(brandContext?.source && brandContext.source !== 'none' ? { brandContextSource: brandContext.source } : {}),
         status: "listed",
         unread: true,
@@ -192,10 +241,14 @@ export async function POST(request: Request) {
             ...metadata,
             storage: backend,
             storageBackend: backend,
+            ...intentMetadata,
             ...(taskBrandId ? { brandId: taskBrandId } : {}),
             ...(brandContext?.source && brandContext.source !== 'none' ? { brandContextSource: brandContext.source } : {}),
           },
           ...(taskBrandId ? { brandId: taskBrandId } : {}),
+          ...(mediaSourceKind ? { mediaSourceKind } : {}),
+          contentIntent: intentResolution.contentIntent,
+          intentResolution,
           ...(editronProjectId ? { editronProjectId } : {}),
         },
         retries: 3,
@@ -209,11 +262,12 @@ export async function POST(request: Request) {
           userId,
           backend,
           videoDuration,
-          isImageFile
+          isImageFile,
+          contentIntent: intentResolution.contentIntent
         }
       });
 
-      return NextResponse.json({ success: true, taskId: taskId.toString() });
+      return NextResponse.json({ success: true, taskId: taskId.toString(), intentResolution });
 
     } catch (processingError) {
       console.error("ANALYZE_PROCESSING_ERROR:", processingError);

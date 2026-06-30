@@ -13,6 +13,11 @@ import {
   resolveAlyzitronBrandContext,
 } from "@/lib/alyzitron/services/brand-vault-context";
 import { normalizeAlyzitronAnalysisResults } from "@/lib/alyzitron/analysis-results";
+import {
+  inferAlyzitronMediaSourceKind,
+  resolveAlyzitronContentIntent,
+} from "@/lib/alyzitron/analysis-intent";
+import type { AlyzitronIntentResolution, AlyzitronMediaSourceKind } from "../types";
 
 function cleanString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -26,6 +31,46 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+
+function storageBackendToMediaSourceKind(value: unknown): AlyzitronMediaSourceKind | undefined {
+  const backend = cleanString(value);
+  if (backend === "youtube") return "youtube_url";
+  if (backend === "external") return "external_url";
+  if (backend === "gcs" || backend === "r2") return backend;
+  return undefined;
+}
+
+function buildIntentMetadata(
+  intentResolution: AlyzitronIntentResolution,
+  mediaSourceKind?: AlyzitronMediaSourceKind,
+): Record<string, unknown> {
+  return {
+    ...(mediaSourceKind ? { mediaSourceKind } : {}),
+    contentIntent: intentResolution.contentIntent,
+    intentSource: intentResolution.source,
+    intentConfidence: intentResolution.confidence,
+    intentRationale: intentResolution.rationale,
+    userConfirmedIntent: intentResolution.userConfirmed,
+    intentResolution,
+  };
+}
+
+function buildIntentCompletionFields(
+  intentResolution: AlyzitronIntentResolution,
+  mediaSourceKind?: AlyzitronMediaSourceKind,
+): Record<string, unknown> {
+  return {
+    ...(mediaSourceKind ? { mediaSourceKind, "metadata.mediaSourceKind": mediaSourceKind } : {}),
+    contentIntent: intentResolution.contentIntent,
+    intentResolution,
+    "metadata.contentIntent": intentResolution.contentIntent,
+    "metadata.intentSource": intentResolution.source,
+    "metadata.intentConfidence": intentResolution.confidence,
+    "metadata.intentRationale": intentResolution.rationale,
+    "metadata.userConfirmedIntent": intentResolution.userConfirmed,
+    "metadata.intentResolution": intentResolution,
+  };
+}
 async function handler(request: NextRequest) {
   let currentTaskId: string | null = null;
   let currentUserId: string | null = null;
@@ -50,12 +95,44 @@ async function handler(request: NextRequest) {
       cleanString(task.brandId) ??
       cleanString(asRecord(task.context)?.brandId) ??
       cleanString(asRecord(task.metadata)?.brandId);
+    const taskContext = asRecord(task.context);
+    const taskMetadata = asRecord(task.metadata);
+    const mediaSourceKind = inferAlyzitronMediaSourceKind({
+      mediaSourceKind:
+        body.mediaSourceKind ??
+        task.mediaSourceKind ??
+        taskMetadata?.mediaSourceKind ??
+        storageBackendToMediaSourceKind(taskMetadata?.storageBackend ?? taskMetadata?.storage),
+      videoUrl: task.videoUrl,
+      metadata: task.metadata,
+    });
+    const intentResolution = resolveAlyzitronContentIntent({
+      userSelectedIntent: body.userSelectedIntent,
+      contentIntent:
+        body.contentIntent ??
+        body.content_intent ??
+        task.contentIntent ??
+        taskMetadata?.contentIntent ??
+        taskContext?.contentIntent,
+      intentSource: body.intentSource ?? taskMetadata?.intentSource ?? taskContext?.intentSource,
+      userConfirmedIntent: body.userConfirmedIntent ?? taskMetadata?.userConfirmedIntent ?? taskContext?.userConfirmedIntent,
+      intentResolution: body.intentResolution ?? task.intentResolution ?? taskMetadata?.intentResolution ?? taskContext?.intentResolution,
+      mediaSourceKind,
+      videoUrl: task.videoUrl,
+      brandId: taskBrandId,
+      editronProjectId: editronProjectId ?? task.editronProjectId,
+      metadata: task.metadata,
+      context: task.context,
+    });
+    const intentMetadata = buildIntentMetadata(intentResolution, mediaSourceKind);
+    const intentCompletionFields = buildIntentCompletionFields(intentResolution, mediaSourceKind);
     const brandContext = await resolveAlyzitronBrandContext({ userId, brandId: taskBrandId });
-    const analysisContext = buildAlyzitronAnalysisContext(task.context || {}, brandContext);
+    const analysisContext = buildAlyzitronAnalysisContext(task.context || {}, brandContext, intentResolution);
     const analysisMetadata = {
       ...(task.metadata || {}),
       ...(taskBrandId ? { brandId: taskBrandId } : {}),
       ...(brandContext.source !== "none" ? { brandContextSource: brandContext.source } : {}),
+      ...intentMetadata,
     };
     const brandCompletionFields = {
       ...(taskBrandId ? { brandId: taskBrandId, "metadata.brandId": taskBrandId } : {}),
@@ -233,6 +310,7 @@ async function handler(request: NextRequest) {
             originalSourceUrl,
             "metadata.mimeType": updatedMimeType,
             ...brandCompletionFields,
+            ...intentCompletionFields,
             completedAt: new Date(),
             updatedAt: new Date()
           }
@@ -254,6 +332,7 @@ async function handler(request: NextRequest) {
                   category: analysisResults.category ?? null,
                   strengths: analysisResults.strengths ?? [],
                   weaknesses: analysisResults.weaknesses ?? [],
+                  contentIntent: intentResolution.contentIntent,
                   completedAt: new Date(),
                 },
                 qualityScore: analysisResults.overall_score ?? null,
@@ -278,6 +357,7 @@ async function handler(request: NextRequest) {
             editronProjectId: editronProjectId || undefined,
             hasTranscription: !!transcriptResult,
             wordCount: transcriptResult?.wordCount ?? 0,
+            contentIntent: intentResolution.contentIntent,
           },
         }).catch((e: unknown) => logger.warn('[Alyzitron] Brand event failed', { data: { error: String(e) } }));
       } catch {
