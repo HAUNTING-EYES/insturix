@@ -10,6 +10,13 @@ export type CrossOverlayChoreographyFamily =
   | 'pacing'
   | 'other';
 
+export type CrossOverlayChoreographyLane =
+  | 'text'
+  | 'motion'
+  | 'audio'
+  | 'timeline'
+  | 'other';
+
 export interface CrossOverlayChoreographyDecisionSummary {
   type: EditDecision['type'];
   frame: number;
@@ -34,7 +41,19 @@ export interface CrossOverlayChoreographyReport {
   suppressedDecisionCount: number;
   annotatedDecisionCount: number;
   calibrationStatus: 'invented-needs-calibration';
+  laneLoad: Record<CrossOverlayChoreographyLane, number>;
+  syncGroups: CrossOverlayChoreographySyncGroup[];
   suppressed: Array<Omit<CrossOverlayChoreographySuppression, 'decision'>>;
+}
+
+export interface CrossOverlayChoreographySyncGroup {
+  id: string;
+  lane: CrossOverlayChoreographyLane;
+  lanes: CrossOverlayChoreographyLane[];
+  frame: number;
+  families: CrossOverlayChoreographyFamily[];
+  decisionTypes: EditDecision['type'][];
+  count: number;
 }
 
 export interface CrossOverlayChoreographyResult {
@@ -78,14 +97,9 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
     kept.push(decision);
   }
 
-  const suppressedByFrame = suppressed.reduce<Record<number, number>>((counts, item) => {
-    counts[item.frame] = (counts[item.frame] ?? 0) + 1;
-    return counts;
-  }, {});
-
   const annotated = kept
     .sort((a, b) => a.frame - b.frame || a.priority - b.priority)
-    .map((decision) => annotateKeptDecision(decision, kept, suppressedByFrame[decision.frame] ?? 0));
+    .map((decision) => annotateKeptDecision(decision, kept, suppressed));
 
   return buildResult(annotated, suppressed);
 }
@@ -130,13 +144,17 @@ function findChoreographyConflict(
 function annotateKeptDecision(
   decision: EditDecision,
   kept: EditDecision[],
-  suppressedNearbyCount: number,
+  suppressed: CrossOverlayChoreographySuppression[],
 ): EditDecision {
-  const activeFamilies = [...new Set(
-    kept
-      .filter((candidate) => candidate !== decision && framesNear(decision, candidate, ACTIVE_WINDOW_FRAMES))
-      .map(familyForDecision),
-  )].sort();
+  const nearbyKept = kept.filter((candidate) => candidate !== decision && framesNear(decision, candidate, ACTIVE_WINDOW_FRAMES));
+  const nearbySuppressed = suppressed.filter((item) => framesNear(decision, item.decision, ACTIVE_WINDOW_FRAMES));
+  const activeFamilies = [...new Set(nearbyKept.map(familyForDecision))].sort();
+  const family = familyForDecision(decision);
+  const lane = laneForFamily(family);
+  const linkedDecisions = nearbyKept.filter((candidate) => decisionsCoordinate(decision, candidate));
+  const linkedFamilies = [...new Set(linkedDecisions.map(familyForDecision))].sort();
+  const syncFrame = linkedDecisions.length ? resolveChoreographySyncFrame(decision, linkedDecisions) : null;
+  const syncGroupId = syncFrame !== null ? `sync:${Math.round(syncFrame)}` : null;
   const params = { ...(decision.params ?? {}) };
   const merge = recordParam(params.unifiedDecisionMerge) ?? {};
   return {
@@ -145,11 +163,16 @@ function annotateKeptDecision(
       ...params,
       crossOverlayChoreography: {
         version: 'cross-overlay-choreography-v1',
-        family: familyForDecision(decision),
+        family,
+        lane,
+        syncGroupId,
         decisionStrength: roundAuditNumber(decisionStrength(decision)),
         activeFamilies,
+        linkedFamilies,
         activeNeighborCount: activeFamilies.length,
-        suppressedNearbyCount,
+        nearbyDecisionCount: nearbyKept.length,
+        linkedDecisionCount: linkedDecisions.length,
+        suppressedNearbyCount: nearbySuppressed.length,
         calibrationStatus: 'invented-needs-calibration',
       },
       unifiedDecisionMerge: {
@@ -157,8 +180,11 @@ function annotateKeptDecision(
         crossOverlayChoreography: {
           version: 'cross-overlay-choreography-v1',
           role: 'kept',
+          lane,
+          syncGroupId,
           activeFamilies,
-          suppressedNearbyCount,
+          linkedFamilies,
+          suppressedNearbyCount: nearbySuppressed.length,
         },
       },
     },
@@ -179,6 +205,8 @@ function buildResult(
       suppressedDecisionCount: suppressed.length,
       annotatedDecisionCount: decisions.length,
       calibrationStatus: 'invented-needs-calibration',
+      laneLoad: buildLaneLoad(decisions),
+      syncGroups: buildSyncGroups(decisions),
       suppressed: suppressed.map(({ decision: _decision, ...rest }) => rest),
     },
   };
@@ -229,6 +257,14 @@ function isVisualFamily(family: CrossOverlayChoreographyFamily): boolean {
   return family === 'caption' || family === 'mg' || family === 'camera' || family === 'transition';
 }
 
+function laneForFamily(family: CrossOverlayChoreographyFamily): CrossOverlayChoreographyLane {
+  if (isTextLaneFamily(family)) return 'text';
+  if (isMotionFamily(family)) return 'motion';
+  if (family === 'audio') return 'audio';
+  if (family === 'timing' || family === 'pacing') return 'timeline';
+  return 'other';
+}
+
 function familyExecutionRank(family: CrossOverlayChoreographyFamily): number {
   if (isVisualFamily(family)) return 0;
   if (family === 'timing' || family === 'pacing') return 1;
@@ -257,6 +293,77 @@ function isAudioLinkedToVisualBeat(audio: EditDecision, visual: EditDecision): b
   return booleanAtPath(audio.params, ['sfxSyncPlan.crossFamily.linkedOverlay'])
     || booleanParam(audio, ['linkedOverlay', 'linked_overlay'])
     || (anchorFrame !== undefined && Math.abs(anchorFrame - visual.frame) <= AUDIO_SYNC_WINDOW_FRAMES);
+}
+
+function decisionsCoordinate(a: EditDecision, b: EditDecision): boolean {
+  const aFamily = familyForDecision(a);
+  const bFamily = familyForDecision(b);
+  if (isTextLaneFamily(aFamily) && isTextLaneFamily(bFamily)) {
+    return isCaptionMgCoordinationAllowed(a, b);
+  }
+  if (isMotionFamily(aFamily) && isMotionFamily(bFamily)) {
+    return isTransitionZoomBridgeAllowed(a, b);
+  }
+  if (aFamily === 'audio' && isVisualFamily(bFamily)) {
+    return isAudioLinkedToVisualBeat(a, b);
+  }
+  if (bFamily === 'audio' && isVisualFamily(aFamily)) {
+    return isAudioLinkedToVisualBeat(b, a);
+  }
+  return false;
+}
+
+function resolveDecisionSyncFrame(decision: EditDecision): number | null {
+  return numberParam(decision, ['beatFrame', 'anchorFrame', 'boundaryFrame'])
+    ?? numberParam(decision, ['transitionFrame', 'syncFrame', 'sfxSyncFrame'])
+    ?? decision.frame;
+}
+
+function resolveChoreographySyncFrame(decision: EditDecision, linkedDecisions: EditDecision[]): number {
+  const frames = [decision, ...linkedDecisions]
+    .map(resolveDecisionSyncFrame)
+    .filter((frame): frame is number => typeof frame === 'number' && Number.isFinite(frame));
+  if (!frames.length) return decision.frame;
+  return Math.min(...frames);
+}
+
+function buildLaneLoad(decisions: EditDecision[]): Record<CrossOverlayChoreographyLane, number> {
+  const load: Record<CrossOverlayChoreographyLane, number> = {
+    text: 0,
+    motion: 0,
+    audio: 0,
+    timeline: 0,
+    other: 0,
+  };
+  for (const decision of decisions) {
+    load[laneForFamily(familyForDecision(decision))] += 1;
+  }
+  return load;
+}
+
+function buildSyncGroups(decisions: EditDecision[]): CrossOverlayChoreographySyncGroup[] {
+  const groups = new Map<string, { lane: CrossOverlayChoreographyLane; frame: number; decisions: EditDecision[] }>();
+  for (const decision of decisions) {
+    const choreography = recordParam(decision.params.crossOverlayChoreography);
+    const id = typeof choreography?.syncGroupId === 'string' ? choreography.syncGroupId : null;
+    if (!id) continue;
+    const lane = laneForFamily(familyForDecision(decision));
+    const frame = resolveDecisionSyncFrame(decision) ?? decision.frame;
+    const group = groups.get(id) ?? { lane, frame, decisions: [] };
+    group.decisions.push(decision);
+    groups.set(id, group);
+  }
+  return [...groups.entries()]
+    .map(([id, group]) => ({
+      id,
+      lane: group.lane,
+      lanes: [...new Set(group.decisions.map((decision) => laneForFamily(familyForDecision(decision))))].sort(),
+      frame: group.frame,
+      families: [...new Set(group.decisions.map(familyForDecision))].sort(),
+      decisionTypes: [...new Set(group.decisions.map((decision) => decision.type))].sort(),
+      count: group.decisions.length,
+    }))
+    .sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
 }
 
 function framesNear(a: EditDecision, b: EditDecision, windowFrames: number): boolean {
