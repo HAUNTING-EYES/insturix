@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Map LLM output to SceneDescriptor format (pass through all LLM-generated fields)
-        scenes = llmResult.scenes.map((s, i) => ({
+        const parsedScenes: SceneDescriptor[] = llmResult.scenes.map((s: any, i: number) => ({
           sceneIndex: i,
           title: s.title,
           narration: s.narration,
@@ -232,6 +232,7 @@ export async function POST(request: NextRequest) {
           ...((s as any).primaryVisualForUnit !== undefined && { primaryVisualForUnit: (s as any).primaryVisualForUnit }),
           ...((s as any).assetRecommendation && { assetRecommendation: (s as any).assetRecommendation }),
         }));
+        scenes = parsedScenes;
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
         characterDescriptions = llmResult.characterDescriptions || {};
         colorPalette = llmResult.colorPalette || [];
@@ -240,7 +241,7 @@ export async function POST(request: NextRequest) {
         // LLM-suggested profile category for detection filtering (2026-04-17)
         suggestedProfileCategory = (llmResult as any).suggestedProfileCategory || '';
 
-        console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
+        console.log(`[export-for-editron] LLM parsed ${parsedScenes.length} scenes`);
       } catch (llmError: any) {
         // Log the FULL error (not just message) so we can see 401s, model-not-found, rate limits, etc.
         console.error('[export-for-editron] LLM parsing FAILED:', {
