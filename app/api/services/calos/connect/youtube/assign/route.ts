@@ -31,9 +31,10 @@ async function getAssignableYoutubeAccount(userId: string): Promise<{ displayNam
 }
 
 /**
- * Per-brand YouTube channel binding (Model A: assign the channel you already control). The publish
- * queue later uses the assigning owner's Clerk Google connection. v1 posts a card that already has a
- * video; attaching that video to a card is handled elsewhere.
+ * Per-brand YouTube channel binding (Model A: assign the channel you already control). This route
+ * stores the brand -> channel owner reference; final upload token resolution is owned by
+ * lib/calos/publish/youtube.ts. v1 posts a card that already has a video; attaching that video to a
+ * card is handled elsewhere.
  *
  *  GET    ?brandId=... -> current assignment(s) (no tokens)
  *  POST   {brandId, accountRef, displayName?} -> assign / re-assign
