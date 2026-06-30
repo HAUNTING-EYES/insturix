@@ -163,14 +163,12 @@ export async function analyzeVideoWithGemini(
       ],
     };
 
-    // --- Ye block insert karo ---
     let extraParams: any = {};
     if (model.includes("3.1")) {
       extraParams.thinkingConfig = { thinkingLevel: "high" };
     } else if (model.includes("2.5")) {
       extraParams.thinkingConfig = { thinkingBudget: 4000 };
     }
-    // ----------------------------
     const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
@@ -345,11 +343,8 @@ ${brandContextBlock}
 Be specific and reference actual content from the video with precise timestamps.
 `;
 
-    // Prepare request parts
-    // --- FIXED BLOCK ---
     const parts: any[] = [];
 
-    // 1. Video file add karna compulsory hai (Iske bina Gemini video nahi dekh payega)
     if (videoUrl) {
       parts.push({
         fileData: {
@@ -359,7 +354,6 @@ Be specific and reference actual content from the video with precise timestamps.
       });
     }
 
-    // 2. Audio file sirf tabhi add hogi jab audioUri valid ho (Ye 400 error fix karega)
     if (audioUri && audioUri.trim() !== "") {
       parts.push({
         fileData: {
@@ -369,9 +363,7 @@ Be specific and reference actual content from the video with precise timestamps.
       });
     }
 
-    // 3. Prompt text
     parts.push({ text: prompt });
-    // -------------------
 
 
     const request = {
@@ -387,14 +379,12 @@ Be specific and reference actual content from the video with precise timestamps.
     const responseText =
       result.response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
-    console.log("RAW_VERTEX_RESPONSE:", responseText);
 
     // Clean and parse the JSON response
     try {
       // Clean the response text - remove markdown code blocks
       let cleanResponseText = responseText.trim();
 
-      console.log("cleanResponseText : ", cleanResponseText);
       // Remove ```json and ``` markers if present
       if (cleanResponseText.startsWith("```")) {
         cleanResponseText = cleanResponseText
@@ -404,7 +394,6 @@ Be specific and reference actual content from the video with precise timestamps.
 
       const parsed = JSON.parse(cleanResponseText);
 
-      console.log("parsed : ", parsed);
       // Check for explicit error from model
       if (parsed.error === "CANNOT_ACCESS_VIDEO") {
         throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
@@ -439,7 +428,6 @@ Be specific and reference actual content from the video with precise timestamps.
         finalResult.compliance_risks = finalResult.compliance_risks.filter((risk: any) => risk.score > 0);
       }
 
-      console.log(finalResult);
       return finalResult;
     } catch (parseError) {
       // If it was our custom error, rethrow it
