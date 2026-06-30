@@ -220,7 +220,7 @@ function validateSignal(
   const actionable = signal.trustLevel !== 'fallback_default'
     && signal.confidence >= BRAND_CONFIDENCE.ACTIONABLE_SIGNAL
     && getBrandSignalEffectWeight(signal) > 0;
-  if (signal.evidenceIds.length === 0 && actionable) {
+  if (signal.evidenceIds.length === 0 && actionable && signal.trustLevel !== 'llm_inference') {
     issues.push(error('missing_evidence', path, 'Brand signal must reference at least one evidence item.'));
   }
   if (signal.trustLevel === 'fallback_default' && !signal.fallbackReason) {
