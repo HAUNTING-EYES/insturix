@@ -30,7 +30,7 @@ type CalendarProps = {
   onEventDrop?: (eventId: string, newDate: Date) => void;
   onClose?: () => void;
   onEventUpdate?: (id: string, patch: Partial<ContentCard | CalendarEvent>) => void;
-  onCreateCard?: (date: Date) => void;
+  onCreateCard?: (date: Date) => ContentCard | null | undefined | Promise<ContentCard | null | undefined>;
   onDeleteCard?: (id: string) => void;
   onOpenScript?: (sessionId: string) => void;
   onGenerate?: (id: string) => void;
@@ -342,9 +342,14 @@ export default function Calendar({
     navigateToMonth(today);
   };
 
+  const handleCreateCardForDate = async (date: Date) => {
+    const created = await onCreateCard?.(date);
+    if (created) setSelectedCard(created);
+  };
+
   const handleCreateNewCard = () => {
     const today = new Date();
-    onCreateCard?.(today);
+    void handleCreateCardForDate(today);
   };
 
   const statusOptions = [
@@ -793,7 +798,7 @@ export default function Calendar({
                         aria-label={format(day, 'MMMM d, yyyy')}
                         onClick={() => {
                            if (dayEvents.length === 0) {
-                              onCreateCard?.(day);
+                              void handleCreateCardForDate(day);
                            } else {
                               onCellClick?.(day);
                            }

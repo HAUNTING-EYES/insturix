@@ -75,7 +75,7 @@ export default function CalosPage() {
 
   const handleCreateCard = (date: Date) => {
     const iso = date.toISOString();
-    void createCard({
+    return createCard({
       title: 'Untitled content',
       date: iso,
       plannedDates: [iso],

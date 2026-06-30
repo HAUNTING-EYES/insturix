@@ -1,16 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
+const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+
+type ClerkExternalAccount = {
+  provider?: string | null;
+  username?: string | null;
+  emailAddress?: string | null;
+  approvedScopes?: string | string[] | null;
+  verification?: { strategy?: string | null } | null;
+};
+
+function findGoogleAccount(accounts: ClerkExternalAccount[] | undefined): ClerkExternalAccount | undefined {
+  return accounts?.find(
+    (account) =>
+      account.provider?.includes("google") ||
+      account.verification?.strategy === "oauth_google",
+  );
+}
+
+async function getAssignableYoutubeAccount(userId: string): Promise<{ displayName: string } | null> {
+  const client = await clerkClient();
+  const user = await client.users.getUser(userId);
+  const googleAccount = findGoogleAccount(user.externalAccounts as unknown as ClerkExternalAccount[] | undefined);
+  if (!googleAccount || googleAccount.approvedScopes?.includes(YOUTUBE_UPLOAD_SCOPE) === false) {
+    return null;
+  }
+  return { displayName: googleAccount.username || googleAccount.emailAddress || "YouTube channel" };
+}
+
 /**
- * Per-brand YouTube channel binding (Model A — assign the channel you already control). The publish
- * queue uploads a video card's video to the assigned channel using the owner's UploaderX.youtubeTokens
- * at publish time. v1: posts a card that already has a video (the "attach a video to a card" UX is a
- * separate piece), so most cards (text/image/script) won't target YouTube.
+ * Per-brand YouTube channel binding (Model A: assign the channel you already control). The publish
+ * queue later uses the assigning owner's Clerk Google connection. v1 posts a card that already has a
+ * video; attaching that video to a card is handled elsewhere.
  *
- *  GET    ?brandId=…   → current assignment(s) (no tokens)
- *  POST   {brandId, accountRef, displayName?} → assign / re-assign
- *  DELETE {brandId, accountRef} → unassign
+ *  GET    ?brandId=... -> current assignment(s) (no tokens)
+ *  POST   {brandId, accountRef, displayName?} -> assign / re-assign
+ *  DELETE {brandId, accountRef} -> unassign
  */
 async function getModels() {
   await connectToDatabase();
@@ -65,22 +92,15 @@ export async function POST(request: NextRequest) {
   if (!brandId) return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   if (!accountRef) return NextResponse.json({ success: false, error: "accountRef is required" }, { status: 400 });
 
-  await connectToDatabase();
-  const { User } = await import("@/schemas/user");
-  const user = await User.findOne({ clerkUserId: session.userId }).select("email").lean<{ email?: string } | null>();
-  if (!user?.email) {
-    return NextResponse.json({ success: false, error: "No email on file to resolve YouTube" }, { status: 409 });
-  }
-  const { default: UploaderX } = await import("@/schemas/uploaderx");
-  const ux = await UploaderX.findOne({ email: user.email }).select("youtubeTokens").lean<{ youtubeTokens?: object } | null>();
-  if (!ux?.youtubeTokens) {
+  const youtubeAccount = await getAssignableYoutubeAccount(session.userId);
+  if (!youtubeAccount) {
     return NextResponse.json(
       { success: false, error: "Connect your YouTube channel first before assigning it to a brand" },
       { status: 409 },
     );
   }
 
-  const { default: CalosConnectedAccount } = await import("@/schemas/calos-connected-account");
+  const { CalosConnectedAccount } = await getModels();
   await CalosConnectedAccount.updateOne(
     { brandId, platform: "youtube", accountRef },
     {
@@ -88,8 +108,8 @@ export async function POST(request: NextRequest) {
         orgId: session.orgId || null,
         accountType: "organization",
         ownerUserId: session.userId,
-        displayName: body.displayName?.trim() || "YouTube channel",
-        accessTokenEnc: null, // Model A — reference; token lives in UploaderX.youtubeTokens (by email)
+        displayName: body.displayName?.trim() || youtubeAccount.displayName,
+        accessTokenEnc: null,
       },
     },
     { upsert: true },
