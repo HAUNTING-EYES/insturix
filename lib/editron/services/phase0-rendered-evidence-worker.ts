@@ -2,8 +2,17 @@ import { Client } from '@upstash/qstash';
 import { renderStillOnLambda, type RenderStillOnLambdaOutput } from '@remotion/lambda/client';
 
 import { REMOTION_COMPOSITION_ID } from './remotion-constants';
-import { buildPhase0FixtureManifest, type Phase0FixtureProject } from './phase0-fixture-manifest';
+import {
+  buildPhase0FixtureManifest,
+  type Phase0FixtureProject,
+  type Phase0RenderedAestheticReportLike,
+  type Phase0RenderedQualityEvidencePayload,
+} from './phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from './phase0-render-artifact-pack';
+import {
+  buildPhase0RenderedAestheticEvidence,
+  type ReadRenderedStillImage,
+} from './phase0-rendered-aesthetic-scoring';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
@@ -54,6 +63,8 @@ export interface Phase0RenderedStillEvidence {
   failedFrames: Array<{ frame: number; error: string; renderKind?: 'full' | 'baseline' | 'worker' }>;
   artifactPackStatus: 'ready' | 'not-renderable';
   artifactPackIssues: string[];
+  renderedAestheticReport?: Phase0RenderedAestheticReportLike;
+  renderedQualityEvidence?: Phase0RenderedQualityEvidencePayload;
 }
 
 type RenderStill = typeof renderStillOnLambda;
@@ -123,6 +134,7 @@ export async function buildPhase0RenderedStillEvidence(
     capturedAt?: string;
     renderStill?: RenderStill;
     prepareCredentials?: () => Promise<void>;
+    readImage?: ReadRenderedStillImage;
     env?: EnvLike;
   } = {},
 ): Promise<Phase0RenderedStillEvidence> {
@@ -239,7 +251,7 @@ export async function buildPhase0RenderedStillEvidence(
       ? 'partial'
       : 'failed';
 
-  return {
+  let evidence: Phase0RenderedStillEvidence = {
     ...baseEvidence({
       projectId: manifest.projectId,
       capturedAt,
@@ -253,6 +265,36 @@ export async function buildPhase0RenderedStillEvidence(
     renderedFrames,
     failedFrames,
   };
+
+  if (renderedFrames.length > 0) {
+    try {
+      const aestheticEvidence = await buildPhase0RenderedAestheticEvidence(
+        manifest,
+        artifactPack,
+        { renderedFrames },
+        { readImage: options.readImage },
+      );
+      if (aestheticEvidence) {
+        evidence = {
+          ...evidence,
+          renderedAestheticReport: aestheticEvidence.report,
+          renderedQualityEvidence: aestheticEvidence.qualityEvidence,
+        };
+      }
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      evidence = {
+        ...evidence,
+        status: evidence.status === 'completed' ? 'partial' : evidence.status,
+        failedFrames: [
+          ...evidence.failedFrames,
+          { frame: -1, renderKind: 'worker', error: `rendered-aesthetic-scoring:${error}` },
+        ],
+      };
+    }
+  }
+
+  return evidence;
 }
 
 export function buildPhase0RenderedStillEvidenceFailure(input: {

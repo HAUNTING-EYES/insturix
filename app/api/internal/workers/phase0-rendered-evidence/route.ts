@@ -1,4 +1,4 @@
-/**
+﻿/**
  * POST /api/internal/workers/phase0-rendered-evidence
  *
  * Async Phase 0 rendered evidence worker.
@@ -83,6 +83,7 @@ async function handler(request: NextRequest) {
   console.log(
     `[Phase0RenderedEvidence] ${projectId}: status=${evidence.status}, ` +
     `rendered=${evidence.renderedFrames.length}/${evidence.requestedSampleFrames.length}, ` +
+    `renderQuality=${evidence.renderedQualityEvidence?.renderedAestheticStatus ?? 'missing'}, ` +
     `ms=${Date.now() - startedAt}`,
   );
 
@@ -92,6 +93,8 @@ async function handler(request: NextRequest) {
     status: evidence.status,
     renderedFrames: evidence.renderedFrames.length,
     failedFrames: evidence.failedFrames.length,
+    qualityEvidenceSource: evidence.renderedQualityEvidence?.qualityEvidenceSource ?? 'metadata-only',
+    renderedQualityStatus: evidence.renderedQualityEvidence?.renderedQualityStatus ?? 'missing',
   });
 }
 
@@ -100,20 +103,35 @@ async function persistPhase0RenderedStillEvidence(
   projectId: string,
   evidence: Phase0RenderedStillEvidence,
 ) {
+  const renderedQualityEvidence = evidence.renderedQualityEvidence;
+  const setPayload: Record<string, unknown> = {
+    'intelligence.phase0RenderedStillEvidence': evidence,
+    'intelligence.phase0FixtureArtifact.materialization': evidence.renderedFrames.length > 0
+      ? 'lambda-stills-rendered'
+      : 'lambda-stills-missing',
+    'intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus': evidence.status,
+    'intelligence.phase0FixtureArtifact.renderedStillFrameCount': evidence.renderedFrames.length,
+    'intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount': evidence.failedFrames.length,
+    'intelligence.phase0FixtureArtifact.renderedStillCompletedAt': evidence.completedAt,
+  };
+
+  if (evidence.renderedAestheticReport) {
+    setPayload['intelligence.phase0RenderedAestheticReport'] = evidence.renderedAestheticReport;
+  }
+
+  if (renderedQualityEvidence) {
+    setPayload['intelligence.renderedQualityEvidence'] = renderedQualityEvidence;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticStatus'] = renderedQualityEvidence.renderedAestheticStatus;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticScore'] = renderedQualityEvidence.renderedAestheticScore;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticIssueCount'] = renderedQualityEvidence.renderedAestheticIssueCount;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticFailFrameCount'] = renderedQualityEvidence.renderedAestheticFailFrameCount;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticWarnFrameCount'] = renderedQualityEvidence.renderedAestheticWarnFrameCount;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticSampledFrames'] = renderedQualityEvidence.renderedAestheticSampledFrames;
+  }
+
   await db.collection('projects').updateOne(
     { projectId },
-    {
-      $set: {
-        'intelligence.phase0RenderedStillEvidence': evidence,
-        'intelligence.phase0FixtureArtifact.materialization': evidence.renderedFrames.length > 0
-          ? 'lambda-stills-rendered'
-          : 'lambda-stills-missing',
-        'intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus': evidence.status,
-        'intelligence.phase0FixtureArtifact.renderedStillFrameCount': evidence.renderedFrames.length,
-        'intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount': evidence.failedFrames.length,
-        'intelligence.phase0FixtureArtifact.renderedStillCompletedAt': evidence.completedAt,
-      },
-    },
+    { $set: setPayload },
   );
 }
 

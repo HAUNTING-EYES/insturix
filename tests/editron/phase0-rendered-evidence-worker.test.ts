@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+﻿import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidence,
   resolvePhase0RenderedEvidenceConfig,
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
+import type { RawRenderedStillImage } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
 import { OverlayType } from '../../components/editron/editor/version-7.0.0/types';
 
 describe('phase0 rendered evidence worker service', () => {
@@ -40,6 +41,7 @@ describe('phase0 rendered evidence worker service', () => {
       capturedAt: '2026-06-30T00:00:00.000Z',
       env: configuredEnv({ EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES: '2' }),
       renderStill: renderStill as any,
+      readImage: visibleImageReader(),
       prepareCredentials: async () => {},
     });
 
@@ -62,6 +64,52 @@ describe('phase0 rendered evidence worker service', () => {
       baselineUrl: expect.stringContaining('/baseline-f'),
       baselineSizeInBytes: 678,
     });
+    expect(evidence.renderedQualityEvidence).toMatchObject({
+      qualityEvidenceSource: 'rendered-aesthetic',
+      renderedAestheticSampledFrames: 2,
+    });
+    expect(evidence.renderedAestheticReport?.frames?.[0]).toMatchObject({
+      fullStill: expect.stringContaining('/full-f'),
+      baselineStill: expect.stringContaining('/baseline-f'),
+    });
+  });
+
+  it('fails rendered quality evidence when full and baseline stills are visually unchanged', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);
+      const kind = overlayIds.includes(1) ? 'full' : 'baseline';
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-unchanged-f${input.frame}.png`,
+        outKey: `phase0/${kind}-unchanged-f${input.frame}.png`,
+        bucketName: 'remotion-bucket',
+        renderId: `${kind}-unchanged-render-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(projectFixture(), {
+      capturedAt: '2026-06-30T00:00:00.000Z',
+      env: configuredEnv({ EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES: '1' }),
+      renderStill: renderStill as any,
+      readImage: unchangedImageReader(),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.status).toBe('completed');
+    expect(evidence.renderedQualityEvidence).toMatchObject({
+      qualityEvidenceSource: 'rendered-aesthetic',
+      renderedAestheticStatus: 'fail',
+      renderedAestheticFailFrameCount: 1,
+      renderedAestheticSampledFrames: 1,
+    });
+    expect(evidence.renderedAestheticReport?.frames?.[0]?.report?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ dimension: 'render', severity: 'fail' }),
+      ]),
+    );
   });
 
   it('persists partial evidence instead of losing successful full frames when a baseline still fails', async () => {
@@ -87,6 +135,7 @@ describe('phase0 rendered evidence worker service', () => {
       capturedAt: '2026-06-30T00:00:00.000Z',
       env: configuredEnv({ EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES: '3' }),
       renderStill: renderStill as any,
+      readImage: visibleImageReader(),
       prepareCredentials: async () => {},
     });
 
@@ -97,6 +146,7 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.failedFrames).toEqual([
       expect.objectContaining({ renderKind: 'baseline', error: 'lambda baseline still failed' }),
     ]);
+    expect(evidence.renderedQualityEvidence?.qualityEvidenceSource).toBe('rendered-aesthetic');
   });
 
   it('resolves disabled and sample-limit configuration deterministically', () => {
@@ -134,12 +184,50 @@ function configuredEnv(extra: Record<string, string> = {}) {
   };
 }
 
+function visibleImageReader() {
+  return async (url: string) => url.includes('/full-')
+    ? rawRenderedImage('visible')
+    : rawRenderedImage('baseline');
+}
+
+function unchangedImageReader() {
+  return async () => rawRenderedImage('baseline');
+}
+
+function rawRenderedImage(kind: 'baseline' | 'visible'): RawRenderedStillImage {
+  const width = 320;
+  const height = 180;
+  const channels = 4;
+  const data = Buffer.alloc(width * height * channels);
+
+  for (let offset = 0; offset < data.length; offset += channels) {
+    data[offset] = 12;
+    data[offset + 1] = 12;
+    data[offset + 2] = 12;
+    data[offset + 3] = 255;
+  }
+
+  if (kind === 'visible') {
+    for (let y = 40; y < 92; y += 1) {
+      for (let x = 40; x < 220; x += 1) {
+        const offset = ((y * width) + x) * channels;
+        data[offset] = 246;
+        data[offset + 1] = 246;
+        data[offset + 2] = 246;
+        data[offset + 3] = 255;
+      }
+    }
+  }
+
+  return { data, width, height, channels };
+}
+
 function projectFixture() {
   return {
     projectId: 'proj_phase0_lambda',
     durationInFrames: 120,
     fps: 30,
-    playerDimensions: { width: 1080, height: 1920 },
+    playerDimensions: { width: 320, height: 180 },
     overlays: [
       {
         id: 'bg',
@@ -148,8 +236,8 @@ function projectFixture() {
         durationInFrames: 120,
         left: 0,
         top: 0,
-        width: 1080,
-        height: 1920,
+        width: 320,
+        height: 180,
         src: 'https://example.com/background.png',
         styles: {},
       },
@@ -160,26 +248,25 @@ function projectFixture() {
         durationInFrames: 120,
         left: 0,
         top: 0,
-        width: 1080,
-        height: 1920,
+        width: 320,
+        height: 180,
         src: 'https://example.com/video.mp4',
       },
-
       {
         id: 1,
         type: OverlayType.TEXT,
         from: 10,
         durationInFrames: 60,
         row: 5,
-        left: 80,
-        top: 120,
-        width: 700,
-        height: 160,
+        left: 40,
+        top: 40,
+        width: 180,
+        height: 52,
         rotation: 0,
         isDragging: false,
         content: 'Phase 0 truth',
         styles: {
-          fontSize: '64px',
+          fontSize: '32px',
           fontWeight: '800',
           color: '#ffffff',
           backgroundColor: '#111111',
