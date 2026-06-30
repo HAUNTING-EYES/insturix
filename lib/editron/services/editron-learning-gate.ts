@@ -35,6 +35,9 @@ export interface DirectorRenderedQualityEvidenceSnapshot {
   artifactStatus?: unknown;
   qualityScore?: unknown;
   renderedAestheticFailFrameCount?: unknown;
+  renderedAestheticIssueCount?: unknown;
+  renderedAestheticJson?: unknown;
+  renderedAestheticHtml?: unknown;
 }
 
 export interface DirectorCompletionHealth {
@@ -44,6 +47,70 @@ export interface DirectorCompletionHealth {
   needsQualityAttention: boolean;
   autoEditStatus: 'complete' | 'needs_review';
   warning?: string;
+}
+
+export type Phase0RenderedQualityGateStatus = 'missing_rendered_evidence' | 'pass' | 'needs_review';
+
+export interface Phase0RenderedQualityGate {
+  version: 'editron-phase0-rendered-quality-gate-v1';
+  status: Phase0RenderedQualityGateStatus;
+  reason: string | null;
+  qualityEvidenceSource: unknown;
+  renderedQualityStatus: unknown;
+  renderedAestheticStatus: unknown;
+  artifactStatus: unknown;
+  qualityScore: number | null;
+  renderedAestheticFailFrameCount: number;
+  renderedAestheticIssueCount: number;
+  renderedAestheticJson: unknown;
+  renderedAestheticHtml: unknown;
+  warning: string | null;
+  evaluatedAt: string;
+}
+
+export function buildPhase0RenderedQualityGate(input: {
+  qualityEvidence: DirectorRenderedQualityEvidenceSnapshot;
+  evaluatedAt?: string;
+  hasQualityReview?: boolean;
+}): Phase0RenderedQualityGate {
+  const evidence = input.qualityEvidence;
+  const hasRenderedEvidence = evidence.qualityEvidenceSource === 'rendered-aesthetic';
+  const failFrameCount = Math.max(0, Math.round(readFiniteNumber(evidence.renderedAestheticFailFrameCount, 0)));
+  const issueCount = Math.max(0, Math.round(readFiniteNumber(evidence.renderedAestheticIssueCount, 0)));
+  const decision = resolveEditronLearningOutcome({
+    hasQualityReview: input.hasQualityReview ?? hasRenderedEvidence,
+    qualityScore: evidence.qualityScore,
+    qualityEvidenceSource: evidence.qualityEvidenceSource,
+    renderedQualityStatus: evidence.renderedQualityStatus,
+    renderedAestheticStatus: evidence.renderedAestheticStatus,
+    artifactStatus: evidence.artifactStatus,
+    renderedAestheticFailFrameCount: failFrameCount,
+  });
+  const status: Phase0RenderedQualityGateStatus = !hasRenderedEvidence
+    ? 'missing_rendered_evidence'
+    : decision.shouldRecord
+      ? 'pass'
+      : 'needs_review';
+  const warning = status === 'needs_review'
+    ? `Rendered Phase 0 quality failed with score ${decision.qualityScore ?? 0}. Review rendered artifacts before learning or calibration.`
+    : null;
+
+  return {
+    version: 'editron-phase0-rendered-quality-gate-v1',
+    status,
+    reason: decision.reason ?? null,
+    qualityEvidenceSource: evidence.qualityEvidenceSource,
+    renderedQualityStatus: evidence.renderedQualityStatus,
+    renderedAestheticStatus: evidence.renderedAestheticStatus,
+    artifactStatus: evidence.artifactStatus,
+    qualityScore: decision.qualityScore,
+    renderedAestheticFailFrameCount: failFrameCount,
+    renderedAestheticIssueCount: issueCount,
+    renderedAestheticJson: evidence.renderedAestheticJson,
+    renderedAestheticHtml: evidence.renderedAestheticHtml,
+    warning,
+    evaluatedAt: input.evaluatedAt ?? new Date().toISOString(),
+  };
 }
 
 export function resolveDirectorCompletionHealth(

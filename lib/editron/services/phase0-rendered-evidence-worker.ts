@@ -13,6 +13,7 @@ import {
   buildPhase0RenderedAestheticEvidence,
   type ReadRenderedStillImage,
 } from './phase0-rendered-aesthetic-scoring';
+import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
@@ -319,6 +320,52 @@ export function buildPhase0RenderedStillEvidenceFailure(input: {
     failedFrames: [{ frame: -1, renderKind: 'worker', error: input.error }],
   };
 }
+
+export function buildPhase0RenderedStillEvidencePersistSet(
+  evidence: Phase0RenderedStillEvidence,
+): Record<string, unknown> {
+  const renderedQualityEvidence = evidence.renderedQualityEvidence;
+  const setPayload: Record<string, unknown> = {
+    'intelligence.phase0RenderedStillEvidence': evidence,
+    'intelligence.phase0FixtureArtifact.materialization': evidence.renderedFrames.length > 0
+      ? 'lambda-stills-rendered'
+      : 'lambda-stills-missing',
+    'intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus': evidence.status,
+    'intelligence.phase0FixtureArtifact.renderedStillFrameCount': evidence.renderedFrames.length,
+    'intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount': evidence.failedFrames.length,
+    'intelligence.phase0FixtureArtifact.renderedStillCompletedAt': evidence.completedAt,
+  };
+
+  if (evidence.renderedAestheticReport) {
+    setPayload['intelligence.phase0RenderedAestheticReport'] = evidence.renderedAestheticReport;
+  }
+
+  if (renderedQualityEvidence) {
+    const renderedQualityGate = buildPhase0RenderedQualityGate({
+      qualityEvidence: renderedQualityEvidence,
+      evaluatedAt: evidence.completedAt ?? evidence.capturedAt,
+      hasQualityReview: renderedQualityEvidence.qualityEvidenceSource === 'rendered-aesthetic',
+    });
+    setPayload['intelligence.renderedQualityEvidence'] = renderedQualityEvidence;
+    setPayload['intelligence.phase0RenderedQualityGate'] = renderedQualityGate;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticStatus'] = renderedQualityEvidence.renderedAestheticStatus;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticScore'] = renderedQualityEvidence.renderedAestheticScore;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticIssueCount'] = renderedQualityEvidence.renderedAestheticIssueCount;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticFailFrameCount'] = renderedQualityEvidence.renderedAestheticFailFrameCount;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticWarnFrameCount'] = renderedQualityEvidence.renderedAestheticWarnFrameCount;
+    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticSampledFrames'] = renderedQualityEvidence.renderedAestheticSampledFrames;
+
+    if (renderedQualityGate.status === 'needs_review') {
+      setPayload.autoEditStatus = 'needs_review';
+      setPayload.projectStatus = 'needs-attention';
+      setPayload.autoEditHealth = 'needs_review';
+      setPayload.autoEditWarning = renderedQualityGate.warning;
+    }
+  }
+
+  return setPayload;
+}
+
 function baseEvidence(input: {
   projectId: string;
   capturedAt: string;

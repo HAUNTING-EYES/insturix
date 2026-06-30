@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidence,
+  buildPhase0RenderedStillEvidencePersistSet,
   resolvePhase0RenderedEvidenceConfig,
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
 import type { RawRenderedStillImage } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
@@ -21,6 +22,10 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.functionName).toBeNull();
     expect(evidence.renderedFrames).toHaveLength(0);
     expect(evidence.requestedSampleFrames.length).toBeGreaterThan(0);
+
+    const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
+    expect(set).not.toHaveProperty('intelligence.phase0RenderedQualityGate');
+    expect(set).not.toHaveProperty('autoEditStatus');
   });
 
   it('renders paired full and baseline sampled stills with the configured Lambda render stack', async () => {
@@ -112,6 +117,19 @@ describe('phase0 rendered evidence worker service', () => {
         expect.objectContaining({ dimension: 'render', severity: 'fail' }),
       ]),
     );
+
+    const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
+    expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject({
+      status: 'needs_review',
+      reason: 'rendered_quality_failed',
+      qualityEvidenceSource: 'rendered-aesthetic',
+    });
+    expect(set).toMatchObject({
+      autoEditStatus: 'needs_review',
+      projectStatus: 'needs-attention',
+      autoEditHealth: 'needs_review',
+    });
+    expect(String(set.autoEditWarning)).toContain('Rendered Phase 0 quality failed');
   });
 
   it('persists partial evidence instead of losing successful full frames when a baseline still fails', async () => {

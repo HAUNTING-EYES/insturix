@@ -21,7 +21,7 @@ import {
 import type { Phase0FixtureProject, Phase0RenderedAestheticReportLike } from '../lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '../lib/editron/services/phase0-render-artifact-pack';
 import { buildPhase0LiveTruthSnapshot } from '../lib/editron/services/phase0-live-truth';
-import { resolveEditronLearningOutcome } from '../lib/editron/services/editron-learning-gate';
+import { buildPhase0RenderedQualityGate as buildSharedPhase0RenderedQualityGate } from '../lib/editron/services/editron-learning-gate';
 
 interface Phase0FixtureCliOptions {
   projectId: string;
@@ -222,45 +222,13 @@ type Phase0TruthDb = {
 
 type Phase0TruthSnapshot = ReturnType<typeof buildPhase0LiveTruthSnapshot>;
 type Phase0ArtifactPaths = ReturnType<typeof buildPhase0ArtifactPaths>;
-type Phase0RenderedQualityGateStatus = 'missing_rendered_evidence' | 'pass' | 'needs_review';
 
 export function buildPhase0RenderedQualityGate(snapshot: Phase0TruthSnapshot) {
-  const evidence = snapshot.qualityEvidence;
-  const hasRenderedEvidence = evidence.qualityEvidenceSource === 'rendered-aesthetic';
-  const decision = resolveEditronLearningOutcome({
-    hasQualityReview: hasRenderedEvidence,
-    qualityScore: evidence.qualityScore,
-    qualityEvidenceSource: evidence.qualityEvidenceSource,
-    renderedQualityStatus: evidence.renderedQualityStatus,
-    renderedAestheticStatus: evidence.renderedAestheticStatus,
-    artifactStatus: evidence.artifactStatus,
-    renderedAestheticFailFrameCount: evidence.renderedAestheticFailFrameCount,
-  });
-  const status: Phase0RenderedQualityGateStatus = !hasRenderedEvidence
-    ? 'missing_rendered_evidence'
-    : decision.shouldRecord
-      ? 'pass'
-      : 'needs_review';
-  const warning = status === 'needs_review'
-    ? `Rendered Phase 0 quality failed with score ${decision.qualityScore ?? 0}. Review rendered artifacts before learning or calibration.`
-    : null;
-
-  return {
-    version: 'editron-phase0-rendered-quality-gate-v1',
-    status,
-    reason: decision.reason ?? null,
-    qualityEvidenceSource: evidence.qualityEvidenceSource,
-    renderedQualityStatus: evidence.renderedQualityStatus,
-    renderedAestheticStatus: evidence.renderedAestheticStatus,
-    artifactStatus: evidence.artifactStatus,
-    qualityScore: decision.qualityScore,
-    renderedAestheticFailFrameCount: evidence.renderedAestheticFailFrameCount,
-    renderedAestheticIssueCount: evidence.renderedAestheticIssueCount,
-    renderedAestheticJson: evidence.renderedAestheticJson,
-    renderedAestheticHtml: evidence.renderedAestheticHtml,
-    warning,
+  return buildSharedPhase0RenderedQualityGate({
+    qualityEvidence: snapshot.qualityEvidence,
     evaluatedAt: snapshot.capturedAt,
-  };
+    hasQualityReview: snapshot.qualityEvidence.qualityEvidenceSource === 'rendered-aesthetic',
+  });
 }
 
 export function buildPhase0PersistUpdate(
