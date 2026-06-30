@@ -14,6 +14,43 @@ export interface AlyzitronUserData {
 // Status workflow: listed -> sometimes (queued) -> processing -> completed/failed
 export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
 
+export type AlyzitronContentIntent =
+  | 'own_content'
+  | 'competitor_content'
+  | 'reference_content'
+  | 'unknown';
+
+export type AlyzitronIntentSource =
+  | 'user_selected'
+  | 'system_inferred'
+  | 'defaulted'
+  | 'unknown';
+
+export type AlyzitronMediaSourceKind =
+  | 'file'
+  | 'image'
+  | 'youtube_url'
+  | 'external_url'
+  | 'r2'
+  | 'gcs';
+
+export interface AlyzitronIntentResolution {
+  contentIntent: AlyzitronContentIntent;
+  source: AlyzitronIntentSource;
+  confidence: number;
+  rationale: string[];
+  userConfirmed: boolean;
+}
+
+export interface AlyzitronTaskIntentFields {
+  mediaSourceKind?: AlyzitronMediaSourceKind;
+  contentIntent: AlyzitronContentIntent;
+  intentSource: AlyzitronIntentSource;
+  intentConfidence: number;
+  intentRationale: string[];
+  userConfirmedIntent: boolean;
+}
+
 export type ContextValues = {
   familyFriendly: boolean;
   platform: string;
@@ -69,6 +106,10 @@ export interface AlyzitronAnalysis {
   videoDuration?: number;    // seconds
   expectedDurationSeconds?: number;
   queuePosition?: number;
+  brandId?: string;
+  mediaSourceKind?: AlyzitronMediaSourceKind;
+  contentIntent?: AlyzitronContentIntent;
+  intentResolution?: AlyzitronIntentResolution;
   unread: boolean;
   results: AnalysisResults | null;
   context: ContextValues;    // User preferences
