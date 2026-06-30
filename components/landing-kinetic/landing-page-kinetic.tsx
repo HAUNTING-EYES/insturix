@@ -195,7 +195,6 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
         <div className="kline l2">STUDIO.</div>
         <p className="sub">Hand it a brief. Every cut comes back <b>shaped for its channel — and on brand.</b> The whole studio runs in one browser tab. Nothing to install.</p>
         <div className="acts"><Link className="btn go" href="/signup">Start free →</Link><Link className="btn ghost" href="/contactus">Talk to sales</Link></div>
-        <StartupBaseBadges />
       </div>
     </header>
 
