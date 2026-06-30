@@ -118,16 +118,19 @@ export default function CadenceEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/90 px-3 py-6 backdrop-blur-sm sm:px-4 sm:py-8"
       onClick={onClose}
     >
       <form
         onSubmit={save}
-        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[#1C1B19]/70 bg-[#0B0B0A] shadow-2xl sm:max-h-[calc(100vh-3rem)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cadence-editor-title"
+        className="my-auto flex max-h-[calc(100dvh-3rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-[#1C1B19]/70 bg-[#0B0B0A] shadow-2xl sm:max-h-[calc(100dvh-4rem)] lg:max-h-[640px]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 pb-3 pt-5">
-          <h2 className="text-sm font-semibold text-[#ECE9E1]">
+        <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-5">
+          <h2 id="cadence-editor-title" className="text-sm font-semibold text-[#ECE9E1]">
             {isCreate ? 'New campaign' : `Cadence - ${campaignName}`}
           </h2>
           <button
@@ -139,7 +142,7 @@ export default function CadenceEditor({
             <X size={18} />
           </button>
         </div>
-        <p className="px-5 pb-4 text-[11px] text-[#7A776E]">
+        <p className="shrink-0 px-5 pb-4 text-[11px] text-[#7A776E]">
           Objective + theme steer the AI plan; cadence sets posts/week per platform.
         </p>
 
@@ -243,7 +246,7 @@ export default function CadenceEditor({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#1C1B19]/70 bg-[#0B0B0A] px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-t border-[#1C1B19]/70 bg-[#0B0B0A] px-5 py-4">
           <button type="button" onClick={addRule} className="text-xs text-[#5CCCB8] hover:underline">
             + Add platform
           </button>

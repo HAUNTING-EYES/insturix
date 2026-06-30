@@ -7,7 +7,7 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 describe("CadenceEditor", () => {
-  it("renders create campaign as a real, viewport-safe submit form", async () => {
+  it("renders create campaign as a real, centered viewport-safe submit form", async () => {
     vi.stubGlobal("React", React);
     const { default: CadenceEditor } = await import("@/app/dashboard/calos/CadenceEditor");
 
@@ -24,7 +24,10 @@ describe("CadenceEditor", () => {
     );
 
     expect(html).toContain("<form");
-    expect(html).toContain("max-h-[calc(100vh-2rem)]");
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain("items-center");
+    expect(html).toContain("max-h-[calc(100dvh-3rem)]");
     expect(html).toContain("overflow-y-auto");
     expect(html).toContain('type="submit"');
     expect(html).toContain('type="button"');

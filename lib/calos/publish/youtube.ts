@@ -1,39 +1,33 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import { google } from "googleapis";
 import { Readable } from "stream";
 import type { PublishParams, PublishResult } from "./contract";
 
 /**
- * CalOS YouTube publisher — SESSIONLESS. The odd one out: YouTube uploads a VIDEO FILE and its tokens
- * live in the UploaderX collection keyed by EMAIL (its own Google OAuth app), not User.<platform>Tokens.
+ * CalOS YouTube publisher - sessionless brand publish path.
  *
- * Model A: a brand assigns its YouTube channel (calos_connected_accounts); we map the assigning owner
- * (clerkUserId) → User.email → UploaderX.youtubeTokens → google.auth.OAuth2, then stream the card's
- * video (params.imageUrl carries the deliverable assetUrl — a video URL for a YT card) into
- * videos.insert. Mirrors app/api/services/uploaderx/youtube/upload/route.ts.
- *
- * v1 posts a card that ALREADY has a video URL; the "put a video on a card" UX is a separate piece, so
- * if the card has no video we FAIL LOUD (no silent empty upload). OAuth2 auto-refreshes the token for
- * the call when a refresh_token is present.
+ * Producer path: the Publishing UI assigns a CalOSConnectedAccount row for brand + youtube.
+ * Decision owner/source of truth: that row's ownerUserId points to the Clerk user who connected
+ * Google/YouTube. Final consumer: this publisher asks Clerk for that owner's Google OAuth access
+ * token at publish time, then streams the card video into youtube.videos.insert.
  */
 
-type YtAuth = { tokens: object; channelId?: string | null } | { error: string; retryable: boolean };
+type YtAuth = { accessToken: string; channelId?: string | null } | { error: string; retryable: boolean };
+type ClerkExternalAccount = { provider?: string | null };
 
 export async function publishToYouTube(params: PublishParams): Promise<PublishResult> {
   const title = (params.title ?? params.caption ?? "").trim();
   const description = (params.caption ?? "").trim();
-  const videoUrl = params.imageUrl?.trim(); // the deliverable's assetUrl (a video URL for a YT card)
+  const videoUrl = params.imageUrl?.trim();
 
   if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
   if (!params.brandId) return { ok: false, error: "YouTube publishing requires a brandId", retryable: false };
   if (!videoUrl) {
     return {
       ok: false,
-      error: "YouTube requires a video — attach a video to the card before approving",
+      error: "YouTube requires a video - attach a video to the card before approving",
       retryable: false,
     };
-  }
-  if (!process.env.YOUTUBE_CLIENT_ID || !process.env.YOUTUBE_CLIENT_SECRET || !process.env.YOUTUBE_REDIRECT_URI) {
-    return { ok: false, error: "YouTube OAuth env not configured", retryable: false };
   }
 
   const connectToDatabase = (await import("@/schemas/ConnectToDatabase")).default;
@@ -42,10 +36,10 @@ export async function publishToYouTube(params: PublishParams): Promise<PublishRe
   const auth = await resolveBrandYtAuth(params.brandId, params.accountRef);
   if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
 
-  return uploadVideo(auth.tokens, videoUrl, title || "Untitled", description);
+  return uploadVideo(auth.accessToken, videoUrl, title || "Untitled", description);
 }
 
-/** Per-brand YouTube auth (Model A) — channel token from the assigning owner's UploaderX.youtubeTokens. */
+/** Per-brand YouTube auth (Model A): token from the assigning owner's Clerk Google connection. */
 async function resolveBrandYtAuth(brandId: string, accountRef?: string | null): Promise<YtAuth> {
   const { default: CalosConnectedAccount } = await import("@/schemas/calos-connected-account");
   const acct = await CalosConnectedAccount.findOne({
@@ -55,35 +49,44 @@ async function resolveBrandYtAuth(brandId: string, accountRef?: string | null): 
   });
   if (!acct) return { error: "No YouTube channel assigned for this brand", retryable: false };
 
-  const { User } = await import("@/schemas/user");
-  const owner = await User.findOne({ clerkUserId: acct.ownerUserId }).select("email").lean<{ email?: string } | null>();
-  if (!owner?.email) {
-    return { error: "Cannot resolve the YouTube channel owner's email — reconnect", retryable: false };
+  const ownerUserId = typeof acct.ownerUserId === "string" ? acct.ownerUserId : "";
+  if (!ownerUserId) {
+    return { error: "Cannot resolve the YouTube channel owner - reconnect", retryable: false };
   }
 
-  const { default: UploaderX } = await import("@/schemas/uploaderx");
-  const ux = await UploaderX.findOne({ email: owner.email }).select("youtubeTokens").lean<{ youtubeTokens?: object } | null>();
-  if (!ux?.youtubeTokens) {
-    return { error: "Assigned YouTube channel is no longer connected for this owner — reconnect", retryable: false };
-  }
+  try {
+    const client = await clerkClient();
+    const owner = await client.users.getUser(ownerUserId);
+    const googleAccount = (owner.externalAccounts as unknown as ClerkExternalAccount[] | undefined)?.find(
+      (account) => account.provider?.includes("google"),
+    );
+    if (!googleAccount?.provider) {
+      return { error: "Assigned YouTube channel is no longer connected for this owner - reconnect", retryable: false };
+    }
 
-  return { tokens: ux.youtubeTokens, channelId: acct.accountRef };
+    const tokenResponse = await client.users.getUserOauthAccessToken(ownerUserId, googleAccount.provider as any);
+    const accessToken = tokenResponse.data?.[0]?.token;
+    if (!accessToken) {
+      return { error: "Assigned YouTube channel has no usable OAuth token - reconnect", retryable: false };
+    }
+
+    return { accessToken, channelId: acct.accountRef };
+  } catch (e) {
+    const message = e instanceof Error && e.message ? `: ${e.message}` : "";
+    return { error: `Assigned YouTube channel token lookup failed${message}`, retryable: false };
+  }
 }
 
 /** Stream the video URL into youtube.videos.insert (public). Fails loud on fetch/API errors. */
 async function uploadVideo(
-  tokens: object,
+  accessToken: string,
   videoUrl: string,
   title: string,
   description: string,
 ): Promise<PublishResult> {
   try {
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.YOUTUBE_CLIENT_ID,
-      process.env.YOUTUBE_CLIENT_SECRET,
-      process.env.YOUTUBE_REDIRECT_URI,
-    );
-    oauth2Client.setCredentials(tokens);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
     const videoRes = await fetch(videoUrl);
