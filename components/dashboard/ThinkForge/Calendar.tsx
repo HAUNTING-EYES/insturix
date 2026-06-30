@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, format, isSameMonth, isToday, isSameDay, addMonths, subMonths, getYear, getMonth, setMonth, setYear } from "date-fns";
-import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus, Filter, Search, X, Calendar as CalendarIcon, ChevronDown, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus, Filter, Search, X, Calendar as CalendarIcon, ChevronDown, Check, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ContentCardModal from "./ContentCardModal";
 import { ContentCard } from "@/app/dashboard/thinkforge/types";
@@ -32,6 +32,7 @@ type CalendarProps = {
   onEventUpdate?: (id: string, patch: Partial<ContentCard | CalendarEvent>) => void;
   onCreateCard?: (date: Date) => ContentCard | null | undefined | Promise<ContentCard | null | undefined>;
   onDeleteCard?: (id: string) => void;
+  onDeleteDate?: (date: Date, events: (ContentCard | CalendarEvent)[]) => boolean | Promise<boolean>;
   onOpenScript?: (sessionId: string) => void;
   onGenerate?: (id: string) => void;
   onDecision?: (id: string, decision: 'approved' | 'rejected' | 'changes_requested') => void;
@@ -87,6 +88,21 @@ const isEmptyFreshDraft = (card: ContentCard | null, freshDraftId: string | null
   !hasText(card.details, card.scriptPreview, card.sessionId, card.ideaId, card.contentFormat) &&
   !hasIdeaContent(card.idea);
 
+const addEventToDateMap = (
+  map: Map<string, (ContentCard | CalendarEvent)[]>,
+  event: ContentCard | CalendarEvent
+) => {
+  const fallbackDate = typeof event.date === 'string' ? event.date : undefined;
+  const dates = 'plannedDates' in event && event.plannedDates?.length ? event.plannedDates : fallbackDate ? [fallbackDate] : [];
+  dates.forEach((dateStr) => {
+    const parsed = new Date(dateStr);
+    if (Number.isNaN(parsed.getTime())) return;
+    const dateKey = format(parsed, 'yyyy-MM-dd');
+    if (!map.has(dateKey)) map.set(dateKey, []);
+    map.get(dateKey)!.push(event);
+  });
+};
+
 // Event chip component - the small event pills shown in calendar cells
 const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | CalendarEvent; onClick: () => void; onDragEnd?: (eventId: string, newDate: Date) => void }) => {
   // CalOS cards carry an editorial stage; color the chip by it. Legacy ThinkForge cards (no
@@ -124,7 +140,10 @@ const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | Calenda
         }
       }}
       className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-[#D4A652]/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
-      onClick={onClick}
+      onClick={(clickEvent) => {
+        clickEvent.stopPropagation();
+        onClick();
+      }}
     >
       {stage && (
         <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${stage.dot}`} title={stage.label} />
@@ -155,6 +174,7 @@ export default function Calendar({
   onEventUpdate,
   onCreateCard,
   onDeleteCard,
+  onDeleteDate,
   onOpenScript,
   onGenerate,
   onDecision
@@ -173,6 +193,7 @@ export default function Calendar({
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [openEventId, setOpenEventId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<ContentCard | null>(null);
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [freshDraftId, setFreshDraftId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -242,7 +263,13 @@ export default function Calendar({
     return daysWithMonths;
   }, [visibleMonths, generateMonthDays]);
 
-  // Group events by date for quick lookup
+  const allEventsByDate = useMemo(() => {
+    const map = new Map<string, (ContentCard | CalendarEvent)[]>();
+    events.forEach((event) => addEventToDateMap(map, event));
+    return map;
+  }, [events]);
+
+  // Group filtered events by date for the visible chips; day details use allEventsByDate.
   const eventsByDate = useMemo(() => {
     const map = new Map<string, (ContentCard | CalendarEvent)[]>();
     const q = searchQuery.trim().toLowerCase();
@@ -266,27 +293,14 @@ export default function Calendar({
       filtered = filtered.filter(e => e.status === filterStatus);
     }
 
-    filtered.forEach(event => {
-      // Support multiple dates for ContentCard
-      if ('plannedDates' in event && event.plannedDates?.length > 0) {
-        event.plannedDates.forEach(dateStr => {
-          const dateKey = format(new Date(dateStr), 'yyyy-MM-dd');
-          if (!map.has(dateKey)) {
-            map.set(dateKey, []);
-          }
-          map.get(dateKey)!.push(event);
-        });
-      } else {
-        // Legacy single date support
-        const dateKey = format(new Date(event.date), 'yyyy-MM-dd');
-        if (!map.has(dateKey)) {
-          map.set(dateKey, []);
-        }
-        map.get(dateKey)!.push(event);
-      }
-    });
+    filtered.forEach((event) => addEventToDateMap(map, event));
     return map;
   }, [events, searchQuery, filterStatus]);
+
+  const selectedDayEvents = useMemo(() => {
+    if (!selectedDay) return [];
+    return allEventsByDate.get(format(selectedDay, 'yyyy-MM-dd')) ?? [];
+  }, [allEventsByDate, selectedDay]);
 
   // Scroll to a specific month
   const scrollToMonth = useCallback((targetDate: Date, smooth = true) => {
@@ -376,6 +390,21 @@ export default function Calendar({
   const handleCreateNewCard = () => {
     const today = new Date();
     void handleCreateCardForDate(today);
+  };
+
+  const openCalendarEvent = (event: ContentCard | CalendarEvent) => {
+    onEventClick?.(event);
+    if ('plannedDates' in event) {
+      setSelectedCard(event as ContentCard);
+    } else {
+      setOpenEventId(event.id);
+    }
+  };
+
+  const handleDeleteSelectedDay = async () => {
+    if (!selectedDay || selectedDayEvents.length === 0 || !onDeleteDate) return;
+    const didDelete = await onDeleteDate(selectedDay, selectedDayEvents);
+    if (didDelete !== false) setSelectedDay(null);
   };
 
   const statusOptions = [
@@ -845,11 +874,8 @@ export default function Calendar({
                         role="gridcell"
                         aria-label={format(day, 'MMMM d, yyyy')}
                         onClick={() => {
-                           if (dayEvents.length === 0) {
-                              void handleCreateCardForDate(day);
-                           } else {
-                              onCellClick?.(day);
-                           }
+                          setSelectedDay(day);
+                          onCellClick?.(day);
                         }}
                       >
                         {/* Day number */}
@@ -882,7 +908,7 @@ export default function Calendar({
                               >
                                 <EventChip
                                   event={event}
-                                  onClick={() => setSelectedCard(event as ContentCard)}
+                                  onClick={() => openCalendarEvent(event)}
                                   onDragEnd={onEventDrop}
                                 />
                               </motion.div>
@@ -908,6 +934,98 @@ export default function Calendar({
         </div>
       </div>
 
+      {/* Day Inspector */}
+      {selectedDay && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
+          <button
+            type="button"
+            aria-label="Close day details"
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            onClick={() => setSelectedDay(null)}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 10 }}
+            transition={{ duration: 0.16 }}
+            className="relative w-full max-w-[440px] rounded-xl border border-[#1C1B19] bg-[#0B0B0A] shadow-[0_22px_70px_rgba(0,0,0,0.62)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[#1C1B19]/70 px-4 py-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-[#7A776E]">Day details</div>
+                <div className="mt-0.5 text-sm font-semibold text-[#ECE9E1]">{format(selectedDay, 'EEE, MMM d')}</div>
+                <div className="mt-1 text-[11px] text-[#7A776E]">
+                  {selectedDayEvents.length} item{selectedDayEvents.length === 1 ? '' : 's'} planned
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close day details"
+                onClick={() => setSelectedDay(null)}
+                className="rounded-lg border border-[#1C1B19] p-1.5 text-[#7A776E] hover:bg-[#1C1B19]/60 hover:text-[#ECE9E1]"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="max-h-[360px] space-y-2 overflow-y-auto px-4 py-3">
+              {selectedDayEvents.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[#1C1B19] px-3 py-5 text-center text-xs text-[#7A776E]">
+                  No content planned.
+                </div>
+              ) : (
+                selectedDayEvents.map((event) => {
+                  const stage = stageMeta((event as ContentCard).editorialStatus);
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDay(null);
+                        openCalendarEvent(event);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2 text-left transition-colors hover:bg-[#151513]"
+                    >
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${stage?.dot ?? 'bg-[#D4A652]'}`} />
+                      <PlatformIcon platform={event.platform} size={12} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12px] font-medium text-[#ECE9E1]">{event.title}</span>
+                        <span className="mt-0.5 block truncate text-[10.5px] capitalize text-[#7A776E]">
+                          {event.platform || 'generic'}{stage ? ` · ${stage.label}` : ''}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1C1B19]/70 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => void handleCreateCardForDate(selectedDay)}
+                disabled={!onCreateCard}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#5CCCB8]/35 bg-[#5CCCB8]/12 px-3 text-xs font-medium text-[#5CCCB8] hover:bg-[#5CCCB8]/22 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus size={13} />
+                New content
+              </button>
+              {onDeleteDate && selectedDayEvents.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteSelectedDay()}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D46A5C]/35 bg-[#D46A5C]/10 px-3 text-xs font-medium text-[#D46A5C] hover:bg-[#D46A5C]/18"
+                >
+                  <Trash2 size={13} />
+                  Delete day
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </div>,
+        document.body
+      )}
       {/* Content Card Modal */}
       {selectedCard && (() => {
         // Prev/next across all cards in date order — lets the modal move day-to-day (arrow keys on

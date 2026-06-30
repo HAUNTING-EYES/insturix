@@ -13,8 +13,24 @@ export interface UseCalosDeliverablesReturn {
   createCard: (card: Omit<ContentCard, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ContentCard | null>;
   updateCard: (id: string, updates: Partial<ContentCard>) => Promise<boolean>;
   deleteCard: (id: string) => Promise<boolean>;
+  deleteCardsForDate: (date: Date) => Promise<number>;
+  clearAll: () => Promise<number>;
   refresh: () => Promise<void>;
 }
+
+const toLocalDateKey = (date: Date) => {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+
+const cardOccursOnDate = (card: ContentCard, dateKey: string) => {
+  const dates = card.plannedDates?.length ? card.plannedDates : [card.date];
+  return dates.some((value) => {
+    const parsed = new Date(value);
+    return !Number.isNaN(parsed.getTime()) && toLocalDateKey(parsed) === dateKey;
+  });
+};
 
 /**
  * CalOS deliverables hook — the calendar's data source, scoped to a client/brand.
@@ -137,5 +153,77 @@ export function useCalosDeliverables(brandId: string | null): UseCalosDeliverabl
     [brandId, cards]
   );
 
-  return { cards, loading, error, createCard, updateCard, deleteCard, refresh: load };
+  const deleteCardsByIds = useCallback(
+    async (ids: string[], optimisticNext: ContentCard[], failureTitle: string): Promise<number> => {
+      if (!brandId || ids.length === 0) return 0;
+      const prev = cards;
+      setCards(optimisticNext);
+      try {
+        const res = await fetch(`${BASE}?brandId=${encodeURIComponent(brandId)}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Failed to delete (${res.status})`);
+        return typeof data?.deleted === 'number' ? data.deleted : ids.length;
+      } catch (err) {
+        setCards(prev);
+        toast({
+          title: failureTitle,
+          description: err instanceof Error ? err.message : 'Unknown error',
+          variant: 'destructive',
+        });
+        return 0;
+      }
+    },
+    [brandId, cards]
+  );
+
+  const deleteCardsForDate = useCallback(
+    async (date: Date): Promise<number> => {
+      const dateKey = toLocalDateKey(date);
+      const ids = cards.filter((card) => cardOccursOnDate(card, dateKey)).map((card) => card.id);
+      return deleteCardsByIds(
+        ids,
+        cards.filter((card) => !ids.includes(card.id)),
+        'Failed to clear this day'
+      );
+    },
+    [cards, deleteCardsByIds]
+  );
+
+  const clearAll = useCallback(async (): Promise<number> => {
+    if (!brandId || cards.length === 0) return 0;
+    const prev = cards;
+    setCards([]);
+    try {
+      const res = await fetch(`${BASE}?brandId=${encodeURIComponent(brandId)}&scope=all`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Failed to clear (${res.status})`);
+      return typeof data?.deleted === 'number' ? data.deleted : prev.length;
+    } catch (err) {
+      setCards(prev);
+      toast({
+        title: 'Failed to clear calendar',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+      return 0;
+    }
+  }, [brandId, cards]);
+
+  return {
+    cards,
+    loading,
+    error,
+    createCard,
+    updateCard,
+    deleteCard,
+    deleteCardsForDate,
+    clearAll,
+    refresh: load,
+  };
 }

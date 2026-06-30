@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Calendar from '@/components/dashboard/ThinkForge/Calendar';
+import Calendar, { type CalendarEvent } from '@/components/dashboard/ThinkForge/Calendar';
 import { useCalosDeliverables } from './hooks/useCalosDeliverables';
 import CampaignBar from './CampaignBar';
 import { toast } from '@/hooks/use-toast';
 import { EDITORIAL_STAGE_META } from '@/lib/calos/stages';
 import BrandConnections from './BrandConnections';
 import CommandBrief from './CommandBrief';
-import { Linkedin, Share2 } from 'lucide-react';
+import { Linkedin, Share2, Trash2 } from 'lucide-react';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -62,7 +62,7 @@ export default function CalosPage() {
     };
   }, []);
 
-  const { cards, createCard, updateCard, deleteCard, refresh } = useCalosDeliverables(brandId);
+  const { cards, createCard, updateCard, deleteCard, deleteCardsForDate, clearAll, refresh } = useCalosDeliverables(brandId);
 
   const selectBrand = (id: string) => {
     setBrandId(id);
@@ -145,6 +145,36 @@ export default function CalosPage() {
     }
   };
 
+  const handleDeleteDay = async (date: Date, eventsOnDay: Array<ContentCard | CalendarEvent>) => {
+    const count = eventsOnDay.length;
+    if (count === 0) return false;
+    const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    const ok = window.confirm(
+      `Delete all ${count} item${count === 1 ? '' : 's'} on ${label}? This removes them from the calendar.`
+    );
+    if (!ok) return false;
+    const deleted = await deleteCardsForDate(date);
+    if (deleted > 0) {
+      toast({ title: `Cleared ${deleted} item${deleted === 1 ? '' : 's'}`, description: label });
+    }
+    return deleted > 0;
+  };
+
+  const handleClearAll = async () => {
+    if (cards.length === 0) {
+      toast({ title: 'Calendar already clear' });
+      return;
+    }
+    const ok = window.confirm(
+      `Clear all ${cards.length} item${cards.length === 1 ? '' : 's'} from ${brandName}? This removes every calendar card for this brand.`
+    );
+    if (!ok) return;
+    const deleted = await clearAll();
+    if (deleted > 0) {
+      toast({ title: `Cleared ${deleted} item${deleted === 1 ? '' : 's'}`, description: 'Calendar cleanup complete.' });
+    }
+  };
+
   const handleShare = async () => {
     if (!brandId) return;
     try {
@@ -204,6 +234,15 @@ export default function CalosPage() {
         {!loading && brandId && (
           <div className="flex items-center gap-3">
             <button
+              onClick={handleClearAll}
+              disabled={cards.length === 0}
+              title="Clear every content card from this brand calendar"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#D46A5C]/30 px-2.5 py-1.5 text-[11px] text-[#D46A5C] hover:bg-[#D46A5C]/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear all
+            </button>
+            <button
               onClick={handleShare}
               title="Copy a read-only calendar link to share with this client"
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#1C1B19] px-2.5 py-1.5 text-[11px] text-[#ECE9E1] hover:bg-[#1C1B19]/60"
@@ -256,6 +295,7 @@ export default function CalosPage() {
             onDeleteCard={(id) => {
               void deleteCard(id);
             }}
+            onDeleteDate={handleDeleteDay}
             onGenerate={handleGenerate}
             onDecision={handleDecision}
             onOpenScript={(sessionId) =>

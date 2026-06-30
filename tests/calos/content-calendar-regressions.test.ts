@@ -56,7 +56,7 @@ describe("Content calendar regressions", () => {
     mocks.connectedAccountUpdateOne.mockResolvedValue({ acknowledged: true });
   });
 
-  it("keeps date-click creation wired to the editor modal", () => {
+  it("opens a day inspector instead of surprise-creating a draft on date click", () => {
     const root = process.cwd();
     const calendarSource = readFileSync(
       join(root, "components/dashboard/ThinkForge/Calendar.tsx"),
@@ -64,14 +64,29 @@ describe("Content calendar regressions", () => {
     );
     const pageSource = readFileSync(join(root, "app/dashboard/calos/page.tsx"), "utf8");
 
-    expect(calendarSource).toContain("await onCreateCard?.(date)");
-    expect(calendarSource).toContain("setSelectedCard(created)");
-    expect(calendarSource).toContain("void handleCreateCardForDate(day)");
-    expect(calendarSource).toContain("setFreshDraftId(created.id)");
+    expect(calendarSource).toContain("setSelectedDay(day)");
+    expect(calendarSource).toContain("Day Inspector");
+    expect(calendarSource).toContain("void handleCreateCardForDate(selectedDay)");
+    expect(calendarSource).toContain("clickEvent.stopPropagation()");
     expect(calendarSource).toContain("isEmptyFreshDraft(cardToClose, freshDraftId)");
     expect(calendarSource).toContain("Discard this empty draft?");
-    expect(calendarSource).toContain("onClose={handleModalClose}");
-    expect(pageSource).toContain("return createCard({");
+    expect(calendarSource).not.toContain("void handleCreateCardForDate(day)");
+    expect(pageSource).toContain("onDeleteDate={handleDeleteDay}");
+  });
+
+  it("wires calendar bulk cleanup to scoped soft-delete", () => {
+    const root = process.cwd();
+    const routeSource = readFileSync(join(root, "app/api/services/calos/deliverables/route.ts"), "utf8");
+    const hookSource = readFileSync(join(root, "app/dashboard/calos/hooks/useCalosDeliverables.ts"), "utf8");
+    const pageSource = readFileSync(join(root, "app/dashboard/calos/page.tsx"), "utf8");
+
+    expect(routeSource).toContain("export async function DELETE");
+    expect(routeSource).toContain("CalosDeliverable.updateMany");
+    expect(routeSource).toContain("deletedAt: new Date()");
+    expect(routeSource).toContain("scope=all or ids[] is required");
+    expect(hookSource).toContain("deleteCardsForDate");
+    expect(hookSource).toContain("clearAll");
+    expect(pageSource).toContain("Clear all");
   });
 
   it("reads CalOS YouTube connection state from Clerk Google accounts", async () => {
