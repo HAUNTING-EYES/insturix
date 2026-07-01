@@ -512,7 +512,7 @@ function CostAccumulation() {
           }}>
             <span style={{ fontSize: 18, fontWeight: 500, color: "var(--text-primary)" }}>
               One platform. Starting at{" "}
-              <span style={{ color: "var(--accent-gold)", fontWeight: 800 }}>$20/mo</span>
+              <span style={{ color: "var(--accent-gold)", fontWeight: 800 }}>${Math.min(...SUBSCRIPTION_PLANS.map((p) => p.price))}/mo</span>
             </span>
           </div>
         )}
