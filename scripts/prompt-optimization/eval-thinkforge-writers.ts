@@ -455,6 +455,12 @@ const REGRESSION_BASELINES: Record<number, number> = {
   13: 0.93,
   14: 0.88,
   15: 0.88,
+  // Cases 16-18 (held-out, added 2026-06): first 10-seed sweep gave min 100% on all three. Set
+  // below that for real-regression detection: 16 is a script (scripts vary 83-92 elsewhere, so a
+  // single 100% sweep may be optimistic) -> script floor; 17/18 are posts -> held-out post floor.
+  16: 0.83,
+  17: 0.88,
+  18: 0.88,
 };
 
 // ---- Scoring: structure + filler + specificity -----------------------
