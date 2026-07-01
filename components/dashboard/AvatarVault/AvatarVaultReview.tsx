@@ -85,7 +85,7 @@ export function AvatarVaultReview() {
   async function handleCreateDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canCreateDraft) {
-      setNotice({ tone: 'risk', message: 'Complete the required virtual-person identity, voice, rights, usage, and brand fields.' });
+      setNotice({ tone: 'risk', message: 'Add a name plus face and full-body references. Brand is required only when binding is enabled.' });
       return;
     }
 
@@ -152,32 +152,11 @@ export function AvatarVaultReview() {
           </div>
 
           <form className="space-y-4" onSubmit={handleCreateDraft}>
-            <TextField label="Avatar name" value={form.displayName} onChange={(value) => updateForm('displayName', value)} />
-
             <div className="space-y-3 border-t border-[#293034] pt-4">
-              <div className="text-sm font-semibold text-[#E8E0CF]">Identity pack</div>
-              <TextField label="Face reference asset ID" value={form.portraitAssetId} onChange={(value) => updateForm('portraitAssetId', value)} />
-              <TextField label="Face reference image URL" value={form.portraitImageUrl} onChange={(value) => updateForm('portraitImageUrl', value)} />
-              <TextField label="Full body asset ID" value={form.fullBodyAssetId} onChange={(value) => updateForm('fullBodyAssetId', value)} />
+              <div className="text-sm font-semibold text-[#E8E0CF]">Required draft</div>
+              <TextField label="Avatar name" value={form.displayName} onChange={(value) => updateForm('displayName', value)} />
+              <TextField label="Face image URL" value={form.portraitImageUrl} onChange={(value) => updateForm('portraitImageUrl', value)} />
               <TextField label="Full body image URL" value={form.fullBodyImageUrl} onChange={(value) => updateForm('fullBodyImageUrl', value)} />
-              <TextField label="Side profile URL" value={form.sideProfileImageUrl} onChange={(value) => updateForm('sideProfileImageUrl', value)} />
-              <TextArea label="Expression reference URLs" value={form.expressionReferenceUrls} onChange={(value) => updateForm('expressionReferenceUrls', value)} />
-              <TextArea label="Identity note" value={form.portraitDescription} onChange={(value) => updateForm('portraitDescription', value)} />
-              <TextArea label="Body description" value={form.bodyDescription} onChange={(value) => updateForm('bodyDescription', value)} />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TextField label="Hair" value={form.hair} onChange={(value) => updateForm('hair', value)} />
-                <TextArea label="Notable traits" value={form.notableTraits} onChange={(value) => updateForm('notableTraits', value)} />
-              </div>
-            </div>
-
-            <div className="space-y-3 border-t border-[#293034] pt-4">
-              <div className="text-sm font-semibold text-[#E8E0CF]">Look and performance</div>
-              <TextArea label="Wardrobe preset" value={form.wardrobePreset} onChange={(value) => updateForm('wardrobePreset', value)} />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TextField label="Default look" value={form.defaultLook} onChange={(value) => updateForm('defaultLook', value)} />
-                <TextField label="Product shoot look" value={form.productShootLook} onChange={(value) => updateForm('productShootLook', value)} />
-              </div>
-              <TextField label="Speech look" value={form.speechLook} onChange={(value) => updateForm('speechLook', value)} />
               <div className="grid gap-2 sm:grid-cols-2">
                 {USAGE_PRESET_OPTIONS.map((option) => (
                   <label key={option.id} className="flex items-center gap-2 rounded-lg border border-[#293034] bg-[#0F1213] px-3 py-2 text-sm text-[#D7D2C4]">
@@ -190,113 +169,147 @@ export function AvatarVaultReview() {
                   </label>
                 ))}
               </div>
-              <TextField label="Gesture style" value={form.gestureStyle} onChange={(value) => updateForm('gestureStyle', value)} />
-              <TextArea label="Pose library" value={form.poseLibrary} onChange={(value) => updateForm('poseLibrary', value)} />
-              <TextArea label="Product interaction" value={form.productInteraction} onChange={(value) => updateForm('productInteraction', value)} />
-              <TextArea label="Camera presence" value={form.cameraPresence} onChange={(value) => updateForm('cameraPresence', value)} />
-              <TextArea label="Movement constraints" value={form.movementConstraints} onChange={(value) => updateForm('movementConstraints', value)} />
             </div>
 
-            <div className="rounded-lg border border-[#293034] bg-[#111415] p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
-                <Mic2 size={16} className="text-[#D088B4]" />
-                Voice
-              </div>
-              <select
-                className="avatar-vault-input mb-3"
-                value={form.voiceMode}
-                onChange={(event) => updateForm('voiceMode', event.target.value as AvatarVoiceSourceType)}
-              >
-                <option value="uploaded_voice_sample">Uploaded sample</option>
-                <option value="selected_tts_voice">Selected TTS voice</option>
-                <option value="imported_voice_profile">Imported voice profile</option>
-              </select>
-              {form.voiceMode === 'uploaded_voice_sample' && (
-                <TextField label="Voice sample asset ID" value={form.voiceSampleAssetId} onChange={(value) => updateForm('voiceSampleAssetId', value)} />
-              )}
-              {form.voiceMode === 'selected_tts_voice' && (
-                <TextField label="TTS voice ID" value={form.ttsVoiceId} onChange={(value) => updateForm('ttsVoiceId', value)} />
-              )}
-              {form.voiceMode === 'imported_voice_profile' && (
-                <TextField label="Voice profile ID" value={form.voiceProfileId} onChange={(value) => updateForm('voiceProfileId', value)} />
-              )}
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <TextField label="Language" value={form.language} onChange={(value) => updateForm('language', value)} />
-                <TextField label="Speaking style" value={form.speakingStyle} onChange={(value) => updateForm('speakingStyle', value)} />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TextField label="Default role" value={form.defaultRole} onChange={(value) => updateForm('defaultRole', value)} />
-              <TextField label="Default tone" value={form.defaultTone} onChange={(value) => updateForm('defaultTone', value)} />
-            </div>
-
-            <div className="rounded-lg border border-[#293034] bg-[#111415] p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
-                <ShieldCheck size={16} className="text-[#74D6C6]" />
-                Rights
-              </div>
-              <select
-                className="avatar-vault-input mb-3"
-                value={form.likenessOwner}
-                onChange={(event) => updateForm('likenessOwner', event.target.value as AvatarVaultDraftFormState['likenessOwner'])}
-              >
-                <option value="self">Self</option>
-                <option value="client">Client</option>
-                <option value="licensed">Licensed</option>
-                <option value="unknown">Unknown</option>
-              </select>
-              <label className="mb-3 flex items-center gap-2 text-sm text-[#D7D2C4]">
-                <input
-                  type="checkbox"
-                  checked={form.consentConfirmed}
-                  onChange={(event) => updateForm('consentConfirmed', event.target.checked)}
-                />
-                Consent confirmed
-              </label>
-              <label className="mb-3 flex items-center gap-2 text-sm text-[#D7D2C4]">
-                <input
-                  type="checkbox"
-                  checked={form.commercialUseAllowed}
-                  onChange={(event) => updateForm('commercialUseAllowed', event.target.checked)}
-                />
-                Commercial use allowed
-              </label>
-              <TextArea label="Rights notes" value={form.rightsNotes} onChange={(value) => updateForm('rightsNotes', value)} />
-            </div>
-
-            <div className="rounded-lg border border-[#293034] bg-[#111415] p-4">
-              <label className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
-                <input
-                  type="checkbox"
-                  checked={form.bindBrand}
-                  onChange={(event) => updateForm('bindBrand', event.target.checked)}
-                />
-                Bind to Brand Vault
-              </label>
-              {form.bindBrand ? (
-                <select
-                  className="avatar-vault-input"
-                  value={form.brandId}
-                  onChange={(event) => updateForm('brandId', event.target.value)}
-                  disabled={brandOptions.length === 0}
-                >
-                  {brandOptions.length === 0 ? (
-                    <option value="">No accepted brands</option>
-                  ) : (
-                    brandOptions.map((brand) => (
-                      <option key={brand.brandId} value={brand.brandId}>
-                        {brand.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              ) : (
-                <div className="rounded-lg border border-[#334044] bg-[#0F1213] px-3 py-2 text-sm text-[#AEB6B3]">
-                  Personal / no brand
+            <details className="border-t border-[#293034] pt-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[#E8E0CF]">Identity details</summary>
+              <div className="mt-3 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField label="Face asset ID" value={form.portraitAssetId} onChange={(value) => updateForm('portraitAssetId', value)} />
+                  <TextField label="Full body asset ID" value={form.fullBodyAssetId} onChange={(value) => updateForm('fullBodyAssetId', value)} />
                 </div>
-              )}
-            </div>
+                <TextField label="Side profile URL" value={form.sideProfileImageUrl} onChange={(value) => updateForm('sideProfileImageUrl', value)} />
+                <TextArea label="Expression reference URLs" value={form.expressionReferenceUrls} onChange={(value) => updateForm('expressionReferenceUrls', value)} />
+                <TextArea label="Identity note" value={form.portraitDescription} onChange={(value) => updateForm('portraitDescription', value)} />
+                <TextArea label="Body description" value={form.bodyDescription} onChange={(value) => updateForm('bodyDescription', value)} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField label="Hair" value={form.hair} onChange={(value) => updateForm('hair', value)} />
+                  <TextArea label="Notable traits" value={form.notableTraits} onChange={(value) => updateForm('notableTraits', value)} />
+                </div>
+              </div>
+            </details>
+
+            <details className="border-t border-[#293034] pt-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[#E8E0CF]">Performance and voice</summary>
+              <div className="mt-3 space-y-3">
+                <TextArea label="Wardrobe preset" value={form.wardrobePreset} onChange={(value) => updateForm('wardrobePreset', value)} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField label="Default look" value={form.defaultLook} onChange={(value) => updateForm('defaultLook', value)} />
+                  <TextField label="Product shoot look" value={form.productShootLook} onChange={(value) => updateForm('productShootLook', value)} />
+                </div>
+                <TextField label="Speech look" value={form.speechLook} onChange={(value) => updateForm('speechLook', value)} />
+                <TextField label="Gesture style" value={form.gestureStyle} onChange={(value) => updateForm('gestureStyle', value)} />
+                <TextArea label="Pose library" value={form.poseLibrary} onChange={(value) => updateForm('poseLibrary', value)} />
+                <TextArea label="Product interaction" value={form.productInteraction} onChange={(value) => updateForm('productInteraction', value)} />
+                <TextArea label="Camera presence" value={form.cameraPresence} onChange={(value) => updateForm('cameraPresence', value)} />
+                <TextArea label="Movement constraints" value={form.movementConstraints} onChange={(value) => updateForm('movementConstraints', value)} />
+
+                <div className="border-t border-[#293034] pt-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
+                    <Mic2 size={16} className="text-[#D088B4]" />
+                    Voice
+                  </div>
+                  <select
+                    className="avatar-vault-input mb-3"
+                    value={form.voiceMode}
+                    onChange={(event) => updateForm('voiceMode', event.target.value as AvatarVoiceSourceType)}
+                  >
+                    <option value="uploaded_voice_sample">Uploaded sample</option>
+                    <option value="selected_tts_voice">Selected TTS voice</option>
+                    <option value="imported_voice_profile">Imported voice profile</option>
+                  </select>
+                  {form.voiceMode === 'uploaded_voice_sample' && (
+                    <TextField label="Voice sample asset ID" value={form.voiceSampleAssetId} onChange={(value) => updateForm('voiceSampleAssetId', value)} />
+                  )}
+                  {form.voiceMode === 'selected_tts_voice' && (
+                    <TextField label="TTS voice ID" value={form.ttsVoiceId} onChange={(value) => updateForm('ttsVoiceId', value)} />
+                  )}
+                  {form.voiceMode === 'imported_voice_profile' && (
+                    <TextField label="Voice profile ID" value={form.voiceProfileId} onChange={(value) => updateForm('voiceProfileId', value)} />
+                  )}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <TextField label="Language" value={form.language} onChange={(value) => updateForm('language', value)} />
+                    <TextField label="Speaking style" value={form.speakingStyle} onChange={(value) => updateForm('speakingStyle', value)} />
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details className="border-t border-[#293034] pt-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[#E8E0CF]">Rights and brand</summary>
+              <div className="mt-3 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField label="Default role" value={form.defaultRole} onChange={(value) => updateForm('defaultRole', value)} />
+                  <TextField label="Default tone" value={form.defaultTone} onChange={(value) => updateForm('defaultTone', value)} />
+                </div>
+                <div className="border-t border-[#293034] pt-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
+                    <ShieldCheck size={16} className="text-[#74D6C6]" />
+                    Rights
+                  </div>
+                  <select
+                    className="avatar-vault-input mb-3"
+                    value={form.likenessOwner}
+                    onChange={(event) => updateForm('likenessOwner', event.target.value as AvatarVaultDraftFormState['likenessOwner'])}
+                  >
+                    <option value="self">Self</option>
+                    <option value="client">Client</option>
+                    <option value="licensed">Licensed</option>
+                    <option value="unknown">Unknown</option>
+                  </select>
+                  <label className="mb-3 flex items-center gap-2 text-sm text-[#D7D2C4]">
+                    <input
+                      type="checkbox"
+                      checked={form.consentConfirmed}
+                      onChange={(event) => updateForm('consentConfirmed', event.target.checked)}
+                    />
+                    Consent confirmed
+                  </label>
+                  <label className="mb-3 flex items-center gap-2 text-sm text-[#D7D2C4]">
+                    <input
+                      type="checkbox"
+                      checked={form.commercialUseAllowed}
+                      onChange={(event) => updateForm('commercialUseAllowed', event.target.checked)}
+                    />
+                    Commercial use allowed
+                  </label>
+                  <TextArea label="Rights notes" value={form.rightsNotes} onChange={(value) => updateForm('rightsNotes', value)} />
+                </div>
+
+                <div className="border-t border-[#293034] pt-4">
+                  <label className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#E8E0CF]">
+                    <input
+                      type="checkbox"
+                      checked={form.bindBrand}
+                      onChange={(event) => updateForm('bindBrand', event.target.checked)}
+                    />
+                    Bind to Brand Vault
+                  </label>
+                  {form.bindBrand ? (
+                    <select
+                      className="avatar-vault-input"
+                      value={form.brandId}
+                      onChange={(event) => updateForm('brandId', event.target.value)}
+                      disabled={brandOptions.length === 0}
+                    >
+                      {brandOptions.length === 0 ? (
+                        <option value="">No accepted brands</option>
+                      ) : (
+                        brandOptions.map((brand) => (
+                          <option key={brand.brandId} value={brand.brandId}>
+                            {brand.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  ) : (
+                    <div className="rounded-lg border border-[#334044] bg-[#0F1213] px-3 py-2 text-sm text-[#AEB6B3]">
+                      Personal / no brand
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
 
             <button
               type="submit"
@@ -304,7 +317,7 @@ export function AvatarVaultReview() {
               disabled={busy || !canCreateDraft}
             >
               {createDraft.isPending ? <Loader2 size={17} className="animate-spin" /> : <UserRound size={17} />}
-              Create virtual person
+              Save draft
             </button>
           </form>
         </section>

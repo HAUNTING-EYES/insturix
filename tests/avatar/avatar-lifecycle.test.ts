@@ -140,6 +140,39 @@ describe('AvatarProfile lifecycle', () => {
     );
   });
 
+  it('accepts URL-first virtual person references without internal asset ids', () => {
+    const result = validateAvatarProfile(
+      avatar({
+        sourceType: 'virtual_person_profile',
+        portrait: { assetId: '', imageUrl: 'https://cdn.example.test/avatar/face.png' },
+        identityPack: {
+          referenceAssets: [
+            { role: 'face_front', imageUrl: 'https://cdn.example.test/avatar/face.png' },
+            { role: 'full_body_front', imageUrl: 'https://cdn.example.test/avatar/full-body.png' },
+          ],
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+  });
+
+  it('blocks virtual person acceptance without a full-body reference', () => {
+    const result = validateAvatarProfile(
+      avatar({
+        sourceType: 'virtual_person_profile',
+        portrait: { assetId: '', imageUrl: 'https://cdn.example.test/avatar/face.png' },
+        identityPack: {
+          referenceAssets: [{ role: 'face_front', imageUrl: 'https://cdn.example.test/avatar/face.png' }],
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((issue) => issue.code)).toContain('missing_full_body_reference');
+    expect(result.errors.map((issue) => issue.code)).not.toContain('missing_portrait_asset');
+  });
+
   it('rejects drafts with reviewer metadata', () => {
     const repo = createInMemoryAvatarProfileRepository();
     repo.saveDraft(avatar(), { id: 'draft_reject', now: NOW });

@@ -10,8 +10,8 @@ import {
 const NOW = '2026-07-01T02:00:00.000Z';
 
 describe('Avatar Vault UI contract', () => {
-  it('creates an explicit no-brand virtual-person request when the brand toggle is off', () => {
-    const request = buildAvatarProfileDraftRequest(completeForm({ bindBrand: false, brandId: 'brand_ignored' }), {
+  it('creates a URL-first no-brand virtual-person draft from minimum fields', () => {
+    const request = buildAvatarProfileDraftRequest(minimumForm({ bindBrand: false, brandId: 'brand_ignored' }), {
       now: NOW,
       avatarId: 'avatar_contract',
     });
@@ -20,26 +20,41 @@ describe('Avatar Vault UI contract', () => {
     expect(request.brandId).toBeNull();
     expect(request.profile.avatarId).toBe('avatar_contract');
     expect(request.profile.sourceType).toBe('virtual_person_profile');
+    expect(request.profile.portrait.imageUrl).toBe('https://cdn.example.test/avatar-face.png');
     expect(request.profile.identityPack.referenceAssets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ role: 'face_front', assetId: 'asset_face' }),
-        expect.objectContaining({ role: 'full_body_front', assetId: 'asset_full_body' }),
+        expect.objectContaining({ role: 'face_front', imageUrl: 'https://cdn.example.test/avatar-face.png' }),
+        expect.objectContaining({ role: 'full_body_front', imageUrl: 'https://cdn.example.test/avatar-full-body.png' }),
       ]),
     );
     expect(request.profile.stylePack.wardrobePresets[0]).toEqual(
-      expect.objectContaining({ description: 'Clean studio blazer, dark jeans, neutral sneakers.' }),
+      expect.objectContaining({ description: 'Neutral presenter outfit; clean, production-safe, no visible logos.' }),
     );
     expect(request.profile.performancePack.usagePresets).toEqual(['product_shoot', 'speech_delivery']);
     expect(request.profile.evidence).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ signalPath: 'rights.consentConfirmed', sourceType: 'manual_user_entry' }),
         expect.objectContaining({ signalPath: 'identityPack.referenceAssets.full_body_front', sourceType: 'uploaded_body_reference' }),
       ]),
     );
   });
 
+  it('includes consent evidence only after consent is confirmed', () => {
+    const withoutConsent = buildAvatarProfileDraftRequest(minimumForm({ consentConfirmed: false }), { now: NOW });
+    const withConsent = buildAvatarProfileDraftRequest(minimumForm({ consentConfirmed: true }), { now: NOW });
+
+    expect(withoutConsent.profile.evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ signalPath: 'identityPack.referenceAssets.full_body_front' })]),
+    );
+    expect(withoutConsent.profile.evidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ signalPath: 'rights.consentConfirmed' })]),
+    );
+    expect(withConsent.profile.evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ signalPath: 'rights.consentConfirmed', sourceType: 'manual_user_entry' })]),
+    );
+  });
+
   it('sends a brand id only when the brand toggle is on', () => {
-    const request = buildAvatarProfileDraftRequest(completeForm({ bindBrand: true, brandId: 'brand_avatar' }), {
+    const request = buildAvatarProfileDraftRequest(minimumForm({ bindBrand: true, brandId: 'brand_avatar' }), {
       now: NOW,
     });
 
@@ -47,15 +62,16 @@ describe('Avatar Vault UI contract', () => {
     expect(request.brandId).toBe('brand_avatar');
   });
 
-  it('keeps create disabled until the full virtual-person pack is present', () => {
-    expect(hasRequiredAvatarDraftFields(completeForm())).toBe(true);
-    expect(hasRequiredAvatarDraftFields(completeForm({ bindBrand: true, brandId: '' }))).toBe(false);
-    expect(hasRequiredAvatarDraftFields(completeForm({ voiceSampleAssetId: '' }))).toBe(false);
-    expect(hasRequiredAvatarDraftFields(completeForm({ consentConfirmed: false }))).toBe(false);
-    expect(hasRequiredAvatarDraftFields(completeForm({ fullBodyAssetId: '' }))).toBe(false);
-    expect(hasRequiredAvatarDraftFields(completeForm({ fullBodyImageUrl: '' }))).toBe(false);
-    expect(hasRequiredAvatarDraftFields(completeForm({ wardrobePreset: '' }))).toBe(false);
-    expect(hasRequiredAvatarDraftFields(completeForm({ usagePresets: [] }))).toBe(false);
+  it('keeps create disabled only until minimum draft fields are present', () => {
+    expect(hasRequiredAvatarDraftFields(minimumForm())).toBe(true);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ displayName: '' }))).toBe(false);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ portraitImageUrl: '', portraitAssetId: '' }))).toBe(false);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ fullBodyImageUrl: '', fullBodyAssetId: '' }))).toBe(false);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ portraitImageUrl: '', portraitAssetId: 'asset_face' }))).toBe(true);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ fullBodyImageUrl: '', fullBodyAssetId: 'asset_full_body' }))).toBe(true);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ voiceSampleAssetId: '' }))).toBe(true);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ consentConfirmed: false }))).toBe(true);
+    expect(hasRequiredAvatarDraftFields(minimumForm({ bindBrand: true, brandId: '' }))).toBe(false);
   });
 
   it('toggles usage presets without duplicating them', () => {
@@ -66,37 +82,12 @@ describe('Avatar Vault UI contract', () => {
   });
 });
 
-function completeForm(overrides: Partial<AvatarVaultDraftFormState> = {}): AvatarVaultDraftFormState {
+function minimumForm(overrides: Partial<AvatarVaultDraftFormState> = {}): AvatarVaultDraftFormState {
   return {
     ...DEFAULT_AVATAR_DRAFT_FORM,
     displayName: 'Founder Presenter',
-    portraitAssetId: 'asset_face',
     portraitImageUrl: 'https://cdn.example.test/avatar-face.png',
-    portraitDescription: 'Recognizable face reference with natural expression.',
-    fullBodyAssetId: 'asset_full_body',
     fullBodyImageUrl: 'https://cdn.example.test/avatar-full-body.png',
-    sideProfileImageUrl: 'https://cdn.example.test/avatar-side.png',
-    expressionReferenceUrls: 'https://cdn.example.test/avatar-smile.png',
-    bodyDescription: 'Average height founder-presenter build.',
-    hair: 'Short black hair',
-    notableTraits: 'Warm smile\nExpressive hands',
-    wardrobePreset: 'Clean studio blazer, dark jeans, neutral sneakers.',
-    defaultLook: 'Smart casual presenter',
-    productShootLook: 'Hands visible near product table',
-    speechLook: 'Formal blazer, neutral background',
-    usagePresets: ['product_shoot', 'speech_delivery'],
-    gestureStyle: 'Calm presenter gestures',
-    poseLibrary: 'standing presenter\nproduct hold\nseated speech',
-    productInteraction: 'Can hold and point to small products without hiding labels.',
-    cameraPresence: 'Direct-to-camera with relaxed posture.',
-    movementConstraints: 'Avoid exaggerated runway poses.',
-    voiceSampleAssetId: 'asset_voice',
-    speakingStyle: 'warm and direct',
-    defaultRole: 'founder-presenter',
-    defaultTone: 'confident',
-    consentConfirmed: true,
-    commercialUseAllowed: true,
-    likenessOwner: 'self',
     ...overrides,
   };
 }

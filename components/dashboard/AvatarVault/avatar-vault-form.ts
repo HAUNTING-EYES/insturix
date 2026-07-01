@@ -72,6 +72,9 @@ export interface BuildAvatarProfileDraftRequestOptions {
   now?: string;
 }
 
+const DEFAULT_USAGE_PRESETS: AvatarUsagePreset[] = ['product_shoot', 'speech_delivery'];
+const DEFAULT_WARDROBE_PRESET = 'Neutral presenter outfit; clean, production-safe, no visible logos.';
+
 export const DEFAULT_AVATAR_DRAFT_FORM: AvatarVaultDraftFormState = {
   displayName: '',
   portraitAssetId: '',
@@ -84,11 +87,11 @@ export const DEFAULT_AVATAR_DRAFT_FORM: AvatarVaultDraftFormState = {
   bodyDescription: '',
   hair: '',
   notableTraits: '',
-  wardrobePreset: '',
+  wardrobePreset: DEFAULT_WARDROBE_PRESET,
   defaultLook: '',
   productShootLook: '',
   speechLook: '',
-  usagePresets: [],
+  usagePresets: DEFAULT_USAGE_PRESETS,
   gestureStyle: '',
   poseLibrary: '',
   productInteraction: '',
@@ -144,7 +147,7 @@ export function buildAvatarProfileDraftRequest(
         commercialUseAllowed: form.commercialUseAllowed,
         ...(optional(form.rightsNotes) ? { notes: optional(form.rightsNotes) } : {}),
       },
-      evidence: form.consentConfirmed ? buildEvidence(form, now) : [],
+      evidence: buildEvidence(form, now),
     },
   };
 }
@@ -152,16 +155,8 @@ export function buildAvatarProfileDraftRequest(
 export function hasRequiredAvatarDraftFields(form: AvatarVaultDraftFormState): boolean {
   return Boolean(
     form.displayName.trim() &&
-      form.portraitAssetId.trim() &&
-      form.portraitImageUrl.trim() &&
-      form.fullBodyAssetId.trim() &&
-      form.fullBodyImageUrl.trim() &&
-      form.wardrobePreset.trim() &&
-      form.usagePresets.length > 0 &&
-      hasRequiredVoiceSource(form) &&
-      form.consentConfirmed &&
-      form.commercialUseAllowed &&
-      form.likenessOwner !== 'unknown' &&
+      hasReference(form.portraitAssetId, form.portraitImageUrl) &&
+      hasReference(form.fullBodyAssetId, form.fullBodyImageUrl) &&
       (!form.bindBrand || form.brandId.trim()),
   );
 }
@@ -182,15 +177,13 @@ function buildIdentityPack(form: AvatarVaultDraftFormState): NonNullable<AvatarP
     referenceAssets: [
       {
         role: 'face_front',
-        assetId: form.portraitAssetId.trim(),
-        imageUrl: form.portraitImageUrl.trim(),
+        ...referenceFields(form.portraitAssetId, form.portraitImageUrl),
         label: 'Primary face reference',
         ...(optional(form.portraitDescription) ? { note: optional(form.portraitDescription) } : {}),
       },
       {
         role: 'full_body_front',
-        assetId: form.fullBodyAssetId.trim(),
-        imageUrl: form.fullBodyImageUrl.trim(),
+        ...referenceFields(form.fullBodyAssetId, form.fullBodyImageUrl),
         label: 'Primary full-body reference',
       },
       ...(optional(form.sideProfileImageUrl)
@@ -223,7 +216,7 @@ function buildStylePack(form: AvatarVaultDraftFormState): NonNullable<AvatarProf
 
 function buildPerformancePack(form: AvatarVaultDraftFormState): NonNullable<AvatarProfile['performancePack']> {
   return {
-    usagePresets: form.usagePresets,
+    usagePresets: form.usagePresets.length > 0 ? form.usagePresets : DEFAULT_USAGE_PRESETS,
     ...(optional(form.gestureStyle) ? { gestureStyle: optional(form.gestureStyle) } : {}),
     ...(parseLines(form.poseLibrary).length > 0 ? { poseLibrary: parseLines(form.poseLibrary) } : {}),
     ...(optional(form.productInteraction) ? { productInteraction: optional(form.productInteraction) } : {}),
@@ -259,21 +252,16 @@ function buildVoice(form: AvatarVaultDraftFormState): AvatarProfile['voice'] {
   };
 }
 
-function hasRequiredVoiceSource(form: AvatarVaultDraftFormState): boolean {
-  if (form.voiceMode === 'selected_tts_voice') return Boolean(form.ttsVoiceId.trim());
-  if (form.voiceMode === 'imported_voice_profile') return Boolean(form.voiceProfileId.trim());
-  return Boolean(form.voiceSampleAssetId.trim());
-}
 
 function buildEvidence(form: AvatarVaultDraftFormState, now: string): AvatarEvidence[] {
   return [
-    buildConsentEvidence(now),
+    ...(form.consentConfirmed ? [buildConsentEvidence(now)] : []),
     {
       id: `avatar_full_body_${Date.parse(now) || 0}`,
       signalPath: 'identityPack.referenceAssets.full_body_front',
       sourceType: 'uploaded_body_reference',
-      sourceAssetId: form.fullBodyAssetId.trim(),
-      sourceUrl: form.fullBodyImageUrl.trim(),
+      ...(optional(form.fullBodyAssetId) ? { sourceAssetId: form.fullBodyAssetId.trim() } : {}),
+      ...(optional(form.fullBodyImageUrl) ? { sourceUrl: form.fullBodyImageUrl.trim() } : {}),
       confidence: 1,
       observedAt: now,
       extractor: 'avatar-vault-ui.v1',
@@ -302,6 +290,17 @@ function buildAvatarId(displayName: string, now: string): string {
     .replace(/^_+|_+$/g, '')
     .slice(0, 42);
   return `avatar_${slug || 'draft'}_${Date.parse(now) || 'manual'}`;
+}
+
+function hasReference(assetId: string, imageUrl: string): boolean {
+  return Boolean(assetId.trim() || imageUrl.trim());
+}
+
+function referenceFields(assetId: string, imageUrl: string): { assetId?: string; imageUrl?: string } {
+  return {
+    ...(optional(assetId) ? { assetId: assetId.trim() } : {}),
+    ...(optional(imageUrl) ? { imageUrl: imageUrl.trim() } : {}),
+  };
 }
 
 function parseLines(value: string): string[] {

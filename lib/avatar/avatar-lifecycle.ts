@@ -20,6 +20,7 @@ export interface AvatarProfileIssue {
     | 'missing_display_name'
     | 'missing_portrait_asset'
     | 'missing_portrait_url'
+    | 'missing_full_body_reference'
     | 'missing_voice_source'
     | 'missing_consent'
     | 'missing_consent_evidence'
@@ -102,11 +103,15 @@ export function validateAvatarProfile(profile: AvatarProfile): AvatarProfileVali
   validateOptionalScope('brandId', profile.brandId, issues);
   validateOptionalScope('orgId', profile.orgId, issues);
 
-  if (!isNonEmptyString(profile.portrait?.assetId)) {
+  const isVirtualPerson = profile.sourceType === 'virtual_person_profile';
+  if (!isVirtualPerson && !isNonEmptyString(profile.portrait?.assetId)) {
     issues.push(error('missing_portrait_asset', 'portrait.assetId', 'A portrait asset is required.'));
   }
   if (!isNonEmptyString(profile.portrait?.imageUrl)) {
     issues.push(error('missing_portrait_url', 'portrait.imageUrl', 'A portrait image URL is required.'));
+  }
+  if (isVirtualPerson && !hasFullBodyReference(profile)) {
+    issues.push(error('missing_full_body_reference', 'identityPack.referenceAssets', 'A virtual person profile requires a full-body reference.'));
   }
   if (!hasUsableVoiceSource(profile.voice)) {
     issues.push(error('missing_voice_source', 'voice', 'A selected TTS voice, uploaded voice sample, or imported voice profile is required.'));
@@ -260,6 +265,13 @@ function syncProfileStatus(
     delete next.acceptedBy;
   }
   return next;
+}
+
+function hasFullBodyReference(profile: AvatarProfile): boolean {
+  return Boolean(profile.identityPack?.referenceAssets.some((asset) => {
+    if (asset.role !== 'full_body_front' && asset.role !== 'full_body_side') return false;
+    return isNonEmptyString(asset.assetId) || isNonEmptyString(asset.imageUrl);
+  }));
 }
 
 function hasUsableVoiceSource(voice: AvatarProfile['voice'] | undefined): boolean {
