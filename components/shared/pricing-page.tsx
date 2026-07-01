@@ -47,11 +47,32 @@ const ROOMS = [
 ];
 
 const VOLUME_TIERS = [
-  { label: "1-5 videos", sublabel: "Solo", planId: "plus" },
-  { label: "5-20 videos", sublabel: "Small team", planId: "pro" },
-  { label: "20-50 videos", sublabel: "Growing business", planId: "premium" },
-  { label: "50+", sublabel: "Full-scale", planId: "enterprise" },
+  { label: "Starter", sublabel: "Solo", planId: "agency_starter" },
+  { label: "Growth", sublabel: "Small team", planId: "agency_growth" },
+  { label: "Scale", sublabel: "Growing business", planId: "agency_scale" },
+  { label: "Custom", sublabel: "Full-scale", planId: "enterprise" },
 ] as const;
+
+// Representative per-unit credit costs (snapshot of lib/config/creditCosts.ts, mirrored
+// in docs/financials/credits-pricing-final-ledger). Used to show customers what a plan's
+// shared credit wallet actually buys. One wallet — spend it across any mix.
+const CREDIT_UNIT_COSTS = {
+  images: 5,      // clickatron.variation base
+  scans: 15,      // brand_vault.brand_scan base
+  plans: 20,      // calos.ai_plan
+  posts: 1,       // uploaderx.platform_publish (X is 3x)
+  videoPerMin: 900, // pipeline video, Kling 2.1 @ 15 cr/sec x 60
+} as const;
+
+function creditExamples(credits: number) {
+  return [
+    { n: Math.round(credits / CREDIT_UNIT_COSTS.images).toLocaleString(), unit: "AI images" },
+    { n: Math.round(credits / CREDIT_UNIT_COSTS.scans).toLocaleString(), unit: "Brand Vault scans" },
+    { n: Math.round(credits / CREDIT_UNIT_COSTS.plans).toLocaleString(), unit: "content-calendar plans" },
+    { n: Math.round(credits / CREDIT_UNIT_COSTS.posts).toLocaleString(), unit: "social posts" },
+    { n: (credits / CREDIT_UNIT_COSTS.videoPerMin).toFixed(1), unit: "min of premium AI video" },
+  ];
+}
 
 const TOTAL_DIGITS = ["$", "2", ",", "0", "0", "0", "+"];
 
@@ -133,7 +154,7 @@ export function PricingPage() {
         </motion.h2>
         <motion.p initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
           style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 24 }}>
-          Every plan unlocks all six rooms. Choose your production volume.
+          Every plan unlocks all six rooms. Pick the monthly credit budget that fits your output — one shared wallet, spend it any way.
         </motion.p>
 
         {/* Billing cycle toggle */}
@@ -577,6 +598,26 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
             </li>
           ))}
         </ul>
+
+        {/* What your credits get you */}
+        <div style={{
+          textAlign: "left", maxWidth: 300, margin: "0 auto 24px",
+          padding: "16px", borderRadius: 8,
+          background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
+        }}>
+          <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 12 }}>
+            {plan.credits.toLocaleString()} CREDITS ≈ ANY OF
+          </span>
+          {creditExamples(plan.credits).map((ex) => (
+            <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
+              <span style={{ color: "var(--text-secondary)" }}>{ex.unit}</span>
+              <span style={{ color: "var(--text-primary)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>{ex.n}</span>
+            </div>
+          ))}
+          <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
+            One shared wallet — mix freely. Premium video &amp; images draw the most.
+          </span>
+        </div>
 
         {/* Barcode */}
         <Barcode />
