@@ -34,7 +34,17 @@ const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'editron-cdn';
-const CDN_WORKER_URL = process.env.CDN_WORKER_URL;
+const CDN_WORKER_URL = normalizeCdnWorkerUrl(process.env.CDN_WORKER_URL);
+
+function normalizeCdnWorkerUrl(value: string | undefined): string | undefined {
+  const normalized = value
+    ?.trim()
+    .replace(/\\r|\\n/g, '')
+    .replace(/[\r\n\t]/g, '')
+    .replace(/\/+$/, '');
+
+  return normalized || undefined;
+}
 
 /**
  * Check if R2 is configured. If not, callers should fall back to GCS.

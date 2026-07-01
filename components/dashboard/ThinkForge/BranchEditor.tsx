@@ -33,10 +33,47 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useVersionManager } from '@/app/dashboard/thinkforge/hooks/useVersionManager';
-import type { BlockTree } from '@/lib/thinkforge/schemas/canonical';
+import type { Block, BlockTree } from '@/lib/thinkforge/schemas/canonical';
 import type { CIRDocument, CIRSection } from '@/lib/thinkforge/schemas/cir';
 
 type BranchBlocks = BlockTree | CIRDocument | CIRSection[];
+
+function sectionsToBlockTree(sections: CIRSection[], title?: string): BlockTree {
+  const blocks: BlockTree = [];
+
+  if (title?.trim()) {
+    blocks.push({
+      id: 'cir-title',
+      type: 'heading',
+      props: { level: 1 },
+      children: [{ type: 'text', text: title.trim() }],
+    });
+  }
+
+  sections.forEach((section, index) => {
+    blocks.push({
+      id: section.id || `cir-section-${index}`,
+      type: 'paragraph',
+      children: [{ type: 'text', text: `${section.label}: ${section.body}` }],
+    });
+  });
+
+  return blocks;
+}
+
+function branchBlocksToBlockTree(blocks: BranchBlocks | null | undefined): BlockTree {
+  if (!blocks) return [];
+
+  if (Array.isArray(blocks)) {
+    const first = blocks[0] as Partial<CIRSection> | Partial<Block> | undefined;
+    if (first && 'label' in first && 'body' in first) {
+      return sectionsToBlockTree(blocks as CIRSection[]);
+    }
+    return blocks as BlockTree;
+  }
+
+  return sectionsToBlockTree(blocks.sections, blocks.title);
+}
 
 interface BranchEditorProps {
   sessionId: string | null;
@@ -60,9 +97,10 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [branchDescription, setBranchDescription] = useState('');
-  const [previewBlocks, setPreviewBlocks] = useState<BranchBlocks | null>(null);
+  const [previewBlocks, setPreviewBlocks] = useState<BlockTree | null>(null);
   const [isMerging, setIsMerging] = useState(false);
   const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
+  const currentBlockTree = useMemo(() => branchBlocksToBlockTree(currentBlocks), [currentBlocks]);
 
   // Get history based on view mode
   const history = useMemo(() => {
@@ -125,7 +163,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
     
     const newVersion = versionManager.createBranch(
       selectedVersionId,
-      currentBlocks,
+      currentBlockTree,
       branchDescription || undefined
     );
     
@@ -134,7 +172,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
       setBranchDescription('');
       setSelectedVersionId(null);
     }
-  }, [selectedVersionId, currentBlocks, branchDescription, versionManager]);
+  }, [selectedVersionId, currentBlockTree, branchDescription, versionManager]);
 
   // Handle merge
   const handleMerge = useCallback((targetId: string) => {
@@ -165,10 +203,10 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
 
   // Create initial version if none exists
   const handleCreateInitialVersion = useCallback(() => {
-    if (currentBlocks.length > 0) {
-      versionManager.createInitialVersion(currentBlocks, 'Initial version');
+    if (currentBlockTree.length > 0) {
+      versionManager.createInitialVersion(currentBlockTree, 'Initial version');
     }
-  }, [versionManager, currentBlocks]);
+  }, [versionManager, currentBlockTree]);
 
   if (versionManager.isLoading) {
     return (
@@ -407,7 +445,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
                             className="p-2 bg-[#1C1B19]/50 rounded text-[11px] text-[#7A776E]"
                           >
                             <span className="text-[#5F5E5A]">[{block.type}]</span>{' '}
-                            {JSON.stringify(block.children || block.content || '').slice(0, 100)}...
+                            {JSON.stringify(block.children || '').slice(0, 100)}...
                           </div>
                         ))}
                         {previewBlocks.length > 10 && (

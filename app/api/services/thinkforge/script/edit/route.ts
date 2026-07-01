@@ -61,19 +61,22 @@ export async function POST(req: Request) {
       }
     }
 
+    const currentScript = existingScript ? {
+      title: existingScript.title || 'Untitled Script',
+      blocks: existingScript.blocks || [],
+      content: existingScript.content || '',
+      draft: false,
+      version: 1
+    } : null;
+
     // Build minimal session state
     const sessionState: SessionState = {
       sessionId: sessionId || `temp_${Date.now()}`,
       userId: userId,
       metadata: {},
       chat: [],
-      script: existingScript ? {
-        title: existingScript.title || 'Untitled Script',
-        blocks: existingScript.blocks || [],
-        content: existingScript.content || '',
-        draft: false,
-        version: 1
-      } : null,
+      script: currentScript,
+      documents: currentScript ? [currentScript] : [],
       ideas: [],
       version: 1,
       lastUpdated: new Date()

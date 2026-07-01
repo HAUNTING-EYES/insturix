@@ -27,7 +27,6 @@ import type {
   TiptapBulletList,
   TiptapOrderedList,
   TiptapListItem,
-  TiptapHorizontalRule,
   TiptapSceneBlock,
   TiptapEditorialBlock,
 } from '../schemas/tiptap-schema';
@@ -315,13 +314,13 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
   if (isHorizontalRule(block)) {
     return [{
       type: 'horizontalRule',
-    } as TiptapHorizontalRule];
+    } as unknown as TiptapBlockContent];
   }
 
   switch (kind) {
     case 'header': {
       // Convert to heading node with level from meta (default to 2)
-      const level = Math.min(3, Math.max(1, meta?.level || 2));
+      const level = Math.min(3, Math.max(1, Number(meta?.level) || 2)) as 1 | 2 | 3;
       const heading: TiptapHeading = {
         type: 'heading',
         attrs: { level, id },

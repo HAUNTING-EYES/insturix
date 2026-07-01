@@ -2,6 +2,45 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
+import { buildUploaderXPublicUrl } from "@/lib/uploaderx-storage";
+import {
+  requireUploaderXOwnedStorageKey,
+  StorageOwnershipError,
+} from "@/app/api/services/shared/storage-ownership";
+
+function deriveUploaderXPublicUrl(storageKey: string, requestedPublicUrl: unknown): string {
+  const rawPublicUrl = typeof requestedPublicUrl === "string" ? requestedPublicUrl.trim() : "";
+  const gcsBucketName = process.env.GCS_BUCKET_NAME?.trim();
+
+  if (rawPublicUrl) {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawPublicUrl);
+    } catch {
+      throw new StorageOwnershipError("Invalid public URL", 400);
+    }
+
+    if (parsedUrl.protocol !== "https:") {
+      throw new StorageOwnershipError("Invalid public URL", 400);
+    }
+
+    if (gcsBucketName && parsedUrl.hostname === "storage.googleapis.com") {
+      const expectedPath = `/${gcsBucketName}/${storageKey}`;
+      if (decodeURIComponent(parsedUrl.pathname) === expectedPath) {
+        return `https://storage.googleapis.com/${gcsBucketName}/${storageKey}`;
+      }
+    }
+  }
+
+  try {
+    return buildUploaderXPublicUrl(storageKey);
+  } catch (error) {
+    if (gcsBucketName) {
+      return `https://storage.googleapis.com/${gcsBucketName}/${storageKey}`;
+    }
+    throw error;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -26,6 +65,9 @@ export async function POST(request: Request) {
       console.error("⚠️ Missing required fields:", body);
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
     }
+
+    const ownedGcsPath = requireUploaderXOwnedStorageKey(userId, gcsPath);
+    const derivedPublicUrl = deriveUploaderXPublicUrl(ownedGcsPath, publicUrl);
 
     await connectToDatabase();
 
@@ -58,8 +100,8 @@ export async function POST(request: Request) {
       email, // ✅ Added required email field
       videoUuid,
       filename,
-      gcsPath,
-      publicUrl,
+      gcsPath: ownedGcsPath,
+      publicUrl: derivedPublicUrl,
       size: fileSize,
       contentType,
       status: "uploaded",
@@ -71,6 +113,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, data: upload });
   } catch (error) {
+    if (error instanceof StorageOwnershipError) {
+      return NextResponse.json({ success: false, error: "Invalid upload path" }, { status: error.status });
+    }
+
     const err = error as any;
     console.error("❌ Error saving upload:", {
       message: err.message,

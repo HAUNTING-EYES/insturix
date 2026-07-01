@@ -8,9 +8,7 @@
  * This is the writing pipeline's equivalent of editron's constraint-enforcer.ts.
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { computeQualityScore, type QualityScore } from './writing-graph-query';
+import { computeQualityScore, loadAntiAiFillerPatterns, type QualityScore } from './writing-graph-query';
 
 export interface Violation {
   constraintId: string;
@@ -24,26 +22,14 @@ export type ContentQualityScore = Omit<QualityScore, 'violations'> & {
 };
 
 function loadFillerPatterns(): Array<{ pattern: RegExp; label: string }> {
-  const paths: string[] = [];
-  if (typeof __dirname !== 'undefined') {
-    paths.push(join(__dirname, 'ai-filler-patterns.json'));
-  }
-  paths.push(
-    join(process.cwd(), 'lib', 'thinkforge', 'data', 'ai-filler-patterns.json'),
-  );
-
-  for (const p of paths) {
+  return loadAntiAiFillerPatterns().flatMap((definition) => {
     try {
-      const raw: Array<{ pattern: string; label: string }> = JSON.parse(readFileSync(p, 'utf-8'));
-      return raw.map(d => ({
-        pattern: new RegExp(d.pattern, 'gi'),
-        label: d.label,
-      }));
-    } catch { /* try next path */ }
-  }
-
-  console.error('[QualityScorer] Failed to load ai-filler-patterns.json from all paths');
-  return [];
+      return [{ pattern: new RegExp(definition.pattern, 'gi'), label: definition.label }];
+    } catch {
+      console.warn(`[QualityScorer] Ignoring invalid AI filler pattern: ${definition.label}`);
+      return [];
+    }
+  });
 }
 
 const AI_FILLER_PATTERNS = loadFillerPatterns();

@@ -13,7 +13,7 @@
  * 1.   Transcribe + classify + build cut plan (processRawFootage)
  * 1.55 Fix duration from transcript timestamps
  * 1.6  Execute silence removal (apply cuts to timeline)
- * 2.   Visual Understanding — segment-aware (Gemini Vision → SyntheticStoryboard)
+ * 2.   Visual Understanding Ã¢â‚¬â€ segment-aware (Gemini Vision Ã¢â€ â€™ SyntheticStoryboard)
  * 3.   Genre parameters + Thompson Sampling bandit
  * 4.   Store Phase 1 results on project doc
  * 4.5  Dispatch TRIBE worker via QStash (or run Steps 3.5-3.7 + Director inline in dev)
@@ -40,6 +40,7 @@ interface VideoAnalysisPayload {
   // Optional multi-path inputs
   userIntent?: string;
   referenceAssetId?: string;
+  referenceVideoUrl?: string;
   script?: string;
   platform?: string;
   // Creative Brief preferences (Director's Cut architecture)
@@ -62,7 +63,7 @@ async function handler(request: NextRequest) {
     const {
       projectId, userId, assetId, videoUrl, durationSec,
       title, profileId: initialProfileId,
-      userIntent, referenceAssetId, script, platform,
+      userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
     } = payload;
     trackedProjectId = projectId;
@@ -82,7 +83,7 @@ async function handler(request: NextRequest) {
       { $set: { autoEditStatus: 'analyzing', autoEditStartedAt: new Date() } },
     );
 
-    // ─── Step 1: Transcription + Cuts FIRST ────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Transcription + Cuts FIRST Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // Architecture: cuts FIRST, analyze SECOND.
     // processRawFootage runs Deepgram transcription (~10-30s, NOT Gemini) then
     // Gemini transcript editor (~10-30s). After cuts are decided, VU runs at
@@ -109,25 +110,231 @@ async function handler(request: NextRequest) {
       if (stack) console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
     }
 
-    // ─── Reference style transfer (if provided) ───────────────────
+    // Reference style transfer (if provided)
     let editDNA: any = null;
-    if (referenceAssetId) {
+    let referenceVideoAnalysis: any = null;
+    if (referenceAssetId || referenceVideoUrl) {
       try {
         const { assetResolver } = await import('@/lib/editron/services/asset-resolver');
-        const refUrl = await assetResolver.resolveAssetUrl(referenceAssetId, userId);
-        if (refUrl) {
-          const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
-          editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
-          console.log(`[VideoAnalysisWorker] EditDNA extracted from reference`);
+        const { resolveReferenceVideoSource } = await import('@/lib/editron/reference-video/reference-video-source');
+        const referenceSourceResult = await resolveReferenceVideoSource({
+          userId,
+          referenceAssetId,
+          referenceVideoUrl,
+          assetResolver,
+        });
+
+        if (!referenceSourceResult.ok) {
+          referenceVideoAnalysis = {
+            provider: 'glm-saas-reference',
+            status: 'rejected',
+            sourceKind: referenceSourceResult.sourceKind,
+            reason: referenceSourceResult.reason,
+            diagnostics: referenceSourceResult.diagnostics,
+          };
+          console.warn(`[VideoAnalysisWorker] Reference source rejected: ${referenceSourceResult.reason}`);
+        } else {
+          const referenceSource = referenceSourceResult.source;
+          const refUrl = referenceSource.videoUrl;
+          const referenceId = referenceSource.referenceId;
+          const referenceDurationSec = referenceSource.durationSec;
+          const referenceSourceLabel = referenceSource.sourceLabel;
+          const referenceSourceFingerprint = referenceSource.sourceFingerprint;
+
+          if (isSaasReferenceGlmEnabled()) {
+            try {
+              const { sampleReferenceVideoFrames } = await import('@/lib/editron/reference-video/reference-frame-sampler');
+              const {
+                analyzeSaasReferenceVideo,
+                DEFAULT_GLM_ANALYSIS_MODEL,
+                DEFAULT_GLM_GATE_MODEL,
+              } = await import('@/lib/editron/reference-video/saas-reference-video-analyzer');
+              const { mapSaasReferenceAnalysisToEditDNA } = await import('@/lib/editron/reference-video/saas-reference-edit-dna');
+              const {
+                buildSaasReferenceAnalysisCacheKey,
+                readSaasReferenceAnalysisCache,
+                writeSaasReferenceAnalysisCache,
+              } = await import('@/lib/editron/reference-video/saas-reference-analysis-cache');
+
+              const referenceAnalysisCacheKey = buildSaasReferenceAnalysisCacheKey({
+                referenceAssetId: referenceId,
+                durationSec: referenceDurationSec,
+                sourceFingerprint: referenceSourceFingerprint,
+                script,
+                brandContext: userIntent,
+                gateModel: DEFAULT_GLM_GATE_MODEL,
+                analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+              });
+              const cachedSaasResult = await readSaasReferenceAnalysisCache(referenceAnalysisCacheKey);
+
+              if (cachedSaasResult) {
+                if (cachedSaasResult.status === 'accepted') {
+                  editDNA = mapSaasReferenceAnalysisToEditDNA({
+                    analysis: cachedSaasResult.analysis,
+                    gate: cachedSaasResult.gate,
+                    cacheKey: cachedSaasResult.cacheKey,
+                    sourceName: referenceSourceLabel,
+                  });
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: 'accepted',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'hit',
+                    frameSamples: [],
+                    gate: cachedSaasResult.gate,
+                    gateDecision: cachedSaasResult.gateDecision,
+                    analysis: cachedSaasResult.analysis,
+                    evaluationWindowSec: cachedSaasResult.evaluationWindowSec,
+                    cacheKey: cachedSaasResult.cacheKey,
+                    analyzerCacheKey: cachedSaasResult.analyzerCacheKey,
+                    model: cachedSaasResult.model,
+                    usage: cachedSaasResult.usage,
+                  };
+                } else {
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: 'rejected',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'hit',
+                    reason: cachedSaasResult.reason,
+                    diagnostics: cachedSaasResult.diagnostics,
+                    gate: cachedSaasResult.gate,
+                    gateDecision: cachedSaasResult.gateDecision,
+                    cacheKey: cachedSaasResult.cacheKey,
+                    analyzerCacheKey: cachedSaasResult.analyzerCacheKey,
+                    frameSamples: [],
+                  };
+                }
+                console.log(`[VideoAnalysisWorker] GLM SaaS reference cache hit (${cachedSaasResult.status})`);
+              } else {
+                const frameSamples = await sampleReferenceVideoFrames({
+                  videoUrl: refUrl,
+                  userId,
+                  referenceAssetId: referenceId,
+                  durationSec: referenceDurationSec,
+                });
+                const saasResult = await analyzeSaasReferenceVideo({
+                  videoUrl: refUrl,
+                  frameImageUrls: frameSamples.map((sample) => sample.url),
+                  durationSec: referenceDurationSec,
+                  sourceLabel: referenceSourceLabel,
+                  script,
+                  brandContext: userIntent,
+                  gateModel: DEFAULT_GLM_GATE_MODEL,
+                  analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+                });
+
+                if (saasResult.ok) {
+                  editDNA = mapSaasReferenceAnalysisToEditDNA({
+                    analysis: saasResult.analysis,
+                    gate: saasResult.gate,
+                    cacheKey: referenceAnalysisCacheKey,
+                    sourceName: referenceSourceLabel,
+                  });
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: 'accepted',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'miss',
+                    frameSamples,
+                    gate: saasResult.gate,
+                    gateDecision: saasResult.gateDecision,
+                    analysis: saasResult.analysis,
+                    evaluationWindowSec: saasResult.evaluationWindowSec,
+                    cacheKey: referenceAnalysisCacheKey,
+                    analyzerCacheKey: saasResult.cacheKey,
+                    model: saasResult.model,
+                    usage: saasResult.usage,
+                  };
+                  await writeSaasReferenceAnalysisCache({
+                    status: 'accepted',
+                    cacheKey: referenceAnalysisCacheKey,
+                    analyzerCacheKey: saasResult.cacheKey,
+                    referenceAssetId: referenceId,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    gateModel: DEFAULT_GLM_GATE_MODEL,
+                    analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+                    gate: saasResult.gate,
+                    gateDecision: saasResult.gateDecision,
+                    analysis: saasResult.analysis,
+                    evaluationWindowSec: saasResult.evaluationWindowSec,
+                    model: saasResult.model,
+                    usage: saasResult.usage,
+                  });
+                  console.log(`[VideoAnalysisWorker] GLM SaaS reference accepted (${saasResult.evaluationWindowSec}s window)`);
+                } else {
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: saasResult.reason === 'not_a_saas_reference_video' ? 'rejected' : 'failed',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'miss',
+                    reason: saasResult.reason,
+                    diagnostics: saasResult.diagnostics,
+                    gate: saasResult.gate,
+                    gateDecision: saasResult.gateDecision,
+                    cacheKey: referenceAnalysisCacheKey,
+                    analyzerCacheKey: saasResult.cacheKey,
+                    raw: saasResult.raw,
+                    frameSamples,
+                  };
+                  if (saasResult.reason === 'not_a_saas_reference_video') {
+                    await writeSaasReferenceAnalysisCache({
+                      status: 'rejected',
+                      reason: 'not_a_saas_reference_video',
+                      diagnostics: saasResult.diagnostics,
+                      cacheKey: referenceAnalysisCacheKey,
+                      analyzerCacheKey: saasResult.cacheKey,
+                      referenceAssetId: referenceId,
+                      sourceFingerprint: referenceSourceFingerprint,
+                      gateModel: DEFAULT_GLM_GATE_MODEL,
+                      analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+                      gate: saasResult.gate,
+                      gateDecision: saasResult.gateDecision,
+                    });
+                  }
+                  console.warn(`[VideoAnalysisWorker] GLM SaaS reference not applied: ${saasResult.reason}`);
+                }
+              }
+            } catch (glmRefErr: unknown) {
+              const msg = glmRefErr instanceof Error ? glmRefErr.message : String(glmRefErr);
+              referenceVideoAnalysis = {
+                provider: 'glm-saas-reference',
+                status: 'failed',
+                sourceKind: referenceSource.kind,
+                referenceId,
+                sourceLabel: referenceSourceLabel,
+                sourceFingerprint: referenceSourceFingerprint,
+                reason: msg,
+              };
+              console.warn(`[VideoAnalysisWorker] GLM SaaS reference extraction failed: ${msg}`);
+            }
+          }
+
+          if (!editDNA && shouldRunLegacyReferenceExtraction(referenceVideoAnalysis)) {
+            const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
+            editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
+            console.log(`[VideoAnalysisWorker] EditDNA extracted from reference`);
+          }
         }
       } catch (refErr: unknown) {
         const msg = refErr instanceof Error ? refErr.message : String(refErr);
         console.warn(`[VideoAnalysisWorker] Reference extraction failed: ${msg}`);
       }
     }
-
-    // ─── Step 1.55: Fix video duration + register asset if missing ──
-    // The from-asset route uses asset.duration which may be missing (defaults to 30s).
+    // Step 1.55: Fix video duration + register asset if missing.
+    // The from-asset route uses asset.duration, which may be missing (defaults to 30s).
     // Transcription timestamps reveal the REAL video length.
     // Also: multipart upload may have failed to register the asset in media_assets.
     // If asset is missing from DB, register it here (fixes "video disappears on refresh"
@@ -182,7 +389,7 @@ async function handler(request: NextRequest) {
           });
           console.log(`[VideoAnalysisWorker] Registered missing asset ${assetId} in media_assets (duration=${actualDurationSec.toFixed(1)}s)`);
         } else if (!existingAsset.duration && actualDurationSec > 0) {
-          // Asset exists but duration missing — update it
+          // Asset exists but duration missing Ã¢â‚¬â€ update it
           await db.collection('media_assets').updateOne(
             { assetId },
             { $set: { duration: actualDurationSec } },
@@ -245,7 +452,7 @@ async function handler(request: NextRequest) {
         console.warn(`[VideoAnalysisWorker] Visual cut intelligence failed (non-fatal): ${msg}`);
       }
     }
-    // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.6: Execute Silence Removal (BEFORE Director) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
         await db.collection('projects').updateOne(
@@ -276,7 +483,7 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 2: Visual Understanding (AFTER cuts, segment-aware) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 2: Visual Understanding (AFTER cuts, segment-aware) Ã¢â€â‚¬Ã¢â€â‚¬
     // VU runs after cuts so it doesn't compete with transcription for Gemini quota,
     // and receives segment context so Gemini focuses on what the viewer will see.
     // Uses effectiveDurationSec (corrected by Step 1.55).
@@ -312,7 +519,7 @@ async function handler(request: NextRequest) {
       syntheticStoryboard.platform = platform;
     }
 
-    // ─── Step 3: Compute Genre Parameters (signal-driven, no profiles) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 3: Compute Genre Parameters (signal-driven, no profiles) Ã¢â€â‚¬Ã¢â€â‚¬
     let genreParameters: any = null;
     let genreParametersSignalComputed: any = null;  // Pre-bandit value for reward feedback
     if (rawFootageAnalysis) {
@@ -333,7 +540,7 @@ async function handler(request: NextRequest) {
         genreParametersSignalComputed = { ...genreOutput.genreParams };  // Snapshot before bandit
         console.log(`[VideoAnalysisWorker] Genre params: pacing=${genreOutput.genreParams.pacing_tolerance.toFixed(1)}, formality=${genreOutput.genreParams.formality.toFixed(2)}, zoom_budget=${genreOutput.genreParams.zoom_budget} (${genreOutput.confidence})`);
 
-        // ─── Step 3.1: Apply Thompson Sampling bandit adjustments ────
+        // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 3.1: Apply Thompson Sampling bandit adjustments Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
         // Load per-user bandit state from MongoDB. If the user has enough
         // project history (>=5), sample learned adjustments to genre dials.
         // Store BOTH signal-computed and adjusted params so reward feedback
@@ -372,7 +579,7 @@ async function handler(request: NextRequest) {
               console.log(`[VideoAnalysisWorker] Bandit: active but no significant adjustments for this context`);
             }
           } else {
-            console.log(`[VideoAnalysisWorker] Bandit: ${banditState ? `${banditState.totalProjects}/5 projects` : 'no state'} — using pure signal computation`);
+            console.log(`[VideoAnalysisWorker] Bandit: ${banditState ? `${banditState.totalProjects}/5 projects` : 'no state'} Ã¢â‚¬â€ using pure signal computation`);
           }
         } catch (banditErr: unknown) {
           const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
@@ -384,7 +591,7 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 4: Store Phase 1 results on project ──────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 4: Store Phase 1 results on project Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // Phase 2 fields (vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
     // segmentAnalysis) are written by the TRIBE worker, not here.
     let persistedRawFootageAnalysis: any = null;
@@ -401,6 +608,7 @@ async function handler(request: NextRequest) {
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
           ...(editDNA && { referenceEditDNA: editDNA }),
+          ...(referenceVideoAnalysis && { referenceVideoAnalysis }),
           ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
           ...(precutVjepaAnalysis && { vjepaAnalysis: precutVjepaAnalysis }),
           ...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence }),
@@ -411,7 +619,7 @@ async function handler(request: NextRequest) {
       },
     );
 
-    // ─── Step 1.7: Dispatch graph-sync with transcript data ──────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.7: Dispatch graph-sync with transcript data Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (rawFootageAnalysis) {
       try {
         const qstashToken = process.env.QSTASH_TOKEN;
@@ -441,12 +649,12 @@ async function handler(request: NextRequest) {
           });
         }
       } catch (err: unknown) {
-        // Non-fatal — graph enrichment is best-effort
+        // Non-fatal Ã¢â‚¬â€ graph enrichment is best-effort
         console.warn('[VideoAnalysisWorker] graph enrichment dispatch failed:', err instanceof Error ? err.message : err);
       }
     }
 
-    // ─── Step 4.5: Dispatch TRIBE worker (or Director directly if no segments) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 4.5: Dispatch TRIBE worker (or Director directly if no segments) Ã¢â€â‚¬Ã¢â€â‚¬
     // TRIBE worker runs Steps 3.5-3.7 (V-JEPA, Wav2Vec, Essentia, moment weights,
     // segment analysis) then dispatches Director. If no segments exist (transcription
     // failed), skip TRIBE and dispatch Director directly.
@@ -466,7 +674,7 @@ async function handler(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (hasSegments) {
-        // Dispatch TRIBE worker for deep analysis (Steps 3.5-3.7) → it dispatches Director
+        // Dispatch TRIBE worker for deep analysis (Steps 3.5-3.7) Ã¢â€ â€™ it dispatches Director
         const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
           startMs: seg.startMs,
           endMs: seg.endMs,
@@ -492,11 +700,11 @@ async function handler(request: NextRequest) {
             'Upstash-Delay': '2s',
             // QStash's default response-wait (~2min) is far shorter than this worker's ~8min
             // (V-JEPA/Wav2Vec GPU analysis runs synchronously). Without this header, QStash
-            // times out the still-running worker and fires its retry → a SECOND concurrent
-            // tribe worker → both fight over the Modal GPU → V-JEPA/Wav2Vec abort → per-moment
-            // signals come back empty → monotonous graphics. 800s matches this stage's
-            // maxDuration (tribe route) and is ≤ the QStash free-plan max (900s/15min). 2026-05-30.
-            // NOTE: value MUST carry a unit — QStash parses it as a Go duration; bare '800'
+            // times out the still-running worker and fires its retry Ã¢â€ â€™ a SECOND concurrent
+            // tribe worker Ã¢â€ â€™ both fight over the Modal GPU Ã¢â€ â€™ V-JEPA/Wav2Vec abort Ã¢â€ â€™ per-moment
+            // signals come back empty Ã¢â€ â€™ monotonous graphics. 800s matches this stage's
+            // maxDuration (tribe route) and is Ã¢â€°Â¤ the QStash free-plan max (900s/15min). 2026-05-30.
+            // NOTE: value MUST carry a unit Ã¢â‚¬â€ QStash parses it as a Go duration; bare '800'
             // returns HTTP 400 "missing unit in duration". Match the 's' suffix used by Upstash-Delay.
             'Upstash-Timeout': '800s',
           },
@@ -505,7 +713,7 @@ async function handler(request: NextRequest) {
 
         if (!dispatchRes.ok) {
           const errBody = await dispatchRes.text().catch(() => 'no body');
-          throw new Error(`TRIBE QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+          throw new Error(`TRIBE QStash dispatch failed: HTTP ${dispatchRes.status} Ã¢â‚¬â€ ${errBody}`);
         }
 
         directorDispatched = true; // TRIBE owns Director dispatch from here
@@ -514,7 +722,7 @@ async function handler(request: NextRequest) {
         console.log(`[VideoAnalysisWorker] Phase 1 complete: ${projectId} in ${totalMs}ms. TRIBE dispatched (messageId=${dispatchData.messageId || 'unknown'}, speechSegments=${segmentInputs.length}, visualSegments=${visualSegmentInputs.length}).`);
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
-        // No segments — skip TRIBE, dispatch Director directly
+        // No segments Ã¢â‚¬â€ skip TRIBE, dispatch Director directly
         await db.collection('projects').updateOne(
           { projectId },
           { $set: { autoEditStatus: 'directing_queued' } },
@@ -536,7 +744,7 @@ async function handler(request: NextRequest) {
 
         if (!dispatchRes.ok) {
           const errBody = await dispatchRes.text().catch(() => 'no body');
-          throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+          throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} Ã¢â‚¬â€ ${errBody}`);
         }
 
         directorDispatched = true;
@@ -547,8 +755,8 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Dev fallback: no QStash → run TRIBE steps + Director inline ──
-    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN — running TRIBE + Director inline`);
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Dev fallback: no QStash Ã¢â€ â€™ run TRIBE steps + Director inline Ã¢â€â‚¬Ã¢â€â‚¬
+    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN Ã¢â‚¬â€ running TRIBE + Director inline`);
 
     // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
     let vjepaAnalysis: any = precutVjepaAnalysis;
@@ -658,7 +866,7 @@ async function handler(request: NextRequest) {
       { $set: { autoEditStatus: 'directing' } },
     );
 
-    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
+    // D-016: Profile selection removed Ã¢â‚¬â€ signal system + Utility AI drive all editing decisions.
     // Content type still available in rawFootageAnalysis.contentTypeDetection for creative brief context.
     const profileId = initialProfileId;
     if (rawFootageAnalysis?.contentTypeDetection) {
@@ -744,7 +952,7 @@ async function handler(request: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[VideoAnalysisWorker] Failed: ${msg}`);
 
-    // Mark project as failed — but only if TRIBE/Director hasn't already been dispatched
+    // Mark project as failed Ã¢â‚¬â€ but only if TRIBE/Director hasn't already been dispatched
     // (if dispatched, the downstream worker owns the final status)
     if (trackedProjectId && !directorDispatched) {
       try {
@@ -761,7 +969,18 @@ async function handler(request: NextRequest) {
   }
 }
 
-// QStash signature verification — skip in dev if signing keys not set
+function isSaasReferenceGlmEnabled(): boolean {
+  const flag = process.env.EDITRON_SAAS_REFERENCE_GLM_ENABLED?.toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
+function shouldRunLegacyReferenceExtraction(referenceVideoAnalysis: any): boolean {
+  if (!isSaasReferenceGlmEnabled()) return true;
+  if (referenceVideoAnalysis?.status === 'rejected') return false;
+  if (referenceVideoAnalysis?.status === 'failed') return false;
+  return process.env.EDITRON_REFERENCE_LEGACY_FALLBACK_ENABLED?.toLowerCase() !== 'false';
+}
+// QStash signature verification Ã¢â‚¬â€ skip in dev if signing keys not set
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;

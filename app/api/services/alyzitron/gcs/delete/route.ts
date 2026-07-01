@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { logger } from '../../utils/logger';
 import { AlyzitronR2Manager } from '../../utils/r2-manager';
+import { getCollections } from '../../utils/mongodb';
+import {
+    AlyzitronStorageOwnershipError,
+    requireAlyzitronOwnedStorageKey,
+} from '../../utils/storage-ownership';
 
 export async function POST(request: Request) {
     const { userId } = await auth();
@@ -25,10 +30,26 @@ export async function POST(request: Request) {
     }
 
     try {
+        storageKey = requireAlyzitronOwnedStorageKey(userId, storageKey);
+        const { uploadTracking } = await getCollections();
+        const uploadRecord = await uploadTracking.findOne({
+            userId,
+            $or: [{ storageKey }, { storagePath: storageKey }, { gcsPath: storageKey }],
+        });
+
+        if (!uploadRecord) {
+            logger.warn('Blocked deletion for untracked or foreign storage key', { data: { userId, storageKey } });
+            return NextResponse.json({ message: 'Storage file not found' }, { status: 404 });
+        }
+
         await AlyzitronR2Manager.deleteFromR2(storageKey);
         logger.info('Successfully deleted R2 file', { data: { userId, storageKey } });
         return NextResponse.json({ message: 'File deleted successfully' }, { status: 200 });
     } catch (error) {
+        if (error instanceof AlyzitronStorageOwnershipError) {
+            return NextResponse.json({ message: error.message }, { status: error.status });
+        }
+
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         logger.error('Error deleting R2 file', { data: { userId, storageKey, error: errorMessage } });
         return NextResponse.json({ message: 'Failed to delete file', error: errorMessage }, { status: 500 });

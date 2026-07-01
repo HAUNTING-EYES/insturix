@@ -307,11 +307,11 @@ export async function safeAsyncRetry<T>(
       
       // Wait with exponential backoff
       const delayMs = baseDelayMs * Math.pow(2, attempt);
-      await new Promise(resolve => {
+      await new Promise<void>((resolve) => {
         manager.createSafeTimeout(
           operationType,
           `${operationId}-retry`,
-          resolve,
+          () => resolve(),
           delayMs
         );
       });

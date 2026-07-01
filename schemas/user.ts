@@ -88,6 +88,17 @@ export interface IUserOrganization {
   joinedAt: Date;
 }
 
+export interface IUploaderXOAuthStateRecord {
+  state: string;
+  userId: string;
+  provider: "facebook" | "instagram" | "linkedin";
+  orgId?: string | null;
+  brandId?: string | null;
+  workspaceId?: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
 export interface ICreditsBalance {
   subscriptionCredits: number; // Monthly credits from subscription (expire)
   topupCredits: number; // Purchased credits (never expire)
@@ -108,6 +119,7 @@ interface IUser extends Document {
   trialUsed: boolean; // Track if user has used their one-time trial
   creditsBalance: ICreditsBalance; // Credits system balance
   organizations: IUserOrganization[]; // User's organization memberships
+  uploaderXOAuthStates?: Partial<Record<"facebook" | "instagram" | "linkedin", IUploaderXOAuthStateRecord>>;
   preferences: {
     currency: string;
     notifications: {
@@ -308,6 +320,17 @@ const creditsBalanceSchema = new Schema<ICreditsBalance>({
   },
 }, { _id: false });
 
+const uploaderXOAuthStateSchema = new Schema<IUploaderXOAuthStateRecord>({
+  state: { type: String, required: true },
+  userId: { type: String, required: true },
+  provider: { type: String, required: true, enum: ["facebook", "instagram", "linkedin"] },
+  orgId: { type: String, default: null },
+  brandId: { type: String, default: null },
+  workspaceId: { type: String, default: null },
+  createdAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: true },
+}, { _id: false });
+
 const userSchema = new Schema<IUser>({
   clerkUserId: {
     type: String,
@@ -392,6 +415,11 @@ const userSchema = new Schema<IUser>({
       planExpiry: { type: Boolean, default: true },
       paymentReminders: { type: Boolean, default: true },
     },
+  },
+  uploaderXOAuthStates: {
+    facebook: { type: uploaderXOAuthStateSchema, default: undefined },
+    instagram: { type: uploaderXOAuthStateSchema, default: undefined },
+    linkedin: { type: uploaderXOAuthStateSchema, default: undefined },
   },
   facebookTokens: {
     userAccessToken: String,

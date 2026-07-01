@@ -46,16 +46,18 @@ async function falSubscribeWithTimeout(
   // immediately. Up to 3 retries total (4 attempts).
   return falRetry(
     () => {
-      const timeout = setTimeout(() => {}, timeoutMs);
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
       return Promise.race([
         fal.subscribe(modelId, options),
-        new Promise((_, reject) =>
-          setTimeout(
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(
             () => reject(new Error(`fal.ai video call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
             timeoutMs,
-          ),
-        ),
-      ]).finally(() => clearTimeout(timeout));
+          );
+        }),
+      ]).finally(() => {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+      });
     },
     { maxRetries: 3, label: `video gen (${modelId})` },
   );
@@ -146,6 +148,47 @@ export interface VideoGenerationResult {
   hasNativeAudio?: boolean;
 }
 
+type FalVideoErrorStage = 'generation' | 'post-generation';
+
+class FalVideoGenerationError extends Error {
+  readonly stage: FalVideoErrorStage;
+  readonly modelKey: FalVideoModel;
+  readonly status?: number | string;
+  readonly cause?: unknown;
+
+  constructor(
+    message: string,
+    options: {
+      stage: FalVideoErrorStage;
+      modelKey: FalVideoModel;
+      status?: number | string;
+      cause?: unknown;
+    },
+  ) {
+    super(message);
+    this.name = 'FalVideoGenerationError';
+    this.stage = options.stage;
+    this.modelKey = options.modelKey;
+    this.status = options.status;
+    this.cause = options.cause;
+    Object.setPrototypeOf(this, FalVideoGenerationError.prototype);
+  }
+}
+
+function isFalVideoGenerationError(error: unknown): error is FalVideoGenerationError {
+  return error instanceof FalVideoGenerationError;
+}
+
+function shouldFallbackFromFalModel(error: unknown): boolean {
+  if (!isFalVideoGenerationError(error) || error.stage !== 'generation') return false;
+
+  const status = Number(error.status);
+  return status === 404 || status === 422;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 // ─── fal.ai Video Generation ────────────────────────────────────
 
 /**
@@ -341,7 +384,12 @@ async function generateVideoWithFal(
       : errStatus === 401 ? ' (auth failed — check FAL_AI_API_KEY)'
       : errStatus === 404 ? ' (model not found — endpoint may have changed)'
       : '';
-    throw new Error(`${modelKey}: ${errMsg}${statusHint}`);
+    throw new FalVideoGenerationError(`${modelKey}: ${errMsg}${statusHint}`, {
+      stage: 'generation',
+      modelKey,
+      status: errStatus,
+      cause: err,
+    });
   }
   const genMs = Date.now() - genStart;
   console.log(`[VideoGen] fal.subscribe completed in ${genMs}ms for model=${modelKey}`);
@@ -350,18 +398,45 @@ async function generateVideoWithFal(
   const videoUrl = extractVideoUrl(data);
   if (!videoUrl) {
     console.error(`[VideoGen] No video URL in response. Model: ${modelKey}. Response keys:`, Object.keys(data || {}), 'Full data:', JSON.stringify(data).substring(0, 500));
-    throw new Error(`No video generated from fal.ai (${modelKey}). Response keys: ${Object.keys(data || {}).join(', ')}`);
+    throw new FalVideoGenerationError(`No video generated from fal.ai (${modelKey}). Response keys: ${Object.keys(data || {}).join(', ')}`, {
+      stage: 'post-generation',
+      modelKey,
+    });
   }
 
   // Download and upload to GCS
-  const response = await fetch(videoUrl);
-  if (!response.ok) throw new Error(`Failed to download generated video: ${response.status}`);
+  let response: Response;
+  try {
+    response = await fetch(videoUrl);
+  } catch (err) {
+    throw new FalVideoGenerationError(`Failed to download generated video (${modelKey}): ${getErrorMessage(err)}`, {
+      stage: 'post-generation',
+      modelKey,
+      cause: err,
+    });
+  }
+  if (!response.ok) {
+    throw new FalVideoGenerationError(`Failed to download generated video: ${response.status}`, {
+      stage: 'post-generation',
+      modelKey,
+      status: response.status,
+    });
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const assetId = `video_${nanoid(12)}`;
   const filename = `${assetId}.mp4`;
   // R2 primary (browser) + GCS secondary (Gemini 5-Track analysis needs gs:// URIs)
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true, customAssetId: assetId });
+  let uploadResult: Awaited<ReturnType<typeof uploadMedia>>;
+  try {
+    uploadResult = await uploadMedia(buffer, userId, filename, 'video/mp4', { alsoUploadToGCS: true, customAssetId: assetId });
+  } catch (err) {
+    throw new FalVideoGenerationError(`Failed to persist generated video (${modelKey}): ${getErrorMessage(err)}`, {
+      stage: 'post-generation',
+      modelKey,
+      cause: err,
+    });
+  }
 
   // Use the ACTUAL model output duration, not the requested duration.
   // Models snap to fixed enums (Kling: 5/10s, Veo: 4/6/8s, etc.)
@@ -369,12 +444,14 @@ async function generateVideoWithFal(
   const actualDuration = getActualModelDuration(modelKey, duration);
   console.log(`[VideoGen] Scene complete: model=${modelKey}, requested=${duration}s, actual=${actualDuration}s, totalMs=${Date.now() - startTime}, assetId=${assetId}`);
 
-  // hasNativeAudio must reflect whether audio was ACTUALLY REQUESTED, not the
-  // model's static default. When a scene has voiceover, generate_audio=false is
-  // sent to fal.ai (line 338 in video-model-configs.ts), so the video has NO
-  // native audio — even though the model supports it.
+  // hasNativeAudio must reflect whether native audio was enabled for this scene,
+  // not just whether the model can produce it. For models with a documented
+  // audio toggle, video-model-configs.ts sends false when the scene has
+  // voiceover. For fixed native-audio models without a toggle, this flag stays
+  // false on voiceover scenes so downstream SFX/BGM logic still treats TTS as
+  // the primary audio authority.
   //
-  // OLD: modelHasNativeAudio(modelKey) → always true for Seedance, regardless of
+  // OLD: modelHasNativeAudio(modelKey) -> always true for Seedance, regardless of
   //      whether audio was disabled for this specific generation. Caused:
   //      - SFX skipped for voiceover scenes (finalize line 764 filters on hasNativeAudio)
   //      - BGM ducked under silence (audio-ducking runs on hasNativeAudio videos)
@@ -531,13 +608,14 @@ export async function generateVideoClip(
     }
   }
 
-  // fal.ai provider — try user's chosen model, fallback to kling-2.1 if different
+  // fal.ai provider: fallback only if the chosen endpoint rejects before it
+  // returns a video. Download/upload failures after generation must surface,
+  // otherwise we can spend on a second paid model call and hide storage bugs.
   try {
     return await generateVideoWithFal(request, userId, modelKey);
   } catch (falError: any) {
-    // If the user chose a specific model and it failed, try kling-2.1 as fallback
-    if (modelKey !== 'kling-2.1') {
-      console.warn(`[VideoGen] ${modelKey} failed (${falError.message}), falling back to kling-2.1`);
+    if (modelKey !== 'kling-2.1' && shouldFallbackFromFalModel(falError)) {
+      console.warn(`[VideoGen] ${modelKey} endpoint failed (${falError.message}), falling back to kling-2.1`);
       return generateVideoWithFal(request, userId, 'kling-2.1');
     }
     throw falError;

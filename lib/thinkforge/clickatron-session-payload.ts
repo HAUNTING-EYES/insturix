@@ -47,6 +47,9 @@ export function buildClickatronSessionFormData(handoffState: ThinkToClickHandoff
   if (!payload) {
     throw new Error("Clickatron handoff is missing a session payload.");
   }
+  if (!handoffState.canSendToClickatron) {
+    throw new Error(`Clickatron handoff is not ready to send: ${handoffState.status}`);
+  }
 
   const formData = new FormData();
   formData.append("prompt", buildClickatronPromptFromHandoff(handoffState));

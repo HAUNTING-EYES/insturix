@@ -67,11 +67,9 @@ export function getThinkForgeExtensions(options: ThinkForgeEditorOptions = {}): 
   } = options;
 
   return [
-    // StarterKit provides most basic nodes and marks
-    // CRITICAL: History plugin is included in StarterKit and must be enabled for undo/redo
+    // StarterKit provides most basic nodes and marks.
+    // History/undo-redo is included by StarterKit defaults.
     StarterKit.configure({
-      // Ensure history is enabled (it's included by default in StarterKit)
-      history: true,
       // Configure heading to only allow levels 1-3
       heading: {
         levels: [1, 2, 3],
@@ -300,9 +298,3 @@ export function createDefaultDocument(title?: string): Record<string, unknown> {
     ],
   };
 }
-
-// =============================================================================
-// TYPE EXPORTS
-// =============================================================================
-
-export type { ThinkForgeEditorOptions };

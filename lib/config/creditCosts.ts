@@ -127,6 +127,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       modelMultipliers: {
         'seedance-2.0': 1.2,
         'seedance-1.5': 1,
+        'happy-horse-v1.1': 1.8,
         'kling-2.6': 1.5,
         'kling-2.1': 1,
         'veo-3.1': 2,

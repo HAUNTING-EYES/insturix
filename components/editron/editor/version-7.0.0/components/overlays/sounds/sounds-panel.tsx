@@ -118,7 +118,6 @@ const SoundsPanel: React.FC = () => {
           publicUrl: sound.file,
           type: 'audio',
           filename: `${sound.title}.mp3`,
-          userId: 'default-user', // TODO: Get actual userId from auth context
           duration: sound.duration,
         }),
       });

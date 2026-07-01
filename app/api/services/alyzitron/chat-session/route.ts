@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import {
   findChatSession,
   deleteChatSession,
@@ -12,39 +13,54 @@ import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionServ
 import { GCSManager } from "../utils/gcs";
 import { AlyzitronR2Manager } from "../utils/r2-manager";
 import { extractMediaUri, streamUrlToGCS } from "@/lib/alyzitron/transcription/downloader";
+import {
+  AlyzitronTaskOwnershipError,
+  requireOwnedAlyzitronTask,
+} from "../utils/task-ownership";
 
-/**
- * POST /api/alyzitron/chat-session
- */
+function taskMediaUrl(task: any): string | null {
+  return typeof task?.videoUrl === "string" && task.videoUrl.trim() ? task.videoUrl : null;
+}
+
+function ownershipErrorResponse(error: AlyzitronTaskOwnershipError) {
+  return NextResponse.json({ error: error.message }, { status: error.status });
+}
+
 export async function POST(req: NextRequest) {
   let taskId: string | undefined;
 
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     taskId = body.taskId;
-    const { videoUrl, userId } = body;
 
-    if (!taskId || !videoUrl) {
+    if (!taskId) {
       return NextResponse.json(
-        { error: "taskId and videoUrl are required" },
+        { error: "taskId is required" },
         { status: 400 }
       );
     }
 
-    // 1. Find or create chat session
-    let session = await findChatSession(taskId, userId ?? null);
-    const isNew = !session;
-    if (!session) {
-      session = await createChatSession(taskId, userId ?? null);
+    const task = await requireOwnedAlyzitronTask(taskId, userId);
+    const videoUrl = taskMediaUrl(task);
+    if (!videoUrl) {
+      return NextResponse.json({ error: "Task media URL missing" }, { status: 400 });
     }
 
-    // 2. Check transcription — auto-trigger if missing
+    let session = await findChatSession(taskId, userId);
+    const isNew = !session;
+    if (!session) {
+      session = await createChatSession(taskId, userId);
+    }
+
     const existing = await findTranscription(taskId);
-    const transcriptionReady =
-      existing?.status === "completed" && !!existing.formattedTranscript;
+    const transcriptionReady = existing?.status === "completed" && !!existing.formattedTranscript;
 
     if (!transcriptionReady && existing?.status !== "processing") {
-      // 🚀 THE FIX: Resolve the correct URL for Deepgram
       triggerTranscription(taskId, videoUrl).catch((err) => {
         console.error("[Alyzitron/chat-session] Background transcription error:", err);
       });
@@ -59,15 +75,15 @@ export async function POST(req: NextRequest) {
       totalMessagesEver: session.totalMessagesEver,
     });
   } catch (error: any) {
+    if (error instanceof AlyzitronTaskOwnershipError) {
+      return ownershipErrorResponse(error);
+    }
+
     console.error("[Alyzitron/chat-session] POST error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-/**
- * Background transcription runner.
- * Now correctly handles YouTube vs GCS paths.
- */
 async function triggerTranscription(
   taskId: string,
   videoUrl: string
@@ -78,32 +94,21 @@ async function triggerTranscription(
     let deepgramUrl: string;
 
     if (videoUrl.startsWith("gs://")) {
-      // Case A: File is in GCS, get signed URL
       const bucketName = process.env.GCS_BUCKET_NAME || "";
       const objectPath = videoUrl.replace(`gs://${bucketName}/`, "");
       deepgramUrl = await GCSManager.getSignedReadUrl(objectPath);
     } else if (videoUrl.includes("r2.cloudflarestorage.com") || videoUrl.includes("r2.dev")) {
-      // Case B: File is in R2, get signed URL
       console.log(`[ChatSession] Getting signed URL for R2 file: ${videoUrl}`);
       deepgramUrl = await AlyzitronR2Manager.getSignedReadUrl(videoUrl);
     } else {
-      // Case C: External URL (YouTube, Instagram, etc) - Use Apify + Stream to GCS
       console.log(`[ChatSession] Extracting and streaming media: ${videoUrl}`);
-      
-      // 1. Extract direct URI
       const extracted = await extractMediaUri(videoUrl);
-      
-      // 2. Stream to GCS (consistent with main processor)
       const gcsPath = `alyzitron/media/${taskId}.${extracted.mediaType === "audio" ? "mp3" : "mp4"}`;
       const mimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
-      
-      const gcsRes = await streamUrlToGCS(extracted.downloadUrl, gcsPath, mimeType);
-      
-      // 3. Get signed URL for transcription service
+      await streamUrlToGCS(extracted.downloadUrl, gcsPath, mimeType);
       deepgramUrl = await GCSManager.getSignedReadUrl(gcsPath);
     }
 
-    // Now call transcribeAudio with the resolved .mp3 URL
     const result = await transcribeAudio(deepgramUrl);
 
     await upsertTranscriptionCompleted(taskId, {
@@ -117,25 +122,25 @@ async function triggerTranscription(
       wordCount: result.wordCount,
     });
 
-    console.log(`✅ [ChatSession] Transcription completed for task: ${taskId}`);
-
+    console.log(`[ChatSession] Transcription completed for task: ${taskId}`);
   } catch (err: any) {
-    console.error(`❌ [ChatSession] Transcription failed: ${err.message}`);
-    await upsertTranscriptionError(taskId, err.message).catch(() => { });
+    console.error(`[ChatSession] Transcription failed: ${err.message}`);
+    await upsertTranscriptionError(taskId, err.message).catch(() => {});
     throw err;
   }
 }
 
-/**
- * GET and DELETE handlers remain the same...
- */
 export async function GET(req: NextRequest) {
   try {
-    const taskId = req.nextUrl.searchParams.get("taskId");
-    const userId = req.nextUrl.searchParams.get("userId") ?? null;
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    const taskId = req.nextUrl.searchParams.get("taskId");
     if (!taskId) return NextResponse.json({ error: "taskId is required" }, { status: 400 });
 
+    await requireOwnedAlyzitronTask(taskId, userId);
     const session = await findChatSession(taskId, userId);
     if (!session) return NextResponse.json({ session: null, messages: [] });
 
@@ -146,20 +151,32 @@ export async function GET(req: NextRequest) {
       totalMessagesEver: session.totalMessagesEver,
     });
   } catch (error: any) {
+    if (error instanceof AlyzitronTaskOwnershipError) {
+      return ownershipErrorResponse(error);
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
-    const taskId = req.nextUrl.searchParams.get("taskId");
-    const userId = req.nextUrl.searchParams.get("userId") ?? null;
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    const taskId = req.nextUrl.searchParams.get("taskId");
     if (!taskId) return NextResponse.json({ error: "taskId is required" }, { status: 400 });
 
+    await requireOwnedAlyzitronTask(taskId, userId);
     await deleteChatSession(taskId, userId);
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof AlyzitronTaskOwnershipError) {
+      return ownershipErrorResponse(error);
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

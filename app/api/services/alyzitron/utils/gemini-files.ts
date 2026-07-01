@@ -1,17 +1,26 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleAIFileManager } from '@google/generative-ai/server';
 
-// Initialize Gemini client
-let genAI: GoogleGenerativeAI | null = null;
+// Initialize Gemini Files API client
+let fileManager: GoogleAIFileManager | null = null;
 
-function getGenAI(): GoogleGenerativeAI {
-  if (!genAI) {
+function getFileManager(): GoogleAIFileManager {
+  if (!fileManager) {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY environment variable is required');
     }
-    genAI = new GoogleGenerativeAI(apiKey);
+    fileManager = new GoogleAIFileManager(apiKey);
   }
-  return genAI;
+  return fileManager;
+}
+
+function extractGeminiFileId(fileUriOrName: string): string {
+  const withoutQuery = fileUriOrName.trim().split(/[?#]/, 1)[0];
+  const filesPrefixIndex = withoutQuery.lastIndexOf('files/');
+
+  return filesPrefixIndex >= 0
+    ? withoutQuery.slice(filesPrefixIndex + 'files/'.length)
+    : withoutQuery;
 }
 
 /**
@@ -24,12 +33,11 @@ export async function uploadFileToGemini(
   displayName?: string
 ): Promise<string> {
   try {
-    const genai = getGenAI();
+    const fileManager = getFileManager();
 
     // Upload file to Gemini Files API
-    const fileManager = genai.getFileManager();
     const uploadResult = await fileManager.uploadFile(
-      new Uint8Array(fileBuffer),
+      Buffer.from(fileBuffer),
       {
         mimeType,
         displayName: displayName || `alyzitron-upload-${Date.now()}`,
@@ -52,11 +60,10 @@ export async function uploadFileToGemini(
  */
 export async function deleteFromGemini(fileUri: string): Promise<void> {
   try {
-    const genai = getGenAI();
-    const fileManager = genai.getFileManager();
+    const fileManager = getFileManager();
 
-    // Extract file name from URI (format: files/abc123)
-    const fileName = fileUri.replace('files/', '');
+    // GoogleAIFileManager.deleteFile expects the ID part, not the full "files/..." name.
+    const fileName = extractGeminiFileId(fileUri);
 
     await fileManager.deleteFile(fileName);
     console.log(`[Gemini] Deleted file: ${fileName}`);

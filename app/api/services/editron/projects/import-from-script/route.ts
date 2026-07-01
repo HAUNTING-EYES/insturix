@@ -1,18 +1,26 @@
 /**
  * POST /api/services/editron/projects/import-from-script
  *
- * Import a script (scenes) into a new Editron project.
+ * Import a script (scenes) into a new or existing Editron project.
  * Converts SceneDescriptors into timeline overlays.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { projectService } from '@/lib/editron/services/project-service';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { addProjectToLinkBySessionId, createProjectLink, findLinkBySessionId } from '@/lib/shared/project-links';
 import { scenesToOverlays, scenesToTotalFrames, type StoryboardImage } from '@/lib/pipeline/scene-to-editron';
 import { CreditsService } from '@/lib/services/creditsService';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,6 +35,7 @@ export async function POST(request: NextRequest) {
       title,
       aspectRatio,
       sourceScriptId,
+      sourceSessionId,
       storyboardImages,
       brandId,
     }: {
@@ -34,9 +43,15 @@ export async function POST(request: NextRequest) {
       title?: string;
       aspectRatio?: string;
       sourceScriptId?: string;
+      sourceSessionId?: string;
       storyboardImages?: StoryboardImage[];
       brandId?: string;
     } = body;
+
+    const normalizedBrandId = nonEmptyString(brandId);
+    const normalizedSourceSessionId = nonEmptyString(sourceSessionId);
+    const normalizedSourceScriptId = nonEmptyString(sourceScriptId);
+    const warnings: string[] = [];
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
       return NextResponse.json(
@@ -69,9 +84,29 @@ export async function POST(request: NextRequest) {
 
     const fps = 30;
 
-    // Create Editron project
+    // Reuse the source-session project when ThinkForge created one at script stage.
     const projectName = title || 'Imported Script';
-    const project = await projectService.createProject(userId, projectName, { brandId });
+    const existingProject = normalizedSourceSessionId
+      ? await projectService.findProjectBySessionId(userId, normalizedSourceSessionId)
+      : null;
+    const project = existingProject || await projectService.createProject(userId, projectName, {
+      brandId: normalizedBrandId,
+      sourceSessionId: normalizedSourceSessionId,
+    });
+
+    if (existingProject) {
+      const db = await getDatabase();
+      const update: Record<string, unknown> = {
+        name: projectName,
+        pipelineStage: 'edit',
+        updatedAt: new Date(),
+      };
+      if (normalizedBrandId) update.brandId = normalizedBrandId;
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { userId, projectId: project.projectId },
+        { $set: update },
+      );
+    }
 
     // Convert scenes to overlays (with storyboard images if available)
     const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);
@@ -86,6 +121,24 @@ export async function POST(request: NextRequest) {
       durationInFrames: totalFrames,
     });
 
+    if (normalizedSourceSessionId) {
+      try {
+        const existingLink = await findLinkBySessionId(userId, normalizedSourceSessionId);
+        if (existingLink) {
+          await addProjectToLinkBySessionId(userId, normalizedSourceSessionId, project.projectId);
+        } else {
+          await createProjectLink(userId, {
+            sessionId: normalizedSourceSessionId,
+            sourceScriptId: normalizedSourceScriptId,
+            projectId: project.projectId,
+            brandId: normalizedBrandId,
+          });
+        }
+      } catch (linkErr: any) {
+        warnings.push(`Project link operation failed: ${linkErr.message}`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
@@ -94,6 +147,8 @@ export async function POST(request: NextRequest) {
       totalDurationFrames: totalFrames,
       totalDurationSeconds: Math.round(totalFrames / fps),
       creditsDeducted: 1,
+      reusedProject: Boolean(existingProject),
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error: any) {
     console.error('[import-from-script] Error:', error);

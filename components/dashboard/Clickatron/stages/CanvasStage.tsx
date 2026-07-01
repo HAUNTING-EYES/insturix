@@ -30,6 +30,7 @@ import { SketchOverlay, type SketchOverlayHandle, type SketchTool, type PencilCo
 import { SelectionTool } from "../canvas/SelectionTool";
 import { GenerativeFillInline } from "../canvas/GenerativeFillInline";
 import { SPREAD } from "@/lib/animation/presets";
+import type { Variation } from "@/types/clickatron";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -651,7 +652,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           description: "Sketch-to-edit completed successfully",
         });
       } catch (pollError) {
-        if (pollError.message !== "Polling aborted") {
+        if (!(pollError instanceof Error) || pollError.message !== "Polling aborted") {
           console.error("Polling error in handleSketchToEditSubmit:", pollError);
           
           // Clear all overlay images after failed generation

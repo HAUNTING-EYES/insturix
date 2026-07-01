@@ -48,9 +48,30 @@ export async function POST(request: NextRequest) {
 
     const db = await getDatabase();
 
+    const upload = await db.collection(MEDIA_UPLOADS_COLLECTION).findOne({
+      assetId,
+      userId,
+      uploadId,
+      status: 'in-progress',
+    });
+
+    if (!upload) {
+      return NextResponse.json(
+        { success: false, error: 'Upload not found or not owned by user' },
+        { status: 404 },
+      );
+    }
+
+    if (upload.r2Key !== r2Key) {
+      return NextResponse.json(
+        { success: false, error: 'Upload key does not match tracked upload' },
+        { status: 400 },
+      );
+    }
+
     // ── Abort path ──
     if (abort) {
-      await abortMultipartUpload(r2Key, uploadId);
+      await abortMultipartUpload(upload.r2Key, uploadId);
       await db.collection(MEDIA_UPLOADS_COLLECTION).updateOne(
         { assetId, userId },
         { $set: { status: 'aborted', lastActivityAt: new Date() } },
@@ -67,23 +88,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify ownership
-    const upload = await db.collection(MEDIA_UPLOADS_COLLECTION).findOne({
-      assetId,
-      userId,
-      uploadId,
-      status: 'in-progress',
-    });
-
-    if (!upload) {
-      return NextResponse.json(
-        { success: false, error: 'Upload not found or not owned by user' },
-        { status: 404 },
-      );
-    }
-
     // Assemble all parts on R2
-    const publicUrl = await completeMultipartUpload(r2Key, uploadId, parts);
+    const publicUrl = await completeMultipartUpload(upload.r2Key, uploadId, parts);
 
     // Mark tracking record as completed
     await db.collection(MEDIA_UPLOADS_COLLECTION).updateOne(

@@ -518,7 +518,17 @@ export async function executeDirectorPlan(
     let unifiedDecisionBundleExecuted = false;
     let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummary | null = null;
 
-    const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
+    const edlSummary: {
+      totalDecisions: number;
+      executed: number;
+      skipped: number;
+      byType: Record<string, number>;
+      cinematicMoments: number;
+      assetsAnalyzed: number;
+      assetsFailed: number;
+      failedAssets: string[];
+      skipReason?: 'creative-brief-per-asset-analysis-bypassed' | 'asset-analysis-unavailable';
+    } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
       assetsAnalyzed: 0, assetsFailed: 0, failedAssets: [],
     };
@@ -602,15 +612,20 @@ export async function executeDirectorPlan(
       }
 
       const isAIProject = storyboardScenes.length > 0;
+      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
 
       // ── Per-asset analysis with INDIVIDUAL error isolation ──
-      // SKIP when Creative Brief is active — Path E watches the video directly via
+      // SKIP only for raw-footage Creative Brief mode — Path E watches that video directly via
       // geminiFileUri. Running 43 per-asset Gemini calls exhausts quota before
       // the Creative Brief can make its ONE call. This was the root cause of
       // proj_FGHYdAd7VkhU producing zero editing decisions.
-      const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';
+      // AI storyboard projects do not enter Path E, so they must still run
+      // per-asset analysis even when USE_CREATIVE_BRIEF=true.
+      const creativeBriefPerAssetBypassActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;
+      const skipPerAssetAnalysis = creativeBriefPerAssetBypassActive;
       if (skipPerAssetAnalysis) {
-        console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
+        edlSummary.skipReason = 'creative-brief-per-asset-analysis-bypassed';
+        console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, raw-footage mode, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
       } else {
         onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
       }
@@ -743,7 +758,6 @@ export async function executeDirectorPlan(
       let pathDHandled = false;
       let unifiedDecisionBundle: UnifiedDecisionBundle | null = null;
       const unifiedDecisionCandidates: UnifiedDecisionProducerCandidate[] = [];
-      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
       let editedTimelineContext: any = null;
       if (hasRawFootage) {
         try {
@@ -2009,7 +2023,11 @@ export async function executeDirectorPlan(
       } else if (!pathDHandled) {
         // C6 FIX: Zero assets analyzed AND Path D didn't run — skip EDL but STILL
         // run profile-based steps (filters, transitions, captions, motion graphics).
-        const failMsg = `Intelligence: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
+        const intelligenceReason = edlSummary.skipReason ?? 'asset-analysis-unavailable';
+        const failureDetails = edlSummary.failedAssets.length > 0 ? ` (${edlSummary.failedAssets.join(', ')})` : '';
+        const failMsg = intelligenceReason === 'creative-brief-per-asset-analysis-bypassed'
+          ? `Intelligence: per-asset analysis bypassed for raw-footage Creative Brief mode; no executable Path E/D decisions were produced. EDL skipped — profile-based steps (filters, transitions, captions) will still run.`
+          : `Intelligence: 0/${videoOverlays.length} video assets analyzed${failureDetails}. EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
         console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);
 
@@ -2020,6 +2038,7 @@ export async function executeDirectorPlan(
             { projectId },
             { $set: {
               'intelligence.status': 'skipped_edl',
+              'intelligence.reason': intelligenceReason,
               'intelligence.failedAssets': edlSummary.failedAssets,
               'intelligence.lastAttempt': new Date(),
               'intelligence.message': failMsg,

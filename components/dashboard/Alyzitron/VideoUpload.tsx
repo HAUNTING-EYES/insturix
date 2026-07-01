@@ -30,9 +30,9 @@ const fadeIn = {
 export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [source, setSource] = useState<Source>({ type: 'none' });
   const [context, setContext] = useState<ContextValues>({
-    niche: '',
-    audience: '',
-    tone: '',
+    familyFriendly: true,
+    platform: '',
+    location: 'Global (International)',
     additionalDetails: '',
   });
   const [showTopup, setShowTopup] = useState(false);

@@ -292,9 +292,11 @@ export interface EditronProductionManifest {
 
 export interface Storyboard {
   storyboardId: string;
+  /** Real Editron project id after finalize. Legacy pre-finalize rows may contain the ThinkForge session id. */
   projectId?: string;
-  userId: string;
+  /** Source ThinkForge session id used for lineage, project reuse, and project-links. */
   sourceSessionId?: string;
+  userId: string;
   sourceScriptId?: string;
   title?: string;
   styleGuide?: StyleGuide;

@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
 
     // Verify recipient is a registered user
-    const user = await User.findOne({ email: recipientEmail }).lean();
+    const user = await User.findOne({ email: recipientEmail }).lean<{ username?: string; email?: string }>();
     if (!user) {
       return NextResponse.json(
         { ok: false, message: 'Recipient email is not registered. Only registered users can receive emails.' },

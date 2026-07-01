@@ -104,7 +104,7 @@ describe("ThinkForge to Clickatron session payload", () => {
     expect(metadata.clickatron.creativeSpec.renderPlan.textPolicy).toBe("editable_text_layers");
   });
 
-  it("builds Clickatron FormData from visible ThinkForge content when no hidden sidecar exists", () => {
+  it("keeps visible-content fallback as a draft instead of sendable FormData", () => {
     const context = buildThinkToClickContext({
       sessionId: "tf_session_123",
       scriptId: "script_456",
@@ -129,27 +129,64 @@ describe("ThinkForge to Clickatron session payload", () => {
         imageStyle: "editorial",
       },
     });
+    const metadata = state.payloadPreview?.metadata ?? {};
+    const spec = (metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(state.status).toBe("needs_user_input");
+    expect(state.canSendToClickatron).toBe(false);
+    expect(state.payloadPreview?.readyToGenerate).toBe(false);
+    expect(state.requiredUserInput).toEqual(["Review and confirm the derived visual brief before sending to Clickatron."]);
+    expect(state.payloadPreview?.prompt).toContain("Create a text-free linkedin single-post visual background");
+    expect(state.payloadPreview?.prompt).toContain("Do not render any readable words");
+    expect(state.payloadPreview?.prompt).toContain("Text rendering policy: do not rasterize readable text");
+    expect(state.payloadPreview?.prompt).not.toContain("Launch one idea once");
+    expect(spec.renderPlan.textPolicy).toBe("editable_text_layers");
+    expect(spec.renderPlan.textLayers?.[0]).toMatchObject({
+      text: "Launch one idea once and keep its context connected.",
+      sourceBlockId: "blk_intro",
+      locked: true,
+    });
+    expect(spec.validation.issues).toEqual([
+      expect.objectContaining({ code: "derived_from_visible_content" }),
+    ]);
+    expect(() => buildClickatronSessionFormData(state)).toThrow("not ready to send: needs_user_input");
+  });
+
+  it("builds Clickatron FormData from post writer output with a real image prompt", () => {
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_123",
+      scriptId: "script_456",
+      blocks: sourceBlocks(),
+      writerOutput: {
+        writerType: "post",
+        visualPrompts: {
+          singleImagePrompt: "Editorial workflow graphic with connected creative nodes and exact overlay text: Context travels.",
+        },
+      },
+      userVisualChoices: {
+        kind: "single_post_visual",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+      },
+      projectMeta: {
+        brandId: "brand_current",
+      },
+    });
+    const state = buildThinkToClickHandoffState({
+      context,
+      blocks: sourceBlocks(),
+    });
     const formData = buildClickatronSessionFormData(state);
     const metadata = JSON.parse(String(formData.get("metadata")));
 
     expect(state.status).toBe("ready");
     expect(state.canSendToClickatron).toBe(true);
-    expect(formData.get("prompt")).toContain("Create a text-free linkedin single-post visual background");
-    expect(formData.get("prompt")).toContain("Do not render any readable words");
-    expect(formData.get("prompt")).toContain("Text rendering policy: do not rasterize readable text");
-    expect(formData.get("prompt")).not.toContain("Launch one idea once");
+    expect(formData.get("prompt")).toContain("Editorial workflow graphic with connected creative nodes");
     expect(formData.get("sourceSessionId")).toBe("tf_session_123");
     expect(formData.get("sourceScriptId")).toBe("script_456");
-    expect(metadata.clickatronHandoff.sourceBlockIds).toEqual(["blk_intro"]);
-    expect(metadata.clickatron.creativeSpec.renderPlan.textPolicy).toBe("editable_text_layers");
-    expect(metadata.clickatron.creativeSpec.renderPlan.textLayers[0]).toMatchObject({
-      text: "Launch one idea once and keep its context connected.",
-      sourceBlockId: "blk_intro",
-      locked: true,
-    });
-    expect(metadata.clickatron.creativeSpec.validation.issues).toEqual([
-      expect.objectContaining({ code: "derived_from_visible_content" }),
-    ]);
+    expect(metadata.clickatron.creativeSpec.validation.status).toBe("ready");
   });
 
   it("throws instead of building a fallback payload when no session payload exists", () => {

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import {
+  consumeUploaderXOAuthState,
+  UploaderXOAuthStateError,
+} from "@/app/api/services/uploaderx/utils/oauth-state";
 
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL!;
 
@@ -17,24 +21,36 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
+    const state = url.searchParams.get("state");
 
     if (error || !code) {
-      console.error("❌ Facebook OAuth error:", error || "No code");
+      console.error("[Facebook OAuth] Provider error:", error || "No code");
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?fb_error=denied`
       );
     }
 
+    try {
+      await consumeUploaderXOAuthState({
+        userId: session.userId,
+        provider: "facebook",
+        state,
+      });
+    } catch (stateError) {
+      if (stateError instanceof UploaderXOAuthStateError) {
+        return NextResponse.redirect(
+          `${baseUrl}/dashboard/uploaderx?fb_error=invalid_state`
+        );
+      }
+
+      throw stateError;
+    }
+
     const appId = process.env.FACEBOOK_APP_ID!;
     const appSecret = process.env.FACEBOOK_APP_SECRET!;
-
-    // ✅ FIXED: ALWAYS use same redirect URI as /auth
     const redirectUri = `${baseUrl}/api/services/uploaderx/facebook/callback`;
 
-    // 🔄 Exchange code → access token
-    const tokenUrl = new URL(
-      "https://graph.facebook.com/v21.0/oauth/access_token"
-    );
+    const tokenUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
     tokenUrl.searchParams.set("client_id", appId);
     tokenUrl.searchParams.set("client_secret", appSecret);
     tokenUrl.searchParams.set("redirect_uri", redirectUri);
@@ -44,7 +60,7 @@ export async function GET(req: Request) {
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      console.error("❌ Token exchange error:", tokenData.error);
+      console.error("[Facebook OAuth] Token exchange error:", tokenData.error);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?fb_error=token_exchange`
       );
@@ -52,10 +68,7 @@ export async function GET(req: Request) {
 
     const shortToken = tokenData.access_token;
 
-    // 🔄 Long-lived token
-    const longUrl = new URL(
-      "https://graph.facebook.com/v21.0/oauth/access_token"
-    );
+    const longUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
     longUrl.searchParams.set("grant_type", "fb_exchange_token");
     longUrl.searchParams.set("client_id", appId);
     longUrl.searchParams.set("client_secret", appSecret);
@@ -66,14 +79,13 @@ export async function GET(req: Request) {
 
     const userAccessToken = longData.access_token || shortToken;
 
-    // 📄 Fetch pages
     const pagesRes = await fetch(
       `https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}`
     );
     const pagesData = await pagesRes.json();
 
     if (pagesData.error) {
-      console.error("❌ Pages fetch error:", pagesData.error);
+      console.error("[Facebook OAuth] Pages fetch error:", pagesData.error);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?fb_error=pages_fetch`
       );
@@ -86,13 +98,11 @@ export async function GET(req: Request) {
         pageAccessToken: p.access_token,
       })) || [];
 
-    // 👤 User info
     const meRes = await fetch(
       `https://graph.facebook.com/v21.0/me?access_token=${userAccessToken}`
     );
     const meData = await meRes.json();
 
-    // 💾 Save
     await connectToDatabase();
     const { User } = await import("@/schemas/user");
 
@@ -109,15 +119,14 @@ export async function GET(req: Request) {
           },
         },
       },
-      { upsert: true }
+      { upsert: false }
     );
 
-    // ✅ SUCCESS
     return NextResponse.redirect(
       `${baseUrl}/dashboard/uploaderx?fb_connected=true`
     );
   } catch (err) {
-    console.error("❌ Callback error:", err);
+    console.error("[Facebook OAuth] Callback error:", err);
     return NextResponse.redirect(
       `${baseUrl}/dashboard/uploaderx?fb_error=unknown`
     );

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-// import { ObjectId } from "mongodb";
+import { auth } from "@clerk/nextjs/server";
 import { runChatTurnStreaming } from "@/lib/alyzitron/chat/chatEngine";
 import {
   needsSummarization,
@@ -14,33 +14,25 @@ import {
   saveChatSessionTurn,
   ChatSessionDoc,
 } from "@/lib/alyzitron";
+import {
+  AlyzitronTaskOwnershipError,
+  assertAlyzitronChatSessionOwned,
+  requireOwnedAlyzitronTask,
+} from "../utils/task-ownership";
 
-/**
- * POST /api/alyzitron/chat
- *
- * Sends a user message and streams the assistant reply via Server-Sent Events.
- * Manages conversation history, rolling summarization, and persists everything
- * to MongoDB on completion.
- *
- * Body: {
- *   taskId:       string  — required
- *   message:       string  — required
- *   videoAnalysis: object  — your existing Gemini analysis JSON
- *   videoTitle?:   string
- *   sessionId?:    string  — omit to auto-find or create a session for this taskId
- *   userId?:       string
- * }
- *
- * SSE event shapes:
- *   { type: "summarized" } — fired once if context was compressed
- *   { type: "chunk", text: string } — one or more per response
- *   { type: "done", sessionId: string, didSummarize: boolean }
- *   { type: "error", message: string }
- */
+function ownershipErrorResponse(error: AlyzitronTaskOwnershipError) {
+  return NextResponse.json({ error: error.message }, { status: error.status });
+}
+
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
-    const { taskId, message, videoAnalysis, videoTitle, sessionId, userId } = body;
+    const { taskId, message, videoAnalysis, videoTitle, sessionId } = body;
 
     if (!taskId || !message) {
       return NextResponse.json(
@@ -49,22 +41,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Load or create session
-    let session: ChatSessionDoc | null = sessionId
-      ? await findChatSessionById(sessionId)
-      : await findChatSession(taskId, userId ?? null);
+    await requireOwnedAlyzitronTask(taskId, userId);
 
-    if (!session) {
-      session = await createChatSession(taskId, userId ?? null);
+    let session: ChatSessionDoc | null = null;
+    if (sessionId) {
+      try {
+        session = await findChatSessionById(sessionId);
+      } catch {
+        session = null;
+      }
+      assertAlyzitronChatSessionOwned(session, taskId, userId);
+    } else {
+      session = await findChatSession(taskId, userId);
+      if (!session) {
+        session = await createChatSession(taskId, userId);
+      }
     }
 
-    // Load transcription server-side — never trust the client with this
-    const transcription = await findTranscription(taskId);
+    if (!session) {
+      throw new AlyzitronTaskOwnershipError("Chat session not found", 404);
+    }
 
+    const activeSession = session;
+    const transcription = await findTranscription(taskId);
     const encoder = new TextEncoder();
     let fullAssistantResponse = "";
-    let newSummary = session.summary;
-    let newSummarizedUpToIndex = session.summarizedUpToIndex;
+    let newSummary = activeSession.summary;
+    let newSummarizedUpToIndex = activeSession.summarizedUpToIndex;
     let didSummarize = false;
 
     const stream = new ReadableStream({
@@ -75,8 +78,7 @@ export async function POST(req: NextRequest) {
           );
 
         try {
-          // Summarize if the unsummarized window exceeds 50% of token budget
-          const unsummarized = session!.messages.slice(session!.summarizedUpToIndex);
+          const unsummarized = activeSession.messages.slice(activeSession.summarizedUpToIndex);
 
           if (needsSummarization(unsummarized)) {
             const { toSummarize } = splitMessagesForSummarization(unsummarized);
@@ -84,17 +86,15 @@ export async function POST(req: NextRequest) {
             if (toSummarize.length > 0) {
               newSummary = await summarizeMessages(
                 toSummarize,
-                session!.summary,
+                activeSession.summary,
                 videoTitle
               );
-              newSummarizedUpToIndex =
-                session!.summarizedUpToIndex + toSummarize.length;
+              newSummarizedUpToIndex = activeSession.summarizedUpToIndex + toSummarize.length;
               didSummarize = true;
               send({ type: "summarized" });
             }
           }
 
-          // Stream LLM response
           const generator = runChatTurnStreaming({
             systemPromptOptions: {
               videoAnalysis: videoAnalysis ?? null,
@@ -110,31 +110,29 @@ export async function POST(req: NextRequest) {
             },
             existingSummary: newSummary,
             summarizedUpToIndex: newSummarizedUpToIndex,
-            messages: session!.messages,
+            messages: activeSession.messages,
             userMessage: message,
             videoTitle,
           });
 
           for await (const chunk of generator) {
-            console.log("[chunk raw]", JSON.stringify(chunk));
             fullAssistantResponse += chunk;
             send({ type: "chunk", text: chunk });
           }
 
-          // Persist both new messages + updated summarization state atomically
           const now = new Date();
           await saveChatSessionTurn(
-            session!._id!,
+            activeSession._id!,
             { role: "user", content: message, timestamp: now },
             { role: "assistant", content: fullAssistantResponse, timestamp: now },
             newSummary,
             newSummarizedUpToIndex,
-            session!.totalMessagesEver + 2
+            activeSession.totalMessagesEver + 2
           );
 
           send({
             type: "done",
-            sessionId: session!._id!.toString(),
+            sessionId: activeSession._id!.toString(),
             didSummarize,
           });
 
@@ -155,6 +153,10 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: any) {
+    if (error instanceof AlyzitronTaskOwnershipError) {
+      return ownershipErrorResponse(error);
+    }
+
     console.error("[Alyzitron/chat] Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

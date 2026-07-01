@@ -34,7 +34,7 @@ interface FormatToolbarProps {
 }
 
 interface ToolbarButtonProps {
-  icon: React.ElementType;
+  icon: React.ComponentType<{ className?: string }>;
   tooltip: string;
   onClick: () => void;
   disabled?: boolean;

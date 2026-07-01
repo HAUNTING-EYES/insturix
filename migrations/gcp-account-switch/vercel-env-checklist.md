@@ -4,6 +4,8 @@
 
 Update each variable **in both Production AND Preview environments**.
 
+> Security note: real credential values do not belong in this runbook. Treat any key that previously appeared here as compromised, rotate or revoke it in the provider dashboard, and coordinate approved Git history cleanup separately.
+
 ---
 
 ## CRITICAL — GCP Account-Specific (22 vars per environment)
@@ -19,11 +21,11 @@ Update each variable **in both Production AND Preview environments**.
 | `ALYZITRON_GCS_BUCKET_NAME` | `alyzitron-uploads` | `alyzitron-uploads-v2` |
 | `MUSITRON_GCS_BUCKET_NAME` | `musitron` | `musitron-v2` |
 | `GCS_BUCKET_NAME_MUSITRON` | `musitron` | `musitron-v2` |
-| `GEMINI_API_KEY` | `AIzaSyCcmEc6S0UEyG6wQ1Ou00OFwcRlmjSzJi8` | **New key from aistudio.google.com** |
+| `GEMINI_API_KEY` | **ROTATE: previously exposed in repo history** | **New key from aistudio.google.com** |
 | `GOOGLE_API_KEY` | (same as GEMINI_API_KEY) | **New key (can be same as GEMINI_API_KEY)** |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | (same as GEMINI_API_KEY) | **New key (can be same)** |
-| `YOUTUBE_API_KEY` | `AIzaSyCcmEc6S0UEyG6wQ1Ou00OFwcRlmjSzJi8` | **New key from console.cloud.google.com** |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | `AIzaSyCDHCQEA_tuHfAqoh7bVHb86rj3f_MTpRI` | **DEAD — can delete OR set to empty** |
+| `YOUTUBE_API_KEY` | **ROTATE: previously exposed in repo history** | **New key from console.cloud.google.com** |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | **ROTATE/DELETE: previously exposed in repo history** | **DEAD — can delete OR set to empty** |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | `1:117721890474:web:ef418381bd66b143b09ad3` | **DEAD — can delete** |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | `insturix-457914.firebaseapp.com` | **DEAD — can delete** |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | `G-XL6P8VYF6S` | **DEAD — can delete** |

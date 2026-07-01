@@ -195,7 +195,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   onBackToChat={onBack}
                   onEditScript={onUpdate}
                   isSaving={isSaving}
-                  onImportScript={onImportScript}
+                  onImportScript={onImportScript ? async (data) => onImportScript(data) : undefined}
                            onSwitchScript={onSwitchScript}
                   onTokenStream={(callback) => {
                     // Register callback with parent

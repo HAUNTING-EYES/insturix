@@ -104,7 +104,10 @@ def main():
     # Load segments from MongoDB
     try:
         from pymongo import MongoClient
-        client = MongoClient("mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority")
+        uri = os.environ.get("MONGODB_URI")
+        if not uri:
+            raise RuntimeError("MONGODB_URI is required for live segment loading")
+        client = MongoClient(uri)
         db = client["editron_prev"]
         proj = db.projects.find_one({"projectId": "proj_ZyF9IKnLsk5U"})
         segments = proj["rawFootageAnalysis"]["segments"]

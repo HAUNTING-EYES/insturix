@@ -696,10 +696,12 @@ export default function ScriptEditor({
 
           if (forceHydration || (!hasUnsavedChanges && !userRecentlyTyped)) {
             let tiptapContent: TiptapJSON | string;
-            if (script.content) {
-              tiptapContent = await marked.parse(script.content);
-            } else {
+            if (script.richText && isTiptapJSON(script.richText)) {
+              tiptapContent = script.richText;
+            } else if (script.blocks) {
               tiptapContent = toTiptapJSON(script.blocks);
+            } else {
+              tiptapContent = await marked.parse(script.content || '');
             }
             const hasContent = !!(typeof tiptapContent === 'string' ? tiptapContent.length > 0 : tiptapContent?.content && tiptapContent.content.length > 0);
             if (hasContent || forceHydration) {
@@ -899,10 +901,12 @@ export default function ScriptEditor({
         }
         console.log('[Script] Hydrating editor with', Array.isArray(script.blocks) ? script.blocks.length : 0, 'blocks');
         let tiptapPromise: Promise<TiptapJSON | string>;
-        if (script.content) {
-          tiptapPromise = Promise.resolve(marked.parse(script.content));
-        } else {
+        if (script.richText && isTiptapJSON(script.richText)) {
+          tiptapPromise = Promise.resolve(script.richText);
+        } else if (script.blocks) {
           tiptapPromise = Promise.resolve(toTiptapJSON(script.blocks));
+        } else {
+          tiptapPromise = Promise.resolve(marked.parse(script.content || ''));
         }
 
         tiptapPromise.then((tiptapContent) => {

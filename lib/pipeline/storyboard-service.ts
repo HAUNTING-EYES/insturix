@@ -116,18 +116,19 @@ async function falSubscribeWithTimeout(
   // bail immediately (Zod, 4xx, TypeError).
   return falRetry(
     () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
       return Promise.race([
         fal.subscribe(modelId, options),
-        new Promise((_, reject) =>
-          setTimeout(
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(
             () => reject(new Error(`fal.ai call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
             timeoutMs,
-          ),
-        ),
-      ]).finally(() => clearTimeout(timeout));
+          );
+        }),
+      ]).finally(() => {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+      });
     },
     { maxRetries: 3, label: `image gen (${modelId})` },
   );

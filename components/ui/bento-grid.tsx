@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export interface BentoCardProps {
-  Icon: React.ElementType;
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   name: string;
   description: string;
   product_href: string;

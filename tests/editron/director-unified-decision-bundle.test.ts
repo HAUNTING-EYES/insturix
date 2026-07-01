@@ -87,6 +87,16 @@ describe('director unified decision bundle control flow', () => {
     expect(fallbackAuthorityBlock).toContain("executableProducer: 'signal-driven'");
     expect(fallbackAuthorityBlock).toContain("signalDecisionRole: 'primary'");
   });
+  it('does not bypass AI storyboard asset analysis just because Creative Brief is enabled', () => {
+    const source = directorSource();
+
+    expect(source).toContain("const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;");
+    expect(source).toContain("const creativeBriefPerAssetBypassActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;");
+    expect(source).toContain('const skipPerAssetAnalysis = creativeBriefPerAssetBypassActive;');
+    expect(source).not.toContain("const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';");
+    expect(source).toContain("'creative-brief-per-asset-analysis-bypassed'");
+    expect(source).toContain("'intelligence.reason': intelligenceReason");
+  });
   it('does not let post-EDL utility scoring override a handled unified bundle', () => {
     expect(shouldRunPostEdlUtilityScoring({
       unifiedDecisionBundleExecuted: true,

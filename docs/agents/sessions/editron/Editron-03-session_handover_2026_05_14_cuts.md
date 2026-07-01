@@ -32,11 +32,11 @@ originSessionId: 690ab707-2a82-484d-bb2f-aa2bfa1af88d
 ```bash
 cd "D:\google downloads\Front-End-main\Front-End-main"
 # Single seed test
-GEMINI_API_KEY=AIzaSyAcc1pa4WuVp_9OuQQ2pCD-mkyxbMBsHH4 node scripts/prompt-optimization/eval-transcript-editor.mjs --seed=1
+GEMINI_API_KEY=<set-in-environment> node scripts/prompt-optimization/eval-transcript-editor.mjs --seed=1
 # Multi-seed variance test
-GEMINI_API_KEY=AIzaSyAcc1pa4WuVp_9OuQQ2pCD-mkyxbMBsHH4 node scripts/prompt-optimization/eval-transcript-editor.mjs --multi-seed
+GEMINI_API_KEY=<set-in-environment> node scripts/prompt-optimization/eval-transcript-editor.mjs --multi-seed
 # Synthetic eval (5 content types, 15 cases)
-GEMINI_API_KEY=AIzaSyAcc1pa4WuVp_9OuQQ2pCD-mkyxbMBsHH4 node scripts/prompt-optimization/eval-transcript-editor.mjs --synthetic
+GEMINI_API_KEY=<set-in-environment> node scripts/prompt-optimization/eval-transcript-editor.mjs --synthetic
 ```
 - Expected: F1 >= 0.986 for all seeds, Mean F1 >= 0.99 for synthetic
 

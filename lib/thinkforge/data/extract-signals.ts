@@ -174,7 +174,10 @@ export function extractSignalsFromContext(params: {
     Object.assign(signals, defaults);
   } else {
     for (const key of Object.keys(SIGNAL_RANGES) as Array<keyof typeof SIGNAL_RANGES>) {
-      (signals as Record<string, number>)[key] = SIGNAL_RANGES[key].default;
+      const range = SIGNAL_RANGES[key];
+      if (range) {
+        (signals as Record<string, number>)[key] = range.default;
+      }
     }
   }
 

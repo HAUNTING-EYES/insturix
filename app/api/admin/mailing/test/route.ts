@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let emailContent: { html: string; text: string; subject: string };
+    let emailContent: { html: string; text: string; subject?: string };
     let subject: string;
     let timeUntilEvent: string | undefined;
 
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
           testData?.ticketId || 'TEST-12345',
           testData?.eventDetails || "Insturix Creator's Summit 2025"
         );
-        subject = emailContent.subject;
+        subject = emailContent.subject ?? "Your Ticket is Confirmed! - Insturix Creator's Summit 2025";
         break;
 
       case 'ticket-confirmation-reminder-7days':
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
           testData?.eventDetails || "Insturix Creator's Summit 2025",
           timeUntilEvent
         );
-        subject = emailContent.subject;
+        subject = emailContent.subject ?? "Your Ticket is Confirmed! - Insturix Creator's Summit 2025";
         break;
 
       case 'ticket-confirmation-reminder-1day':
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
           testData?.eventDetails || "Insturix Creator's Summit 2025",
           timeUntilEvent
         );
-        subject = emailContent.subject;
+        subject = emailContent.subject ?? "Your Ticket is Confirmed! - Insturix Creator's Summit 2025";
         break;
 
       case 'ticket-confirmation-reminder-30min':
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
           testData?.eventDetails || "Insturix Creator's Summit 2025",
           timeUntilEvent
         );
-        subject = emailContent.subject;
+        subject = emailContent.subject ?? "Your Ticket is Confirmed! - Insturix Creator's Summit 2025";
         break;
 
       // Legacy support for 'ticket-confirmation'
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
           testData?.ticketId || 'TEST-12345',
           testData?.eventDetails || "Insturix Creator's Summit 2025"
         );
-        subject = emailContent.subject;
+        subject = emailContent.subject ?? "Your Ticket is Confirmed! - Insturix Creator's Summit 2025";
         break;
 
       default:

@@ -46,6 +46,7 @@ interface AICommandConsoleProps {
   clearTrigger?: number; // When this changes, clear the console
   setPromptData?: {
     prompt: string;
+    referenceImages?: string[];
     trigger: number;
   };
   referenceImageCount?: number;

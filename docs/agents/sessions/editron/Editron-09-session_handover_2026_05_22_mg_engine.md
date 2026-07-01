@@ -321,7 +321,7 @@ The user sees MASSIVE potential in the MG system. Key vision points:
 
 ## Test Assets
 
-- **Test project:** `proj_K_0-dSCJ76z4` in `editron_prev` DB (MongoDB: `mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/`)
+- **Test project:** `proj_K_0-dSCJ76z4` in `editron_prev` DB (MongoDB URI must come from `MONGODB_URI`; previous literal credential was removed and must be treated as compromised)
 - **Verification script:** `scripts/verify-composition-engine.ts` (22 tests, all pass)
 - **Project inspector:** `scripts/check-project-mg.ts` (reads MongoDB overlays)
 - **Transcript extractor:** `scripts/get-transcript.ts` (extracts text from caption overlays)

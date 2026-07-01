@@ -37,19 +37,41 @@ const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((
   label: pattern.label,
 }));
 
-// Mirrors PostWriter's assertUsableCachedPostResult, adapted for scripts. Rejects
-// obviously-unusable cache-path output (empty/truncated content, no scene prompts, or
-// banned AI filler) so runStructured falls back to the base structured path rather than
-// shipping it. Defensive only — the cache path can add the doc but never regress.
-function assertUsableCachedScriptResult(result: ScriptWriterResult): void {
+const MARKDOWN_SCENE_HEADER_PATTERN = /^\s*#{1,3}\s+Scene\s+\d+\b/gim;
+const NARRATION_LABEL_PATTERN = /^\s*\*\*(?:Narration|Voiceover|VO|Dialogue|On[- ]camera|Script):\*\*/im;
+const VISUAL_LABEL_PATTERN = /^\s*\*\*(?:Visual|Shot|Camera|Video):\*\*/im;
+const SCHEMA_ARTIFACT_PATTERNS = [
+  /"kind"\s*:\s*"(?:header|paragraph|list|blockquote|scene|action|why|example|editorial)"/i,
+  /"blocks"\s*:\s*\[/i,
+  /"content"\s*:\s*\[\s*\{/i,
+  /^\s*(?:header|paragraph|blockquote|list)\s*[:{]/im,
+];
+
+function countMatches(text: string, pattern: RegExp): number {
+  return Array.from(text.matchAll(pattern)).length;
+}
+
+export function assertUsableScriptWriterResult(result: ScriptWriterResult): void {
   const content = result.content?.trim() ?? '';
+  const scenePrompts = result.visualMetadata?.scenePrompts ?? [];
+  const sceneCount = countMatches(content, MARKDOWN_SCENE_HEADER_PATTERN);
   const failures: string[] = [];
+
   if (content.length < 150) failures.push('content_under_150_chars');
-  if (!result.visualMetadata?.scenePrompts?.length) failures.push('missing_scene_prompts');
+  if (SCHEMA_ARTIFACT_PATTERNS.some((pattern) => pattern.test(content))) failures.push('schema_artifact_content');
+  if (sceneCount < 1) failures.push('missing_scene_headers');
+  if (!NARRATION_LABEL_PATTERN.test(content)) failures.push('missing_narration_labels');
+  if (!VISUAL_LABEL_PATTERN.test(content)) failures.push('missing_visual_labels');
+  if (scenePrompts.length === 0) failures.push('missing_scene_prompts');
+  if (sceneCount > 0 && scenePrompts.length > 0 && scenePrompts.length !== sceneCount) {
+    failures.push(`scene_prompt_count_mismatch:${scenePrompts.length}/${sceneCount}`);
+  }
+
   const filler = CACHED_SCRIPT_AI_FILLER.find((pattern) => pattern.regex.test(content));
   if (filler) failures.push(`banned_phrase:${filler.label}`);
+
   if (failures.length > 0) {
-    throw new Error(`Cached script failed usable quality gate: ${failures.join(', ')}`);
+    throw new Error(`Script writer output failed document contract: ${failures.join(', ')}`);
   }
 }
 
@@ -104,7 +126,7 @@ Your task is to write a high-retention, engaging video script.
 
     // 3. Script Writing Rules
     prompt += `## Generation Requirements
-1. **Content Formatting:** Write the FINAL script in markdown. Divide the script into logical scenes. Use headers for scenes (e.g., \`## Scene 1: The Hook\`). Do NOT include JSON or meta-commentary inside the content string.
+1. **Content Formatting:** Write the FINAL script in markdown. Every scene must start exactly like \`## Scene 1: The Hook\`, \`## Scene 2: The Problem\`, etc. Each scene must include bold \`**Narration:**\` and \`**Visual:**\` labels. Do NOT include JSON, block arrays, rich-text objects, \`header\`/\`paragraph\`/\`list\`/\`blockquote\` labels, or meta-commentary inside the content string.
 2. **Narration & Visuals:** For each scene, clearly denote **Narration:** and **Visual:** (what the viewer sees). Visual direction serves the narration.
 3. **Factual Source Of Truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
 4. **Quality:** Do NOT use filler. Be specific. Use facts provided in the context. Ensure a strong hook in Scene 1.
@@ -144,6 +166,8 @@ Return your response strictly adhering to the JSON schema.`;
         '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string" }',
         '}',
         'hooks, emphasisPoints, and scenePrompts must be arrays of strings only.',
+        'content must be markdown scene script text, not JSON, not an array, and not ThinkForge block objects.',
+        'Every scene in content must begin with ## Scene N: ... and include **Narration:** plus **Visual:** labels.',
         'scenePrompts must map 1:1 with the scenes in content.',
         'Do not add keys outside the required JSON shape.',
       ].join('\n');
@@ -156,8 +180,8 @@ Return your response strictly adhering to the JSON schema.`;
       });
       const parsed = parseAgentJson(text);
       const result = this.schema.parse(parsed);
-      // Reject unusable cache-path output (empty/filler/no-scene-prompts) -> falls back below.
-      assertUsableCachedScriptResult(result);
+      // Reject unusable cache-path output before it can persist.
+      assertUsableScriptWriterResult(result);
 
       output = {
         result,
@@ -171,14 +195,16 @@ Return your response strictly adhering to the JSON schema.`;
       // One catch covers cache-load + gen + parse + the quality gate; without this a permanent
       // cache-miss, a 100%-fallback regression, or the gate silently rejecting every cache output
       // all look identical. Distinguish gate-reject from an infra error so a test can count them.
-      const isGateReject = error instanceof Error && error.message.startsWith('Cached script failed usable quality gate');
+      const isGateReject = error instanceof Error && error.message.startsWith('Script writer output failed document contract');
       console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
       output = await super.runStructured(input, overrides, abortSignal);
+      assertUsableScriptWriterResult(output.result);
     }
 
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
     // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
+    assertUsableScriptWriterResult(output.result);
     return output;
   }
 }

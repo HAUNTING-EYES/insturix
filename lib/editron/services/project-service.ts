@@ -54,8 +54,8 @@ export interface Project {
   status?: import('@/lib/shared/project-status').ProjectStatus;
   statusHistory?: import('@/lib/shared/project-status').StatusTransition[];
   brandId?: string;
-  lastError?: import('@/lib/shared/project-status').ProjectError;
   sourceSessionId?: string;
+  lastError?: import('@/lib/shared/project-status').ProjectError;
 }
 
 export interface ProjectListItem {
@@ -201,6 +201,7 @@ export class ProjectService {
       visibility: options?.orgId ? 'org' : 'private',
       pipelineStage: 'script',
       projectStatus: 'active',
+      sourceSessionId: sessionId,
       ...(options?.brandId ? { brandId: options.brandId } : {}),
       ...(options?.orgId ? { orgId: options.orgId } : {}),
       createdAt: new Date(),

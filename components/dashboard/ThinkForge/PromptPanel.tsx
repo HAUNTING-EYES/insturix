@@ -110,7 +110,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
 
   const handlePlatformPick = (platform: string) => {
     setShowPlatformPicker(false);
-    setPrompt(prev => `${prev.trim()} — ${platform} post`);
+    setPrompt(`${prompt.trim()} - ${platform} post`);
     setTimeout(() => formRef.current?.requestSubmit(), 50);
   };
 

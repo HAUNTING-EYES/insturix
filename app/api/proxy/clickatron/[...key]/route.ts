@@ -1,7 +1,11 @@
+﻿import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  requireClickatronOwnedStorageKey,
+  StorageOwnershipError,
+} from "@/app/api/services/shared/storage-ownership";
 
-// Initialize R2 client
 function getR2Client() {
   const accountId = process.env.R2_ACCOUNT_ID_CLICKATRON;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID_CLICKATRON;
@@ -22,78 +26,78 @@ function getR2Client() {
   });
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: { key: string[] } }
-) {
-  try {
-    const key = params.key.join("/");
-    
-    if (!key) {
-      return NextResponse.json(
-        { error: "Missing asset key" },
-        { status: 400 }
-      );
-    }
+async function bodyToBuffer(body: any): Promise<Buffer> {
+  if (typeof body.transformToByteArray === "function") {
+    return Buffer.from(await body.transformToByteArray());
+  }
 
-    const bucketName = process.env.R2_BUCKET_NAME_CLICKATRON!;
-    const s3Client = getR2Client();
-
-    const command = new GetObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-    });
-
-    const response = await s3Client.send(command);
-
-    if (!response.Body) {
-      return NextResponse.json(
-        { error: "Asset not found" },
-        { status: 404 }
-      );
-    }
-
-    // Convert ReadableStream to buffer
+  if (typeof body.getReader === "function") {
     const chunks: Uint8Array[] = [];
-    const reader = (response.Body as ReadableStream).getReader();
-    
+    const reader = body.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
     }
-    
-    const buffer = Buffer.concat(chunks);
+    return Buffer.concat(chunks);
+  }
 
-    // Return with CORS headers
-    return new NextResponse(buffer, {
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array | Buffer | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ key: string[] }> },
+) {
+  try {
+    const session = await auth();
+    if (!session?.userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { key: keyParts } = await params;
+    const rawKey = keyParts.join("/");
+    const key = requireClickatronOwnedStorageKey(session.userId, rawKey);
+
+    const response = await getR2Client().send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME_CLICKATRON!,
+      Key: key,
+    }));
+
+    if (!response.Body) {
+      return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+    }
+
+    const buffer = await bodyToBuffer(response.Body);
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": response.ContentType || "application/octet-stream",
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Cache-Control": "private, max-age=3600",
         "ETag": response.ETag || "",
       },
     });
+  } catch (error: any) {
+    if (error instanceof StorageOwnershipError) {
+      return NextResponse.json({ error: error.status === 400 ? "Invalid asset key" : "Asset not found" }, { status: error.status });
+    }
+    if (error?.$metadata?.httpStatusCode === 404 || error?.name === "NoSuchKey") {
+      return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+    }
 
-  } catch (error) {
     console.error("Proxy error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch asset" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch asset" }, { status: 500 });
   }
 }
 
-// Handle OPTIONS request for CORS preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
+    status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Max-Age": "86400",
+      "Allow": "GET, OPTIONS",
     },
   });
 }

@@ -1,4 +1,4 @@
-import { ensureThinkForgeBlockId, validateThinkForgeBlocks, type RichTextAST, type ThinkForgeBlock, type ThinkForgeBlockKind } from '../schemas/thinkforge-block';
+import { ensureThinkForgeBlockId, validateThinkForgeBlocks, type RichTextAST, type RichTextNode, type ThinkForgeBlock, type ThinkForgeBlockKind } from '../schemas/thinkforge-block';
 
 export interface ThinkForgeBlockPatch {
   blockId: string;
@@ -18,7 +18,8 @@ export function extractTextFromRichText(ast: RichTextAST): string {
   const walk = (nodes: RichTextAST) => {
     for (const node of nodes) {
       if (node.text) parts.push(node.text);
-      if (node.children && node.children.length) walk(node.children);
+      const nested = node.content ?? (node as RichTextNode & { children?: RichTextAST }).children;
+      if (nested?.length) walk(nested);
     }
   };
   walk(ast || []);

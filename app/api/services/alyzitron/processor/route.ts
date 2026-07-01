@@ -77,17 +77,19 @@ async function handler(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { taskId, userId, editronProjectId } = body;
+    const { taskId, editronProjectId } = body;
     currentTaskId = taskId;
-    currentUserId = userId;
 
-    if (!taskId || !userId) return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    if (!taskId) return NextResponse.json({ error: "Missing data" }, { status: 400 });
 
     const { analyses } = await getCollections();
     if (!ObjectId.isValid(taskId)) return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
 
-    const task = await analyses.findOne({ _id: ObjectId.createFromHexString(taskId), clerkUserId: userId });
+    const task = await analyses.findOne({ _id: ObjectId.createFromHexString(taskId) });
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    const userId = cleanString(task.clerkUserId);
+    if (!userId) return NextResponse.json({ error: "Task owner missing" }, { status: 400 });
+    currentUserId = userId;
     if (task.status === "completed" || task.status === "failed") return NextResponse.json({ success: true, message: "Already processed" });
 
     const taskBrandId =
@@ -323,7 +325,7 @@ async function handler(request: NextRequest) {
           const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
           const editronDb = await getDatabase();
           await editronDb.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: editronProjectId },
+            { projectId: editronProjectId, userId },
             {
               $set: {
                 alyzitronAnalysis: {
@@ -384,7 +386,11 @@ async function handler(request: NextRequest) {
 
 export const POST = async (req: NextRequest) => {
   const bypass = req.headers.get("x-development-bypass");
-  if (bypass === "true") return handler(req);
+  const isDevelopment = process.env.NODE_ENV === "development" || process.env.APP_ENV === "development";
+  if (bypass === "true" && isDevelopment) return handler(req);
+  if (!process.env.QSTASH_CURRENT_SIGNING_KEY) {
+    return NextResponse.json({ error: "Worker signing is not configured" }, { status: 503 });
+  }
   return verifySignatureAppRouter(handler)(req);
 };
 

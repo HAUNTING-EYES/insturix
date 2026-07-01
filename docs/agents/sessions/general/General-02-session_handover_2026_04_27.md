@@ -145,7 +145,7 @@ D:\google downloads\Front-End-main\thinkforge-worktree\ → thinkforge-enhanceme
 - GEMINI_API_KEY — **exists from Apr 17, was updated to new key**
 - GOOGLE_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY — **CHECK if updated on Preview too**
 
-**New Gemini API key:** `AIzaSyACAR0WUkY4IrjpfRXqUM0r5FghmwgdSfQ`
+**New Gemini API key:** `<redacted; set directly in Vercel/provider dashboard>`
 **WARNING:** This key may also be flagged as leaked (it appeared in this chat). If still failing, user must generate a NEW key from Google Cloud Console and add directly via Vercel dashboard (NEVER paste in chat).
 
 ### MongoDB

@@ -1,12 +1,12 @@
 /**
  * Caption Service
- * 
+ *
  * Creates and aligns captions to video clips on the timeline.
  * Handles all timestamp conversion so AI tools don't need to do math.
  */
 
-import type { 
-  CaptionStylePreset, 
+import type {
+  CaptionStylePreset,
   CaptionPosition,
   CreateCaptionOptions,
   TranscriptionWord,
@@ -16,9 +16,9 @@ import { msToTimelineFrame } from './types';
 import { getTranscription } from './transcription-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { groupWordsIntoCaptions } from '@/lib/editron/utils/caption-utils';
-import { 
-  CaptionOverlay, 
-  OverlayType, 
+import {
+  CaptionOverlay,
+  OverlayType,
   Caption,
   CaptionWord,
   CaptionStyles,
@@ -262,9 +262,9 @@ export async function createCaptions(params: {
   /** Custom display config overrides */
   displayOverrides?: Partial<CaptionDisplayConfig>;
 }): Promise<CaptionOverlay> {
-  const { 
-    videoOverlay, 
-    userId, 
+  const {
+    videoOverlay,
+    userId,
     assetId,
     playerDimensions,
     fps = 30,
@@ -273,14 +273,14 @@ export async function createCaptions(params: {
     styleOverrides,
     displayOverrides,
   } = params;
-  
+
   // Get transcription (cached or fresh)
   const transcription = await getTranscription(assetId, userId);
-  
+
   if (!transcription.words || transcription.words.length === 0) {
     throw new Error('No speech detected in this video');
   }
-  
+
   // Get words that fall within the clip's time range
   // Use INCLUSIVE filtering: include words that START within the range
   // (words that end slightly after the clip are still relevant)
@@ -291,7 +291,7 @@ export async function createCaptions(params: {
   const videoStartMs = (videoStartTimeFrames / fps) * 1000;
   const clipDurationMs = (videoOverlay.durationInFrames / fps) * 1000;
   const videoEndMs = videoStartMs + clipDurationMs;
-  
+
   console.log('[CAPTION-SERVICE] Filtering words for video:', {
     videoStartTimeFrames,
     videoStartMs: Math.round(videoStartMs),
@@ -302,54 +302,24 @@ export async function createCaptions(params: {
     firstWordStart: transcription.words[0]?.startMs,
     lastWordEnd: transcription.words[transcription.words.length - 1]?.endMs,
   });
-  
+
   // Filter words that START within the clip range (more inclusive than requiring both start AND end)
   const wordsInRange = transcription.words.filter(
     w => w.startMs >= videoStartMs && w.startMs < videoEndMs
   );
-  
-  console.log('[CAPTION-SERVICE] Words in range:', wordsInRange.length, 
-    wordsInRange.slice(0, 3).map(w => `"${w.word}" ${w.startMs}ms`)
-  );
-  
-  if (wordsInRange.length === 0) {
-    console.log('[CAPTION-SERVICE] No speech in segment — returning empty (not an error for visual-only segments)', {
-      videoStartMs, videoEndMs,
-    });
-    return { captions: [], words: [], displayConfig: config.displayConfig };
-  }
-  
-  // Adjust word timestamps to be relative to clip start (0-based for the clip)
-  const adjustedWords: CaptionWord[] = wordsInRange.map(w => ({
-    word: w.word,
-    startMs: w.startMs - videoStartMs,
-    endMs: w.endMs - videoStartMs,
-    confidence: w.confidence,
-  }));
-  
-  // Get base display config and merge with overrides
   const baseDisplayConfig = DISPLAY_CONFIG_MAP[style];
-  const displayConfig: CaptionDisplayConfig = displayOverrides 
+  const displayConfig: CaptionDisplayConfig = displayOverrides
     ? { ...baseDisplayConfig, ...displayOverrides }
     : baseDisplayConfig;
-  
-  // Group words into captions
-  const captions = groupWordsIntoCaptions(adjustedWords, {
-    wordsPerGroup: displayConfig.wordsPerGroup,
-    groupByPunctuation: true,
-  });
-  
-  // Calculate position relative to the selected video's frame
+
   const { left, top, width, height } = calculatePosition(position, playerDimensions, videoOverlay);
-  
-  // Get base styles and merge with overrides
+
   const baseStyles = STYLE_MAP[style];
-  const finalStyles: CaptionStyles = styleOverrides 
+  const finalStyles: CaptionStyles = styleOverrides
     ? {
         ...baseStyles,
         ...styleOverrides,
-        // Deep merge highlight if provided
-        highlight: styleOverrides.highlight 
+        highlight: styleOverrides.highlight
           ? { ...baseStyles.highlight, ...styleOverrides.highlight }
           : baseStyles.highlight,
       }
@@ -358,9 +328,8 @@ export async function createCaptions(params: {
   if (/^\d+(\.\d+)?$/.test(String(finalStyles.fontSize))) {
     finalStyles.fontSize = `${finalStyles.fontSize}px`;
   }
-  
-  // Create the caption overlay
-  const captionOverlay: CaptionOverlay = {
+
+  const createCaptionOverlay = (captions: Caption[]): CaptionOverlay => ({
     id: Date.now() + Math.floor(Math.random() * 10000),
     type: OverlayType.CAPTION,
     from: videoOverlay.from,
@@ -372,15 +341,40 @@ export async function createCaptions(params: {
     height,
     rotation: 0,
     isDragging: false,
-    row: ROW.CAPTIONS, // Row 4. z-index is overridden to 95 for captions in layer.tsx (always renders above video).
+    row: ROW.CAPTIONS,
     styles: finalStyles,
     displayConfig,
     position,
-    template: style, // Store which preset was used
-    sourceVideoId: videoOverlay.id, // Track which video this caption belongs to
-  };
-  
-  return captionOverlay;
+    template: style,
+    sourceVideoId: videoOverlay.id,
+  });
+
+  console.log('[CAPTION-SERVICE] Words in range:', wordsInRange.length,
+    wordsInRange.slice(0, 3).map(w => `"${w.word}" ${w.startMs}ms`)
+  );
+
+  if (wordsInRange.length === 0) {
+    console.log('[CAPTION-SERVICE] No speech in segment — returning empty (not an error for visual-only segments)', {
+      videoStartMs, videoEndMs,
+    });
+    return createCaptionOverlay([]);
+  }
+
+  // Adjust word timestamps to be relative to clip start (0-based for the clip)
+  const adjustedWords: CaptionWord[] = wordsInRange.map(w => ({
+    word: w.word,
+    startMs: w.startMs - videoStartMs,
+    endMs: w.endMs - videoStartMs,
+    confidence: w.confidence,
+  }));
+
+  // Group words into captions
+  const captions = groupWordsIntoCaptions(adjustedWords, {
+    wordsPerGroup: displayConfig.wordsPerGroup,
+    groupByPunctuation: true,
+  });
+
+  return createCaptionOverlay(captions);
 }
 
 // ─── REMOVED 2026-04-19: createCaptionsFromScriptText ─────────────────────
@@ -421,7 +415,7 @@ function calculatePosition(
   const width = anchorWidth * 0.9;
   const height = anchorHeight * 0.18;
   const left = anchorLeft + (anchorWidth - width) / 2;
-  
+
   let top: number;
   switch (position) {
     case 'top':
@@ -435,7 +429,7 @@ function calculatePosition(
       top = anchorTop + anchorHeight * 0.78;
       break;
   }
-  
+
   return { left, top, width, height };
 }
 
@@ -474,7 +468,7 @@ export function getStyleConfig(preset: CaptionStylePreset): {
  * Refresh captions for a video overlay.
  * Regenerates captions based on current video state (timing, position).
  * Preserves style preferences if provided, otherwise uses existing or default.
- * 
+ *
  * @param params.captionOverlay - The existing caption overlay to refresh
  * @param params.videoOverlay - The current video overlay state
  * @param params.userId - User ID for transcription access
@@ -501,7 +495,7 @@ export async function refreshCaptions(params: {
     preserveStyle = true,
     newStyle,
   } = params;
-  
+
   // Determine style to use
   let style: CaptionStylePreset = 'tiktok';
   if (newStyle) {
@@ -513,10 +507,10 @@ export async function refreshCaptions(params: {
       style = existingStyle;
     }
   }
-  
+
   // Determine position to preserve
   const position = captionOverlay.position || 'bottom';
-  
+
   // Create new caption aligned to updated video
   const newCaption = await createCaptions({
     videoOverlay,
@@ -527,7 +521,7 @@ export async function refreshCaptions(params: {
     style,
     position: position as CaptionPosition,
   });
-  
+
   // Preserve the original caption ID for continuity
   return {
     ...newCaption,

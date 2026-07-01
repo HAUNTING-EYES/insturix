@@ -21,6 +21,7 @@ import { auth } from '@clerk/nextjs/server';
 import { projectService } from '@/lib/editron/services/project-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -31,7 +32,8 @@ interface FromAssetRequest {
   aspectRatio?: string;
   // Item 2: Multi-path entry — all optional, each creates a different flow
   script?: string;           // User-provided narration/script text → used as scene narration
-  referenceAssetId?: string; // Reference video → extract EditDNA (style transfer)
+  referenceAssetId?: string; // Reference video asset -> extract EditDNA (style transfer)
+  referenceVideoUrl?: string; // Direct public video or supported YouTube reference URL
   imageAssetIds?: string[];  // Reference images → IP-adapter consistency
   userIntent?: string;       // "gym promo for Instagram" → guides content type + platform detection
   platform?: string;         // Explicit platform override (youtube/instagram/tiktok/linkedin)
@@ -54,10 +56,40 @@ export async function POST(request: NextRequest) {
     }
 
     const body: FromAssetRequest = await request.json();
-    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, imageAssetIds, userIntent, platform, brandId, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference } = body;
+    const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, referenceVideoUrl, imageAssetIds, userIntent, platform, brandId, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference } = body;
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
+    }
+
+    const trimmedReferenceVideoUrl = referenceVideoUrl?.trim();
+    let normalizedReferenceVideoUrl: string | undefined;
+    let referenceVideoUrlMetadata: { kind: 'remote-url' | 'youtube-url'; sourceLabel: string; sourceFingerprint: string } | undefined;
+
+    if (referenceAssetId && trimmedReferenceVideoUrl) {
+      return NextResponse.json({
+        success: false,
+        error: 'Provide either referenceAssetId or referenceVideoUrl, not both.',
+        reason: 'conflicting_reference_video_sources',
+      }, { status: 400 });
+    }
+
+    if (trimmedReferenceVideoUrl) {
+      const validation = validateReferenceVideoUrlForAutoEditIntake(trimmedReferenceVideoUrl);
+      if (!validation.ok) {
+        return NextResponse.json({
+          success: false,
+          error: validation.diagnostics[0] ?? validation.reason,
+          reason: validation.reason,
+          diagnostics: validation.diagnostics,
+        }, { status: 400 });
+      }
+      normalizedReferenceVideoUrl = validation.url.toString();
+      referenceVideoUrlMetadata = {
+        kind: validation.sourceKind,
+        sourceLabel: validation.sourceLabel,
+        sourceFingerprint: validation.sourceFingerprint,
+      };
     }
 
     // 1. Resolve asset — validates it exists + belongs to user
@@ -198,6 +230,9 @@ export async function POST(request: NextRequest) {
           autoEditStatus: 'queued',
           sourceAssetId: assetId,
           ...(referenceAssetId && { referenceAssetId }),
+          ...(referenceVideoUrlMetadata && {
+            referenceVideoSource: referenceVideoUrlMetadata,
+          }),
           ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
           updatedAt: new Date(),
         },
@@ -232,6 +267,7 @@ export async function POST(request: NextRequest) {
           profileId: 'A-01',
           userIntent,
           referenceAssetId,
+          referenceVideoUrl: normalizedReferenceVideoUrl,
           script,
           platform,
           captionStyle,

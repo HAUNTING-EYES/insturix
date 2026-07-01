@@ -32,7 +32,9 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
     handleCreateClickatronSession,
     handleClose,
   } = pipeline;
-  const clickatronCanSend = Boolean(clickatronHandoffState?.canSendToClickatron);
+  const isEditronAiVideoExport = Boolean(videosGenerated || storyboardId || projectId);
+  const showClickatronHandoff = !isEditronAiVideoExport && Boolean(clickatronHandoffState);
+  const clickatronCanSend = showClickatronHandoff && Boolean(clickatronHandoffState?.canSendToClickatron);
   const clickatronButtonText = clickatronCreating
     ? "Starting..."
     : clickatronVisualChoices.kind === "carousel"
@@ -126,11 +128,13 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
         </div>
       )}
 
-      <ClickatronHandoffPanel
-        handoffState={clickatronHandoffState}
-        visualChoices={clickatronVisualChoices}
-        setVisualChoice={setClickatronVisualChoice}
-      />
+      {showClickatronHandoff && (
+        <ClickatronHandoffPanel
+          handoffState={clickatronHandoffState}
+          visualChoices={clickatronVisualChoices}
+          setVisualChoice={setClickatronVisualChoice}
+        />
+      )}
 
       {/* Storyboard preview with film-frame borders */}
       {storyboardScenes.length > 0 && (
@@ -206,25 +210,27 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
             Edit Storyboard
           </button>
         )}
-        <button
-          onClick={() => { void handleCreateClickatronSession(); }}
-          disabled={clickatronCreating || !clickatronCanSend}
-          style={{
-            padding: "7px 14px", borderRadius: 4,
-            background: "transparent", border: "1px solid rgba(92,184,204,0.3)",
-            color: "#5CB8CC", fontSize: 13, fontWeight: 600,
-            cursor: clickatronCreating ? "wait" : clickatronCanSend ? "pointer" : "not-allowed",
-            display: "flex", alignItems: "center", gap: 6,
-            opacity: clickatronCreating || !clickatronCanSend ? 0.65 : 1,
-          }}
-        >
-          {clickatronCreating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="h-4 w-4" />
-          )}
-          {clickatronButtonText}
-        </button>
+        {showClickatronHandoff && (
+          <button
+            onClick={() => { void handleCreateClickatronSession(); }}
+            disabled={clickatronCreating || !clickatronCanSend}
+            style={{
+              padding: "7px 14px", borderRadius: 4,
+              background: "transparent", border: "1px solid rgba(92,184,204,0.3)",
+              color: "#5CB8CC", fontSize: 13, fontWeight: 600,
+              cursor: clickatronCreating ? "wait" : clickatronCanSend ? "pointer" : "not-allowed",
+              display: "flex", alignItems: "center", gap: 6,
+              opacity: clickatronCreating || !clickatronCanSend ? 0.65 : 1,
+            }}
+          >
+            {clickatronCreating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {clickatronButtonText}
+          </button>
+        )}
         <button
           onClick={() => { window.location.href = `/dashboard/editron/project/${projectId}`; }}
           style={{

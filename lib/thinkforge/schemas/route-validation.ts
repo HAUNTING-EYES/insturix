@@ -8,7 +8,7 @@ const VoiceFingerprintSchema = z.object({
   sentenceLengthVariance: z.number(),
   passiveVoiceRatio: z.number(),
   questionFrequency: z.number(),
-  punctuationProfile: z.record(z.number()),
+  punctuationProfile: z.record(z.string(), z.number()),
   sentenceRhythm: z.array(z.enum(['fragment', 'short', 'medium', 'long'])),
   openingPattern: z.enum(['question', 'statistic', 'story', 'provocation', 'scene_set', 'direct_claim']),
   transitionStyle: z.enum(['conjunction', 'implicit', 'question_bridge', 'callback', 'tonal_shift']),
@@ -20,7 +20,7 @@ const VoiceFingerprintSchema = z.object({
 const VoiceExemplarSchema = z.object({
   id: z.string(),
   text: z.string().max(2000),
-  signalProfile: z.record(z.number()),
+  signalProfile: z.record(z.string(), z.number()),
   contentType: z.string(),
   pinned: z.boolean(),
   weight: z.number().min(0).max(5),
@@ -81,9 +81,11 @@ export const ScriptPayloadSchema = z.object({
   title: z.string().optional(),
   content: z.string().optional(),
   blocks: z.array(ThinkForgeBlockZodSchema).optional(),
-  richText: z.record(z.any()).optional(),
+  richText: z.record(z.string(), z.any()).optional(),
   documentType: z.string().optional(),
 }).passthrough();
+
+export type ScriptPayload = z.infer<typeof ScriptPayloadSchema>;
 
 // ── Route-specific schemas ──────────────────────────────────────────
 
@@ -105,7 +107,7 @@ export const SaveBlocksSchema = z.object({
   sessionId: z.string().min(1),
   scriptId: z.string().optional(),
   blocks: z.array(ThinkForgeBlockZodSchema).optional(),
-  richText: z.record(z.any()).optional(),
+  richText: z.record(z.string(), z.any()).optional(),
   title: z.string().optional(),
   content: z.string().optional(),
   baseVersion: z.number().optional(),

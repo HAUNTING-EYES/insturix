@@ -337,8 +337,13 @@ export function getBlockIds(doc: TiptapJSON): string[] {
   const ids: string[] = [];
 
   traverseNodes(doc, (node) => {
-    if ('attrs' in node && node.attrs && 'id' in node.attrs && node.attrs.id) {
-      ids.push(node.attrs.id as string);
+    if (!node || typeof node !== 'object' || !('attrs' in node)) {
+      return;
+    }
+
+    const attrs = node.attrs;
+    if (attrs && typeof attrs === 'object' && !Array.isArray(attrs) && 'id' in attrs && attrs.id) {
+      ids.push(String(attrs.id));
     }
   });
 

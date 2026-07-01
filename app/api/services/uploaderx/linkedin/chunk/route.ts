@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
@@ -9,6 +9,11 @@ import {
   normalizeLinkedInPostTarget,
 } from "@/lib/uploaderx/linkedin-publish-state";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import {
+  normalizeLinkedInUploadInstruction,
+  requireAllowedUploaderXUploadUrl,
+  UploaderXUploadUrlError,
+} from "../../utils/platform-upload-url";
 
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
 
@@ -194,7 +199,7 @@ export async function POST(req: Request) {
       authorUrn = `urn:li:person:${userId}`;
     }
 
-    // ─── PHASE: START ───
+    // â”€â”€â”€ PHASE: START â”€â”€â”€
     if (phase === "start") {
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
@@ -222,26 +227,57 @@ export async function POST(req: Request) {
         );
       }
 
+      const uploadInstructions = (initData.value?.uploadInstructions || []).map(normalizeLinkedInUploadInstruction);
+      await UploaderXVideo.updateOne(
+        { userId: session.userId, videoUuid },
+        {
+          $set: {
+            "metadata.linkedin.activeUpload": {
+              videoUrn: initData.value?.video,
+              uploadToken: initData.value?.uploadToken,
+              uploadInstructions,
+              owner: authorUrn,
+              createdAt: new Date(),
+            },
+          },
+        }
+      );
+
       return NextResponse.json({
         success: true,
         videoUrn: initData.value?.video,
         uploadToken: initData.value?.uploadToken,
-        uploadInstructions: initData.value?.uploadInstructions || [],
+        uploadInstructions,
         fileSize,
       });
     }
 
-    // ─── PHASE: TRANSFER ───
+    // â”€â”€â”€ PHASE: TRANSFER â”€â”€â”€
     if (phase === "transfer") {
       if (!uploadUrl || firstByte === undefined || lastByte === undefined) {
         return NextResponse.json({ success: false, error: "Missing transfer parameters" }, { status: 400 });
       }
 
-      const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
-      const chunkBuffer = await fetchUploaderXRange(videoAsset.publicUrl, firstByte, lastByte);
+      const safeUploadUrl = requireAllowedUploaderXUploadUrl(uploadUrl, "linkedin");
+      const requestedFirstByte = Number(firstByte);
+      const requestedLastByte = Number(lastByte);
+      const videoDoc = (await UploaderXVideo.findOne({ userId: session.userId, videoUuid }).lean()) as any;
+      const activeUpload = (videoDoc?.metadata as any)?.linkedin?.activeUpload;
+      const matchingInstruction = activeUpload?.uploadInstructions?.some((instruction: any) =>
+        instruction.uploadUrl === safeUploadUrl &&
+        Number(instruction.firstByte) === requestedFirstByte &&
+        Number(instruction.lastByte) === requestedLastByte
+      );
+      if (!matchingInstruction) {
+        return NextResponse.json({ success: false, error: "Invalid or expired LinkedIn upload URL" }, { status: 400 });
+      }
 
-      const uploadResponse = await fetch(uploadUrl, {
+      const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
+      const chunkBuffer = await fetchUploaderXRange(videoAsset.publicUrl, requestedFirstByte, requestedLastByte);
+
+      const uploadResponse = await fetch(safeUploadUrl, {
         method: "PUT",
+        redirect: "manual",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/octet-stream",
@@ -266,7 +302,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // ─── PHASE: FINISH ───
+    // â”€â”€â”€ PHASE: FINISH â”€â”€â”€
     if (phase === "finish") {
       if (!videoUrn || !uploadToken) {
         console.error("LinkedIn finalize missing parameters:", { videoUrn, uploadToken });
@@ -351,6 +387,9 @@ export async function POST(req: Request) {
         { userId: session.userId, videoUuid },
         {
           $set: metadataSet,
+          $unset: {
+            "metadata.linkedin.activeUpload": "",
+          },
         }
       );
 
@@ -381,6 +420,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: false, error: "Invalid phase" }, { status: 400 });
   } catch (error: any) {
+    if (error instanceof UploaderXUploadUrlError) {
+      return NextResponse.json({ success: false, error: "Invalid LinkedIn upload URL" }, { status: 400 });
+    }
+
     console.error("LinkedIn chunked upload failed:", error);
     return NextResponse.json(
       { success: false, error: error.message || "LinkedIn upload failed" },

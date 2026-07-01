@@ -26,10 +26,11 @@ export function getVectorIndex() {
 function entryToText(entry: DataBankEntry): string {
   const parts = [entry.title];
   if (entry.tags?.length) parts.push(entry.tags.join(', '));
-  if (typeof entry.content === 'string') {
-    parts.push(entry.content.slice(0, 1000));
-  } else if (entry.content) {
-    const c = entry.content;
+  const content = entry.content as unknown;
+  if (typeof content === 'string') {
+    parts.push(content.slice(0, 1000));
+  } else if (content && typeof content === 'object') {
+    const c = content as Partial<Record<'claim' | 'summary' | 'text', unknown>>;
     if (c.claim) parts.push(String(c.claim));
     if (c.summary) parts.push(String(c.summary).slice(0, 800));
     if (c.text) parts.push(String(c.text).slice(0, 800));

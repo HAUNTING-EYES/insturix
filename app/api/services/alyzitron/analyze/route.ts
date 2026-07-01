@@ -2,7 +2,6 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { logger } from "../utils/logger";
 import { validateYouTubeVideo } from "../utils/youtube";
-import { AlyzitronR2Manager } from "../utils/r2-manager";
 import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
@@ -19,13 +18,20 @@ import {
   resolveAlyzitronContentIntent,
 } from "@/lib/alyzitron/analysis-intent";
 import type { AlyzitronIntentResolution, AlyzitronMediaSourceKind } from "../types";
+import {
+  AlyzitronStorageOwnershipError,
+  buildAlyzitronPublicUrl,
+  requireAlyzitronOwnedStorageKey,
+} from "../utils/storage-ownership";
+
+type AlyzitronStorageBackend = 'gcs' | 'r2' | 'youtube' | 'external';
 function getGcsUrl(gcsPath: string): string {
   const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) throw new Error("Server configuration error: GCS bucket name missing.");
   return `gs://${bucketName}/${gcsPath}`;
 }
 
-function detectStorageBackend(url: string): 'gcs' | 'r2' | 'youtube' | 'external' {
+function detectStorageBackend(url: string): AlyzitronStorageBackend {
   if (url.includes('r2.cloudflarestorage.com')) return 'r2';
   if (process.env.R2_PUBLIC_BASE_URL && url.startsWith(process.env.R2_PUBLIC_BASE_URL.replace(/\/+$/, ''))) return 'r2';
   if (url.startsWith('gs://')) return 'gcs';
@@ -55,6 +61,84 @@ function buildIntentMetadata(
     intentResolution,
   };
 }
+
+class AlyzitronMediaSourceError extends Error {
+  constructor(
+    message: string,
+    public readonly status = 400,
+  ) {
+    super(message);
+    this.name = "AlyzitronMediaSourceError";
+  }
+}
+
+const ALLOWED_EXTERNAL_MEDIA_HOSTS = new Set([
+  "instagram.com",
+  "tiktok.com",
+  "twitter.com",
+  "x.com",
+]);
+
+function hostMatches(host: string, allowedHost: string): boolean {
+  return host === allowedHost || host.endsWith(`.${allowedHost}`);
+}
+
+function normalizeAllowedExternalMediaUrl(value: string, backend: AlyzitronStorageBackend): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new AlyzitronMediaSourceError("Invalid media URL");
+  }
+
+  if (url.protocol !== "https:") {
+    throw new AlyzitronMediaSourceError("Media URL must use HTTPS");
+  }
+
+  const host = url.hostname.toLowerCase();
+  const isYouTube = backend === "youtube" || hostMatches(host, "youtube.com") || host === "youtu.be";
+  if (isYouTube) {
+    return url.toString();
+  }
+
+  if (![...ALLOWED_EXTERNAL_MEDIA_HOSTS].some((allowedHost) => hostMatches(host, allowedHost))) {
+    throw new AlyzitronMediaSourceError("Unsupported external media provider");
+  }
+
+  return url.toString();
+}
+
+async function requireTrackedAlyzitronUpload(userId: string, storageKey: string): Promise<void> {
+  const { uploadTracking } = await getCollections();
+  const uploadRecord = await uploadTracking.findOne({
+    userId,
+    $or: [{ storageKey }, { storagePath: storageKey }, { gcsPath: storageKey }],
+  });
+
+  if (!uploadRecord) {
+    throw new AlyzitronMediaSourceError("Uploaded media is not registered to this user", 404);
+  }
+}
+
+async function resolveAlyzitronMediaSource(
+  userId: string,
+  rawVideoUrl: string,
+  backend: AlyzitronStorageBackend,
+): Promise<{ backend: AlyzitronStorageBackend; finalVideoUrl: string }> {
+  if (backend === "gcs" || backend === "r2") {
+    const storageKey = requireAlyzitronOwnedStorageKey(userId, rawVideoUrl);
+    await requireTrackedAlyzitronUpload(userId, storageKey);
+    return {
+      backend,
+      finalVideoUrl: backend === "gcs" ? getGcsUrl(storageKey) : buildAlyzitronPublicUrl(storageKey, "r2"),
+    };
+  }
+
+  return {
+    backend,
+    finalVideoUrl: normalizeAllowedExternalMediaUrl(rawVideoUrl, backend),
+  };
+}
 const qstashBaseUrl = process.env.QSTASH_URL || (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
 const qstash = new Client({ token: process.env.QSTASH_TOKEN!, baseUrl: qstashBaseUrl });
 
@@ -67,9 +151,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { video_url, context, metadata, storage, editronProjectId, brandId } = body;
 
-    if (!video_url) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
+    if (typeof video_url !== "string" || !video_url.trim()) return NextResponse.json({ error: "Missing required field: video_url" }, { status: 400 });
 
-    const backend = storage || detectStorageBackend(video_url);
+    const backend = (storage || detectStorageBackend(video_url)) as AlyzitronStorageBackend;
     const mediaSourceKind = inferAlyzitronMediaSourceKind({
       mediaSourceKind: body.mediaSourceKind ?? metadata?.mediaSourceKind ?? storageBackendToMediaSourceKind(backend),
       videoUrl: video_url,
@@ -152,26 +236,31 @@ export async function POST(request: Request) {
       }
     }
 
+    let finalVideoUrl: string;
+    try {
+      const resolvedMediaSource = await resolveAlyzitronMediaSource(userId, video_url, backend);
+      finalVideoUrl = resolvedMediaSource.finalVideoUrl;
+    } catch (mediaError) {
+      if (mediaError instanceof AlyzitronStorageOwnershipError || mediaError instanceof AlyzitronMediaSourceError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              type: "INVALID_MEDIA_SOURCE",
+              message: mediaError.message,
+            },
+          },
+          { status: mediaError instanceof AlyzitronStorageOwnershipError ? mediaError.status : mediaError.status },
+        );
+      }
+      throw mediaError;
+    }
+
     const usageMinutes = isImageFile ? 1 : Math.ceil(videoDuration / 60);
     const creditCheck = await checkCredits(userId, 'alyzitron', 'video_analysis', { durationMinutes: usageMinutes });
 
     if (!creditCheck.allowed) return creditCheck.errorResponse;
     await creditCheck.deduct();
-
-    // Prepare final video URL for analysis
-    let finalVideoUrl: string;
-    if (isGCS) {
-      finalVideoUrl = getGcsUrl(video_url);
-    } else if (isR2) {
-      // For R2 uploads the browser still sends the legacy gcsPath field. Convert
-      // raw R2 keys to public URLs so reports, chat, and the processor can read them.
-      finalVideoUrl = video_url.startsWith('http')
-        ? video_url
-        : AlyzitronR2Manager.getPublicUrl(video_url);
-    } else {
-      // YouTube or external URLs
-      finalVideoUrl = video_url;
-    }
 
     let analyses: any;
     const taskId = new ObjectId();

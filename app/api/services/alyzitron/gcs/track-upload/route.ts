@@ -1,7 +1,41 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { ObjectId } from "mongodb";
 import { getCollections } from "../../utils/mongodb";
 import { logger } from "../../utils/logger";
+import {
+  AlyzitronStorageOwnershipError,
+  buildAlyzitronPublicUrl,
+  requireAlyzitronOwnedStorageKey,
+} from "../../utils/storage-ownership";
+
+const ALLOWED_UPLOAD_STATUSES = new Set([
+  "uploaded",
+  "queued",
+  "analysis_started",
+  "analysis_completed",
+  "failed",
+  "deleted",
+]);
+
+function isObjectId(value: string): boolean {
+  return /^[a-f\d]{24}$/i.test(value);
+}
+
+async function userOwnsAnalysis(analysisId: string, userId: string): Promise<boolean> {
+  const { analyses } = await getCollections();
+  const taskQuery = { taskId: analysisId, clerkUserId: userId };
+  const query = isObjectId(analysisId)
+    ? { $or: [{ _id: ObjectId.createFromHexString(analysisId), clerkUserId: userId }, taskQuery] }
+    : taskQuery;
+
+  return Boolean(await analyses.findOne(query, { projection: { _id: 1 } }));
+}
+
+function parseFileSize(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
 
 // Track successful upload
 export async function POST(request: Request) {
@@ -12,11 +46,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { uploadId, filename, fileSize, contentType, storage, publicUrl } = body;
-    // Accept both new `storageKey` and legacy `storagePath`
-    const storageKey = body.storageKey || body.storagePath || body.gcsPath;
+    const { uploadId, filename, fileSize, contentType, storage } = body;
+    const storageKey = requireAlyzitronOwnedStorageKey(userId, body.storageKey || body.storagePath || body.gcsPath);
+    const storageBackend = storage === "gcs" ? "gcs" : "r2";
+    const publicUrl = buildAlyzitronPublicUrl(storageKey, storageBackend);
 
-    if (!uploadId || !storageKey || !filename) {
+    if (!uploadId || !filename) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -24,27 +59,33 @@ export async function POST(request: Request) {
     }
 
     const { uploadTracking } = await getCollections();
+    const now = new Date();
 
     const uploadRecord = {
       uploadId,
       userId,
       storageKey,
-      gcsPath: storageKey, // Deprecated alias — kept for DB backward compat
+      gcsPath: storageKey,
       publicUrl,
       filename,
-      fileSize: fileSize || 0,
-      uploadedAt: new Date(),
+      fileSize: parseFileSize(fileSize),
+      uploadedAt: now,
+      updatedAt: now,
       status: "uploaded",
-      storage: storage === "r2" ? "r2" : "gcs",
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      storage: storageBackend,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       metadata: {
         contentType: contentType || "video/mp4",
         originalName: filename,
-        storage: storage === "r2" ? "r2" : "gcs",
+        storage: storageBackend,
       },
     };
 
-    await uploadTracking.insertOne(uploadRecord);
+    await uploadTracking.updateOne(
+      { uploadId, userId },
+      { $set: uploadRecord, $setOnInsert: { createdAt: now } },
+      { upsert: true }
+    );
 
     logger.info("Upload tracked successfully", {
       data: { uploadId, storageKey, userId },
@@ -52,6 +93,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof AlyzitronStorageOwnershipError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     logger.error("Failed to track upload", {
       data: { error: error instanceof Error ? error.message : String(error) },
     });
@@ -62,18 +107,28 @@ export async function POST(request: Request) {
   }
 }
 
-// Update upload status (when analysis starts/completes)
+// Update upload status when analysis starts/completes
 export async function PATCH(request: Request) {
   try {
     const session = await auth();
     const userId = session?.userId;
-    const body = await request.json();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    const body = await request.json();
     const { uploadId, analysisId, status } = body;
 
     if (!status) {
       return NextResponse.json(
         { error: "Missing required field: status" },
+        { status: 400 }
+      );
+    }
+
+    if (!ALLOWED_UPLOAD_STATUSES.has(status)) {
+      return NextResponse.json(
+        { error: "Invalid upload status" },
         { status: 400 }
       );
     }
@@ -85,8 +140,14 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { uploadTracking } = await getCollections();
+    if (analysisId && !(await userOwnsAnalysis(analysisId, userId))) {
+      return NextResponse.json(
+        { error: "Analysis not found" },
+        { status: 404 }
+      );
+    }
 
+    const { uploadTracking } = await getCollections();
     const updateData: any = {
       status,
       updatedAt: new Date(),
@@ -105,41 +166,43 @@ export async function PATCH(request: Request) {
       updateData.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     }
 
-    const query: any = {};
+    const query: any = { userId };
     if (uploadId) {
       query.uploadId = uploadId;
-    } else if (analysisId) {
+    } else {
       query.analysisId = analysisId;
-    }
-
-    if (userId) {
-      query.userId = userId;
     }
 
     const result = await uploadTracking.updateOne(query, { $set: updateData });
 
     if (result.matchedCount === 0) {
+      if (!analysisId) {
+        return NextResponse.json(
+          { error: "Upload tracking record not found" },
+          { status: 404 }
+        );
+      }
+
+      const now = new Date();
       const newRecord: any = {
         uploadId: uploadId || `youtube-${analysisId || Date.now()}`,
-        userId: userId || "unknown",
-        status: status,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        userId,
+        analysisId,
+        status,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         sourceType: "youtube_link",
         metadata: {
           isYouTube: true,
-          analysisId: analysisId,
+          analysisId,
         },
       };
-
-      if (analysisId) {
-        newRecord.analysisId = analysisId;
-      }
 
       const insertResult = await uploadTracking.insertOne(newRecord);
       return NextResponse.json({
         success: true,
-        message: "Created new tracking record for YouTube link",
+        message: "Created new tracking record for owned analysis",
         recordId: insertResult.insertedId,
       });
     }
@@ -172,16 +235,9 @@ export async function DELETE(request: Request) {
     }
 
     const body = await request.json();
-    // Accept both new `storageKey` and legacy `gcsPath`/`storagePath`
-    const storageKey = body.storageKey || body.storagePath || body.gcsPath;
-
-    if (!storageKey) {
-      return NextResponse.json({ error: "Missing storageKey" }, { status: 400 });
-    }
+    const storageKey = requireAlyzitronOwnedStorageKey(userId, body.storageKey || body.storagePath || body.gcsPath);
 
     const { uploadTracking } = await getCollections();
-
-    // Search by both field names for backward compat with existing DB records
     const result = await uploadTracking.deleteOne({
       userId,
       $or: [{ storageKey }, { storagePath: storageKey }, { gcsPath: storageKey }],
@@ -200,6 +256,10 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof AlyzitronStorageOwnershipError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     logger.error("Failed to delete upload tracking record", {
       data: { error: error instanceof Error ? error.message : String(error) },
     });

@@ -180,7 +180,7 @@ async function handler(request: NextRequest) {
     // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
     const projectDoc = await db.collection('projects').findOne(
       { projectId },
-      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1 } },
+      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
     );
     const rawFootageAnalysis = projectDoc?.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc?.syntheticStoryboard;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
 import {
   findTranscription,
@@ -6,36 +7,44 @@ import {
   upsertTranscriptionCompleted,
   upsertTranscriptionError,
 } from "@/lib/alyzitron";
+import {
+  AlyzitronTaskOwnershipError,
+  requireOwnedAlyzitronTask,
+} from "../utils/task-ownership";
 
-/**
- * POST /api/alyzitron/transcribe
- *
- * Triggers transcription for a video. Idempotent — returns the cached result
- * if already completed. Deepgram's prerecorded API is synchronous so this
- * resolves in a single call (no polling). For very long videos consider
- * offloading to a background job.
- *
- * Body:    { taskId: string, audioUrl: string }
- * Returns: { status, detectedLanguage, wordCount, durationMs, cached }
- */
+function taskMediaUrl(task: any): string | null {
+  return typeof task?.videoUrl === "string" && task.videoUrl.trim() ? task.videoUrl : null;
+}
+
+function ownershipErrorResponse(error: AlyzitronTaskOwnershipError) {
+  return NextResponse.json({ error: error.message }, { status: error.status });
+}
+
 export async function POST(req: NextRequest) {
   let taskId: string | undefined;
 
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     taskId = body.taskId;
-    const { audioUrl } = body;
 
-    if (!taskId || !audioUrl) {
+    if (!taskId) {
       return NextResponse.json(
-        { error: "taskId and audioUrl are required" },
+        { error: "taskId is required" },
         { status: 400 }
       );
     }
 
-    // Return cached result only if completed AND has real transcript content.
-    // Guards against docs left in a "completed" state with empty data from a
-    // prior partial failure (e.g. process died before upsertTranscriptionCompleted ran).
+    const task = await requireOwnedAlyzitronTask(taskId, userId);
+    const audioUrl = taskMediaUrl(task);
+    if (!audioUrl) {
+      return NextResponse.json({ error: "Task media URL missing" }, { status: 400 });
+    }
+
     const existing = await findTranscription(taskId);
     if (existing?.status === "completed" && existing.formattedTranscript) {
       return NextResponse.json({
@@ -47,9 +56,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Mark as processing — upsert so re-triggering a failed/partial job works cleanly
     await upsertTranscriptionProcessing(taskId, audioUrl);
-
     const result = await transcribeAudio(audioUrl);
 
     await upsertTranscriptionCompleted(taskId, {
@@ -71,6 +78,10 @@ export async function POST(req: NextRequest) {
       cached: false,
     });
   } catch (error: any) {
+    if (error instanceof AlyzitronTaskOwnershipError) {
+      return ownershipErrorResponse(error);
+    }
+
     console.error("[Alyzitron/transcribe] Error:", error);
 
     if (taskId) {
@@ -84,22 +95,19 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * GET /api/alyzitron/transcribe?taskId=xxx
- *
- * Returns transcription status and metadata.
- * The full transcript is intentionally excluded — it is loaded server-side
- * by the chat route to keep response payloads small.
- *
- * Possible status values: not_found | processing | completed | error
- */
 export async function GET(req: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const taskId = req.nextUrl.searchParams.get("taskId");
     if (!taskId) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
     }
 
+    await requireOwnedAlyzitronTask(taskId, userId);
     const transcription = await findTranscription(taskId);
     if (!transcription) {
       return NextResponse.json({ status: "not_found" }, { status: 404 });
@@ -116,6 +124,10 @@ export async function GET(req: NextRequest) {
       }),
     });
   } catch (error: any) {
+    if (error instanceof AlyzitronTaskOwnershipError) {
+      return ownershipErrorResponse(error);
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

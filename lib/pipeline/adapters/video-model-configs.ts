@@ -62,7 +62,8 @@ export interface VideoModelConfig {
   maxReferenceImages?: number;
   /** Native audio generation support */
   nativeAudio?: {
-    paramName: string;
+    /** Toggle param sent to fal.ai when the model documents one. Omitted for fixed native-audio models. */
+    paramName?: string;
     default: boolean;
   };
   /** Static params always sent to this model */
@@ -240,6 +241,41 @@ export const VIDEO_MODEL_REGISTRY: Record<string, VideoModelConfig> = {
     negativePromptSuffix: 'motion blur artifacts, temporal glitching',
     promptTuning: 'Seedance 2.0: cinematic audio-visual coherence, describe both visual motion AND ambient sound elements. For image-to-video: focus on movement/camera, not subject description (image provides that). Include "preserve composition and colors" for consistency. 100-150 words.',
   },
+
+  // --- Alibaba HappyHorse 1.1 ------------------------------------------------
+  // Docs: https://fal.ai/models/alibaba/happy-horse/v1.1/image-to-video/api
+  //       https://fal.ai/models/alibaba/happy-horse/v1.1/text-to-video/api
+  // Image-to-video uses image_url as the first frame. Duration: integer 3-15.
+  // Native audio is advertised, but the I2V schema has no generate_audio toggle.
+  'happy-horse-v1.1': {
+    key: 'happy-horse-v1.1',
+    label: 'HappyHorse 1.1 (Native Audio)',
+    sortOrder: 0.5,
+    endpoints: {
+      textToVideo: 'alibaba/happy-horse/v1.1/text-to-video',
+      imageToVideo: 'alibaba/happy-horse/v1.1/image-to-video',
+    },
+    duration: {
+      paramName: 'duration',
+      min: 3, max: 15,
+      snap: (n) => Math.min(Math.max(Math.round(n), 3), 15),
+      actualSeconds: (n) => Math.min(Math.max(Math.round(n), 3), 15),
+    },
+    aspectRatio: {
+      paramName: '',
+      supported: [],
+      fallback: '',
+    },
+    resolution: { paramName: 'resolution', default: '1080p' },
+    imageUrlParam: 'image_url',
+    endImageParam: null,
+    referenceParam: null,
+    nativeAudio: { default: true },
+    staticParams: { enable_safety_checker: true },
+    supportsNegativePrompt: false,
+    negativePromptSuffix: 'audio artifacts, temporal glitching, lip-sync drift',
+    promptTuning: 'HappyHorse: concise cinematic motion, preserve first-frame composition, mention intended ambient audio only when no voiceover is present. 80-140 words.',
+  },
 };
 
 // ─── Exports ─────────────────────────────────────────────────────
@@ -333,10 +369,14 @@ export function buildVideoInputFromConfig(
   // Native audio — disable when scene has voiceover to prevent audio overlap.
   // Voiceover (TTS narration) is the primary audio track; Seedance native audio
   // would generate competing speech/ambient that overlaps with it.
-  // Only enable native audio on scenes with NO voiceover narration.
+  // Only enable native audio on scenes with NO voiceover narration. Some models
+  // advertise native audio but do not expose a toggle, so only send a provider
+  // param when the model schema documents one.
   if (config.nativeAudio) {
     const enableNativeAudio = config.nativeAudio.default && !options?.hasVoiceover;
-    input[config.nativeAudio.paramName] = enableNativeAudio;
+    if (config.nativeAudio.paramName) {
+      input[config.nativeAudio.paramName] = enableNativeAudio;
+    }
 
     if (enableNativeAudio) {
       // When native audio IS enabled (no voiceover scene), constrain to
