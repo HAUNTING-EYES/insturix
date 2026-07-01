@@ -35,7 +35,7 @@ const LS_COLLAPSED = 'calos_brief_collapsed';
 // a shared util if a third consumer appears.
 const PLATFORM_DOT: Record<string, string> = {
   instagram: '#D4A652',
-  tiktok: '#5EC97E',
+  tiktok: '#5CCCB8',
   linkedin: '#6FA8DC',
   youtube: '#D46A5C',
   facebook: '#7C9CD0',
@@ -140,11 +140,11 @@ export default function CommandBrief({
               {stats.review} to review
             </span>
             <span className={pill}>
-              <span className="w-1.5 h-1.5 rounded-full bg-[#D4A652]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#5CCCB8]" />
               {stats.thisWeek} this week
             </span>
             <span className={pill}>
-              <span className="w-1.5 h-1.5 rounded-full bg-[#5EC97E]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#5DCAA5]" />
               {stats.approved} approved
             </span>
           </div>
@@ -173,7 +173,7 @@ export default function CommandBrief({
                     <span className="text-[12px] text-[#ECE9E1] max-w-[180px] truncate">{c.title}</span>
                     <button
                       onClick={() => onDecision(c.id, 'approved')}
-                      className="text-[10.5px] font-medium rounded-md px-2 py-1 bg-[#5EC97E]/15 border border-[#5EC97E]/40 text-[#5EC97E] hover:bg-[#5EC97E]/25"
+                      className="text-[10.5px] font-medium rounded-md px-2 py-1 bg-[#5DCAA5]/15 border border-[#5DCAA5]/40 text-[#5DCAA5] hover:bg-[#5DCAA5]/25"
                     >
                       Approve
                     </button>

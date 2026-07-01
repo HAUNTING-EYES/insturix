@@ -1006,7 +1006,7 @@ export default function Calendar({
                 type="button"
                 onClick={() => void handleCreateCardForDate(selectedDay)}
                 disabled={!onCreateCard}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D4A652]/35 bg-[#D4A652]/12 px-3 text-xs font-medium text-[#D4A652] hover:bg-[#D4A652]/22 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#5CCCB8]/35 bg-[#5CCCB8]/12 px-3 text-xs font-medium text-[#5CCCB8] hover:bg-[#5CCCB8]/22 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Plus size={13} />
                 New content

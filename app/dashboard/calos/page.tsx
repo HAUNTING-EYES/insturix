@@ -238,7 +238,7 @@ export default function CalosPage() {
                 value={brandId ?? ''}
                 onChange={(e) => selectBrand(e.target.value)}
                 aria-label="Switch brand"
-                className="h-9 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 text-xs text-[#ECE9E1] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40"
+                className="h-9 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 text-xs text-[#ECE9E1] focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40"
               >
                 {brands.map((b) => (
                   <option key={b.brandId} value={b.brandId}>
@@ -260,14 +260,14 @@ export default function CalosPage() {
                 title="Copy a read-only calendar link to share with this client"
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#1C1B19] px-3 text-[11px] font-medium text-[#ECE9E1] hover:bg-[#1C1B19]/60"
               >
-                <Share2 className="h-3.5 w-3.5 text-[#D4A652]" />
+                <Share2 className="h-3.5 w-3.5 text-[#5CCCB8]" />
                 Share
               </button>
               <button
                 onClick={() => setConnectionsOpen(true)}
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#1C1B19] px-3 text-[11px] font-medium text-[#ECE9E1] hover:bg-[#1C1B19]/60"
               >
-                <Linkedin className="h-3.5 w-3.5 text-[#D4A652]" />
+                <Linkedin className="h-3.5 w-3.5 text-[#5CCCB8]" />
                 Publishing
               </button>
               <div className="relative" data-calos-calendar-actions>

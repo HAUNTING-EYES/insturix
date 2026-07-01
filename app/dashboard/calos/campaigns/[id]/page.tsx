@@ -46,7 +46,7 @@ const PREVIEW_DAYS = 14; // two weeks of cadence preview ← enough to read the 
 // Platform -> dot color, reusing the warm-editorial palette. Unknown platforms fall back to gold.
 const PLATFORM_DOT: Record<string, string> = {
   instagram: '#D4A652',
-  tiktok: '#D4A652',
+  tiktok: '#5CCCB8',
   linkedin: '#6FA8DC',
   youtube: '#D46A5C',
   facebook: '#7C9CD0',
@@ -241,7 +241,7 @@ export default function CampaignWorkspacePage() {
 
   const card = 'bg-[#0F0F0E] border border-[#1C1B19] rounded-xl';
   const selectCls =
-    'h-8 min-w-0 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40 disabled:opacity-50';
+    'h-8 min-w-0 bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
   const controlBtn =
     'inline-flex h-8 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -257,7 +257,7 @@ export default function CampaignWorkspacePage() {
     return (
       <div className="w-full h-full min-h-[60vh] flex flex-col items-center justify-center gap-3 bg-[#0B0B0A]">
         <p className="text-[#ECE9E1] text-sm">Campaign not found.</p>
-        <Link href="/dashboard/calos" className="text-[#D4A652] text-xs hover:underline">
+        <Link href="/dashboard/calos" className="text-[#5CCCB8] text-xs hover:underline">
           Back to calendar
         </Link>
       </div>
@@ -310,7 +310,7 @@ export default function CampaignWorkspacePage() {
             { label: 'Planned', value: progress.planned, color: '#ECE9E1' },
             { label: 'In progress', value: progress.inProgress, color: '#D4A652' },
             { label: 'In review', value: progress.inReview, color: '#B08CE0' },
-            { label: 'Approved', value: progress.approved, color: '#5EC97E' },
+            { label: 'Approved', value: progress.approved, color: '#5DCAA5' },
           ].map((m) => (
             <div key={m.label} className={`${card} px-3.5 py-3`}>
               <div className="text-xl font-medium" style={{ color: m.color }}>
@@ -408,7 +408,7 @@ export default function CampaignWorkspacePage() {
                   onClick={() => runFill('auto')}
                   disabled={busy}
                   title="Create cadence placeholders without using AI"
-                  className={`${controlBtn} bg-[#D4A652]/12 border-[#D4A652]/35 text-[#D4A652] hover:bg-[#D4A652]/22`}
+                  className={`${controlBtn} bg-[#5CCCB8]/12 border-[#5CCCB8]/35 text-[#5CCCB8] hover:bg-[#5CCCB8]/22`}
                 >
                   {pending === 'auto' ? 'Working…' : 'Auto-fill'}
                 </button>
@@ -419,7 +419,7 @@ export default function CampaignWorkspacePage() {
           <div>
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[11px] text-[#7A776E] uppercase tracking-wide">Content ({cards.length})</span>
-              <Link href="/dashboard/calos" className="text-[10.5px] text-[#D4A652] hover:underline">
+              <Link href="/dashboard/calos" className="text-[10.5px] text-[#5CCCB8] hover:underline">
                 View on calendar
               </Link>
             </div>

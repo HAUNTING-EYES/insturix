@@ -234,7 +234,7 @@ export default function CadenceEditor({
                       onClick={() => toggleDay(i, di)}
                       className={`w-8 h-7 rounded text-[10px] font-medium border transition-colors ${
                         r.preferredDays.includes(di)
-                          ? 'bg-[#D4A652]/20 border-[#D4A652]/40 text-[#D4A652]'
+                          ? 'bg-[#5CCCB8]/20 border-[#5CCCB8]/40 text-[#5CCCB8]'
                           : 'bg-[#1C1B19]/40 border-neutral-700/60 text-neutral-500 hover:text-neutral-300'
                       }`}
                     >
@@ -248,7 +248,7 @@ export default function CadenceEditor({
         </div>
 
         <div className="flex shrink-0 items-center justify-between border-t border-[#1C1B19]/70 bg-[#0B0B0A] px-5 py-4">
-          <button type="button" onClick={addRule} className="text-xs text-[#D4A652] hover:underline">
+          <button type="button" onClick={addRule} className="text-xs text-[#5CCCB8] hover:underline">
             + Add platform
           </button>
           <div className="flex gap-2">
@@ -262,7 +262,7 @@ export default function CadenceEditor({
             <button
               type="submit"
               disabled={saving}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#D4A652]/15 border border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25 disabled:opacity-50"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#5CCCB8]/15 border border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25 disabled:opacity-50"
             >
               {saving ? (isCreate ? 'Creating...' : 'Saving...') : isCreate ? 'Create campaign' : 'Save cadence'}
             </button>
