@@ -55,6 +55,7 @@ export type ContextValues = {
   familyFriendly: boolean;
   platform: string;
   location: string;
+  contentIntent?: AlyzitronContentIntent;
   additionalDetails?: string;
 };
 

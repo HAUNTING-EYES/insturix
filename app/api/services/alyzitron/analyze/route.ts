@@ -103,11 +103,14 @@ export async function POST(request: Request) {
       throw error;
     }
 
+    const contextContentIntent = typeof context?.contentIntent === 'string' && context.contentIntent.trim()
+      ? context.contentIntent
+      : undefined;
     const intentResolution = resolveAlyzitronContentIntent({
-      userSelectedIntent: body.userSelectedIntent,
-      contentIntent: body.contentIntent ?? body.content_intent,
-      intentSource: body.intentSource,
-      userConfirmedIntent: body.userConfirmedIntent,
+      userSelectedIntent: body.userSelectedIntent ?? contextContentIntent,
+      contentIntent: body.contentIntent ?? body.content_intent ?? contextContentIntent,
+      intentSource: body.intentSource ?? (contextContentIntent ? 'user_selected' : undefined),
+      userConfirmedIntent: body.userConfirmedIntent ?? (contextContentIntent ? true : undefined),
       intentResolution: body.intentResolution,
       mediaSourceKind,
       videoUrl: video_url,
