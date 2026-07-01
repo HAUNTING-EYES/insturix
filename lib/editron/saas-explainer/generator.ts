@@ -88,7 +88,8 @@ export interface SaasExplainerGenerationReadiness {
       | "narration_text_placeholders"
       | "missing_captions"
       | "prompt_like_visible_text"
-      | "generated_scene_contract_invalid";
+      | "generated_scene_contract_invalid"
+      | "weak_generated_scene_proof";
     message: string;
     overlayIds?: number[];
   }>;
@@ -588,6 +589,19 @@ function analyzeGenerationReadiness(overlays: any[]): SaasExplainerGenerationRea
       overlayIds: invalidGeneratedSceneIds,
     });
   }
+
+  const weakGeneratedSceneIds = overlays
+    .filter((overlay) => overlay.type === "generated-scene" && !hasGeneratedSceneProof(overlay))
+    .map(overlayId)
+    .filter((id): id is number => typeof id === "number");
+  if (weakGeneratedSceneIds.length > 0) {
+    issues.push({
+      code: "weak_generated_scene_proof",
+      message: "GeneratedScene output lacks product-specific visual proof, motion choreography, or final visual proof metadata.",
+      overlayIds: weakGeneratedSceneIds,
+    });
+  }
+
   return { ok: issues.length === 0, issues };
 }
 
@@ -627,6 +641,17 @@ function hasPromptLikeVisibleText(overlay: any): boolean {
     const texts = [element?.text, element?.label, element?.value, ...(Array.isArray(element?.items) ? element.items : [])];
     return texts.some((text) => typeof text === "string" && isPromptLikeVisibleText(text));
   });
+}
+
+function hasGeneratedSceneProof(overlay: any): boolean {
+  if (overlay.type !== "generated-scene") return true;
+
+  const gates = overlay.sceneModel?.qualityGates ?? overlay.metadata?.qualityGates;
+  return Boolean(
+    gates?.productSpecificVisualProof === true &&
+      gates?.motionChoreographyPlanned === true &&
+      gates?.finalVisualProof === true,
+  );
 }
 
 function hasMediaSource(overlay: any): boolean {

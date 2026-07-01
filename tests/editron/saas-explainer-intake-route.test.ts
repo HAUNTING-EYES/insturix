@@ -137,6 +137,11 @@ const visibleGeneratedSceneDraftOverlays = [
       },
       elements: [{ id: "headline", role: "headline", text: "Launch workflows without the guesswork." }],
       captionTracks: [{ id: "caption_1", text: "Plan launches faster.", startMs: 0, endMs: 2200 }],
+      qualityGates: {
+        productSpecificVisualProof: false,
+        motionChoreographyPlanned: false,
+        finalVisualProof: false,
+      },
     },
     sourceMap: {
       elements: {
@@ -197,6 +202,11 @@ const completeGeneratedSceneOverlays = [
     type: "generated-scene",
     sceneModel: {
       elements: [{ id: "caption_1", role: "caption", text: "Plan launches faster." }],
+      qualityGates: {
+        productSpecificVisualProof: true,
+        motionChoreographyPlanned: true,
+        finalVisualProof: true,
+      },
     },
     sourceMap: {
       elements: {
@@ -395,6 +405,7 @@ describe("SaaS explainer routes", () => {
         ok: false,
         issues: expect.arrayContaining([
           expect.objectContaining({ code: "empty_voiceover" }),
+          expect.objectContaining({ code: "weak_generated_scene_proof" }),
         ]),
       },
       voiceover: {
@@ -474,9 +485,14 @@ describe("SaaS explainer routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       success: true,
-      status: "project_ready",
-      autoEditStatus: "complete",
-      generationReadiness: { ok: true, issues: [] },
+      status: "draft_ready",
+      autoEditStatus: "needs_generation",
+      generationReadiness: {
+        ok: false,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: "weak_generated_scene_proof" }),
+        ]),
+      },
       voiceover: {
         requestedCount: 1,
         generatedCount: 1,
@@ -493,7 +509,9 @@ describe("SaaS explainer routes", () => {
         }),
       },
     });
-    expect(payload.warnings).toBeUndefined();
+    expect(payload.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("Draft ready"),
+    ]));
     expect(mocks.deductCredits).toHaveBeenNthCalledWith(
       1,
       "user_1",
@@ -539,7 +557,7 @@ describe("SaaS explainer routes", () => {
     ]));
   });
 
-  it("retries a transient voiceover failure before marking the project partial", async () => {
+  it("retries a transient voiceover failure while keeping weak visuals in draft", async () => {
     mocks.isTTSAvailable.mockReturnValueOnce(true);
     mocks.generateVoiceover.mockRejectedValueOnce(new Error("temporary Deepgram 503"));
 
@@ -557,16 +575,23 @@ describe("SaaS explainer routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       success: true,
-      status: "project_ready",
-      autoEditStatus: "complete",
-      generationReadiness: { ok: true, issues: [] },
+      status: "draft_ready",
+      autoEditStatus: "needs_generation",
+      generationReadiness: {
+        ok: false,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: "weak_generated_scene_proof" }),
+        ]),
+      },
       voiceover: {
         requestedCount: 1,
         generatedCount: 1,
         status: "ready",
       },
     });
-    expect(payload.warnings).toBeUndefined();
+    expect(payload.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("Draft ready"),
+    ]));
     expect(mocks.generateVoiceover).toHaveBeenCalledTimes(2);
     const savedOverlays = mocks.saveProject.mock.calls[0][2].overlays;
     expect(savedOverlays.find((overlay: any) => overlay.type === "sound")).toEqual(expect.objectContaining({
