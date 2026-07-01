@@ -4,6 +4,8 @@ export const metadata: Metadata = {
   title: "Sign In | Insturix Workspace",
   description: "Sign in to Insturix to continue automated content production workflows for planning, editing, analysis, publishing, and brand consistency.",
   keywords: "Insturix login, Insturix sign in, automated content production login, AI content workflow account",
+  // Auth page — not an SEO landing page. Keep it out of the index (2026-07-01).
+  robots: { index: false, follow: false },
   openGraph: {
     title: "Sign In | Insturix Workspace",
     description: "Sign in to access your Insturix content production workspace.",
