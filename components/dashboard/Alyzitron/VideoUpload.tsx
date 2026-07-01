@@ -7,8 +7,6 @@ import { Upload, Loader2, Link2 } from 'lucide-react';
 import { useVideoAnalysis } from '@/app/dashboard/alyzitron/hooks/useVideoAnalysis';
 import { CreditsErrorPopup } from '@/components/shared/CreditsErrorPopup';
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
-import { ContextSelector } from './ContextSelector';
-import { ContextValues } from '@/app/api/services/alyzitron/types';
 import { ImmersiveModal } from './ImmersiveModal';
 import { useToast } from '@/hooks/use-toast';
 import { BorderBeam } from '@/components/ui/border-beam';
@@ -29,12 +27,6 @@ const fadeIn = {
 };
 export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [source, setSource] = useState<Source>({ type: 'none' });
-  const [context, setContext] = useState<ContextValues>({
-    familyFriendly: true,
-    platform: '',
-    location: 'Global (International)',
-    additionalDetails: '',
-  });
   const [showTopup, setShowTopup] = useState(false);
   const [creditsError, setCreditsError] = useState<{
     isOpen: boolean;
@@ -42,7 +34,6 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
     available: number;
     savedFormData?: {
       source: Source;
-      context: ContextValues;
     };
   }>({ isOpen: false, required: 0, available: 0 });
   const [immersiveOpen, setImmersiveOpen] = useState(false);
@@ -271,7 +262,6 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
           {source.type === 'file' && renderUploadState()}
           {source.type === 'link' && renderUploadState()}
         </AnimatePresence>
-        <ContextSelector show={false} value={context} onChange={setContext} />
       </section>
       <ImmersiveModal
         open={immersiveOpen}
@@ -288,7 +278,6 @@ export default function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) 
           const saved = creditsError.savedFormData;
           if (saved) {
             setSource(saved.source);
-            setContext(saved.context);
           }
           setCreditsError(prev => ({ ...prev, isOpen: false, savedFormData: undefined }));
         }}

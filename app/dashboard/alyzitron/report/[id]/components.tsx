@@ -412,7 +412,7 @@ export function AnalysisDetails({
     });
   } else {
     Object.entries(analysisData).forEach(([section, data]) => {
-      if (["category", "creator_feedback", "overall_score", "overview", "titles", "descriptions", "target_audience", "analysis", "compliance_risks", "strengths", "weaknesses"].includes(section)) return;
+      if (["category", "creator_feedback", "overall_score", "overview", "titles", "descriptions", "target_audience", "content_intent", "brand_fit_summary", "applicable_takeaways", "analysis", "compliance_risks", "strengths", "weaknesses"].includes(section)) return;
       if (typeof data !== "object" || data === null || Array.isArray(data)) return;
       Object.entries(data as Record<string, MetricData>).forEach(([key, val]) => {
         allMetrics.push({ category: section, name: key.replace(/_/g, " "), score: val.score, description: val.description });
@@ -539,7 +539,36 @@ export function AnalysisDetails({
           </div>
         )}
 
-        {/* ── Strengths + Improvements ────────────────────────────────── */}
+        {/* ── Analysis lens ────────────────────────────────── */}
+        {(analysisData.content_intent || analysisData.brand_fit_summary || analysisData.applicable_takeaways?.length) && (
+          <div style={{ marginBottom: 48, paddingBottom: 48, borderBottom: `1px solid ${C.border}` }}>
+            <div className="mono" style={{ fontSize: 10, color: C.dim, letterSpacing: "0.08em", marginBottom: 16 }}>ANALYSIS LENS</div>
+            {analysisData.content_intent && (
+              <div className="mono" style={{ display: "inline-flex", marginBottom: 18, padding: "6px 9px", border: `1px solid ${C.borderL}`, borderRadius: 6, color: C.accent, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                {analysisData.content_intent.replace(/_/g, " ")}
+              </div>
+            )}
+            {analysisData.brand_fit_summary && (
+              <p style={{ marginBottom: analysisData.applicable_takeaways?.length ? 20 : 0, fontSize: 14, color: C.soft, lineHeight: 1.7 }}>
+                <TimestampText text={analysisData.brand_fit_summary} onTimestampClick={handleTimestampClick} />
+              </p>
+            )}
+            {analysisData.applicable_takeaways?.length ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {analysisData.applicable_takeaways.map((takeaway: string, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <CheckCircle size={14} color={C.accent} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: C.soft, lineHeight: 1.6 }}>
+                      <TimestampText text={takeaway} onTimestampClick={handleTimestampClick} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* Strengths + Improvements */}
         {analysisData.creator_feedback && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, marginBottom: 48, paddingBottom: 48, borderBottom: `1px solid ${C.border}` }}>
             {/* Strengths */}
