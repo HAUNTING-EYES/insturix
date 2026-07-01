@@ -11,10 +11,14 @@ import { fileExists } from '@/lib/editron/services/gcs-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
+import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
+  let analysisCreditCheck: CreditCheckResult | null = null;
+  let analysisQueued = false;
+
   try {
     // Hard limit at 3GB to prevent abuse (user footage can be large)
     // Files >100MB cost extra credits (handled by billing, not blocked here)
@@ -159,14 +163,71 @@ export async function POST(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (qstashToken) {
-        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
+        analysisCreditCheck = await checkCredits(userId, 'editron', 'asset_analysis', {
+          durationMinutes: getBillableAssetAnalysisMinutes(fileType, verifiedDuration),
+          requestType: getAssetAnalysisRequestType(fileType),
+        });
+        if (!analysisCreditCheck.allowed) {
+          if (analysisCreditCheck.errorResponse?.status === 402) {
+            await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+              { assetId, userId },
+              {
+                $set: {
+                  analysisStatus: 'skipped_insufficient_credits',
+                  analysisSkippedAt: new Date(),
+                  analysisSkipReason: 'insufficient_credits',
+                },
+              },
+            );
+
+            return NextResponse.json({
+              success: true,
+              assetId,
+              url: readUrl,
+              type: fileType,
+              filename,
+              size: size || 0,
+              analysisQueued: false,
+              analysisSkippedReason: 'insufficient_credits',
+            });
+          }
+
+          return analysisCreditCheck.errorResponse!;
+        }
+
+        try {
+          await analysisCreditCheck.deduct();
+        } catch (error) {
+          console.error('[Upload] asset-analysis credit deduction failed:', error);
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId, userId },
+            {
+              $set: {
+                analysisStatus: 'skipped_credit_deduction_failed',
+                analysisSkippedAt: new Date(),
+                analysisSkipReason: 'credit_deduction_failed',
+              },
+            },
+          );
+
+          return NextResponse.json({
+            success: true,
+            assetId,
+            url: readUrl,
+            type: fileType,
+            filename,
+            size: size || 0,
+            analysisQueued: false,
+            analysisSkippedReason: 'credit_deduction_failed',
+          });
+        }
+
+        const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,
             'Content-Type': 'application/json',
             'Upstash-Retries': '2',
-            // MUST carry a unit — QStash parses as a Go duration; bare '300' → HTTP 400
-            // "missing unit in duration" (same class of bug as the tribe dispatch, fixed 2026-05-30).
             'Upstash-Timeout': '300s',
           },
           body: JSON.stringify({
@@ -178,29 +239,55 @@ export async function POST(request: NextRequest) {
             filename,
           }),
         });
-        console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
 
-        // Graph sync: create Asset node in Neo4j (async, non-blocking)
-        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${qstashToken}`,
-            'Content-Type': 'application/json',
-            'Upstash-Retries': '3',
-          },
-          body: JSON.stringify({
-            action: 'asset_created',
-            data: {
-              assetId,
-              userId,
-              type: fileType,
-              duration: verifiedDuration,
+        if (!analysisRes.ok) {
+          const errBody = await analysisRes.text().catch(() => 'no body');
+          const errMsg = `Asset analysis dispatch failed: HTTP ${analysisRes.status} - ${errBody}`;
+          await refundAssetAnalysisCredits(analysisCreditCheck, 'Asset analysis dispatch failed before worker queueing');
+          analysisCreditCheck = null;
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId, userId },
+            { $set: { analysisStatus: 'dispatch_failed', analysisError: errMsg } },
+          );
+          console.warn(`[Upload] ${errMsg}`);
+        } else {
+          analysisQueued = true;
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId, userId },
+            { $set: { analysisStatus: 'queued', analysisQueuedAt: new Date() } },
+          );
+          console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
+        }
+
+        if (analysisQueued) {
+          const graphRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${qstashToken}`,
+              'Content-Type': 'application/json',
+              'Upstash-Retries': '3',
             },
-          }),
-        });
-        console.log(`[Upload] Dispatched graph-sync for ${assetId}`);
+            body: JSON.stringify({
+              action: 'asset_created',
+              data: {
+                assetId,
+                userId,
+                type: fileType,
+                duration: verifiedDuration,
+              },
+            }),
+          });
+          if (!graphRes.ok) {
+            console.warn(`[Upload] Graph sync dispatch failed for ${assetId}: HTTP ${graphRes.status}`);
+          } else {
+            console.log(`[Upload] Dispatched graph-sync for ${assetId}`);
+          }
+        }
       }
     } catch (qErr: any) {
+      if (analysisCreditCheck && !analysisQueued) {
+        await refundAssetAnalysisCredits(analysisCreditCheck, 'Asset analysis dispatch failed before worker queueing');
+      }
       // Non-fatal — asset is uploaded even if analysis/graph dispatch fails
       console.warn(`[Upload] Worker dispatch failed: ${qErr.message}`);
     }
@@ -212,6 +299,7 @@ export async function POST(request: NextRequest) {
       type: fileType,
       filename,
       size: size || 0,
+      analysisQueued,
     });
   } catch (error: any) {
     console.error('Error registering media asset:', error);
@@ -219,5 +307,25 @@ export async function POST(request: NextRequest) {
       { success: false, error: error.message || 'Failed to register media asset' },
       { status: 500 }
     );
+  }
+}
+
+type AssetAnalysisRequestType = 'video' | 'image' | 'audio';
+
+function getBillableAssetAnalysisMinutes(fileType: AssetAnalysisRequestType, durationSeconds?: number): number {
+  if (fileType !== 'video') return 1;
+  const sourceMinutes = durationSeconds && durationSeconds > 0 ? durationSeconds / 60 : 1;
+  return Math.max(1, Math.ceil(sourceMinutes * 100) / 100);
+}
+
+function getAssetAnalysisRequestType(fileType: AssetAnalysisRequestType): AssetAnalysisRequestType {
+  return fileType;
+}
+
+async function refundAssetAnalysisCredits(creditCheck: CreditCheckResult, reason: string): Promise<void> {
+  try {
+    await creditCheck.refund(reason);
+  } catch (error) {
+    console.error('[Upload] asset-analysis credit refund failed:', error);
   }
 }

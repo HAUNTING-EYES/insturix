@@ -2,6 +2,7 @@ import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import { NextResponse, NextRequest } from "next/server";
 import { getCollections } from "../utils/mongodb";
 import { CreditsService } from "@/lib/services/creditsService";
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
@@ -375,7 +376,7 @@ async function handler(request: NextRequest) {
         { _id: ObjectId.createFromHexString(taskId) },
         { $set: { status: "failed", error: { message: err.message, code: err.code || "PIPELINE_ERROR" }, refunded: true } }
       );
-      try { await CreditsService.refundCredits(userId, (task.usageMinutes || 1) * 2, `Failed: ${err.message}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
+      try { await CreditsService.refundCredits(userId, getCreditCost("alyzitron", "video_analysis", { durationMinutes: task.usageMinutes || 1 }), `Failed: ${err.message}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
       return NextResponse.json({ success: false, error: err.message }, { status: 500 });
     }
   } catch (globalErr: any) {

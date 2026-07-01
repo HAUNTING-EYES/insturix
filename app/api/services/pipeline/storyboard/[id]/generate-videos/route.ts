@@ -8,7 +8,7 @@
  * Uses the same proven QStash pattern as Clickatron (clickatron-qtask.ts).
  * No Redis dependency — QStash handles queuing and delivery natively.
  *
- * Cost: 3 credits per scene
+ * Cost: model-weighted credits per generated video second
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -140,11 +140,9 @@ export async function POST(
         });
       }
     }
-
-    // Deduct credits (3 credits per video clip) — only for ai-video scenes
-    // A1 FIX: Atomic credit deduction — single call for all scenes
-    // Montage scenes with independent sub-shots count as N clips, not 1
-    const costPerVideo = 3;
+    // Count billable AI video clips before prompt construction. Actual credit cost is
+    // calculated later after model-aware duration snapping creates `sceneJobs`.
+    // Montage scenes with independent sub-shots count as N clips, not 1.
     let totalVideoClips = 0;
     for (const scene of aiVideoScenes) {
       const desc = scene.descriptor as any;
@@ -152,37 +150,20 @@ export async function POST(
       const independentCount = subShots.filter((s: any) => s.independentGeneration).length;
       totalVideoClips += independentCount > 1 ? independentCount : 1;
     }
-    const creditCost = totalVideoClips * costPerVideo;
 
     // If ALL scenes are non-video (animated-still / stock / graphics-only), skip video gen entirely
     // but still return success so finalize can proceed with Ken Burns / graphics
     if (totalVideoClips === 0) {
-      console.log(`[generate-videos] All ${targetScenes.length} scenes are non-video assets — skipping video generation entirely`);
+      console.log(`[generate-videos] All ${targetScenes.length} scenes are non-video assets - skipping video generation entirely`);
       return NextResponse.json({
         success: true,
         batchId: `skip_${nanoid(8)}`,
         totalScenes: targetScenes.length,
         videoScenes: 0,
         skippedScenes: skippedScenes.length,
-        message: 'All scenes use animated storyboard or graphics — no AI video generation needed',
+        message: 'All scenes use animated storyboard or graphics - no AI video generation needed',
         creditCost: 0,
       });
-    }
-
-    const preCheck = await CreditsService.getBalance(userId);
-    if (!preCheck || preCheck.totalCredits < creditCost) {
-      return NextResponse.json(
-        { success: false, error: `Insufficient credits. Need ${creditCost}, have ${preCheck?.totalCredits || 0}`, creditCost },
-        { status: 402 },
-      );
-    }
-
-    const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', { quantity: totalVideoClips });
-    if (!deductResult.success) {
-      return NextResponse.json(
-        { success: false, error: 'Credit deduction failed', creditCost },
-        { status: 402 },
-      );
     }
 
     // Build reference subject lookup
@@ -386,8 +367,48 @@ export async function POST(
         });
       }
     }
+    if (sceneJobs.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No valid video jobs could be built for the selected scenes', creditCost: 0 },
+        { status: 400 },
+      );
+    }
 
-    // ─── Create batch + jobs in MongoDB, then enqueue via QStash ──────
+    const billableVideoSeconds = Math.round(
+      sceneJobs.reduce((sum, scene) => sum + Math.max(scene.durationSeconds || 0, 0), 0) * 100,
+    ) / 100;
+
+    const creditCheck = await CreditsService.hasCredits(userId, 'pipeline', 'video_generation', {
+      model: resolvedModel,
+      durationSeconds: billableVideoSeconds,
+    });
+    const creditCost = creditCheck.required;
+
+    if (!creditCheck.hasCredits) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Insufficient credits. Need ${creditCost}, have ${creditCheck.available}`,
+          creditCost,
+          billableVideoSeconds,
+          videoModel: resolvedModel,
+        },
+        { status: 402 },
+      );
+    }
+
+    const deductResult = await CreditsService.deductCredits(userId, 'pipeline', 'video_generation', {
+      model: resolvedModel,
+      durationSeconds: billableVideoSeconds,
+      quantity: 1,
+    });
+    if (!deductResult.success) {
+      return NextResponse.json(
+        { success: false, error: 'Credit deduction failed', creditCost, billableVideoSeconds, videoModel: resolvedModel },
+        { status: 402 },
+      );
+    }
+    // Create batch + jobs in MongoDB, then enqueue via QStash
     const batchId = `vb_${nanoid(12)}`;
     const db = await getDatabase();
     const now = new Date();
@@ -551,6 +572,7 @@ export async function POST(
       totalScenes: sceneJobs.length,
       skippedScenes: skippedScenes.length,
       videoModel: resolvedModel,
+      billableVideoSeconds,
       creditsDeducted: creditCost,
       enqueueErrors,
       message: `${sceneJobs.length} hero video scenes queued for generation.${skippedScenes.length > 0 ? ` ${skippedScenes.length} scenes use animated storyboard/graphics (no AI video).` : ''}`,

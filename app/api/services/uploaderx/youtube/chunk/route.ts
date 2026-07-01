@@ -5,6 +5,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 async function fetchUploaderXRange(publicUrl: string, start: number, end: number) {
   const response = await fetch(publicUrl, {
@@ -74,6 +75,13 @@ export async function POST(req: Request) {
 
     // ─── PHASE: START ───
     if (phase === "start") {
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "youtube",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
       const contentType = videoAsset.contentType || "video/mp4";
@@ -157,6 +165,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: "Missing transfer parameters" }, { status: 400 });
       }
 
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "youtube",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
       const endByte = Math.min(startOffset + chunkSize - 1, fileSize - 1);
@@ -208,6 +223,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: "Invalid YouTube publishAt date" }, { status: 400 });
       }
 
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "youtube",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       // Update DB
       await UploaderXVideo.updateOne(
         { userId: session.userId, videoUuid },
@@ -255,6 +277,8 @@ export async function POST(req: Request) {
         );
       }
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         youtubeUrl,
@@ -269,5 +293,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "YouTube upload failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:YouTube] chunk publish credit deduction failed:", error);
   }
 }

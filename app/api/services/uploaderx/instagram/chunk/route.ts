@@ -5,6 +5,7 @@ import UploaderXVideo from "@/schemas/uploaderx-video";
 import axios from "axios";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 async function fetchUploaderXRange(publicUrl: string, start: number, end: number) {
   const response = await fetch(publicUrl, {
@@ -88,6 +89,13 @@ export async function POST(req: Request) {
 
       // ─── PHASE: START ───
       if (phase === "start") {
+        const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+          requestType: "instagram",
+        });
+        if (!publishCreditCheck.allowed) {
+          return publishCreditCheck.errorResponse!;
+        }
+
         const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
         const fileSize = Number(videoAsset.size || 0);
 
@@ -151,6 +159,13 @@ export async function POST(req: Request) {
       if (phase === "transfer") {
         if (!uploadSessionId || startOffset === undefined || !chunkSize) {
           return NextResponse.json({ success: false, error: "Missing transfer parameters" }, { status: 400 });
+        }
+
+        const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+          requestType: "instagram",
+        });
+        if (!publishCreditCheck.allowed) {
+          return publishCreditCheck.errorResponse!;
         }
 
         const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
@@ -236,6 +251,13 @@ export async function POST(req: Request) {
           return NextResponse.json({ success: false, error: "Missing uploadSessionId" }, { status: 400 });
         }
 
+        const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+          requestType: "instagram",
+        });
+        if (!publishCreditCheck.allowed) {
+          return publishCreditCheck.errorResponse!;
+        }
+
         const publishUrl = `https://graph.instagram.com/v21.0/me/media_publish`;
         const publishParams = new URLSearchParams();
         publishParams.set("creation_id", uploadSessionId);
@@ -286,6 +308,8 @@ export async function POST(req: Request) {
           console.warn("[UploaderX:Instagram] video_published event failed:", eventErr)
         );
 
+        await deductPublishCredits(publishCreditCheck);
+
         return NextResponse.json({
           success: true,
           instagramUrl,
@@ -303,5 +327,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "Instagram upload failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:Instagram] chunk publish credit deduction failed:", error);
   }
 }

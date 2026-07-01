@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
 import {
   buildClickatronGenerationPrompt,
@@ -107,6 +108,10 @@ function asPromptMetadataRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function getClickatronVariationRefundAmount(modelId?: string): number {
+  return getCreditCost('clickatron', 'variation', { model: modelId });
 }
 
 async function handler(req: Request) {
@@ -738,9 +743,9 @@ async function handler(req: Request) {
       });
       console.log('Worker: Failed job in QStash');
 
-      // Refund credits (3 for Clickatron variation)
+      // Refund the same model-aware Clickatron variation cost that was charged.
       try {
-        await CreditsService.refundCredits(job.userId, 3, `Variation generation failed: ${errorMessage}`, {
+        await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(variation.modelId || job.modelId), `Variation generation failed: ${errorMessage}`, {
           service: 'clickatron',
           action: 'variation',
         });
@@ -789,9 +794,9 @@ async function handler(req: Request) {
               console.log('Worker: Updated variation status to failed in outer catch block');
             }
 
-            // Refund credits (3 for Clickatron variation)
+            // Refund the same model-aware Clickatron variation cost that was charged.
             try {
-              await CreditsService.refundCredits(job.userId, 3, 'Outer catch block failure in Clickatron worker', {
+              await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(variation?.modelId || job.modelId), 'Outer catch block failure in Clickatron worker', {
                 service: 'clickatron',
                 action: 'variation',
               });
@@ -846,7 +851,7 @@ export const POST = async (req: Request) => {
           const job = await getJob(jobId);
           if (job) {
             try {
-              await CreditsService.refundCredits(job.userId, 3, 'QStash signature verification failed in worker', {
+              await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(job.modelId), 'QStash signature verification failed in worker', {
                 service: 'clickatron',
                 action: 'variation',
               });

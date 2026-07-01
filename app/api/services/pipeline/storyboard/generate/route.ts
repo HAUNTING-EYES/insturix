@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Client } from '@upstash/qstash';
 import { nanoid } from 'nanoid';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
 import { IMAGE_MODELS, type ImageModelKey } from '@/lib/pipeline/storyboard-service';
 import { saveStoryboard } from '@/lib/pipeline/storyboard-db';
@@ -212,8 +213,18 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Atomic credit deduction ───────────────────────────────────
-    const costPerScene = 2;
-    const totalCost = scenes.length * costPerScene;
+    // Validate model resolution before billing so invalid model IDs are free.
+    const resolvedModelId =
+      modelId && modelId in IMAGE_MODELS ? IMAGE_MODELS[modelId as ImageModelKey] : modelId;
+
+    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/') && !modelId.startsWith('photon')) {
+      return NextResponse.json(
+        { success: false, error: `Unknown image model "${modelId}".` },
+        { status: 400 },
+      );
+    }
+    const costPerScene = getCreditCost('pipeline', 'storyboard_image_generation', { model: resolvedModelId });
+    const totalCost = Math.round(costPerScene * scenes.length * 100) / 100;
 
     const preCheck = await CreditsService.getBalance(userId);
     if (!preCheck || preCheck.totalCredits < totalCost) {
@@ -227,7 +238,7 @@ export async function POST(request: NextRequest) {
       userId,
       'pipeline',
       'storyboard_image_generation',
-      { quantity: scenes.length },
+      { model: resolvedModelId, quantity: scenes.length },
     );
     if (!deductResult.success) {
       return NextResponse.json(
@@ -292,17 +303,6 @@ export async function POST(request: NextRequest) {
         }
       }
       console.log(`[storyboard/generate] Reference image map built for ${Object.keys(referenceImageMap).length} scenes from ${approvedReferences.length} subjects`);
-    }
-
-    // Validate model resolution
-    const resolvedModelId =
-      modelId && modelId in IMAGE_MODELS ? IMAGE_MODELS[modelId as ImageModelKey] : modelId;
-
-    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/') && !modelId.startsWith('photon')) {
-      return NextResponse.json(
-        { success: false, error: `Unknown image model "${modelId}".` },
-        { status: 400 },
-      );
     }
 
     // ─── Create storyboard shell + dispatch workers ─────────────────

@@ -5,6 +5,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 const debugYouTubeUpload = (...args: unknown[]) => {
   if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
@@ -142,6 +143,24 @@ export async function POST(req: Request) {
       ? { privacyStatus: "private", publishAt: scheduledPublishAt.toISOString() }
       : { privacyStatus };
 
+    let thumbnailUpload: Awaited<ReturnType<typeof fetchUploaderXStream>> | null = null;
+    if (thumbnailPublicUrl) {
+      thumbnailUpload = await fetchUploaderXStream(thumbnailPublicUrl);
+      if (!["image/jpeg", "image/png"].includes(thumbnailUpload.contentType)) {
+        return NextResponse.json({ success: false, error: "YouTube thumbnail must be JPEG or PNG" }, { status: 400 });
+      }
+      if (thumbnailUpload.contentLength > 2 * 1024 * 1024) {
+        return NextResponse.json({ success: false, error: "YouTube thumbnail must be 2MB or smaller" }, { status: 400 });
+      }
+    }
+
+    const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+      requestType: "youtube",
+    });
+    if (!publishCreditCheck.allowed) {
+      return publishCreditCheck.errorResponse!;
+    }
+
     let videoId: string;
     let youtubeUrl: string;
 
@@ -211,20 +230,14 @@ export async function POST(req: Request) {
       }
     }
 
-    if (thumbnailPublicUrl) {
-      const { stream: thumbnailStream, contentType, contentLength } = await fetchUploaderXStream(thumbnailPublicUrl);
-      if (!["image/jpeg", "image/png"].includes(contentType)) {
-        return NextResponse.json({ success: false, error: "YouTube thumbnail must be JPEG or PNG" }, { status: 400 });
-      }
-      if (contentLength > 2 * 1024 * 1024) {
-        return NextResponse.json({ success: false, error: "YouTube thumbnail must be 2MB or smaller" }, { status: 400 });
-      }
-
+    if (thumbnailUpload) {
       await youtube.thumbnails.set({
         videoId,
-        media: { body: thumbnailStream },
+        media: { body: thumbnailUpload.stream },
       });
     }
+
+    await deductPublishCredits(publishCreditCheck);
 
     return NextResponse.json({ success: true, youtubeUrl });
   } catch (error: any) {
@@ -236,5 +249,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message, details: error.response?.data },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:YouTube] publish credit deduction failed:", error);
   }
 }

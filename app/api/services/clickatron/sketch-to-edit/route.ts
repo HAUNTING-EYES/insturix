@@ -118,9 +118,17 @@ export async function POST(request: Request) {
 
     console.log(`[SketchToEdit] Image validation passed. Original: ${(originalImage.length / 1024 / 1024).toFixed(2)}MB, Annotated: ${(annotatedImage.length / 1024 / 1024).toFixed(2)}MB`);
 
-    // 3. Credit Check (Sketch to Edit costs 3 credits, same as variation)
+    // 5. Select Model (auto-select if not provided)
+    let selectedModelId = model;
+    if (!selectedModelId) {
+      const availableModels = getAvailableModels('sketchToEdit', 2); // 2 images (original + annotated)
+      const suitableModel = availableModels.find((m: any) => m.isDefault) || availableModels[0];
+      selectedModelId = suitableModel?.id || 'fal-ai/nano-banana-pro/sketch-to-edit';
+    }
+
+    // 3. Credit Check after model auto-selection so omitted-model requests are charged correctly.
     creditCheck = await checkCredits(userId, 'clickatron', 'variation', {
-      model,
+      model: selectedModelId,
       requestType: 'sketch-to-edit'
     });
 
@@ -130,14 +138,6 @@ export async function POST(request: Request) {
 
     // 4. Deduct Credits BEFORE queueing
     await creditCheck.deduct();
-
-    // 5. Select Model (auto-select if not provided)
-    let selectedModelId = model;
-    if (!selectedModelId) {
-      const availableModels = getAvailableModels('sketchToEdit', 2); // 2 images (original + annotated)
-      const suitableModel = availableModels.find((m: any) => m.isDefault) || availableModels[0];
-      selectedModelId = suitableModel?.id || 'fal-ai/nano-banana-pro/sketch-to-edit';
-    }
 
     // 6. Create or update Clickatron task + variation so the worker can update it later
     await getClickatronDb();

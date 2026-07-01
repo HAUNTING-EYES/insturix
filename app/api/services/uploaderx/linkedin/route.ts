@@ -9,6 +9,7 @@ import {
   normalizeLinkedInPostTarget,
 } from "@/lib/uploaderx/linkedin-publish-state";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 
 export const maxDuration = 300;
@@ -216,6 +217,13 @@ export async function POST(req: Request) {
           note: "LinkedIn post already exists for this target. Returning existing post.",
         });
       }
+    }
+
+    const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+      requestType: "linkedin",
+    });
+    if (!publishCreditCheck.allowed) {
+      return publishCreditCheck.errorResponse!;
     }
 
     let mediaType = "NONE";
@@ -532,6 +540,8 @@ export async function POST(req: Request) {
       );
     }
 
+    await deductPublishCredits(publishCreditCheck);
+
     return NextResponse.json({
       success: true,
       postUrl,
@@ -545,6 +555,14 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("LinkedIn upload error:", error);
     return NextResponse.json({ success: false, error: "Failed to upload to LinkedIn" }, { status: 500 });
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:LinkedIn] publish credit deduction failed:", error);
   }
 }
 

@@ -15,6 +15,7 @@ import {
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
+import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
     // We use post-hoc billing based on actual token usage
     const creditsCheck = await CreditsService.hasCredits(userId, 'editron', 'ai_chat', {
       tokenCount: MINIMUM_CREDITS_REQUIRED * 1000, // Check if they have at least minimum credits
+      model: CHAT_MODEL_NAME,
     });
     if (!creditsCheck.hasCredits) {
       return NextResponse.json(
@@ -236,7 +238,7 @@ export async function POST(req: NextRequest) {
         };
 
         // Create token tracker for billing
-        const tokenTracker = new TokenTracker('gemini-2.5-flash');
+        const tokenTracker = new TokenTracker(CHAT_MODEL_NAME);
 
         console.log('[STREAM-ROUTE] Invoking agent...');
         const result = await agent.invoke(inputs, {
@@ -332,7 +334,7 @@ export async function POST(req: NextRequest) {
         if (creditsConsumed > 0) {
           const deductResult = await CreditsService.deductCredits(userId, 'editron', 'ai_chat', {
             tokenCount: tokensUsed,
-            model: 'gemini-2.5-flash',
+            model: tokenTracker.getModel(),
           });
           
           if (!deductResult.success) {

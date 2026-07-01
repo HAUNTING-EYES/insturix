@@ -10,8 +10,12 @@ import {
   shouldHydrateRenderInputFromProject,
 } from '@/lib/editron/shared/render-request-payload';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
+import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export async function POST(request: Request) {
+  let renderCreditCheck: CreditCheckResult | null = null;
+  let renderStarted = false;
+
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -75,12 +79,32 @@ export async function POST(request: Request) {
     }
 
     // Phase D W6: Auto-detect long videos and use chapter-based rendering
-    const totalFrames = resolvedProps.durationInFrames || 0;
+    const totalFrames = Math.max(Number(resolvedProps.durationInFrames) || 0, 0);
+    const renderFps = Math.max(Number(resolvedProps.fps) || 30, 1);
     const { shouldUseChapterRendering, startChapterRender } = await import('@/lib/editron/services/chapter-renderer');
+    const usesChapterRendering = shouldUseChapterRendering(totalFrames);
 
-    if (shouldUseChapterRendering(totalFrames)) {
+    renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
+      durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
+      requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
+    });
+    if (!renderCreditCheck.allowed) {
+      return renderCreditCheck.errorResponse!;
+    }
+
+    try {
+      await renderCreditCheck.deduct();
+    } catch (error) {
+      console.error('[Render] render/export credit deduction failed:', error);
+      return NextResponse.json(
+        { type: 'error', message: 'Unable to deduct credits for render/export.' },
+        { status: 402 },
+      );
+    }
+
+    if (usesChapterRendering) {
       console.log(`[Render] Long video detected (${totalFrames} frames). Using chapter-based rendering.`);
-      const fps = resolvedProps.fps || 30;
+      const fps = renderFps;
       const width = resolvedProps.width || 1920;
       const height = resolvedProps.height || 1080;
 
@@ -95,6 +119,7 @@ export async function POST(request: Request) {
         serveUrl,
         functionName,
       );
+      renderStarted = true;
 
       // Save job reference
       try {
@@ -124,6 +149,7 @@ export async function POST(request: Request) {
       timeoutInMilliseconds: 600000, // 10 minutes - AI videos need longer download time
     });
 
+    renderStarted = true;
     console.log('Lambda render started:', { renderId, bucketName });
 
     // Save job to database for persistence (wrapped in try-catch)
@@ -173,6 +199,9 @@ export async function POST(request: Request) {
       }
     });
   } catch (error: any) {
+    if (renderCreditCheck && !renderStarted) {
+      await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
+    }
     console.error('Lambda render error:', error);
     return NextResponse.json(
       { 
@@ -181,5 +210,31 @@ export async function POST(request: Request) {
       },
       { status: 500 }
     );
+  }
+}
+
+type RenderExportRequestType = 'standard' | 'chapter' | 'uhd';
+
+function getBillableRenderMinutes(totalFrames: number, fps: number): number {
+  const outputMinutes = totalFrames > 0 && fps > 0 ? totalFrames / fps / 60 : 1;
+  return Math.max(1, Math.ceil(outputMinutes * 100) / 100);
+}
+
+function getRenderExportRequestType(
+  inputProps: Record<string, any>,
+  usesChapterRendering: boolean,
+): RenderExportRequestType {
+  const width = Number(inputProps.width) || 1920;
+  const height = Number(inputProps.height) || 1080;
+  const isUhd = width >= 3840 || height >= 2160 || width * height >= 3840 * 2160;
+  if (isUhd) return 'uhd';
+  return usesChapterRendering ? 'chapter' : 'standard';
+}
+
+async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason: string): Promise<void> {
+  try {
+    await creditCheck.refund(reason);
+  } catch (error) {
+    console.error('[Render] render/export credit refund failed:', error);
   }
 }

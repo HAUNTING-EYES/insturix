@@ -4,6 +4,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 async function fetchUploaderXRange(publicUrl: string, start: number, end: number) {
   const response = await fetch(publicUrl, {
@@ -279,6 +280,12 @@ export async function POST(req: Request) {
         tweetText = `${tweetText.substring(0, 277)}...`;
       }
 
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "twitter",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
       const tweetPayload: any = {
         text: tweetText,
       };
@@ -333,6 +340,8 @@ export async function POST(req: Request) {
         console.warn("[UploaderX:Twitter] video_published event failed:", eventErr)
       );
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         tweetUrl,
@@ -350,5 +359,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "Twitter upload failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:Twitter] publish credit deduction failed:", error);
   }
 }

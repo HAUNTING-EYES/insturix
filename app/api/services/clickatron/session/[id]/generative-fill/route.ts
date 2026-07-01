@@ -27,22 +27,16 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let creditCheck: Awaited<ReturnType<typeof checkCredits>> | null = null;
+
   try {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check credits (3 credits for a variation)
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
-    if (!creditCheck.allowed) {
-      return creditCheck.errorResponse;
-    }
 
     const { id } = await params;
-
-    // Deduct credits before enqueuing
-    await creditCheck.deduct();
 
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
@@ -108,6 +102,15 @@ export async function POST(
         error: 'Something went wrong. The parent variation has no image.' 
       }, { status: 400 });
     }
+
+    creditCheck = await checkCredits(userId, 'clickatron', 'variation', {
+      model: validatedData.modelId,
+    });
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
+    }
+
+    await creditCheck.deduct();
 
     // Upload mask to R2
     const maskArrayBuffer = await maskFile.arrayBuffer();
@@ -214,6 +217,7 @@ export async function POST(
     } catch (enqueueErr) {
       console.error('Failed to enqueue job:', enqueueErr);
       await creditCheck.refund('Failed to enqueue generative fill job');
+      creditCheck = null;
       throw enqueueErr;
     }
 
@@ -227,6 +231,14 @@ export async function POST(
 
   } catch (error) {
     console.error('Error creating generative fill:', error);
+    if (creditCheck) {
+      try {
+        await creditCheck.refund(error instanceof Error ? error.message : 'Generative fill failed');
+      } catch (refundError) {
+        console.error('Failed to refund generative fill credits:', refundError);
+      }
+    }
+
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(

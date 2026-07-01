@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { CreditsService } from "./creditsService";
-import { getCreditCost } from "@/lib/config/creditCosts";
+import { CreditCostConfigurationError, getCreditCost } from "@/lib/config/creditCosts";
 
 export interface CreditCheckResult {
   allowed: boolean;
@@ -29,12 +29,34 @@ export async function checkCredits(
     requestType?: string;
     tokenCount?: number;
     durationMinutes?: number;
+    durationSeconds?: number;
     taskId?: string;
     /** Batch/fan-out multiplier (e.g. N carousel slides => N image variations). Defaults to 1. */
     quantity?: number;
   }
 ): Promise<CreditCheckResult> {
-  const cost = getCreditCost(service, action, options);
+  let cost: number;
+  try {
+    cost = getCreditCost(service, action, options);
+  } catch (error) {
+    if (error instanceof CreditCostConfigurationError) {
+      return {
+        allowed: false,
+        errorResponse: NextResponse.json(
+          {
+            error: error.message,
+            service: error.service,
+            action: error.action,
+            code: "CREDIT_COST_NOT_CONFIGURED",
+          },
+          { status: 500 }
+        ),
+        deduct: async () => { throw error; },
+        refund: async () => {},
+      };
+    }
+    throw error;
+  }
   
   // If cost is 0, allow without deduction
   if (cost === 0) {
@@ -110,6 +132,7 @@ export async function withCredits<T>(
     requestType?: string;
     tokenCount?: number;
     durationMinutes?: number;
+    durationSeconds?: number;
     taskId?: string;
   },
   executor: () => Promise<T>
