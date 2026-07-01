@@ -28,8 +28,27 @@ export const ScriptWriterResultSchema = z.object({
 
 export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
 
+/**
+ * Edit framing for the revise-existing-content path (P5).
+ * When present, the writer REVISES `existingContent` per `instruction` and returns the COMPLETE
+ * revised script in the same ScriptWriterResult shape, instead of writing from scratch. Opt-in:
+ * absent editContext = unchanged from-scratch behavior.
+ */
+export interface ScriptWriterEditContext {
+  /** The full current script (markdown) the user is editing. */
+  existingContent: string;
+  /** The edit the user asked for. */
+  instruction: string;
+  /** Optional focused selection the change targets. */
+  selection?: string;
+  /** Optional short hint about what to focus on. */
+  focusHint?: string;
+}
+
 export interface ScriptWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
+  /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
+  editContext?: ScriptWriterEditContext;
 }
 
 const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
@@ -90,17 +109,33 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
   }
 
   buildPrompt(input: ScriptWriterInput): string {
-    const { context, userPrompt, retrievedContext } = input;
+    const { context, userPrompt, retrievedContext, editContext } = input;
 
-    // We default to generic video scripts if no explicit platform is passed via prompt.
-    // Platform detection could be added here similar to PostWriter if needed.
-    //
     // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
     // (graph ON vs OFF) showed it regresses the script writer — min 92% -> 75% and variance
     // 8pp -> 25pp — because the technique block's negation-primed filler list and extra guidance
     // fight the script's rigid scene structure. It stays on PostWriter (free-form, no regression).
 
-    let prompt = `You are an elite Video Scriptwriter and Creative Director.
+    // P5 edit mode: revise an existing script instead of writing from scratch. Brand DNA, facts,
+    // and generation requirements below apply to BOTH modes; only the opening frame differs.
+    let prompt = editContext
+      ? `You are an elite Video Scriptwriter and Creative Director.
+You are REVISING an existing video script. Apply the requested change and return the COMPLETE revised script.
+
+## Current Script (revise this — do not start over)
+${editContext.existingContent || '(the current script is empty)'}
+${editContext.selection ? `\n## Focused Selection (the change targets this text)\n"${editContext.selection}"\n` : ''}${editContext.focusHint ? `**Focus:** ${editContext.focusHint}\n` : ''}
+## Requested Change
+${editContext.instruction}
+
+## Edit Rules (mandatory)
+1. Return the ENTIRE revised script in the \`content\` field — not a diff, not only the changed part. Every scene the user keeps must reappear unless the change requires altering it.
+2. Preserve the existing scene order, headings, and structure except where the change demands otherwise.
+3. Preserve all supplied facts verbatim: dates, times, locations, brand/event/product names, offers, prices, statistics, CTA links, and required logo/text mentions — in both kept and revised scenes.
+4. Keep the scene format: every scene begins with \`## Scene N: ...\` and includes **Narration:** and **Visual:** labels.
+
+`
+      : `You are an elite Video Scriptwriter and Creative Director.
 Your task is to write a high-retention, engaging video script.
 
 ## Context
