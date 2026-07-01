@@ -250,7 +250,7 @@ export default function NewProjectFlow() {
   }, [busy, saasProduct, saasOutcome, saasDuration, saasAspect, brandId, router]);
 
   // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
-  const goProjects = useCallback(() => router.push('/dashboard/editron/upload'), [router]);
+  const goProjects = useCallback(() => router.push('/dashboard/editron/projects'), [router]);
   const onFootageFile = useCallback((file?: File | null) => {
     if (!file || footage.running) return;
     setError(null);
