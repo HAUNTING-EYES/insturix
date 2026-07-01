@@ -171,36 +171,65 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
             console.log('Payment successful, verifying:', response);
             
             try {
-              const verifyUrl = isPlan ? '/api/user/plans/verify' : '/api/user/credits/verify';
-              
+              // Subscriptions: pending-only verify — the Razorpay webhook is the sole
+              // activation owner. Top-ups: direct credit grant (idempotent by paymentId).
+              const verifyUrl = isPlan ? '/api/verify-subscription' : '/api/user/credits/verify';
+
+              const verifyBody = isPlan
+                ? {
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_subscription_id: response.razorpay_subscription_id,
+                    razorpay_signature: response.razorpay_signature,
+                    planType: selectedPackage,
+                    billingCycle: billingCycleProp || 'monthly',
+                    currency: 'USD',
+                  }
+                : {
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                    packageId: selectedPackage,
+                  };
+
               // Call verify endpoint
               const verifyRes = await fetch(verifyUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
-                  razorpay_subscription_id: response.razorpay_subscription_id,
-                  packageId: selectedPackage,
-                }),
+                body: JSON.stringify(verifyBody),
               });
-              
+
               const verifyData = await verifyRes.json();
-              
-              if (verifyRes.ok && verifyData.success) {
+
+              if (isPlan) {
+                // Subscription activates asynchronously via webhook; verify is pending-only.
+                if (verifyRes.ok && (verifyData.isOk || verifyData.success)) {
+                  toast({
+                    title: "Payment Successful! 🎉",
+                    description: "Your plan is being activated and will be ready in 1-2 minutes.",
+                  });
+                } else {
+                  console.warn('Subscription verify failed:', verifyData);
+                  toast({
+                    title: "Payment Received",
+                    description: "Your payment was successful. Your plan will be activated shortly.",
+                  });
+                }
+                invalidateCredits();
+                onSuccess?.();
+                onClose();
+              } else if (verifyRes.ok && verifyData.success) {
                 // Credits added successfully
                 toast({
                   title: "Payment Successful! 🎉",
                   description: `${verifyData.creditsAdded || selectedPkg?.credits || data.package.credits} credits have been added to your account.`,
                 });
-                
+
                 // Invalidate credits query to refresh balance
                 invalidateCredits();
-                
+
                 // Call success callback
                 onSuccess?.();
-                
+
                 // Close modal
                 onClose();
               } else {

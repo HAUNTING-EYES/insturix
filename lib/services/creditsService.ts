@@ -20,6 +20,8 @@ export interface CreditsPurchaseResult {
   success: boolean;
   balance?: ICreditsBalance;
   error?: string;
+  /** True when the grant was skipped because this Razorpay event was already processed (idempotent no-op). */
+  duplicate?: boolean;
 }
 
 export interface CreditsDeductResult {
@@ -387,6 +389,8 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
+    const paymentId = options?.paymentId;
+
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
       type: 'topup',
@@ -394,7 +398,7 @@ export class CreditsService {
       timestamp: new Date(),
       balanceAfter: 0, // Calculated after update
       metadata: {
-        paymentId: options?.paymentId,
+        paymentId,
         packageId: options?.packageId,
       },
     };
@@ -409,9 +413,22 @@ export class CreditsService {
       }}},
     );
 
-    // Atomic increment
+    // Idempotency: the same Razorpay payment can arrive via BOTH the client verify
+    // route and the payment.captured webhook (and webhooks can be redelivered).
+    // The filter only matches when NO existing top-up transaction already carries this
+    // paymentId, so concurrent/duplicate calls increment credits exactly once (atomic —
+    // no read-then-write race).
+    const dedupeFilter = paymentId
+      ? {
+          clerkUserId,
+          'creditsBalance.creditHistory': {
+            $not: { $elemMatch: { type: 'topup', 'metadata.paymentId': paymentId } },
+          },
+        }
+      : { clerkUserId };
+
     const updated = await User.findOneAndUpdate(
-      { clerkUserId },
+      dedupeFilter,
       {
         $inc: { 'creditsBalance.topupCredits': amount },
         $push: {
@@ -425,6 +442,19 @@ export class CreditsService {
     );
 
     if (!updated) {
+      // Distinguish "already granted" (idempotent no-op) from "user not found".
+      if (paymentId) {
+        const existing = await User.findOne({
+          clerkUserId,
+          'creditsBalance.creditHistory': {
+            $elemMatch: { type: 'topup', 'metadata.paymentId': paymentId },
+          },
+        }).select('creditsBalance');
+        if (existing) {
+          console.log(`[CreditsService] Duplicate top-up for payment ${paymentId} ignored (already granted).`);
+          return { success: true, duplicate: true, balance: existing.creditsBalance };
+        }
+      }
       return { success: false, error: `User not found: ${clerkUserId}` };
     }
 
@@ -445,10 +475,19 @@ export class CreditsService {
   static async grantSubscriptionCredits(
     clerkUserId: string,
     planType: string,
-    billingCycle: 'monthly' | 'yearly' = 'monthly'
+    billingCycle: 'monthly' | 'yearly' = 'monthly',
+    options?: {
+      /**
+       * Stable key for the Razorpay billing event (e.g.
+       * `razorpay:subscription_charged:<subId>:<invoiceId>`). When provided, the same
+       * event can be replayed/redelivered without resetting or re-granting credits.
+       */
+      idempotencyKey?: string;
+    }
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
+    const idempotencyKey = options?.idempotencyKey;
     const allocation = getPlanCreditAllocation(planType);
     const now = new Date();
 
@@ -499,13 +538,26 @@ export class CreditsService {
         planType,
         billingCycle,
         expiry: expiry.toISOString(),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       },
     });
+
+    // Idempotency: Razorpay redelivers subscription.activated / subscription.charged.
+    // The filter only matches when NO existing grant carries this event key, so a
+    // replayed billing event cannot reset+re-grant credits (atomic, no read-then-write race).
+    const dedupeFilter = idempotencyKey
+      ? {
+          clerkUserId,
+          'creditsBalance.creditHistory': {
+            $not: { $elemMatch: { type: 'subscription_grant', 'metadata.idempotencyKey': idempotencyKey } },
+          },
+        }
+      : { clerkUserId };
 
     // Atomic: SET subscription credits (not increment — this is a reset+grant)
     // But topupCredits is untouched (no risk of clobbering)
     const updated = await User.findOneAndUpdate(
-      { clerkUserId },
+      dedupeFilter,
       {
         $set: {
           'creditsBalance.subscriptionCredits': allocation,
@@ -523,6 +575,19 @@ export class CreditsService {
     );
 
     if (!updated) {
+      // Distinguish an already-processed billing event (idempotent no-op) from user-not-found.
+      if (idempotencyKey) {
+        const existing = await User.findOne({
+          clerkUserId,
+          'creditsBalance.creditHistory': {
+            $elemMatch: { type: 'subscription_grant', 'metadata.idempotencyKey': idempotencyKey },
+          },
+        }).select('creditsBalance');
+        if (existing) {
+          console.log(`[CreditsService] Duplicate subscription grant for event ${idempotencyKey} ignored (already granted).`);
+          return { success: true, duplicate: true, balance: existing.creditsBalance };
+        }
+      }
       return { success: false, error: `User not found: ${clerkUserId}` };
     }
 

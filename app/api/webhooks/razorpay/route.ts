@@ -166,8 +166,10 @@ export async function POST(request: NextRequest) {
           break;
         }
 
-        // Idempotency: check if this subscription was already activated by the verify route
-        // The verify route pushes to planHistory with the subscription ID and grants credits
+        // Idempotency guard for webhook REDELIVERY: if a prior subscription.activated
+        // already moved this subscription to an active planHistory entry, skip re-activation.
+        // (The client verify route is now pending-only and never sets 'active' — the webhook
+        // is the sole activation owner. Credit grants are additionally guarded by idempotencyKey.)
         const alreadyActivated = user.planHistory?.some(
           (plan: any) =>
             (plan.subscriptionId === subscription.id ||
@@ -251,11 +253,12 @@ export async function POST(request: NextRequest) {
           console.error(`Error processing subscription activation: ${subscription.id}`, error);
         }
 
-        // Grant subscription credits
+        // Grant subscription credits (idempotent: Razorpay redelivers subscription.activated).
         try {
           const plan = await getRazorpay().plans.fetch(subscription.plan_id);
           const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
-          await CreditsService.grantSubscriptionCredits(user.clerkUserId, userType, planPeriod);
+          const grantKey = `razorpay:subscription_activated:${subscription.id}:${subscription.latest_invoice || subscription.current_start}`;
+          await CreditsService.grantSubscriptionCredits(user.clerkUserId, userType, planPeriod, { idempotencyKey: grantKey });
           console.log(`Granted subscription credits to user ${user.clerkUserId} for ${userType} plan`);
         } catch (creditError) {
           console.error(`Error granting subscription credits: ${subscription.id}`, creditError);
@@ -342,11 +345,12 @@ export async function POST(request: NextRequest) {
             latestInvoice: subscription.latest_invoice,
           });
           
-          // Grant new subscription credits on renewal
+          // Grant new subscription credits on renewal (idempotent: Razorpay redelivers subscription.charged).
           try {
             const plan = await getRazorpay().plans.fetch(subscription.plan_id);
             const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
-            await CreditsService.grantSubscriptionCredits(user.clerkUserId, user.currentPlan.name, planPeriod);
+            const grantKey = `razorpay:subscription_charged:${subscription.id}:${subscription.latest_invoice || subscription.current_start}`;
+            await CreditsService.grantSubscriptionCredits(user.clerkUserId, user.currentPlan.name, planPeriod, { idempotencyKey: grantKey });
             console.log(`Granted renewal credits to user ${user.clerkUserId}`);
           } catch (creditError) {
             console.error(`Error granting renewal credits for subscription ${subscription.id}:`, creditError);
