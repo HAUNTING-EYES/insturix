@@ -82,6 +82,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Server-side object-size enforcement (presigned uploads carry no size cap) ──
+    // The signed URL from /upload/url can PUT any size straight to storage, so the real 3GB cap
+    // is enforced HERE against the ACTUAL object — not the client-declared `size`.
+    let actualSize: number | null = null;
+    try {
+      if (gcsPath) {
+        const { getGcsObjectSize } = await import('@/lib/editron/services/gcs-service');
+        actualSize = await getGcsObjectSize(gcsPath);
+      } else {
+        const { getR2ObjectSize } = await import('@/lib/editron/services/r2-service');
+        actualSize = await getR2ObjectSize(assetId);
+      }
+    } catch (sizeErr: unknown) {
+      // Fail open: a transient storage error must not block a legitimate upload.
+      console.warn('[Upload] object-size check failed (non-fatal):', sizeErr instanceof Error ? sizeErr.message : sizeErr);
+    }
+    const { exceedsPresignedUploadCap, MAX_PRESIGNED_UPLOAD_BYTES } = await import('@/lib/editron/services/upload-size-guard');
+    if (exceedsPresignedUploadCap(actualSize)) {
+      // Delete the oversized object so the bypass can't consume storage/quota.
+      try {
+        if (gcsPath) {
+          const { deleteFromGCS } = await import('@/lib/editron/services/gcs-service');
+          await deleteFromGCS(gcsPath);
+        } else {
+          const { deleteFromR2 } = await import('@/lib/editron/services/r2-service');
+          await deleteFromR2(assetId);
+        }
+      } catch (delErr: unknown) {
+        console.error('[Upload] failed to delete oversized object:', delErr instanceof Error ? delErr.message : delErr);
+      }
+      const maxGb = Math.round(MAX_PRESIGNED_UPLOAD_BYTES / (1024 * 1024 * 1024));
+      return NextResponse.json(
+        { success: false, error: `File exceeds the ${maxGb}GB upload limit.`, code: 'file_too_large' },
+        { status: 413 }
+      );
+    }
+
     // Determine file type
     let fileType: 'video' | 'audio' | 'image';
     if (type) {
@@ -142,7 +179,7 @@ export async function POST(request: NextRequest) {
       gcsPath,
       cachedUrl: readUrl,
       urlExpiresAt: new Date(readUrlExpiresAt),
-      size: size || 0,
+      size: actualSize ?? size ?? 0,
       thumbnail: thumbnail || undefined,
       duration: verifiedDuration,
       dimensions: parsedDimensions,

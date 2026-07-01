@@ -179,6 +179,25 @@ export async function r2FileExists(r2Key: string): Promise<boolean> {
   } catch (err: unknown) { console.warn('[R2] r2FileExists check failed:', err instanceof Error ? err.message : err); return false; }
 }
 
+/**
+ * Get the actual byte size of an R2 object via an authoritative HeadObject (direct to storage,
+ * NOT the CDN Worker proxy which the register route notes is unreliable for HEAD).
+ * Returns null if the object is missing or the size can't be read — callers fail open on null.
+ */
+export async function getR2ObjectSize(r2Key: string): Promise<number | null> {
+  try {
+    const client = getS3Client();
+    const res = await client.send(new HeadObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: r2Key,
+    }));
+    return typeof res.ContentLength === 'number' ? res.ContentLength : null;
+  } catch (err: unknown) {
+    console.warn('[R2] getR2ObjectSize failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ─── URL Helpers ──────────────────────────────────────────────────
 
 /**
