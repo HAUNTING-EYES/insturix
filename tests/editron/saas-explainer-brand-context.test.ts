@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveSaasExplainerBrandContext } from "@/lib/editron/saas-explainer/brand-context";
+import { buildSaasGeneratedSceneOverlays } from "@/lib/editron/saas-explainer/generated-scene";
 import {
   acceptBrandVaultSignalProfileDraft,
   createBrandVaultWebsiteDraftJob,
@@ -152,6 +153,31 @@ describe("SaaS explainer Brand Vault context", () => {
     expect(context.metadata.visualIdentityCounts?.logos).toBeGreaterThan(0);
     expect(context.metadata.visualIdentityCounts?.images).toBeGreaterThan(0);
     expect(context.metadata.diagnosticSummary?.signalCount).toBeGreaterThan(0);
+    expect(context.metadata.defaultContract).toMatchObject({
+      productName: "Signal House",
+      productServices: expect.any(Number),
+      audience: expect.any(Number),
+      outcomeHintProvided: true,
+      logoAssetCount: expect.any(Number),
+      productImageCount: expect.any(Number),
+    });
+    expect(context.metadata.defaultContract?.productServices).toBeGreaterThan(0);
+    expect(context.metadata.defaultContract?.logoAssetCount).toBeGreaterThan(0);
+    expect(context.metadata.defaultContract?.productImageCount).toBeGreaterThan(0);
+
+    expect(context.defaults.brief.productName).toBe("Signal House");
+    expect(context.defaults.brief.productServices.length).toBeGreaterThan(0);
+    expect(Array.isArray(context.defaults.brief.audience)).toBe(true);
+    expect(context.defaults.brief.outcomeHint).toContain("product-led SaaS explainer");
+    expect(context.defaults.visual.colors).toEqual(expect.arrayContaining(["#0b1b2b", "#2ee6a6"]));
+    expect(context.defaults.visual.fonts.join(" ")).toContain("Inter");
+    expect(context.defaults.visual.logoAssets[0]).toMatchObject({
+      kind: "logo",
+      stored: expect.any(Boolean),
+    });
+    expect(context.defaults.visual.productImages.length).toBeGreaterThan(0);
+    expect(Array.isArray(context.defaults.visual.signalPaths)).toBe(true);
+    expect(Array.isArray(context.defaults.motion.signalPaths)).toBe(true);
 
     expect(context.brandInputs.primaryColor).toBe("#0b1b2b");
     expect(context.brandInputs.accentColor).toBe("#2ee6a6");
@@ -161,6 +187,9 @@ describe("SaaS explainer Brand Vault context", () => {
       "brand_product_images",
       "brand_logo",
     ]));
+    expect(context.promptBlock).toContain("<brand_default_brief>");
+    expect(context.promptBlock).toContain("Default product name: Signal House");
+    expect(context.promptBlock).toContain("<brand_visual_defaults>");
     expect(context.promptBlock).toContain("<brand_visual_identity>");
     expect(context.promptBlock).toContain("Logo assets:");
     expect(context.promptBlock).toContain("Product/social/preview images:");
@@ -169,5 +198,54 @@ describe("SaaS explainer Brand Vault context", () => {
     expect(context.promptBlock).toContain("uploaded_guideline");
     expect(context.promptBlock).toContain("<brand_signal_diagnostics>");
     expect(context.promptBlock).toContain("Do not use stock-photo language");
+
+    const overlays = buildSaasGeneratedSceneOverlays({
+      scenes: [{
+        sceneIndex: 0,
+        title: "Hook",
+        narration: "Launch trusted video systems in days.",
+        visualDescription: "Show the product dashboard and proof panel.",
+        videoMotionPrompt: "Slow push across the dashboard.",
+        audioDescription: "",
+        musicDescription: "",
+        sfxDescription: "",
+        durationSeconds: 6,
+        mood: "energetic",
+        imageQualityTokens: "clean SaaS dashboard",
+        videoQualityTokens: "subtle product demo motion",
+        generationUnitId: "unit_1",
+        primaryVisualForUnit: true,
+        sceneType: "continuous",
+        assetRecommendation: "ai-video",
+      }],
+      dimensions: { width: 1920, height: 1080, fps: 30 },
+      input: { durationSec: 45, aspectRatio: "16:9", brandId: "brand_signal" },
+      brandContext: context,
+    });
+    const generatedScene = overlays.find((overlay) => overlay.type === "generated-scene");
+    expect(generatedScene).toBeTruthy();
+    expect(generatedScene.sceneModel.productName).toBe("Signal House");
+    expect(generatedScene.sceneModel.brandContext).toMatchObject({
+      defaultProductName: "Signal House",
+      visual: expect.objectContaining({
+        logoAssetCount: expect.any(Number),
+        productImageCount: expect.any(Number),
+      }),
+      motion: expect.objectContaining({ signalPaths: expect.any(Array) }),
+    });
+    expect(generatedScene.sceneModel.brandContext.productServices.length).toBeGreaterThan(0);
+    expect(Array.isArray(generatedScene.sceneModel.brandContext.audience)).toBe(true);
+    expect(generatedScene.sceneModel.qualityGates).toMatchObject({
+      productSpecificVisualProof: true,
+      finalVisualProof: false,
+    });
+    expect(generatedScene.sourceMap.brand).toMatchObject({
+      defaultProductName: "Signal House",
+      visualAssetCounts: expect.objectContaining({
+        logos: expect.any(Number),
+        productImages: expect.any(Number),
+      }),
+      motionSignalPaths: expect.any(Array),
+    });
   });
 });

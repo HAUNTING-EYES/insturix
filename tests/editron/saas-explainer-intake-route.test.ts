@@ -224,9 +224,54 @@ const completeGeneratedSceneOverlays = [
 ];
 
 const acceptedBrandContext = {
+  defaults: {
+    brief: {
+      productName: "Insturix",
+      productServices: ["AI content production platform"],
+      audience: ["creator houses", "agencies"],
+      valueDrivers: ["faster launch cycles"],
+      painPoints: ["fragmented production workflows"],
+      jobsToBeDone: ["script, edit, analyze, design, distribute, and share launch content"],
+      proofStyle: "demo",
+      outcomeHint: "Create a product-led SaaS explainer for AI content production platform for creator houses by addressing fragmented production workflows. Use demo proof where evidence exists.",
+    },
+    visual: {
+      colors: ["#0B0B0A", "#D4A652"],
+      fonts: ["Plus Jakarta Sans"],
+      logoAssets: [{ kind: "logo", label: "Primary logo", url: "https://cdn.example.com/insturix-logo.svg", stored: true, signalPath: "assets.logoCandidates" }],
+      productImages: [{ kind: "product", label: "Dashboard", url: "https://cdn.example.com/insturix-dashboard.png", stored: true, signalPath: "assets.productImages" }],
+      densityTolerance: 0.72,
+      dataVizAffinity: 0.7,
+      signalPaths: ["visual.densityTolerance", "visual.dataVizAffinity"],
+    },
+    motion: {
+      motionEnergy: 0.58,
+      transitionSharpness: 0.66,
+      pacePreference: 0.58,
+      signalPaths: ["motion.motionEnergy", "motion.transitionSharpness", "narrative.pacePreference"],
+    },
+  },
   promptBlock: [
     "<saas_explainer_brand_vault_context>",
     "Source: accepted Brand Vault profile.",
+    "<brand_default_brief>",
+    "Default product name: Insturix",
+    "Products/services: AI content production platform",
+    "Audience: creator houses, agencies",
+    "Audience pain points: fragmented production workflows",
+    "Default outcome: Create a product-led SaaS explainer for AI content production platform for creator houses by addressing fragmented production workflows. Use demo proof where evidence exists.",
+    "</brand_default_brief>",
+    "<brand_visual_defaults>",
+    "Resolved colors: #0B0B0A, #D4A652",
+    "Resolved fonts: Plus Jakarta Sans",
+    "Logo defaults: Primary logo (https://cdn.example.com/insturix-logo.svg)",
+    "Product image defaults: Dashboard (https://cdn.example.com/insturix-dashboard.png)",
+    "Visual signal paths: visual.densityTolerance, visual.dataVizAffinity",
+    "</brand_visual_defaults>",
+    "<brand_motion_defaults>",
+    "Motion values: motionEnergy=0.58, transitionSharpness=0.66, pacePreference=0.58",
+    "Motion signal paths: motion.motionEnergy, motion.transitionSharpness, narrative.pacePreference",
+    "</brand_motion_defaults>",
     "<brand_context>",
     "Brand: Insturix",
     "Products/services: AI content production platform",
@@ -271,6 +316,22 @@ const acceptedBrandContext = {
     promptContextProvided: true,
     brandInputKeys: ["accentColor", "pacePreference", "primaryColor", "typography"],
     missingInputs: [],
+    defaultContract: {
+      productName: "Insturix",
+      productServices: 1,
+      audience: 2,
+      valueDrivers: 1,
+      painPoints: 1,
+      jobsToBeDone: 1,
+      proofStyle: "demo",
+      outcomeHintProvided: true,
+      colorCount: 2,
+      fontCount: 1,
+      logoAssetCount: 1,
+      productImageCount: 1,
+      visualSignalPaths: ["visual.densityTolerance", "visual.dataVizAffinity"],
+      motionSignalPaths: ["motion.motionEnergy", "motion.transitionSharpness", "narrative.pacePreference"],
+    },
   },
 };
 
@@ -378,6 +439,58 @@ describe("SaaS explainer routes", () => {
     expect(payload.code).toBe("invalid_product_url");
   });
 
+  it("uses Brand Vault default brief when no manual brief is provided", async () => {
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      brandId: "brand_1",
+      durationSec: 45,
+      aspectRatio: "16:9",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.brandContext).toMatchObject({
+      source: "brand_vault",
+      defaultContract: expect.objectContaining({
+        productName: "Insturix",
+        audience: 2,
+        productServices: 1,
+        logoAssetCount: 1,
+        productImageCount: 1,
+      }),
+    });
+    expect(mocks.createProject).toHaveBeenCalledWith("user_1", "Insturix SaaS Explainer", expect.objectContaining({
+      brandId: "brand_1",
+    }));
+    const scriptInput = mocks.generateScript.mock.calls[0][0];
+    expect(scriptInput.project.purpose).toContain("AI content production platform");
+    expect(scriptInput.project.originalPrompt).toContain("fragmented production workflows");
+    expect(scriptInput.context.projectSummary).toContain("Default product name: Insturix");
+    expect(scriptInput.context.projectSummary).toContain("Product: Insturix");
+    expect(mocks.buildSaasGeneratedSceneOverlays).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        productName: "Insturix",
+        audience: "creator houses, agencies",
+        outcome: expect.stringContaining("AI content production platform"),
+      }),
+      brandContext: expect.objectContaining({
+        defaults: expect.objectContaining({
+          visual: expect.objectContaining({ logoAssets: expect.any(Array), productImages: expect.any(Array) }),
+          motion: expect.objectContaining({ signalPaths: expect.arrayContaining(["motion.motionEnergy"]) }),
+        }),
+      }),
+    }));
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { userId: "user_1", projectId: "project_1" },
+      { $set: expect.objectContaining({
+        saasExplainer: expect.objectContaining({
+          productName: "Insturix",
+          audience: "creator houses, agencies",
+          brandDefaultsApplied: { productName: true, audience: true, outcome: true },
+        }),
+      }) },
+    );
+  });
   it("creates a visible generated-scene draft but waits for real voiceover before completion", async () => {
     const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
     const response = await POST(request("/api/services/editron/saas-explainer/generate", {
@@ -606,6 +719,11 @@ describe("SaaS explainer routes", () => {
     mocks.resolveSaasExplainerBrandContext.mockResolvedValueOnce({
       promptBlock: "",
       brandInputs: {},
+      defaults: {
+        brief: { productServices: [], audience: [], valueDrivers: [], painPoints: [], jobsToBeDone: [] },
+        visual: { colors: [], fonts: [], logoAssets: [], productImages: [], signalPaths: [] },
+        motion: { signalPaths: [] },
+      },
       missingInputs: ["accepted_brand_vault_profile"],
       metadata: {
         source: "none",

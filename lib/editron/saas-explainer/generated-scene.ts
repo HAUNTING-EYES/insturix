@@ -50,6 +50,23 @@ export interface SaasGeneratedSceneModel {
     uiTreatment: string;
     motion: string;
   };
+  brandContext: {
+    source: SaasExplainerBrandContext["metadata"]["source"];
+    acceptedProfile: boolean;
+    defaultProductName?: string;
+    productServices: string[];
+    audience: string[];
+    proofStyle?: string;
+    visual: {
+      colorCount: number;
+      fontCount: number;
+      logoAssetCount: number;
+      productImageCount: number;
+      signalPaths: string[];
+    };
+    motion: { signalPaths: string[] };
+    missingInputs: string[];
+  };
   voiceover: {
     script: string;
     status: "pending_tts" | "ready";
@@ -70,6 +87,9 @@ export interface SaasGeneratedSceneModel {
     promptLeakChecked: true;
     brandTokensApplied: boolean;
     readableUiProof: true;
+    productSpecificVisualProof: boolean;
+    motionChoreographyPlanned: boolean;
+    finalVisualProof: false;
   };
 }
 
@@ -77,7 +97,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
   let overlayId = 1;
   let currentFrame = 0;
   const overlays: any[] = [];
-  const brand = resolveBrandTokens(input.brandContext.brandInputs, input.input.productName);
+  const brand = resolveBrandTokens(input.brandContext, input.input.productName);
   const style = resolveStyle(input.referenceStyleBrief);
 
   for (const scene of input.scenes) {
@@ -92,6 +112,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
       productName: brand.name,
       brand,
       style,
+      brandContext: buildSceneBrandContext(input.brandContext),
       voiceover: voiceoverScript
         ? {
             script: voiceoverScript,
@@ -104,7 +125,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
               : {}),
           }
         : null,
-      elements: buildSceneElements(scene, input.input, brand),
+      elements: buildSceneElements(scene, input.input, brand, input.brandContext),
       captionTracks: voiceoverScript
         ? [{
             id: `${sceneId}_caption_0`,
@@ -117,6 +138,9 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
         promptLeakChecked: true,
         brandTokensApplied: input.brandContext.metadata.acceptedProfile,
         readableUiProof: true,
+        productSpecificVisualProof: hasProductSpecificVisualProof(input.brandContext),
+        motionChoreographyPlanned: hasMotionChoreographyPlan(input.brandContext, input.referenceStyleBrief),
+        finalVisualProof: false,
       },
     };
 
@@ -212,6 +236,7 @@ function buildSceneElements(
   scene: SceneDescriptor,
   input: NormalizedSaasExplainerIntake,
   brand: SaasGeneratedSceneModel["brand"],
+  brandContext: SaasExplainerBrandContext,
 ): SaasGeneratedSceneElement[] {
   const title = cleanVisibleText(scene.title || input.outcome || "Launch workflow", 72);
   const visual = cleanVisibleText(scene.visualDescription || input.outcome || "Product workflow", 96);
@@ -224,7 +249,7 @@ function buildSceneElements(
       id: "product_shell",
       role: "app-shell",
       label: `${product} workspace`,
-      items: deriveFlowItems(scene, input),
+      items: deriveFlowItems(scene, input, brandContext),
       emphasis: "primary",
     },
     { id: "proof_panel", role: "panel", label: "Proof moment", text: visual, emphasis: "muted" },
@@ -234,9 +259,10 @@ function buildSceneElements(
 }
 
 function resolveBrandTokens(
-  brandInputs: Partial<BrandInputs>,
+  brandContext: SaasExplainerBrandContext,
   fallbackProductName?: string,
 ): SaasGeneratedSceneModel["brand"] {
+  const brandInputs: Partial<BrandInputs> = brandContext.brandInputs;
   const palette = Array.isArray(brandInputs.palette) ? brandInputs.palette.filter(isHexColor) : [];
   const primaryColor = firstHex(brandInputs.primaryColor, palette[0]) ?? "#0B0B0A";
   const accentColor = firstHex(brandInputs.accentColor, palette.find((color) => color.toLowerCase() !== primaryColor.toLowerCase())) ?? "#D4A652";
@@ -247,7 +273,7 @@ function resolveBrandTokens(
   const fontFamily = brandInputs.headingFont || brandInputs.bodyFont || brandInputs.typography || "Plus Jakarta Sans, Inter, sans-serif";
 
   return {
-    name: cleanVisibleText(fallbackProductName || "SaaS product", 44),
+    name: cleanVisibleText(fallbackProductName || brandContext.defaults.brief.productName || "SaaS product", 44),
     primaryColor,
     accentColor,
     backgroundColor,
@@ -267,9 +293,17 @@ function resolveStyle(styleBrief?: SaasExplainerReferenceStyleBrief): SaasGenera
   };
 }
 
-function deriveFlowItems(scene: SceneDescriptor, input: NormalizedSaasExplainerIntake): string[] {
+function deriveFlowItems(
+  scene: SceneDescriptor,
+  input: NormalizedSaasExplainerIntake,
+  brandContext: SaasExplainerBrandContext,
+): string[] {
+  const brief = brandContext.defaults.brief;
   const seeds = [
-    input.audience ? `Audience: ${input.audience}` : undefined,
+    brief.productServices[0],
+    input.audience || brief.audience[0] ? `Audience: ${input.audience || brief.audience[0]}` : undefined,
+    brief.jobsToBeDone[0],
+    brief.proofStyle && brief.proofStyle !== "unknown" ? `${brief.proofStyle} proof` : undefined,
     scene.mood ? `${scene.mood} beat` : undefined,
     scene.assetRecommendation ? String(scene.assetRecommendation) : undefined,
     scene.videoMotionPrompt ? "UI state change" : undefined,
@@ -296,7 +330,18 @@ function buildSourceMap(scene: SceneDescriptor, brandContext: SaasExplainerBrand
       source: brandContext.metadata.source,
       acceptedProfile: brandContext.metadata.acceptedProfile,
       keys: brandContext.metadata.brandInputKeys,
+      defaultProductName: brandContext.defaults.brief.productName,
+      productServices: brandContext.defaults.brief.productServices,
+      audience: brandContext.defaults.brief.audience,
+      proofStyle: brandContext.defaults.brief.proofStyle,
+      visualAssetCounts: {
+        logos: brandContext.defaults.visual.logoAssets.length,
+        productImages: brandContext.defaults.visual.productImages.length,
+      },
+      visualSignalPaths: brandContext.defaults.visual.signalPaths,
+      motionSignalPaths: brandContext.defaults.motion.signalPaths,
       voiceSignalPaths: brandContext.voiceSignals?.signalPaths ?? [],
+      missingInputs: brandContext.missingInputs,
     },
     renderer: {
       owner: "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
@@ -305,6 +350,42 @@ function buildSourceMap(scene: SceneDescriptor, brandContext: SaasExplainerBrand
   };
 }
 
+function buildSceneBrandContext(brandContext: SaasExplainerBrandContext): SaasGeneratedSceneModel["brandContext"] {
+  return {
+    source: brandContext.metadata.source,
+    acceptedProfile: brandContext.metadata.acceptedProfile,
+    defaultProductName: brandContext.defaults.brief.productName,
+    productServices: brandContext.defaults.brief.productServices,
+    audience: brandContext.defaults.brief.audience,
+    proofStyle: brandContext.defaults.brief.proofStyle,
+    visual: {
+      colorCount: brandContext.defaults.visual.colors.length,
+      fontCount: brandContext.defaults.visual.fonts.length,
+      logoAssetCount: brandContext.defaults.visual.logoAssets.length,
+      productImageCount: brandContext.defaults.visual.productImages.length,
+      signalPaths: brandContext.defaults.visual.signalPaths,
+    },
+    motion: { signalPaths: brandContext.defaults.motion.signalPaths },
+    missingInputs: brandContext.missingInputs,
+  };
+}
+
+function hasProductSpecificVisualProof(brandContext: SaasExplainerBrandContext): boolean {
+  const brief = brandContext.defaults.brief;
+  const visual = brandContext.defaults.visual;
+  return Boolean(
+    brandContext.metadata.acceptedProfile &&
+      (brief.productName || brief.productServices.length > 0) &&
+      (visual.logoAssets.length > 0 || visual.productImages.length > 0 || visual.colors.length > 0),
+  );
+}
+
+function hasMotionChoreographyPlan(
+  brandContext: SaasExplainerBrandContext,
+  referenceStyleBrief?: SaasExplainerReferenceStyleBrief,
+): boolean {
+  return brandContext.defaults.motion.signalPaths.length > 0 || Boolean(referenceStyleBrief?.motion);
+}
 function pickResolvedVoice(profile: SaasExplainerVoiceProfile): ResolvedSaasVoice {
   return {
     voiceId: profile.voiceId,

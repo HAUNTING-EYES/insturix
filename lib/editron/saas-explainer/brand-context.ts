@@ -5,7 +5,12 @@ import { buildRichBrandContextBlock } from "@/lib/shared/brand-context-block";
 import type { EffectiveBrandSource } from "@/lib/shared/brand-effective-resolver";
 import { brandSignalProfileToUnifiedBrand } from "@/lib/shared/brand-signal-profile-adapter";
 import type { BrandSignalProfileRecord } from "@/lib/shared/brand-signal-lifecycle";
-import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
+import {
+  isBrandSignalActionable,
+  type BrandProofStyle,
+  type BrandSignal,
+  type BrandSignalProfile,
+} from "@/lib/shared/brand-signal-profile";
 import {
   createBrandVaultDraftReviewPayload,
   type BrandVaultWebsiteDraftReviewPayload,
@@ -44,6 +49,23 @@ export interface ResolveSaasExplainerBrandContextInput {
   store?: SaasExplainerBrandVaultStore;
 }
 
+export interface SaasExplainerBrandDefaultContractMetadata {
+  productName?: string;
+  productServices: number;
+  audience: number;
+  valueDrivers: number;
+  painPoints: number;
+  jobsToBeDone: number;
+  proofStyle?: BrandProofStyle;
+  outcomeHintProvided: boolean;
+  colorCount: number;
+  fontCount: number;
+  logoAssetCount: number;
+  productImageCount: number;
+  visualSignalPaths: string[];
+  motionSignalPaths: string[];
+}
+
 export interface SaasExplainerBrandContextMetadata {
   source: EffectiveBrandSource | "not_requested";
   brandId?: string;
@@ -67,6 +89,7 @@ export interface SaasExplainerBrandContextMetadata {
     social?: string;
     uploads?: string;
   };
+  defaultContract?: SaasExplainerBrandDefaultContractMetadata;
   diagnosticSummary?: {
     signalCount: number;
     readyCount: number;
@@ -90,10 +113,65 @@ export interface SaasExplainerBrandVoiceSignals {
   signalPaths: string[];
 }
 
+export interface SaasExplainerBrandVisualAssetDefault {
+  kind: string;
+  label: string;
+  url: string;
+  stored: boolean;
+  signalPath?: string;
+  sourceType?: string;
+}
+
+export interface SaasExplainerBrandDefaultBrief {
+  productName?: string;
+  productServices: string[];
+  audience: string[];
+  valueDrivers: string[];
+  painPoints: string[];
+  jobsToBeDone: string[];
+  proofStyle?: BrandProofStyle;
+  outcomeHint?: string;
+}
+
+export interface SaasExplainerBrandVisualDefaults {
+  colors: string[];
+  fonts: string[];
+  logoAssets: SaasExplainerBrandVisualAssetDefault[];
+  productImages: SaasExplainerBrandVisualAssetDefault[];
+  minimalism?: number;
+  densityTolerance?: number;
+  dataVizAffinity?: number;
+  expressiveness?: number;
+  cornerRadiusBias?: number;
+  layoutSymmetry?: number;
+  contrastPreference?: number;
+  signalPaths: string[];
+}
+
+export interface SaasExplainerBrandMotionDefaults {
+  motionEnergy?: number;
+  overshootTolerance?: number;
+  transitionSharpness?: number;
+  rhythmRegularity?: number;
+  anticipationStyle?: number;
+  easingTaste?: number;
+  pacePreference?: number;
+  safeZones?: number;
+  figureGroundRatio?: number;
+  signalPaths: string[];
+}
+
+export interface SaasExplainerBrandDefaults {
+  brief: SaasExplainerBrandDefaultBrief;
+  visual: SaasExplainerBrandVisualDefaults;
+  motion: SaasExplainerBrandMotionDefaults;
+}
+
 export interface SaasExplainerBrandContext {
   promptBlock: string;
   brandInputs: Partial<BrandInputs>;
   voiceSignals?: SaasExplainerBrandVoiceSignals;
+  defaults: SaasExplainerBrandDefaults;
   missingInputs: SaasExplainerBrandMissingInput[];
   metadata: SaasExplainerBrandContextMetadata;
 }
@@ -134,6 +212,7 @@ export async function resolveSaasExplainerBrandContext(
     ...brandInputsFromVisualIdentity(reviewPayload?.visualIdentity),
   });
   const voiceSignals = brandVoiceSignalsFromProfile(profile);
+  const defaults = buildBrandDefaults(profile, reviewPayload?.visualIdentity);
   const contextBlock = buildRichBrandContextBlock(profile, brand).trim();
   const missingInputs = collectMissingInputs({
     profile,
@@ -145,6 +224,9 @@ export async function resolveSaasExplainerBrandContext(
   });
   const renderTokenBlock = formatBrandRenderTokens(brandInputs);
   const voiceTokenBlock = formatBrandVoiceTokens(voiceSignals);
+  const defaultBriefBlock = formatBrandDefaultBrief(defaults.brief);
+  const visualDefaultsBlock = formatBrandVisualDefaults(defaults.visual);
+  const motionDefaultsBlock = formatBrandMotionDefaults(defaults.motion);
   const visualIdentityBlock = formatVisualIdentityContext(reviewPayload?.visualIdentity);
   const evidenceBlock = formatEvidenceContext(reviewPayload, candidates);
   const diagnosticsBlock = formatDiagnosticsContext(reviewPayload);
@@ -152,8 +234,11 @@ export async function resolveSaasExplainerBrandContext(
     "<saas_explainer_brand_vault_context>",
     "Source: accepted Brand Vault profile plus review payload, visual identity, and evidence candidates. Treat as default product, voice, visual, and motion context unless the user explicitly overrides it.",
     contextBlock,
+    defaultBriefBlock,
     renderTokenBlock,
     voiceTokenBlock,
+    visualDefaultsBlock,
+    motionDefaultsBlock,
     visualIdentityBlock,
     evidenceBlock,
     diagnosticsBlock,
@@ -169,6 +254,7 @@ export async function resolveSaasExplainerBrandContext(
     promptBlock,
     brandInputs,
     voiceSignals,
+    defaults,
     missingInputs,
     metadata: {
       source: "brand_vault",
@@ -180,6 +266,7 @@ export async function resolveSaasExplainerBrandContext(
       promptContextProvided: true,
       brandInputKeys: Object.keys(brandInputs).sort(),
       missingInputs,
+      defaultContract: summarizeDefaultContract(defaults),
       candidateCount: reviewPayload?.candidateCount ?? candidates.length,
       evidenceCount: reviewPayload?.evidenceCount ?? profile.evidence.length,
       visualIdentityCounts: reviewPayload ? visualIdentityCounts(reviewPayload.visualIdentity) : undefined,
@@ -203,6 +290,7 @@ function emptyBrandContext(input: {
   return {
     promptBlock: "",
     brandInputs: {},
+    defaults: emptyBrandDefaults(),
     missingInputs: input.missingInputs,
     metadata: {
       source: input.source,
@@ -215,6 +303,165 @@ function emptyBrandContext(input: {
   };
 }
 
+function emptyBrandDefaults(): SaasExplainerBrandDefaults {
+  return {
+    brief: { productServices: [], audience: [], valueDrivers: [], painPoints: [], jobsToBeDone: [] },
+    visual: { colors: [], fonts: [], logoAssets: [], productImages: [], signalPaths: [] },
+    motion: { signalPaths: [] },
+  };
+}
+
+function buildBrandDefaults(profile: BrandSignalProfile, visualIdentity: BrandVaultVisualIdentitySummary | undefined): SaasExplainerBrandDefaults {
+  const baseBrief: Omit<SaasExplainerBrandDefaultBrief, "outcomeHint"> = {
+    productName: actionableValue(profile.identity.brandName),
+    productServices: actionableList(profile.identity.productServices) ?? [],
+    audience: actionableList(profile.identity.audience) ?? [],
+    valueDrivers: actionableList(profile.identity.audiencePsychographics?.valueDrivers) ?? [],
+    painPoints: actionableList(profile.identity.audiencePsychographics?.painPoints) ?? [],
+    jobsToBeDone: actionableList(profile.identity.audiencePsychographics?.jobsToBeDone) ?? [],
+    proofStyle: actionableValue(profile.identity.proofStyle),
+  };
+  return {
+    brief: { ...baseBrief, outcomeHint: buildBrandOutcomeHint(baseBrief) },
+    visual: brandVisualDefaultsFromProfile(profile, visualIdentity),
+    motion: brandMotionDefaultsFromProfile(profile),
+  };
+}
+
+function buildBrandOutcomeHint(brief: Omit<SaasExplainerBrandDefaultBrief, "outcomeHint">): string | undefined {
+  const subject = brief.productServices[0] ?? brief.productName;
+  if (!subject) return undefined;
+  const audience = brief.audience[0] ? ` for ${brief.audience[0]}` : "";
+  const painPoint = brief.painPoints[0] ? ` by addressing ${brief.painPoints[0]}` : "";
+  const proof = brief.proofStyle && brief.proofStyle !== "unknown" ? ` Use ${brief.proofStyle} proof where evidence exists.` : "";
+  return `Create a product-led SaaS explainer for ${subject}${audience}${painPoint}.${proof}`;
+}
+
+function brandVisualDefaultsFromProfile(profile: BrandSignalProfile, visualIdentity: BrandVaultVisualIdentitySummary | undefined): SaasExplainerBrandVisualDefaults {
+  const visual: SaasExplainerBrandVisualDefaults = {
+    colors: uniqueStrings([
+      actionableValue(profile.palette.primary),
+      actionableValue(profile.palette.accent),
+      ...(actionableList(profile.palette.supporting) ?? []),
+      ...(actionableList(profile.palette.neutrals) ?? []),
+      ...(visualIdentity?.colors.map((color) => color.value) ?? []),
+    ]).slice(0, 12),
+    fonts: uniqueStrings(visualIdentity?.fonts.map((font) => font.cssFontFamily || font.family) ?? []).slice(0, 6),
+    logoAssets: (visualIdentity?.logos ?? []).slice(0, 4).map(summarizeVisualAsset),
+    productImages: [
+      ...(visualIdentity?.images ?? []).slice(0, 6).map(summarizeVisualAsset),
+      ...assetUrlsAsDefaults(actionableList(profile.assets?.productImages) ?? [], "product"),
+      ...assetUrlsAsDefaults(actionableList(profile.assets?.socialPreviewImages) ?? [], "social_media"),
+    ].slice(0, 8),
+    signalPaths: [],
+  };
+  copyNumberDefault(profile.visual.minimalism, "visual.minimalism", visual, (value) => { visual.minimalism = value; });
+  copyNumberDefault(profile.visual.densityTolerance, "visual.densityTolerance", visual, (value) => { visual.densityTolerance = value; });
+  copyNumberDefault(profile.visual.dataVizAffinity, "visual.dataVizAffinity", visual, (value) => { visual.dataVizAffinity = value; });
+  copyNumberDefault(profile.visual.expressiveness, "visual.expressiveness", visual, (value) => { visual.expressiveness = value; });
+  copyNumberDefault(profile.visual.cornerRadiusBias, "visual.cornerRadiusBias", visual, (value) => { visual.cornerRadiusBias = value; });
+  copyNumberDefault(profile.visual.layoutSymmetry, "visual.layoutSymmetry", visual, (value) => { visual.layoutSymmetry = value; });
+  copyNumberDefault(profile.visual.contrastPreference, "visual.contrastPreference", visual, (value) => { visual.contrastPreference = value; });
+  return visual;
+}
+
+function brandMotionDefaultsFromProfile(profile: BrandSignalProfile): SaasExplainerBrandMotionDefaults {
+  const motion: SaasExplainerBrandMotionDefaults = { signalPaths: [] };
+  copyNumberDefault(profile.motion.motionEnergy, "motion.motionEnergy", motion, (value) => { motion.motionEnergy = value; });
+  copyNumberDefault(profile.motion.overshootTolerance, "motion.overshootTolerance", motion, (value) => { motion.overshootTolerance = value; });
+  copyNumberDefault(profile.motion.transitionSharpness, "motion.transitionSharpness", motion, (value) => { motion.transitionSharpness = value; });
+  copyNumberDefault(profile.motion.rhythmRegularity, "motion.rhythmRegularity", motion, (value) => { motion.rhythmRegularity = value; });
+  copyNumberDefault(profile.motion.anticipationStyle, "motion.anticipationStyle", motion, (value) => { motion.anticipationStyle = value; });
+  copyNumberDefault(profile.motion.easingTaste, "motion.easingTaste", motion, (value) => { motion.easingTaste = value; });
+  copyNumberDefault(profile.narrative.pacePreference, "narrative.pacePreference", motion, (value) => { motion.pacePreference = value; });
+  copyNumberDefault(profile.composition.safeZones, "composition.safeZones", motion, (value) => { motion.safeZones = value; });
+  copyNumberDefault(profile.composition.figureGroundRatio, "composition.figureGroundRatio", motion, (value) => { motion.figureGroundRatio = value; });
+  return motion;
+}
+
+function formatBrandDefaultBrief(brief: SaasExplainerBrandDefaultBrief): string {
+  const lines = [
+    "<brand_default_brief>",
+    brief.productName ? `Default product name: ${brief.productName}` : null,
+    brief.productServices.length ? `Products/services: ${brief.productServices.join(", ")}` : null,
+    brief.audience.length ? `Audience: ${brief.audience.join(", ")}` : null,
+    brief.valueDrivers.length ? `Audience value drivers: ${brief.valueDrivers.join(", ")}` : null,
+    brief.painPoints.length ? `Audience pain points: ${brief.painPoints.join(", ")}` : null,
+    brief.jobsToBeDone.length ? `Jobs to be done: ${brief.jobsToBeDone.join(", ")}` : null,
+    brief.proofStyle && brief.proofStyle !== "unknown" ? `Proof style: ${brief.proofStyle}` : null,
+    brief.outcomeHint ? `Default outcome: ${brief.outcomeHint}` : null,
+    "</brand_default_brief>",
+  ].filter(Boolean);
+  return lines.length > 2 ? lines.join("\n") : "";
+}
+
+function formatBrandVisualDefaults(visual: SaasExplainerBrandVisualDefaults): string {
+  const lines = [
+    "<brand_visual_defaults>",
+    visual.colors.length ? `Resolved colors: ${visual.colors.join(", ")}` : null,
+    visual.fonts.length ? `Resolved fonts: ${visual.fonts.join(", ")}` : null,
+    visual.logoAssets.length ? `Logo defaults: ${visual.logoAssets.map((asset) => `${asset.label} (${asset.url})`).join(" | ")}` : null,
+    visual.productImages.length ? `Product image defaults: ${visual.productImages.map((asset) => `${asset.label} (${asset.url})`).join(" | ")}` : null,
+    visual.signalPaths.length ? `Visual signal paths: ${visual.signalPaths.join(", ")}` : null,
+    "</brand_visual_defaults>",
+  ].filter(Boolean);
+  return lines.length > 2 ? lines.join("\n") : "";
+}
+
+function formatBrandMotionDefaults(motion: SaasExplainerBrandMotionDefaults): string {
+  if (motion.signalPaths.length === 0) return "";
+  const values = [
+    motion.motionEnergy !== undefined ? `motionEnergy=${motion.motionEnergy}` : null,
+    motion.transitionSharpness !== undefined ? `transitionSharpness=${motion.transitionSharpness}` : null,
+    motion.rhythmRegularity !== undefined ? `rhythmRegularity=${motion.rhythmRegularity}` : null,
+    motion.anticipationStyle !== undefined ? `anticipationStyle=${motion.anticipationStyle}` : null,
+    motion.easingTaste !== undefined ? `easingTaste=${motion.easingTaste}` : null,
+    motion.pacePreference !== undefined ? `pacePreference=${motion.pacePreference}` : null,
+    motion.safeZones !== undefined ? `safeZones=${motion.safeZones}` : null,
+    motion.figureGroundRatio !== undefined ? `figureGroundRatio=${motion.figureGroundRatio}` : null,
+  ].filter(Boolean);
+  return ["<brand_motion_defaults>", values.length ? `Motion values: ${values.join(", ")}` : null, `Motion signal paths: ${motion.signalPaths.join(", ")}`, "</brand_motion_defaults>"].filter(Boolean).join("\n");
+}
+
+function summarizeDefaultContract(defaults: SaasExplainerBrandDefaults): SaasExplainerBrandDefaultContractMetadata {
+  return {
+    productName: defaults.brief.productName,
+    productServices: defaults.brief.productServices.length,
+    audience: defaults.brief.audience.length,
+    valueDrivers: defaults.brief.valueDrivers.length,
+    painPoints: defaults.brief.painPoints.length,
+    jobsToBeDone: defaults.brief.jobsToBeDone.length,
+    proofStyle: defaults.brief.proofStyle,
+    outcomeHintProvided: Boolean(defaults.brief.outcomeHint),
+    colorCount: defaults.visual.colors.length,
+    fontCount: defaults.visual.fonts.length,
+    logoAssetCount: defaults.visual.logoAssets.length,
+    productImageCount: defaults.visual.productImages.length,
+    visualSignalPaths: defaults.visual.signalPaths.slice(0, 12),
+    motionSignalPaths: defaults.motion.signalPaths.slice(0, 12),
+  };
+}
+
+function summarizeVisualAsset(asset: BrandVaultVisualIdentitySummary["images"][number]): SaasExplainerBrandVisualAssetDefault {
+  return {
+    kind: asset.kind,
+    label: asset.label,
+    url: asset.storage?.publicUrl || asset.thumbnailUrl || asset.url,
+    stored: asset.storage?.status === "stored",
+    signalPath: asset.signalPath,
+    sourceType: asset.sourceType,
+  };
+}
+
+function assetUrlsAsDefaults(urls: string[], kind: string): SaasExplainerBrandVisualAssetDefault[] {
+  return urls.map((url, index) => ({ kind, label: `${kind} ${index + 1}`, url, stored: false, signalPath: kind === "product" ? "assets.productImages" : "assets.socialPreviewImages" }));
+}
+
+function copyNumberDefault<T extends { signalPaths: string[] }>(signal: BrandSignal<number> | undefined, path: string, target: T, apply: (value: number) => void): void {
+  if (!signal || !isBrandSignalActionable(signal) || !Number.isFinite(signal.value)) return;
+  apply(clamp01(signal.value));
+  target.signalPaths.push(path);
+}
 function collectMissingInputs(input: {
   profile: BrandSignalProfile;
   contextBlock: string;
@@ -450,6 +697,10 @@ function visualIdentityCounts(visualIdentity: BrandVaultVisualIdentitySummary): 
 
 function actionableList(signal: BrandSignal<string[]> | undefined): string[] | undefined {
   return signal && isBrandSignalActionable(signal) && signal.value.length > 0 ? signal.value : undefined;
+}
+
+function actionableValue<T>(signal: BrandSignal<T> | undefined): T | undefined {
+  return signal && isBrandSignalActionable(signal) ? signal.value : undefined;
 }
 
 function hasAnyNumber(...values: Array<number | undefined>): boolean {

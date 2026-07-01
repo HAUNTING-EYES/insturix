@@ -8,6 +8,7 @@ import {
 } from "@/lib/editron/saas-explainer/intake";
 import {
   resolveSaasExplainerBrandContext,
+  type SaasExplainerBrandContext,
   type SaasExplainerBrandContextMetadata,
 } from "@/lib/editron/saas-explainer/brand-context";
 import { buildSaasGeneratedSceneOverlays, isPromptLikeVisibleText } from "@/lib/editron/saas-explainer/generated-scene";
@@ -114,13 +115,14 @@ export async function createSaasExplainerProject(
     orgId,
     brandId: input.brandId,
   });
+  const generationInput = applyBrandDefaults(input, brandContext);
   const brandContextPrompt = brandContext.promptBlock || undefined;
   const referenceScriptSummary = [
-    input.script || input.outcome || buildSaasExplainerProjectSummary(input, productUrl, referenceLabel),
+    generationInput.script || generationInput.outcome || buildSaasExplainerProjectSummary(generationInput, productUrl, referenceLabel),
     brandContextPrompt,
   ].filter(Boolean).join("\n\n");
   const reference = await analyzeSaasExplainerReference({
-    input,
+    input: generationInput,
     userId,
     productUrl,
     scriptSummary: referenceScriptSummary,
@@ -133,26 +135,26 @@ export async function createSaasExplainerProject(
   const referenceStyleEvidence = formatReferenceStyleEvidence(reference.analysis?.styleBrief);
   const sourceSessionId = `saas_${crypto.randomUUID()}`;
   const sourceScriptId = `script_${sourceSessionId}`;
-  const baseProjectSummary = buildSaasExplainerProjectSummary(input, productUrl, referenceLabel, referenceStyleEvidence);
+  const baseProjectSummary = buildSaasExplainerProjectSummary(generationInput, productUrl, referenceLabel, referenceStyleEvidence);
   const projectSummary = [baseProjectSummary, brandContextPrompt].filter(Boolean).join("\n\n");
   const systemBrief = [
     "Author a production SaaS explainer; keep product UI proof readable and avoid unverifiable claims.",
     brandContextPrompt,
   ].filter(Boolean).join("\n\n");
   const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
-    userPrompt: buildSaasExplainerAuthorPrompt(input, productUrl, referenceLabel, referenceStyleEvidence),
+    userPrompt: buildSaasExplainerAuthorPrompt(generationInput, productUrl, referenceLabel, referenceStyleEvidence),
     sessionId: sourceSessionId,
-    brandId: input.brandId,
+    brandId: generationInput.brandId,
     generationMode: "manual",
     project: {
       idea: "SaaS explainer video",
-      purpose: input.outcome || "Create a clear SaaS explainer video.",
+      purpose: generationInput.outcome || "Create a clear SaaS explainer video.",
       style: "clear product-led SaaS demo",
       format: "video_script",
-      platform: platformForAspectRatio(input.aspectRatio),
-      projectName: projectNameFor(input, productUrl),
-      originalPrompt: input.outcome || input.script || "SaaS explainer",
-      brandId: input.brandId,
+      platform: platformForAspectRatio(generationInput.aspectRatio),
+      projectName: projectNameFor(generationInput, productUrl),
+      originalPrompt: generationInput.outcome || generationInput.script || "SaaS explainer",
+      brandId: generationInput.brandId,
     },
     context: {
       projectSummary,
@@ -161,9 +163,9 @@ export async function createSaasExplainerProject(
   });
 
   const parsed = await parseScriptWithLLM(draft.content, {
-    aspectRatio: input.aspectRatio,
+    aspectRatio: generationInput.aspectRatio,
     artStyle: "SaaS product demo with readable UI proof moments",
-    brandId: input.brandId,
+    brandId: generationInput.brandId,
     userId,
   });
   const scenes = normalizeScenes(parsed.scenes);
@@ -187,20 +189,20 @@ export async function createSaasExplainerProject(
     );
   }
 
-  const projectName = projectNameFor(input, productUrl);
+  const projectName = projectNameFor(generationInput, productUrl);
   const project = await projectService.createProject(userId, projectName, {
-    brandId: input.brandId,
+    brandId: generationInput.brandId,
   });
-  const dimensions = dimensionsForAspectRatio(input.aspectRatio);
+  const dimensions = dimensionsForAspectRatio(generationInput.aspectRatio);
   const voiceProfile = resolveSaasExplainerVoiceProfile({
     brandContext,
-    input,
+    input: generationInput,
     referenceStyleBrief: reference.analysis?.styleBrief,
   });
   const overlays = buildSaasGeneratedSceneOverlays({
     scenes,
     dimensions,
-    input,
+    input: generationInput,
     brandContext,
     voiceProfile,
     referenceStyleBrief: reference.analysis?.styleBrief,
@@ -213,7 +215,7 @@ export async function createSaasExplainerProject(
 
   await projectService.saveProject(userId, project.projectId, {
     overlays,
-    aspectRatio: input.aspectRatio as never,
+    aspectRatio: generationInput.aspectRatio as never,
     playerDimensions: { width: dimensions.width, height: dimensions.height },
     fps: FPS,
     durationInFrames: totalFrames,
@@ -224,7 +226,7 @@ export async function createSaasExplainerProject(
     sourceSessionId,
     sourceScriptId,
     projectId: project.projectId,
-    brandId: input.brandId,
+    brandId: generationInput.brandId,
   });
 
   const finishedAt = new Date();
@@ -253,13 +255,14 @@ export async function createSaasExplainerProject(
         saasExplainer: {
           status: projectStatus,
           productUrl,
-          productName: input.productName,
-          audience: input.audience,
-          outcome: summarizeTextPresence(input.outcome),
-          script: summarizeTextPresence(input.script),
-          durationSec: input.durationSec,
-          aspectRatio: input.aspectRatio,
+          productName: generationInput.productName,
+          audience: generationInput.audience,
+          outcome: summarizeTextPresence(generationInput.outcome),
+          script: summarizeTextPresence(generationInput.script),
+          durationSec: generationInput.durationSec,
+          aspectRatio: generationInput.aspectRatio,
           brandContext: brandContext.metadata,
+          brandDefaultsApplied: brandDefaultsApplied(input, generationInput),
           voiceover: voiceoverResult.summary,
           referenceVideo: input.referenceVideoUrl
             ? { provided: true, type: referenceVideo?.sourceKind, url: input.referenceVideoUrl }
@@ -674,6 +677,29 @@ function overlayId(overlay: any): number | undefined {
   return typeof overlay.id === "number" ? overlay.id : undefined;
 }
 
+function applyBrandDefaults(
+  input: NormalizedSaasExplainerIntake,
+  brandContext: SaasExplainerBrandContext,
+): NormalizedSaasExplainerIntake {
+  const brief = brandContext.defaults.brief;
+  return {
+    ...input,
+    productName: input.productName || brief.productName,
+    audience: input.audience || brief.audience.join(", ") || undefined,
+    outcome: input.outcome || brief.outcomeHint,
+  };
+}
+
+function brandDefaultsApplied(
+  input: NormalizedSaasExplainerIntake,
+  generationInput: NormalizedSaasExplainerIntake,
+): { productName: boolean; audience: boolean; outcome: boolean } {
+  return {
+    productName: !input.productName && Boolean(generationInput.productName),
+    audience: !input.audience && Boolean(generationInput.audience),
+    outcome: !input.outcome && Boolean(generationInput.outcome),
+  };
+}
 function projectNameFor(input: NormalizedSaasExplainerIntake, productUrl?: string): string {
   if (input.productName) return `${input.productName} SaaS Explainer`;
   if (productUrl) return `${new URL(productUrl).hostname.replace(/^www\./, "")} SaaS Explainer`;
