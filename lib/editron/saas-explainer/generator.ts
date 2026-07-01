@@ -277,7 +277,7 @@ export async function createSaasExplainerProject(
     autoEditMode: "saas_explainer",
     autoEditStatus,
     projectId: project.projectId,
-    projectUrl: `/dashboard/editron?project=${encodeURIComponent(project.projectId)}`,
+    projectUrl: `/dashboard/editron/project/${encodeURIComponent(project.projectId)}`,
     sceneCount: scenes.length,
     overlayCount: overlays.length,
     sourceSessionId,

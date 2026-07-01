@@ -388,7 +388,7 @@ describe("SaaS explainer routes", () => {
       autoEditMode: "saas_explainer",
       autoEditStatus: "needs_generation",
       projectId: "project_1",
-      projectUrl: "/dashboard/editron?project=project_1",
+      projectUrl: "/dashboard/editron/project/project_1",
       sceneCount: 1,
       overlayCount: 2,
       generationReadiness: {

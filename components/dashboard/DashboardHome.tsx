@@ -972,7 +972,7 @@ function SplitDetail({ project }: { project: Project }) {
         href={
           project.stage === "script" && project.sourceSessionId
             ? `/dashboard/thinkforge?session=${project.sourceSessionId}`
-            : `/dashboard/editron?project=${project.id}`
+            : `/dashboard/editron/project/${project.id}`
         }
         style={{ textDecoration: "none" }}
       >
@@ -1054,7 +1054,7 @@ function CinematicView({
                 href={
                   focus.stage === "script" && focus.sourceSessionId
                     ? `/dashboard/thinkforge?session=${focus.sourceSessionId}`
-                    : `/dashboard/editron?project=${focus.id}`
+                    : `/dashboard/editron/project/${focus.id}`
                 }
                 style={{ textDecoration: "none" }}
               >
