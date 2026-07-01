@@ -191,6 +191,64 @@ END_THINKFORGE_CLICKATRON_EXPORT -->`;
     expect(extracted.exportMeta.clickatron?.renderPlan.slides).toHaveLength(2);
   });
 
+  it('recovers empty carousel sidecar slides from visible draft copy before normalization', () => {
+    const markdown = `Slide 1: Approval bottlenecks hide in comment threads.
+
+Slide 2: One named owner moves feedback into a single lane.
+
+Slide 3: The client sees the next step before the deadline slips.
+
+<!-- THINKFORGE_CLICKATRON_EXPORT
+{
+  "clickatron": {
+    "schemaVersion": 1,
+    "kind": "carousel",
+    "assetIntent": "carousel",
+    "platform": "linkedin",
+    "aspectRatio": "1.91:1",
+    "source": {
+      "sourceService": "thinkforge",
+      "sourceBlockIds": ["AUTO"]
+    },
+    "userIntent": {
+      "visualMode": "text_forward_graphic",
+      "wantsCarousel": true
+    },
+    "creativeBrief": {
+      "objective": "educate agency founders",
+      "coreMessage": "approval ownership prevents deadline slips",
+      "audience": "agency founders"
+    },
+    "renderPlan": {
+      "textPolicy": "editable_text_layers",
+      "imagePrompt": "A clean LinkedIn carousel system with editorial diagrams, approval lanes, and generous safe zones.",
+      "slides": []
+    },
+    "validation": {
+      "status": "ready"
+    }
+  }
+}
+END_THINKFORGE_CLICKATRON_EXPORT -->`;
+
+    const extracted = extractRequiredClickatronCreativeSidecar(markdown);
+    const spec = extracted.exportMeta.clickatron;
+
+    expect(spec?.kind).toBe('carousel');
+    expect(spec?.validation.status).toBe('needs_user_input');
+    expect(spec?.validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'carousel_slides_recovered_at_authoring' }),
+      ]),
+    );
+    expect(spec?.renderPlan.slides).toHaveLength(3);
+    expect(spec?.renderPlan.slides?.[0].imagePrompt).toContain('Slide concept to interpret, not draw as text');
+    expect(spec?.renderPlan.slides?.[0].textLayers?.[0]).toMatchObject({
+      text: 'Approval bottlenecks hide in comment threads.',
+      role: 'hook',
+    });
+    expect(spec?.renderPlan.slides?.[1].textLayers?.[0]?.text).toBe('One named owner moves feedback into a single lane.');
+  });
   it('recovers misplaced calendar identifiers before normalization', () => {
     const markdown = `Visible Instagram copy.
 
