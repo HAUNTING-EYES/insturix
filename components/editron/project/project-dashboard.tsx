@@ -105,7 +105,6 @@ export default function ProjectDashboard() {
   const vuAIRef = useRef<HTMLDivElement>(null);
   const vuGPURef = useRef<HTMLDivElement>(null);
   const oscLabelRef = useRef<HTMLDivElement>(null);
-  const projectsStripRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -611,20 +610,6 @@ export default function ProjectDashboard() {
     }
   }, [autoEditProgress]);
 
-  // ── Projects strip drag-to-scroll ──
-  useEffect(() => {
-    const el = projectsStripRef.current;
-    if (!el) return;
-    let isDown = false, startX = 0, scrollLeft = 0;
-    const onDown = (e: MouseEvent) => { isDown = true; startX = e.pageX - el.offsetLeft; scrollLeft = el.scrollLeft; el.style.cursor = 'grabbing'; };
-    const onUp = () => { isDown = false; el.style.cursor = 'grab'; };
-    const onMove = (e: MouseEvent) => { if (!isDown) return; e.preventDefault(); el.scrollLeft = scrollLeft - (e.pageX - el.offsetLeft - startX); };
-    el.addEventListener('mousedown', onDown);
-    window.addEventListener('mouseup', onUp);
-    el.addEventListener('mousemove', onMove);
-    return () => { el.removeEventListener('mousedown', onDown); window.removeEventListener('mouseup', onUp); el.removeEventListener('mousemove', onMove); };
-  }, [projects]);
-
   // ── Oscilloscope stage label text + color ──
   const stageIdx = getStageFromProgress(autoEditProgress);
   const STAGE_LABELS = ['Uploading...', 'Registering...', 'Transcribing...', 'Cleaning...', 'Editing...', 'Delivering...'];
@@ -966,7 +951,7 @@ export default function ProjectDashboard() {
           <div style={{ fontFamily: 'var(--ef-mono)', fontSize: 9, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ef-dim)', marginBottom: 18 }}>Projects</div>
 
           {loading ? (
-            <div ref={projectsStripRef} style={{ display: 'flex', gap: 18, overflowX: 'auto', paddingBottom: 12, scrollbarWidth: 'none' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingBottom: 12 }}>
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} style={{ width: 240, minWidth: 240, flexShrink: 0, background: 'var(--ef-raised)', border: '1px solid var(--ef-border)', borderRadius: 4, overflow: 'hidden' }}>
                   <div style={{ height: 140, background: 'var(--ef-bg)', position: 'relative' }}>
@@ -986,10 +971,7 @@ export default function ProjectDashboard() {
               <div style={{ fontSize: 11, color: 'var(--ef-dim)' }}>Upload footage above or create from script</div>
             </div>
           ) : (
-            <div
-              ref={projectsStripRef}
-              style={{ display: 'flex', gap: 18, overflowX: 'auto', paddingBottom: 12, cursor: 'grab', scrollbarWidth: 'none' }}
-            >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingBottom: 12 }}>
               {projects.map((project) => (
                 <div
                   key={project.projectId}
