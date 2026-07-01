@@ -32,4 +32,21 @@ describe("Alyzitron content intent UI wiring", () => {
     expect(analyzeRoute).toContain("intentSource: body.intentSource ?? (contextContentIntent ? 'user_selected' : undefined)");
     expect(analyzeRoute).toContain("userConfirmedIntent: body.userConfirmedIntent ?? (contextContentIntent ? true : undefined)");
   });
+
+  it("uses the dashboard active brand and surfaces brand-aware report fields", () => {
+    const hook = readRepoFile("app/dashboard/alyzitron/hooks/useVideoAnalysis.ts");
+    const reportPage = readRepoFile("app/dashboard/alyzitron/report/[id]/page.tsx");
+    const reportComponents = readRepoFile("app/dashboard/alyzitron/report/[id]/components.tsx");
+    const types = readRepoFile("lib/types.ts");
+
+    expect(hook).toContain("getActiveBrandIdFromStorage");
+    expect(hook).toContain("...(requestBrandId && { brandId: requestBrandId })");
+    expect(hook).toContain("context: requestContext");
+    expect(reportPage).toContain("content_intent: contentIntent");
+    expect(reportPage).toContain("brand_fit_summary: brandFitSummary");
+    expect(reportPage).toContain("applicable_takeaways: applicableTakeaways");
+    expect(reportComponents).toContain("ANALYSIS LENS");
+    expect(reportComponents).toContain("analysisData.brand_fit_summary");
+    expect(types).toContain("applicable_takeaways?: string[]");
+  });
 });

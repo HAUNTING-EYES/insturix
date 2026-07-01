@@ -104,6 +104,23 @@ export default async function AnalysisReport({ params }: PageProps) {
   }
 
   const normalizedResults = normalizeAlyzitronAnalysisResults(analysis.results);
+  let contentIntent: string | undefined;
+  if (typeof normalizedResults?.content_intent === "string") {
+    contentIntent = normalizedResults.content_intent;
+  } else if (typeof analysis.contentIntent === "string") {
+    contentIntent = analysis.contentIntent;
+  }
+
+  const brandFitSummary =
+    typeof normalizedResults?.brand_fit_summary === "string"
+      ? normalizedResults.brand_fit_summary
+      : "";
+  const applicableTakeaways = Array.isArray(normalizedResults?.applicable_takeaways)
+    ? normalizedResults.applicable_takeaways.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0
+      )
+    : [];
 
   // Handle current and legacy results structures
   const analysisData: AnalysisData = {
@@ -114,6 +131,9 @@ export default async function AnalysisReport({ params }: PageProps) {
     titles: normalizedResults?.titles || [],
     descriptions: normalizedResults?.descriptions || [],
     target_audience: normalizedResults?.target_audience || '',
+    content_intent: contentIntent,
+    brand_fit_summary: brandFitSummary,
+    applicable_takeaways: applicableTakeaways,
     creator_feedback: {
       strengths: normalizedResults?.strengths || [],
       improvements: normalizedResults?.weaknesses || [],
