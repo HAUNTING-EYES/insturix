@@ -674,7 +674,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
 
         <div className="mt-4 rounded-xl border border-[#1C1B19] bg-[#0B0B0A] p-4">
           <div className="flex items-center gap-2">
-            <Linkedin className="h-4 w-4 text-[#5CCCB8]" />
+            <Linkedin className="h-4 w-4 text-[#D4A652]" />
             <span className="text-xs font-medium">LinkedIn</span>
           </div>
 
@@ -693,7 +693,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                     return (
                       <div
                         key={acc.accountRef}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-[#5CCCB8]/40 bg-[#5CCCB8]/5 px-3 py-2"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-[#D4A652]/40 bg-[#D4A652]/5 px-3 py-2"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <AccountIcon type={acc.accountType} />
@@ -705,7 +705,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-[10px] text-[#5CCCB8]">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-[#D4A652]">
                             <Check className="h-3 w-3" /> Active
                           </span>
                           <button
@@ -767,7 +767,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                 <button
                   onClick={connectOperator}
                   disabled={busy === 'connect-a'}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#5CCCB8] px-3 py-1.5 text-xs font-medium text-[#0B0B0A] hover:bg-[#5CCCB8]/90 disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-3 py-1.5 text-xs font-medium text-[#0B0B0A] hover:bg-[#D4A652]/90 disabled:opacity-60"
                 >
                   {busy === 'connect-a' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Linkedin className="h-3.5 w-3.5" />}
                   Connect your LinkedIn
@@ -801,7 +801,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                             <button
                               onClick={() => selectPending(acc)}
                               disabled={isBusy}
-                              className="shrink-0 rounded-md bg-[#5CCCB8] px-2.5 py-1 text-[10px] font-medium text-[#0B0B0A] hover:bg-[#5CCCB8]/90 disabled:opacity-60"
+                              className="shrink-0 rounded-md bg-[#D4A652] px-2.5 py-1 text-[10px] font-medium text-[#0B0B0A] hover:bg-[#D4A652]/90 disabled:opacity-60"
                             >
                               {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Use this'}
                             </button>

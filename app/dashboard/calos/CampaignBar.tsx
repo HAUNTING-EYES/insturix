@@ -205,7 +205,7 @@ export default function CampaignBar({
   const iconBtn =
     'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-[#7A776E] transition-colors hover:border-[#1C1B19] hover:bg-[#1C1B19]/70 hover:text-[#ECE9E1] disabled:cursor-not-allowed disabled:opacity-45';
   const selectCls =
-    'h-9 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 text-xs text-[#ECE9E1] focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
+    'h-9 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 text-xs text-[#ECE9E1] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40 disabled:opacity-50';
   const menuItem =
     'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#B9B4AA] transition-colors hover:bg-[#1C1B19]/70 hover:text-[#ECE9E1] disabled:cursor-not-allowed disabled:opacity-40';
 
@@ -300,7 +300,7 @@ export default function CampaignBar({
       <button
         onClick={autoFill}
         disabled={busy || !campaignId}
-        className={`${btn} border-[#5CCCB8]/35 bg-[#5CCCB8]/14 text-[#5CCCB8] hover:bg-[#5CCCB8]/24`}
+        className={`${btn} border-[#D4A652]/35 bg-[#D4A652]/14 text-[#D4A652] hover:bg-[#D4A652]/24`}
       >
         {pending === 'auto' ? 'Working...' : 'Auto-fill'}
       </button>

@@ -224,7 +224,7 @@ export default function ContentCardModal({
                   {onGenerate && (
                     <button
                       onClick={() => onGenerate(card.id)}
-                      className="px-4 py-2 text-sm font-medium bg-[#5CCCB8]/20 border border-[#5CCCB8]/40 text-[#5CCCB8] rounded-xl hover:bg-[#5CCCB8]/30 transition-colors flex items-center gap-2"
+                      className="px-4 py-2 text-sm font-medium bg-[#D4A652]/20 border border-[#D4A652]/40 text-[#D4A652] rounded-xl hover:bg-[#D4A652]/30 transition-colors flex items-center gap-2"
                     >
                       <FileText size={14} />
                       <span>Generate</span>
@@ -337,7 +337,7 @@ export default function ContentCardModal({
                       {/* Rendered as a post preview, not a raw text dump — what it'll look like posted. */}
                       <div className="mt-2 rounded-2xl bg-[#0F0F0E] border border-[#1C1B19]/70 overflow-hidden">
                         <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 border-b border-[#1C1B19]/40">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#5CCCB8]/40 to-[#D4A652]/40 flex items-center justify-center text-[12px] font-bold text-[#ECE9E1]">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#D4A652]/40 to-[#D4A652]/40 flex items-center justify-center text-[12px] font-bold text-[#ECE9E1]">
                             {(localCard.platform || '?').charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
