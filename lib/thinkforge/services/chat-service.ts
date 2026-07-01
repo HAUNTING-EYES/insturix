@@ -30,6 +30,7 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { detectContentPath } from '../agents/prompt-utils';
+import { resolveThinkForgeTrendContext } from './trend-context';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
@@ -858,6 +859,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // flat Post/Script writers can drive writing-graph technique selection from the structured
         // signals, not just the folded brief. Fails soft to the un-grounded brief.
         let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
+        let trendContextMetadata: Record<string, any> | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
@@ -873,6 +875,25 @@ CRITICAL: You are editing a SELECTION from a larger document.
           signalTrace = buildThinkForgeSignalTrace(contentSignalProfile);
         } catch (profileErr) {
           console.warn('[chat-service] content signal profile resolution failed; generating without it:', profileErr);
+        }
+
+        try {
+          const trendContext = await resolveThinkForgeTrendContext({
+            userPrompt: effectivePrompt,
+            project: sessionState.metadata,
+            brandId: sessionState.metadata.brandId,
+            contentPath,
+          });
+          if (trendContext?.promptBlock) {
+            groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
+              .filter(Boolean)
+              .join('\n\n');
+          }
+          if (trendContext?.metadata) {
+            trendContextMetadata = trendContext.metadata;
+          }
+        } catch (trendErr) {
+          console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
         }
 
         try {
@@ -903,6 +924,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               contentAnalysis: result.contentAnalysis,
               visualPrompts: result.clickatron,
               writerMetadata: result.metadata,
+              ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };
             
             // Build simple paragraph block for post content
@@ -933,6 +955,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               contentAnalysis: result.contentAnalysis,
               visualPrompts: result.visualMetadata,
               writerMetadata: result.metadata,
+              ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };
 
             // Build structural blocks for script
