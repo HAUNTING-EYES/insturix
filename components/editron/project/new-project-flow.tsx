@@ -82,6 +82,16 @@ const CSS = `
 .enp .door:hover{flex:1.5;background:var(--surface)}
 .enp .door:hover .go{opacity:1;transform:none}
 .enp .doors:hover .door:not(:hover){opacity:.55}
+.enp .recent{position:absolute;top:0;left:0;right:0}
+.enp .recent .rhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.enp .recent .rlabel{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.enp .recent .rall{background:transparent;border:none;color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.enp .recent .rall:hover{color:var(--goldH)}
+.enp .recent .rrow{display:flex;flex-wrap:wrap;gap:10px}
+.enp .recent .rcard{display:flex;align-items:center;gap:9px;padding:7px 12px 7px 7px;border:1px solid var(--border);border-radius:8px;background:var(--raised);cursor:pointer;color:inherit;transition:border-color .2s var(--film)}
+.enp .recent .rcard:hover{border-color:rgba(212,166,82,.35)}
+.enp .recent .rthumb{width:34px;height:22px;border-radius:4px;background:#050505 center/cover no-repeat;border:1px solid var(--border);flex-shrink:0}
+.enp .recent .rname{font-size:12px;color:var(--text);max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .enp .drop{position:absolute;inset:0;border:2px dashed var(--bs);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;transition:border-color .3s;background:transparent;color:inherit;width:100%}
 .enp .drop:hover{border-color:var(--gold)}
 .enp .drop .ar{width:48px;height:48px;border-radius:11px;border:1px solid var(--gold);display:flex;align-items:center;justify-content:center;color:var(--gold);font-size:22px}
@@ -162,6 +172,17 @@ export default function NewProjectFlow() {
   useEffect(() => {
     if (footage.error) { setScreen('upload'); setError(footage.error); }
   }, [footage.error]);
+
+  // Recent projects — shown on the idle screen so existing work is reachable from the front door.
+  const [recent, setRecent] = useState<{ projectId: string; name: string; thumbnail?: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/services/editron/projects/list')
+      .then((r) => (r.ok ? r.json() : { projects: [] }))
+      .then((d) => { if (!cancelled) setRecent(Array.isArray(d?.projects) ? d.projects : []); })
+      .catch(() => { /* list unavailable — hide the recent strip */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // intake state
   const [scriptText, setScriptText] = useState('');
@@ -269,8 +290,29 @@ export default function NewProjectFlow() {
           </div>
 
           <div className="panels">
-            {/* idle — the two doors */}
+            {/* idle — recent projects + the two doors */}
             <div className={screen === 'idle' ? 'panel on' : 'panel'}>
+              {recent.length > 0 && (
+                <div className="recent">
+                  <div className="rhead">
+                    <span className="rlabel">Recent</span>
+                    <button type="button" className="rall" onClick={goProjects}>View all &#8594;</button>
+                  </div>
+                  <div className="rrow">
+                    {recent.slice(0, 6).map((p) => (
+                      <button
+                        key={p.projectId}
+                        type="button"
+                        className="rcard"
+                        onClick={() => router.push(`/dashboard/editron/project/${p.projectId}`)}
+                      >
+                        <span className="rthumb" style={p.thumbnail ? { backgroundImage: `url(${p.thumbnail})` } : undefined} />
+                        <span className="rname">{p.name || 'Untitled'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="doors">
                 <button type="button" className="door u" onClick={() => go('upload')}>
                   <span className="mo">&#8615;</span>
