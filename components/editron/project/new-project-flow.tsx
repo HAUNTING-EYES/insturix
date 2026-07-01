@@ -17,10 +17,11 @@
  * Backend endpoints are reused as-is (UI only).
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
+import { useFootageAutoEdit } from '@/hooks/editron/use-footage-auto-edit';
 
 type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'saas' | 'onair';
 
@@ -140,10 +141,27 @@ export default function NewProjectFlow() {
   const router = useRouter();
   const brandsQuery = useAcceptedBrandVaultBrands();
   const brands = brandsQuery.data ?? [];
+  const footage = useFootageAutoEdit();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [screen, setScreen] = useState<Screen>('idle');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  const working = busy || footage.running;
+
+  // Elapsed timer while a create/generate/auto-edit is in flight.
+  useEffect(() => {
+    if (!working) { setElapsed(0); return; }
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [working]);
+
+  // Footage auto-edit failed → drop back to the upload panel with the error.
+  useEffect(() => {
+    if (footage.error) { setScreen('upload'); setError(footage.error); }
+  }, [footage.error]);
 
   // intake state
   const [scriptText, setScriptText] = useState('');
@@ -210,8 +228,20 @@ export default function NewProjectFlow() {
     }
   }, [busy, saasProduct, saasOutcome, saasDuration, saasAspect, brandId, router]);
 
-  // UPLOAD + reopen projects → the existing footage-uploader/dashboard (Phase 2b inlines upload).
+  // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
   const goProjects = useCallback(() => router.push('/dashboard/editron/upload'), [router]);
+  const onFootageFile = useCallback((file?: File | null) => {
+    if (!file || footage.running) return;
+    setError(null);
+    setProjName(file.name);
+    setProjType('Edit footage');
+    setScreen('onair');
+    footage.start(file);
+  }, [footage]);
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    onFootageFile(e.dataTransfer.files?.[0]);
+  }, [onFootageFile]);
 
   const m = META[screen];
 
@@ -242,7 +272,7 @@ export default function NewProjectFlow() {
             {/* idle — the two doors */}
             <div className={screen === 'idle' ? 'panel on' : 'panel'}>
               <div className="doors">
-                <button type="button" className="door u" onClick={goProjects}>
+                <button type="button" className="door u" onClick={() => go('upload')}>
                   <span className="mo">&#8615;</span>
                   <span className="tx"><span className="nm">Upload</span><span className="dl">01 &#183; bring footage</span></span>
                   <span className="go">Drop or browse &#8595;</span>
@@ -255,12 +285,26 @@ export default function NewProjectFlow() {
               </div>
             </div>
 
-            {/* upload */}
+            {/* upload — inline footage auto-edit */}
             <div className={screen === 'upload' ? 'panel on' : 'panel'}>
-              <button type="button" className="drop" onClick={goProjects}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="video/*"
+                style={{ display: 'none' }}
+                onChange={(e) => { onFootageFile(e.target.files?.[0]); e.target.value = ''; }}
+              />
+              <button
+                type="button"
+                className="drop"
+                onClick={() => fileRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onDrop}
+              >
                 <span className="ar">&#8613;</span>
                 <span className="t">Drop footage or browse</span>
                 <span className="s">Editron cuts your raw clips automatically</span>
+                {screen === 'upload' && error ? <span className="err" style={{ marginTop: 4 }}>{error}</span> : null}
               </button>
             </div>
 
@@ -342,7 +386,7 @@ export default function NewProjectFlow() {
               <div className="onair">
                 <div className="nowbar">
                   <div className="l">
-                    <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--red)' }}>{busy ? 'GENERATING' : 'NOW EDITING'}</span>
+                    <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--red)' }}>{working ? 'WORKING' : 'NOW EDITING'}</span>
                     <span className="m" style={{ fontSize: 12, color: 'var(--text)' }}>{projName}</span>
                   </div>
                   <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{projType}</span>
@@ -350,7 +394,7 @@ export default function NewProjectFlow() {
                 <div className="monitor">
                   <div className="rec">
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', display: 'inline-block', animation: 'enpPl 1.4s infinite' }} />
-                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{busy ? 'WORKING…' : 'REC 00:12'}</span>
+                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{footage.running && footage.progress ? footage.progress : working ? `WORKING · ${elapsed}s` : 'REC 00:12'}</span>
                   </div>
                   <div className="tl">
                     <div className="clips">
