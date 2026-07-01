@@ -1,6 +1,9 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { extractBrandVaultUploadEvidenceFromBuffer } from '../../lib/shared/brand-vault-upload-parser';
+import {
+  extractBrandVaultUploadEvidenceFromBuffer,
+  isSupportedBrandVaultUpload,
+} from '../../lib/shared/brand-vault-upload-parser';
 
 describe('Brand Vault server upload parser', () => {
   it('extracts text and colors from plain-text brand books', async () => {
@@ -75,6 +78,53 @@ describe('Brand Vault server upload parser', () => {
     expect(result.source.text).toContain('Tone: crisp. Palette #123abc');
     expect(result.source.dominantColors).toEqual(['#123abc']);
     expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('Brand Vault upload allowlist (isSupportedBrandVaultUpload)', () => {
+  it('accepts every document/image type the UI (BRAND_VAULT_UPLOAD_ACCEPT) offers', () => {
+    const accepted: Array<[string, string | undefined]> = [
+      ['brand-book.pdf', 'application/pdf'],
+      ['guidelines.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      ['deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+      ['legacy.doc', 'application/msword'],
+      ['legacy.ppt', 'application/vnd.ms-powerpoint'],
+      ['tone.txt', 'text/plain'],
+      ['voice.md', 'text/markdown'],
+      ['palette.csv', 'text/csv'],
+      ['tokens.json', 'application/json'],
+      ['page.html', 'text/html'],
+      ['styles.css', 'text/css'],
+      ['logo.svg', 'image/svg+xml'],
+      ['logo.png', 'image/png'],
+      ['hero.jpg', 'image/jpeg'],
+      ['mark.webp', 'image/webp'],
+      ['icon.gif', 'image/gif'],
+      // Real intake edge: a pasted/blob image with an image mime but no extension.
+      ['pasted-image', 'image/png'],
+      // Real intake edge: correct extension but a generic/wrong mime from the OS.
+      ['brand-book.pdf', 'application/octet-stream'],
+    ];
+    for (const [name, mime] of accepted) {
+      expect(isSupportedBrandVaultUpload(name, mime), `${name} (${mime})`).toBe(true);
+    }
+  });
+
+  it('rejects video, audio, archives, executables, and fonts (never offered by the UI)', () => {
+    const rejected: Array<[string, string | undefined]> = [
+      ['clip.mp4', 'video/mp4'],
+      ['song.mp3', 'audio/mpeg'],
+      ['bundle.zip', 'application/zip'],
+      ['bundle.rar', 'application/vnd.rar'],
+      ['setup.exe', 'application/x-msdownload'],
+      ['payload.bin', 'application/octet-stream'],
+      ['brand.ttf', 'font/ttf'],
+      ['brand.otf', 'font/otf'],
+      ['no-extension-no-mime', undefined],
+    ];
+    for (const [name, mime] of rejected) {
+      expect(isSupportedBrandVaultUpload(name, mime), `${name} (${mime})`).toBe(false);
+    }
   });
 });
 

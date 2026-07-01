@@ -1,6 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { extractBrandVaultUploadEvidenceFromBuffer } from '@/lib/shared/brand-vault-upload-parser';
+import {
+  extractBrandVaultUploadEvidenceFromBuffer,
+  isSupportedBrandVaultUpload,
+} from '@/lib/shared/brand-vault-upload-parser';
 import {
   createBrandVaultUploadAssetStorageFromEnvironment,
   shouldStoreBrandVaultUploadAsset,
@@ -37,6 +40,20 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { ok: false, error: { code: 'file_too_large', message: 'Brand Vault uploads are limited to 25MB per file for extraction.' } },
       { status: 413 },
+    );
+  }
+  // Reject types the parser/storage cannot use (video, audio, archives, executables, fonts)
+  // BEFORE buffering the bytes — mirrors the UI's accept list, enforced server-side.
+  if (!isSupportedBrandVaultUpload(file.name, file.type || undefined)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'unsupported_media_type',
+          message: 'Brand Vault accepts documents (PDF, Word, PowerPoint, text) and images only.',
+        },
+      },
+      { status: 415 },
     );
   }
 

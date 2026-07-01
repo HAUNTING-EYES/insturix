@@ -427,6 +427,17 @@ function isImageUpload(name: string, mimeType?: string): boolean {
   return Boolean(mimeType?.startsWith('image/')) || IMAGE_EXTENSIONS.has(fileExtension(name));
 }
 
+/**
+ * Server-side upload allowlist. True when this file is something the extractor can read
+ * (text / Office / PDF) or a visual asset we sample or store (image). It reuses the SAME
+ * predicates the extractor dispatches on, so the route boundary can never drift from real
+ * capability. This mirrors the UI's BRAND_VAULT_UPLOAD_ACCEPT and lets the route reject
+ * video / audio / archives / executables / fonts BEFORE buffering the bytes.
+ */
+export function isSupportedBrandVaultUpload(name: string, mimeType?: string): boolean {
+  return isTextUpload(name, mimeType) || isImageUpload(name, mimeType) || isParserBackedDocument(name, mimeType);
+}
+
 function inferSourceKind(
   name: string,
   mimeType: string | undefined,
