@@ -51,7 +51,7 @@ const GRID_STORIES: Story[] = [
   },
   {
     date: "May 3, 2026",
-    title: "Pricing update: new tiers starting at $20/mo",
+    title: "Pricing update: new agency tiers starting at $100/mo",
     summary:
       "Three plans designed around production volume. Solo creators, teams, and enterprise agencies each get a dedicated tier.",
     category: "Product",
@@ -235,11 +235,11 @@ export function NewsroomBroadcast() {
           }}
         >
           BREAKING: Insturix opens public beta &nbsp;&middot;&nbsp; AI editing
-          now available &nbsp;&middot;&nbsp; New pricing from $20/mo
+          now available &nbsp;&middot;&nbsp; New pricing from $100/mo
           &nbsp;&middot;&nbsp; 6-room architecture documented
           &nbsp;&middot;&nbsp; BREAKING: Insturix opens public beta
           &nbsp;&middot;&nbsp; AI editing now available &nbsp;&middot;&nbsp; New
-          pricing from $20/mo &nbsp;&middot;&nbsp; 6-room architecture
+          pricing from $100/mo &nbsp;&middot;&nbsp; 6-room architecture
           documented
         </div>
       </div>
