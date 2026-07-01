@@ -6,18 +6,21 @@
  * Faithful React port of the founder-finalized design (editron-prompt-flow.html). A state machine:
  *   idle → { upload | generate → { script | saas } } → onair(commit)
  * Studio-console language (warm-dark, gold-only accent, JetBrains Mono labels, watermark + status LED).
+ * All CSS is SCOPED under `.enp` so the design's generic class names can't collide with global styles.
  *
- * All CSS is SCOPED under `.enp` so the design's generic class names (.top/.body/.type/.form/.in…)
- * can't collide with global/Tailwind styles. Tokens live on `.enp`, mirroring the Editron `--ef-*` set.
- *
- * Phase 1 wiring: SCRIPT → real create endpoint; UPLOAD + SAAS route to the existing real flows.
- * Phase 2 will inline-wire upload + saas-generate, swap this in as the dashboard landing, and add
- * recent projects. Backend endpoints are reused as-is (this session is UI only).
+ * Wiring (this is the Editron dashboard landing):
+ *   - SCRIPT → real create endpoint, navigate to the new project.
+ *   - SAAS   → real saas-explainer generate endpoint (inline), navigate to the returned project.
+ *   - UPLOAD → hands off to the existing footage uploader at /dashboard/editron/upload.
+ *              (Phase 2b will inline the auto-edit uploader here.)
+ *   - "Projects" (top-right) → the same route to reopen existing projects.
+ * Backend endpoints are reused as-is (UI only).
  */
 
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
+import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
 
 type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'saas' | 'onair';
 
@@ -30,12 +33,6 @@ const META: Record<Screen, { h: string; sub: string; bc: string; wm: string; st:
   onair: { h: '', sub: '', bc: 'Editron / <b>On air</b>', wm: '', st: 'ON AIR', air: true },
 };
 const BACK: Record<Screen, Screen> = { idle: 'idle', upload: 'idle', generate: 'idle', script: 'generate', saas: 'generate', onair: 'idle' };
-
-const BRAND_SWATCHES: Record<string, string[]> = {
-  'Sancha Tea': ['#B5532A', '#E8C07A', '#2E2A24'],
-  'State Plate': ['#C7402F', '#F0E3C2', '#1C1A17'],
-  'Bonjour Socks': ['#3E7C6A', '#EED9B0', '#14201C'],
-};
 
 const CSS = `
 .enp{--bg:#0B0B0A;--surface:#0F0F0E;--raised:#131312;--well:#1B1A18;--border:#1C1B19;--bs:#282724;
@@ -50,6 +47,9 @@ const CSS = `
 .enp .top{position:absolute;top:22px;left:26px;right:26px;display:flex;justify-content:space-between;align-items:center;z-index:6}
 .enp .bc{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:flex;gap:8px;align-items:center}
 .enp .bc b{color:var(--gold);font-weight:500}
+.enp .topr{display:flex;align-items:center;gap:12px}
+.enp .projlink{background:transparent;border:1px solid var(--border);border-radius:5px;padding:4px 10px;color:var(--soft);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:border-color .2s,color .2s}
+.enp .projlink:hover{border-color:rgba(212,166,82,.4);color:var(--text)}
 .enp .status{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--border);border-radius:5px}
 .enp .status .led{width:6px;height:6px;border-radius:50%;background:var(--gold)}
 .enp .status.air{border-color:var(--red)}.enp .status.air .led{background:var(--red);animation:enpPl 1.4s infinite}
@@ -106,6 +106,7 @@ const CSS = `
 .enp .seg b.on{background:var(--gold);color:var(--bg);font-weight:700}
 .enp .ctx{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
 .enp .ctx .sw{display:flex;gap:5px}.enp .ctx .sw i{width:22px;height:22px;border-radius:4px;border:1px solid var(--border)}
+.enp .err{color:var(--red);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.04em}
 .enp .row-act{display:flex;align-items:center;gap:12px;margin-top:4px}
 .enp .gen-btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:8px;border:1px solid var(--gold);background:var(--gold);color:var(--bg);font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;cursor:pointer;transition:background .2s}
 .enp .gen-btn:hover{background:var(--goldH)}
@@ -133,16 +134,22 @@ function Seg({ options, value, onChange }: { options: string[]; value: string; o
   );
 }
 
+const DUR_SEC: Record<string, number> = { '15s': 15, '30s': 30, '60s': 60 };
+
 export default function NewProjectFlow() {
   const router = useRouter();
+  const brandsQuery = useAcceptedBrandVaultBrands();
+  const brands = brandsQuery.data ?? [];
+
   const [screen, setScreen] = useState<Screen>('idle');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // intake state
   const [scriptText, setScriptText] = useState('');
   const [scriptName, setScriptName] = useState('');
   const [scriptAspect, setScriptAspect] = useState('16:9');
-  const [brand, setBrand] = useState('Sancha Tea');
+  const [brandId, setBrandId] = useState('');
   const [saasProduct, setSaasProduct] = useState('');
   const [saasOutcome, setSaasOutcome] = useState('');
   const [saasDuration, setSaasDuration] = useState('30s');
@@ -151,37 +158,62 @@ export default function NewProjectFlow() {
   const [projName, setProjName] = useState('untitled');
   const [projType, setProjType] = useState('—');
 
-  const go = useCallback((s: Screen) => setScreen(s), []);
+  const go = useCallback((s: Screen) => { setError(null); setScreen(s); }, []);
 
   // SCRIPT → real create endpoint, then navigate to the project.
   const commitScript = useCallback(async () => {
     if (busy) return;
     const name = scriptName.trim() || 'untitled_script';
-    setBusy(true);
-    setProjName(name);
-    setProjType('Script → video');
-    setScreen('onair');
+    setBusy(true); setError(null);
+    setProjName(name); setProjType('Script → video'); setScreen('onair');
     try {
       const res = await fetch('/api/services/editron/projects/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, brandId: getActiveBrandIdFromStorage() }),
       });
-      if (!res.ok) throw new Error('create failed');
+      if (!res.ok) throw new Error('Could not create the project.');
       const data = await res.json();
       router.push(`/dashboard/editron/project/${data.projectId}`);
-    } catch {
-      setBusy(false);
-      setScreen('script');
+    } catch (e) {
+      setBusy(false); setScreen('script');
+      setError(e instanceof Error ? e.message : 'Could not create the project.');
     }
   }, [busy, scriptName, router]);
 
-  // Phase 1: UPLOAD + SAAS hand off to the existing real flows. Phase 2 inlines them here.
-  const commitFootage = useCallback(() => router.push('/dashboard/editron'), [router]);
-  const commitSaas = useCallback(() => router.push('/dashboard/editron/saas-explainer'), [router]);
+  // SAAS → real saas-explainer generate (inline), then navigate to the returned project.
+  const commitSaas = useCallback(async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    setProjName(saasProduct.trim() || 'explainer'); setProjType('SaaS explainer'); setScreen('onair');
+    try {
+      const res = await fetch('/api/services/editron/saas-explainer/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          productName: saasProduct,
+          outcome: saasOutcome,
+          durationSec: DUR_SEC[saasDuration] ?? 30,
+          aspectRatio: saasAspect,
+          brandId: brandId || getActiveBrandIdFromStorage() || undefined,
+        }),
+      });
+      const data = (await res.json()) as { success?: boolean; projectUrl?: string; error?: string };
+      if (!res.ok || !data.success || !data.projectUrl) {
+        throw new Error(data.error || 'Could not create this explainer.');
+      }
+      router.push(data.projectUrl);
+    } catch (e) {
+      setBusy(false); setScreen('saas');
+      setError(e instanceof Error ? e.message : 'Could not create this explainer.');
+    }
+  }, [busy, saasProduct, saasOutcome, saasDuration, saasAspect, brandId, router]);
+
+  // UPLOAD + reopen projects → the existing footage-uploader/dashboard (Phase 2b inlines upload).
+  const goProjects = useCallback(() => router.push('/dashboard/editron/upload'), [router]);
 
   const m = META[screen];
-  const swatches = BRAND_SWATCHES[brand] ?? BRAND_SWATCHES['Sancha Tea'];
 
   return (
     <div className="enp">
@@ -191,9 +223,12 @@ export default function NewProjectFlow() {
 
         <div className="top">
           <div className="bc" dangerouslySetInnerHTML={{ __html: m.bc }} />
-          <div className={m.air ? 'status air' : 'status'}>
-            <span className="led" />
-            <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: m.air ? 'var(--red)' : 'var(--gold)' }}>{m.st}</span>
+          <div className="topr">
+            <button type="button" className="projlink" onClick={goProjects}>Projects</button>
+            <div className={m.air ? 'status air' : 'status'}>
+              <span className="led" />
+              <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: m.air ? 'var(--red)' : 'var(--gold)' }}>{m.st}</span>
+            </div>
           </div>
         </div>
 
@@ -207,7 +242,7 @@ export default function NewProjectFlow() {
             {/* idle — the two doors */}
             <div className={screen === 'idle' ? 'panel on' : 'panel'}>
               <div className="doors">
-                <button type="button" className="door u" onClick={() => go('upload')}>
+                <button type="button" className="door u" onClick={goProjects}>
                   <span className="mo">&#8615;</span>
                   <span className="tx"><span className="nm">Upload</span><span className="dl">01 &#183; bring footage</span></span>
                   <span className="go">Drop or browse &#8595;</span>
@@ -222,7 +257,7 @@ export default function NewProjectFlow() {
 
             {/* upload */}
             <div className={screen === 'upload' ? 'panel on' : 'panel'}>
-              <button type="button" className="drop" onClick={commitFootage}>
+              <button type="button" className="drop" onClick={goProjects}>
                 <span className="ar">&#8613;</span>
                 <span className="t">Drop footage or browse</span>
                 <span className="s">Editron cuts your raw clips automatically</span>
@@ -258,6 +293,7 @@ export default function NewProjectFlow() {
                     <Seg options={['16:9', '9:16', '1:1']} value={scriptAspect} onChange={setScriptAspect} />
                   </label>
                 </div>
+                {screen === 'script' && error ? <div className="err">{error}</div> : null}
                 <div className="row-act">
                   <button type="button" className="gen-btn" onClick={commitScript} disabled={busy}>Create</button>
                 </div>
@@ -269,8 +305,9 @@ export default function NewProjectFlow() {
               <div className="form">
                 <div className="grid2">
                   <label className="fld"><span className="l">Brand vault</span>
-                    <select className="in" value={brand} onChange={(e) => setBrand(e.target.value)}>
-                      {Object.keys(BRAND_SWATCHES).map((b) => <option key={b}>{b}</option>)}
+                    <select className="in" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
+                      <option value="">{brands.length ? 'Select a brand…' : 'No accepted brands yet'}</option>
+                      {brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
                     </select>
                   </label>
                   <label className="fld"><span className="l">Product</span>
@@ -290,21 +327,22 @@ export default function NewProjectFlow() {
                 </div>
                 <div className="ctx">
                   <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--gold)' }}>BRAND CONTEXT</span>
-                  <div className="sw">{swatches.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
-                  <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>42 ASSETS &#183; 18 TOKENS &#183; LINKED</span>
+                  <div className="sw"><i style={{ background: '#B5532A' }} /><i style={{ background: '#E8C07A' }} /><i style={{ background: '#2E2A24' }} /></div>
+                  <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{brandId ? 'BRAND LINKED' : 'PICK A BRAND'}</span>
                 </div>
+                {screen === 'saas' && error ? <div className="err">{error}</div> : null}
                 <div className="row-act">
-                  <button type="button" className="gen-btn" onClick={commitSaas}><span className="d" />Generate</button>
+                  <button type="button" className="gen-btn" onClick={commitSaas} disabled={busy}><span className="d" />Generate</button>
                 </div>
               </div>
             </div>
 
-            {/* on air */}
+            {/* on air — commit / generating */}
             <div className={screen === 'onair' ? 'panel on' : 'panel'}>
               <div className="onair">
                 <div className="nowbar">
                   <div className="l">
-                    <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--red)' }}>NOW EDITING</span>
+                    <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--red)' }}>{busy ? 'GENERATING' : 'NOW EDITING'}</span>
                     <span className="m" style={{ fontSize: 12, color: 'var(--text)' }}>{projName}</span>
                   </div>
                   <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{projType}</span>
@@ -312,7 +350,7 @@ export default function NewProjectFlow() {
                 <div className="monitor">
                   <div className="rec">
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', display: 'inline-block', animation: 'enpPl 1.4s infinite' }} />
-                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>REC 00:12</span>
+                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{busy ? 'WORKING…' : 'REC 00:12'}</span>
                   </div>
                   <div className="tl">
                     <div className="clips">
@@ -326,7 +364,7 @@ export default function NewProjectFlow() {
           </div>
         </div>
 
-        {screen !== 'idle' ? (
+        {screen !== 'idle' && screen !== 'onair' ? (
           <button type="button" className="back" onClick={() => go(BACK[screen])}>&#9666; Back</button>
         ) : null}
       </div>
