@@ -86,41 +86,20 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // Optimize bundle splitting
-  webpack: (config, { dev, isServer }) => {
-    if (!dev && !isServer) {
-      config.optimization.splitChunks = {
-        chunks: 'all',
-        cacheGroups: {
-          default: false,
-          vendors: false,
-          // Vendor chunk for large libraries
-          vendor: {
-            name: 'vendor',
-            chunks: 'all',
-            test: /node_modules/,
-            priority: 20,
-          },
-          // Separate chunk for UI libraries
-          ui: {
-            name: 'ui',
-            chunks: 'all',
-            test: /node_modules\/(framer-motion|@radix-ui|lucide-react|gsap|@gsap|lenis)/,
-            priority: 30,
-          },
-          // Common chunk for shared code
-          common: {
-            name: 'common',
-            minChunks: 2,
-            chunks: 'all',
-            priority: 10,
-            reuseExistingChunk: true,
-          },
-        },
-      };
-    }
-    return config;
-  },
+  // LCP fix (2026-07-01): removed the custom production splitChunks override.
+  //
+  // OLD behavior: a single `vendor` cacheGroup with `test: /node_modules/` (no
+  // maxSize / maxInitialRequests) forced almost the entire node_modules tree into
+  // ONE ~4.8MB `vendor` chunk that every public page had to download before it
+  // could paint (field LCP ~6.1s). It also worked against the
+  // `experimental.optimizePackageImports` list above.
+  //
+  // NEW behavior: with no override, Next.js applies its default chunking —
+  // per-route chunks plus size-capped shared chunks — which breaks that
+  // mega-chunk into smaller, route-scoped files and lets optimizePackageImports
+  // take effect. Same modules ship, just packaged smaller; no UI/behavior change.
+  //
+  // Rollback: restore the `webpack` splitChunks block from git history.
   images: {
     remotePatterns: [
       {
