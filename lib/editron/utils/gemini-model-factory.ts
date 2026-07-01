@@ -3,8 +3,10 @@
  *
  * Replaces hardcoded model references across the codebase with a single configurable factory.
  *
- * Model hierarchy (updated 2026-06-27 — gemini-3.1-flash-lite-preview was pulled / returns 503):
- *   gemini-2.5-flash     — Analysis, chat, captions, classification (fast + cheap)
+ * Model hierarchy (updated 2026-07-01 — gemini-3.1-flash-lite is now GA and is the
+ * replacement for the pulled -preview variant, which was 503ing and is being shut down):
+ *   gemini-2.5-flash       — Analysis, captions, classification (fast + cheap)
+ *   gemini-3.1-flash-lite  — Chat (GA, low-latency, cost-effective)
  *   gemini-3.1-pro-preview — Intelligence, transcript editing, creative intent (best reasoning)
  *
  * The factory uses the native @google/generative-ai SDK (not @ai-sdk/google).
@@ -30,7 +32,7 @@ async function getGenAI() {
 
 /** Canonical model name — single source of truth. Import this instead of hardcoding. */
 export const ANALYSIS_MODEL_NAME = process.env.LLM_ANALYSIS_MODEL || 'gemini-2.5-flash';
-export const CHAT_MODEL_NAME = 'gemini-2.5-flash';
+export const CHAT_MODEL_NAME = 'gemini-3.1-flash-lite';
 
 /**
  * Get a model for video/image analysis (fast + cheap).

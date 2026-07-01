@@ -283,11 +283,10 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
         'veo-3.1': 30,
         'seedance-1.5': 36,
         'seedance-2.0': 45,
-        // ⚠️ INTERIM: happy-horse-v1.1 (native-audio, UI-selectable in ExportConfigPanel)
-        // has no published fal price in-repo. Priced at the seedance-2.0 ceiling as a
-        // fail-safe (never underprices vs the current range). Confirm fal.ai
-        // alibaba/happy-horse/v1.1 cost and adjust. Do NOT drop — unpriced => 1 credit/sec leak.
-        'happy-horse-v1.1': 45,
+        // happy-horse-v1.1 (native-audio, 1080p default): fal charges $0.18/sec at 1080p
+        // ($0.14/sec at 720p). Interpolated on the audio-model curve (Kling 2.6 audio
+        // $0.14->17, Veo 3.1 audio $0.40->30) => ~20 credits/sec at $0.18/sec.
+        'happy-horse-v1.1': 20,
       },
     },
     {

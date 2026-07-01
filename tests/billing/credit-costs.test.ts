@@ -185,10 +185,9 @@ describe("credit pricing", () => {
   });
 
   it("keeps Editron chat billing tied to the canonical chat model", () => {
-    // Infra pulled gemini-3.1-flash-lite-preview (returned 503s) and runs 2.5-flash
-    // (see lib/editron/utils/gemini-model-factory.ts header). If 3.1-flash-lite is
-    // confirmed available, flip BOTH this assertion and CHAT_MODEL_NAME together.
-    expect(CHAT_MODEL_NAME).toBe("gemini-2.5-flash");
+    // gemini-3.1-flash-lite is GA (since 2026-05-07) and replaces the pulled -preview
+    // variant. Chat is pinned to it via CHAT_MODEL_NAME (billing multiplier = 1).
+    expect(CHAT_MODEL_NAME).toBe("gemini-3.1-flash-lite");
 
     const source = readRoute("app/api/services/editron/chat/stream/route.ts");
 
