@@ -74,6 +74,38 @@ describe('Avatar Vault API', () => {
     expect(result.body.error.code).toBe('brand_required');
   });
 
+  it('returns validation detail when review acceptance fails', async () => {
+    const store = createInMemoryAvatarProfileRepository();
+    const created = await createAvatarProfileDraftFromRequest(
+      {
+        userId: 'user_api',
+        orgId: null,
+        actorId: 'user_api',
+        body: {
+          bindBrand: false,
+          recordId: 'draft_api_no_consent',
+          profile: avatar({ rights: { consentConfirmed: false, likenessOwner: 'self', commercialUseAllowed: true } }),
+        },
+      },
+      { store, now: () => NOW },
+    );
+    expect(created.status).toBe(201);
+
+    const result = await reviewAvatarProfileDraft(
+      {
+        userId: 'user_api',
+        orgId: null,
+        recordId: 'draft_api_no_consent',
+        body: { action: 'accept' },
+      },
+      { store, now: () => '2026-07-01T01:05:00.000Z' },
+    );
+
+    expect(result.status).toBe(422);
+    expect(result.body.ok).toBe(false);
+    if (result.body.ok) throw new Error('Expected review validation failure.');
+    expect(result.body.error.message).toContain('Likeness and voice consent must be confirmed before acceptance.');
+  });
   it('rejects virtual person drafts without a full-body reference', async () => {
     const result = await createAvatarProfileDraftFromRequest(
       {

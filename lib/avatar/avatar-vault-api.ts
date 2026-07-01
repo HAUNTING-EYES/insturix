@@ -168,11 +168,18 @@ export async function reviewAvatarProfileDraft(
   if (!result) return fail(400, 'invalid_body', 'Review action must be "accept" or "reject".');
   if (!result.ok) {
     const status = result.code === 'not_found' ? 404 : result.code === 'not_draft' ? 409 : 422;
-    return fail(status, result.code, 'Avatar profile review failed.', result.issues);
+    return fail(status, result.code, avatarReviewFailureMessage(result.issues), result.issues);
   }
   return { status: 200, body: { ok: true, record: result.record, superseded: result.superseded } };
 }
 
+function avatarReviewFailureMessage(issues: unknown[] | undefined): string {
+  const issueMessages = Array.isArray(issues)
+    ? issues.map((issue) => asRecord(issue)?.message).filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
+    : [];
+  if (issueMessages.length === 0) return 'Avatar profile review failed.';
+  return `Avatar profile review failed: ${issueMessages.join(' ')}`;
+}
 function resolveBrandScope(body: Record<string, unknown>):
   | { ok: true; brandId: string | null }
   | { ok: false; result: AvatarVaultApiResult<AvatarVaultErrorBody> } {

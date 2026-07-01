@@ -157,6 +157,36 @@ describe('AvatarProfile lifecycle', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('accepts virtual person image references before a voice source is attached', () => {
+    const repo = createInMemoryAvatarProfileRepository();
+    const draft = repo.saveDraft(
+      avatar({
+        sourceType: 'virtual_person_profile',
+        portrait: { assetId: 'avatar_face_asset', imageUrl: 'https://cdn.example.test/avatar/face.png' },
+        identityPack: {
+          referenceAssets: [
+            { role: 'face_front', assetId: 'avatar_face_asset', imageUrl: 'https://cdn.example.test/avatar/face.png' },
+            { role: 'full_body_front', assetId: 'avatar_body_asset', imageUrl: 'https://cdn.example.test/avatar/full-body.png' },
+          ],
+        },
+        voice: { sourceType: 'uploaded_voice_sample', sampleAssetId: '' },
+      }),
+      { id: 'draft_virtual_no_voice', now: NOW },
+    );
+
+    expect(draft.review.reasons).toContain('Profile has optional or review-only evidence.');
+
+    const accepted = repo.acceptDraft('draft_virtual_no_voice', {
+      actorId: 'avatar_reviewer',
+      now: '2026-07-01T00:05:00.000Z',
+    });
+
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) throw new Error('Expected virtual person acceptance to succeed without a voice source.');
+    expect(accepted.record.status).toBe('accepted');
+    expect(accepted.record.review.reasons).toEqual([]);
+    expect(accepted.record.profile.voice.sourceType).toBe('uploaded_voice_sample');
+  });
   it('blocks virtual person acceptance without a full-body reference', () => {
     const result = validateAvatarProfile(
       avatar({

@@ -114,7 +114,10 @@ export function validateAvatarProfile(profile: AvatarProfile): AvatarProfileVali
     issues.push(error('missing_full_body_reference', 'identityPack.referenceAssets', 'A virtual person profile requires a full-body reference.'));
   }
   if (!hasUsableVoiceSource(profile.voice)) {
-    issues.push(error('missing_voice_source', 'voice', 'A selected TTS voice, uploaded voice sample, or imported voice profile is required.'));
+    const issue = isVirtualPerson
+      ? warning('missing_voice_source', 'voice', 'A voice source is not attached yet; speech generation must choose TTS or upload voice later.')
+      : error('missing_voice_source', 'voice', 'A selected TTS voice, uploaded voice sample, or imported voice profile is required.');
+    issues.push(issue);
   }
   if (!profile.rights?.consentConfirmed) {
     issues.push(error('missing_consent', 'rights.consentConfirmed', 'Likeness and voice consent must be confirmed before acceptance.'));
@@ -194,6 +197,7 @@ export function acceptAvatarProfileDraft(
       review: {
         ...record.review,
         required: false,
+        reasons: [],
         acceptedAt: now,
         acceptedBy: options.actorId,
       },
@@ -241,7 +245,7 @@ export function getAvatarReviewReasons(
 ): string[] {
   const reasons = new Set<string>(['Avatar profiles must be reviewed before they can generate videos.']);
   if (validation.errors.length > 0) reasons.add('Profile has blocking validation errors.');
-  if (validation.warnings.length > 0) reasons.add('Profile has fallback or review-only evidence.');
+  if (validation.warnings.length > 0) reasons.add('Profile has optional or review-only evidence.');
   if (profile.brandId === null || profile.brandId === undefined) {
     reasons.add('Profile is personal/no-brand and must not inherit project brand metadata silently.');
   }
