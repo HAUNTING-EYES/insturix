@@ -257,14 +257,19 @@ export default function CalosCalendarV3() {
           <div style={{ border: `1px dashed ${C.bs}`, borderRadius: 14, padding: '58px 24px', textAlign: 'center' }}>
             <Mono s={11} c={C.dim}>Loading calendar…</Mono>
           </div>
-        ) : isEmpty ? (
-          <div style={{ border: `1px dashed ${C.bs}`, borderRadius: 14, padding: '58px 24px', textAlign: 'center' }}>
-            <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em' }}>No content for {brandName} yet.</div>
-            <div style={{ color: C.soft, marginTop: 8, fontSize: 14.5 }}>Add your first deliverable to start building the month.</div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 22 }}><Btn variant="primary" onClick={handleNew}>+ New content</Btn></div>
-          </div>
         ) : (
           <>
+            {/* First-run hint — a slim banner, never replaces the dated grid. */}
+            {isEmpty && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '11px 14px', background: C.raised, border: `1px dashed ${C.bs}`, borderRadius: 10, marginBottom: 12 }}>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>No content for {brandName} yet.</span>
+                  <span style={{ color: C.soft, fontSize: 13.5, marginLeft: 8 }}>Add your first deliverable to start building the month.</span>
+                </div>
+                <Btn size="sm" variant="primary" onClick={handleNew}>+ New content</Btn>
+              </div>
+            )}
+
             {/* cadence legend (month) */}
             {view === 'month' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
