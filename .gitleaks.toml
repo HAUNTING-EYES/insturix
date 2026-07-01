@@ -1,0 +1,27 @@
+# gitleaks config for Insturix Front-End
+# Scanned in CI over the working tree (see .github/workflows/gitleaks.yml).
+title = "Insturix gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deliberate dummies, placeholders, env-var references, and test fixtures"
+paths = [
+  # Read-only probe sets a fake service account it never authenticates with.
+  '''scripts/probe-semantic-mg-rerun\.ts''',
+  # Test fixtures may contain synthetic tokens/ids.
+  '''.*\.test\.(ts|tsx|js|mjs|py)$''',
+  # Historical session logs (secrets already removed from HEAD; history purge tracked separately).
+  '''docs/agents/sessions/.*\.md$''',
+]
+regexes = [
+  '''example\.invalid''',
+  '''read-only-mg-probe''',
+  '''<[A-Za-z0-9_-]+>''',            # <user>, <password> style placeholders
+  '''process\.env\.[A-Z0-9_]+''',    # env-var references, not literals
+  '''os\.environ''',
+  '''YOUR_[A-Z0-9_]+''',
+  '''placeholder''',
+  '''sk_test_''',                     # Stripe/Clerk publishable test keys
+]

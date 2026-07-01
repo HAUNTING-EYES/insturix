@@ -8,7 +8,7 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 
 import google.generativeai as genai
 
-API_KEY = "AIzaSyBDF4TFiUhQAcgQCvdZDr15M9Jn-4VTxBE"
+API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
 genai.configure(api_key=API_KEY)
 
 MODEL = genai.GenerativeModel("gemini-2.5-flash")

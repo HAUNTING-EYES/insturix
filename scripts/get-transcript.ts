@@ -1,5 +1,6 @@
 import { MongoClient } from 'mongodb';
-const uri = 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = process.env.MONGODB_URI;
+if (!uri) throw new Error('Set MONGODB_URI to run this probe (do not hardcode credentials).');
 const client = new MongoClient(uri);
 const PID = 'proj_K_0-dSCJ76z4';
 
