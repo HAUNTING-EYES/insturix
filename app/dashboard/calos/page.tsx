@@ -9,7 +9,7 @@ import { toast } from '@/hooks/use-toast';
 import { EDITORIAL_STAGE_META } from '@/lib/calos/stages';
 import BrandConnections from './BrandConnections';
 import CommandBrief from './CommandBrief';
-import { Linkedin, Share2, Trash2 } from 'lucide-react';
+import { Linkedin, MoreHorizontal, Share2, Trash2 } from 'lucide-react';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 
 interface BrandOption {
@@ -26,6 +26,7 @@ export default function CalosPage() {
   const [loading, setLoading] = useState(true);
   const [brandId, setBrandId] = useState<string | null>(null);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +63,22 @@ export default function CalosPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const closeMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      if (!event.target.closest('[data-calos-calendar-actions]')) setActionsMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActionsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', closeMenu);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeMenu);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [actionsMenuOpen]);
   const { cards, createCard, updateCard, deleteCard, deleteCardsForDate, clearAll, refresh } = useCalosDeliverables(brandId);
 
   const selectBrand = (id: string) => {
@@ -210,63 +227,90 @@ export default function CalosPage() {
 
   return (
     <div className="w-full h-full flex flex-col bg-[#0B0B0A]">
-      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b border-[#1C1B19]/60 bg-[#0B0B0A]/95 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-[#ECE9E1]">Content Calendar</h1>
-          {/* Brand switcher only when there's more than one brand (agencies). A single brand
-              or a solo user never sees a "pick a client" step. */}
-          {brands.length > 1 && (
-            <select
-              value={brandId ?? ''}
-              onChange={(e) => selectBrand(e.target.value)}
-              aria-label="Switch brand"
-              className="bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40"
-            >
-              {brands.map((b) => (
-                <option key={b.brandId} value={b.brandId}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          )}
-          {brandId && <CampaignBar brandId={brandId} onAutoFilled={refresh} />}
-        </div>
-        {!loading && brandId && (
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleClearAll}
-              disabled={cards.length === 0}
-              title="Clear every content card from this brand calendar"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#D46A5C]/30 px-2.5 py-1.5 text-[11px] text-[#D46A5C] hover:bg-[#D46A5C]/10 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear all
-            </button>
-            <button
-              onClick={handleShare}
-              title="Copy a read-only calendar link to share with this client"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#1C1B19] px-2.5 py-1.5 text-[11px] text-[#ECE9E1] hover:bg-[#1C1B19]/60"
-            >
-              <Share2 className="h-3.5 w-3.5 text-[#5CCCB8]" />
-              Share
-            </button>
-            <button
-              onClick={() => setConnectionsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#1C1B19] px-2.5 py-1.5 text-[11px] text-[#ECE9E1] hover:bg-[#1C1B19]/60"
-            >
-              <Linkedin className="h-3.5 w-3.5 text-[#5CCCB8]" />
-              Publishing
-            </button>
-            <div className="hidden lg:flex items-center gap-2.5 text-[10px] text-[#7A776E]">
-              {Object.values(EDITORIAL_STAGE_META).map((m) => (
-                <span key={m.label} className="flex items-center gap-1">
-                  <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
-                  {m.label}
-                </span>
-              ))}
-            </div>
+      <div className="sticky top-0 z-30 border-b border-[#1C1B19]/60 bg-[#0B0B0A]/95 backdrop-blur-xl">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+          <div className="flex min-w-[210px] shrink-0 items-center gap-3">
+            <h1 className="text-sm font-semibold text-[#ECE9E1]">Content Calendar</h1>
+            {/* Brand switcher only when there's more than one brand (agencies). A single brand
+                or a solo user never sees a "pick a client" step. */}
+            {brands.length > 1 && (
+              <select
+                value={brandId ?? ''}
+                onChange={(e) => selectBrand(e.target.value)}
+                aria-label="Switch brand"
+                className="h-9 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 text-xs text-[#ECE9E1] focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40"
+              >
+                {brands.map((b) => (
+                  <option key={b.brandId} value={b.brandId}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-        )}
+
+          <div className="min-w-[320px] flex-1">
+            {brandId && <CampaignBar brandId={brandId} onAutoFilled={refresh} />}
+          </div>
+
+          {!loading && brandId && (
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={handleShare}
+                title="Copy a read-only calendar link to share with this client"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#1C1B19] px-3 text-[11px] font-medium text-[#ECE9E1] hover:bg-[#1C1B19]/60"
+              >
+                <Share2 className="h-3.5 w-3.5 text-[#5CCCB8]" />
+                Share
+              </button>
+              <button
+                onClick={() => setConnectionsOpen(true)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#1C1B19] px-3 text-[11px] font-medium text-[#ECE9E1] hover:bg-[#1C1B19]/60"
+              >
+                <Linkedin className="h-3.5 w-3.5 text-[#5CCCB8]" />
+                Publishing
+              </button>
+              <div className="relative" data-calos-calendar-actions>
+                <button
+                  type="button"
+                  onClick={() => setActionsMenuOpen((open) => !open)}
+                  aria-label="Calendar actions"
+                  aria-expanded={actionsMenuOpen}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#1C1B19] text-[#7A776E] hover:bg-[#1C1B19]/60 hover:text-[#ECE9E1]"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                {actionsMenuOpen && (
+                  <div className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-[#1C1B19] bg-[#0B0B0A] p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.45)]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        void handleClearAll();
+                      }}
+                      disabled={cards.length === 0}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#D46A5C] transition-colors hover:bg-[#D46A5C]/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear all content
+                    </button>
+                    <div className="mt-1 border-t border-[#1C1B19]/80 pt-1">
+                      <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-[#7A776E]">Stage key</div>
+                      <div className="flex flex-wrap gap-1.5 px-2 py-2">
+                        {Object.values(EDITORIAL_STAGE_META).map((m) => (
+                          <span key={m.label} className="inline-flex items-center gap-1 rounded-full border border-[#1C1B19] px-2 py-1 text-[10px] text-[#8E8A80]">
+                            <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
+                            {m.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {!loading && brandId && (
