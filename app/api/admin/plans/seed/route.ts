@@ -27,27 +27,37 @@ const PLANS_CONFIG: PlanTemplate[] = [
     sortOrder: 1,
   },
   {
-    name: "Plus Plan",
-    type: "plus",
-    description: "Enhanced features for growing creators",
+    name: "Agency Starter Plan",
+    type: "agency_starter",
+    description: "Core AI workspace for agencies starting at $100/month",
     isActive: true,
     sortOrder: 2,
   },
   {
-    name: "Pro Plan",
-    type: "pro",
-    description: "Professional tools for serious creators",
+    name: "Agency Growth Plan",
+    type: "agency_growth",
+    description: "Expanded AI workspace for growing agencies at $500/month",
     isActive: true,
     sortOrder: 3,
   },
   {
-    name: "Premium Plan",
-    type: "premium",
-    description: "All-access for power users and teams",
+    name: "Agency Scale Plan",
+    type: "agency_scale",
+    description: "High-volume AI workspace for scaled agencies at $1000/month",
     isActive: true,
     sortOrder: 4,
   },
 ];
+
+const SERVICE_LIMIT_PLAN_TYPE: Record<string, "free" | "plus" | "pro" | "premium"> = {
+  free: "free",
+  plus: "plus",
+  pro: "pro",
+  premium: "premium",
+  agency_starter: "plus",
+  agency_growth: "pro",
+  agency_scale: "premium",
+};
 
 async function handler() {
   await connectToDatabase();
@@ -61,7 +71,7 @@ async function handler() {
 
     // Dynamically get all services from UNIFIED_SERVICE_LIMITS
     Object.keys(UNIFIED_SERVICE_LIMITS).forEach(serviceName => {
-      const serviceLimits = getPlanLimits(serviceName, planConfig.type as "free" | "plus" | "pro" | "premium", false);
+      const serviceLimits = getPlanLimits(serviceName, SERVICE_LIMIT_PLAN_TYPE[planConfig.type], false);
       allServiceLimits[serviceName] = serviceLimits;
     });
 
@@ -92,7 +102,7 @@ async function handler() {
       }
     } else {
       // Free plan has zero pricing for all currencies
-      const samplePlan = SERVICE_PRICING_CONFIGS.plus; // Use plus plan as template for currencies
+      const samplePlan = SERVICE_PRICING_CONFIGS.agency_starter; // Use starter plan as template for currencies
       for (const currency of Object.keys(samplePlan)) {
         const currencyInfo = samplePlan[currency];
         pricing[currency] = {

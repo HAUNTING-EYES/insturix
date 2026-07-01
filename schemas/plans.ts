@@ -174,7 +174,7 @@ const planSchema = new Schema<IPlan>({
     type: String,
     required: true,
     unique: true,
-    enum: ["free", "plus", "pro", "premium"],
+    enum: ["free", "plus", "pro", "premium", "agency_starter", "agency_growth", "agency_scale"],
   },
   description: {
     type: String,

@@ -3,6 +3,9 @@ export enum UserType {
   Plus = "plus",
   Pro = "pro",
   Premium = "premium",
+  AgencyStarter = "agency_starter",
+  AgencyGrowth = "agency_growth",
+  AgencyScale = "agency_scale",
 }
 
 export interface IServiceLimit {

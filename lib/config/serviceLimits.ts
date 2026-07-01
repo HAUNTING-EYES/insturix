@@ -251,10 +251,9 @@ export interface CurrencyPricing {
   yearly: PricingDetail;
 }
 
-// Pricing aligned with SUBSCRIPTION_PLANS in creditCosts.ts (source of truth)
-// USD: Plus $20/mo, Pro $49/mo, Premium $99/mo
-// Yearly = 10x monthly (2 months free)
-// Other currencies scaled proportionally
+// Razorpay seed pricing. SUBSCRIPTION_PLANS in creditCosts.ts is the public source of truth.
+// Agency plans are $100/$500/$1000 per month and yearly = 10x monthly.
+// Legacy plus/pro/premium entries remain for historical DB records; new seed data uses agency_* keys.
 export const SERVICE_PRICING_CONFIGS: Record<string, Record<string, CurrencyPricing>> = {
   plus: {
     USD: {
@@ -359,3 +358,33 @@ export const SERVICE_PRICING_CONFIGS: Record<string, Record<string, CurrencyPric
     },
   },
 };
+function roundCurrencyAmount(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
+
+function buildAgencyPricing(base: Record<string, CurrencyPricing>, usdMonthly: number): Record<string, CurrencyPricing> {
+  const multiplier = usdMonthly / base.USD.monthly.amount;
+  return Object.fromEntries(
+    Object.entries(base).map(([currency, pricing]) => {
+      const monthlyAmount = currency === "USD"
+        ? usdMonthly
+        : roundCurrencyAmount(pricing.monthly.amount * multiplier);
+      return [currency, {
+        monthly: {
+          amount: monthlyAmount,
+          currency: pricing.monthly.currency,
+          symbol: pricing.monthly.symbol,
+        },
+        yearly: {
+          amount: currency === "USD" ? usdMonthly * 10 : roundCurrencyAmount(monthlyAmount * 10),
+          currency: pricing.yearly.currency,
+          symbol: pricing.yearly.symbol,
+        },
+      }];
+    })
+  );
+}
+
+SERVICE_PRICING_CONFIGS.agency_starter = buildAgencyPricing(SERVICE_PRICING_CONFIGS.plus, 100);
+SERVICE_PRICING_CONFIGS.agency_growth = buildAgencyPricing(SERVICE_PRICING_CONFIGS.pro, 500);
+SERVICE_PRICING_CONFIGS.agency_scale = buildAgencyPricing(SERVICE_PRICING_CONFIGS.premium, 1000);

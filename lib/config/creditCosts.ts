@@ -2,10 +2,10 @@
  * Credit Cost Configuration
  * 
  * Defines how credits are consumed per service/action.
- * Multipliers TBD per implemented model - this is the framework.
+ * Pricing baseline: 30 credits = 1 USD.
  */
 
-export type CreditBillingType = 'per_request' | 'per_minute' | 'per_token';
+export type CreditBillingType = 'per_request' | 'per_minute' | 'per_second' | 'per_token' | 'per_character';
 
 export interface CreditCostConfig {
   service: string;
@@ -18,6 +18,27 @@ export interface CreditCostConfig {
   modelMultipliers?: Record<string, number>;
   // Request type multipliers (for services with different request types)
   requestTypeMultipliers?: Record<string, number>;
+}
+
+export class CreditCostConfigurationError extends Error {
+  readonly service: string;
+  readonly action?: string;
+
+  constructor(service: string, action?: string) {
+    const target = action ? `${service}.${action}` : service;
+    super(`Credit cost is not configured for ${target}`);
+    this.name = 'CreditCostConfigurationError';
+    this.service = service;
+    this.action = action;
+  }
+}
+
+export const CREDITS_PER_USD = 30;
+export const USD_PER_CREDIT = 1 / CREDITS_PER_USD;
+export const ANNUAL_BILLING_MULTIPLIER = 10;
+
+export function creditsForUsd(usd: number): number {
+  return Math.round(usd * CREDITS_PER_USD);
 }
 
 /**
@@ -33,10 +54,8 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'thinkforge',
       action: 'chat_message',
       billingType: 'per_request',
-      baseCost: 1,
-      description: 'Per chat message/interaction',
-      // TBD: Add model multipliers when we know implemented models
-      // Example: { 'gpt-4': 3, 'gpt-3.5-turbo': 1, 'gemini-pro': 2 }
+      baseCost: 0.2,
+      description: 'Per chat message/interaction (target: 1 credit per 5 messages)',
       modelMultipliers: {},
     },
     {
@@ -62,9 +81,35 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'alyzitron',
       action: 'video_analysis',
       billingType: 'per_minute',
-      baseCost: 2,
-      description: 'Per minute of video analyzed',
-      // Single model currently, flat rate
+      baseCost: 8,
+      description: 'Per minute of video analyzed on flash-lite analysis path',
+      modelMultipliers: {
+        'gemini-3.1-flash-lite-preview': 1,
+        'gemini-3.1-flash-lite': 1,
+        'gemini-2.5-flash': 1.25,
+        'gemini-3.1-pro-preview': 3.75,
+        'gemini-3.1-pro-heavy': 9.125,
+      },
+    },
+    {
+      service: 'alyzitron',
+      action: 'transcription',
+      billingType: 'per_minute',
+      baseCost: 3,
+      description: 'Per minute of standalone transcription via Deepgram/fal fallback',
+      modelMultipliers: {},
+    },
+    {
+      service: 'alyzitron',
+      action: 'chat_message',
+      billingType: 'per_token',
+      baseCost: 0.5,
+      description: 'Per 1000 estimated tokens for Alyzitron report chat and summarization',
+      modelMultipliers: {
+        'gemini-2.5-flash': 1,
+        'gemini-3.1-flash-lite': 1,
+        'gemini-3.1-pro-preview': 4,
+      },
     },
   ],
   
@@ -77,8 +122,47 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       description: 'Per 1000 tokens consumed',
       // Model-specific multipliers (gemini-2.5-flash is baseline 1x)
       modelMultipliers: {
+        'gemini-3.1-flash-lite-preview': 1,
+        'gemini-3.1-flash-lite': 1,
         'gemini-2.5-flash': 1,
         'gemini-1.5-pro': 3,
+        'gemini-3.1-pro-preview': 4,
+      },
+    },
+    {
+      service: 'editron',
+      action: 'render_export',
+      billingType: 'per_minute',
+      baseCost: 3,
+      description: 'Per output minute of Editron render/export',
+      requestTypeMultipliers: {
+        standard: 1,
+        chapter: 1.5,
+        uhd: 3,
+      },
+    },
+    {
+      service: 'editron',
+      action: 'auto_edit_analysis',
+      billingType: 'per_minute',
+      baseCost: 12,
+      description: 'Per source video minute for Editron auto-edit analysis and director planning',
+      requestTypeMultipliers: {
+        standard: 1,
+        reference_guided: 1.25,
+        long_form: 1.5,
+      },
+    },
+    {
+      service: 'editron',
+      action: 'asset_analysis',
+      billingType: 'per_minute',
+      baseCost: 6,
+      description: 'Per uploaded asset analysis unit for Editron media-library AI tagging, embeddings, and graph enrichment',
+      requestTypeMultipliers: {
+        video: 1,
+        image: 0.5,
+        audio: 0.5,
       },
     },
   ],
@@ -91,11 +175,13 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       baseCost: 1, // Base is 1, multipliers define the actual model cost
       description: 'Per music track generated',
       modelMultipliers: {
-        'fal-ai/minimax-music/v2': 3,
-        'sonauto/v2/text-to-music': 8,
-        'fal-ai/ace-step/prompt-to-audio': 2,
-        'beatoven/music-generation': 5,
-        'beatoven/sound-effect-generation': 5,
+        'fal-ai/minimax-music/v2': 5,
+        'fal-ai/minimax-music/v1': 5,
+        'sonauto/v2/text-to-music': 11,
+        'fal-ai/ace-step/prompt-to-audio': 1,
+        'beatoven/music-generation': 15,
+        'beatoven/sound-effect-generation': 15,
+        'fal-ai/stable-audio/v2.5': 30,
       },
     },
   ],
@@ -105,9 +191,22 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'clickatron',
       action: 'variation',
       billingType: 'per_request',
-      baseCost: 3,
+      baseCost: 5,
       description: 'Per image variation generated',
-      modelMultipliers: {},
+      modelMultipliers: {
+        'fal-ai/imagen4/preview': 1,
+        'fal-ai/bytedance/seedream/v4/edit': 1,
+        'fal-ai/bytedance/seedream/v4/text-to-image': 1,
+        'fal-ai/flux-kontext/dev': 1,
+        'fal-ai/flux/dev/inpainting': 0.8,
+        'fal-ai/nano-banana': 1,
+        'fal-ai/nano-banana/edit': 1,
+        'fal-ai/bytedance/seedream/v4.5/text-to-image': 1.2,
+        'fal-ai/bytedance/seedream/v4.5/edit': 1.2,
+        'fal-ai/nano-banana-pro': 4.6,
+        'fal-ai/nano-banana-pro/edit': 4.6,
+        'fal-ai/gemini-3-pro-image-preview': 4,
+      },
       requestTypeMultipliers: {
         'variation': 1,
         'generation': 1.5,
@@ -117,35 +216,96 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
     },
   ],
 
+  calos: [
+    {
+      service: 'calos',
+      action: 'ai_plan',
+      billingType: 'per_request',
+      baseCost: 20,
+      description: 'Per AI content-calendar plan run, including planner and configured trend providers',
+      modelMultipliers: {},
+    },
+    {
+      service: 'calos',
+      action: 'generate_deliverable',
+      billingType: 'per_request',
+      baseCost: 5,
+      description: 'Per wired CalOS deliverable generator run; downstream media generation is billed separately',
+      requestTypeMultipliers: {
+        thinkforge: 1,
+        clickatron: 1,
+      },
+    },
+  ],
+
+  brand_vault: [
+    {
+      service: 'brand_vault',
+      action: 'brand_scan',
+      billingType: 'per_request',
+      baseCost: 15,
+      description: 'Per queued Brand Vault website refinery scan',
+      requestTypeMultipliers: {
+        base: 1,
+        deep: 2,
+      },
+    },
+  ],
+  uploaderx: [
+    {
+      service: 'uploaderx',
+      action: 'platform_publish',
+      billingType: 'per_request',
+      baseCost: 1,
+      description: 'Per successful social platform publish through UploaderX',
+      requestTypeMultipliers: {
+        twitter: 3,
+        x: 3,
+        youtube: 1,
+        facebook: 1,
+        instagram: 1,
+        linkedin: 1,
+      },
+    },
+  ],
   pipeline: [
     {
       service: 'pipeline',
       action: 'video_generation',
-      billingType: 'per_request',
-      baseCost: 3,
-      description: 'Per AI video clip generated from storyboard',
+      billingType: 'per_second',
+      baseCost: 1,
+      description: 'Per second of AI video generated from storyboard',
       modelMultipliers: {
-        'seedance-2.0': 1.2,
-        'seedance-1.5': 1,
-        'happy-horse-v1.1': 1.8,
-        'kling-2.6': 1.5,
-        'kling-2.1': 1,
-        'veo-3.1': 2,
+        // Absolute credits/sec (baseCost 1 * this). Traced to fal $/sec in
+        // docs/financials/code-backed-pricing-viability-audit-2026-06-29.md.
+        'kling-2.1': 15,
+        'kling-2.6': 17,
+        'veo-3.1': 30,
+        'seedance-1.5': 36,
+        'seedance-2.0': 45,
+        // ⚠️ INTERIM: happy-horse-v1.1 (native-audio, UI-selectable in ExportConfigPanel)
+        // has no published fal price in-repo. Priced at the seedance-2.0 ceiling as a
+        // fail-safe (never underprices vs the current range). Confirm fal.ai
+        // alibaba/happy-horse/v1.1 cost and adjust. Do NOT drop — unpriced => 1 credit/sec leak.
+        'happy-horse-v1.1': 45,
       },
     },
     {
       service: 'pipeline',
       action: 'voiceover_generation',
-      billingType: 'per_request',
-      baseCost: 1,
-      description: 'Per scene voiceover generated',
-      modelMultipliers: {},
+      billingType: 'per_character',
+      baseCost: 3,
+      description: 'Per 1000 narration characters for Kokoro/Deepgram storyboard voiceover generation',
+      requestTypeMultipliers: {
+        kokoro: 1,
+        deepgram: 1,
+      },
     },
     {
       service: 'pipeline',
       action: 'storyboard_generation',
       billingType: 'per_request',
-      baseCost: 2,
+      baseCost: 5,
       description: 'Per storyboard image generated',
       modelMultipliers: {},
     },
@@ -153,15 +313,36 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'storyboard_finalize',
       billingType: 'per_request',
-      baseCost: 1,
-      description: 'Finalize storyboard into Editron project (includes BGM + SFX)',
+      baseCost: 8,
+      description: 'Finalize storyboard into Editron project; generated BGM/SFX are billed separately',
       modelMultipliers: {},
+    },
+    {
+      service: 'pipeline',
+      action: 'bgm_generation',
+      billingType: 'per_second',
+      baseCost: 0.1,
+      description: 'Per billable second of generated storyboard background music',
+      requestTypeMultipliers: {
+        cassetteai: 1,
+      },
+    },
+    {
+      service: 'pipeline',
+      action: 'sfx_generation',
+      billingType: 'per_second',
+      baseCost: 0.5,
+      description: 'Per billable second of generated storyboard sound effects',
+      requestTypeMultipliers: {
+        library_or_ai: 1,
+        synced_video: 1.5,
+      },
     },
     {
       service: 'pipeline',
       action: 'reference_generation',
       billingType: 'per_request',
-      baseCost: 2,
+      baseCost: 5,
       description: 'Per reference image generated (legacy action name)',
       modelMultipliers: {},
     },
@@ -169,7 +350,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'reference_image',
       billingType: 'per_request',
-      baseCost: 1,
+      baseCost: 5,
       description: 'Per reference image generated for visual consistency',
       modelMultipliers: {},
     },
@@ -177,7 +358,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'reference_image_regen',
       billingType: 'per_request',
-      baseCost: 1,
+      baseCost: 5,
       description: 'Per reference image regenerated with feedback',
       modelMultipliers: {},
     },
@@ -185,15 +366,27 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'storyboard_image_generation',
       billingType: 'per_request',
-      baseCost: 2,
+      baseCost: 5,
       description: 'Per storyboard image generated (batch or sequential)',
-      modelMultipliers: {},
+      modelMultipliers: {
+        'fal-ai/flux/schnell': 1,
+        'fal-ai/flux/dev': 1,
+        'fal-ai/flux-pro/v1.1': 1,
+        'fal-ai/imagen4/preview': 1,
+        'fal-ai/bytedance/seedream/v4/text-to-image': 1,
+        'fal-ai/bytedance/seedream/v4.5/text-to-image': 1.2,
+        'fal-ai/recraft-v3': 1,
+        'fal-ai/nano-banana': 1,
+        'fal-ai/nano-banana-2': 1,
+        'fal-ai/nano-banana-pro': 4.6,
+        'photon-1': 3,
+      },
     },
     {
       service: 'pipeline',
       action: 'storyboard_image_regeneration',
       billingType: 'per_request',
-      baseCost: 1,
+      baseCost: 5,
       description: 'Per storyboard image regenerated with feedback',
       modelMultipliers: {},
     },
@@ -201,8 +394,16 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'storyboard_context_regeneration',
       billingType: 'per_request',
-      baseCost: 1,
+      baseCost: 5,
       description: 'Per scene storyboard image regenerated with context feedback',
+      modelMultipliers: {},
+    },
+    {
+      service: 'pipeline',
+      action: 'script_import',
+      billingType: 'per_request',
+      baseCost: 5,
+      description: 'Import a ThinkForge script into an Editron project',
       modelMultipliers: {},
     },
   ],
@@ -211,7 +412,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
 // Subscription Plans (USD Only)
 // Yearly = 10x monthly (2 months free)
 export interface SubscriptionPlan {
-  id: string; // Internal ID (e.g. 'plus', 'pro')
+  id: string; // Internal ID (e.g. 'agency_starter')
   name: string;
   description: string;
   credits: number; // Monthly credit grant
@@ -224,49 +425,49 @@ export interface SubscriptionPlan {
 
 export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
-    id: 'plus',
-    name: 'Plus',
-    description: 'Perfect for growing creators',
-    credits: 100,
-    price: 20,
-    yearlyPrice: 200,
+    id: 'agency_starter',
+    name: 'Agency Starter',
+    description: 'Core agency operating system for one growing team',
+    credits: creditsForUsd(100),
+    price: 100,
+    yearlyPrice: 100 * ANNUAL_BILLING_MULTIPLIER,
     currency: 'USD',
     features: [
-      '100 Monthly Credits',
-      'Access to all tools',
-      'Priority support',
-      'Rollover up to 200 credits'
+      '3,000 Monthly Credits',
+      'Core workspace and content calendar',
+      'Limited Brand Vault scans and UploaderX posts',
+      'AI media uses model-weighted credits'
     ]
   },
   {
-    id: 'pro',
-    name: 'Pro',
-    description: 'For professional content creators',
-    credits: 400,
-    price: 49,
-    yearlyPrice: 490,
+    id: 'agency_growth',
+    name: 'Agency Growth',
+    description: 'Higher-volume agency workflow with more brands and automation',
+    credits: creditsForUsd(500),
+    price: 500,
+    yearlyPrice: 500 * ANNUAL_BILLING_MULTIPLIER,
     currency: 'USD',
     popular: true,
     features: [
-      '400 Monthly Credits',
-      'Access to all tools',
-      'Faster processing',
-      'Rollover up to 1000 credits'
+      '15,000 Monthly Credits',
+      'More brands, seats, scans, and posts',
+      'Priority queues for generation workflows',
+      'AI media uses model-weighted credits'
     ]
   },
   {
-    id: 'premium',
-    name: 'Premium',
-    description: 'Ultimate creator experience',
-    credits: 1000,
-    price: 99,
-    yearlyPrice: 990,
+    id: 'agency_scale',
+    name: 'Agency Scale',
+    description: 'Large agency plan for heavier recurring production',
+    credits: creditsForUsd(1000),
+    price: 1000,
+    yearlyPrice: 1000 * ANNUAL_BILLING_MULTIPLIER,
     currency: 'USD',
     features: [
-      '1,000 Monthly Credits',
-      'Access to all tools',
-      'Highest priority',
-      'Unlimited rollover'
+      '30,000 Monthly Credits',
+      'Larger workspaces, brands, storage, and posting volume',
+      'Advanced workflow and review capacity',
+      'AI media uses model-weighted credits'
     ]
   }
 ];
@@ -274,9 +475,15 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
 // Legacy support helpers
 export const PLAN_CREDIT_ALLOCATIONS: Record<string, number> = {
   free: 10,
-  plus: 100,
-  pro: 400,
-  premium: 1000
+  plus: creditsForUsd(20),
+  pro: creditsForUsd(49),
+  premium: creditsForUsd(99),
+  starter: creditsForUsd(100),
+  agency_starter: creditsForUsd(100),
+  growth: creditsForUsd(500),
+  agency_growth: creditsForUsd(500),
+  scale: creditsForUsd(1000),
+  agency_scale: creditsForUsd(1000),
 };
 
 /**
@@ -291,31 +498,46 @@ export interface CreditPackage {
 
 export const CREDIT_PACKAGES: CreditPackage[] = [
   {
-    id: 'topup_100',
-    name: 'Standard Pack',
-    credits: 20,
+    id: 'topup_150',
+    name: 'Top-up 150',
+    credits: creditsForUsd(5),
     prices: {
-      USD: 4.99,
+      USD: 5,
     },
   },
   {
-    id: 'topup_500',
-    name: 'Value Pack',
-    credits: 100,
+    id: 'topup_600',
+    name: 'Top-up 600',
+    credits: creditsForUsd(20),
     prices: {
-      USD: 19.99,
+      USD: 20,
     },
   },
   {
-    id: 'topup_1000',
-    name: 'Pro Pack',
-    credits: 200,
+    id: 'credit_pack_starter',
+    name: 'Starter Credit Pack',
+    credits: creditsForUsd(25),
     prices: {
-      USD: 34.99,
+      USD: 25,
+    },
+  },
+  {
+    id: 'credit_pack_agency',
+    name: 'Agency Credit Pack',
+    credits: creditsForUsd(100),
+    prices: {
+      USD: 100,
+    },
+  },
+  {
+    id: 'credit_pack_scale',
+    name: 'Scale Credit Pack',
+    credits: creditsForUsd(300),
+    prices: {
+      USD: 300,
     },
   },
 ];
-
 /**
  * Get credit cost for a specific service action
  */
@@ -326,22 +548,19 @@ export function getCreditCost(
     model?: string;
     requestType?: string;
     tokenCount?: number; // For token-based billing
+    characterCount?: number; // For character-based billing
     durationMinutes?: number; // For per-minute billing
-    quantity?: number; // For batch/fan-out billing (e.g. N carousel slides -> N images)
+    durationSeconds?: number; // For per-second billing
   }
 ): number {
   const serviceCosts = CREDIT_COSTS[service];
   if (!serviceCosts) {
-    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
-    console.error(`[LOUDFAIL][CreditCost][CONFIG-MISS][MONEY] Unknown service "${service}" -> cost 0 (FREE generation / zero refund downstream)`);
-    return 0;
+    throw new CreditCostConfigurationError(service);
   }
 
   const costConfig = serviceCosts.find(c => c.action === action);
   if (!costConfig) {
-    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
-    console.error(`[LOUDFAIL][CreditCost][CONFIG-MISS][MONEY] Unknown action "${action}" for service "${service}" -> cost 0 (FREE generation / zero refund downstream)`);
-    return 0;
+    throw new CreditCostConfigurationError(service, action);
   }
 
   let cost = costConfig.baseCost;
@@ -362,19 +581,20 @@ export function getCreditCost(
     cost = (options.tokenCount / 1000) * cost;
   }
 
+  // Handle character-based billing
+  if (costConfig.billingType === 'per_character' && options?.characterCount) {
+    // baseCost is per 1000 characters
+    cost = (options.characterCount / 1000) * cost;
+  }
+
   // Handle per-minute billing
   if (costConfig.billingType === 'per_minute' && options?.durationMinutes) {
     cost *= options.durationMinutes;
   }
 
-  // Apply batch/fan-out quantity multiplier (e.g. N carousel slides => N image variations).
-  // Clamped to >= 1 so a missing/invalid quantity never reduces or zeroes the charge.
-  if (options?.quantity != null && !(options.quantity >= 1)) {
-    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
-    console.error(`[LOUDFAIL][CreditCost][QUANTITY-INVALID][MONEY] quantity=${options.quantity} for ${service}/${action} ignored -> charging 1x (possible under-charge)`);
-  }
-  if (options?.quantity && options.quantity > 1) {
-    cost *= Math.floor(options.quantity);
+  // Handle per-second billing
+  if (costConfig.billingType === 'per_second' && options?.durationSeconds) {
+    cost *= options.durationSeconds;
   }
 
   // Round to 2 decimal places
@@ -385,6 +605,9 @@ export function getCreditCost(
  * Get plan credit allocation
  */
 export function getPlanCreditAllocation(planType: string): number {
-  const normalized = planType.toLowerCase().replace(' plan', '');
+  const normalized = planType
+    .toLowerCase()
+    .replace(/\s+plan$/, '')
+    .replace(/\s+/g, '_');
   return PLAN_CREDIT_ALLOCATIONS[normalized] ?? PLAN_CREDIT_ALLOCATIONS.free;
 }

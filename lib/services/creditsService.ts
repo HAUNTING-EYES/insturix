@@ -100,8 +100,9 @@ export class CreditsService {
       model?: string;
       requestType?: string;
       tokenCount?: number;
+      characterCount?: number;
       durationMinutes?: number;
-      quantity?: number;
+      durationSeconds?: number;
     }
   ): Promise<{ hasCredits: boolean; required: number; available: number }> {
     const balance = await this.getBalance(clerkUserId);
@@ -127,7 +128,9 @@ export class CreditsService {
       model?: string;
       requestType?: string;
       tokenCount?: number;
+      characterCount?: number;
       durationMinutes?: number;
+      durationSeconds?: number;
       taskId?: string;
       /** Multiply the base cost by this quantity (e.g., 4 scenes × 2 credits = 8 total) */
       quantity?: number;
@@ -153,9 +156,8 @@ export class CreditsService {
       return { success: false, creditsDeducted: 0, error: 'Credits initialized, please retry' };
     }
 
-    // getCreditCost already applies options.quantity (batch/fan-out multiplier), so do NOT
-    // multiply again here or the charge becomes quantity-squared.
-    const cost = getCreditCost(service, action, options);
+    const baseCost = getCreditCost(service, action, options);
+    const cost = baseCost * (options?.quantity || 1);
     const balance = user.creditsBalance;
     const totalAvailable = balance.subscriptionCredits + balance.topupCredits;
 
