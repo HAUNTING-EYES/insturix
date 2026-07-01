@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AvatarProfileStatus } from '@/lib/avatar/avatar-profile';
+import type { AvatarProfileStatus, AvatarReferenceRole } from '@/lib/avatar/avatar-profile';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
 import type { AvatarProfileDraftRequest } from './avatar-vault-form';
 
@@ -26,7 +26,12 @@ interface AvatarVaultRecordSuccess {
   superseded?: AvatarProfileRecord[];
 }
 
-type AvatarVaultApiResult = AvatarVaultApiError | AvatarVaultListSuccess | AvatarVaultRecordSuccess;
+interface AvatarVaultUploadSuccess {
+  ok: true;
+  asset: AvatarVaultUploadedReference;
+}
+
+type AvatarVaultApiResult = AvatarVaultApiError | AvatarVaultListSuccess | AvatarVaultRecordSuccess | AvatarVaultUploadSuccess;
 
 export interface AvatarProfileListQuery {
   status?: AvatarProfileStatus;
@@ -38,6 +43,22 @@ export interface ReviewAvatarProfileInput {
   recordId: string;
   action: 'accept' | 'reject';
   reason?: string;
+}
+
+export interface UploadAvatarReferenceInput {
+  file: File;
+  role: AvatarReferenceRole;
+}
+
+export interface AvatarVaultUploadedReference {
+  assetId: string;
+  imageUrl: string;
+  r2Key: string;
+  role: AvatarReferenceRole;
+  contentType: string;
+  sizeBytes: number;
+  originalName: string;
+  storedAt: string;
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
@@ -89,7 +110,11 @@ export function useAvatarVaultMutations() {
     },
   });
 
-  return { createDraft, reviewDraft };
+  const uploadReference = useMutation({
+    mutationFn: uploadAvatarReferenceRequest,
+  });
+
+  return { createDraft, reviewDraft, uploadReference };
 }
 
 async function fetchAvatarProfiles(query: AvatarProfileListQuery): Promise<AvatarProfileRecord[]> {
@@ -134,6 +159,17 @@ async function reviewAvatarProfileDraftRequest(
       ),
     },
   );
+}
+
+async function uploadAvatarReferenceRequest(input: UploadAvatarReferenceInput): Promise<AvatarVaultUploadSuccess> {
+  const formData = new FormData();
+  formData.set('file', input.file);
+  formData.set('role', input.role);
+
+  return avatarVaultFetch<AvatarVaultUploadSuccess>('/api/avatar-vault/uploads', {
+    method: 'POST',
+    body: formData,
+  });
 }
 
 async function avatarVaultFetch<TSuccess extends { ok: true }>(

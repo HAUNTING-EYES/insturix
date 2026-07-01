@@ -10,7 +10,7 @@ import {
 const NOW = '2026-07-01T02:00:00.000Z';
 
 describe('Avatar Vault UI contract', () => {
-  it('creates a URL-first no-brand virtual-person draft from minimum fields', () => {
+  it('creates an upload-backed no-brand virtual-person draft from minimum fields', () => {
     const request = buildAvatarProfileDraftRequest(minimumForm({ bindBrand: false, brandId: 'brand_ignored' }), {
       now: NOW,
       avatarId: 'avatar_contract',
@@ -20,11 +20,12 @@ describe('Avatar Vault UI contract', () => {
     expect(request.brandId).toBeNull();
     expect(request.profile.avatarId).toBe('avatar_contract');
     expect(request.profile.sourceType).toBe('virtual_person_profile');
+    expect(request.profile.portrait.assetId).toBe('avatar_face_asset');
     expect(request.profile.portrait.imageUrl).toBe('https://cdn.example.test/avatar-face.png');
     expect(request.profile.identityPack.referenceAssets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ role: 'face_front', imageUrl: 'https://cdn.example.test/avatar-face.png' }),
-        expect.objectContaining({ role: 'full_body_front', imageUrl: 'https://cdn.example.test/avatar-full-body.png' }),
+        expect.objectContaining({ role: 'face_front', assetId: 'avatar_face_asset', imageUrl: 'https://cdn.example.test/avatar-face.png' }),
+        expect.objectContaining({ role: 'full_body_front', assetId: 'avatar_body_asset', imageUrl: 'https://cdn.example.test/avatar-full-body.png' }),
       ]),
     );
     expect(request.profile.stylePack.wardrobePresets[0]).toEqual(
@@ -33,7 +34,11 @@ describe('Avatar Vault UI contract', () => {
     expect(request.profile.performancePack.usagePresets).toEqual(['product_shoot', 'speech_delivery']);
     expect(request.profile.evidence).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ signalPath: 'identityPack.referenceAssets.full_body_front', sourceType: 'uploaded_body_reference' }),
+        expect.objectContaining({
+          signalPath: 'identityPack.referenceAssets.full_body_front',
+          sourceType: 'uploaded_body_reference',
+          sourceAssetId: 'avatar_body_asset',
+        }),
       ]),
     );
   });
@@ -86,7 +91,9 @@ function minimumForm(overrides: Partial<AvatarVaultDraftFormState> = {}): Avatar
   return {
     ...DEFAULT_AVATAR_DRAFT_FORM,
     displayName: 'Founder Presenter',
+    portraitAssetId: 'avatar_face_asset',
     portraitImageUrl: 'https://cdn.example.test/avatar-face.png',
+    fullBodyAssetId: 'avatar_body_asset',
     fullBodyImageUrl: 'https://cdn.example.test/avatar-full-body.png',
     ...overrides,
   };

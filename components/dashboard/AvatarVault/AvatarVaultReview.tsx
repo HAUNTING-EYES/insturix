@@ -11,10 +11,11 @@ import {
   Mic2,
   RefreshCw,
   ShieldCheck,
+  UploadCloud,
   UserRound,
   X,
 } from 'lucide-react';
-import type { AvatarProfileStatus, AvatarUsagePreset, AvatarVoiceSourceType } from '@/lib/avatar/avatar-profile';
+import type { AvatarProfileStatus, AvatarReferenceRole, AvatarUsagePreset, AvatarVoiceSourceType } from '@/lib/avatar/avatar-profile';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
 import {
@@ -51,7 +52,7 @@ export function AvatarVaultReview() {
   const listQuery = useAvatarProfiles(statusFilter === 'all' ? {} : { status: statusFilter });
   const profileQuery = useAvatarProfile(selectedRecordId);
   const acceptedBrands = useAcceptedBrandVaultBrands();
-  const { createDraft, reviewDraft } = useAvatarVaultMutations();
+  const { createDraft, reviewDraft, uploadReference } = useAvatarVaultMutations();
 
   const brandOptions = useMemo(
     () =>
@@ -63,12 +64,13 @@ export function AvatarVaultReview() {
   const records = listQuery.data ?? [];
   const selectedRecord = profileQuery.data ?? records.find((record) => record.id === selectedRecordId) ?? records[0] ?? null;
   const canCreateDraft = hasRequiredAvatarDraftFields(form);
-  const busy = createDraft.isPending || reviewDraft.isPending || listQuery.isFetching || profileQuery.isFetching;
+  const busy = createDraft.isPending || reviewDraft.isPending || uploadReference.isPending || listQuery.isFetching || profileQuery.isFetching;
   const error =
     notice?.tone === 'risk'
       ? notice.message
       : errorMessage(createDraft.error) ??
         errorMessage(reviewDraft.error) ??
+        errorMessage(uploadReference.error) ??
         errorMessage(listQuery.error) ??
         errorMessage(profileQuery.error) ??
         (form.bindBrand ? errorMessage(acceptedBrands.error) : null);
@@ -113,6 +115,24 @@ export function AvatarVaultReview() {
     });
   }
 
+  async function handleReferenceUpload(target: 'portrait' | 'fullBody', file: File | null) {
+    if (!file) return;
+    const role: AvatarReferenceRole = target === 'portrait' ? 'face_front' : 'full_body_front';
+
+    try {
+      const result = await uploadReference.mutateAsync({ file, role });
+      setForm((current) => ({
+        ...current,
+        ...(target === 'portrait'
+          ? { portraitAssetId: result.asset.assetId, portraitImageUrl: result.asset.imageUrl }
+          : { fullBodyAssetId: result.asset.assetId, fullBodyImageUrl: result.asset.imageUrl }),
+      }));
+      setNotice({ tone: 'good', message: target === 'portrait' ? 'Face reference uploaded.' : 'Full-body reference uploaded.' });
+    } catch (error) {
+      setNotice({ tone: 'risk', message: errorMessage(error) ?? 'Avatar reference upload failed.' });
+    }
+  }
+
   function updateForm<K extends keyof AvatarVaultDraftFormState>(key: K, value: AvatarVaultDraftFormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
     setNotice(null);
@@ -155,8 +175,24 @@ export function AvatarVaultReview() {
             <div className="space-y-3 border-t border-[#293034] pt-4">
               <div className="text-sm font-semibold text-[#E8E0CF]">Required draft</div>
               <TextField label="Avatar name" value={form.displayName} onChange={(value) => updateForm('displayName', value)} />
-              <TextField label="Face image URL" value={form.portraitImageUrl} onChange={(value) => updateForm('portraitImageUrl', value)} />
-              <TextField label="Full body image URL" value={form.fullBodyImageUrl} onChange={(value) => updateForm('fullBodyImageUrl', value)} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <AvatarReferenceUpload
+                  label="Face reference"
+                  role="face_front"
+                  assetId={form.portraitAssetId}
+                  imageUrl={form.portraitImageUrl}
+                  busy={uploadReference.isPending}
+                  onFileChange={(file) => void handleReferenceUpload('portrait', file)}
+                />
+                <AvatarReferenceUpload
+                  label="Full body reference"
+                  role="full_body_front"
+                  assetId={form.fullBodyAssetId}
+                  imageUrl={form.fullBodyImageUrl}
+                  busy={uploadReference.isPending}
+                  onFileChange={(file) => void handleReferenceUpload('fullBody', file)}
+                />
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {USAGE_PRESET_OPTIONS.map((option) => (
                   <label key={option.id} className="flex items-center gap-2 rounded-lg border border-[#293034] bg-[#0F1213] px-3 py-2 text-sm text-[#D7D2C4]">
@@ -177,6 +213,10 @@ export function AvatarVaultReview() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <TextField label="Face asset ID" value={form.portraitAssetId} onChange={(value) => updateForm('portraitAssetId', value)} />
                   <TextField label="Full body asset ID" value={form.fullBodyAssetId} onChange={(value) => updateForm('fullBodyAssetId', value)} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField label="Face image URL" value={form.portraitImageUrl} onChange={(value) => updateForm('portraitImageUrl', value)} />
+                  <TextField label="Full body image URL" value={form.fullBodyImageUrl} onChange={(value) => updateForm('fullBodyImageUrl', value)} />
                 </div>
                 <TextField label="Side profile URL" value={form.sideProfileImageUrl} onChange={(value) => updateForm('sideProfileImageUrl', value)} />
                 <TextArea label="Expression reference URLs" value={form.expressionReferenceUrls} onChange={(value) => updateForm('expressionReferenceUrls', value)} />
@@ -395,6 +435,69 @@ export function AvatarVaultReview() {
   );
 }
 
+function AvatarReferenceUpload({
+  label,
+  role,
+  assetId,
+  imageUrl,
+  busy,
+  onFileChange,
+}: {
+  label: string;
+  role: Extract<AvatarReferenceRole, 'face_front' | 'full_body_front'>;
+  assetId: string;
+  imageUrl: string;
+  busy: boolean;
+  onFileChange: (file: File | null) => void;
+}) {
+  const inputId = `avatar-${role}-upload`;
+  const hasReference = Boolean(assetId.trim() || imageUrl.trim());
+
+  return (
+    <div className="rounded-lg border border-[#293034] bg-[#0F1213] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-[#E8E0CF]">{label}</div>
+          <div className={hasReference ? 'text-xs text-[#9BD6B5]' : 'text-xs text-[#D9A5A0]'}>
+            {hasReference ? 'Ready' : 'Missing'}
+          </div>
+        </div>
+        <label
+          htmlFor={inputId}
+          className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-[#384043] px-3 text-xs font-semibold text-[#D7D2C4] ${
+            busy ? 'pointer-events-none opacity-60' : 'hover:bg-[#1D2224]'
+          }`}
+        >
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+          Choose
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+          className="sr-only"
+          disabled={busy}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0] ?? null;
+            event.currentTarget.value = '';
+            onFileChange(file);
+          }}
+        />
+      </div>
+      <div
+        className="mt-3 flex h-36 items-center justify-center rounded-md border border-[#273033] bg-[#0A0D0E] bg-cover bg-center text-[#59625F]"
+        style={{ backgroundImage: imageUrl ? `url("${imageUrl}")` : undefined }}
+        aria-label={`${label} preview`}
+      >
+        {!imageUrl && <ImageIcon size={24} />}
+      </div>
+      <div className="mt-2 min-w-0 text-xs text-[#7F8986]">
+        <div className="truncate">{assetId || 'No asset saved'}</div>
+        {imageUrl && <div className="truncate">{imageUrl}</div>}
+      </div>
+    </div>
+  );
+}
 function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block">
