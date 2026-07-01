@@ -27,6 +27,7 @@ export type SaasExplainerBrandMissingInput =
   | "brand_palette"
   | "brand_typography"
   | "brand_motion_tokens"
+  | "brand_voice"
   | "brand_product_context"
   | "brand_product_images"
   | "brand_logo";
@@ -76,9 +77,23 @@ export interface SaasExplainerBrandContextMetadata {
   };
 }
 
+export interface SaasExplainerBrandVoiceSignals {
+  assertiveness?: number;
+  warmth?: number;
+  jargonDensity?: number;
+  humor?: number;
+  defaultFormality?: number;
+  ctaDirectness?: number;
+  recurringPhrases?: string[];
+  killList?: string[];
+  hookArchetypes?: string[];
+  signalPaths: string[];
+}
+
 export interface SaasExplainerBrandContext {
   promptBlock: string;
   brandInputs: Partial<BrandInputs>;
+  voiceSignals?: SaasExplainerBrandVoiceSignals;
   missingInputs: SaasExplainerBrandMissingInput[];
   metadata: SaasExplainerBrandContextMetadata;
 }
@@ -118,15 +133,18 @@ export async function resolveSaasExplainerBrandContext(
     ...brandInputsFromBrandSignalProfile(profile, brand),
     ...brandInputsFromVisualIdentity(reviewPayload?.visualIdentity),
   });
+  const voiceSignals = brandVoiceSignalsFromProfile(profile);
   const contextBlock = buildRichBrandContextBlock(profile, brand).trim();
   const missingInputs = collectMissingInputs({
     profile,
     contextBlock,
     brandInputs,
+    voiceSignals,
     reviewPayload,
     candidates,
   });
   const renderTokenBlock = formatBrandRenderTokens(brandInputs);
+  const voiceTokenBlock = formatBrandVoiceTokens(voiceSignals);
   const visualIdentityBlock = formatVisualIdentityContext(reviewPayload?.visualIdentity);
   const evidenceBlock = formatEvidenceContext(reviewPayload, candidates);
   const diagnosticsBlock = formatDiagnosticsContext(reviewPayload);
@@ -135,6 +153,7 @@ export async function resolveSaasExplainerBrandContext(
     "Source: accepted Brand Vault profile plus review payload, visual identity, and evidence candidates. Treat as default product, voice, visual, and motion context unless the user explicitly overrides it.",
     contextBlock,
     renderTokenBlock,
+    voiceTokenBlock,
     visualIdentityBlock,
     evidenceBlock,
     diagnosticsBlock,
@@ -149,6 +168,7 @@ export async function resolveSaasExplainerBrandContext(
   return {
     promptBlock,
     brandInputs,
+    voiceSignals,
     missingInputs,
     metadata: {
       source: "brand_vault",
@@ -199,10 +219,11 @@ function collectMissingInputs(input: {
   profile: BrandSignalProfile;
   contextBlock: string;
   brandInputs: Partial<BrandInputs>;
+  voiceSignals?: SaasExplainerBrandVoiceSignals;
   reviewPayload: BrandVaultWebsiteDraftReviewPayload | null;
   candidates: BrandEvidenceCandidate[];
 }): SaasExplainerBrandMissingInput[] {
-  const { brandInputs, candidates, contextBlock, profile, reviewPayload } = input;
+  const { brandInputs, candidates, contextBlock, profile, reviewPayload, voiceSignals } = input;
   const missing = new Set<SaasExplainerBrandMissingInput>();
   if (!contextBlock) missing.add("brand_context_block");
   if (!reviewPayload) missing.add("brand_review_payload");
@@ -212,6 +233,7 @@ function collectMissingInputs(input: {
   if (!hasAnyNumber(brandInputs.motionEnergy, brandInputs.transitionSharpness, brandInputs.pacePreference)) {
     missing.add("brand_motion_tokens");
   }
+  if (!voiceSignals || voiceSignals.signalPaths.length === 0) missing.add("brand_voice");
   if (!actionableList(profile.identity.productServices)?.length) missing.add("brand_product_context");
   if (!actionableList(profile.assets?.productImages)?.length && !reviewPayload?.visualIdentity.images.length) {
     missing.add("brand_product_images");
@@ -239,6 +261,64 @@ function formatBrandRenderTokens(brandInputs: Partial<BrandInputs>): string {
 
   if (lines.length === 0) return "";
   return ["<brand_render_tokens>", ...lines, "</brand_render_tokens>"].join("\n");
+}
+
+function formatBrandVoiceTokens(voiceSignals: SaasExplainerBrandVoiceSignals | undefined): string {
+  if (!voiceSignals || voiceSignals.signalPaths.length === 0) return "";
+  const lines = [
+    voiceSignals.assertiveness !== undefined ? `Assertiveness: ${voiceSignals.assertiveness}` : null,
+    voiceSignals.warmth !== undefined ? `Warmth: ${voiceSignals.warmth}` : null,
+    voiceSignals.jargonDensity !== undefined ? `Jargon density: ${voiceSignals.jargonDensity}` : null,
+    voiceSignals.humor !== undefined ? `Humor: ${voiceSignals.humor}` : null,
+    voiceSignals.defaultFormality !== undefined ? `Default formality: ${voiceSignals.defaultFormality}` : null,
+    voiceSignals.ctaDirectness !== undefined ? `CTA directness: ${voiceSignals.ctaDirectness}` : null,
+    voiceSignals.recurringPhrases?.length ? `Recurring phrases: ${voiceSignals.recurringPhrases.join(", ")}` : null,
+    voiceSignals.killList?.length ? `Avoid words: ${voiceSignals.killList.join(", ")}` : null,
+    voiceSignals.hookArchetypes?.length ? `Hook archetypes: ${voiceSignals.hookArchetypes.join(", ")}` : null,
+    `Accepted signal paths: ${voiceSignals.signalPaths.join(", ")}`,
+  ].filter(Boolean);
+  return ["<brand_voice_tokens>", ...lines, "</brand_voice_tokens>"].join("\n");
+}
+
+function brandVoiceSignalsFromProfile(profile: BrandSignalProfile): SaasExplainerBrandVoiceSignals | undefined {
+  const signals: SaasExplainerBrandVoiceSignals = { signalPaths: [] };
+
+  copyNumberSignal(profile.voice.assertiveness, "voice.assertiveness", signals, "assertiveness");
+  copyNumberSignal(profile.voice.warmth, "voice.warmth", signals, "warmth");
+  copyNumberSignal(profile.voice.jargonDensity, "voice.jargonDensity", signals, "jargonDensity");
+  copyNumberSignal(profile.voice.humor, "voice.humor", signals, "humor");
+  copyNumberSignal(profile.voice.defaultFormality, "voice.defaultFormality", signals, "defaultFormality");
+  copyNumberSignal(profile.voice.ctaDirectness, "voice.ctaDirectness", signals, "ctaDirectness");
+  copyStringListSignal(profile.voice.recurringPhrases, "voice.recurringPhrases", signals, "recurringPhrases");
+  copyStringListSignal(profile.voice.killList, "voice.killList", signals, "killList");
+  copyStringListSignal(profile.voice.hookArchetypes, "voice.hookArchetypes", signals, "hookArchetypes");
+
+  return signals.signalPaths.length > 0 ? signals : undefined;
+}
+
+function copyNumberSignal(
+  signal: BrandSignal<number> | undefined,
+  path: string,
+  target: SaasExplainerBrandVoiceSignals,
+  key: keyof Pick<
+    SaasExplainerBrandVoiceSignals,
+    "assertiveness" | "warmth" | "jargonDensity" | "humor" | "defaultFormality" | "ctaDirectness"
+  >,
+): void {
+  if (!signal || !isBrandSignalActionable(signal) || !Number.isFinite(signal.value)) return;
+  target[key] = clamp01(signal.value);
+  target.signalPaths.push(path);
+}
+
+function copyStringListSignal(
+  signal: BrandSignal<string[]> | undefined,
+  path: string,
+  target: SaasExplainerBrandVoiceSignals,
+  key: keyof Pick<SaasExplainerBrandVoiceSignals, "recurringPhrases" | "killList" | "hookArchetypes">,
+): void {
+  if (!signal || !isBrandSignalActionable(signal) || signal.value.length === 0) return;
+  target[key] = uniqueStrings(signal.value).slice(0, 8);
+  target.signalPaths.push(path);
 }
 
 async function resolveAcceptedRecord(
@@ -374,6 +454,10 @@ function actionableList(signal: BrandSignal<string[]> | undefined): string[] | u
 
 function hasAnyNumber(...values: Array<number | undefined>): boolean {
   return values.some((value) => typeof value === "number" && Number.isFinite(value));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function compactBrandInputs(inputs: Partial<BrandInputs>): Partial<BrandInputs> {

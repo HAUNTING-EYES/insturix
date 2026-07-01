@@ -23,7 +23,9 @@ const MAX_REPAIRED_CAROUSEL_SLIDES = 7;
 const NON_VIDEO_CREATIVE_INTENT_RE =
   /\b(post|posts|caption|captions|carousel|carousels|thread|threads|blog|article|newsletter|social|linkedin|instagram|facebook|pinterest|graphic|static creative|ad creative|blog header|x post)\b/;
 const VIDEO_PRODUCTION_DELIVERABLE_RE =
-  /\b(video script|videos? with scenes?|youtube video|tiktok video|scripted reel|reel script|reels?|shorts?|storyboard|shot list|scene breakdown|b-roll|voiceover|commercial script|ugc script)\b/;
+  /\b(video script|videos? with scenes?|youtube video|tiktok video|scripted reel|reel script|reels?|shorts?|storyboard|shot list|scene breakdown|scene-by-scene|b-roll|voiceover|narration|commercial script|ugc script|saas explainer|explainer video|explainer script|product demo)\b/;
+const VIDEO_PROJECT_DELIVERABLE_RE =
+  /\b(video_script|video script|saas explainer|explainer video|explainer script|commercial script|ugc script)\b/;
 const CALENDAR_FIELDS: Array<keyof ClickatronCreativeCalendarScope> = [
   'contentCardId',
   'campaignId',
@@ -35,7 +37,7 @@ function compactText(parts: Array<string | undefined>): string {
   return parts.filter(Boolean).join('\n').toLowerCase();
 }
 
-type SidecarProfileInput = Pick<AgentInput, 'context' | 'userPrompt'>;
+type SidecarProfileInput = Pick<AgentInput, 'context' | 'userPrompt' | 'project'>;
 
 export interface ClickatronCreativeSidecarProfile {
   kind: ClickatronCreativeKind;
@@ -78,12 +80,22 @@ export function shouldRequestClickatronCreativeSidecar(
   const contextRequestsCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(supportingContext);
   const currentScriptLooksCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(currentScript);
   const promptRequestsVideoProductionDeliverable = VIDEO_PRODUCTION_DELIVERABLE_RE.test(userPrompt);
+  const projectRequestsVideoProductionDeliverable = VIDEO_PROJECT_DELIVERABLE_RE.test(compactText([
+    input.project?.format,
+    input.project?.idea,
+    input.project?.purpose,
+    input.project?.style,
+  ]));
 
   const profileStaticCreative = profile?.intent.clickatron.requested === true
     && profile.intent.clickatron.assetIntent === 'static_image'
     && (profile.intent.outputFormat === 'social_post' || profile.intent.outputFormat === 'caption');
 
-  if (promptRequestsVideoProductionDeliverable && !promptRequestsCreative && !profileStaticCreative) {
+  if (
+    (promptRequestsVideoProductionDeliverable || projectRequestsVideoProductionDeliverable)
+    && !promptRequestsCreative
+    && !profileStaticCreative
+  ) {
     return false;
   }
 

@@ -11,6 +11,7 @@ export enum OverlayType {
   TEMPLATE = "template",
   AI_CHAT = "ai-chat", // AI Chat panel
   HTML_SCENE = "html-scene", // HTML generated content (backgrounds, diagrams)
+  GENERATED_SCENE = "generated-scene", // Typed SaaS/product scene rendered by React
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
   QUALITY_REVIEW = "quality-review", // Quality Review panel
@@ -412,6 +413,73 @@ export type HtmlSceneOverlay = BaseOverlay & {
   };
 };
 
+export type GeneratedSceneElement = {
+  id: string;
+  role: "headline" | "app-shell" | "panel" | "metric" | "caption" | "cta" | "logo-mark";
+  text?: string;
+  label?: string;
+  value?: string;
+  items?: string[];
+  emphasis?: "primary" | "accent" | "muted";
+};
+
+export type GeneratedSceneOverlay = BaseOverlay & {
+  type: OverlayType.GENERATED_SCENE;
+  content: string;
+  sceneModel: {
+    schemaVersion: "saas-generated-scene/v1";
+    sceneId: string;
+    sceneIndex: number;
+    title: string;
+    productName: string;
+    brand: {
+      name: string;
+      primaryColor: string;
+      accentColor: string;
+      backgroundColor: string;
+      surfaceColor: string;
+      textColor: string;
+      mutedTextColor: string;
+      fontFamily: string;
+    };
+    style: {
+      category: "saas_product_demo";
+      pacing: string;
+      uiTreatment: string;
+      motion: string;
+    };
+    voiceover: {
+      script: string;
+      status: "pending_tts" | "ready";
+      audioUrl?: string;
+      assetId?: string;
+    } | null;
+    elements: GeneratedSceneElement[];
+    captionTracks: Array<{
+      id: string;
+      text: string;
+      startMs: number;
+      endMs: number;
+    }>;
+    qualityGates: {
+      promptLeakChecked: true;
+      brandTokensApplied: boolean;
+      readableUiProof: true;
+    };
+  };
+  sourceMap: Record<string, unknown>;
+  styles: BaseStyles;
+  metadata?: {
+    sourceType: string;
+    sceneIndex: number;
+    generatedSceneId: string;
+    schemaVersion: string;
+    validation?: { ok: boolean; issues: string[] };
+  };
+};
+
+// Generated Scene Overlay (SaaS/product renderer contract)
+
 // ─── Motion Graphic Overlay (Structure × Theme system) ─────────────
 // React-rendered overlay driven by resolved visual tokens from the
 // signal-based Visual Identity Engine. Coexists with HTML_SCENE
@@ -521,6 +589,7 @@ export type Overlay =
   | CaptionOverlay
   | StickerOverlay
   | HtmlSceneOverlay
+  | GeneratedSceneOverlay
   | HtmlStickerOverlay
   | TransitionOverlay
   | MotionGraphicOverlay;

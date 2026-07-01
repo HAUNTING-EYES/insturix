@@ -10,10 +10,13 @@ const mocks = vi.hoisted(() => ({
   scenesToOverlays: vi.fn(),
   scenesToTotalFrames: vi.fn(),
   deductCredits: vi.fn(),
+  isTTSAvailable: vi.fn(),
+  generateVoiceover: vi.fn(),
   updateOne: vi.fn(),
   createProjectLink: vi.fn(),
   analyzeSaasExplainerReference: vi.fn(),
   resolveSaasExplainerBrandContext: vi.fn(),
+  buildSaasGeneratedSceneOverlays: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
@@ -33,6 +36,23 @@ vi.mock("@/lib/editron/services/project-service", () => ({
 vi.mock("@/lib/pipeline/scene-to-editron", () => ({
   scenesToOverlays: mocks.scenesToOverlays,
   scenesToTotalFrames: mocks.scenesToTotalFrames,
+}));
+vi.mock("@/lib/editron/saas-explainer/generated-scene", () => ({
+  buildSaasGeneratedSceneOverlays: mocks.buildSaasGeneratedSceneOverlays,
+  isPromptLikeVisibleText: (value: string) => /(^|\b)(visual\s*:|voiceover\s*:|narration\s*:|audio\s*:|camera\s+direction\b|video\s+motion\b|visualdescription\b|audiodescription\b|videomotionprompt\b|scene\s+prompt\b|write\s+a\b|generate\s+a\b|source\s*map\b|metadata\b|llm\b)/i.test(value),
+}));
+vi.mock("@/lib/pipeline/tts-service", () => ({
+  TTS_VOICES: [
+    { id: "kokoro-bella", provider: "kokoro", providerVoiceId: "af_bella" },
+    { id: "kokoro-heart", provider: "kokoro", providerVoiceId: "af_heart" },
+    { id: "kokoro-jessica", provider: "kokoro", providerVoiceId: "af_jessica" },
+    { id: "kokoro-liam", provider: "kokoro", providerVoiceId: "am_liam" },
+    { id: "kokoro-michael", provider: "kokoro", providerVoiceId: "am_michael" },
+    { id: "kokoro-nova", provider: "kokoro", providerVoiceId: "af_nova" },
+    { id: "kokoro-eric", provider: "kokoro", providerVoiceId: "am_eric" },
+  ],
+  isTTSAvailable: mocks.isTTSAvailable,
+  generateVoiceover: mocks.generateVoiceover,
 }));
 vi.mock("@/lib/services/creditsService", () => ({
   CreditsService: { deductCredits: mocks.deductCredits },
@@ -58,6 +78,10 @@ function request(path: string, body: Record<string, unknown>): Request {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+function cloneOverlays<T>(overlays: T): T {
+  return JSON.parse(JSON.stringify(overlays)) as T;
 }
 
 const validScene = {
@@ -100,31 +124,70 @@ const acceptedReferenceAnalysis = {
   },
 };
 
-const placeholderOverlays = [
+const visibleGeneratedSceneDraftOverlays = [
   {
     id: 1,
-    type: "html-scene",
+    type: "generated-scene",
+    from: 0,
+    durationInFrames: 180,
+    sceneModel: {
+      voiceover: {
+        script: "This is only a reserved narration slot...",
+        status: "pending_tts",
+      },
+      elements: [{ id: "headline", role: "headline", text: "Launch workflows without the guesswork." }],
+      captionTracks: [{ id: "caption_1", text: "Plan launches faster.", startMs: 0, endMs: 2200 }],
+    },
+    sourceMap: {
+      elements: {
+        headline: { modelPath: ["elements", 0, "text"] },
+      },
+    },
     metadata: {
-      atomicOverlayReceipts: [
-        {
-          intent: "scene-placeholder",
-          reason: "html placeholder until generated media is available",
-        },
-      ],
+      generatedSceneId: "saas_scene_0",
+      validation: { ok: true, issues: [] },
     },
   },
   {
     id: 2,
     type: "sound",
+    from: 0,
+    durationInFrames: 180,
     src: "",
-    content: "VO: This is only a reserved narration slot...",
-    metadata: { isVoiceover: true },
+    content: "VO pending: This is only a reserved narration slot...",
+    metadata: {
+      isVoiceover: true,
+      sceneIndex: 0,
+      generatedSceneId: "saas_scene_0",
+      narrationText: "This is only a reserved narration slot...",
+      status: "pending_tts",
+    },
+  },
+];
+
+const promptLeakGeneratedSceneOverlays = [
+  {
+    id: 1,
+    type: "generated-scene",
+    sceneModel: {
+      elements: [{ id: "headline", role: "headline", text: "Visual: show dashboard workflow prompt" }],
+      captionTracks: [{ id: "caption_1", text: "Plan launches faster.", startMs: 0, endMs: 2200 }],
+    },
+    sourceMap: {
+      elements: {
+        headline: { modelPath: ["elements", 0, "text"] },
+      },
+    },
+    metadata: {
+      validation: { ok: false, issues: ["prompt_like_visible_text:Visual: show dashboard workflow prompt"] },
+    },
   },
   {
-    id: 3,
-    type: "text",
-    content: "This is plain narration text, not validated captions.",
-    metadata: { isNarrationCaption: true },
+    id: 2,
+    type: "sound",
+    src: "https://cdn.example.com/voiceover.wav",
+    content: "https://cdn.example.com/voiceover.wav",
+    metadata: { isVoiceover: true, sceneIndex: 0 },
   },
 ];
 
@@ -141,6 +204,13 @@ const completeGeneratedSceneOverlays = [
       },
     },
   },
+  {
+    id: 2,
+    type: "sound",
+    src: "https://cdn.example.com/voiceover.wav",
+    content: "https://cdn.example.com/voiceover.wav",
+    metadata: { isVoiceover: true, sceneIndex: 0 },
+  },
 ];
 
 const acceptedBrandContext = {
@@ -155,13 +225,33 @@ const acceptedBrandContext = {
     "Primary color: #0B0B0A",
     "Accent color: #D4A652",
     "Typography: Plus Jakarta Sans",
+    "Pace preference: 0.58",
     "</brand_render_tokens>",
+    "<brand_voice_tokens>",
+    "Assertiveness: 0.78",
+    "Default formality: 0.74",
+    "CTA directness: 0.65",
+    "Accepted signal paths: voice.assertiveness, voice.defaultFormality, voice.ctaDirectness",
+    "</brand_voice_tokens>",
     "</saas_explainer_brand_vault_context>",
   ].join("\n"),
   brandInputs: {
     primaryColor: "#0B0B0A",
     accentColor: "#D4A652",
     typography: "Plus Jakarta Sans",
+    pacePreference: 0.58,
+  },
+  voiceSignals: {
+    assertiveness: 0.78,
+    warmth: 0.42,
+    jargonDensity: 0.6,
+    humor: 0.18,
+    defaultFormality: 0.74,
+    ctaDirectness: 0.65,
+    recurringPhrases: ["launch operating layer"],
+    killList: ["cheap"],
+    hookArchetypes: ["proof-led"],
+    signalPaths: ["voice.assertiveness", "voice.defaultFormality", "voice.ctaDirectness"],
   },
   missingInputs: [],
   metadata: {
@@ -169,7 +259,7 @@ const acceptedBrandContext = {
     brandId: "brand_1",
     acceptedProfile: true,
     promptContextProvided: true,
-    brandInputKeys: ["accentColor", "primaryColor", "typography"],
+    brandInputKeys: ["accentColor", "pacePreference", "primaryColor", "typography"],
     missingInputs: [],
   },
 };
@@ -193,7 +283,15 @@ describe("SaaS explainer routes", () => {
     mocks.deductCredits.mockResolvedValue({ success: true });
     mocks.createProject.mockResolvedValue({ projectId: "project_1" });
     mocks.saveProject.mockResolvedValue(undefined);
-    mocks.scenesToOverlays.mockReturnValue(placeholderOverlays);
+    mocks.buildSaasGeneratedSceneOverlays.mockImplementation(() => cloneOverlays(visibleGeneratedSceneDraftOverlays));
+    mocks.isTTSAvailable.mockReturnValue(false);
+    mocks.generateVoiceover.mockResolvedValue({
+      audioBuffer: Buffer.from("wav"),
+      audioUrl: "https://cdn.example.com/generated-brand-voice.wav",
+      audioAssetId: "voiceover_brand_1",
+      durationMs: 5100,
+      gcsPath: "voiceovers/voiceover_brand_1.wav",
+    });
     mocks.scenesToTotalFrames.mockReturnValue(180);
     mocks.updateOne.mockResolvedValue({ acknowledged: true });
     mocks.createProjectLink.mockResolvedValue(undefined);
@@ -270,7 +368,7 @@ describe("SaaS explainer routes", () => {
     expect(payload.code).toBe("invalid_product_url");
   });
 
-  it("creates a draft project instead of marking placeholder output complete", async () => {
+  it("creates a visible generated-scene draft but waits for real voiceover before completion", async () => {
     const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
     const response = await POST(request("/api/services/editron/saas-explainer/generate", {
       productName: "Insturix",
@@ -292,16 +390,18 @@ describe("SaaS explainer routes", () => {
       projectId: "project_1",
       projectUrl: "/dashboard/editron?project=project_1",
       sceneCount: 1,
-      overlayCount: 3,
+      overlayCount: 2,
       generationReadiness: {
         ok: false,
         issues: expect.arrayContaining([
-          expect.objectContaining({ code: "placeholder_visuals" }),
-          expect.objectContaining({ code: "missing_renderable_visuals" }),
           expect.objectContaining({ code: "empty_voiceover" }),
-          expect.objectContaining({ code: "narration_text_placeholders" }),
-          expect.objectContaining({ code: "missing_captions" }),
         ]),
+      },
+      voiceover: {
+        requestedCount: 1,
+        generatedCount: 0,
+        status: "pending",
+        profile: expect.objectContaining({ voiceId: "kokoro-michael", contentType: "narration" }),
       },
       brandContext: expect.objectContaining({
         source: "brand_vault",
@@ -336,7 +436,7 @@ describe("SaaS explainer routes", () => {
       brandId: "brand_1",
     }));
     expect(mocks.saveProject).toHaveBeenCalledWith("user_1", "project_1", expect.objectContaining({
-      overlays: placeholderOverlays,
+      overlays: visibleGeneratedSceneDraftOverlays,
       durationInFrames: 180,
     }));
     expect(mocks.updateOne).toHaveBeenCalledWith(
@@ -350,12 +450,133 @@ describe("SaaS explainer routes", () => {
         saasExplainer: expect.objectContaining({
           status: "draft_ready",
           brandContext: expect.objectContaining({ source: "brand_vault" }),
+          voiceover: expect.objectContaining({ status: "pending", requestedCount: 1 }),
         }),
       }) },
     );
     expect(JSON.stringify(payload)).not.toContain("PRIVATE SCRIPT");
   });
 
+  it("generates real voiceover with a deterministic Brand Vault voice profile when TTS is configured", async () => {
+    mocks.isTTSAvailable.mockReturnValueOnce(true);
+
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      productName: "Insturix",
+      productUrl: "https://insturix.example",
+      outcome: "Show how founders plan launches faster.",
+      durationSec: 45,
+      aspectRatio: "16:9",
+      brandId: "brand_1",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      success: true,
+      status: "project_ready",
+      autoEditStatus: "complete",
+      generationReadiness: { ok: true, issues: [] },
+      voiceover: {
+        requestedCount: 1,
+        generatedCount: 1,
+        status: "ready",
+        profile: expect.objectContaining({
+          voiceId: "kokoro-michael",
+          provider: "kokoro",
+          providerVoiceId: "am_michael",
+          contentType: "narration",
+          evidence: expect.objectContaining({
+            acceptedProfile: true,
+            signalPaths: expect.arrayContaining(["voice.defaultFormality"]),
+          }),
+        }),
+      },
+    });
+    expect(payload.warnings).toBeUndefined();
+    expect(mocks.deductCredits).toHaveBeenNthCalledWith(
+      1,
+      "user_1",
+      "pipeline",
+      "script_import",
+      expect.objectContaining({ quantity: 1 }),
+    );
+    expect(mocks.deductCredits).toHaveBeenNthCalledWith(
+      2,
+      "user_1",
+      "pipeline",
+      "voiceover_generation",
+      expect.objectContaining({ quantity: 1 }),
+    );
+    expect(mocks.generateVoiceover).toHaveBeenCalledWith(
+      "This is only a reserved narration slot...",
+      "user_1",
+      expect.objectContaining({ voice: "kokoro-michael", contentType: "narration" }),
+    );
+
+    const savedOverlays = mocks.saveProject.mock.calls[0][2].overlays;
+    expect(savedOverlays).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "sound",
+        src: "https://cdn.example.com/generated-brand-voice.wav",
+        assetId: "voiceover_brand_1",
+        metadata: expect.objectContaining({
+          status: "ready",
+          audioAssetId: "voiceover_brand_1",
+          tts: expect.objectContaining({ voiceId: "kokoro-michael" }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "generated-scene",
+        sceneModel: expect.objectContaining({
+          voiceover: expect.objectContaining({
+            status: "ready",
+            audioUrl: "https://cdn.example.com/generated-brand-voice.wav",
+            resolvedVoice: expect.objectContaining({ voiceId: "kokoro-michael" }),
+          }),
+        }),
+      }),
+    ]));
+  });
+
+  it("retries a transient voiceover failure before marking the project partial", async () => {
+    mocks.isTTSAvailable.mockReturnValueOnce(true);
+    mocks.generateVoiceover.mockRejectedValueOnce(new Error("temporary Deepgram 503"));
+
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      productName: "Insturix",
+      productUrl: "https://insturix.example",
+      outcome: "Show how founders plan launches faster.",
+      durationSec: 45,
+      aspectRatio: "16:9",
+      brandId: "brand_1",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      success: true,
+      status: "project_ready",
+      autoEditStatus: "complete",
+      generationReadiness: { ok: true, issues: [] },
+      voiceover: {
+        requestedCount: 1,
+        generatedCount: 1,
+        status: "ready",
+      },
+    });
+    expect(payload.warnings).toBeUndefined();
+    expect(mocks.generateVoiceover).toHaveBeenCalledTimes(2);
+    const savedOverlays = mocks.saveProject.mock.calls[0][2].overlays;
+    expect(savedOverlays.find((overlay: any) => overlay.type === "sound")).toEqual(expect.objectContaining({
+      src: "https://cdn.example.com/generated-brand-voice.wav",
+      metadata: expect.objectContaining({
+        status: "ready",
+        audioAssetId: "voiceover_brand_1",
+      }),
+    }));
+  });
   it("surfaces missing accepted Brand Vault context instead of pretending it was used", async () => {
     mocks.resolveSaasExplainerBrandContext.mockResolvedValueOnce({
       promptBlock: "",
@@ -393,7 +614,7 @@ describe("SaaS explainer routes", () => {
   });
 
   it("marks generated-scene output complete only after readiness passes", async () => {
-    mocks.scenesToOverlays.mockReturnValueOnce(completeGeneratedSceneOverlays);
+    mocks.buildSaasGeneratedSceneOverlays.mockImplementationOnce(() => cloneOverlays(completeGeneratedSceneOverlays));
 
     const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
     const response = await POST(request("/api/services/editron/saas-explainer/generate", {
@@ -410,7 +631,7 @@ describe("SaaS explainer routes", () => {
       success: true,
       status: "project_ready",
       autoEditStatus: "complete",
-      overlayCount: 1,
+      overlayCount: 2,
       generationReadiness: { ok: true, issues: [] },
     });
     expect(payload.warnings).toBeUndefined();
@@ -423,6 +644,34 @@ describe("SaaS explainer routes", () => {
         saasExplainer: expect.objectContaining({ status: "project_ready" }),
       }) },
     );
+  });
+
+  it("blocks prompt-like visible generated-scene text from completing", async () => {
+    mocks.buildSaasGeneratedSceneOverlays.mockImplementationOnce(() => cloneOverlays(promptLeakGeneratedSceneOverlays));
+
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      productName: "Insturix",
+      outcome: "Show how founders plan launches faster.",
+      durationSec: 45,
+      aspectRatio: "16:9",
+      brandId: "brand_1",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      success: true,
+      status: "draft_ready",
+      autoEditStatus: "needs_generation",
+      generationReadiness: {
+        ok: false,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: "prompt_like_visible_text" }),
+          expect.objectContaining({ code: "generated_scene_contract_invalid" }),
+        ]),
+      },
+    });
   });
 
   it("persists accepted SaaS reference evidence on the created Editron project", async () => {

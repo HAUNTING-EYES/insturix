@@ -73,6 +73,39 @@ describe('Clickatron creative sidecar signal profile', () => {
 
     expect(shouldRequestClickatronCreativeSidecar(input)).toBe(false);
   });
+  it('does not let Brand Vault social examples trigger a sidecar for SaaS explainer videos', () => {
+    const input: AgentInput = {
+      context: {
+        projectSummary: [
+          'Create a 45s SaaS explainer in 16:9.',
+          'Product-demo moments should stay clear, readable, and high-intent.',
+          '<voice_example index="1" type="linkedin">',
+          'This post keeps the approval loop concrete for social audiences.',
+          '</voice_example>',
+        ].join('\n'),
+        systemBrief: 'Brand DNA: bold, expert, social-native voice.',
+      },
+      project: {
+        idea: 'SaaS explainer video',
+        purpose: 'Create a clear SaaS explainer video.',
+        style: 'clear product-led SaaS demo',
+        format: 'video_script',
+        platform: 'YouTube',
+      },
+      userPrompt: [
+        'Create a 45s SaaS explainer in 16:9.',
+        'Write a complete SaaS explainer script with scene-by-scene structure, narration, and concrete visual direction.',
+      ].join('\n'),
+    };
+    const profile = resolveContentSignalProfile({
+      userPrompt: input.userPrompt,
+      project: input.project,
+      context: input.context,
+    });
+
+    expect(profile.intent.outputFormat).toBe('video_script');
+    expect(shouldRequestClickatronCreativeSidecar(input, profile)).toBe(false);
+  });
   it('ignores learned social voice examples when deciding hidden Clickatron export intent', () => {
     const input: AgentInput = {
       context: {

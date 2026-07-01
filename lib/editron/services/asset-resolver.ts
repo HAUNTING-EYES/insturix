@@ -184,6 +184,26 @@ export class AssetResolver {
       }
     }
 
+
+    for (const overlay of overlays) {
+      if (!('assetId' in overlay) || !overlay.assetId) continue;
+      const assetId = overlay.assetId as string;
+      if (assetMap.has(assetId) || foundIds.has(assetId)) continue;
+
+      const gcsPath = this.extractOverlayGcsPath(overlay);
+      if (!gcsPath) continue;
+
+      try {
+        const { url } = await refreshSignedUrl(gcsPath);
+        if (url) {
+          assetMap.set(assetId, url);
+          console.warn(`[AssetResolver] ${assetId}: resolved missing media_assets row from overlay gcsPath`);
+        }
+      } catch (err: any) {
+        console.error(`[AssetResolver] FAILED ${assetId}: overlay gcsPath fallback failed: ${err.message}`);
+      }
+    }
+
     // Inject URLs into overlays — but NEVER replace a working URL with empty string.
     // If the resolver can't find a fresh URL, keep the existing src/content.
     // OLD: Empty resolvedUrl overwrote working proxy URLs → Lambda got src:'' → hung forever.
@@ -212,6 +232,22 @@ export class AssetResolver {
       }
       return overlay;
     });
+  }
+
+
+  private extractOverlayGcsPath(overlay: Overlay): string | null {
+    const metadata = (overlay as any).metadata || {};
+    const candidates = [
+      (overlay as any).gcsPath,
+      metadata.gcsPath,
+      metadata.voiceover?.gcsPath,
+      metadata.tts?.gcsPath,
+      metadata.media?.gcsPath,
+    ];
+    const gcsPath = candidates.find(
+      (candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0,
+    );
+    return gcsPath?.trim() || null;
   }
 
   /**
