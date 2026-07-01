@@ -22,6 +22,7 @@ import { projectService } from '@/lib/editron/services/project-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
+import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -49,6 +50,9 @@ interface FromAssetRequest {
 
 export async function POST(request: NextRequest) {
   const startMs = Date.now();
+  let autoEditCreditCheck: CreditCheckResult | null = null;
+  let autoEditAnalysisStarted = false;
+
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -147,6 +151,24 @@ export async function POST(request: NextRequest) {
       }
     }
     const durationInFrames = Math.round(durationSec * fps);
+
+    autoEditCreditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', {
+      durationMinutes: getBillableAutoEditMinutes(durationSec),
+      requestType: getAutoEditAnalysisRequestType({ durationSec, referenceAssetId, imageAssetIds }),
+    });
+    if (!autoEditCreditCheck.allowed) {
+      return autoEditCreditCheck.errorResponse!;
+    }
+
+    try {
+      await autoEditCreditCheck.deduct();
+    } catch (error) {
+      console.error('[auto-edit/from-asset] auto-edit analysis credit deduction failed:', error);
+      return NextResponse.json(
+        { success: false, error: 'Unable to deduct credits for auto-edit analysis.' },
+        { status: 402 },
+      );
+    }
     const [w, h] = aspectRatio === '9:16' ? [1080, 1920]
       : aspectRatio === '1:1' ? [1080, 1080]
       : [1920, 1080];
@@ -288,15 +310,20 @@ export async function POST(request: NextRequest) {
           { projectId },
           { $set: { autoEditStatus: 'failed', autoEditError: errMsg } },
         );
+        if (autoEditCreditCheck) {
+          await refundAutoEditAnalysisCredits(autoEditCreditCheck, 'Auto-edit analysis dispatch failed before worker queueing');
+        }
         return NextResponse.json({ success: false, error: errMsg }, { status: 502 });
       }
 
+      autoEditAnalysisStarted = true;
       const qstashData = await qstashRes.json().catch(() => ({}));
       console.log(`[auto-edit/from-asset] QStash dispatched: messageId=${qstashData.messageId || 'unknown'}`);
     } else {
       // No QStash → run inline (dev mode)
       console.warn(`[auto-edit/from-asset] No QSTASH_TOKEN — running analysis inline (slow)`);
       const { analyzeVideo } = await import('@/lib/editron/services/video-understanding-service');
+      autoEditAnalysisStarted = true;
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
       if (ssb) {
         await db.collection('projects').updateOne(
@@ -323,8 +350,36 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: unknown) {
+    if (autoEditCreditCheck && !autoEditAnalysisStarted) {
+      await refundAutoEditAnalysisCredits(autoEditCreditCheck, 'Auto-edit analysis failed before analysis start');
+    }
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[auto-edit/from-asset] Failed: ${msg}`);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
+
+type AutoEditAnalysisRequestType = 'standard' | 'reference_guided' | 'long_form';
+
+function getBillableAutoEditMinutes(durationSec: number): number {
+  const sourceMinutes = durationSec > 0 ? durationSec / 60 : 1;
+  return Math.max(1, Math.ceil(sourceMinutes * 100) / 100);
+}
+
+function getAutoEditAnalysisRequestType(options: {
+  durationSec: number;
+  referenceAssetId?: string;
+  imageAssetIds?: string[];
+}): AutoEditAnalysisRequestType {
+  if (options.durationSec >= 600) return 'long_form';
+  if (options.referenceAssetId || (options.imageAssetIds?.length || 0) > 0) return 'reference_guided';
+  return 'standard';
+}
+
+async function refundAutoEditAnalysisCredits(creditCheck: CreditCheckResult, reason: string): Promise<void> {
+  try {
+    await creditCheck.refund(reason);
+  } catch (error) {
+    console.error('[auto-edit/from-asset] auto-edit analysis credit refund failed:', error);
   }
 }

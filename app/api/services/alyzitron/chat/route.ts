@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { runChatTurnStreaming } from "@/lib/alyzitron/chat/chatEngine";
 import {
+  estimateTokens,
   needsSummarization,
   splitMessagesForSummarization,
   summarizeMessages,
 } from "@/lib/alyzitron/chat/contextManager";
+import { CreditsService } from "@/lib/services/creditsService";
 import {
   findTranscription,
   findChatSession,
@@ -24,6 +26,31 @@ function ownershipErrorResponse(error: AlyzitronTaskOwnershipError) {
   return NextResponse.json({ error: error.message }, { status: error.status });
 }
 
+const ALYZITRON_CHAT_MODEL = "gemini-2.5-flash";
+const MINIMUM_CHAT_TOKENS = 1000;
+
+/**
+ * POST /api/alyzitron/chat
+ *
+ * Sends a user message and streams the assistant reply via Server-Sent Events.
+ * Manages conversation history, rolling summarization, and persists everything
+ * to MongoDB on completion.
+ *
+ * Body: {
+ *   taskId:       string  — required
+ *   message:       string  — required
+ *   videoAnalysis: object  — your existing Gemini analysis JSON
+ *   videoTitle?:   string
+ *   sessionId?:    string  — omit to auto-find or create a session for this taskId
+ *   userId?:       string
+ * }
+ *
+ * SSE event shapes:
+ *   { type: "summarized" } — fired once if context was compressed
+ *   { type: "chunk", text: string } — one or more per response
+ *   { type: "done", sessionId: string, didSummarize: boolean }
+ *   { type: "error", message: string }
+ */
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
@@ -41,8 +68,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Ownership gate FIRST — never touch credits or sessions for a task the
+    // caller does not own (prevents IDOR + billing another user's account).
     await requireOwnedAlyzitronTask(taskId, userId);
 
+    // Credit check AFTER auth + ownership, BEFORE the (expensive) chat turn.
+    const creditCheck = await CreditsService.hasCredits(
+      userId,
+      "alyzitron",
+      "chat_message",
+      { tokenCount: MINIMUM_CHAT_TOKENS, model: ALYZITRON_CHAT_MODEL }
+    );
+
+    if (!creditCheck.hasCredits) {
+      return NextResponse.json(
+        {
+          error: "Insufficient credits",
+          required: creditCheck.required,
+          available: creditCheck.available,
+          code: "INSUFFICIENT_CREDITS",
+        },
+        { status: 402 }
+      );
+    }
+
+    const initialDeduct = await CreditsService.deductCredits(
+      userId,
+      "alyzitron",
+      "chat_message",
+      { tokenCount: MINIMUM_CHAT_TOKENS, model: ALYZITRON_CHAT_MODEL, taskId }
+    );
+
+    if (!initialDeduct.success) {
+      return NextResponse.json(
+        {
+          error: "Unable to deduct chat credits",
+          details: initialDeduct.error,
+          code: "CREDIT_DEDUCTION_FAILED",
+        },
+        { status: 402 }
+      );
+    }
+
+    let chatCreditsFinalized = false;
+
+    // Load or create session — ownership-scoped to the authenticated user.
     let session: ChatSessionDoc | null = null;
     if (sessionId) {
       try {
@@ -130,15 +200,60 @@ export async function POST(req: NextRequest) {
             activeSession.totalMessagesEver + 2
           );
 
+          const estimatedTokensUsed = Math.max(
+            MINIMUM_CHAT_TOKENS,
+            estimateTokens(
+              [
+                message,
+                fullAssistantResponse,
+                newSummary ?? "",
+                videoTitle ?? "",
+              ].filter(Boolean).join("\n\n")
+            )
+          );
+
+          let creditsConsumed = initialDeduct.creditsDeducted;
+          if (estimatedTokensUsed > MINIMUM_CHAT_TOKENS) {
+            const additionalDeduct = await CreditsService.deductCredits(
+              userId,
+              "alyzitron",
+              "chat_message",
+              {
+                tokenCount: estimatedTokensUsed - MINIMUM_CHAT_TOKENS,
+                model: ALYZITRON_CHAT_MODEL,
+                taskId,
+              }
+            );
+            if (!additionalDeduct.success) {
+              throw new Error(`Unable to deduct remaining chat credits: ${additionalDeduct.error}`);
+            }
+            creditsConsumed += additionalDeduct.creditsDeducted;
+          }
+          chatCreditsFinalized = true;
+
           send({
             type: "done",
             sessionId: activeSession._id!.toString(),
             didSummarize,
+            tokensUsed: estimatedTokensUsed,
+            creditsConsumed,
           });
 
           controller.close();
         } catch (err: any) {
           console.error("[Alyzitron/chat] Streaming error:", err);
+          if (!chatCreditsFinalized) {
+            await CreditsService.refundCredits(
+              userId,
+              initialDeduct.creditsDeducted,
+              `Alyzitron chat failed: ${err.message}`,
+              {
+                service: "alyzitron",
+                action: "chat_message",
+                originalTransactionId: initialDeduct.transactionId,
+              }
+            ).catch(() => {});
+          }
           send({ type: "error", message: err.message });
           controller.close();
         }

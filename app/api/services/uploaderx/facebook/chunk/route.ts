@@ -10,6 +10,7 @@ import {
   requireAllowedUploaderXUploadUrl,
   UploaderXUploadUrlError,
 } from "../../utils/platform-upload-url";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 const FACEBOOK_MIN_SCHEDULE_DELAY_MS = 10 * 60 * 1000;
 const FACEBOOK_PAGE_VIDEO_MAX_SCHEDULE_DELAY_MS = 75 * 24 * 60 * 60 * 1000;
@@ -155,6 +156,13 @@ export async function POST(req: Request) {
 
     // â”€â”€â”€ PHASE: START â”€â”€â”€
     if (phase === "start") {
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
 
@@ -231,6 +239,13 @@ export async function POST(req: Request) {
     if (phase === "transfer") {
       if (startOffset === undefined || !chunkSize) {
         return NextResponse.json({ success: false, error: "Missing transfer parameters" }, { status: 400 });
+      }
+
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
       }
 
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
@@ -352,6 +367,13 @@ export async function POST(req: Request) {
         }
       }
 
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       if (isReel) {
         const finishUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/video_reels?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
         const finishRes = await axios.post(
@@ -438,6 +460,8 @@ export async function POST(req: Request) {
         );
       }
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         facebookUrl,
@@ -460,5 +484,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "Facebook upload failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:Facebook] chunk publish credit deduction failed:", error);
   }
 }

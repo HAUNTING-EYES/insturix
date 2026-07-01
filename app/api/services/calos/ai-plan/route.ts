@@ -15,6 +15,7 @@ import type { Trend } from "@/lib/calos/trends/types";
 import { proposePlan } from "@/lib/calos/planner";
 import { DEFAULT_OBJECTIVE, type CalosObjective } from "@/lib/calos/campaign-intent";
 import { calosScope } from "@/lib/calos/scope";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // LLM call — needs headroom beyond the default route timeout.
@@ -32,6 +33,19 @@ export const maxDuration = 60; // LLM call — needs headroom beyond the default
  * created-vs-slots in the response, not hidden).
  */
 export async function POST(req: NextRequest) {
+  let creditCheck: CreditCheckResult | null = null;
+  let creditsDeducted = false;
+  const refundAiPlanCredits = async (reason: string) => {
+    if (!creditCheck || !creditsDeducted) return;
+    try {
+      await creditCheck.refund(reason);
+    } catch (refundError) {
+      console.error("[CalOS] ai-plan credit refund failed:", refundError);
+    } finally {
+      creditsDeducted = false;
+    }
+  };
+
   try {
     const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -89,6 +103,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ created: 0, note: "No cadence rules produced slots in this range." });
     }
     const slots = proposals.map((p) => ({ date: p.date, platform: p.platform }));
+
+    creditCheck = await checkCredits(userId, "calos", "ai_plan");
+    if (!creditCheck.allowed) return creditCheck.errorResponse!;
+    await creditCheck.deduct();
+    creditsDeducted = true;
 
     // Avoid repeating ideas already planned for this brand (across months + re-runs). Org-scoped so
     // the planner dedupes against the whole team's calendar, not just the acting user's cards.
@@ -150,6 +169,7 @@ export async function POST(req: NextRequest) {
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI planner unavailable";
+      await refundAiPlanCredits(`CalOS AI plan failed: ${msg}`);
       return NextResponse.json(
         { error: msg, hint: "Use Auto-fill for a cadence-only plan, or set GEMINI_API_KEY." },
         { status: 422 },
@@ -203,6 +223,7 @@ export async function POST(req: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
+    await refundAiPlanCredits(error instanceof Error ? error.message : "CalOS AI plan failed");
     console.error("[CalOS] ai-plan error:", error);
     return NextResponse.json({ error: "Failed to generate AI plan" }, { status: 500 });
   }

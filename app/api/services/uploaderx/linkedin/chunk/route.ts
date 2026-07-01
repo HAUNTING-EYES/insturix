@@ -14,6 +14,7 @@ import {
   requireAllowedUploaderXUploadUrl,
   UploaderXUploadUrlError,
 } from "../../utils/platform-upload-url";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
 
@@ -201,6 +202,12 @@ export async function POST(req: Request) {
 
     // â”€â”€â”€ PHASE: START â”€â”€â”€
     if (phase === "start") {
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "linkedin",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
 
@@ -272,6 +279,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: "Invalid or expired LinkedIn upload URL" }, { status: 400 });
       }
 
+      // Credit check AFTER the upload-URL ownership/allow-list guard, before the transfer work.
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "linkedin",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const chunkBuffer = await fetchUploaderXRange(videoAsset.publicUrl, requestedFirstByte, requestedLastByte);
 
@@ -312,6 +327,12 @@ export async function POST(req: Request) {
       // For LinkedIn, the finish phase doesn't need uploadedPartIds
       // The video is already uploaded in the transfer phase
       // We just need to finalize the upload
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "linkedin",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
       const finalizeResponse = await fetch("https://api.linkedin.com/rest/videos?action=finalizeUpload", {
         method: "POST",
         headers: linkedInRestHeaders(accessToken),
@@ -406,6 +427,8 @@ export async function POST(req: Request) {
         console.warn("[UploaderX:LinkedIn] video_published event failed:", eventErr)
       );
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         postUrl,
@@ -429,5 +452,12 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "LinkedIn upload failed" },
       { status: 500 }
     );
+  }
+}
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:LinkedIn] chunk publish credit deduction failed:", error);
   }
 }

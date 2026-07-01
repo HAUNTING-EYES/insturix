@@ -45,8 +45,12 @@ export async function POST(
       }
     }
 
-    // Check credits (3 credits for a variation)
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
+    // Parse the request body once (form-data) so the credit check can be model-aware.
+    const formData = await request.formData();
+    const modelId = formData.get('modelId') as string || undefined;
+
+    // Check credits (base 3 for a variation; the model multiplier is applied when known).
+    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', { model: modelId });
     if (!creditCheck.allowed) {
       return creditCheck.errorResponse;
     }
@@ -64,12 +68,8 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    // Parse multipart/form-data
-    const formData = await request.formData();
-
-    // Extract fields from formData
+    // Extract fields from formData (already parsed above for the model-aware credit check)
     const prompt = formData.get('prompt') as string;
-    const modelId = formData.get('modelId') as string || undefined;
     const aspectRatio = formData.get('aspectRatio') as string || undefined;
     const parentVariationId = formData.get('parentVariationId') as string || undefined;
     const updateExistingBlank = formData.get('updateExistingBlank') === 'true';

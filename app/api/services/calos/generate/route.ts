@@ -5,6 +5,7 @@ import CalosDeliverable from "@/schemas/calos-deliverable";
 import { serviceForFormat } from "@/lib/calos/generate/route-map";
 import { getGenerator, type GenerateParams } from "@/lib/calos/generate/contract";
 import { calosScope } from "@/lib/calos/scope";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 import "@/lib/calos/generate/register"; // side-effect: wires the live generators
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,19 @@ export const maxDuration = 60; // a wired generator may call an LLM/render — n
  * produced an asset. Scoped by ownerUserId + brandId + card.id (no IDOR).
  */
 export async function POST(req: NextRequest) {
+  let generationCreditCheck: CreditCheckResult | null = null;
+  let generationCreditsDeducted = false;
+  const refundGenerationCredits = async (reason: string) => {
+    if (!generationCreditCheck || !generationCreditsDeducted) return;
+    try {
+      await generationCreditCheck.refund(reason);
+    } catch (refundError) {
+      console.error("[CalOS] generate credit refund failed:", refundError);
+    } finally {
+      generationCreditsDeducted = false;
+    }
+  };
+
   try {
     const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,11 +82,19 @@ export async function POST(req: NextRequest) {
       angle: deliverable.card.details,
     };
 
+    generationCreditCheck = await checkCredits(userId, "calos", "generate_deliverable", {
+      requestType: service,
+    });
+    if (!generationCreditCheck.allowed) return generationCreditCheck.errorResponse!;
+    await generationCreditCheck.deduct();
+    generationCreditsDeducted = true;
+
     const result = await generator(params);
     if (!result.ok) {
       deliverable.editorialStatus = "drafting";
       deliverable.errorMessage = result.error || "Generation failed";
       await deliverable.save();
+      await refundGenerationCredits(result.error || "CalOS generation failed");
       return NextResponse.json(
         { error: result.error || "Generation failed", routedTo: service },
         { status: 502 },
@@ -97,6 +119,7 @@ export async function POST(req: NextRequest) {
       assetUrl: deliverable.assetUrl,
     });
   } catch (error) {
+    await refundGenerationCredits(error instanceof Error ? error.message : "CalOS generation failed");
     console.error("[CalOS] generate error:", error);
     return NextResponse.json({ error: "Failed to dispatch generation" }, { status: 500 });
   }
