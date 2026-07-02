@@ -42,6 +42,69 @@ export function creditsForUsd(usd: number): number {
 }
 
 /**
+ * Credit pools.
+ *
+ * The wallet has two independent balances:
+ * - `main`  — everyday workflow: chat, scripts, calendar, scans, posting,
+ *             render/export, analysis, transcription, orchestration.
+ * - `media` — AI generation of image / video / audio only. This is the
+ *             margin-dangerous spend (Fal image/video, music), so it is metered
+ *             separately: heavy generation cannot drain the workflow pool, and
+ *             everyday usage cannot drain the generation pool.
+ *
+ * Source: docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md
+ *   "AI video/image/audio should keep a separate quota, but normal LLM,
+ *    analysis, storage, posting, and infra still need unit economics."
+ */
+export type CreditPool = 'main' | 'media';
+
+/**
+ * `service.action` pairs that draw the MEDIA pool (image/video/audio generation).
+ * Every other configured action draws the MAIN pool (see `getCreditPool`).
+ *
+ * Audit note (senior-dev override): kept as one authoritative, greppable list so
+ * the full media surface can be reviewed at a glance. When adding a new AI
+ * generation action to CREDIT_COSTS, add its `service.action` here too, or it
+ * will (safely) bill the main pool by default.
+ */
+export const MEDIA_POOL_ACTIONS: ReadonlySet<string> = new Set<string>([
+  // Text-to-image
+  'thinkforge.image_generation',
+  'clickatron.variation',
+  // Audio generation
+  'musitron.music_generation',
+  'pipeline.voiceover_generation',
+  'pipeline.bgm_generation',
+  'pipeline.sfx_generation',
+  // Storyboard / reference image generation
+  'pipeline.storyboard_generation',
+  'pipeline.storyboard_image_generation',
+  'pipeline.storyboard_image_regeneration',
+  'pipeline.storyboard_context_regeneration',
+  'pipeline.reference_generation',
+  'pipeline.reference_image',
+  'pipeline.reference_image_regen',
+  // Video generation
+  'pipeline.video_generation',
+]);
+
+/**
+ * Which pool an action draws from. Defaults to 'main' for any action not
+ * explicitly marked as media generation (fail-safe: unknown = main workflow).
+ * Does NOT throw — classification is orthogonal to whether a cost is configured
+ * (getCreditCost handles the fail-closed unknown-action check).
+ */
+export function getCreditPool(service: string, action: string): CreditPool {
+  return MEDIA_POOL_ACTIONS.has(`${service}.${action}`) ? 'media' : 'main';
+}
+
+function normalizeCreditQuantity(quantity?: number): number {
+  if (quantity === undefined) return 1;
+  if (!Number.isFinite(quantity) || quantity <= 0) return 1;
+  return Math.ceil(quantity);
+}
+
+/**
  * Credit costs per service
  * 
  * Consumption order:
@@ -486,6 +549,33 @@ export const PLAN_CREDIT_ALLOCATIONS: Record<string, number> = {
 };
 
 /**
+ * Monthly MEDIA-pool grant per plan (image/video/audio generation).
+ *
+ * This is granted ON TOP of the plan's main-pool value above (founder decision
+ * 2026-07-02: "media on top, not carved out"). So an Agency Scale user gets the
+ * full 30000 main credits AND 9000 media credits each cycle.
+ *
+ * Derivation (ADJUSTABLE — this is the pricing lever, change here only):
+ *   Real per-action media costs — image = 5 credits, video = 15-45 credits/sec
+ *   (both already traced to fal $/sec in CREDIT_COSTS above). Sized to deliver a
+ *   realistic monthly generation bundle per tier (agency-scale reference bundle:
+ *   ~80 images + ~36 short clips + audio) with headroom, scaled down for lower
+ *   tiers. Free = 0 (free plan is main-pool only, 10 credits).
+ */
+export const PLAN_MEDIA_CREDIT_ALLOCATIONS: Record<string, number> = {
+  free: 0,
+  plus: 0, // legacy, retired — main-pool only
+  pro: 0, // legacy, retired
+  premium: 0, // legacy, retired
+  starter: 1000,
+  agency_starter: 1000,
+  growth: 4000,
+  agency_growth: 4000,
+  scale: 9000,
+  agency_scale: 9000,
+};
+
+/**
  * Top-up credit packages
  */
 export interface CreditPackage {
@@ -550,6 +640,7 @@ export function getCreditCost(
     characterCount?: number; // For character-based billing
     durationMinutes?: number; // For per-minute billing
     durationSeconds?: number; // For per-second billing
+    quantity?: number; // For batch/fan-out operations
   }
 ): number {
   const serviceCosts = CREDIT_COSTS[service];
@@ -596,6 +687,8 @@ export function getCreditCost(
     cost *= options.durationSeconds;
   }
 
+  cost *= normalizeCreditQuantity(options?.quantity);
+
   // Round to 2 decimal places
   return Math.round(cost * 100) / 100;
 }
@@ -609,4 +702,17 @@ export function getPlanCreditAllocation(planType: string): number {
     .replace(/\s+plan$/, '')
     .replace(/\s+/g, '_');
   return PLAN_CREDIT_ALLOCATIONS[normalized] ?? PLAN_CREDIT_ALLOCATIONS.free;
+}
+
+/**
+ * Get plan MEDIA-pool credit allocation (image/video/audio generation).
+ * Granted on top of the main-pool allocation. Defaults to 0 for unknown/legacy
+ * plans (they operate on the main pool only).
+ */
+export function getPlanMediaCreditAllocation(planType: string): number {
+  const normalized = planType
+    .toLowerCase()
+    .replace(/\s+plan$/, '')
+    .replace(/\s+/g, '_');
+  return PLAN_MEDIA_CREDIT_ALLOCATIONS[normalized] ?? 0;
 }

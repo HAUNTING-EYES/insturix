@@ -10,11 +10,57 @@
 
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User, ICreditsBalance, ICreditTransaction } from "@/schemas/user";
-import { getCreditCost, getPlanCreditAllocation } from "@/lib/config/creditCosts";
+import {
+  getCreditCost,
+  getPlanCreditAllocation,
+  getPlanMediaCreditAllocation,
+  getCreditPool,
+  type CreditPool,
+} from "@/lib/config/creditCosts";
 import { nanoid } from "nanoid";
 
 // Maximum transactions to keep in history (to prevent unbounded growth)
 const MAX_CREDIT_HISTORY = 100;
+
+/**
+ * Field paths for a given credit pool. The wallet holds two independent pools
+ * (main + media), each with a subscription balance (expires) and a top-up
+ * balance (never expires). Every deduct/grant/refund routes through one pool.
+ */
+const POOL_FIELDS: Record<CreditPool, {
+  subscription: 'subscriptionCredits' | 'mediaCredits';
+  topup: 'topupCredits' | 'mediaTopupCredits';
+  lastGrant: 'lastSubscriptionGrant' | 'lastMediaGrant';
+  expiry: 'subscriptionCreditsExpiry' | 'mediaCreditsExpiry';
+}> = {
+  main: {
+    subscription: 'subscriptionCredits',
+    topup: 'topupCredits',
+    lastGrant: 'lastSubscriptionGrant',
+    expiry: 'subscriptionCreditsExpiry',
+  },
+  media: {
+    subscription: 'mediaCredits',
+    topup: 'mediaTopupCredits',
+    lastGrant: 'lastMediaGrant',
+    expiry: 'mediaCreditsExpiry',
+  },
+};
+
+/** A fresh, fully-initialized (zeroed) credits balance for both pools. */
+function emptyCreditsBalance() {
+  return {
+    subscriptionCredits: 0,
+    topupCredits: 0,
+    lastSubscriptionGrant: null,
+    subscriptionCreditsExpiry: null,
+    mediaCredits: 0,
+    mediaTopupCredits: 0,
+    lastMediaGrant: null,
+    mediaCreditsExpiry: null,
+    creditHistory: [] as ICreditTransaction[],
+  };
+}
 
 export interface CreditsPurchaseResult {
   success: boolean;
@@ -33,11 +79,18 @@ export interface CreditsDeductResult {
 }
 
 export interface CreditsBalanceInfo {
+  // MAIN pool
   subscriptionCredits: number;
   topupCredits: number;
-  totalCredits: number;
+  totalCredits: number; // main pool total (subscription + topup)
   lastSubscriptionGrant: Date | null;
   subscriptionCreditsExpiry: Date | null;
+  // MEDIA pool (image/video/audio generation)
+  mediaCredits: number;
+  mediaTopupCredits: number;
+  totalMediaCredits: number; // media pool total (subscription + topup)
+  lastMediaGrant: Date | null;
+  mediaCreditsExpiry: Date | null;
   recentTransactions: ICreditTransaction[];
 }
 
@@ -70,23 +123,25 @@ export class CreditsService {
 
     // Initialize credits balance if not present (for existing users)
     if (!user.creditsBalance) {
-      user.creditsBalance = {
-        subscriptionCredits: 0,
-        topupCredits: 0,
-        lastSubscriptionGrant: null,
-        subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      };
+      user.creditsBalance = emptyCreditsBalance();
       await user.save();
     }
 
     const balance = user.creditsBalance;
+    // Existing users predate the media pool; treat missing media fields as 0.
+    const mediaCredits = balance.mediaCredits ?? 0;
+    const mediaTopupCredits = balance.mediaTopupCredits ?? 0;
     return {
       subscriptionCredits: balance.subscriptionCredits,
       topupCredits: balance.topupCredits,
       totalCredits: balance.subscriptionCredits + balance.topupCredits,
       lastSubscriptionGrant: balance.lastSubscriptionGrant,
       subscriptionCreditsExpiry: balance.subscriptionCreditsExpiry,
+      mediaCredits,
+      mediaTopupCredits,
+      totalMediaCredits: mediaCredits + mediaTopupCredits,
+      lastMediaGrant: balance.lastMediaGrant ?? null,
+      mediaCreditsExpiry: balance.mediaCreditsExpiry ?? null,
       recentTransactions: balance.creditHistory.slice(-10), // Last 10 transactions
     };
   }
@@ -105,15 +160,20 @@ export class CreditsService {
       characterCount?: number;
       durationMinutes?: number;
       durationSeconds?: number;
+      quantity?: number;
     }
-  ): Promise<{ hasCredits: boolean; required: number; available: number }> {
+  ): Promise<{ hasCredits: boolean; required: number; available: number; pool: CreditPool }> {
     const balance = await this.getBalance(clerkUserId);
     const required = getCreditCost(service, action, options);
+    const pool = getCreditPool(service, action);
+    // Media actions gate on the media pool; everything else on the main pool.
+    const available = pool === 'media' ? balance.totalMediaCredits : balance.totalCredits;
 
     return {
-      hasCredits: balance.totalCredits >= required,
+      hasCredits: available >= required,
       required,
-      available: balance.totalCredits,
+      available,
+      pool,
     };
   }
 
@@ -134,7 +194,7 @@ export class CreditsService {
       durationMinutes?: number;
       durationSeconds?: number;
       taskId?: string;
-      /** Multiply the base cost by this quantity (e.g., 4 scenes × 2 credits = 8 total) */
+      /** Batch/fan-out multiplier (e.g., 4 scenes means 4 priced units). */
       quantity?: number;
     }
   ): Promise<CreditsDeductResult> {
@@ -149,30 +209,32 @@ export class CreditsService {
     if (!user.creditsBalance) {
       await User.findOneAndUpdate(
         { clerkUserId },
-        { $set: { creditsBalance: {
-          subscriptionCredits: 0, topupCredits: 0,
-          lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
-          creditHistory: [],
-        }}},
+        { $set: { creditsBalance: emptyCreditsBalance() } },
       );
       return { success: false, creditsDeducted: 0, error: 'Credits initialized, please retry' };
     }
 
-    const baseCost = getCreditCost(service, action, options);
-    const cost = baseCost * (options?.quantity || 1);
+    const cost = getCreditCost(service, action, options);
+    // Route to the correct pool: media generation debits the media pool,
+    // everything else debits the main pool.
+    const pool = getCreditPool(service, action);
+    const fields = POOL_FIELDS[pool];
     const balance = user.creditsBalance;
-    const totalAvailable = balance.subscriptionCredits + balance.topupCredits;
+    // Legacy docs predate the media pool; treat missing balances as 0.
+    const poolSubscription = (balance as unknown as Record<string, number>)[fields.subscription] ?? 0;
+    const poolTopup = (balance as unknown as Record<string, number>)[fields.topup] ?? 0;
+    const totalAvailable = poolSubscription + poolTopup;
 
     if (totalAvailable < cost) {
       return {
         success: false,
         creditsDeducted: 0,
-        error: `Insufficient credits. Required: ${cost}, Available: ${totalAvailable}`,
+        error: `Insufficient ${pool} credits. Required: ${cost}, Available: ${totalAvailable}`,
       };
     }
 
-    // Calculate split: subscription first, then topup
-    const fromSubscription = Math.min(balance.subscriptionCredits, cost);
+    // Calculate split: subscription first (expires), then topup (never expires)
+    const fromSubscription = Math.min(poolSubscription, cost);
     const fromTopup = cost - fromSubscription;
     const newTotal = totalAvailable - cost;
 
@@ -188,28 +250,38 @@ export class CreditsService {
       timestamp: new Date(),
       balanceAfter: newTotal,
       metadata: {
+        pool,
         fromSubscription,
         fromTopup,
         ...options,
       },
     };
 
+    const subPath = `creditsBalance.${fields.subscription}`;
+    const topupPath = `creditsBalance.${fields.topup}`;
+
     // Atomic update: $inc for credits, $push for history (capped)
     const updated = await User.findOneAndUpdate(
       {
         clerkUserId,
-        // Ensure sufficient credits at write time (prevents race condition)
+        // Ensure sufficient credits IN THIS POOL at write time (prevents race
+        // condition). $ifNull guards legacy docs that lack the media fields.
         $expr: {
           $gte: [
-            { $add: ['$creditsBalance.subscriptionCredits', '$creditsBalance.topupCredits'] },
+            {
+              $add: [
+                { $ifNull: [`$${subPath}`, 0] },
+                { $ifNull: [`$${topupPath}`, 0] },
+              ],
+            },
             cost,
           ],
         },
       },
       {
         $inc: {
-          'creditsBalance.subscriptionCredits': -fromSubscription,
-          'creditsBalance.topupCredits': -fromTopup,
+          [subPath]: -fromSubscription,
+          [topupPath]: -fromTopup,
         },
         $push: {
           'creditsBalance.creditHistory': {
@@ -225,11 +297,11 @@ export class CreditsService {
       return {
         success: false,
         creditsDeducted: 0,
-        error: `Insufficient credits (concurrent deduction). Required: ${cost}`,
+        error: `Insufficient ${pool} credits (concurrent deduction). Required: ${cost}`,
       };
     }
 
-    console.log(`[CreditsService] Deducted ${cost} credits from user ${clerkUserId} for ${service}.${action}`);
+    console.log(`[CreditsService] Deducted ${cost} ${pool} credits from user ${clerkUserId} for ${service}.${action}`);
 
     return {
       success: true,
@@ -281,11 +353,7 @@ export class CreditsService {
     // Ensure creditsBalance exists first (upsert-safe)
     await User.findOneAndUpdate(
       { clerkUserId, creditsBalance: { $exists: false } },
-      { $set: { creditsBalance: {
-        subscriptionCredits: 0, topupCredits: 0,
-        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      }}},
+      { $set: { creditsBalance: emptyCreditsBalance() } },
     );
 
     // Atomic increment + push transaction
@@ -334,6 +402,13 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
+    // Route the refund back to the SAME pool the original charge drew from.
+    // If the caller doesn't identify the action, default to the main pool.
+    const pool: CreditPool = options?.service && options?.action
+      ? getCreditPool(options.service, options.action)
+      : 'main';
+    const refundPath = `creditsBalance.${POOL_FIELDS[pool].subscription}`;
+
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
       type: 'refund',
@@ -343,16 +418,17 @@ export class CreditsService {
       timestamp: new Date(),
       balanceAfter: 0,
       metadata: {
+        pool,
         reason,
         originalTransactionId: options?.originalTransactionId,
       },
     };
 
-    // Atomic: refund to subscription credits
+    // Atomic: refund to the pool's subscription credits
     const updated = await User.findOneAndUpdate(
       { clerkUserId, creditsBalance: { $exists: true } },
       {
-        $inc: { 'creditsBalance.subscriptionCredits': amount },
+        $inc: { [refundPath]: amount },
         $push: {
           'creditsBalance.creditHistory': {
             $each: [transaction],
@@ -367,7 +443,7 @@ export class CreditsService {
       return { success: false, error: `User not found or no credits balance: ${clerkUserId}` };
     }
 
-    console.log(`[CreditsService] Refunded ${amount} credits to user ${clerkUserId}: ${reason}`);
+    console.log(`[CreditsService] Refunded ${amount} ${pool} credits to user ${clerkUserId}: ${reason}`);
 
     return {
       success: true,
@@ -385,11 +461,15 @@ export class CreditsService {
     options?: {
       paymentId?: string;
       packageId?: string;
+      /** Which pool the purchased credits land in. Defaults to 'main'. */
+      pool?: CreditPool;
     }
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
     const paymentId = options?.paymentId;
+    const pool: CreditPool = options?.pool ?? 'main';
+    const topupPath = `creditsBalance.${POOL_FIELDS[pool].topup}`;
 
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
@@ -398,6 +478,7 @@ export class CreditsService {
       timestamp: new Date(),
       balanceAfter: 0, // Calculated after update
       metadata: {
+        pool,
         paymentId,
         packageId: options?.packageId,
       },
@@ -406,11 +487,7 @@ export class CreditsService {
     // Ensure creditsBalance exists first
     await User.findOneAndUpdate(
       { clerkUserId, creditsBalance: { $exists: false } },
-      { $set: { creditsBalance: {
-        subscriptionCredits: 0, topupCredits: 0,
-        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      }}},
+      { $set: { creditsBalance: emptyCreditsBalance() } },
     );
 
     // Idempotency: the same Razorpay payment can arrive via BOTH the client verify
@@ -430,7 +507,7 @@ export class CreditsService {
     const updated = await User.findOneAndUpdate(
       dedupeFilter,
       {
-        $inc: { 'creditsBalance.topupCredits': amount },
+        $inc: { [topupPath]: amount },
         $push: {
           'creditsBalance.creditHistory': {
             $each: [transaction],
@@ -458,8 +535,7 @@ export class CreditsService {
       return { success: false, error: `User not found: ${clerkUserId}` };
     }
 
-    const newTotal = (updated.creditsBalance?.subscriptionCredits || 0) + (updated.creditsBalance?.topupCredits || 0);
-    console.log(`[CreditsService] Added ${amount} top-up credits to user ${clerkUserId}. New total: ${newTotal}`);
+    console.log(`[CreditsService] Added ${amount} ${pool} top-up credits to user ${clerkUserId}.`);
 
     return {
       success: true,
@@ -488,10 +564,11 @@ export class CreditsService {
     await connectToDatabase();
 
     const idempotencyKey = options?.idempotencyKey;
-    const allocation = getPlanCreditAllocation(planType);
+    const allocation = getPlanCreditAllocation(planType); // main pool
+    const mediaAllocation = getPlanMediaCreditAllocation(planType); // media pool (on top)
     const now = new Date();
 
-    // Calculate expiry (end of billing cycle)
+    // Calculate expiry (end of billing cycle). Both pools expire together.
     const expiry = new Date(now);
     if (billingCycle === 'yearly') {
       expiry.setFullYear(expiry.getFullYear() + 1);
@@ -502,20 +579,19 @@ export class CreditsService {
     // Ensure creditsBalance exists
     await User.findOneAndUpdate(
       { clerkUserId, creditsBalance: { $exists: false } },
-      { $set: { creditsBalance: {
-        subscriptionCredits: 0, topupCredits: 0,
-        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      }}},
+      { $set: { creditsBalance: emptyCreditsBalance() } },
     );
 
-    // Read current subscription credits to log expiry
-    const user = await User.findOne({ clerkUserId }).select('creditsBalance.subscriptionCredits creditsBalance.topupCredits');
+    // Read current subscription credits (both pools) to log expiry of the old grant
+    const user = await User.findOne({ clerkUserId }).select(
+      'creditsBalance.subscriptionCredits creditsBalance.mediaCredits'
+    );
     const expiredCredits = user?.creditsBalance?.subscriptionCredits || 0;
+    const expiredMedia = user?.creditsBalance?.mediaCredits || 0;
 
     const transactions: ICreditTransaction[] = [];
 
-    // Log expiry of old subscription credits if any
+    // Log expiry of old MAIN subscription credits if any
     if (expiredCredits > 0) {
       transactions.push({
         id: `txn_${nanoid(12)}`,
@@ -523,11 +599,23 @@ export class CreditsService {
         amount: -expiredCredits,
         timestamp: now,
         balanceAfter: 0,
-        metadata: { reason: 'subscription_renewal' },
+        metadata: { pool: 'main', reason: 'subscription_renewal' },
       });
     }
 
-    // Grant transaction
+    // Log expiry of old MEDIA subscription credits if any
+    if (expiredMedia > 0) {
+      transactions.push({
+        id: `txn_${nanoid(12)}`,
+        type: 'expiry',
+        amount: -expiredMedia,
+        timestamp: now,
+        balanceAfter: 0,
+        metadata: { pool: 'media', reason: 'subscription_renewal' },
+      });
+    }
+
+    // MAIN grant transaction (carries the idempotency key that guards replay)
     transactions.push({
       id: `txn_${nanoid(12)}`,
       type: 'subscription_grant',
@@ -535,12 +623,30 @@ export class CreditsService {
       timestamp: now,
       balanceAfter: 0,
       metadata: {
+        pool: 'main',
         planType,
         billingCycle,
         expiry: expiry.toISOString(),
         ...(idempotencyKey ? { idempotencyKey } : {}),
       },
     });
+
+    // MEDIA grant transaction (only when the plan allocates a media pool)
+    if (mediaAllocation > 0) {
+      transactions.push({
+        id: `txn_${nanoid(12)}`,
+        type: 'subscription_grant',
+        amount: mediaAllocation,
+        timestamp: now,
+        balanceAfter: 0,
+        metadata: {
+          pool: 'media',
+          planType,
+          billingCycle,
+          expiry: expiry.toISOString(),
+        },
+      });
+    }
 
     // Idempotency: Razorpay redelivers subscription.activated / subscription.charged.
     // The filter only matches when NO existing grant carries this event key, so a
@@ -554,8 +660,8 @@ export class CreditsService {
         }
       : { clerkUserId };
 
-    // Atomic: SET subscription credits (not increment — this is a reset+grant)
-    // But topupCredits is untouched (no risk of clobbering)
+    // Atomic: SET subscription credits for BOTH pools (reset+grant, not increment).
+    // Top-up balances (main + media) are untouched (never expire, no clobbering).
     const updated = await User.findOneAndUpdate(
       dedupeFilter,
       {
@@ -563,6 +669,9 @@ export class CreditsService {
           'creditsBalance.subscriptionCredits': allocation,
           'creditsBalance.lastSubscriptionGrant': now,
           'creditsBalance.subscriptionCreditsExpiry': expiry,
+          'creditsBalance.mediaCredits': mediaAllocation,
+          'creditsBalance.lastMediaGrant': now,
+          'creditsBalance.mediaCreditsExpiry': expiry,
         },
         $push: {
           'creditsBalance.creditHistory': {
@@ -591,7 +700,7 @@ export class CreditsService {
       return { success: false, error: `User not found: ${clerkUserId}` };
     }
 
-    console.log(`[CreditsService] Granted ${allocation} subscription credits to user ${clerkUserId} (${planType})`);
+    console.log(`[CreditsService] Granted ${allocation} main + ${mediaAllocation} media subscription credits to user ${clerkUserId} (${planType})`);
 
     return {
       success: true,
@@ -612,31 +721,49 @@ export class CreditsService {
       return { success: false, error: `User not found or no credits balance: ${clerkUserId}` };
     }
 
-    const expiredAmount = user.creditsBalance.subscriptionCredits;
-    if (expiredAmount <= 0) {
+    const expiredAmount = user.creditsBalance.subscriptionCredits || 0;
+    const expiredMedia = user.creditsBalance.mediaCredits || 0;
+    if (expiredAmount <= 0 && expiredMedia <= 0) {
       return { success: true, balance: user.creditsBalance };
     }
 
-    const transaction: ICreditTransaction = {
-      id: `txn_${nanoid(12)}`,
-      type: 'expiry',
-      amount: -expiredAmount,
-      timestamp: new Date(),
-      balanceAfter: 0,
-      metadata: { reason: 'billing_cycle_end' },
-    };
+    const now = new Date();
+    const transactions: ICreditTransaction[] = [];
+    if (expiredAmount > 0) {
+      transactions.push({
+        id: `txn_${nanoid(12)}`,
+        type: 'expiry',
+        amount: -expiredAmount,
+        timestamp: now,
+        balanceAfter: 0,
+        metadata: { pool: 'main', reason: 'billing_cycle_end' },
+      });
+    }
+    if (expiredMedia > 0) {
+      transactions.push({
+        id: `txn_${nanoid(12)}`,
+        type: 'expiry',
+        amount: -expiredMedia,
+        timestamp: now,
+        balanceAfter: 0,
+        metadata: { pool: 'media', reason: 'billing_cycle_end' },
+      });
+    }
 
-    // Atomic: set subscription to 0, clear expiry, push transaction
+    // Atomic: set BOTH pools' subscription balances to 0, clear expiries, push transactions.
+    // Top-up balances (never expire) are untouched.
     const updated = await User.findOneAndUpdate(
       { clerkUserId },
       {
         $set: {
           'creditsBalance.subscriptionCredits': 0,
           'creditsBalance.subscriptionCreditsExpiry': null,
+          'creditsBalance.mediaCredits': 0,
+          'creditsBalance.mediaCreditsExpiry': null,
         },
         $push: {
           'creditsBalance.creditHistory': {
-            $each: [transaction],
+            $each: transactions,
             $slice: -MAX_CREDIT_HISTORY,
           },
         },
@@ -648,7 +775,7 @@ export class CreditsService {
       return { success: false, error: `User not found: ${clerkUserId}` };
     }
 
-    console.log(`[CreditsService] Expired ${expiredAmount} subscription credits for user ${clerkUserId}`);
+    console.log(`[CreditsService] Expired ${expiredAmount} main + ${expiredMedia} media subscription credits for user ${clerkUserId}`);
 
     return {
       success: true,
@@ -680,11 +807,7 @@ export class CreditsService {
     // Ensure creditsBalance exists
     await User.findOneAndUpdate(
       { clerkUserId, creditsBalance: { $exists: false } },
-      { $set: { creditsBalance: {
-        subscriptionCredits: 0, topupCredits: 0,
-        lastSubscriptionGrant: null, subscriptionCreditsExpiry: null,
-        creditHistory: [],
-      }}},
+      { $set: { creditsBalance: emptyCreditsBalance() } },
     );
 
     const field = creditType === 'subscription'

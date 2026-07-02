@@ -100,11 +100,16 @@ export interface IUploaderXOAuthStateRecord {
 }
 
 export interface ICreditsBalance {
-  subscriptionCredits: number; // Monthly credits from subscription (expire)
-  topupCredits: number; // Purchased credits (never expire)
-  lastSubscriptionGrant: Date | null; // When subscription credits were last granted
-  subscriptionCreditsExpiry: Date | null; // When current subscription credits expire
-  creditHistory: ICreditTransaction[]; // Transaction history (capped)
+  subscriptionCredits: number; // MAIN pool — monthly credits from subscription (expire)
+  topupCredits: number; // MAIN pool — purchased credits (never expire)
+  lastSubscriptionGrant: Date | null; // When main subscription credits were last granted
+  subscriptionCreditsExpiry: Date | null; // When current main subscription credits expire
+  // MEDIA pool (image/video/audio generation) — granted on top of the main pool.
+  mediaCredits: number; // MEDIA pool — monthly credits from subscription (expire)
+  mediaTopupCredits: number; // MEDIA pool — purchased credits (never expire)
+  lastMediaGrant: Date | null; // When media subscription credits were last granted
+  mediaCreditsExpiry: Date | null; // When current media subscription credits expire
+  creditHistory: ICreditTransaction[]; // Transaction history (capped, shared across both pools)
 }
 
 interface IUser extends Document {
@@ -310,10 +315,16 @@ const creditTransactionSchema = new Schema<ICreditTransaction>({
 
 // Credits balance schema
 const creditsBalanceSchema = new Schema<ICreditsBalance>({
+  // MAIN pool
   subscriptionCredits: { type: Number, required: true, default: 0, min: 0 },
   topupCredits: { type: Number, required: true, default: 0, min: 0 },
   lastSubscriptionGrant: { type: Date, default: null },
   subscriptionCreditsExpiry: { type: Date, default: null },
+  // MEDIA pool (image/video/audio generation) — granted on top of the main pool
+  mediaCredits: { type: Number, required: true, default: 0, min: 0 },
+  mediaTopupCredits: { type: Number, required: true, default: 0, min: 0 },
+  lastMediaGrant: { type: Date, default: null },
+  mediaCreditsExpiry: { type: Date, default: null },
   creditHistory: {
     type: [creditTransactionSchema],
     default: [],

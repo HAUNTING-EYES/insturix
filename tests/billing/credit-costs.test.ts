@@ -86,6 +86,19 @@ describe("credit pricing", () => {
     expect(getCreditCost("clickatron", "variation", { model: "fal-ai/nano-banana-pro" })).toBe(23);
   });
 
+  it("applies batch quantity inside canonical credit pricing", () => {
+    expect(getCreditCost("clickatron", "variation", { quantity: 3 })).toBe(15);
+    expect(getCreditCost("clickatron", "variation", { model: "fal-ai/nano-banana-pro", quantity: 2 })).toBe(46);
+    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "photon-1", quantity: 4 })).toBe(60);
+    expect(getCreditCost("clickatron", "variation", { quantity: 0 })).toBe(5);
+    expect(getCreditCost("clickatron", "variation", { quantity: -2 })).toBe(5);
+    expect(getCreditCost("clickatron", "variation", { quantity: 2.2 })).toBe(15);
+
+    const creditsServiceSource = readRoute("lib/services/creditsService.ts");
+    expect(creditsServiceSource).toContain("const cost = getCreditCost(service, action, options);");
+    expect(creditsServiceSource).not.toContain("baseCost * (options?.quantity || 1)");
+  });
+
   it("fails closed when a service or action is not priced", () => {
     expect(() => getCreditCost("unknown_service", "anything")).toThrow(CreditCostConfigurationError);
     expect(() => getCreditCost("clickatron", "generate_variation")).toThrow(/clickatron\.generate_variation/);
