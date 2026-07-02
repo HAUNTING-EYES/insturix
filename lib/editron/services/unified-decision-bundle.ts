@@ -116,6 +116,8 @@ export interface UnifiedSignalExecutionCandidate {
   sourcePacket: {
     hasSignals: boolean;
     signalKeys: string[];
+    hasVisualSetupSignals: boolean;
+    visualSetupSignalKeys: string[];
     hasAtomicMomentBundle: boolean;
     hasUnifiedMomentEvidence: boolean;
   };
@@ -1563,13 +1565,35 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
 
 function summarizeSignalSourcePacket(decision: ReactiveEditDecision): UnifiedSignalExecutionCandidate['sourcePacket'] {
   const signals = recordParam(decision.params.signals);
-  const signalKeys = signals ? Object.keys(signals).sort().slice(0, 40) : [];
+  const fullSignalKeys = signals ? Object.keys(signals).sort() : [];
+  const signalKeys = fullSignalKeys.slice(0, 40);
+  const visualSetupSignalKeys = fullSignalKeys.filter(isVisualSetupSignalKey).slice(0, 24);
   return {
     hasSignals: signalKeys.length > 0,
     signalKeys,
+    hasVisualSetupSignals: visualSetupSignalKeys.length > 0,
+    visualSetupSignalKeys,
     hasAtomicMomentBundle: recordParam(decision.params.atomicMomentBundle) !== null,
     hasUnifiedMomentEvidence: recordParam(decision.params.unifiedMomentEvidence) !== null,
   };
+}
+
+function isVisualSetupSignalKey(key: string): boolean {
+  return key === 'visual_complexity'
+    || key === 'enrichment.visual_setup_source'
+    || key === 'visual.environment'
+    || key === 'visual.scene_type'
+    || key === 'visual.shot_scale'
+    || key === 'visual.dominant_shot_scale'
+    || key === 'visual.has_face'
+    || key === 'visual.subject_count'
+    || key === 'visual.has_b_roll'
+    || key === 'visual.camera_movement'
+    || key === 'visual.lighting_quality'
+    || key === 'visual.production_quality_label'
+    || key === 'visual.production_quality'
+    || key === 'visual.color_temperature'
+    || key === 'visual.visual_complexity';
 }
 
 function lookupSourcePrimitive(decision: ReactiveEditDecision, aliases: string[]): string | number | boolean | undefined {

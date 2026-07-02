@@ -50,6 +50,8 @@ function signalAudit(overrides: Record<string, unknown> = {}) {
     sourcePacket: {
       hasSignals: true,
       signalKeys: ['signal:entity.number'],
+      hasVisualSetupSignals: true,
+      visualSetupSignalKeys: ['enrichment.visual_setup_source', 'visual.environment', 'visual.shot_scale'],
       hasAtomicMomentBundle: true,
       hasUnifiedMomentEvidence: true,
     },
@@ -389,11 +391,17 @@ describe('phase0 fixture manifest', () => {
           addedExecutableCount: 1,
           executableSignalOutcomeCount: 1,
           promotionRate: 1,
+          visualSetupSignalCandidateCount: 1,
+          visualSetupSignalCoverageRate: 1,
+          visualSetupSignalKeys: ['enrichment.visual_setup_source', 'visual.environment', 'visual.shot_scale'],
           candidateSamples: [expect.objectContaining({
             family: 'graphic',
             confidence: 0.88,
             evidenceStrength: 1,
             hasSignals: true,
+            hasVisualSetupSignals: true,
+            visualSetupSignalKeyCount: 3,
+            visualSetupSignalKeys: ['enrichment.visual_setup_source', 'visual.environment', 'visual.shot_scale'],
             hasAtomicMomentBundle: true,
           })],
           evidenceSamples: [expect.objectContaining({

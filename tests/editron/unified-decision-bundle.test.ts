@@ -2020,6 +2020,9 @@ describe('unified decision bundle merge', () => {
             narrative_pressure: 0.82,
             motionVectorX: 0.64,
             silence_duration_ms: 320,
+            'enrichment.visual_setup_source': 'gemini-visual-understanding',
+            'visual.environment': 'studio',
+            'visual.shot_scale': 'medium-close',
           },
         },
       }),
@@ -2062,7 +2065,20 @@ describe('unified decision bundle merge', () => {
       }),
       sourcePacket: expect.objectContaining({
         hasSignals: true,
-        signalKeys: ['motionVectorX', 'narrative_pressure', 'silence_duration_ms'],
+        signalKeys: [
+          'enrichment.visual_setup_source',
+          'motionVectorX',
+          'narrative_pressure',
+          'silence_duration_ms',
+          'visual.environment',
+          'visual.shot_scale',
+        ],
+        hasVisualSetupSignals: true,
+        visualSetupSignalKeys: [
+          'enrichment.visual_setup_source',
+          'visual.environment',
+          'visual.shot_scale',
+        ],
       }),
     }));
     const transitionDecision = merged.edl.decisions.find(

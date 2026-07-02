@@ -687,6 +687,9 @@ function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
       normalizedCandidateCount: 0,
       unnormalizedCandidateCount: 0,
       promotionRate: null,
+      visualSetupSignalCandidateCount: 0,
+      visualSetupSignalCoverageRate: null,
+      visualSetupSignalKeys: [],
       outcomes: {},
       topReasons: [],
       candidateSamples: [],
@@ -705,6 +708,7 @@ function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
   const executableSignalOutcomeCount = addedExecutableCount + signalPrimaryCount + validatedPrimaryCount;
   const normalizedCandidateCount = candidates.filter(hasSignalCandidateScoreFields).length;
   const unnormalizedCandidateCount = Math.max(0, candidates.length - normalizedCandidateCount);
+  const visualSetupSignalCandidateCount = candidates.filter(hasVisualSetupSignalEvidence).length;
   const status: Phase0SignalDecisionHealthStatus = totalCount === 0
     ? 'empty'
     : executableSignalOutcomeCount === 0
@@ -728,6 +732,9 @@ function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
     normalizedCandidateCount,
     unnormalizedCandidateCount,
     promotionRate: totalCount > 0 ? round(executableSignalOutcomeCount / totalCount) : null,
+    visualSetupSignalCandidateCount,
+    visualSetupSignalCoverageRate: candidates.length > 0 ? round(visualSetupSignalCandidateCount / candidates.length) : null,
+    visualSetupSignalKeys: summarizeVisualSetupSignalKeys(candidates),
     outcomes: normalizeOutcomeCounts(outcomes),
     topReasons: summarizeAuditBuckets(audit.byReason).slice(0, 10),
     candidateSamples: candidates.slice(0, 20).map(summarizeSignalCandidateSample),
@@ -760,10 +767,46 @@ function summarizeSignalCandidateSample(candidate: JsonRecord) {
     riskFlags: readStringArray(candidate.riskFlags).slice(0, 6),
     hasSignals: sourcePacket.hasSignals === true,
     signalKeyCount: Array.isArray(sourcePacket.signalKeys) ? sourcePacket.signalKeys.length : 0,
+    hasVisualSetupSignals: hasVisualSetupSignalEvidence(candidate),
+    visualSetupSignalKeyCount: summarizeCandidateVisualSetupSignalKeys(candidate).length,
+    visualSetupSignalKeys: summarizeCandidateVisualSetupSignalKeys(candidate),
     hasAtomicMomentBundle: sourcePacket.hasAtomicMomentBundle === true,
     hasUnifiedMomentEvidence: sourcePacket.hasUnifiedMomentEvidence === true,
     calibrationStatus: readString(candidate.calibrationStatus),
   };
+}
+
+function hasVisualSetupSignalEvidence(candidate: JsonRecord): boolean {
+  return summarizeCandidateVisualSetupSignalKeys(candidate).length > 0;
+}
+
+function summarizeVisualSetupSignalKeys(candidates: JsonRecord[]): string[] {
+  return unique(candidates.flatMap(summarizeCandidateVisualSetupSignalKeys)).slice(0, 24);
+}
+
+function summarizeCandidateVisualSetupSignalKeys(candidate: JsonRecord): string[] {
+  const sourcePacket = isRecord(candidate.sourcePacket) ? candidate.sourcePacket : {};
+  const explicitKeys = readStringArray(sourcePacket.visualSetupSignalKeys).filter(isVisualSetupSignalKey);
+  const fallbackKeys = readStringArray(sourcePacket.signalKeys).filter(isVisualSetupSignalKey);
+  return unique([...explicitKeys, ...fallbackKeys]).slice(0, 24);
+}
+
+function isVisualSetupSignalKey(key: string): boolean {
+  return key === 'visual_complexity'
+    || key === 'enrichment.visual_setup_source'
+    || key === 'visual.environment'
+    || key === 'visual.scene_type'
+    || key === 'visual.shot_scale'
+    || key === 'visual.dominant_shot_scale'
+    || key === 'visual.has_face'
+    || key === 'visual.subject_count'
+    || key === 'visual.has_b_roll'
+    || key === 'visual.camera_movement'
+    || key === 'visual.lighting_quality'
+    || key === 'visual.production_quality_label'
+    || key === 'visual.production_quality'
+    || key === 'visual.color_temperature'
+    || key === 'visual.visual_complexity';
 }
 
 function summarizeSignalEvidenceSample(sample: JsonRecord) {
