@@ -72,18 +72,24 @@ export interface CalItem {
   platform: string;
   stage: string; // editorialStatus (defaults to 'idea')
   score: number; // aiScore ?? 0
-  date: Date; // first planned date, as a local Date
-  time: string; // "HH:mm"
+  date: Date; // first planned date, as a local Date (primary — used by the modal)
+  dates: Date[]; // every planned date, sorted — a deliverable can be scheduled more than once
+  time: string; // "HH:mm" of the first planned date
   tags: string[];
   brief: string; // details
   hasScript: boolean;
   raw: ContentCard;
 }
 
-const firstPlannedDate = (card: ContentCard): Date => {
-  const source = card.plannedDates?.[0] ?? card.date;
-  const parsed = source ? new Date(source) : new Date(NaN);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+/** All planned dates of a card, parsed + sorted. Falls back to [card.date] then
+    [now] so an item always has at least one placement. */
+const allPlannedDates = (card: ContentCard): Date[] => {
+  const source = card.plannedDates?.length ? card.plannedDates : card.date ? [card.date] : [];
+  const parsed = source
+    .map((v) => new Date(v))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  return parsed.length ? parsed : [new Date()];
 };
 
 const hhmm = (d: Date): string =>
@@ -91,15 +97,16 @@ const hhmm = (d: Date): string =>
 
 /** ContentCard → v3 display item. Pure; safe to call in render/useMemo. */
 export const toItem = (card: ContentCard): CalItem => {
-  const date = firstPlannedDate(card);
+  const dates = allPlannedDates(card);
   return {
     id: card.id,
     title: card.title || 'Untitled content',
     platform: card.platform || 'generic',
     stage: card.editorialStatus || 'idea',
     score: typeof card.aiScore === 'number' ? card.aiScore : 0,
-    date,
-    time: hhmm(date),
+    date: dates[0],
+    dates,
+    time: hhmm(dates[0]),
     tags: card.customTags?.length ? card.customTags : card.tags ?? [],
     brief: card.details ?? '',
     hasScript: !!(card.scriptPreview && card.scriptPreview.trim()),
@@ -160,14 +167,26 @@ export const addDays = (d: Date, n: number): Date => {
   return next;
 };
 
-/** Group display items by local date key, each day's items sorted by time. */
-export const groupByDay = (items: CalItem[]): Map<string, CalItem[]> => {
-  const map = new Map<string, CalItem[]>();
-  for (const it of items) {
-    const key = dateKey(it.date);
+/** A single scheduled occurrence of an item on one day. A multi-date item
+    yields one placement per planned date, so it renders on every day it runs. */
+export interface Placement {
+  item: CalItem;
+  date: Date;
+  time: string;
+}
+
+/** Expand items into placements — one per planned date. */
+export const toPlacements = (items: CalItem[]): Placement[] =>
+  items.flatMap((it) => it.dates.map((d) => ({ item: it, date: d, time: hhmm(d) })));
+
+/** Group placements by local date key, each day sorted by time. */
+export const groupPlacementsByDay = (placements: Placement[]): Map<string, Placement[]> => {
+  const map = new Map<string, Placement[]>();
+  for (const pl of placements) {
+    const key = dateKey(pl.date);
     const bucket = map.get(key);
-    if (bucket) bucket.push(it);
-    else map.set(key, [it]);
+    if (bucket) bucket.push(pl);
+    else map.set(key, [pl]);
   }
   for (const bucket of map.values()) bucket.sort((a, b) => a.time.localeCompare(b.time));
   return map;

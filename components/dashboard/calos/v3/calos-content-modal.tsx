@@ -11,12 +11,19 @@ import { Sheet, Btn, Glyph, StatusMark, Mono } from './calos-atoms';
    callback the calendar wires to useCalosDeliverables + the /decision and
    /generate endpoints. */
 
+/** datetime-local <input> value ("YYYY-MM-DDTHH:mm") for a local Date. */
+const toLocalInput = (d: Date): string => {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 export function ContentModal({
-  item, onClose, onSaveTitle, onStage, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
+  item, onClose, onSaveTitle, onSaveDates, onStage, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
 }: {
   item: CalItem;
   onClose: () => void;
   onSaveTitle: (id: string, title: string) => void;
+  onSaveDates: (id: string, plannedDates: string[]) => void;
   onStage: (id: string, stage: string) => void;
   onDecision: (id: string, decision: 'approved' | 'changes_requested') => void;
   onGenerate: (id: string) => void;
@@ -27,6 +34,30 @@ export function ContentModal({
 }) {
   const d = item;
   const [title, setTitle] = useState(d.title);
+  const [dates, setDates] = useState<string[]>(() =>
+    [...d.dates].sort((a, b) => a.getTime() - b.getTime()).map((dt) => dt.toISOString()),
+  );
+  const [adding, setAdding] = useState(false);
+  const [newDate, setNewDate] = useState('');
+
+  const removeDate = (iso: string) => {
+    if (dates.length <= 1) return; // a deliverable always keeps at least one date
+    const next = dates.filter((x) => x !== iso);
+    setDates(next);
+    onSaveDates(d.id, next);
+  };
+  const addDate = () => {
+    if (!newDate) return;
+    const dt = new Date(newDate);
+    if (Number.isNaN(dt.getTime())) return;
+    const iso = dt.toISOString();
+    if (dates.includes(iso)) { setAdding(false); setNewDate(''); return; }
+    const next = [...dates, iso].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    setDates(next);
+    onSaveDates(d.id, next);
+    setNewDate('');
+    setAdding(false);
+  };
   // The rail highlights the furthest non-terminal stage; changes_requested and
   // published both display against the in_review / approved anchors.
   const railStage =
@@ -85,16 +116,26 @@ export function ContentModal({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
         <div>
           <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 8 }}>Planned</Mono>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {(d.raw.plannedDates?.length ? d.raw.plannedDates : [d.date.toISOString()]).map((iso, i) => {
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {dates.map((iso) => {
               const dt = new Date(iso);
               const valid = !Number.isNaN(dt.getTime());
               return (
-                <span key={`${iso}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+                <span key={iso} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6 }}>
                   <Mono s={9} c={C.soft}>{valid ? `${dayTitle(dt)} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : 'Unscheduled'}</Mono>
+                  {dates.length > 1 && <span onClick={() => removeDate(iso)} title="Remove this date" style={{ color: C.coral, cursor: 'pointer', fontSize: 11 }}>✕</span>}
                 </span>
               );
             })}
+            {adding ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input type="datetime-local" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="calos-fr" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 8px', color: C.text, fontSize: 12, fontFamily: SANS, outline: 'none', colorScheme: 'dark' }} />
+                <button type="button" className="calos-fr" onClick={addDate} style={{ cursor: 'pointer', padding: '6px 10px', background: 'transparent', border: '1px solid rgba(212,166,82,.4)', borderRadius: 6, color: C.gold, fontFamily: MONO, fontSize: 9 }}>ADD</button>
+                <button type="button" className="calos-fr" onClick={() => { setAdding(false); setNewDate(''); }} title="Cancel" style={{ cursor: 'pointer', background: 'none', border: 'none', color: C.muted }}>✕</button>
+              </span>
+            ) : (
+              <button type="button" className="calos-fr" onClick={() => { setAdding(true); setNewDate(toLocalInput(d.dates[d.dates.length - 1] ?? new Date())); }} style={{ cursor: 'pointer', padding: '6px 10px', background: 'transparent', border: `1px dashed ${C.bs}`, borderRadius: 6, color: C.gold, fontFamily: MONO, fontSize: 9 }}>+ ADD</button>
+            )}
           </div>
         </div>
         <div>

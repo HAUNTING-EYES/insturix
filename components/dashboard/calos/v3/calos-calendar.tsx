@@ -6,7 +6,7 @@ import { useCalosDeliverables } from '@/app/dashboard/calos/hooks/useCalosDelive
 import { toast } from '@/hooks/use-toast';
 import {
   C, MONO, SANS, DOW, PLAT,
-  toItem, groupByDay, monthCells, weekDays, dateKey, sameDay,
+  toItem, toPlacements, groupPlacementsByDay, monthCells, weekDays, dateKey, sameDay,
   monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick,
 } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
@@ -75,7 +75,8 @@ export default function CalosCalendarV3() {
     useCalosDeliverables(brandId);
 
   const items = useMemo(() => cards.map(toItem), [cards]);
-  const byDay = useMemo(() => groupByDay(items), [items]);
+  const placements = useMemo(() => toPlacements(items), [items]);
+  const byDay = useMemo(() => groupPlacementsByDay(placements), [placements]);
   const reviews = useMemo(() => items.filter((d) => d.stage === 'in_review'), [items]);
   const openItem = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
 
@@ -107,6 +108,12 @@ export default function CalosCalendarV3() {
 
   const handleStage = (id: string, stage: string) => { updateCard(id, { editorialStatus: stage }); };
   const handleSaveTitle = (id: string, title: string) => { updateCard(id, { title }); };
+  // Multi-date scheduling: keep the primary `date` in sync with the earliest planned date.
+  const handleSaveDates = (id: string, plannedDates: string[]) => {
+    if (plannedDates.length === 0) return;
+    const sorted = [...plannedDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    updateCard(id, { plannedDates: sorted, date: sorted[0] });
+  };
 
   const handleGenerate = async (id: string) => {
     if (!brandId) return;
@@ -180,7 +187,7 @@ export default function CalosCalendarV3() {
 
   const cells = useMemo(() => monthCells(cursor), [cursor]);
   const wk = useMemo(() => weekDays(selDay), [selDay]);
-  const selDayItems = byDay.get(dateKey(selDay)) ?? [];
+  const selDayPlacements = byDay.get(dateKey(selDay)) ?? [];
   const isEmpty = !loading && items.length === 0;
 
   const controlTitle =
@@ -316,7 +323,7 @@ export default function CalosCalendarV3() {
                       return (
                         <div key={i} onClick={() => cell && (setView('day'), setSelDay(cell))} style={{ minHeight: 118, borderRadius: 8, padding: 7, cursor: cell ? 'pointer' : 'default', backgroundColor: !cell ? 'transparent' : wknd ? C.bg : C.raised, backgroundImage: evs.length ? `linear-gradient(0deg,rgba(212,166,82,${inten}),rgba(212,166,82,${inten}))` : 'none', border: `1px solid ${isToday ? C.gold : cell ? C.border : 'transparent'}`, opacity: cell ? 1 : 0.3, display: 'flex', flexDirection: 'column', gap: 4 }}>
                           {cell && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? C.gold : C.muted }}>{String(cell.getDate()).padStart(2, '0')}</span>{evs.length > 0 && <Mono s={8} c={C.dim}>{evs.length}</Mono>}</div>}
-                          {evs.slice(0, 3).map((d) => <Chip key={d.id} d={d} onClick={(e) => { e.stopPropagation(); setOpenId(d.id); }} />)}
+                          {evs.slice(0, 3).map((pl) => <Chip key={`${pl.item.id}-${pl.time}`} d={pl.item} onClick={(e) => { e.stopPropagation(); setOpenId(pl.item.id); }} />)}
                           {evs.length > 3 && cell && <button className="calos-fr" onClick={(e) => { e.stopPropagation(); setView('day'); setSelDay(cell); }} style={{ cursor: 'pointer', background: 'none', border: 'none', textAlign: 'left', padding: '1px 4px' }}><Mono s={9} c={C.gold}>+{evs.length - 3} more</Mono></button>}
                         </div>
                       );
@@ -331,12 +338,12 @@ export default function CalosCalendarV3() {
               <div className="calos-ns" style={{ overflowX: 'auto' }}><div style={{ minWidth: 780 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: `60px repeat(${wk.length},1fr)`, gap: 6, marginBottom: 6 }}><div />{wk.map((dn) => <div key={dateKey(dn)} style={{ textAlign: 'center', padding: '6px 0', borderRadius: 6, border: `1px solid ${sameDay(dn, today) ? C.gold : 'transparent'}` }}><Mono s={8.5} c={C.dim}>{DOW[dn.getDay()]}</Mono><div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700, color: sameDay(dn, today) ? C.gold : C.soft }}>{dn.getDate()}</div></div>)}</div>
                 {Object.keys(PLAT).map((p) => {
-                  const rowItems = items.filter((d) => d.platform === p && wk.some((wd) => sameDay(wd, d.date)));
-                  if (rowItems.length === 0) return null;
+                  const rowPlacements = placements.filter((pl) => pl.item.platform === p && wk.some((wd) => sameDay(wd, pl.date)));
+                  if (rowPlacements.length === 0) return null;
                   return (
                     <div key={p} style={{ display: 'grid', gridTemplateColumns: `60px repeat(${wk.length},1fr)`, gap: 6, marginBottom: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Glyph p={p} /><Mono s={8} c={C.faint}>{platGlyph(p)}</Mono></div>
-                      {wk.map((dn) => <div key={dateKey(dn)} style={{ minHeight: 54, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>{rowItems.filter((d) => sameDay(d.date, dn)).map((d) => <Chip key={d.id} d={d} compact onClick={() => setOpenId(d.id)} />)}</div>)}
+                      {wk.map((dn) => <div key={dateKey(dn)} style={{ minHeight: 54, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>{rowPlacements.filter((pl) => sameDay(pl.date, dn)).map((pl) => <Chip key={`${pl.item.id}-${pl.time}`} d={pl.item} compact onClick={() => setOpenId(pl.item.id)} />)}</div>)}
                     </div>
                   );
                 })}
@@ -346,14 +353,14 @@ export default function CalosCalendarV3() {
             {/* ═ DAY ═ */}
             {view === 'day' && (
               <div style={{ maxWidth: 640 }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>{selDayItems.length > 0 && <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'deleteday', date: selDay })}>Delete day</Btn>}</div>
-                {selDayItems.length === 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>{selDayPlacements.length > 0 && <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'deleteday', date: selDay })}>Delete day</Btn>}</div>
+                {selDayPlacements.length === 0 ? (
                   <div style={{ border: `1px dashed ${C.bs}`, borderRadius: 12, padding: '50px 20px', textAlign: 'center' }}><div style={{ fontWeight: 800, fontSize: 20 }}>Nothing on {dayTitle(selDay)}.</div><div style={{ color: C.soft, marginTop: 6, fontSize: 14 }}>A gap — fill it.</div><div style={{ marginTop: 18 }}><Btn variant="primary" onClick={handleNew}>+ New content</Btn></div></div>
                 ) : (
                   <div style={{ position: 'relative', paddingLeft: 74 }}><div style={{ position: 'absolute', left: 70, top: 8, bottom: 8, width: 1.5, background: C.border }} />
-                    {selDayItems.map((d) => (
-                      <div key={d.id} style={{ position: 'relative', marginBottom: 12 }}>
-                        <span style={{ position: 'absolute', left: -74, top: 14, fontFamily: MONO, fontSize: 11, color: C.dim, width: 40, textAlign: 'right' }}>{d.time}</span>
+                    {selDayPlacements.map((pl) => { const d = pl.item; return (
+                      <div key={`${d.id}-${pl.time}`} style={{ position: 'relative', marginBottom: 12 }}>
+                        <span style={{ position: 'absolute', left: -74, top: 14, fontFamily: MONO, fontSize: 11, color: C.dim, width: 40, textAlign: 'right' }}>{pl.time}</span>
                         <span style={{ position: 'absolute', left: -8, top: 15, width: 11, height: 11, borderRadius: '50%', background: d.stage === 'approved' ? C.gold : C.bg, border: `1.5px solid ${d.stage === 'approved' || d.stage === 'in_review' ? C.gold : C.muted}`, zIndex: 2 }} />
                         <button className="calos-fr" onClick={() => setOpenId(d.id)} style={{ cursor: 'pointer', width: '100%', textAlign: 'left', background: C.raised, border: `1px solid ${C.border}`, borderLeft: `2px solid ${stageTick(d.stage)}`, borderRadius: 9, padding: 13 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Glyph p={d.platform} /><Mono s={8.5} c={C.muted}>{platLabel(d.platform)}</Mono><span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7 }}><Mono s={9} c={C.muted}>{d.score}</Mono><StatusMark stage={d.stage} /></span></div>
@@ -361,7 +368,7 @@ export default function CalosCalendarV3() {
                           <Mono s={8.5} c={C.dim} st={{ display: 'block', marginTop: 6 }}>{stageLabel(d.stage)}</Mono>
                         </button>
                       </div>
-                    ))}
+                    ); })}
                   </div>
                 )}
               </div>
@@ -375,6 +382,7 @@ export default function CalosCalendarV3() {
           item={openItem}
           onClose={() => setOpenId(null)}
           onSaveTitle={handleSaveTitle}
+          onSaveDates={handleSaveDates}
           onStage={handleStage}
           onDecision={handleDecision}
           onGenerate={handleGenerate}
