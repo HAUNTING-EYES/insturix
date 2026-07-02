@@ -279,7 +279,7 @@ export default function CalosCalendarV3() {
             {/* cadence legend (month) */}
             {view === 'month' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <Mono s={9} c={C.muted}>Density</Mono>
+                <Mono s={9} c={C.muted}>Cadence</Mono>
                 <span style={{ display: 'flex', gap: 4 }}>{[0, 1, 2, 3].map((n) => <span key={n} style={{ width: 13, height: 13, borderRadius: 3, backgroundColor: C.raised, backgroundImage: n ? `linear-gradient(0deg,rgba(212,166,82,${Math.min(0.18, n * 0.055)}),rgba(212,166,82,${Math.min(0.18, n * 0.055)}))` : 'none', border: `1px solid ${C.border}` }} />)}</span>
                 <Mono s={8.5} c={C.dim}>empty → gap · warmer → busier</Mono>
               </div>
