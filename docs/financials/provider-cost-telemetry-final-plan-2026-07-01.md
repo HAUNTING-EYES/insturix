@@ -585,9 +585,10 @@ Suggested order:
   - Files: Clickatron worker, R2 helper if needed, tests.
   - Verify: mocked Fal success/failure and R2 upload event test.
 
-- [ ] T4 (P1) - Editron uploads - Connect storage quota to multipart and presigned registration paths.
-  - Files: multipart init/complete, upload registration, quota service/tests.
-  - Verify: quota exceeded, abort/delete/reconcile tests.
+- [x] T4 (P1) - Editron uploads - Connect storage quota to multipart and presigned registration paths.
+  - Files: multipart init/complete, upload registration, media delete, focused financial wiring test.
+  - Implemented in `483b6978 feat: enforce editron storage quota paths`.
+  - Verify: 57 focused tests passed, `npx eslint . --quiet` passed, `git diff --check` passed; repo-wide `npx tsc --noEmit` still fails only on unrelated baseline script/test errors.
 
 - [ ] T5 (P1) - Hidden analysis - Record provider events inside asset/video/tribe analysis workers.
   - Files: workers and focused tests.
