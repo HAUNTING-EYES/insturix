@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -487,6 +487,53 @@ describe("SaaS explainer routes", () => {
           productName: "Insturix",
           audience: "creator houses, agencies",
           brandDefaultsApplied: { productName: true, audience: true, outcome: true },
+        }),
+      }) },
+    );
+  });
+  it("uses the default SaaS structure doctrine when no reference video is provided", async () => {
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      brandId: "brand_1",
+      durationSec: 45,
+      aspectRatio: "16:9",
+    }) as never);
+
+    expect(response.status).toBe(200);
+    const scriptInput = mocks.generateScript.mock.calls[0][0];
+    expect(scriptInput.userPrompt).toContain("Style reference: default SaaS structure doctrine.");
+    expect(scriptInput.userPrompt).toContain("hook-value-CTA");
+    expect(scriptInput.userPrompt).toContain("No user reference video was provided");
+    expect(scriptInput.userPrompt).toContain("Do not copy Lovable, Beehiiv");
+    expect(scriptInput.context.projectSummary).toContain("default SaaS structure doctrine");
+    expect(mocks.buildSaasGeneratedSceneOverlays).toHaveBeenCalledWith(expect.objectContaining({
+      referenceStyleBrief: expect.objectContaining({
+        summary: "Default SaaS explainer structure doctrine for no-reference generation.",
+        category: "saas_product_demo",
+        visualLanguage: expect.arrayContaining(["workflow demo", "clear CTA and logo close"]),
+        transferBoundaries: expect.arrayContaining([
+          expect.stringContaining("No user reference video"),
+          expect.stringContaining("Do not invent customer names"),
+        ]),
+      }),
+    }));
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { userId: "user_1", projectId: "project_1" },
+      { $set: expect.objectContaining({
+        saasExplainer: expect.objectContaining({
+          styleSource: "default_saas_structure",
+          structureDoctrine: expect.objectContaining({
+            version: "saas-structure-doctrine/v1",
+            source: "default_saas_structure",
+            referenceProvided: false,
+            defaultUsed: true,
+            requiredSceneFamilies: expect.arrayContaining(["hook", "workflow_demo", "cta", "logo_outro"]),
+            sourceDocuments: expect.arrayContaining([
+              "docs/agents/reference/general/phase_f_g_saas_motion.md",
+              "lib/editron/data/creative-knowledge-graph.json",
+            ]),
+          }),
+          referenceVideo: { provided: false },
         }),
       }) },
     );

@@ -1,4 +1,4 @@
-import { COLLECTIONS, getDatabase } from "@/lib/editron/db/mongodb";
+﻿import { COLLECTIONS, getDatabase } from "@/lib/editron/db/mongodb";
 import {
   buildSaasExplainerAuthorPrompt,
   buildSaasExplainerProjectSummary,
@@ -20,6 +20,10 @@ import {
   analyzeSaasExplainerReference,
   type SaasExplainerReferenceStyleBrief,
 } from "@/lib/editron/saas-explainer/reference-analysis";
+import {
+  buildSaasStructureDoctrineMetadata,
+  resolveSaasStructureStyleBrief,
+} from "@/lib/editron/saas-explainer/structure-doctrine";
 import { projectService } from "@/lib/editron/services/project-service";
 import { CreditsService } from "@/lib/services/creditsService";
 import { generateVoiceover, isTTSAvailable } from "@/lib/pipeline/tts-service";
@@ -132,17 +136,20 @@ export async function createSaasExplainerProject(
     throw new SaasExplainerGenerationError(reference.status, reference.code, reference.error, reference.details);
   }
 
-  const referenceStyleEvidence = formatReferenceStyleEvidence(reference.analysis?.styleBrief);
+  const effectiveStyleBrief = resolveSaasStructureStyleBrief(reference.analysis?.styleBrief);
+  const structureDoctrine = buildSaasStructureDoctrineMetadata(Boolean(reference.analysis?.styleBrief));
+  const styleSourceLabel = reference.analysis?.styleBrief ? referenceLabel : "default SaaS structure doctrine";
+  const referenceStyleEvidence = formatReferenceStyleEvidence(effectiveStyleBrief);
   const sourceSessionId = `saas_${crypto.randomUUID()}`;
   const sourceScriptId = `script_${sourceSessionId}`;
-  const baseProjectSummary = buildSaasExplainerProjectSummary(generationInput, productUrl, referenceLabel, referenceStyleEvidence);
+  const baseProjectSummary = buildSaasExplainerProjectSummary(generationInput, productUrl, styleSourceLabel, referenceStyleEvidence);
   const projectSummary = [baseProjectSummary, brandContextPrompt].filter(Boolean).join("\n\n");
   const systemBrief = [
     "Author a production SaaS explainer; keep product UI proof readable and avoid unverifiable claims.",
     brandContextPrompt,
   ].filter(Boolean).join("\n\n");
   const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
-    userPrompt: buildSaasExplainerAuthorPrompt(generationInput, productUrl, referenceLabel, referenceStyleEvidence),
+    userPrompt: buildSaasExplainerAuthorPrompt(generationInput, productUrl, styleSourceLabel, referenceStyleEvidence),
     sessionId: sourceSessionId,
     brandId: generationInput.brandId,
     generationMode: "manual",
@@ -197,7 +204,7 @@ export async function createSaasExplainerProject(
   const voiceProfile = resolveSaasExplainerVoiceProfile({
     brandContext,
     input: generationInput,
-    referenceStyleBrief: reference.analysis?.styleBrief,
+    referenceStyleBrief: effectiveStyleBrief,
   });
   const overlays = buildSaasGeneratedSceneOverlays({
     scenes,
@@ -205,7 +212,7 @@ export async function createSaasExplainerProject(
     input: generationInput,
     brandContext,
     voiceProfile,
-    referenceStyleBrief: reference.analysis?.styleBrief,
+    referenceStyleBrief: effectiveStyleBrief,
   });
   const voiceoverResult = await generateSaasExplainerVoiceovers({ overlays, userId, voiceProfile });
   const totalFrames = Math.max(scenesToTotalFrames(scenes, FPS), overlaysEndFrame(overlays));
@@ -263,6 +270,8 @@ export async function createSaasExplainerProject(
           aspectRatio: generationInput.aspectRatio,
           brandContext: brandContext.metadata,
           brandDefaultsApplied: brandDefaultsApplied(input, generationInput),
+          styleSource: structureDoctrine.source,
+          structureDoctrine,
           voiceover: voiceoverResult.summary,
           referenceVideo: input.referenceVideoUrl
             ? { provided: true, type: referenceVideo?.sourceKind, url: input.referenceVideoUrl }

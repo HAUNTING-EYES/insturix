@@ -1,4 +1,4 @@
-import type { BrandInputs } from "@/lib/editron/data/motion-theme-resolver";
+﻿import type { BrandInputs } from "@/lib/editron/data/motion-theme-resolver";
 import type { SaasExplainerBrandContext } from "@/lib/editron/saas-explainer/brand-context";
 import type { SaasExplainerVoiceProfile } from "@/lib/editron/saas-explainer/brand-voice";
 import type { NormalizedSaasExplainerIntake } from "@/lib/editron/saas-explainer/intake";
@@ -29,7 +29,7 @@ export type SaasSceneFamily =
   | "cta"
   | "logo_outro";
 
-export type SaasSceneEvidenceSource = "brand_vault" | "script" | "product_url" | "reference_video" | "scene_descriptor";
+export type SaasSceneEvidenceSource = "brand_vault" | "script" | "product_url" | "reference_video" | "structure_doctrine" | "scene_descriptor";
 
 export interface SaasSceneFamilyPlan {
   family: SaasSceneFamily;
@@ -285,7 +285,7 @@ function planSceneFamily(input: {
   const evidenceSource = resolveEvidenceSource(input.input, input.brandContext, input.referenceStyleBrief);
   const detectedFamily = detectSceneFamily(input.scene, input.sceneCount);
   const family = constrainFamilyForEvidence(detectedFamily, evidenceSource, input.brandContext);
-  const claimMode = evidenceSource === "scene_descriptor" ? "synthetic_demo_only" : "evidence_backed";
+  const claimMode = evidenceSource === "scene_descriptor" || evidenceSource === "structure_doctrine" ? "synthetic_demo_only" : "evidence_backed";
 
   return {
     family,
@@ -307,7 +307,8 @@ function resolveEvidenceSource(
   if (input.script) return "script";
   if (input.productUrl) return "product_url";
   if (brandContext.metadata.acceptedProfile) return "brand_vault";
-  if (referenceStyleBrief) return "reference_video";
+  if (referenceStyleBrief && input.referenceVideoUrl) return "reference_video";
+  if (referenceStyleBrief) return "structure_doctrine";
   return "scene_descriptor";
 }
 
@@ -334,7 +335,7 @@ function constrainFamilyForEvidence(
   evidenceSource: SaasSceneEvidenceSource,
   brandContext: SaasExplainerBrandContext,
 ): SaasSceneFamily {
-  if (evidenceSource !== "scene_descriptor") return family;
+  if (evidenceSource !== "scene_descriptor" && evidenceSource !== "structure_doctrine") return family;
   if (["proof_metric", "social_proof", "comparison", "feature_demo"].includes(family)) return "workflow_demo";
   if (family === "logo_outro" && brandContext.defaults.visual.logoAssets.length === 0) return "cta";
   return family;
@@ -345,6 +346,7 @@ function sourcePathsForEvidence(source: SaasSceneEvidenceSource): string[] {
   if (source === "script") return ["input.script", "SceneDescriptor"];
   if (source === "product_url") return ["input.productUrl", "SceneDescriptor"];
   if (source === "reference_video") return ["referenceStyleBrief", "SceneDescriptor"];
+  if (source === "structure_doctrine") return ["SaaSStructureDoctrine", "SceneDescriptor"];
   return ["SceneDescriptor"];
 }
 

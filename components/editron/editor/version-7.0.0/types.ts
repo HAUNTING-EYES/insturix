@@ -1,4 +1,4 @@
-// Define overlay types enum
+﻿// Define overlay types enum
 export enum OverlayType {
   TEXT = "text",
   IMAGE = "image",
@@ -426,7 +426,7 @@ export type GeneratedSceneFamily =
 
 export type GeneratedSceneFamilyPlan = {
   family: GeneratedSceneFamily;
-  evidenceSource: "brand_vault" | "script" | "product_url" | "reference_video" | "scene_descriptor";
+  evidenceSource: "brand_vault" | "script" | "product_url" | "reference_video" | "structure_doctrine" | "scene_descriptor";
   sourcePaths: string[];
   visualGoal: string;
   productUiState: string;
