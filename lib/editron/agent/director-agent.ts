@@ -1837,12 +1837,17 @@ export async function executeDirectorPlan(
             if (project.brandId && userId) {
               try {
                 const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
-                const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
+                const { buildBrandContextBlock, buildRichBrandContextBlock } = await import('@/lib/shared/brand-context-block');
                 const resolution = await resolveEffectiveBrandWithProfile(userId, project.brandId, {
                   service: 'editron',
                   orgId: project.orgId ?? null,
                 });
-                brandBlock = buildBrandContextBlock(resolution.brand);
+                // Prefer the RICH brand block (full vault voice/identity/audience — ~40 signals) when
+                // an accepted profile exists; fall back to the thin legacy block otherwise. Mirrors the
+                // saas-explainer path so the creative-intent LLM writes on-brand copy, not generic.
+                brandBlock = resolution.acceptedProfile
+                  ? buildRichBrandContextBlock(resolution.acceptedProfile, resolution.brand)
+                  : buildBrandContextBlock(resolution.brand);
                 if (brandBlock) {
                   console.log(`[Director] Brand context: ${resolution.brand?.name} (${project.brandId}) from ${resolution.source}`);
                 }
