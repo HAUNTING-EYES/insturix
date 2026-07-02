@@ -153,6 +153,96 @@ describe('cut <-> original frame mapping', () => {
 });
 
 describe('brief decision conversion', () => {
+  it('recovers a missing brief coordinate from grounded semantic evidence', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: -1,
+        confidence: 0.91,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            claim: 'The growth happened quickly',
+            evidencePhrase: 'grew fast',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions).toHaveLength(1);
+    expect(output.stats.resolvedToFrame).toBe(1);
+    expect(output.stats.recoveredSemanticAnchor).toBe(1);
+    expect(output.edl.decisions[0]).toEqual(expect.objectContaining({
+      frame: 9,
+      source: 'creative-brief:emphasis_word:semantic-anchor',
+    }));
+    expect(output.edl.decisions[0].params).toEqual(expect.objectContaining({
+      contextPhrase: 'we grew fast',
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        timing: expect.objectContaining({
+          source: 'semantic-anchor',
+          targetWordIdx: -1,
+          resolvedWordIdx: 1,
+        }),
+      }),
+    }));
+  });
+
+  it('recovers a stale raw-video word index from grounded edited-transcript evidence', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'caption_emphasis',
+        targetWordIdx: 999,
+        confidence: 0.86,
+        reason: 'emphasis_word',
+        params: {
+          text: 'grew fast',
+          semanticAtoms: {
+            text: { phrase: 'grew fast' },
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions).toHaveLength(1);
+    expect(output.stats.recoveredSemanticAnchor).toBe(1);
+    expect(output.edl.decisions[0]).toEqual(expect.objectContaining({
+      frame: 9,
+      source: 'creative-brief:emphasis_word:semantic-anchor',
+    }));
+  });
+
+  it('does not invent timing when an invalid brief coordinate has no transcript-backed evidence', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: -1,
+        confidence: 0.88,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            claim: 'A useful but ungrounded fact',
+            evidencePhrase: 'not present in transcript',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions).toHaveLength(0);
+    expect(output.stats.resolvedToFrame).toBe(0);
+    expect(output.stats.recoveredSemanticAnchor).toBe(0);
+    expect(output.stats.skippedOutOfRange).toBe(1);
+  });
+
   it('keeps Path E zoom as intent instead of stamping legacy zoom subtype', () => {
     const output = executeBrief({
       brief: briefWith([{
