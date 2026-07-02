@@ -18,13 +18,12 @@ const toLocalInput = (d: Date): string => {
 };
 
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onStage, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
+  item, onClose, onSaveTitle, onSaveDates, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
 }: {
   item: CalItem;
   onClose: () => void;
   onSaveTitle: (id: string, title: string) => void;
   onSaveDates: (id: string, plannedDates: string[]) => void;
-  onStage: (id: string, stage: string) => void;
   onDecision: (id: string, decision: 'approved' | 'changes_requested') => void;
   onGenerate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -91,24 +90,21 @@ export function ContentModal({
         ))}
       </div>
 
+      {/* Editorial pipeline — display-only. Stage is driven by generation + the Approve /
+          Request-changes actions (the /decision route); there is no endpoint to set an
+          arbitrary editorialStatus, so the rail is a progress indicator, not a control. */}
       <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 9 }}>Editorial pipeline</Mono>
       <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
         {STAGES.map((s, i) => {
           const done = i <= idx;
           const cur = s === railStage;
           return (
-            <button
-              key={s}
-              className="calos-fr"
-              onClick={() => onStage(d.id, s)}
-              title={`Move to ${stageLabel(s)}`}
-              style={{ flex: 1, cursor: 'pointer', border: 'none', background: 'transparent', padding: 0, textAlign: 'left' }}
-            >
+            <div key={s} style={{ flex: 1 }} title={stageLabel(s)}>
               <div style={{ height: 4, borderRadius: 2, background: done ? C.gold : C.well }} />
               <div style={{ marginTop: 6 }}>
                 <Mono s={8} c={cur ? C.gold : done ? C.soft : C.dim}>{stageLabel(s)}</Mono>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

@@ -114,7 +114,6 @@ export default function CalosCalendarV3() {
     }
   };
 
-  const handleStage = (id: string, stage: string) => { updateCard(id, { editorialStatus: stage }); };
   const handleSaveTitle = (id: string, title: string) => { updateCard(id, { title }); };
   // Multi-date scheduling: keep the primary `date` in sync with the earliest planned date.
   const handleSaveDates = (id: string, plannedDates: string[]) => {
@@ -155,11 +154,10 @@ export default function CalosCalendarV3() {
   };
 
   const handleOpenScript = (item: CalItem) => {
-    // Phase 1: route to ThinkForge (its script editor). Deep-linking to this
-    // specific deliverable's session is a Phase 2 wiring step once the route
-    // contract is confirmed.
-    router.push('/dashboard/thinkforge');
-    void item;
+    // Deep-link to the deliverable's ThinkForge session when it has one (matches the live
+    // CalOS wiring: /dashboard/thinkforge?sessionId=). No session yet → the editor landing.
+    const sessionId = item.raw.sessionId;
+    router.push(sessionId ? `/dashboard/thinkforge?sessionId=${encodeURIComponent(sessionId)}` : '/dashboard/thinkforge');
   };
 
   const handleShare = async () => {
@@ -396,11 +394,11 @@ export default function CalosCalendarV3() {
 
       {openItem && (
         <ContentModal
+          key={openItem.id}
           item={openItem}
           onClose={() => setOpenId(null)}
           onSaveTitle={handleSaveTitle}
           onSaveDates={handleSaveDates}
-          onStage={handleStage}
           onDecision={handleDecision}
           onGenerate={handleGenerate}
           onDelete={handleDelete}
