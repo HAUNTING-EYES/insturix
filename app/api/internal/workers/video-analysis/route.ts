@@ -25,6 +25,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
+import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
@@ -32,6 +37,7 @@ export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2
 interface VideoAnalysisPayload {
   projectId: string;
   userId: string;
+  orgId?: string;
   assetId: string;
   videoUrl: string;
   durationSec: number;
@@ -50,6 +56,8 @@ interface VideoAnalysisPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  creditTransactionId?: string;
+  chargedCredits?: number;
 }
 
 async function handler(request: NextRequest) {
@@ -61,7 +69,7 @@ async function handler(request: NextRequest) {
   try {
     const payload: VideoAnalysisPayload = await request.json();
     const {
-      projectId, userId, assetId, videoUrl, durationSec,
+      projectId, userId, orgId, assetId, videoUrl, durationSec,
       title, profileId: initialProfileId,
       userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
@@ -95,6 +103,7 @@ async function handler(request: NextRequest) {
 
     console.log(`[VideoAnalysisWorker] Step 1: Transcribing + cutting ${Math.round(durationSec)}s video (${assetId})...`);
 
+    const rawFootageStartedAt = Date.now();
     try {
       await db.collection('projects').updateOne(
         { projectId },
@@ -103,11 +112,45 @@ async function handler(request: NextRequest) {
       const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
       rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
       console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'raw_footage_processing',
+        status: 'success',
+        provider: 'editron-transcription-pipeline',
+        model: 'grok-deepgram-gemini-transcript-editor',
+        operation: 'transcription_pipeline',
+        includeRevenue: true,
+        units: {
+          requestCount: 1,
+          mediaSeconds: durationSec,
+          functionMs: Date.now() - rawFootageStartedAt,
+        },
+        metadata: {
+          contentType: rawFootageAnalysis.contentTypeDetection?.contentType,
+          wordCount: rawFootageAnalysis.transcription?.words?.length ?? 0,
+          segmentCount: rawFootageAnalysis.segments?.length ?? 0,
+          silenceRemovalCount: rawFootageAnalysis.silenceRemovalPlan?.length ?? 0,
+          editMethod: rawFootageAnalysis.editMethod,
+        },
+      });
     } catch (rawErr: unknown) {
       const msg = rawErr instanceof Error ? rawErr.message : String(rawErr);
       const stack = rawErr instanceof Error ? rawErr.stack : '';
       console.error(`[VideoAnalysisWorker] Raw footage processing FAILED: ${msg}`);
       if (stack) console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'raw_footage_processing',
+        status: 'failed',
+        provider: 'editron-transcription-pipeline',
+        model: 'grok-deepgram-gemini-transcript-editor',
+        operation: 'transcription_pipeline',
+        includeRevenue: true,
+        units: {
+          requestCount: 1,
+          mediaSeconds: durationSec,
+          functionMs: Date.now() - rawFootageStartedAt,
+        },
+        metadata: { errorClass: rawErr instanceof Error ? rawErr.name : 'Error' },
+      });
     }
 
     // Reference style transfer (if provided)
@@ -422,7 +465,26 @@ async function handler(request: NextRequest) {
         });
 
         console.log(`[VideoAnalysisWorker] Step 1.58: Visual cut intelligence via V-JEPA (${visualSegmentInputs.length} visual segments, speechCoverage=${((rawFootageAnalysis.speechCoverage ?? 0) * 100).toFixed(1)}%)...`);
+        const visualCutStartedAt = Date.now();
         precutVjepaAnalysis = await analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'visual_cut_vjepa_modal',
+          status: precutVjepaAnalysis ? 'success' : 'failed',
+          provider: 'modal',
+          model: precutVjepaAnalysis?.modelVersion || 'vjepa-2',
+          operation: 'gpu_video_analysis',
+          units: {
+            requestCount: 1,
+            mediaSeconds: sumSegmentSeconds(visualSegmentInputs),
+            functionMs: Date.now() - visualCutStartedAt,
+            gpuSeconds: msToSeconds(precutVjepaAnalysis?.processingTimeMs),
+          },
+          metadata: {
+            requestedSegmentCount: visualSegmentInputs.length,
+            analyzedSegmentCount: precutVjepaAnalysis?.segments?.length ?? 0,
+            partial: Boolean(precutVjepaAnalysis?.partial),
+          },
+        });
 
         const {
           refineCutPlanWithVisualIntelligence,
@@ -450,6 +512,15 @@ async function handler(request: NextRequest) {
       } catch (visualCutErr: unknown) {
         const msg = visualCutErr instanceof Error ? visualCutErr.message : String(visualCutErr);
         console.warn(`[VideoAnalysisWorker] Visual cut intelligence failed (non-fatal): ${msg}`);
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'visual_cut_vjepa_modal',
+          status: 'failed',
+          provider: 'modal',
+          model: 'vjepa-2',
+          operation: 'gpu_video_analysis',
+          units: { requestCount: 1, mediaSeconds: durationSec },
+          metadata: { errorClass: visualCutErr instanceof Error ? visualCutErr.name : 'Error' },
+        });
       }
     }
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.6: Execute Silence Removal (BEFORE Director) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -488,6 +559,7 @@ async function handler(request: NextRequest) {
     // and receives segment context so Gemini focuses on what the viewer will see.
     // Uses effectiveDurationSec (corrected by Step 1.55).
     // Non-fatal: pipeline continues without syntheticStoryboard if VU fails.
+    const videoUnderstandingStartedAt = Date.now();
     try {
       const segmentContext = rawFootageAnalysis ? {
         keptCount: rawFootageAnalysis.segments?.length ?? 0,
@@ -509,9 +581,39 @@ async function handler(request: NextRequest) {
       } else {
         console.warn(`[VideoAnalysisWorker] VU returned null. Continuing without visual setup.`);
       }
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'video_understanding_gemini',
+        status: syntheticStoryboard ? 'success' : 'failed',
+        provider: 'google-gemini',
+        model: 'creative-doc-model',
+        operation: 'video_understanding',
+        units: {
+          requestCount: 1,
+          mediaSeconds: effectiveDurationSec,
+          functionMs: Date.now() - videoUnderstandingStartedAt,
+        },
+        metadata: {
+          keptSegmentCount: segmentContext?.keptCount ?? 0,
+          hasGeminiFileUri: Boolean(syntheticStoryboard?.geminiFileUri),
+          contentType: syntheticStoryboard?.contentType,
+        },
+      });
     } catch (vuErr: unknown) {
       const msg = vuErr instanceof Error ? vuErr.message : String(vuErr);
       console.warn(`[VideoAnalysisWorker] VU failed: ${msg}. Continuing without visual setup.`);
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'video_understanding_gemini',
+        status: 'failed',
+        provider: 'google-gemini',
+        model: 'creative-doc-model',
+        operation: 'video_understanding',
+        units: {
+          requestCount: 1,
+          mediaSeconds: effectiveDurationSec,
+          functionMs: Date.now() - videoUnderstandingStartedAt,
+        },
+        metadata: { errorClass: vuErr instanceof Error ? vuErr.name : 'Error' },
+      });
     }
 
     // Platform override
@@ -627,7 +729,7 @@ async function handler(request: NextRequest) {
           ? `https://${process.env.VERCEL_URL}`
           : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
         if (qstashToken) {
-          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
+          const graphRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${qstashToken}`,
@@ -647,10 +749,27 @@ async function handler(request: NextRequest) {
               },
             }),
           });
+          const graphStatus: ProviderCostEventStatus = graphRes.ok ? 'success' : 'failed';
+          await recordVideoAnalysisCostEvent(payload, {
+            stage: 'graph_sync_qstash',
+            status: graphStatus,
+            provider: 'upstash-qstash',
+            operation: 'queue_message',
+            units: { queueMessages: 1, requestCount: 1 },
+            metadata: { httpStatus: graphRes.status },
+          });
         }
       } catch (err: unknown) {
         // Non-fatal Ã¢â‚¬â€ graph enrichment is best-effort
         console.warn('[VideoAnalysisWorker] graph enrichment dispatch failed:', err instanceof Error ? err.message : err);
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'graph_sync_qstash',
+          status: 'failed',
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { errorClass: err instanceof Error ? err.name : 'Error' },
+        });
       }
     }
 
@@ -682,10 +801,12 @@ async function handler(request: NextRequest) {
         const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
         const tribePayload = {
-          projectId, userId, videoUrl,
+          projectId, userId, orgId, videoUrl,
           segmentInputs,
           visualSegmentInputs,
           directorPayload,
+          creditTransactionId: payload.creditTransactionId,
+          chargedCredits: payload.chargedCredits,
         };
 
         const tribeUrl = `${qstashBaseUrl}/api/internal/workers/tribe-analysis`;
@@ -709,6 +830,16 @@ async function handler(request: NextRequest) {
             'Upstash-Timeout': '800s',
           },
           body: JSON.stringify(tribePayload),
+        });
+
+        const tribeDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'tribe_qstash',
+          status: tribeDispatchStatus,
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { httpStatus: dispatchRes.status, speechSegmentCount: segmentInputs.length, visualSegmentCount: visualSegmentInputs.length },
         });
 
         if (!dispatchRes.ok) {
@@ -740,6 +871,16 @@ async function handler(request: NextRequest) {
             'Upstash-Delay': '3s',
           },
           body: JSON.stringify(directorPayload),
+        });
+
+        const directorDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'director_qstash',
+          status: directorDispatchStatus,
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { httpStatus: dispatchRes.status, reason: 'no_segments' },
         });
 
         if (!dispatchRes.ok) {
@@ -967,6 +1108,59 @@ async function handler(request: NextRequest) {
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
+}
+
+async function recordVideoAnalysisCostEvent(
+  payload: VideoAnalysisPayload,
+  event: {
+    stage: string;
+    status: ProviderCostEventStatus;
+    provider: string;
+    operation: string;
+    model?: string;
+    includeRevenue?: boolean;
+    estimatedCostUsd?: number;
+    costBasis?: ProviderCostBasis;
+    units?: ProviderCostUnits;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await recordProviderCostEvent({
+    idempotencyKey: `editron:video-analysis:${payload.projectId}:${event.stage}:${event.status}`,
+    status: event.status,
+    userId: payload.userId,
+    orgId: payload.orgId,
+    projectId: payload.projectId,
+    assetId: payload.assetId,
+    creditTransactionId: payload.creditTransactionId,
+    service: 'editron',
+    action: 'auto_edit_analysis',
+    route: '/api/internal/workers/video-analysis',
+    provider: event.provider,
+    model: event.model,
+    operation: event.operation,
+    chargedCredits: event.includeRevenue ? payload.chargedCredits : undefined,
+    estimatedCostUsd: event.estimatedCostUsd,
+    costBasis: event.costBasis,
+    units: event.units,
+    metadata: {
+      stage: event.stage,
+      durationSec: payload.durationSec,
+      ...event.metadata,
+    },
+  });
+}
+
+function sumSegmentSeconds(segments: Array<{ startMs: number; endMs: number }> = []): number | undefined {
+  const seconds = segments.reduce((sum, segment) => {
+    const durationMs = Math.max(0, (segment.endMs ?? 0) - (segment.startMs ?? 0));
+    return sum + durationMs / 1000;
+  }, 0);
+  return seconds > 0 ? seconds : undefined;
+}
+
+function msToSeconds(ms: unknown): number | undefined {
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms / 1000 : undefined;
 }
 
 function isSaasReferenceGlmEnabled(): boolean {

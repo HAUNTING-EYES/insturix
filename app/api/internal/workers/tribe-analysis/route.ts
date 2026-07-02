@@ -33,10 +33,13 @@ export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
 interface TribeAnalysisPayload {
   projectId: string;
   userId: string;
+  orgId?: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
   directorPayload: Record<string, unknown>;
+  creditTransactionId?: string;
+  chargedCredits?: number;
 }
 
 async function handler(request: NextRequest) {
@@ -548,9 +551,9 @@ async function recordTribeCostEvent(
     metadata?: Record<string, unknown>;
   },
 ): Promise<void> {
-  const orgId = typeof payload.directorPayload?.orgId === 'string'
+  const orgId = payload.orgId || (typeof payload.directorPayload?.orgId === 'string'
     ? payload.directorPayload.orgId
-    : undefined;
+    : undefined);
 
   await recordProviderCostEvent({
     idempotencyKey: `editron:tribe-analysis:${payload.projectId}:${event.stage}:${event.status}`,
@@ -558,6 +561,7 @@ async function recordTribeCostEvent(
     userId: payload.userId,
     orgId,
     projectId: payload.projectId,
+    creditTransactionId: payload.creditTransactionId,
     service: 'editron',
     action: 'auto_edit_analysis',
     route: '/api/internal/workers/tribe-analysis',

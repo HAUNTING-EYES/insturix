@@ -52,9 +52,11 @@ export async function POST(request: NextRequest) {
   const startMs = Date.now();
   let autoEditCreditCheck: CreditCheckResult | null = null;
   let autoEditAnalysisStarted = false;
+  let autoEditCreditTransactionId: string | undefined;
+  let autoEditChargedCredits: number | undefined;
 
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
@@ -152,16 +154,20 @@ export async function POST(request: NextRequest) {
     }
     const durationInFrames = Math.round(durationSec * fps);
 
-    autoEditCreditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', {
+    const autoEditCreditOptions = {
       durationMinutes: getBillableAutoEditMinutes(durationSec),
       requestType: getAutoEditAnalysisRequestType({ durationSec, referenceAssetId, imageAssetIds }),
-    });
+    };
+    autoEditCreditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', autoEditCreditOptions);
     if (!autoEditCreditCheck.allowed) {
       return autoEditCreditCheck.errorResponse!;
     }
 
     try {
-      await autoEditCreditCheck.deduct();
+      const deductResult = await autoEditCreditCheck.deduct();
+      autoEditCreditTransactionId = deductResult.transactionId;
+      const { getCreditCost } = await import('@/lib/config/creditCosts');
+      autoEditChargedCredits = getCreditCost('editron', 'auto_edit_analysis', autoEditCreditOptions);
     } catch (error) {
       console.error('[auto-edit/from-asset] auto-edit analysis credit deduction failed:', error);
       return NextResponse.json(
@@ -282,6 +288,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           projectId,
           userId,
+          orgId: orgId || undefined,
           assetId,
           videoUrl: serverVideoUrl,
           durationSec,
@@ -298,6 +305,8 @@ export async function POST(request: NextRequest) {
           motionGraphics,
           pacingFeel,
           musicPreference,
+          creditTransactionId: autoEditCreditTransactionId,
+          chargedCredits: autoEditChargedCredits,
         }),
       });
 
