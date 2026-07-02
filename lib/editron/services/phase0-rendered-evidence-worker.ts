@@ -14,6 +14,7 @@ import {
   type ReadRenderedStillImage,
 } from './phase0-rendered-aesthetic-scoring';
 import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
+import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './phase0-live-truth';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
@@ -66,6 +67,7 @@ export interface Phase0RenderedStillEvidence {
   artifactPackIssues: string[];
   renderedAestheticReport?: Phase0RenderedAestheticReportLike;
   renderedQualityEvidence?: Phase0RenderedQualityEvidencePayload;
+  phase0LiveTruth?: Phase0LiveTruthSnapshot;
 }
 
 type RenderStill = typeof renderStillOnLambda;
@@ -276,10 +278,18 @@ export async function buildPhase0RenderedStillEvidence(
         { readImage: options.readImage },
       );
       if (aestheticEvidence) {
+        const phase0LiveTruth = buildPhase0LiveTruthSnapshot(project, {
+          capturedAt,
+          source: 'phase0-rendered-evidence-worker',
+          artifactDir: artifactPack.artifactDir,
+          artifactPack,
+          renderedAestheticReport: aestheticEvidence.report,
+        });
         evidence = {
           ...evidence,
           renderedAestheticReport: aestheticEvidence.report,
           renderedQualityEvidence: aestheticEvidence.qualityEvidence,
+          phase0LiveTruth,
         };
       }
     } catch (err: unknown) {
@@ -338,6 +348,10 @@ export function buildPhase0RenderedStillEvidencePersistSet(
 
   if (evidence.renderedAestheticReport) {
     setPayload['intelligence.phase0RenderedAestheticReport'] = evidence.renderedAestheticReport;
+  }
+
+  if (evidence.phase0LiveTruth) {
+    setPayload['intelligence.phase0LiveTruth'] = evidence.phase0LiveTruth;
   }
 
   if (renderedQualityEvidence) {

@@ -66,7 +66,7 @@ export function buildPhase0LiveTruthSnapshot(
   const manifest = options.renderedAestheticReport
     ? withPhase0RenderedAestheticReport(packedManifest, options.renderedAestheticReport)
     : packedManifest;
-  const taxonomy = classifyPhase0Fixture(manifest);
+  const taxonomy = classifyPhase0Fixture(manifest, options.artifactPack, options.renderedAestheticReport);
   const failureClasses = taxonomy.classes.slice(0, PHASE0_LIVE_FAILURE_CLASS_LIMIT);
 
   return {

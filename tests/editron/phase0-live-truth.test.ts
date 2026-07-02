@@ -180,5 +180,22 @@ describe('phase0 live truth snapshot', () => {
       renderedAestheticJson: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/rendered-aesthetic.json',
       renderedAestheticHtml: 'fixtures/proj_phase0_live_truth/rendered-aesthetic/report.html',
     });
+
+    const failureClassIds = snapshot.failureClasses.map((item) => item.id);
+    expect(failureClassIds).not.toContain('render.artifact_pack_missing');
+    expect(failureClassIds).toEqual(expect.arrayContaining([
+      'render.aesthetic_gate_warn',
+      'render.readability_warn',
+    ]));
+    expect(snapshot.failureClasses.find((item) => item.id === 'render.readability_warn')?.evidence).toMatchObject({
+      dimension: 'readability',
+      count: 1,
+      samples: [{
+        frame: 45,
+        overlayId: 'mg-1',
+        message: 'Text contrast is close to floor.',
+        evidence: 'contrast=3.1',
+      }],
+    });
   });
 });

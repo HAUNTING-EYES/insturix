@@ -84,6 +84,12 @@ describe('phase0 rendered evidence worker service', () => {
       fullStill: expect.stringContaining('/full-f'),
       baselineStill: expect.stringContaining('/baseline-f'),
     });
+    expect(evidence.phase0LiveTruth).toMatchObject({
+      source: 'phase0-rendered-evidence-worker',
+      renderArtifacts: { status: 'rendered' },
+      qualityEvidence: { qualityEvidenceSource: 'rendered-aesthetic' },
+    });
+    expect(evidence.phase0LiveTruth?.failureClasses.map((item) => item.id)).not.toContain('render.artifact_pack_missing');
   });
 
   it('fails rendered quality evidence when full and baseline stills are visually unchanged', async () => {
@@ -135,6 +141,11 @@ describe('phase0 rendered evidence worker service', () => {
       autoEditHealth: 'needs_review',
     });
     expect(String(set.autoEditWarning)).toContain('Rendered Phase 0 quality failed');
+    expect(set['intelligence.phase0LiveTruth']).toMatchObject({
+      source: 'phase0-rendered-evidence-worker',
+      renderArtifacts: { renderedSummary: { status: 'fail' } },
+      qualityEvidence: { renderedAestheticStatus: 'fail' },
+    });
   });
 
   it('persists partial evidence instead of losing successful full frames when a baseline still fails', async () => {
