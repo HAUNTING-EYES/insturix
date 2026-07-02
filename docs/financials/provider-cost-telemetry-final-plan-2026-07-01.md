@@ -591,6 +591,10 @@ Suggested order:
   - Verify: 57 focused tests passed, `npx eslint . --quiet` passed, `git diff --check` passed; repo-wide `npx tsc --noEmit` still fails only on unrelated baseline script/test errors.
 
 - [ ] T5 (P1) - Hidden analysis - Record provider events inside asset/video/tribe analysis workers.
+  - Partial complete in `d9d5ac62 feat: record editron asset analysis provider costs`.
+  - Asset-analysis now receives `orgId`, credit transaction ID, and charged credits from upload registration, then records provider cost events for video 5-track analysis, image Gemini vision, local audio metadata, Gemini embeddings, and graph-sync QStash dispatch.
+  - Verified with focused financials/storage tests, `npx eslint . --quiet`, and `git diff --check`. Full `npx tsc --noEmit` is still blocked by unrelated baseline script/test errors outside the touched files.
+  - Remaining T5 scope: video-analysis and tribe-analysis worker stage events.
   - Files: workers and focused tests.
   - Verify: worker success/failure events and no user-facing failure from telemetry write failure.
 
