@@ -116,4 +116,24 @@ describe('import-from-script route', () => {
       brandId: 'brand_2',
     });
   });
+
+  it('rejects strict production manifest imports before charging credits', async () => {
+    const { POST } = await import('@/app/api/services/editron/projects/import-from-script/route');
+    const response = await POST(request({
+      scenes: [scene],
+      sourceSessionId: 'tf_session_3',
+      productionManifest: {
+        coveragePolicy: 'production-require-all-scenes',
+        expectedStoryboardImages: 1,
+        expectedVideoClips: 1,
+      },
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.reason).toBe('production-manifest-requires-storyboard-finalize');
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+  });
 });

@@ -42,10 +42,13 @@ describe('storyboard source session lineage contract', () => {
     expect(generateRoute).toContain('productionManifest: normalizedProductionManifest');
     expect(finalizeRoute).toContain('resolveProductionCoverageIssue(storyboard');
     expect(finalizeRoute).toContain("reason: 'production-coverage-incomplete'");
-    expect(finalizeRoute.indexOf('resolveProductionCoverageIssue(storyboard')).toBeLessThan(
-      finalizeRoute.indexOf('CreditsService.deductCredits'),
-    );
+    const coverageCheckIndex = finalizeRoute.indexOf('resolveProductionCoverageIssue(storyboard');
+    const finalizeChargeIndex = finalizeRoute.indexOf("'storyboard_finalize'");
+    expect(coverageCheckIndex).toBeGreaterThanOrEqual(0);
+    expect(finalizeChargeIndex).toBeGreaterThanOrEqual(0);
+    expect(coverageCheckIndex).toBeLessThan(finalizeChargeIndex);
   });
+
   it('finalize reuses or tags projects from explicit sourceSessionId before legacy projectId fallback', () => {
     const finalizeRoute = read('app/api/services/pipeline/storyboard/[id]/finalize/route.ts');
 

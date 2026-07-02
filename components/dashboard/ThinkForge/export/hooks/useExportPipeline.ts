@@ -838,6 +838,7 @@ export function useExportPipeline(
             title: currentTitle,
             sourceSessionId,
             sourceScriptId: scriptId,
+            brandId: sourceBrandId || undefined,
             aspectRatio,
             modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
             overallMusicPrompt,
@@ -897,7 +898,13 @@ export function useExportPipeline(
 
             if (!sbCompleted) {
               console.warn("[ExportToEditron] Storyboard generation polling timed out after 9 minutes");
-              setError("Storyboard generation timed out. Continuing with what was generated.");
+              const message = "Storyboard generation timed out before production coverage was complete. Review or retry storyboard generation before continuing.";
+              setError(message);
+              if (requiresProductionCoverage && generateVideos) {
+                sendNotification("Storyboard Incomplete", message);
+                setStep("reviewing-storyboard");
+                return;
+              }
             }
           }
 
@@ -919,9 +926,10 @@ export function useExportPipeline(
           }
         } else {
           const errData = await sbRes.json().catch(() => ({}));
-          const errorMsg = errData.error || "Storyboard generation failed";
+          const errorMsg = errData.error || `Storyboard generation failed (${sbRes.status})`;
           console.error("[ExportToEditron] Storyboard generation failed:", errorMsg);
           setError(errorMsg);
+          throw new Error(errorMsg);
         }
       }
 
@@ -1140,7 +1148,7 @@ export function useExportPipeline(
 
       // Step 7: Create Editron project
       if (videoGenFailed && generateVideos) {
-        setStep("done" as any);
+        setStep(sbId ? "reviewing-storyboard" : "configure");
         return;
       }
 
@@ -1184,6 +1192,7 @@ export function useExportPipeline(
             aspectRatio,
             sourceScriptId: scriptId,
             brandId: sourceBrandId,
+            importMode: "draft-script-import",
           }),
         });
 

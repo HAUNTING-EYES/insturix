@@ -18,7 +18,7 @@ const useClickatronStore = create<ClickatronStore>()(
       lastSaved: null,
       editModelId: undefined,
       setTask: (task) => set({ task }),
-      setEditModelId: (modelId: string | undefined) => set({ editModelId: modelId }),
+      setEditModelId: (modelId) => set({ editModelId: modelId ?? undefined }),
       
       updateCanvas: (canvas) => {
         set(

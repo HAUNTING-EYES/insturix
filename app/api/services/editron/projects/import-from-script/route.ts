@@ -22,6 +22,17 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+type ImportMode = 'draft-script-import';
+
+function isProductionCoverageManifest(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  return (value as { coveragePolicy?: unknown }).coveragePolicy === 'production-require-all-scenes';
+}
+
+function isDraftScriptImportMode(value: unknown): value is ImportMode {
+  return value === 'draft-script-import';
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -38,6 +49,8 @@ export async function POST(request: NextRequest) {
       sourceSessionId,
       storyboardImages,
       brandId,
+      importMode,
+      productionManifest,
     }: {
       scenes: SceneDescriptor[];
       title?: string;
@@ -46,9 +59,12 @@ export async function POST(request: NextRequest) {
       sourceSessionId?: string;
       storyboardImages?: StoryboardImage[];
       brandId?: string;
+      importMode?: string;
+      productionManifest?: unknown;
     } = body;
 
     const normalizedBrandId = nonEmptyString(brandId);
+    const normalizedImportMode = isDraftScriptImportMode(importMode) ? importMode : undefined;
     const normalizedSourceSessionId = nonEmptyString(sourceSessionId);
     const normalizedSourceScriptId = nonEmptyString(sourceScriptId);
     const warnings: string[] = [];
@@ -57,6 +73,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'scenes array is required and must not be empty' },
         { status: 400 },
+      );
+    }
+
+    if (isProductionCoverageManifest(productionManifest) && normalizedImportMode !== 'draft-script-import') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Production manifest requires storyboard finalization before creating an Editron project.',
+          reason: 'production-manifest-requires-storyboard-finalize',
+        },
+        { status: 409 },
       );
     }
 
@@ -148,6 +175,8 @@ export async function POST(request: NextRequest) {
       totalDurationSeconds: Math.round(totalFrames / fps),
       creditsDeducted: 1,
       reusedProject: Boolean(existingProject),
+      importMode: normalizedImportMode || 'legacy-direct-import',
+      draftOnly: normalizedImportMode === 'draft-script-import',
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error: any) {
