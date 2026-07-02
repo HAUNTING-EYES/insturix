@@ -75,6 +75,49 @@ function contentIntentForPrompt(context: any): string {
     `- Instruction: ${CONTENT_INTENT_GUIDANCE[contentIntent] ?? CONTENT_INTENT_GUIDANCE.unknown}`,
   ].join("\n");
 }
+
+/**
+ * Best-effort repair of a truncated JSON object (e.g. the model hit the output
+ * token limit mid-response). Closes a dangling string and appends the missing
+ * closing brackets/braces so the completed prefix can still be parsed.
+ *
+ * Add-only by design: it never rewrites existing content, so it can only turn an
+ * unparseable truncation into a partial parse or leave it unparseable — it can
+ * never corrupt already-complete fields. Returns null when no object is present.
+ */
+function repairTruncatedJson(raw: string): string | null {
+  let s = raw.trim();
+  if (s.startsWith("```")) {
+    s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  }
+  const start = s.indexOf("{");
+  if (start === -1) return null;
+  s = s.slice(start);
+
+  const closers: string[] = [];
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") closers.push("}");
+    else if (ch === "[") closers.push("]");
+    else if (ch === "}" || ch === "]") closers.pop();
+  }
+
+  let out = s;
+  if (inStr) out += '"'; // close a dangling string value
+  out = out.replace(/[\s,:]+$/, ""); // drop a trailing comma/colon (an incomplete pair)
+  for (let i = closers.length - 1; i >= 0; i--) out += closers[i];
+  return out;
+}
+
 export async function analyzeVideoWithGemini(
   videoUrl: string, // This will now usually be the Gemini fileUri, e.g. "https://generativelanguage.googleapis.com/... or "gemini://... " Wait, actually it just takes fileUri so we keep it named videoUrl or just pass the uri as videoUrl.
   context: any,
@@ -222,7 +265,11 @@ export async function analyzeVideoWithGemini(
     const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
-        maxOutputTokens: 8192,
+        // gemini-2.5-flash supports up to 65536 output tokens. 8192 was far too
+        // small for long videos: a 20+ min analysis (transcript + speaker
+        // segments + per-scene fields) overran the budget, so the JSON was
+        // truncated mid-object and failed to parse -> analysis failed + refunded.
+        maxOutputTokens: 65536,
         temperature: 0.4,
         topP: 0.95,
         topK: 40,
@@ -532,6 +579,42 @@ Be specific and reference actual content from the video with precise timestamps.
       } catch (extractError) {
         if (extractError instanceof Error && extractError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
           throw extractError;
+        }
+      }
+
+      // Last resort: repair a truncated JSON object (model hit the token limit
+      // mid-response) and salvage the completed prefix. Partial results are far
+      // better than failing the whole analysis and refunding the user.
+      try {
+        const repaired = repairTruncatedJson(responseText);
+        if (repaired) {
+          const parsed = JSON.parse(repaired);
+          if (parsed.error === "CANNOT_ACCESS_VIDEO") {
+            throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
+          }
+          console.warn(`[vertexAi] Recovered partial analysis from truncated JSON (${responseText.length} chars) — consider raising maxOutputTokens or shortening the analysis.`);
+          return {
+            ...parsed,
+            full_transcript: parsed.full_transcript || "",
+            speaker_segments: Array.isArray(parsed.speaker_segments) ? parsed.speaker_segments : [],
+            summary: parsed.summary || parsed.overview || `Partial analysis of "${metadata.originalFilename}"`,
+            keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
+            qualityAssessment: parsed.qualityAssessment || { score: 7, notes: "Partial analysis (recovered from a truncated response)" },
+            recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+            contentWarnings: Array.isArray(parsed.contentWarnings) ? parsed.contentWarnings : [],
+            content_intent: parsed.content_intent || contentIntentFromContext(context),
+            brand_fit_summary: parsed.brand_fit_summary || "",
+            applicable_takeaways: Array.isArray(parsed.applicable_takeaways) ? parsed.applicable_takeaways : [],
+            analysisTime: parsed.analysisTime || new Date().toISOString(),
+            videoUrl,
+            modelUsed: model,
+            extractedFromText: true,
+            truncated: true,
+          };
+        }
+      } catch (repairError) {
+        if (repairError instanceof Error && repairError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
+          throw repairError;
         }
       }
 
