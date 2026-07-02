@@ -13,6 +13,9 @@ import type { CalItem } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
 import { ContentModal } from './calos-content-modal';
 import CalosCampaignBar from './calos-campaign-bar';
+import { CalosWorkspace, type WorkspaceCampaign } from './calos-workspace';
+import { CalosShareScreen } from './calos-share-screen';
+import { CalosCadenceModal } from './calos-cadence-modal';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -39,6 +42,9 @@ export default function CalosCalendarV3() {
   const [selDay, setSelDay] = useState(() => new Date());
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | { kind: 'clearall' } | { kind: 'deleteday'; date: Date }>(null);
+  const [screen, setScreen] = useState<'calendar' | 'workspace' | 'share'>('calendar');
+  const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
+  const [wsEditOpen, setWsEditOpen] = useState(false);
 
   const today = useMemo(() => new Date(), []);
 
@@ -240,13 +246,19 @@ export default function CalosCalendarV3() {
             <button className="calos-fr" title={`${reviews.length} awaiting review`} onClick={() => toast({ title: reviews.length ? `${reviews.length} awaiting your review` : 'Nothing to review' })} style={{ position: 'relative', cursor: 'pointer', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, width: 34, height: 34, color: C.soft }}>◔
               {reviews.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.gold, color: '#241B08', fontFamily: MONO, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{reviews.length}</span>}
             </button>
-            <Btn size="sm" onClick={handleShare}>Share</Btn>
+            <Btn size="sm" onClick={() => setScreen('share')}>Share</Btn>
             <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'clearall' })}>Clear all</Btn>
           </div>
         </div>
 
+        {screen === 'share' ? (
+          <CalosShareScreen brandName={brandName} monthLabel={monthTitle(cursor)} cells={cells} byDay={byDay} today={today} onBack={() => setScreen('calendar')} onCopyLink={handleShare} />
+        ) : screen === 'workspace' && wsCampaign ? (
+          <CalosWorkspace campaign={wsCampaign} items={items.filter((it) => it.raw.campaignId === wsCampaign._id)} onBack={() => setScreen('calendar')} onEditCadence={() => setWsEditOpen(true)} onOpen={(id) => setOpenId(id)} />
+        ) : (
+        <>
         {/* ═ CAMPAIGN BAR ═ */}
-        {brandId && <CalosCampaignBar brandId={brandId} onAfterGenerate={refresh} />}
+        {brandId && <CalosCampaignBar brandId={brandId} onAfterGenerate={refresh} onOpenWorkspace={(c) => { setWsCampaign(c); setScreen('workspace'); }} />}
 
         {/* ═ CONTROL BAR ═ */}
         <div className="calos-tw" style={{ padding: 10, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 12 }}>
@@ -375,6 +387,8 @@ export default function CalosCalendarV3() {
             )}
           </>
         )}
+        </>
+        )}
       </div>
 
       {openItem && (
@@ -395,6 +409,9 @@ export default function CalosCalendarV3() {
       )}
       {confirm?.kind === 'deleteday' && (
         <Confirm title="Delete day" msg={`Delete all content on ${dayTitle(confirm.date)}?`} confirmLabel="Delete day" onClose={() => setConfirm(null)} onConfirm={() => doDeleteDay(confirm.date)} />
+      )}
+      {wsEditOpen && wsCampaign && brandId && (
+        <CalosCadenceModal campaign={wsCampaign} brandId={brandId} onClose={() => setWsEditOpen(false)} onSaved={() => { setWsEditOpen(false); refresh(); }} />
       )}
     </div>
   );

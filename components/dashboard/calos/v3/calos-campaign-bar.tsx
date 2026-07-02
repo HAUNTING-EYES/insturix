@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import { type CalosObjective } from '@/lib/calos/campaign-intent';
@@ -62,11 +61,12 @@ function windowFor(p: GenPeriod): { from: string; to: string } {
 export default function CalosCampaignBar({
   brandId,
   onAfterGenerate,
+  onOpenWorkspace,
 }: {
   brandId: string;
   onAfterGenerate: () => void;
+  onOpenWorkspace: (campaign: Campaign) => void;
 }) {
-  const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignId, setCampaignId] = useState('');
   const [pending, setPending] = useState<Pending>('');
@@ -213,7 +213,7 @@ export default function CalosCampaignBar({
         )}
         <Btn size="sm" onClick={createCampaign} disabled={busy} title="New campaign">{pending === 'create' ? '…' : '+ Campaign'}</Btn>
         <Btn size="sm" onClick={() => setEditorOpen(true)} disabled={busy || !campaignId} title="Edit cadence">Edit cadence</Btn>
-        <Btn size="sm" onClick={() => campaignId && router.push(`/dashboard/calos/campaigns/${encodeURIComponent(campaignId)}?brandId=${encodeURIComponent(brandId)}`)} disabled={busy || !campaignId} title="Open campaign workspace">Open</Btn>
+        <Btn size="sm" onClick={() => selected && onOpenWorkspace(selected)} disabled={busy || !campaignId} title="Open campaign workspace">Open</Btn>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {/* period — segmented pill (Week / Month / Quarter), matches calos-v3.jsx */}
