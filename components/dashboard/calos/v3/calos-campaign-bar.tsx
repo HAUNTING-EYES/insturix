@@ -114,11 +114,22 @@ export default function CalosCampaignBar({
     }
   }, [brandId]);
 
-  /** Open the review sheet with the drafts created since `beforeIds`. */
-  const reviewNew = async (beforeIds: Set<string>, title: string, sub: string) => {
+  /** Open the review sheet with the drafts this generation just created. Safety: only attribute
+      cards to this review when they belong to the campaign we generated for (so a teammate's
+      concurrently-created card for another campaign can't be shown here and deleted), and never
+      show more than the server reported creating (newest first) to bound any remaining slop. */
+  const reviewNew = async (
+    beforeIds: Set<string>,
+    title: string,
+    sub: string,
+    opts: { campaignId?: string; expectedCount: number },
+  ) => {
     const after = await fetchCards();
-    const fresh = after.filter((c) => !beforeIds.has(c.id)).map(toItem);
-    setReview({ title, sub, items: fresh });
+    let fresh = after.filter((c) => !beforeIds.has(c.id));
+    if (opts.campaignId) fresh = fresh.filter((c) => c.campaignId === opts.campaignId);
+    fresh.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+    const items = fresh.slice(0, Math.max(0, opts.expectedCount)).map(toItem);
+    setReview({ title, sub, items });
   };
 
   const removeDraft = async (id: string) => {
@@ -165,7 +176,7 @@ export default function CalosCampaignBar({
       const created = data?.created ?? 0;
       onAfterGenerate();
       if (created > 0) {
-        await reviewNew(beforeIds, 'Auto-fill · review', `${created} draft${created === 1 ? '' : 's'} from the ${period.toLowerCase()} cadence`);
+        await reviewNew(beforeIds, 'Auto-fill · review', `${created} draft${created === 1 ? '' : 's'} from the ${period.toLowerCase()} cadence`, { campaignId, expectedCount: created });
       } else {
         toast({ title: 'Nothing to fill', description: data?.note || 'The cadence is already met in this window.' });
       }
@@ -192,7 +203,7 @@ export default function CalosCampaignBar({
       const market = typeof data?.trendLocation === 'string' && data.trendLocation ? data.trendLocation : 'global';
       onAfterGenerate();
       if (created > 0) {
-        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market} via ${data?.provider ?? 'none'}`);
+        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market} via ${data?.provider ?? 'none'}`, { campaignId: campaignId || undefined, expectedCount: created });
       } else {
         toast({ title: 'No ideas drafted', description: data?.note || 'Try a wider window or a different market.' });
       }
