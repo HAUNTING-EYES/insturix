@@ -16,9 +16,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   CREDIT_COSTS,
+  CREDIT_PACKAGES,
+  CREDITS_PER_USD,
   MEDIA_POOL_ACTIONS,
   PLAN_MEDIA_CREDIT_ALLOCATIONS,
   getCreditPool,
+  getPackagePool,
   getPlanMediaCreditAllocation,
 } from "@/lib/config/creditCosts";
 
@@ -69,15 +72,15 @@ describe("credit pool classifier", () => {
   });
 });
 
-describe("plan media allocations", () => {
-  it("grants the agency media pool on top of the main pool", () => {
-    expect(getPlanMediaCreditAllocation("agency_starter")).toBe(1000);
-    expect(getPlanMediaCreditAllocation("agency_growth")).toBe(4000);
-    expect(getPlanMediaCreditAllocation("agency_scale")).toBe(9000);
+describe("plan media allocations (monthly welcome sample; rest is recharge)", () => {
+  it("grants a small media sample on top of the main pool", () => {
+    expect(getPlanMediaCreditAllocation("agency_starter")).toBe(300);
+    expect(getPlanMediaCreditAllocation("agency_growth")).toBe(900);
+    expect(getPlanMediaCreditAllocation("agency_scale")).toBe(1500);
   });
 
   it("normalizes plan names with spaces and the ' Plan' suffix", () => {
-    expect(getPlanMediaCreditAllocation("Agency Scale Plan")).toBe(9000);
+    expect(getPlanMediaCreditAllocation("Agency Scale Plan")).toBe(1500);
   });
 
   it("free and retired legacy plans get zero media (main pool only)", () => {
@@ -90,6 +93,35 @@ describe("plan media allocations", () => {
 
   it("defaults unknown plans to zero media", () => {
     expect(getPlanMediaCreditAllocation("mystery_plan")).toBe(0);
+  });
+});
+
+describe("media recharge packages ($1 = 30 credits, never expire)", () => {
+  const mediaPacks = CREDIT_PACKAGES.filter((p) => p.pool === "media");
+
+  it("exposes media recharge packages that route to the media pool", () => {
+    expect(mediaPacks.length).toBeGreaterThan(0);
+    for (const pack of mediaPacks) {
+      expect(getPackagePool(pack.id)).toBe("media");
+      // Priced at the $1 = 30 credit rate.
+      expect(pack.credits).toBe(pack.prices.USD * CREDITS_PER_USD);
+    }
+  });
+
+  it("routes main/workflow packages to the main pool by default", () => {
+    for (const pack of CREDIT_PACKAGES.filter((p) => p.pool !== "media")) {
+      expect(getPackagePool(pack.id)).toBe("main");
+    }
+    expect(getPackagePool("topup_150")).toBe("main");
+    expect(getPackagePool("unknown_pack")).toBe("main"); // fail-safe default
+  });
+
+  it("wires media-pool routing into the purchase grant sites", () => {
+    const verify = read("app/api/user/credits/verify/route.ts");
+    const webhook = read("app/api/webhooks/razorpay/route.ts");
+    expect(verify).toContain("getPackagePool");
+    expect(verify).toContain("pool: creditPackage.pool");
+    expect(webhook).toContain("pool: getPackagePool(packageId)");
   });
 });
 

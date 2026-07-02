@@ -11,7 +11,7 @@ import { auth } from "@clerk/nextjs/server";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { CreditsService } from "@/lib/services/creditsService";
-import { CREDIT_PACKAGES } from "@/lib/config/creditCosts";
+import { CREDIT_PACKAGES, getPackagePool } from "@/lib/config/creditCosts";
 
 let _razorpay: Razorpay | null = null;
 function getRazorpay() {
@@ -82,10 +82,11 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      // Add credits using notes
+      // Add credits using notes (route to the package's wallet)
       const result = await CreditsService.addTopupCredits(userId, credits, {
         paymentId: razorpay_payment_id,
         packageId: packageId || 'unknown',
+        pool: getPackagePool(packageId),
       });
 
       if (!result.success) {
@@ -102,10 +103,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Add credits
+    // Add credits (route to the package's wallet — main or media)
     const result = await CreditsService.addTopupCredits(userId, creditPackage.credits, {
       paymentId: razorpay_payment_id,
       packageId,
+      pool: creditPackage.pool ?? 'main',
     });
 
     if (!result.success) {

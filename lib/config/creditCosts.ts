@@ -549,30 +549,32 @@ export const PLAN_CREDIT_ALLOCATIONS: Record<string, number> = {
 };
 
 /**
- * Monthly MEDIA-pool grant per plan (image/video/audio generation).
+ * Monthly MEDIA-pool WELCOME SAMPLE per plan (image/video/audio generation).
  *
- * This is granted ON TOP of the plan's main-pool value above (founder decision
- * 2026-07-02: "media on top, not carved out"). So an Agency Scale user gets the
- * full 30000 main credits AND 9000 media credits each cycle.
+ * Founder decision 2026-07-03: AI media is RECHARGE-BASED. The plan includes a
+ * small monthly sample so users can try generation; beyond that they recharge
+ * the media wallet anytime at $1 = 30 credits (never-expiring top-up credits, see
+ * MEDIA_CREDIT_PACKAGES below). This keeps media pay-as-you-go so heavy Fal
+ * video/image spend can't erode the plan's margin.
  *
- * Derivation (ADJUSTABLE — this is the pricing lever, change here only):
- *   Real per-action media costs — image = 5 credits, video = 15-45 credits/sec
- *   (both already traced to fal $/sec in CREDIT_COSTS above). Sized to deliver a
- *   realistic monthly generation bundle per tier (agency-scale reference bundle:
- *   ~80 images + ~36 short clips + audio) with headroom, scaled down for lower
- *   tiers. Free = 0 (free plan is main-pool only, 10 credits).
+ * Granted ON TOP of the plan's full main-pool value (main is unchanged). The
+ * sample resets each billing cycle (expiring); recharge credits stack on top and
+ * never expire.
+ *
+ * Sample sizes (ADJUSTABLE — pricing lever, change here only): small taster per
+ * tier. Free/legacy = 0 (recharge only).
  */
 export const PLAN_MEDIA_CREDIT_ALLOCATIONS: Record<string, number> = {
   free: 0,
-  plus: 0, // legacy, retired — main-pool only
+  plus: 0, // legacy, retired — recharge only
   pro: 0, // legacy, retired
   premium: 0, // legacy, retired
-  starter: 1000,
-  agency_starter: 1000,
-  growth: 4000,
-  agency_growth: 4000,
-  scale: 9000,
-  agency_scale: 9000,
+  starter: 300,
+  agency_starter: 300,
+  growth: 900,
+  agency_growth: 900,
+  scale: 1500,
+  agency_scale: 1500,
 };
 
 /**
@@ -583,9 +585,12 @@ export interface CreditPackage {
   name: string;
   credits: number;
   prices: Record<string, number>; // currency -> amount
+  /** Which wallet the purchased credits land in. Omitted = 'main'. */
+  pool?: CreditPool;
 }
 
 export const CREDIT_PACKAGES: CreditPackage[] = [
+  // MAIN / workflow top-ups
   {
     id: 'topup_150',
     name: 'Top-up 150',
@@ -626,7 +631,47 @@ export const CREDIT_PACKAGES: CreditPackage[] = [
       USD: 300,
     },
   },
+  // AI-MEDIA recharge (image/video/audio generation) — $1 = 30 credits, never expire.
+  {
+    id: 'media_recharge_300',
+    name: 'AI Media Recharge 300',
+    credits: creditsForUsd(10),
+    prices: { USD: 10 },
+    pool: 'media',
+  },
+  {
+    id: 'media_recharge_750',
+    name: 'AI Media Recharge 750',
+    credits: creditsForUsd(25),
+    prices: { USD: 25 },
+    pool: 'media',
+  },
+  {
+    id: 'media_recharge_1500',
+    name: 'AI Media Recharge 1500',
+    credits: creditsForUsd(50),
+    prices: { USD: 50 },
+    pool: 'media',
+  },
+  {
+    id: 'media_recharge_3000',
+    name: 'AI Media Recharge 3000',
+    credits: creditsForUsd(100),
+    prices: { USD: 100 },
+    pool: 'media',
+  },
 ];
+
+/** Look up a credit package by id (across both pools). */
+export function getCreditPackage(packageId?: string): CreditPackage | undefined {
+  if (!packageId) return undefined;
+  return CREDIT_PACKAGES.find((p) => p.id === packageId);
+}
+
+/** Which wallet a top-up package credits. Defaults to 'main' (unknown/missing id). */
+export function getPackagePool(packageId?: string): CreditPool {
+  return getCreditPackage(packageId)?.pool ?? 'main';
+}
 /**
  * Get credit cost for a specific service action
  */

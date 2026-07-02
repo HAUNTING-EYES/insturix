@@ -7,6 +7,7 @@ import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
 import { updateUserPlan, downgradeUserToFreePlan, extendUserPlan, cancelUserPlan } from "@/lib/services/planService";
 import { CreditsService } from "@/lib/services/creditsService";
+import { getPackagePool } from "@/lib/config/creditCosts";
 
 let _razorpay: Razorpay | null = null;
 function getRazorpay() {
@@ -404,6 +405,7 @@ export async function POST(request: NextRequest) {
                 await CreditsService.addTopupCredits(userId, credits, {
                   paymentId: payment.id,
                   packageId,
+                  pool: getPackagePool(packageId),
                 });
                 console.log(`[Credits Topup] Added ${credits} credits to user ${userId}`);
               } catch (creditError) {

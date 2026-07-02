@@ -77,9 +77,9 @@ const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
       { n: "2", unit: "brand scans" },
     ],
     media: [
-      { n: "80", unit: "AI images" },
-      { n: "6", unit: "AI video clips" },
-      { n: "4", unit: "AI audio tracks" },
+      { n: "40", unit: "AI images" },
+      { n: "1", unit: "AI video clip" },
+      { n: "1", unit: "AI audio track" },
     ],
   },
   agency_growth: {
@@ -91,9 +91,9 @@ const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
       { n: "8", unit: "brand scans" },
     ],
     media: [
-      { n: "300", unit: "AI images" },
-      { n: "28", unit: "AI video clips" },
-      { n: "12", unit: "AI audio tracks" },
+      { n: "120", unit: "AI images" },
+      { n: "3", unit: "AI video clips" },
+      { n: "4", unit: "AI audio tracks" },
     ],
   },
   agency_scale: {
@@ -105,9 +105,9 @@ const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
       { n: "16", unit: "brand scans" },
     ],
     media: [
-      { n: "600", unit: "AI images" },
-      { n: "56", unit: "AI video clips" },
-      { n: "24", unit: "AI audio tracks" },
+      { n: "200", unit: "AI images" },
+      { n: "6", unit: "AI video clips" },
+      { n: "3", unit: "AI audio tracks" },
     ],
   },
 };
@@ -328,9 +328,22 @@ export function PricingPage() {
           <AnimatePresence>
             {showCredits && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.35, ease: EASE }} style={{ overflow: "hidden" }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginTop: 16, marginBottom: 24 }}>Top up anytime. Credits never expire.</p>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginTop: 16, marginBottom: 24 }}>Top up anytime at $1 = 30 credits. Credits never expire.</p>
+
+                {/* Workflow top-ups */}
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", textAlign: "center", marginBottom: 12 }}>
+                  WORKFLOW CREDITS
+                </span>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, maxWidth: 640, margin: "0 auto 32px" }}>
+                  {CREDIT_PACKAGES.filter((pkg) => pkg.pool !== "media").map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
+                </div>
+
+                {/* AI media recharge */}
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", textAlign: "center", marginBottom: 12 }}>
+                  AI MEDIA RECHARGE · IMAGE / VIDEO / AUDIO
+                </span>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, maxWidth: 640, margin: "0 auto" }}>
-                  {CREDIT_PACKAGES.map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
+                  {CREDIT_PACKAGES.filter((pkg) => pkg.pool === "media").map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
                 </div>
               </motion.div>
             )}
@@ -615,7 +628,7 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
         )}
 
         <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)", display: "block", marginBottom: 24 }}>
-          {plan.credits.toLocaleString()} WORKFLOW + {mediaCredits.toLocaleString()} AI-MEDIA CREDITS/MO
+          {plan.credits.toLocaleString()} WORKFLOW CREDITS/MO · +{mediaCredits.toLocaleString()} AI-MEDIA SAMPLE
         </span>
 
         {/* Room dots */}
@@ -661,9 +674,9 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
               </div>
             ))}
 
-            {/* AI media pool */}
+            {/* AI media pool — monthly sample */}
             <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", margin: "12px 0 8px" }}>
-              AI MEDIA
+              AI MEDIA · MONTHLY SAMPLE
             </span>
             {bundle.media.map((ex) => (
               <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
@@ -673,7 +686,7 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
             ))}
 
             <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
-              All of it, together — plus everyday AI chat &amp; analysis. Two flexible pools; media generation never eats your workflow credits.
+              Workflow runs your whole month — plus everyday AI chat &amp; analysis. AI media starts with a monthly sample; recharge anytime at <span style={{ color: "var(--accent-gold)" }}>$1 = 30 credits</span> (never expires) and it never touches your workflow credits.
             </span>
           </div>
         )}
