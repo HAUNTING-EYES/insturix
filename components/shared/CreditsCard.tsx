@@ -63,6 +63,9 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
 
   const maxCredits = Math.max(balance.subscriptionCredits + balance.topupCredits, 100);
   const expiryText = formatExpiry(balance.subscriptionCreditsExpiry);
+  const mediaExpiryText = formatExpiry(balance.mediaCreditsExpiry);
+  // Media pool is granted on top of the plan; only surface it when the plan includes it.
+  const hasMediaPool = balance.totalMediaCredits > 0 || balance.mediaCreditsExpiry != null;
 
   return (
     <div className={cn("relative", className)}>
@@ -97,7 +100,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
               />
             </div>
 
-            {/* Breakdown hint */}
+            {/* Breakdown hint — main (workflow) pool */}
             <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>{balance.subscriptionCredits} plan</span>
               <span className="opacity-50">·</span>
@@ -109,6 +112,20 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
                 </>
               )}
             </div>
+
+            {/* AI media pool (image/video/audio generation) — separate wallet */}
+            {hasMediaPool && (
+              <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--accent-gold, #D4A652)" }}>
+                <span className="tabular-nums font-medium">{balance.totalMediaCredits.toLocaleString()}</span>
+                <span className="opacity-80">AI media</span>
+                {mediaExpiryText && (
+                  <>
+                    <span className="opacity-50">·</span>
+                    <span className="opacity-80">{mediaExpiryText}</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Expand/collapse */}
@@ -153,20 +170,55 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
                 </button>
               </div>
 
-              {/* Balance Breakdown */}
-              <div className="p-4 space-y-3">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Plan Credits</span>
-                  <span className="font-medium tabular-nums">{balance.subscriptionCredits}</span>
+              {/* Balance Breakdown — two pools */}
+              <div className="p-4 space-y-4">
+                {/* Main pool: everyday workflow */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Workflow credits
+                    </h4>
+                    <span className="text-sm font-semibold tabular-nums">
+                      {balance.totalCredits.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Plan Credits</span>
+                    <span className="font-medium tabular-nums">{balance.subscriptionCredits}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Top-up Credits</span>
+                    <span className="font-medium tabular-nums">{balance.topupCredits}</span>
+                  </div>
+                  {expiryText && (
+                    <p className="text-[11px] text-muted-foreground">Plan credits reset: {expiryText}</p>
+                  )}
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Top-up Credits</span>
-                  <span className="font-medium tabular-nums">{balance.topupCredits}</span>
-                </div>
-                {expiryText && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Plan credits reset: {expiryText}
-                  </p>
+
+                {/* Media pool: image / video / audio generation */}
+                {hasMediaPool && (
+                  <div className="space-y-2 pt-3 border-t border-border/60">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--accent-gold, #D4A652)" }}>
+                        AI media credits
+                      </h4>
+                      <span className="text-sm font-semibold tabular-nums" style={{ color: "var(--accent-gold, #D4A652)" }}>
+                        {balance.totalMediaCredits.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Plan Credits</span>
+                      <span className="font-medium tabular-nums">{balance.mediaCredits}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Top-up Credits</span>
+                      <span className="font-medium tabular-nums">{balance.mediaTopupCredits}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Spent only on image, video &amp; audio generation.
+                      {mediaExpiryText ? ` Resets: ${mediaExpiryText}` : ""}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -236,31 +288,45 @@ export function CreditsBadge({ className }: { className?: string }) {
 
   if (isLoading || !balance) return null;
 
+  const showMedia = balance.totalMediaCredits > 0 || balance.mediaCreditsExpiry != null;
+
   return (
-    <div className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium",
-      "bg-muted text-muted-foreground",
-      className
-    )}>
-      <motion.span 
-        className="tabular-nums"
-        animate={{ 
-          color: ["#B5B2A8", "#D4A652", "#B5B2A8"],
-          textShadow: [
-            "0 0 0px rgba(212, 166, 82, 0)",
-            "0 0 8px rgba(212, 166, 82, 0.4)",
-            "0 0 0px rgba(212, 166, 82, 0)"
-          ]
-        }}
-        transition={{
-          duration: 4,
-          repeat: Infinity,
-          ease: "easeInOut"
-        }}
-      >
-        {balance.totalCredits.toLocaleString()}
-      </motion.span>
-      <span className="opacity-70">cr</span>
+    <div className="inline-flex items-center gap-1.5">
+      <div className={cn(
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium",
+        "bg-muted text-muted-foreground",
+        className
+      )}>
+        <motion.span
+          className="tabular-nums"
+          animate={{
+            color: ["#B5B2A8", "#D4A652", "#B5B2A8"],
+            textShadow: [
+              "0 0 0px rgba(212, 166, 82, 0)",
+              "0 0 8px rgba(212, 166, 82, 0.4)",
+              "0 0 0px rgba(212, 166, 82, 0)"
+            ]
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+        >
+          {balance.totalCredits.toLocaleString()}
+        </motion.span>
+        <span className="opacity-70">cr</span>
+      </div>
+      {showMedia && (
+        <div
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium"
+          style={{ backgroundColor: "rgba(212, 166, 82, 0.12)", color: "var(--accent-gold, #D4A652)" }}
+          title="AI media credits (image/video/audio generation)"
+        >
+          <span className="tabular-nums">{balance.totalMediaCredits.toLocaleString()}</span>
+          <span className="opacity-70">media</span>
+        </div>
+      )}
     </div>
   );
 }

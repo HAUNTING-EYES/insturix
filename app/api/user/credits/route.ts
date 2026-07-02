@@ -28,10 +28,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       balance: {
+        // MAIN pool (everyday workflow)
         subscriptionCredits: balance.subscriptionCredits,
         topupCredits: balance.topupCredits,
         totalCredits: balance.totalCredits,
         subscriptionCreditsExpiry: balance.subscriptionCreditsExpiry,
+        // MEDIA pool (image/video/audio generation)
+        mediaCredits: balance.mediaCredits,
+        mediaTopupCredits: balance.mediaTopupCredits,
+        totalMediaCredits: balance.totalMediaCredits,
+        mediaCreditsExpiry: balance.mediaCreditsExpiry,
       },
       recentTransactions: balance.recentTransactions,
     });
