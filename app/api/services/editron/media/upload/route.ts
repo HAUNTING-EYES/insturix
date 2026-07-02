@@ -18,6 +18,8 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   let analysisCreditCheck: CreditCheckResult | null = null;
   let analysisQueued = false;
+  let analysisCreditTransactionId: string | undefined;
+  let analysisChargedCredits: number | undefined;
 
   try {
     // Hard limit at 3GB to prevent abuse (user footage can be large)
@@ -235,10 +237,11 @@ export async function POST(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (qstashToken) {
-        analysisCreditCheck = await checkCredits(userId, 'editron', 'asset_analysis', {
+        const analysisCreditOptions = {
           durationMinutes: getBillableAssetAnalysisMinutes(fileType, verifiedDuration),
           requestType: getAssetAnalysisRequestType(fileType),
-        });
+        };
+        analysisCreditCheck = await checkCredits(userId, 'editron', 'asset_analysis', analysisCreditOptions);
         if (!analysisCreditCheck.allowed) {
           if (analysisCreditCheck.errorResponse?.status === 402) {
             await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -268,7 +271,10 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          await analysisCreditCheck.deduct();
+          const deductResult = await analysisCreditCheck.deduct();
+          analysisCreditTransactionId = deductResult.transactionId;
+          const { getCreditCost } = await import('@/lib/config/creditCosts');
+          analysisChargedCredits = getCreditCost('editron', 'asset_analysis', analysisCreditOptions);
         } catch (error) {
           console.error('[Upload] asset-analysis credit deduction failed:', error);
           await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -305,10 +311,13 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             assetId,
             userId,
+            orgId: orgId || undefined,
             type: fileType,
             url: readUrl,
             duration: verifiedDuration,
             filename,
+            creditTransactionId: analysisCreditTransactionId,
+            chargedCredits: analysisChargedCredits,
           }),
         });
 
