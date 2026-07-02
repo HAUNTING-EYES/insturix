@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET as GET_BRANDS } from '@/app/api/brand-vault/brands/route';
+import { GET as GET_SCANS } from '@/app/api/brand-vault/brands/[brandId]/scans/route';
 import { GET } from '@/app/api/brand-vault/signal-profiles/route';
 import { PATCH } from '@/app/api/brand-vault/signal-profiles/[id]/route';
 
@@ -9,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   getBrandVaultSignalProfile: vi.fn(),
   getDefaultBrandVaultRefineryStore: vi.fn(),
   getLatestAcceptedRecord: vi.fn(),
+  getBrandAccessGrants: vi.fn(),
   listAcceptedBrands: vi.fn(),
+  listJobSnapshots: vi.fn(),
   reviewBrandVaultSignalProfileDraft: vi.fn(),
 }));
 
@@ -39,6 +42,11 @@ function listRequest(brandId?: string): Request {
   return new Request(`http://localhost/api/brand-vault/signal-profiles${suffix}`);
 }
 
+function scansRequest(limit?: number): Request {
+  const suffix = typeof limit === 'number' ? `?limit=${limit}` : '';
+  return new Request(`http://localhost/api/brand-vault/brands/brand_route/scans${suffix}`);
+}
+
 describe('Brand Vault signal profile routes', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
@@ -46,15 +54,19 @@ describe('Brand Vault signal profile routes', () => {
     mocks.getBrandVaultSignalProfile.mockReset();
     mocks.getDefaultBrandVaultRefineryStore.mockReset();
     mocks.getLatestAcceptedRecord.mockReset();
+    mocks.getBrandAccessGrants.mockReset();
     mocks.listAcceptedBrands.mockReset();
+    mocks.listJobSnapshots.mockReset();
     mocks.reviewBrandVaultSignalProfileDraft.mockReset();
 
-    mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: 'org_route' });
+    mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: 'org_route', has: vi.fn(() => false) });
     mocks.emitBrandEvent.mockResolvedValue('event_route');
     mocks.getDefaultBrandVaultRefineryStore.mockReturnValue({
       store: 'brand-vault',
       getLatestAcceptedRecord: mocks.getLatestAcceptedRecord,
+      getBrandAccessGrants: mocks.getBrandAccessGrants,
       listAcceptedBrands: mocks.listAcceptedBrands,
+      listJobSnapshots: mocks.listJobSnapshots,
     });
   });
 
@@ -89,11 +101,15 @@ describe('Brand Vault signal profile routes', () => {
         },
       ],
     });
-    expect(mocks.listAcceptedBrands).toHaveBeenCalledWith({ orgId: 'org_route' });
+    expect(mocks.listAcceptedBrands).toHaveBeenCalledWith({
+      orgId: 'org_route',
+      userId: 'user_route',
+      isOrgAdmin: false,
+    });
   });
 
   it('lists personal accepted brands only for the signed-in user when no org is active', async () => {
-    mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: null });
+    mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: null, has: vi.fn(() => false) });
     mocks.listAcceptedBrands.mockResolvedValue([]);
 
     const response = await GET_BRANDS();
@@ -207,5 +223,116 @@ describe('Brand Vault signal profile routes', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.emitBrandEvent).not.toHaveBeenCalled();
+  });
+  it('lists scoped brand scan summaries without raw evidence payloads', async () => {
+    mocks.getBrandAccessGrants.mockResolvedValue(new Map());
+    mocks.listJobSnapshots
+      .mockResolvedValueOnce([
+        {
+          job: {
+            id: 'job_org_new',
+            userId: 'other_user_same_org',
+            orgId: 'org_route',
+            brandId: 'brand_route',
+            status: 'needs_review',
+            inputs: { websiteUrl: 'https://new.example', companyName: 'Route Brand', socialLinks: [] },
+            warnings: ['needs review'],
+            createdAt: '2026-06-24T01:00:00.000Z',
+            updatedAt: '2026-06-24T01:05:00.000Z',
+          },
+          recordId: 'record_org_new',
+          normalizedUrl: 'https://new.example/',
+          candidates: [{ id: 'candidate_hidden' }],
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          job: {
+            id: 'job_legacy_old',
+            userId: 'user_route',
+            brandId: 'brand_route',
+            status: 'accepted',
+            inputs: { websiteUrl: 'https://old.example', socialLinks: [] },
+            warnings: [],
+            createdAt: '2026-06-24T00:00:00.000Z',
+            updatedAt: '2026-06-24T00:05:00.000Z',
+          },
+          recordId: 'record_legacy_old',
+          candidates: [],
+        },
+      ]);
+
+    const response = await GET_SCANS(scansRequest(2), {
+      params: Promise.resolve({ brandId: 'brand_route' }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.listJobSnapshots).toHaveBeenNthCalledWith(1, {
+      brandId: 'brand_route',
+      orgId: 'org_route',
+      limit: 2,
+      sort: 'updatedAtDesc',
+    });
+    expect(mocks.listJobSnapshots).toHaveBeenNthCalledWith(2, {
+      brandId: 'brand_route',
+      userId: 'user_route',
+      orgId: null,
+      limit: 2,
+      sort: 'updatedAtDesc',
+    });
+    expect(payload).toEqual({
+      ok: true,
+      brandId: 'brand_route',
+      scans: [
+        {
+          jobId: 'job_org_new',
+          brandId: 'brand_route',
+          orgId: 'org_route',
+          userId: 'other_user_same_org',
+          recordId: 'record_org_new',
+          status: 'needs_review',
+          websiteUrl: 'https://new.example',
+          companyName: 'Route Brand',
+          normalizedUrl: 'https://new.example/',
+          candidateCount: 1,
+          warningCount: 1,
+          createdAt: '2026-06-24T01:00:00.000Z',
+          updatedAt: '2026-06-24T01:05:00.000Z',
+        },
+        {
+          jobId: 'job_legacy_old',
+          brandId: 'brand_route',
+          orgId: null,
+          userId: 'user_route',
+          recordId: 'record_legacy_old',
+          status: 'accepted',
+          websiteUrl: 'https://old.example',
+          companyName: null,
+          normalizedUrl: null,
+          candidateCount: 0,
+          warningCount: 0,
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:05:00.000Z',
+        },
+      ],
+    });
+    expect(JSON.stringify(payload)).not.toContain('candidate_hidden');
+  });
+
+  it('blocks brand scan history when org access restricts another user', async () => {
+    mocks.getBrandAccessGrants.mockResolvedValue(new Map([['brand_route', ['other_user']]]));
+
+    const response = await GET_SCANS(scansRequest(), {
+      params: Promise.resolve({ brandId: 'brand_route' }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload).toEqual({
+      ok: false,
+      error: { code: 'forbidden', message: 'You do not have access to this brand.' },
+    });
+    expect(mocks.listJobSnapshots).not.toHaveBeenCalled();
   });
 });
