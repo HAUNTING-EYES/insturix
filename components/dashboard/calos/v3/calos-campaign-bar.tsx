@@ -5,30 +5,31 @@ import { useRouter } from 'next/navigation';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import { type CalosObjective } from '@/lib/calos/campaign-intent';
-import CadenceEditor, { type CadenceRule } from '@/app/dashboard/calos/CadenceEditor';
+import { type CadenceRule } from '@/app/dashboard/calos/CadenceEditor';
 import TrendMarketSelector, {
   LOCAL_TREND_MARKET,
   useResolvedTrendLocation,
 } from '@/app/dashboard/calos/TrendMarketSelector';
-import { C, MONO, SANS } from './calos-view-model';
+import type { ContentCard } from '@/app/dashboard/thinkforge/types';
+import { C, MONO, SANS, toItem } from './calos-view-model';
+import type { CalItem } from './calos-view-model';
 import { Btn } from './calos-atoms';
+import { CalosCadenceModal } from './calos-cadence-modal';
+import { GenerationReview } from './calos-generation-review';
 
 /* ═══ CalOS v3 · campaign bar ═════════════════════════════════════════
    The founder's calos-v3.jsx campaign strip, wired to the real CalOS
-   campaign + generation service. Reuses the proven CadenceEditor (create/
-   edit campaign) and TrendMarketSelector rather than re-porting their logic
-   (Rule 3 — no duplicated state).
+   campaign + generation service.
 
-   PERIOD: matches the prototype's Week / Month / Quarter segmented pill.
-   The generation endpoints take a raw {from,to} ISO window, so these map to
-   7 / 30 / 90 days from now — no dependency on the backend Period enum
-   (which only offers rest_of_month/next_2_weeks/next_30_days/next_month).
+   PERIOD: Week / Month / Quarter segmented pill (7 / 30 / 90 days) — the
+   endpoints take a raw {from,to} ISO window, so no dependency on the backend
+   Period enum.
 
-   GENERATION: /auto-fill and /ai-plan are server-side ONE-SHOT generators —
-   they persist deliverables and return a count. The prototype's
-   "preview → remove → place" modal isn't backable without a backend dry-run
-   mode (out of scope, UIUX-only), so generation here is the real one-shot
-   flow: pick period/market → generate → toast count → refresh. */
+   GENERATION → REVIEW: /auto-fill and /ai-plan persist their drafts
+   server-side (no dry-run). So we snapshot the deliverable IDs, generate,
+   refetch, and open a review sheet of exactly the new drafts where "remove"
+   is a real delete — generate → review → prune, netting to preview → place
+   with no backend change. */
 
 interface Campaign {
   _id: string;
@@ -36,6 +37,12 @@ interface Campaign {
   cadenceRules: CadenceRule[];
   objective?: CalosObjective;
   theme?: string;
+}
+
+interface Review {
+  title: string;
+  sub: string;
+  items: CalItem[];
 }
 
 type Pending = '' | 'create' | 'auto' | 'ai';
@@ -68,6 +75,7 @@ export default function CalosCampaignBar({
   const [suggestedRules, setSuggestedRules] = useState<CadenceRule[]>(DEFAULT_CADENCE as CadenceRule[]);
   const [period, setPeriod] = useState<GenPeriod>('Month');
   const [trendMarket, setTrendMarket] = useState(LOCAL_TREND_MARKET);
+  const [review, setReview] = useState<Review | null>(null);
   const { trendLocation, isLoading: trendLocationLoading } = useResolvedTrendLocation(trendMarket);
 
   const loadCampaigns = useCallback(async () => {
@@ -94,6 +102,36 @@ export default function CalosCampaignBar({
   const busy = pending !== '';
   const waitingForTrendLocation = trendMarket === LOCAL_TREND_MARKET && trendLocationLoading;
 
+  /** Current deliverables for this brand — used to diff out just-generated drafts. */
+  const fetchCards = useCallback(async (): Promise<ContentCard[]> => {
+    try {
+      const r = await fetch(`/api/services/calos/deliverables?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
+      if (!r.ok) return [];
+      const d = await r.json();
+      return Array.isArray(d?.cards) ? d.cards : [];
+    } catch {
+      return [];
+    }
+  }, [brandId]);
+
+  /** Open the review sheet with the drafts created since `beforeIds`. */
+  const reviewNew = async (beforeIds: Set<string>, title: string, sub: string) => {
+    const after = await fetchCards();
+    const fresh = after.filter((c) => !beforeIds.has(c.id)).map(toItem);
+    setReview({ title, sub, items: fresh });
+  };
+
+  const removeDraft = async (id: string) => {
+    try {
+      const r = await fetch(`/api/services/calos/deliverables/${encodeURIComponent(id)}?brandId=${encodeURIComponent(brandId)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(`Failed (${r.status})`);
+      setReview((rv) => (rv ? { ...rv, items: rv.items.filter((it) => it.id !== id) } : rv));
+      onAfterGenerate();
+    } catch (err) {
+      toast({ title: "Couldn't remove draft", description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    }
+  };
+
   const createCampaign = async () => {
     setPending('create');
     try {
@@ -116,6 +154,7 @@ export default function CalosCampaignBar({
     if (!campaignId) { toast({ title: 'Pick or create a campaign first', variant: 'destructive' }); return; }
     setPending('auto');
     try {
+      const beforeIds = new Set((await fetchCards()).map((c) => c.id));
       const { from, to } = windowFor(period);
       const res = await fetch('/api/services/calos/auto-fill', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -124,8 +163,12 @@ export default function CalosCampaignBar({
       if (!res.ok) throw new Error(`Failed (${res.status})`);
       const data = await res.json();
       const created = data?.created ?? 0;
-      toast({ title: `Filled ${created} draft${created === 1 ? '' : 's'}`, description: `Next ${period.toLowerCase()}, from the campaign cadence.` });
       onAfterGenerate();
+      if (created > 0) {
+        await reviewNew(beforeIds, 'Auto-fill · review', `${created} draft${created === 1 ? '' : 's'} from the ${period.toLowerCase()} cadence`);
+      } else {
+        toast({ title: 'Nothing to fill', description: data?.note || 'The cadence is already met in this window.' });
+      }
     } catch (err) {
       toast({ title: 'Auto-fill failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
@@ -136,6 +179,7 @@ export default function CalosCampaignBar({
   const aiPlan = async () => {
     setPending('ai');
     try {
+      const beforeIds = new Set((await fetchCards()).map((c) => c.id));
       const { from, to } = windowFor(period);
       const res = await fetch('/api/services/calos/ai-plan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -146,8 +190,12 @@ export default function CalosCampaignBar({
       const created = data?.created ?? 0;
       const trendsUsed = data?.trendsUsed ?? 0;
       const market = typeof data?.trendLocation === 'string' && data.trendLocation ? data.trendLocation : 'global';
-      toast({ title: `Drafted ${created} idea${created === 1 ? '' : 's'}`, description: `Next ${period.toLowerCase()} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market} via ${data?.provider ?? 'none'}.` });
       onAfterGenerate();
+      if (created > 0) {
+        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market} via ${data?.provider ?? 'none'}`);
+      } else {
+        toast({ title: 'No ideas drafted', description: data?.note || 'Try a wider window or a different market.' });
+      }
     } catch (err) {
       toast({ title: 'AI plan failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
@@ -180,27 +228,13 @@ export default function CalosCampaignBar({
       </div>
 
       {editorOpen && selected && (
-        <CadenceEditor
-          campaignId={selected._id}
-          brandId={brandId}
-          campaignName={selected.name}
-          initialRules={selected.cadenceRules}
-          initialObjective={selected.objective}
-          initialTheme={selected.theme}
-          onClose={() => setEditorOpen(false)}
-          onSaved={() => loadCampaigns()}
-        />
+        <CalosCadenceModal campaign={selected} brandId={brandId} onClose={() => setEditorOpen(false)} onSaved={() => loadCampaigns()} />
       )}
       {createOpen && (
-        <CadenceEditor
-          campaignId=""
-          brandId={brandId}
-          campaignName=""
-          initialRules={suggestedRules}
-          isCreate
-          onClose={() => setCreateOpen(false)}
-          onSaved={(newId) => { void loadCampaigns(); if (newId) setCampaignId(newId); }}
-        />
+        <CalosCadenceModal campaign={null} brandId={brandId} initialRules={suggestedRules} onClose={() => setCreateOpen(false)} onSaved={(newId) => { void loadCampaigns(); if (newId) setCampaignId(newId); }} />
+      )}
+      {review && (
+        <GenerationReview title={review.title} sub={review.sub} items={review.items} onRemove={removeDraft} onClose={() => setReview(null)} />
       )}
     </div>
   );

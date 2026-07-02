@@ -26,10 +26,10 @@ export const SANS = "'Plus Jakarta Sans',system-ui,sans-serif";
 /** Platforms CalOS can schedule. `generic` is the fallback for cards created
     without a platform (createCard defaults to 'generic'). */
 export const PLAT: Record<string, string> = {
-  instagram: 'IG', linkedin: 'IN', youtube: 'YT', facebook: 'FB', x: 'X', tiktok: 'TT', generic: '••',
+  instagram: 'IG', linkedin: 'IN', youtube: 'YT', facebook: 'FB', x: 'X', twitter: 'X', tiktok: 'TT', generic: '••',
 };
 export const PLABEL: Record<string, string> = {
-  instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', facebook: 'Facebook', x: 'X', tiktok: 'TikTok', generic: 'Unassigned',
+  instagram: 'Instagram', linkedin: 'LinkedIn', youtube: 'YouTube', facebook: 'Facebook', x: 'X', twitter: 'X', tiktok: 'TikTok', generic: 'Unassigned',
 };
 
 export const platGlyph = (p: string) => PLAT[p] ?? PLAT.generic;
