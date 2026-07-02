@@ -19,6 +19,7 @@ import { Check, ArrowRight } from "lucide-react";
 import {
   SUBSCRIPTION_PLANS,
   CREDIT_PACKAGES,
+  getPlanMediaCreditAllocation,
   type SubscriptionPlan,
   type CreditPackage,
 } from "@/lib/config/creditCosts";
@@ -53,26 +54,63 @@ const VOLUME_TIERS = [
   { label: "Custom", sublabel: "Full-scale", planId: "enterprise" },
 ] as const;
 
-// Representative per-unit credit costs (snapshot of lib/config/creditCosts.ts, mirrored
-// in docs/financials/credits-pricing-final-ledger). Used to show customers what a plan's
-// shared credit wallet actually buys. One wallet — spend it across any mix.
-const CREDIT_UNIT_COSTS = {
-  images: 5,      // clickatron.variation base
-  scans: 15,      // brand_vault.brand_scan base
-  plans: 20,      // calos.ai_plan
-  posts: 1,       // uploaderx.platform_publish (X is 3x)
-  videoPerMin: 900, // pipeline video, Kling 2.1 @ 15 cr/sec x 60
-} as const;
+// What each plan produces in a real month — an AND-basket, not an OR-menu.
+//
+// Credits live in TWO pools: WORKFLOW (chat, scripts, posting, content calendars,
+// brand scans, video editing & analysis) and AI MEDIA (image/video/audio
+// generation, granted on top). This shows a realistic full month across BOTH,
+// so a customer sees everything they make — not "N images OR N video minutes".
+//
+// Every count fits its pool at the real per-action cost from lib/config/creditCosts.ts
+// (edit ~150cr, post 1, script 5, calendar 20, scan 15 | image 5, clip 75, audio 15),
+// leaving headroom for everyday chat & analysis. ADJUSTABLE display model — tune here.
+type ValueItem = { n: string; unit: string };
+type PlanBundle = { workflow: ValueItem[]; media: ValueItem[] };
 
-function creditExamples(credits: number) {
-  return [
-    { n: Math.round(credits / CREDIT_UNIT_COSTS.images).toLocaleString(), unit: "AI images" },
-    { n: Math.round(credits / CREDIT_UNIT_COSTS.scans).toLocaleString(), unit: "Brand Vault scans" },
-    { n: Math.round(credits / CREDIT_UNIT_COSTS.plans).toLocaleString(), unit: "content-calendar plans" },
-    { n: Math.round(credits / CREDIT_UNIT_COSTS.posts).toLocaleString(), unit: "social posts" },
-    { n: (credits / CREDIT_UNIT_COSTS.videoPerMin).toFixed(1), unit: "min of premium AI video" },
-  ];
-}
+const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
+  agency_starter: {
+    workflow: [
+      { n: "12", unit: "full video edits" },
+      { n: "60", unit: "social posts" },
+      { n: "15", unit: "scripts & docs" },
+      { n: "4", unit: "content calendars" },
+      { n: "2", unit: "brand scans" },
+    ],
+    media: [
+      { n: "80", unit: "AI images" },
+      { n: "6", unit: "AI video clips" },
+      { n: "4", unit: "AI audio tracks" },
+    ],
+  },
+  agency_growth: {
+    workflow: [
+      { n: "60", unit: "full video edits" },
+      { n: "300", unit: "social posts" },
+      { n: "60", unit: "scripts & docs" },
+      { n: "12", unit: "content calendars" },
+      { n: "8", unit: "brand scans" },
+    ],
+    media: [
+      { n: "300", unit: "AI images" },
+      { n: "28", unit: "AI video clips" },
+      { n: "12", unit: "AI audio tracks" },
+    ],
+  },
+  agency_scale: {
+    workflow: [
+      { n: "120", unit: "full video edits" },
+      { n: "600", unit: "social posts" },
+      { n: "120", unit: "scripts & docs" },
+      { n: "24", unit: "content calendars" },
+      { n: "16", unit: "brand scans" },
+    ],
+    media: [
+      { n: "600", unit: "AI images" },
+      { n: "56", unit: "AI video clips" },
+      { n: "24", unit: "AI audio tracks" },
+    ],
+  },
+};
 
 const TOTAL_DIGITS = ["$", "2", ",", "0", "0", "0", "+"];
 
@@ -535,6 +573,8 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
   const displayPrice = billingCycle === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.price;
   const totalYearly = plan.yearlyPrice;
   const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
+  const mediaCredits = getPlanMediaCreditAllocation(plan.id);
+  const bundle = PLAN_VALUE_BUNDLES[plan.id];
   return (
     <div style={{
       background: "var(--bg-raised)", border: "1px solid var(--accent-gold)",
@@ -575,7 +615,7 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
         )}
 
         <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)", display: "block", marginBottom: 24 }}>
-          {plan.credits.toLocaleString()} CREDITS/MONTH
+          {plan.credits.toLocaleString()} WORKFLOW + {mediaCredits.toLocaleString()} AI-MEDIA CREDITS/MO
         </span>
 
         {/* Room dots */}
@@ -599,25 +639,44 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
           ))}
         </ul>
 
-        {/* What your credits get you */}
-        <div style={{
-          textAlign: "left", maxWidth: 300, margin: "0 auto 24px",
-          padding: "16px", borderRadius: 8,
-          background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
-        }}>
-          <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 12 }}>
-            {plan.credits.toLocaleString()} CREDITS ≈ ANY OF
-          </span>
-          {creditExamples(plan.credits).map((ex) => (
-            <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
-              <span style={{ color: "var(--text-secondary)" }}>{ex.unit}</span>
-              <span style={{ color: "var(--text-primary)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>{ex.n}</span>
-            </div>
-          ))}
-          <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
-            One shared wallet — mix freely. Premium video &amp; images draw the most.
-          </span>
-        </div>
+        {/* What you make every month — an AND-basket across both pools */}
+        {bundle && (
+          <div style={{
+            textAlign: "left", maxWidth: 300, margin: "0 auto 24px",
+            padding: "16px", borderRadius: 8,
+            background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
+          }}>
+            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 12 }}>
+              EVERY MONTH YOU CAN MAKE
+            </span>
+
+            {/* Workflow pool */}
+            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 8 }}>
+              WORKFLOW
+            </span>
+            {bundle.workflow.map((ex) => (
+              <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{ex.unit}</span>
+                <span style={{ color: "var(--text-primary)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>{ex.n}</span>
+              </div>
+            ))}
+
+            {/* AI media pool */}
+            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", margin: "12px 0 8px" }}>
+              AI MEDIA
+            </span>
+            {bundle.media.map((ex) => (
+              <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{ex.unit}</span>
+                <span style={{ fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--accent-gold)" }}>{ex.n}</span>
+              </div>
+            ))}
+
+            <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
+              All of it, together — plus everyday AI chat &amp; analysis. Two flexible pools; media generation never eats your workflow credits.
+            </span>
+          </div>
+        )}
 
         {/* Barcode */}
         <Barcode />
