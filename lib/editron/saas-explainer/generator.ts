@@ -35,6 +35,8 @@ import { createProjectLink } from "@/lib/shared/project-links";
 import { ScriptDraftAgent } from "@/lib/thinkforge/agents/script-draft-agent";
 
 const FPS = 30;
+const MIN_SAAS_GENERATED_SCENES = 4;
+const MAX_SAAS_GENERATED_SCENES = 6;
 const VOICEOVER_TTS_MAX_ATTEMPTS = 2;
 const VOICEOVER_TTS_RETRY_DELAY_MS = 500;
 
@@ -176,15 +178,15 @@ export async function createSaasExplainerProject(
     brandId: generationInput.brandId,
     userId,
   });
-  const scenes = normalizeScenes(parsed.scenes);
-  if (scenes.length === 0) {
+  const parsedScenes = normalizeScenes(parsed.scenes);
+  if (parsedScenes.length === 0) {
     throw new SaasExplainerGenerationError(
       422,
       "no_scenes_generated",
       "The generated script did not produce valid scenes.",
     );
   }
-
+  const scenes = ensureMinimumSaasExplainerScenes(parsedScenes, generationInput);
 
   const creditResult = await CreditsService.deductCredits(userId, "pipeline", "script_import", {
     quantity: 1,
@@ -517,6 +519,89 @@ function normalizeScenes(scenes: Array<Record<string, unknown>>): SceneDescripto
     ...(scene as Omit<SceneDescriptor, "sceneIndex">),
     sceneIndex: typeof scene.sceneIndex === "number" ? scene.sceneIndex : index,
   }));
+}
+
+function ensureMinimumSaasExplainerScenes(
+  scenes: SceneDescriptor[],
+  input: NormalizedSaasExplainerIntake,
+): SceneDescriptor[] {
+  const desiredCount = Math.min(
+    MAX_SAAS_GENERATED_SCENES,
+    Math.max(MIN_SAAS_GENERATED_SCENES, Math.ceil(input.durationSec / 15)),
+  );
+  if (scenes.length >= desiredCount) {
+    return scenes.map((scene, index) => ({ ...scene, sceneIndex: index }));
+  }
+
+  const seedScene = scenes[0];
+  if (!seedScene) return scenes;
+  const sceneDuration = Math.max(4, input.durationSec / desiredCount);
+  const expanded = scenes.map((scene, index) => ({
+    ...scene,
+    sceneIndex: index,
+    durationSeconds: sceneDuration,
+  }));
+
+  while (expanded.length < desiredCount) {
+    expanded.push(buildMinimumSaasScene(expanded.length, input, seedScene, sceneDuration));
+  }
+
+  return expanded;
+}
+
+function buildMinimumSaasScene(
+  index: number,
+  input: NormalizedSaasExplainerIntake,
+  source: SceneDescriptor,
+  durationSeconds: number,
+): SceneDescriptor {
+  const product = input.productName || "the product";
+  const outcome = input.outcome || `Show how ${product} turns the workflow into a clear SaaS demo.`;
+  const blueprints = [
+    {
+      title: "Hook",
+      narration: `${product} opens with the core product promise.`,
+      visualDescription: `Show ${product} as a polished SaaS workspace with one clear active state.`,
+      videoMotionPrompt: "Confident push toward the main workspace and active product state.",
+    },
+    {
+      title: "Problem",
+      narration: "Show the before-state friction the product removes.",
+      visualDescription: "Show fragmented tasks resolving toward one organized product workflow.",
+      videoMotionPrompt: "Stack friction cards, then shift focus into the product workspace.",
+    },
+    {
+      title: "Workflow demo",
+      narration: outcome,
+      visualDescription: "Hold on a readable product workflow with step-by-step UI state changes.",
+      videoMotionPrompt: "Move through the workflow with crisp UI state changes and proof-screen holds.",
+    },
+    {
+      title: "CTA",
+      narration: `Close with the next action for ${product}.`,
+      visualDescription: `Resolve into a clean ${product} action panel and brand close.`,
+      videoMotionPrompt: "Settle into the CTA panel, then a simple logo or product close.",
+    },
+  ] as const;
+  const fallbackBlueprint = blueprints[3];
+  const blueprint = blueprints[Math.min(index, blueprints.length - 1)] ?? fallbackBlueprint;
+
+  return {
+    ...source,
+    sceneIndex: index,
+    title: blueprint.title,
+    narration: blueprint.narration,
+    visualDescription: blueprint.visualDescription,
+    videoMotionPrompt: blueprint.videoMotionPrompt,
+    durationSeconds,
+    mood: source.mood || "focused",
+    imageQualityTokens: source.imageQualityTokens || "clean SaaS product UI, readable interface",
+    videoQualityTokens: source.videoQualityTokens || "smooth product-demo motion, readable holds",
+    generationUnitId: `saas_min_scene_${index}`,
+    primaryVisualForUnit: true,
+    sceneType: "continuous",
+    assetRecommendation: source.assetRecommendation || "ai-video",
+  };
 }
 
 function analyzeGenerationReadiness(overlays: any[]): SaasExplainerGenerationReadiness {

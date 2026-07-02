@@ -114,7 +114,7 @@ export interface SaasGeneratedSceneModel {
     readableUiProof: true;
     productSpecificVisualProof: boolean;
     motionChoreographyPlanned: boolean;
-    finalVisualProof: false;
+    finalVisualProof: boolean;
   };
 }
 
@@ -136,6 +136,18 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
       brandContext: input.brandContext,
       referenceStyleBrief: input.referenceStyleBrief,
     });
+    const elements = buildSceneElements(scene, input.input, brand, input.brandContext, familyPlan);
+    const captionTracks = voiceoverScript
+      ? [{
+          id: `${sceneId}_caption_0`,
+          text: voiceoverScript,
+          startMs: 0,
+          endMs: Math.round((durationInFrames / input.dimensions.fps) * 1000),
+        }]
+      : [];
+    const productSpecificVisualProof = hasProductSpecificVisualProof(input.brandContext);
+    const motionChoreographyPlanned = hasMotionChoreographyPlan(input.brandContext, input.referenceStyleBrief);
+    const finalVisualProof = productSpecificVisualProof && motionChoreographyPlanned && hasRenderableGeneratedSceneStructure(elements, captionTracks);
     const model: SaasGeneratedSceneModel = {
       schemaVersion: "saas-generated-scene/v1",
       sceneId,
@@ -158,22 +170,15 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
               : {}),
           }
         : null,
-      elements: buildSceneElements(scene, input.input, brand, input.brandContext, familyPlan),
-      captionTracks: voiceoverScript
-        ? [{
-            id: `${sceneId}_caption_0`,
-            text: voiceoverScript,
-            startMs: 0,
-            endMs: Math.round((durationInFrames / input.dimensions.fps) * 1000),
-          }]
-        : [],
+      elements,
+      captionTracks,
       qualityGates: {
         promptLeakChecked: true,
         brandTokensApplied: input.brandContext.metadata.acceptedProfile,
         readableUiProof: true,
-        productSpecificVisualProof: hasProductSpecificVisualProof(input.brandContext),
-        motionChoreographyPlanned: hasMotionChoreographyPlan(input.brandContext, input.referenceStyleBrief),
-        finalVisualProof: false,
+        productSpecificVisualProof,
+        motionChoreographyPlanned,
+        finalVisualProof,
       },
     };
 
@@ -605,6 +610,14 @@ function buildSceneBrandContext(brandContext: SaasExplainerBrandContext): SaasGe
     motion: { signalPaths: brandContext.defaults.motion.signalPaths },
     missingInputs: brandContext.missingInputs,
   };
+}
+
+function hasRenderableGeneratedSceneStructure(
+  elements: SaasGeneratedSceneElement[],
+  captionTracks: SaasGeneratedSceneModel["captionTracks"],
+): boolean {
+  const roles = new Set(elements.map((element) => element.role));
+  return roles.has("headline") && roles.has("app-shell") && roles.has("panel") && captionTracks.length > 0;
 }
 
 function hasProductSpecificVisualProof(brandContext: SaasExplainerBrandContext): boolean {

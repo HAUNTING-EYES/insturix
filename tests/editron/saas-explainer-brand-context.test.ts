@@ -299,7 +299,8 @@ describe("SaaS explainer Brand Vault context", () => {
     expect(Array.isArray(generatedScene.sceneModel.brandContext.audience)).toBe(true);
     expect(generatedScene.sceneModel.qualityGates).toMatchObject({
       productSpecificVisualProof: true,
-      finalVisualProof: false,
+      motionChoreographyPlanned: true,
+      finalVisualProof: true,
     });
     expect(generatedScene.sourceMap.brand).toMatchObject({
       defaultProductName: "Signal House",

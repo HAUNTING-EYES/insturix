@@ -566,7 +566,7 @@ describe("SaaS explainer routes", () => {
       autoEditStatus: "needs_generation",
       projectId: "project_1",
       projectUrl: "/dashboard/editron/project/project_1",
-      sceneCount: 1,
+      sceneCount: 4,
       overlayCount: 2,
       generationReadiness: {
         ok: false,
@@ -604,6 +604,14 @@ describe("SaaS explainer routes", () => {
       brandId: "brand_1",
       userId: "user_1",
     }));
+    const overlayInput = mocks.buildSaasGeneratedSceneOverlays.mock.calls[0][0];
+    expect(overlayInput.scenes).toHaveLength(4);
+    expect(overlayInput.scenes.map((scene: any) => scene.title)).toEqual([
+      "Hook",
+      "Problem",
+      "Workflow demo",
+      "CTA",
+    ]);
     expect(mocks.deductCredits).toHaveBeenCalledWith(
       "user_1",
       "pipeline",
