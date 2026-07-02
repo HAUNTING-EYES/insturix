@@ -7,7 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import {
   C, MONO, SANS, DOW, PLAT,
   toItem, groupByDay, monthCells, weekDays, dateKey, sameDay,
-  monthTitle, dayTitle, addMonths, addDays, platGlyph, stageLabel, stageTick,
+  monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick,
 } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
@@ -356,8 +356,9 @@ export default function CalosCalendarV3() {
                         <span style={{ position: 'absolute', left: -74, top: 14, fontFamily: MONO, fontSize: 11, color: C.dim, width: 40, textAlign: 'right' }}>{d.time}</span>
                         <span style={{ position: 'absolute', left: -8, top: 15, width: 11, height: 11, borderRadius: '50%', background: d.stage === 'approved' ? C.gold : C.bg, border: `1.5px solid ${d.stage === 'approved' || d.stage === 'in_review' ? C.gold : C.muted}`, zIndex: 2 }} />
                         <button className="calos-fr" onClick={() => setOpenId(d.id)} style={{ cursor: 'pointer', width: '100%', textAlign: 'left', background: C.raised, border: `1px solid ${C.border}`, borderLeft: `2px solid ${stageTick(d.stage)}`, borderRadius: 9, padding: 13 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Glyph p={d.platform} /><Mono s={8.5} c={C.muted}>{stageLabel(d.stage)}</Mono><span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7 }}><Mono s={9} c={C.muted}>{d.score}</Mono><StatusMark stage={d.stage} /></span></div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><Glyph p={d.platform} /><Mono s={8.5} c={C.muted}>{platLabel(d.platform)}</Mono><span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7 }}><Mono s={9} c={C.muted}>{d.score}</Mono><StatusMark stage={d.stage} /></span></div>
                           <div style={{ fontSize: 15, fontWeight: 700 }}>{d.title}</div>
+                          <Mono s={8.5} c={C.dim} st={{ display: 'block', marginTop: 6 }}>{stageLabel(d.stage)}</Mono>
                         </button>
                       </div>
                     ))}
