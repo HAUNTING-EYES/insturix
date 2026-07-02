@@ -590,12 +590,12 @@ Suggested order:
   - Implemented in `483b6978 feat: enforce editron storage quota paths`.
   - Verify: 57 focused tests passed, `npx eslint . --quiet` passed, `git diff --check` passed; repo-wide `npx tsc --noEmit` still fails only on unrelated baseline script/test errors.
 
-- [ ] T5 (P1) - Hidden analysis - Record provider events inside asset/video/tribe analysis workers.
-  - Partial complete in `d9d5ac62 feat: record editron asset analysis provider costs` and `9a4805c5 feat: record editron tribe analysis provider costs`.
+- [x] T5 (P1) - Hidden analysis - Record provider events inside asset/video/tribe analysis workers.
+  - Implemented in `d9d5ac62 feat: record editron asset analysis provider costs`, `9a4805c5 feat: record editron tribe analysis provider costs`, and `a67c120c feat: record editron video analysis provider costs`.
   - Asset-analysis now receives `orgId`, credit transaction ID, and charged credits from upload registration, then records provider cost events for video 5-track analysis, image Gemini vision, local audio metadata, Gemini embeddings, and graph-sync QStash dispatch.
-  - Tribe-analysis now records provider cost events for V-JEPA Modal, Wav2Vec Modal, Essentia/music Modal, and Director QStash dispatch. Modal pricing intentionally stays `pricing_to_be_seen` until invoice-backed rates are added.
+  - Video-analysis now receives auto-edit credit transaction ID/charged credits from `from-asset`, records provider cost events for raw-footage processing, pre-cut V-JEPA Modal, Gemini video understanding, graph-sync QStash, TRIBE QStash, and direct Director QStash. Revenue is attached once on the raw-footage stage to avoid double-counting.
+  - Tribe-analysis now records provider cost events for V-JEPA Modal, Wav2Vec Modal, Essentia/music Modal, and Director QStash dispatch, and carries the auto-edit credit transaction ID for traceability. Modal and mixed transcription pipeline pricing intentionally stay `pricing_to_be_seen` until invoice-backed rates are added.
   - Verified with focused financials/storage tests, `npx eslint . --quiet`, and `git diff --check`. Full `npx tsc --noEmit` is still blocked by unrelated baseline script/test errors outside the touched files.
-  - Remaining T5 scope: video-analysis worker provider events plus auto-edit revenue linkage. `from-asset` deducts `editron.auto_edit_analysis` credits today but does not pass credit transaction ID or charged credits into the video-analysis -> tribe-analysis chain.
   - Files: workers and focused tests.
   - Verify: worker success/failure events and no user-facing failure from telemetry write failure.
 
