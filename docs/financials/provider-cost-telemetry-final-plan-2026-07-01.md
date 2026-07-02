@@ -581,7 +581,7 @@ Suggested order:
   - Files: video generation route, video worker, video queue/batch model or direct DB write, tests.
   - Verify: mocked Fal/Kie success/failure tests.
 
-- [ ] T3 (P1) - Clickatron - Record Fal image generation COGS and R2 storage bytes.
+- [x] T3 (P1) - Clickatron - Record Fal image generation COGS and R2 storage bytes.
   - Files: Clickatron worker, R2 helper if needed, tests.
   - Verify: mocked Fal success/failure and R2 upload event test.
 

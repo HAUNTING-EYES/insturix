@@ -11,6 +11,7 @@ import { fal } from "@fal-ai/client";
 import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
+import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
 import {
   buildClickatronGenerationPrompt,
   resolveClickatronBrandContextBlock,
@@ -114,6 +115,101 @@ function getClickatronVariationRefundAmount(modelId?: string): number {
   return getCreditCost('clickatron', 'variation', { model: modelId });
 }
 
+type ClickatronCostJob = NonNullable<Awaited<ReturnType<typeof getJob>>>;
+
+function getFalProviderJobId(result: any): string | undefined {
+  return result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId;
+}
+
+function getFalImageCount(result: any): number | undefined {
+  const count = Array.isArray(result?.data?.images) ? result.data.images.length : undefined;
+  return count && count > 0 ? count : undefined;
+}
+
+function getClickatronCostModel(job: ClickatronCostJob, variation?: Variation): string | undefined {
+  return variation?.modelId || job.modelId;
+}
+
+async function recordClickatronFalProviderCost({
+  job,
+  variation,
+  status,
+  result,
+  error,
+  chargedCredits,
+}: {
+  job: ClickatronCostJob;
+  variation?: Variation;
+  status: 'success' | 'failed';
+  result?: any;
+  error?: unknown;
+  chargedCredits?: number;
+}): Promise<void> {
+  await recordProviderCostEvent({
+    eventId: `pce_clickatron_fal_${job.id}_${status}`,
+    idempotencyKey: `clickatron:variation:${job.id}:fal:${status}`,
+    status,
+    userId: job.userId,
+    taskId: job.id,
+    assetId: job.variationId,
+    service: 'clickatron',
+    action: 'variation',
+    route: '/api/internal/workers/clickatron/variation',
+    provider: 'fal-ai',
+    model: getClickatronCostModel(job, variation),
+    operation: 'image_generation',
+    chargedCredits,
+    providerJobId: getFalProviderJobId(result),
+    units: {
+      imageCount: getFalImageCount(result),
+      requestCount: 1,
+    },
+    metadata: {
+      sessionId: job.sessionId,
+      variationId: job.variationId,
+      parentVariationId: job.parentVariationId,
+      referenceImageCount: job.referenceImageRefs?.length,
+      falImageCount: getFalImageCount(result),
+      errorClass: error instanceof Error ? error.name : undefined,
+    },
+  });
+}
+
+async function recordClickatronR2StorageCost({
+  job,
+  imageBytes,
+  thumbnailBytes,
+}: {
+  job: ClickatronCostJob;
+  imageBytes: number;
+  thumbnailBytes: number;
+}): Promise<void> {
+  await recordProviderCostEvent({
+    eventId: `pce_clickatron_r2_${job.id}_success`,
+    idempotencyKey: `clickatron:variation:${job.id}:r2:success`,
+    status: 'success',
+    userId: job.userId,
+    taskId: job.id,
+    assetId: job.variationId,
+    service: 'clickatron',
+    action: 'variation',
+    route: '/api/internal/workers/clickatron/variation',
+    provider: 'cloudflare-r2',
+    operation: 'storage',
+    units: {
+      storageBytes: imageBytes + thumbnailBytes,
+      bytesIn: imageBytes + thumbnailBytes,
+      requestCount: 2,
+    },
+    metadata: {
+      sessionId: job.sessionId,
+      variationId: job.variationId,
+      imageBytes,
+      thumbnailBytes,
+      objectCount: 2,
+    },
+  });
+}
 async function handler(req: Request) {
   let jobId: string | undefined;
 
@@ -184,6 +280,10 @@ async function handler(req: Request) {
 
       return NextResponse.json({ error: 'Fal AI not configured' }, { status: 500 });
     }
+
+    let falResult: any;
+    let falCallAttempted = false;
+    let falCostRecorded = false;
 
     try {
       // Parse aspect ratio
@@ -553,8 +653,8 @@ async function handler(req: Request) {
       // Debug logging to see the final payload
       console.log('Worker: Final payload for model', modelId, ':', JSON.stringify(payload, null, 2));
 
-      let result;
-      result = await fal.subscribe(modelId, {
+      falCallAttempted = true;
+      const result = await fal.subscribe(modelId, {
         input: payload,
         logs: true,
         onQueueUpdate: (update) => {
@@ -563,6 +663,7 @@ async function handler(req: Request) {
           }
         },
       });
+      falResult = result;
 
       console.log('Worker: Image generation complete.');
 
@@ -611,6 +712,12 @@ async function handler(req: Request) {
         thumbnailBuffer
       );
 
+      await recordClickatronR2StorageCost({
+        job,
+        imageBytes: imageBuffer.length,
+        thumbnailBytes: thumbnailBuffer.length,
+      });
+
       // Update variation with generated image
       variation.status = 'completed';
       variation.imageRef = rawR2Url;
@@ -628,6 +735,14 @@ async function handler(req: Request) {
       await task.save();
 
       await completeJob(jobId, rawR2Url);
+      await recordClickatronFalProviderCost({
+        job,
+        variation,
+        status: 'success',
+        result,
+        chargedCredits: getClickatronVariationRefundAmount(variation.modelId || job.modelId),
+      });
+      falCostRecorded = true;
 
       // CalOS completion callback (isolated — can never fail the Clickatron job): if this image was
       // generated for a CalOS deliverable (ThinkForge handoff today, or a CalOS kickoff later), land
@@ -699,6 +814,16 @@ async function handler(req: Request) {
       }
 
       console.error('Worker: Detailed error - Code:', errorCode, 'Message:', errorMessage);
+
+      if (falCallAttempted && !falCostRecorded) {
+        await recordClickatronFalProviderCost({
+          job,
+          variation,
+          status: 'failed',
+          result: falResult,
+          error: generationError,
+        });
+      }
 
       // Ensure variation is updated with failed status
       try {
