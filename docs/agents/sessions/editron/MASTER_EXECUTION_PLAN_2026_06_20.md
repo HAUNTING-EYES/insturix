@@ -53,7 +53,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 | P1 Decision authority | **DONE for the live unified-candidate path, with compatibility caveat** | `director-agent.ts` pushes Creative Brief and signal candidates into `planUnifiedDecisionBundleFromCandidates`; `unified-decision-bundle.ts` ranks both producer candidates and stamps selected decisions with `owner: unified-planner`, `creativeBriefRole: semantic-context`, `signalRole: candidate-source`. | Keep legacy/single-producer helper paths honest in telemetry. Do not claim all historical helpers are removed. |
 | P2 Candidate normalizer | **PARTIAL** | `signal-executor.ts` now emits `momentImportance`, `candidateConfidence`, `executionConfidence`, `evidenceStrength`, and `signalNormalization`; `unified-decision-bundle.ts` normalizes family/job/timing/evidence/risk. | Upstream still starts from `momentWeight` and blends it into confidence; formulas are invented and need calibration. |
 | P3 Caption planner | **PARTIAL** | Canonical final-timeline caption track exists, creates one caption overlay with multiple readable caption groups, and caption moment planning reads speech/readability/screen-pressure atoms. | Still one track container rather than a true moment-scoped caption planner/renderer ownership model. |
-| P4 Visual perception / VLM cut intelligence | **NOT STARTED for cut ownership** | `raw-footage-processor.ts` remains transcript/silence/transcript-editor led; low speech coverage sets `needsVisualDrivenEditing`, but there is no VLM perception cut service owning cut decisions. | Build visual cut intelligence from VLM/V-JEPA primitives and feed cut plan before overlay planning. |
+| P4 Visual perception / VLM cut intelligence | **PARTIAL, V-JEPA cut intelligence built + wired** | `video-analysis/route.ts` runs Step 1.58 before silence removal, calls V-JEPA, refines `rawFootageAnalysis.silenceRemovalPlan` through `visual-cut-intelligence.ts`, then `executeSilenceRemoval` consumes the refined plan. Focused tests prove visual dead-air removal and visual-boundary splits become real timeline video-overlay changes. | Finish the production layer: full VLM semantic perception, calibrated thresholds, real-project rendered proof, visual-heavy/visual-only fixture coverage, and overlay-placement consumption of the same perception facts. |
 | P5 Zoom / visual-motion planner | **DONE as planner infrastructure** | Zoom planner reads subject bbox, face/eye contact, shot scale, motion vectors, speech/beat/emotion, and overlay memory; it attaches `zoomMotionPlan` and anti-repeat inputs. | Rendered proof and calibration still belong to P12/P15. |
 | P6 Transition planner | **DONE as planner infrastructure** | Producer pre-gates transition decisions at clip boundaries/pairs; transition boundary planner reads topic, pause, beat, motion, visual change, shot/subject jumps, semantic contrast, audio tail, and repetition pressure. | Rendered timing/choreography proof still belongs to P13/P12. |
 | P7 SFX / BGM | **PARTIAL** | Atomic SFX form, sync anchors, provider candidate gate, R2/cache behavior, and strict timing validation exist; provider path is still Freesound-first and asset quality is provider-dependent. Auto-BGM dispatch exists, but `proj_UtqhQCsK3ZkR` showed BGM can be falsely suppressed when speech rhythm is interpreted as existing music. | Full SFX system remains: multi-provider/provider abstraction, better rejection telemetry, richer non-transition roles, and calibration of skip/place decisions. BGM source-music detection must stop using BPM alone and must persist why BGM was added/skipped. |
@@ -72,7 +72,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 
 1. **Do not rebuild P1.** It is done for the live candidate path; only telemetry/fallback cleanup is allowed.
 2. **Finish P0 rendered truth scoring** so the new paired Lambda full/baseline still artifacts become scored rendered reports/gate evidence, not only persisted still URLs.
-3. **Build P4 visual perception / VLM cut intelligence** so cut decisions are not transcript-only.
+3. **Harden P4 visual perception / VLM cut intelligence** beyond the built V-JEPA cut-refinement slice: add semantic VLM perception, real fixture proof, calibration, and overlay consumption.
 4. **Build P13 shared choreography scheduler** using the existing overlay timeline memory atoms.
 5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.
 6. **Run P15 calibration only after P0/P12 rendered gates are trustworthy.**
@@ -294,7 +294,7 @@ This status uses live audit documents and code-backed evidence:
 | Raw signals | Rich signals exist and are attached | **Partially used (too narrowly in several families)** |
 | MG form origin | Content-shape controls base composer; signals fine-tune within current candidate set | **Partially true (this is why outputs feel repetitive)** |
 | Rendered truth gate | Some artifact capture exists, but no full hard blocker for bad visuals | **P0 blocker** |
-| Visual cut intelligence | V-JEPA primitives exist, but visual perception is not yet a first-class cut-planning input | **Required next layer** |
+| Visual cut intelligence | V-JEPA primitives now refine the cut plan before silence removal; full semantic VLM perception and rendered proof are still missing | **Partial / needs hardening** |
 | Calibration | Live bandit writes are now quarantined behind rendered/pass or explicit publish evidence (`4b48c8c3`); full rendered truth-loop calibration is still blocked | **Partially fixed / not production-ready** |
 
 ### Confirmed P0/P1/P2 findings (short)
@@ -351,6 +351,8 @@ From whole-track to moment-scoped groups:
 
 ### Phase 4 - Visual perception and visual cut intelligence
 Add a VLM/perception layer after V-JEPA + transcript/audio analysis and before the Director/planner. This is perception, not decision authority.
+
+Current implementation note (code-verified 2026-07-03): the first P4 slice exists. `video-analysis/route.ts` runs a pre-cut V-JEPA pass, calls `refineCutPlanWithVisualIntelligence`, replaces the raw `silenceRemovalPlan`, persists `intelligence.visualCutIntelligence`, and then the existing silence-removal executor applies that refined plan. This covers V-JEPA-based visual protection, visual dead-air removal, and visual-boundary split actions. It does **not** complete the full semantic VLM layer, calibration, real rendered proof, or overlay-placement use of perception facts.
 
 Inputs:
 - V-JEPA dense primitives and coverage/degraded-mode policy
@@ -535,7 +537,7 @@ If any prior doc says â€œfully doneâ€, it should be treated as *histori
 7. Render curves can synthesize BPM-derived beats when `bpm` reaches the overlay, but beat data
    and `syncData` are not yet threaded reliably into MG render/choreography, and audio-reactive
    modulation is hold-phase only.
-9. Visual perception is not yet part of cut planning; transcript/silence can still dominate keep/remove/shorten decisions.
+9. Visual cut intelligence is now part of pre-cut planning through V-JEPA refinement, but it is not yet the full semantic VLM perception layer and still needs calibration, real-project proof, and downstream overlay use.
 
 ---
 
@@ -595,8 +597,11 @@ For each phase, this is what â€œdoneâ€ means (strictly):
   - `lib/editron/services/edited-timeline-context.ts`
 - Visual perception and cut intelligence:
   - `lib/editron/services/vjepa-coverage-audit.ts`
-  - planned VLM/per-shot perception service
-  - transcript/audio/visual cut planning integration point in Director/edited timeline flow
+  - `lib/editron/services/visual-evidence-scorer.ts`
+  - `lib/editron/services/visual-cut-intelligence.ts`
+  - `app/api/internal/workers/video-analysis/route.ts` Step 1.58 pre-cut V-JEPA refinement
+  - planned semantic VLM/per-shot perception service
+  - transcript/audio/visual cut planning integration before Director/edited timeline flow
 - Bundle + authority:
   - `lib/editron/services/unified-decision-bundle.ts`
   - `lib/editron/services/signal-executor.ts`
