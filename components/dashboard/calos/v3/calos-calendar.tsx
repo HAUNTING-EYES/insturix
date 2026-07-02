@@ -16,6 +16,7 @@ import CalosCampaignBar from './calos-campaign-bar';
 import { CalosWorkspace, type WorkspaceCampaign } from './calos-workspace';
 import { CalosShareScreen } from './calos-share-screen';
 import { CalosCadenceModal } from './calos-cadence-modal';
+import BrandConnections from '@/app/dashboard/calos/BrandConnections';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -45,6 +46,7 @@ export default function CalosCalendarV3() {
   const [screen, setScreen] = useState<'calendar' | 'workspace' | 'share'>('calendar');
   const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
   const [wsEditOpen, setWsEditOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   const today = useMemo(() => new Date(), []);
 
@@ -247,6 +249,7 @@ export default function CalosCalendarV3() {
               {reviews.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.gold, color: '#241B08', fontFamily: MONO, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{reviews.length}</span>}
             </button>
             <Btn size="sm" onClick={() => setScreen('share')}>Share</Btn>
+            <Btn size="sm" onClick={() => setConnectionsOpen(true)}>Publishing</Btn>
             <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'clearall' })}>Clear all</Btn>
           </div>
         </div>
@@ -412,6 +415,9 @@ export default function CalosCalendarV3() {
       )}
       {wsEditOpen && wsCampaign && brandId && (
         <CalosCadenceModal campaign={wsCampaign} brandId={brandId} onClose={() => setWsEditOpen(false)} onSaved={() => { setWsEditOpen(false); refresh(); }} />
+      )}
+      {brandId && (
+        <BrandConnections brandId={brandId} brandName={brandName} open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
       )}
     </div>
   );
