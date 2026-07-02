@@ -44,6 +44,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
   const fontFamily = brand.fontFamily || "Plus Jakarta Sans, Inter, sans-serif";
   const items = normalizeItems(shell?.items);
   const activeStep = activeIndex(localFrame, duration, items.length);
+  const activeItem = items[activeStep] ?? items[0] ?? DEFAULT_ITEMS[0];
   const sceneProgress = progress(localFrame, 0, duration, EASE_BALANCED);
   const enter = progress(localFrame, 0, Math.min(34, duration * 0.18), EASE_OUT);
   const headlineIn = progress(localFrame, 6, Math.min(42, duration * 0.2), EASE_OUT);
@@ -162,6 +163,20 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
               <span key={dot} style={{ width: 12, height: 12, borderRadius: 999, background: dot === 0 ? accent : "rgba(255,255,255,0.22)" }} />
             ))}
             <span style={{ marginLeft: 18, color: muted, fontSize: 18 }}>{shell?.label || familyPlan.productUiState || "Product workspace"}</span>
+            <span
+              style={{
+                marginLeft: "auto",
+                color: text,
+                fontSize: 16,
+                fontWeight: 800,
+                padding: "8px 12px",
+                borderRadius: 999,
+                background: `${accent}${Math.round(24 + activeStepProgress(localFrame, duration, activeStep, items.length) * 18).toString(16)}`,
+                border: `1px solid ${accent}55`,
+              }}
+            >
+              {activeItem}
+            </span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "210px 1fr", minHeight: 562 }}>
             <aside style={{ padding: 24, borderRight: "1px solid rgba(255,255,255,0.1)", position: "relative" }}>
@@ -201,9 +216,10 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
                 );
               })}
             </aside>
-            <main style={{ padding: 30, display: "grid", gridTemplateRows: "120px 1fr 118px", gap: 22, position: "relative" }}>
+            <main style={{ padding: 30, display: "grid", gridTemplateRows: "108px 74px minmax(0, 1fr) 106px", gap: 16, position: "relative" }}>
               <MetricCards metricLabel={metric?.label} metricValue={metric?.value} familyPlan={familyPlan} activeStep={activeStep} accent={accent} text={text} muted={muted} localFrame={localFrame} />
-              <ProductProofPanel accent={accent} text={text} muted={muted} activeStep={activeStep} localFrame={localFrame} duration={duration} familyPlan={familyPlan} />
+              <WorkflowStageRail items={items} activeStep={activeStep} accent={accent} text={text} muted={muted} localFrame={localFrame} duration={duration} />
+              <ProductProofPanel accent={accent} text={text} muted={muted} activeStep={activeStep} localFrame={localFrame} duration={duration} familyPlan={familyPlan} items={items} />
               <div
                 style={{
                   borderRadius: 18,
@@ -307,6 +323,49 @@ function MetricCards(props: {
   );
 }
 
+function WorkflowStageRail(props: {
+  items: string[];
+  activeStep: number;
+  accent: string;
+  text: string;
+  muted: string;
+  localFrame: number;
+  duration: number;
+}) {
+  const stepPulse = activeStepProgress(props.localFrame, props.duration, props.activeStep, props.items.length);
+  const railFill = progress(props.localFrame, props.duration * 0.08, props.duration * 0.92, EASE_BALANCED);
+
+  return (
+    <div style={{ position: "relative", display: "grid", gridTemplateColumns: `repeat(${props.items.length}, 1fr)`, gap: 12, alignItems: "stretch" }}>
+      <div style={{ position: "absolute", left: 16, right: 16, top: 17, height: 3, borderRadius: 999, background: "rgba(255,255,255,0.1)" }} />
+      <div style={{ position: "absolute", left: 16, top: 17, width: `calc((100% - 32px) * ${railFill})`, height: 3, borderRadius: 999, background: props.accent, boxShadow: `0 0 18px ${props.accent}66` }} />
+      {props.items.map((item, index) => {
+        const isActive = index === props.activeStep;
+        const isDone = index < props.activeStep;
+        const itemIn = progress(props.localFrame, 22 + index * 8, 48 + index * 8, EASE_OUT);
+        return (
+          <div
+            key={`${item}_${index}`}
+            style={{
+              position: "relative",
+              minWidth: 0,
+              opacity: itemIn,
+              transform: `translateY(${(1 - itemIn) * 8}px) scale(${isActive ? 1 + stepPulse * 0.025 : 1})`,
+            }}
+          >
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: isActive || isDone ? props.accent : "rgba(255,255,255,0.12)", color: isActive || isDone ? "#0B0B0A" : props.muted, display: "grid", placeItems: "center", fontSize: 15, fontWeight: 900, marginBottom: 8, boxShadow: isActive ? `0 0 ${18 + stepPulse * 14}px ${props.accent}88` : "none" }}>
+              {index + 1}
+            </div>
+            <div style={{ color: isActive ? props.text : props.muted, fontSize: 14, fontWeight: isActive ? 850 : 650, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {item}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProductProofPanel(props: {
   accent: string;
   text: string;
@@ -315,6 +374,7 @@ function ProductProofPanel(props: {
   localFrame: number;
   duration: number;
   familyPlan: GeneratedSceneFamilyPlan;
+  items: string[];
 }) {
   const panelPulse = progress(props.localFrame, props.duration * 0.34, props.duration * 0.48, EASE_BALANCED);
   const family = props.familyPlan.family;
@@ -382,34 +442,52 @@ function ProductProofPanel(props: {
     );
   }
 
-  const focusX = [8, 54, 8, 54][props.activeStep] ?? 8;
-  const focusY = [62, 62, 18, 18][props.activeStep] ?? 62;
+  const stageItems = props.items.length > 0 ? props.items : DEFAULT_ITEMS;
+  const stepPulse = activeStepProgress(props.localFrame, props.duration, props.activeStep, stageItems.length);
+  const connector = progress(props.localFrame, props.duration * 0.12, props.duration * 0.86, EASE_BALANCED);
 
   return (
-    <div style={panelBaseStyle(props.accent)}>
-      <div
-        style={{
-          position: "absolute",
-          left: `${focusX}%`,
-          top: `${focusY}%`,
-          width: "34%",
-          height: "27%",
-          borderRadius: 18,
-          border: `2px solid ${props.accent}`,
-          background: `${props.accent}10`,
-          opacity: 0.42 + panelPulse * 0.34,
-          transform: "translate(-8%, -12%)",
-        }}
-      />
-      <div style={{ height: 18, width: `${52 + progress(props.localFrame, 42, 82, EASE_OUT) * 34}%`, background: `${props.accent}88`, borderRadius: 999 }} />
-      {[0, 1, 2, 3].map((bar) => {
-        const fill = progress(props.localFrame, 56 + bar * 10, 102 + bar * 10, EASE_OUT);
-        return <div key={bar} style={{ marginTop: 28, height: 24, width: `${30 + fill * (58 - bar * 8)}%`, background: "rgba(255,255,255,0.12)", borderRadius: 999 }} />;
-      })}
-      <div style={{ marginTop: 34, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        {[0, 1].map((card) => {
-          const cardIn = progress(props.localFrame, props.duration * (card === 0 ? 0.32 : 0.48), props.duration * (card === 0 ? 0.46 : 0.62), EASE_OUT);
-          return <div key={card} style={{ height: 120, borderRadius: 18, background: card === props.activeStep % 2 ? `${props.accent}18` : "rgba(255,255,255,0.055)", border: `1px solid ${card === props.activeStep % 2 ? `${props.accent}33` : "rgba(255,255,255,0.1)"}`, opacity: cardIn, transform: `translateY(${(1 - cardIn) * 18}px)` }} />;
+    <div style={{ ...panelBaseStyle(props.accent), padding: 26 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18 }}>
+        <div>
+          <div style={{ color: props.muted, fontSize: 15, fontWeight: 750 }}>Live product flow</div>
+          <div style={{ marginTop: 8, color: props.text, fontSize: 24, fontWeight: 900, lineHeight: 1.05 }}>{props.familyPlan.productUiState}</div>
+        </div>
+        <div style={{ color: props.accent, fontSize: 18, fontWeight: 900 }}>{props.activeStep + 1}/{stageItems.length}</div>
+      </div>
+      <div style={{ position: "relative", height: 34, marginTop: 24 }}>
+        <div style={{ position: "absolute", left: 0, right: 0, top: 16, height: 4, borderRadius: 999, background: "rgba(255,255,255,0.1)" }} />
+        <div style={{ position: "absolute", left: 0, top: 16, width: `${connector * 100}%`, height: 4, borderRadius: 999, background: props.accent, boxShadow: `0 0 18px ${props.accent}88` }} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {stageItems.map((item, index) => {
+          const isActive = index === props.activeStep;
+          const isDone = index < props.activeStep;
+          const cardIn = progress(props.localFrame, 38 + index * 10, 72 + index * 10, EASE_OUT);
+          const barFill = isDone ? 1 : isActive ? stepPulse : 0.16;
+          return (
+            <div
+              key={`${item}_${index}`}
+              style={{
+                minHeight: 130,
+                borderRadius: 18,
+                background: isActive ? `${props.accent}1f` : isDone ? `${props.accent}12` : "rgba(255,255,255,0.055)",
+                border: `1px solid ${isActive ? `${props.accent}66` : isDone ? `${props.accent}33` : "rgba(255,255,255,0.1)"}`,
+                padding: 18,
+                opacity: cardIn,
+                transform: `translateY(${(1 - cardIn) * 18}px) scale(${isActive ? 1 + stepPulse * 0.025 : 1})`,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 11, background: isActive || isDone ? props.accent : "rgba(255,255,255,0.12)", color: isActive || isDone ? "#0B0B0A" : props.muted, display: "grid", placeItems: "center", fontSize: 15, fontWeight: 900 }}>{index + 1}</div>
+                <div style={{ color: isActive ? props.accent : props.muted, fontSize: 13, fontWeight: 850 }}>{isDone ? "Done" : isActive ? "Active" : "Queued"}</div>
+              </div>
+              <div style={{ marginTop: 18, color: isActive ? props.text : props.muted, fontSize: 20, fontWeight: 850, lineHeight: 1.1, minHeight: 44, overflow: "hidden" }}>{item}</div>
+              <div style={{ marginTop: 16, height: 8, borderRadius: 999, background: "rgba(255,255,255,0.11)", overflow: "hidden" }}>
+                <div style={{ width: `${Math.max(0.16, barFill) * 100}%`, height: "100%", borderRadius: 999, background: isActive || isDone ? props.accent : "rgba(255,255,255,0.2)" }} />
+              </div>
+            </div>
+          );
         })}
       </div>
     </div>
@@ -495,6 +573,12 @@ function activeIndex(frame: number, duration: number, itemCount: number): number
   return Math.min(Math.max(0, index), Math.max(0, itemCount - 1));
 }
 
+function activeStepProgress(frame: number, duration: number, activeStep: number, itemCount: number): number {
+  const count = Math.max(1, itemCount);
+  const stepDuration = duration / count;
+  const start = activeStep * stepDuration;
+  return progress(frame, start, start + stepDuration * 0.68, EASE_OUT);
+}
 function cursorPosition(sceneProgress: number): { x: number; y: number } {
   return {
     x: interpolate(sceneProgress, [0, 0.28, 0.55, 0.78, 1], [76, 42, 72, 48, 84]),
