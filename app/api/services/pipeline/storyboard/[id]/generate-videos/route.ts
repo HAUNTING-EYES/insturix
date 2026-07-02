@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Client } from '@upstash/qstash';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 import { CreditsService } from '@/lib/services/creditsService';
 import {
@@ -408,6 +409,14 @@ export async function POST(
         { status: 402 },
       );
     }
+    const creditTransactionId = deductResult.transactionId;
+    const chargedCreditsForJob = (durationSeconds: number) =>
+      getCreditCost('pipeline', 'video_generation', {
+        model: resolvedModel,
+        durationSeconds,
+        quantity: 1,
+      });
+
     // Create batch + jobs in MongoDB, then enqueue via QStash
     const batchId = `vb_${nanoid(12)}`;
     const db = await getDatabase();
@@ -424,6 +433,9 @@ export async function POST(
       failed: 0,
       status: 'processing',
       videoModel: resolvedModel,
+      creditTransactionId,
+      chargedCredits: creditCost,
+      billableVideoSeconds,
       createdAt: now,
       updatedAt: now,
       expiresAt,
@@ -439,6 +451,10 @@ export async function POST(
       storyboardId,
       sceneIndex: s.sceneIndex,
       subShotIndex: s.subShotIndex,
+      videoModel: resolvedModel,
+      durationSeconds: s.durationSeconds,
+      creditTransactionId,
+      chargedCredits: chargedCreditsForJob(s.durationSeconds),
       status: 'queued',
       createdAt: now,
       expiresAt,
@@ -479,6 +495,8 @@ export async function POST(
       durationSeconds: scene.durationSeconds,
       aspectRatio,
       videoModel: resolvedModel,
+      creditTransactionId,
+      chargedCredits: chargedCreditsForJob(scene.durationSeconds),
       nextSceneImageUrl: scene.nextSceneImageUrl,
       refinementContext: scene.refinementContext,
     });

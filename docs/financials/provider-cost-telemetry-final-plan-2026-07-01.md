@@ -577,7 +577,7 @@ Suggested order:
   - Files: `lib/financials/provider-cost-events.ts`, `lib/financials/provider-cost-estimates.ts`, `tests/financials/*`.
   - Verify: focused financial tests, eslint, typecheck caveat noted.
 
-- [ ] T2 (P1) - Pipeline video - Link credit transaction to video batch/job and record provider event.
+- [x] T2 (P1) - Pipeline video - Link credit transaction to video batch/job and record provider event.
   - Files: video generation route, video worker, video queue/batch model or direct DB write, tests.
   - Verify: mocked Fal/Kie success/failure tests.
 

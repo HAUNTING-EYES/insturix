@@ -142,6 +142,8 @@ export interface VideoGenerationResult {
   assetId: string;
   provider: VideoProvider;
   durationMs: number;
+  modelUsed?: string;
+  providerJobId?: string;
   /** True if the model generated audio with the video (e.g., Seedance 1.5 Pro).
    *  When true, SFX generation should be skipped for this scene — audio is baked in.
    *  Remotion's <Video> component auto-plays embedded audio. */
@@ -468,6 +470,8 @@ async function generateVideoWithFal(
     assetId,
     provider: 'fal-ai',
     durationMs: actualDuration * 1000,
+    modelUsed: modelKey,
+    providerJobId: result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId,
     hasNativeAudio: audioWasRequested,
   };
 }
@@ -567,6 +571,8 @@ async function generateVideoWithKie(
         assetId: uploadResult.assetId,
         provider: 'kie-ai',
         durationMs: duration * 1000,
+        modelUsed: request.falVideoModel || 'runway',
+        providerJobId: taskId,
       };
     }
 
