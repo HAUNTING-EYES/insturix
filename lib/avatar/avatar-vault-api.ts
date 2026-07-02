@@ -11,6 +11,15 @@ import {
   getDefaultAvatarProfileStore,
   type AvatarVaultProfileStore,
 } from './avatar-mongo-store';
+import {
+  buildAvatarRenderRecipe,
+  type AvatarRenderAudioInput,
+  type AvatarRenderAudioMode,
+  type AvatarRenderRecipe,
+  type AvatarRenderSoundCueInput,
+  type AvatarRenderTarget,
+  type AvatarRenderUseCase,
+} from './avatar-render-recipe';
 
 export interface AvatarVaultApiDependencies {
   store?: AvatarVaultProfileStore;
@@ -36,7 +45,8 @@ type AvatarVaultErrorCode =
   | 'not_found'
   | 'forbidden'
   | 'validation_failed'
-  | 'not_draft';
+  | 'not_draft'
+  | 'profile_not_accepted';
 
 type AvatarVaultErrorBody = {
   ok: false;
@@ -171,6 +181,134 @@ export async function reviewAvatarProfileDraft(
     return fail(status, result.code, avatarReviewFailureMessage(result.issues), result.issues);
   }
   return { status: 200, body: { ok: true, record: result.record, superseded: result.superseded } };
+}
+
+const AVATAR_RENDER_USE_CASES: AvatarRenderUseCase[] = [
+  'product_shoot',
+  'speech_delivery',
+  'explainer_host',
+  'ad_actor',
+  'social_presenter',
+  'generic_clip',
+];
+
+const AVATAR_RENDER_AUDIO_MODES: AvatarRenderAudioMode[] = [
+  'silent',
+  'tts_voiceover',
+  'uploaded_voiceover',
+  'copied_reference_audio',
+  'external_mix',
+];
+
+export async function evaluateAvatarProfileRenderReadiness(
+  input: AvatarVaultActorInput & { recordId: string; body: unknown },
+  dependencies: AvatarVaultApiDependencies = {},
+): Promise<AvatarVaultApiResult<{ ok: true; recipe: AvatarRenderRecipe } | AvatarVaultErrorBody>> {
+  const body = asRecord(input.body);
+  if (!body) return fail(400, 'invalid_body', 'Render readiness body must be an object.');
+
+  const useCase = parseAvatarRenderUseCase(body.useCase);
+  if (!useCase) {
+    return fail(400, 'invalid_body', `A valid avatar render useCase is required (one of: ${AVATAR_RENDER_USE_CASES.join(', ')}).`);
+  }
+
+  const store = dependencies.store ?? getDefaultAvatarProfileStore();
+  const record = await store.getRecord(input.recordId);
+  if (!record) return fail(404, 'not_found', `Avatar profile record "${input.recordId}" was not found.`);
+  if (!canAccessRecord(record, input.userId, input.orgId ?? null)) {
+    return fail(403, 'forbidden', 'You cannot use this avatar profile.');
+  }
+  if (record.status !== 'accepted' || record.profile.status !== 'accepted') {
+    return fail(409, 'profile_not_accepted', 'Only accepted avatar profiles can be checked for render readiness.');
+  }
+
+  const recipe = buildAvatarRenderRecipe({
+    profileRecord: record,
+    useCase,
+    prompt: stringValue(body.prompt),
+    script: optionalStringValue(body.script),
+    negativePrompt: optionalStringValue(body.negativePrompt),
+    audio: parseRenderAudio(body.audio),
+    soundCues: parseRenderSoundCues(body.soundCues),
+    productImageUrls: parseStringArray(body.productImageUrls),
+    target: parseRenderTarget(body.target),
+  });
+
+  return { status: 200, body: { ok: true, recipe } };
+}
+
+function parseAvatarRenderUseCase(value: unknown): AvatarRenderUseCase | undefined {
+  return typeof value === 'string' && AVATAR_RENDER_USE_CASES.includes(value as AvatarRenderUseCase)
+    ? (value as AvatarRenderUseCase)
+    : undefined;
+}
+
+function parseAudioMode(value: unknown): AvatarRenderAudioMode | undefined {
+  return typeof value === 'string' && AVATAR_RENDER_AUDIO_MODES.includes(value as AvatarRenderAudioMode)
+    ? (value as AvatarRenderAudioMode)
+    : undefined;
+}
+
+function parseRenderAudio(value: unknown): AvatarRenderAudioInput | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  return {
+    ...(parseAudioMode(record.mode) ? { mode: parseAudioMode(record.mode) } : {}),
+    ...(optionalStringValue(record.sourceAssetId) ? { sourceAssetId: optionalStringValue(record.sourceAssetId) } : {}),
+    ...(optionalStringValue(record.sourceUrl) ? { sourceUrl: optionalStringValue(record.sourceUrl) } : {}),
+    ...(optionalStringValue(record.voiceoverText) ? { voiceoverText: optionalStringValue(record.voiceoverText) } : {}),
+    ...(optionalStringValue(record.description) ? { description: optionalStringValue(record.description) } : {}),
+    copyAllowed: record.copyAllowed === true,
+    consentConfirmed: record.consentConfirmed === true,
+  };
+}
+
+function parseRenderSoundCues(value: unknown): AvatarRenderSoundCueInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const cues = value
+    .map(parseRenderSoundCue)
+    .filter((cue): cue is AvatarRenderSoundCueInput => cue !== undefined);
+  return cues.length > 0 ? cues : undefined;
+}
+
+function parseRenderSoundCue(value: unknown): AvatarRenderSoundCueInput | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  return {
+    ...(optionalStringValue(record.id) ? { id: optionalStringValue(record.id) } : {}),
+    ...(optionalStringValue(record.label) ? { label: optionalStringValue(record.label) } : {}),
+    description: stringValue(record.description),
+    ...(optionalStringValue(record.sourceAssetId) ? { sourceAssetId: optionalStringValue(record.sourceAssetId) } : {}),
+    ...(optionalStringValue(record.sourceUrl) ? { sourceUrl: optionalStringValue(record.sourceUrl) } : {}),
+    copyAllowed: record.copyAllowed === true,
+  };
+}
+
+function parseStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim());
+  return items.length > 0 ? items : undefined;
+}
+
+function parseRenderTarget(value: unknown): AvatarRenderTarget | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const target: AvatarRenderTarget = {};
+  const aspectRatio = optionalStringValue(record.aspectRatio);
+  if (aspectRatio) target.aspectRatio = aspectRatio;
+  const resolution = optionalStringValue(record.resolution);
+  if (resolution) target.resolution = resolution;
+  if (typeof record.durationSeconds === 'number' && Number.isFinite(record.durationSeconds)) {
+    target.durationSeconds = record.durationSeconds;
+  }
+  return Object.keys(target).length > 0 ? target : undefined;
+}
+
+function optionalStringValue(value: unknown): string | undefined {
+  const trimmed = stringValue(value);
+  return trimmed ? trimmed : undefined;
 }
 
 function avatarReviewFailureMessage(issues: unknown[] | undefined): string {
