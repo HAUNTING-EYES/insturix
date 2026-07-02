@@ -1,15 +1,30 @@
 import { createClient, DeepgramClient } from "@deepgram/sdk";
 import { fal } from "@fal-ai/client";
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 
 // ---------------------------------------------------------------------------
 // Types — Consistent across all tiers so Gemini + UI never break
 // ---------------------------------------------------------------------------
+export type TranscriptionProvider = "deepgram" | "fal-ai";
+
 export interface SpeakerSegment {
     speaker: string;
     text: string;
     start: number; // ms
     end: number;   // ms
+}
+
+export interface TranscriptionTelemetryContext {
+    userId?: string;
+    orgId?: string;
+    taskId?: string;
+    assetId?: string;
+    route?: string;
+    creditTransactionId?: string;
+    chargedCredits?: number;
+    estimatedDurationMs?: number;
+    recordSuccessEvent?: boolean;
 }
 
 export interface TranscriptionResult {
@@ -22,6 +37,8 @@ export interface TranscriptionResult {
     formattedTranscript: string;
     durationMs: number | null;
     wordCount: number;
+    provider?: TranscriptionProvider;
+    model?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +144,8 @@ async function transcribeWithDeepgram(signedUrl: string): Promise<TranscriptionR
         formattedTranscript: buildFormattedTranscript(speakerSegments, text),
         durationMs,
         wordCount,
+        provider: "deepgram",
+        model: DEEPGRAM_OPTIONS.model,
     };
 }
 
@@ -196,6 +215,8 @@ async function transcribeWithWhisper(signedUrl: string): Promise<TranscriptionRe
         formattedTranscript: buildFormattedTranscript(speakerSegments, text),
         durationMs,
         wordCount,
+        provider: "fal-ai",
+        model: "fal-ai/whisper",
     };
 }
 
@@ -230,27 +251,128 @@ function buildFormattedTranscript(
 //
 // CRITICAL: Always pass a GCS Signed URL, NOT raw external download URLs.
 // ---------------------------------------------------------------------------
-export async function transcribeAudio(signedUrl: string): Promise<TranscriptionResult> {
-    // ── Tier 1: Deepgram Nova-2 ──
+async function recordTranscriptionProviderCost(input: {
+    context: TranscriptionTelemetryContext;
+    status: ProviderCostEventStatus;
+    provider: TranscriptionProvider;
+    model: string;
+    tier: "deepgram" | "whisper";
+    providerJobId?: string;
+    durationMs?: number | null;
+    wordCount?: number;
+    detectedLanguage?: string | null;
+    error?: unknown;
+}) {
+    const durationMs = typeof input.durationMs === "number" && input.durationMs > 0
+        ? input.durationMs
+        : input.context.estimatedDurationMs;
+    const mediaSeconds = typeof durationMs === "number" && durationMs > 0
+        ? Math.round((durationMs / 1000) * 100) / 100
+        : undefined;
+
+    await recordProviderCostEvent({
+        idempotencyKey:
+            input.status === "success" && input.providerJobId
+                ? `alyzitron:transcription:${input.context.taskId ?? "unknown"}:${input.provider}:${input.providerJobId}`
+                : undefined,
+        status: input.status,
+        userId: input.context.userId,
+        orgId: input.context.orgId,
+        taskId: input.context.taskId,
+        assetId: input.context.assetId ?? input.context.taskId,
+        creditTransactionId: input.context.creditTransactionId,
+        service: "alyzitron",
+        action: "transcription",
+        route: input.context.route ?? "lib/alyzitron/transcription/transcriptionService",
+        provider: input.provider,
+        model: input.model,
+        operation: "transcription",
+        chargedCredits: input.context.chargedCredits,
+        providerJobId: input.providerJobId,
+        units: { requestCount: 1, mediaSeconds },
+        metadata: {
+            tier: input.tier,
+            detectedLanguage: input.detectedLanguage,
+            wordCount: input.wordCount,
+            errorClass: getErrorClass(input.error),
+            hasTaskId: Boolean(input.context.taskId),
+        },
+    });
+}
+
+function getErrorClass(error: unknown): string | undefined {
+    if (!error) return undefined;
+    return error instanceof Error ? error.name : typeof error;
+}
+
+export async function transcribeAudio(
+    signedUrl: string,
+    telemetry: TranscriptionTelemetryContext = {}
+): Promise<TranscriptionResult> {
+    // -- Tier 1: Deepgram Nova-2 --
     try {
-        return await transcribeWithDeepgram(signedUrl);
+        const result = await transcribeWithDeepgram(signedUrl);
+        if (telemetry.recordSuccessEvent !== false) {
+            await recordTranscriptionProviderCost({
+                context: telemetry,
+                status: "success",
+                provider: "deepgram",
+                model: DEEPGRAM_OPTIONS.model,
+                tier: "deepgram",
+                providerJobId: result.id,
+                durationMs: result.durationMs,
+                wordCount: result.wordCount,
+                detectedLanguage: result.detectedLanguage,
+            });
+        }
+        return result;
     } catch (tier1Err: any) {
-        logger.warn("⚠️ [Tier 1] Deepgram FAILED. Switching to Tier 2 (Fal.ai Whisper)...", {
+        await recordTranscriptionProviderCost({
+            context: telemetry,
+            status: "failed",
+            provider: "deepgram",
+            model: DEEPGRAM_OPTIONS.model,
+            tier: "deepgram",
+            error: tier1Err,
+        });
+        logger.warn("[Tier 1] Deepgram FAILED. Switching to Tier 2 (Fal.ai Whisper)...", {
             data: { error: tier1Err.message },
         });
     }
 
-    // ── Tier 2: Fal.ai Whisper Large v3 ──
+    // -- Tier 2: Fal.ai Whisper Large v3 --
     try {
-        return await transcribeWithWhisper(signedUrl);
+        const result = await transcribeWithWhisper(signedUrl);
+        if (telemetry.recordSuccessEvent !== false) {
+            await recordTranscriptionProviderCost({
+                context: telemetry,
+                status: "success",
+                provider: "fal-ai",
+                model: "fal-ai/whisper",
+                tier: "whisper",
+                providerJobId: result.id,
+                durationMs: result.durationMs,
+                wordCount: result.wordCount,
+                detectedLanguage: result.detectedLanguage,
+            });
+        }
+        return result;
     } catch (tier2Err: any) {
-        logger.error("❌ [Tier 2] Fal.ai Whisper FAILED.", {
+        await recordTranscriptionProviderCost({
+            context: telemetry,
+            status: "failed",
+            provider: "fal-ai",
+            model: "fal-ai/whisper",
+            tier: "whisper",
+            error: tier2Err,
+        });
+        logger.error("[Tier 2] Fal.ai Whisper FAILED.", {
             data: { error: tier2Err.message },
         });
     }
 
-    // ── Tier 3: Total failure ──
-    logger.error("🔥 [Tier 3] ALL transcription providers failed. Throwing TRANSCRIPTION_FAILED.");
+    // -- Tier 3: Total failure --
+    logger.error("[Tier 3] ALL transcription providers failed. Throwing TRANSCRIPTION_FAILED.");
     throw new TranscriptionError(
         "All transcription providers failed (Deepgram + Whisper). Please retry or contact support."
     );

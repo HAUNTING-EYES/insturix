@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     const transcriptionReady = existing?.status === "completed" && !!existing.formattedTranscript;
 
     if (!transcriptionReady && existing?.status !== "processing") {
-      triggerTranscription(taskId, videoUrl).catch((err) => {
+      triggerTranscription(taskId, videoUrl, userId).catch((err) => {
         console.error("[Alyzitron/chat-session] Background transcription error:", err);
       });
     }
@@ -86,7 +86,8 @@ export async function POST(req: NextRequest) {
 
 async function triggerTranscription(
   taskId: string,
-  videoUrl: string
+  videoUrl: string,
+  userId: string
 ): Promise<void> {
   try {
     await upsertTranscriptionProcessing(taskId, videoUrl);
@@ -109,7 +110,11 @@ async function triggerTranscription(
       deepgramUrl = await GCSManager.getSignedReadUrl(gcsPath);
     }
 
-    const result = await transcribeAudio(deepgramUrl);
+    const result = await transcribeAudio(deepgramUrl, {
+      userId,
+      taskId,
+      route: "/api/services/alyzitron/chat-session/background-transcription",
+    });
 
     await upsertTranscriptionCompleted(taskId, {
       deepgramRequestId: result.id,

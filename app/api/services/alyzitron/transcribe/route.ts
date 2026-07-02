@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { transcribeAudio } from "@/lib/alyzitron/transcription/transcriptionService";
 import { getCreditCost } from "@/lib/config/creditCosts";
 import { CreditsService } from "@/lib/services/creditsService";
+import { recordProviderCostEvent } from "@/lib/financials/provider-cost-events";
 import {
   findTranscription,
   upsertTranscriptionProcessing,
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
   let billedUserId: string | null = null;
   let debitedDurationMinutes = 0;
   let initialTransactionId: string | undefined;
+  let additionalTransactionId: string | undefined;
   let shouldRefundDebit = false;
 
   try {
@@ -123,7 +125,14 @@ export async function POST(req: NextRequest) {
 
     // Mark as processing - upsert so re-triggering a failed/partial job works cleanly.
     await upsertTranscriptionProcessing(taskId, audioUrl);
-    const result = await transcribeAudio(audioUrl);
+    const result = await transcribeAudio(audioUrl, {
+      userId,
+      taskId,
+      route: "/api/services/alyzitron/transcribe",
+      creditTransactionId: initialTransactionId,
+      estimatedDurationMs: estimatedDurationMinutes * 60_000,
+      recordSuccessEvent: false,
+    });
     const actualDurationMinutes = getActualDurationMinutes(result.durationMs, estimatedDurationMinutes);
 
     if (actualDurationMinutes > estimatedDurationMinutes) {
@@ -137,6 +146,7 @@ export async function POST(req: NextRequest) {
       if (!additionalDeduct.success) {
         throw new Error(`Unable to deduct remaining transcription credits: ${additionalDeduct.error}`);
       }
+      additionalTransactionId = additionalDeduct.transactionId;
       debitedDurationMinutes += additionalMinutes;
     } else if (actualDurationMinutes < estimatedDurationMinutes) {
       const minutesToRefund = estimatedDurationMinutes - actualDurationMinutes;
@@ -167,6 +177,16 @@ export async function POST(req: NextRequest) {
 
     shouldRefundDebit = false;
     const creditsConsumed = getCreditCost("alyzitron", "transcription", { durationMinutes: actualDurationMinutes });
+    await recordAlyzitronTranscriptionCost({
+      userId,
+      taskId,
+      result,
+      chargedCredits: creditsConsumed,
+      creditTransactionId: initialTransactionId,
+      additionalCreditTransactionId: additionalTransactionId,
+      estimatedDurationMinutes,
+      actualDurationMinutes,
+    });
 
     return NextResponse.json({
       status: "completed",
@@ -251,4 +271,46 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+async function recordAlyzitronTranscriptionCost(input: {
+  userId: string;
+  taskId: string;
+  result: Awaited<ReturnType<typeof transcribeAudio>>;
+  chargedCredits: number;
+  creditTransactionId?: string;
+  additionalCreditTransactionId?: string;
+  estimatedDurationMinutes: number;
+  actualDurationMinutes: number;
+}) {
+  const provider = input.result.provider ?? (input.result.id.startsWith("whisper-") ? "fal-ai" : "deepgram");
+  const model = input.result.model ?? (provider === "fal-ai" ? "fal-ai/whisper" : "nova-2");
+  const mediaSeconds = input.result.durationMs && input.result.durationMs > 0
+    ? Math.round((input.result.durationMs / 1000) * 100) / 100
+    : input.actualDurationMinutes * 60;
+
+  await recordProviderCostEvent({
+    idempotencyKey: `alyzitron:transcribe:${input.taskId}:${provider}:${input.result.id}`,
+    status: "success",
+    userId: input.userId,
+    taskId: input.taskId,
+    assetId: input.taskId,
+    creditTransactionId: input.creditTransactionId,
+    service: "alyzitron",
+    action: "transcription",
+    route: "/api/services/alyzitron/transcribe",
+    provider,
+    model,
+    operation: "transcription",
+    chargedCredits: input.chargedCredits,
+    providerJobId: input.result.id,
+    units: { requestCount: 1, mediaSeconds },
+    metadata: {
+      detectedLanguage: input.result.detectedLanguage,
+      wordCount: input.result.wordCount,
+      estimatedDurationMinutes: input.estimatedDurationMinutes,
+      actualDurationMinutes: input.actualDurationMinutes,
+      additionalCreditTransactionId: input.additionalCreditTransactionId,
+    },
+  });
 }
