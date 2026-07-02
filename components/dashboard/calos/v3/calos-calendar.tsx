@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCalosDeliverables } from '@/app/dashboard/calos/hooks/useCalosDeliverables';
 import { toast } from '@/hooks/use-toast';
 import {
-  C, MONO, SANS, DOW, PLAT,
+  C, MONO, SANS, DOW, PLAT, STAGES,
   toItem, toPlacements, groupPlacementsByDay, monthCells, weekDays, dateKey, sameDay,
   monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick,
 } from './calos-view-model';
-import type { CalItem } from './calos-view-model';
+import type { CalItem, Placement } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
 import { ContentModal } from './calos-content-modal';
 import CalosCampaignBar from './calos-campaign-bar';
@@ -47,6 +47,8 @@ export default function CalosCalendarV3() {
   const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
   const [wsEditOpen, setWsEditOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterStage, setFilterStage] = useState<string | null>(null);
 
   const today = useMemo(() => new Date(), []);
 
@@ -83,7 +85,17 @@ export default function CalosCalendarV3() {
     useCalosDeliverables(brandId);
 
   const items = useMemo(() => cards.map(toItem), [cards]);
-  const placements = useMemo(() => toPlacements(items), [items]);
+  // Search + stage filter apply to the grid (not the review rail, which is the fixed "needs you" queue).
+  const q = search.trim().toLowerCase();
+  const visibleItems = useMemo(
+    () => items.filter((it) => {
+      if (filterStage && it.stage !== filterStage) return false;
+      if (q && !(it.title.toLowerCase().includes(q) || it.tags.some((t) => t.toLowerCase().includes(q)))) return false;
+      return true;
+    }),
+    [items, filterStage, q],
+  );
+  const placements = useMemo(() => toPlacements(visibleItems), [visibleItems]);
   const byDay = useMemo(() => groupPlacementsByDay(placements), [placements]);
   const reviews = useMemo(() => items.filter((d) => d.stage === 'in_review'), [items]);
   const openItem = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
@@ -115,11 +127,35 @@ export default function CalosCalendarV3() {
   };
 
   const handleSaveTitle = (id: string, title: string) => { updateCard(id, { title }); };
+  const handleSaveDetails = (id: string, details: string) => { updateCard(id, { details }); };
+  const handleSaveTags = (id: string, customTags: string[]) => { updateCard(id, { customTags }); };
   // Multi-date scheduling: keep the primary `date` in sync with the earliest planned date.
   const handleSaveDates = (id: string, plannedDates: string[]) => {
     if (plannedDates.length === 0) return;
     const sorted = [...plannedDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
     updateCard(id, { plannedDates: sorted, date: sorted[0] });
+  };
+
+  // Drag-to-reschedule (month grid): drag a placement onto another day → move that one
+  // planned date to the drop day, keeping its time. Multi-date items only move the dragged date.
+  const dragRef = useRef<{ itemId: string; fromISO: string } | null>(null);
+  const onChipDragStart = (e: React.DragEvent, pl: Placement) => {
+    dragRef.current = { itemId: pl.item.id, fromISO: pl.date.toISOString() };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', pl.item.id);
+  };
+  const onCellDrop = (cell: Date) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag) return;
+    const item = items.find((it) => it.id === drag.itemId);
+    if (!item) return;
+    const from = new Date(drag.fromISO);
+    if (Number.isNaN(from.getTime()) || sameDay(from, cell)) return;
+    const moved = new Date(cell.getFullYear(), cell.getMonth(), cell.getDate(), from.getHours(), from.getMinutes()).toISOString();
+    const next = item.dates.map((d) => d.toISOString()).filter((iso) => iso !== drag.fromISO);
+    if (!next.includes(moved)) next.push(moved);
+    handleSaveDates(item.id, next);
   };
 
   const handleGenerate = async (id: string) => {
@@ -279,6 +315,34 @@ export default function CalosCalendarV3() {
           </div>
         </div>
 
+        {/* ═ SEARCH + STAGE FILTER ═ */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search title or #tag"
+            aria-label="Search content"
+            className="calos-fr"
+            style={{ height: 32, minWidth: 200, flex: '0 1 240px', background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: '0 10px', fontSize: 12.5, fontFamily: SANS, outline: 'none' }}
+          />
+          <select
+            value={filterStage ?? ''}
+            onChange={(e) => setFilterStage(e.target.value || null)}
+            aria-label="Filter by stage"
+            className="calos-fr"
+            style={{ height: 32, background: C.surface, color: filterStage ? C.gold : C.soft, border: `1px solid ${filterStage ? 'rgba(212,166,82,.4)' : C.border}`, borderRadius: 7, padding: '0 10px', fontSize: 12, fontFamily: MONO, outline: 'none' }}
+          >
+            <option value="">All stages</option>
+            {[...STAGES, 'changes_requested'].map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
+          </select>
+          {(search || filterStage) && (
+            <>
+              <Btn size="sm" onClick={() => { setSearch(''); setFilterStage(null); }}>Clear</Btn>
+              <Mono s={9} c={C.dim}>{visibleItems.length} shown</Mono>
+            </>
+          )}
+        </div>
+
         {(brandLoading || loading) && items.length === 0 ? (
           <div style={{ border: `1px dashed ${C.bs}`, borderRadius: 14, padding: '58px 24px', textAlign: 'center' }}>
             <Mono s={11} c={C.dim}>Loading calendar…</Mono>
@@ -334,9 +398,9 @@ export default function CalosCalendarV3() {
                       const wknd = i % 7 === 0 || i % 7 === 6;
                       const inten = Math.min(0.16, evs.length * 0.05);
                       return (
-                        <div key={i} onClick={() => cell && (setView('day'), setSelDay(cell))} style={{ minHeight: 118, borderRadius: 8, padding: 7, cursor: cell ? 'pointer' : 'default', backgroundColor: !cell ? 'transparent' : wknd ? C.bg : C.raised, backgroundImage: evs.length ? `linear-gradient(0deg,rgba(212,166,82,${inten}),rgba(212,166,82,${inten}))` : 'none', border: `1px solid ${isToday ? C.gold : cell ? C.border : 'transparent'}`, opacity: cell ? 1 : 0.3, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div key={i} onClick={() => cell && (setView('day'), setSelDay(cell))} onDragOver={(e) => { if (cell) e.preventDefault(); }} onDrop={() => cell && onCellDrop(cell)} style={{ minHeight: 118, borderRadius: 8, padding: 7, cursor: cell ? 'pointer' : 'default', backgroundColor: !cell ? 'transparent' : wknd ? C.bg : C.raised, backgroundImage: evs.length ? `linear-gradient(0deg,rgba(212,166,82,${inten}),rgba(212,166,82,${inten}))` : 'none', border: `1px solid ${isToday ? C.gold : cell ? C.border : 'transparent'}`, opacity: cell ? 1 : 0.3, display: 'flex', flexDirection: 'column', gap: 4 }}>
                           {cell && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? C.gold : C.muted }}>{String(cell.getDate()).padStart(2, '0')}</span>{evs.length > 0 && <Mono s={8} c={C.dim}>{evs.length}</Mono>}</div>}
-                          {evs.slice(0, 3).map((pl) => <Chip key={`${pl.item.id}-${pl.time}`} d={pl.item} onClick={(e) => { e.stopPropagation(); setOpenId(pl.item.id); }} />)}
+                          {evs.slice(0, 3).map((pl) => <Chip key={`${pl.item.id}-${pl.date.toISOString()}`} d={pl.item} draggable onDragStart={(e) => onChipDragStart(e, pl)} onClick={(e) => { e.stopPropagation(); setOpenId(pl.item.id); }} />)}
                           {evs.length > 3 && cell && <button className="calos-fr" onClick={(e) => { e.stopPropagation(); setView('day'); setSelDay(cell); }} style={{ cursor: 'pointer', background: 'none', border: 'none', textAlign: 'left', padding: '1px 4px' }}><Mono s={9} c={C.gold}>+{evs.length - 3} more</Mono></button>}
                         </div>
                       );
@@ -399,6 +463,8 @@ export default function CalosCalendarV3() {
           onClose={() => setOpenId(null)}
           onSaveTitle={handleSaveTitle}
           onSaveDates={handleSaveDates}
+          onSaveDetails={handleSaveDetails}
+          onSaveTags={handleSaveTags}
           onDecision={handleDecision}
           onGenerate={handleGenerate}
           onDelete={handleDelete}

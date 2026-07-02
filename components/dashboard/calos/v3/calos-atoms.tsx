@@ -84,14 +84,20 @@ export function Btn({
 }
 
 export function Chip({
-  d, onClick, compact,
+  d, onClick, compact, draggable, onDragStart,
 }: {
-  d: CalItem; onClick?: (e: React.MouseEvent) => void; compact?: boolean;
+  d: CalItem;
+  onClick?: (e: React.MouseEvent) => void;
+  compact?: boolean;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
 }) {
   return (
     <button
       className="calos-fr calos-chip"
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
       title={`${d.title} · ${platLabel(d.platform)} · ${stageLabel(d.stage)} · ${d.score}`}
       style={{
         display: 'flex', alignItems: 'center', gap: 5, width: '100%', textAlign: 'left',

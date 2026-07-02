@@ -18,12 +18,14 @@ const toLocalInput = (d: Date): string => {
 };
 
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
+  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
 }: {
   item: CalItem;
   onClose: () => void;
   onSaveTitle: (id: string, title: string) => void;
   onSaveDates: (id: string, plannedDates: string[]) => void;
+  onSaveDetails: (id: string, details: string) => void;
+  onSaveTags: (id: string, customTags: string[]) => void;
   onDecision: (id: string, decision: 'approved' | 'changes_requested') => void;
   onGenerate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -57,6 +59,28 @@ export function ContentModal({
     setNewDate('');
     setAdding(false);
   };
+
+  const [details, setDetails] = useState(d.brief);
+  const [tags, setTags] = useState<string[]>(d.tags);
+  const [tagInput, setTagInput] = useState('');
+  const commitDetails = () => {
+    const next = details.trim();
+    if (next !== d.brief) onSaveDetails(d.id, next);
+  };
+  const addTag = () => {
+    const t = tagInput.trim().replace(/^#+/, '').toLowerCase();
+    setTagInput('');
+    if (!t || tags.includes(t)) return;
+    const next = [...tags, t];
+    setTags(next);
+    onSaveTags(d.id, next);
+  };
+  const removeTag = (t: string) => {
+    const next = tags.filter((x) => x !== t);
+    setTags(next);
+    onSaveTags(d.id, next);
+  };
+
   // The rail highlights the furthest non-terminal stage; changes_requested and
   // published both display against the in_review / approved anchors.
   const railStage =
@@ -78,16 +102,26 @@ export function ContentModal({
         style={{ width: '100%', background: 'transparent', border: 'none', color: C.text, fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em', outline: 'none', fontFamily: SANS, marginBottom: 8 }}
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
         <Mono s={9} c={C.muted}>
           AI SCORE <span style={{ color: d.score >= 80 ? C.gold : C.soft, fontWeight: 700 }}>{d.score}</span>
         </Mono>
         <span style={{ width: 1, height: 12, background: C.border }} />
-        {d.tags.map((t) => (
-          <span key={t} style={{ padding: '3px 8px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20 }}>
+        {tags.map((t) => (
+          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 8px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20 }}>
             <Mono s={8.5} c={C.soft}>#{t}</Mono>
+            <span onClick={() => removeTag(t)} title="Remove tag" style={{ color: C.coral, cursor: 'pointer', fontSize: 10 }}>✕</span>
           </span>
         ))}
+        <input
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+          onBlur={addTag}
+          placeholder="+ tag"
+          className="calos-fr"
+          style={{ width: 64, background: 'transparent', border: `1px dashed ${C.bs}`, borderRadius: 20, padding: '3px 8px', color: C.text, fontSize: 11, fontFamily: MONO, outline: 'none' }}
+        />
       </div>
 
       {/* Editorial pipeline — display-only. Stage is driven by generation + the Approve /
@@ -145,9 +179,15 @@ export function ContentModal({
       </div>
 
       <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 7 }}>Idea / brief</Mono>
-      <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 13.5, color: d.brief ? C.soft : C.dim, marginBottom: 12 }}>
-        {d.brief || 'No brief yet.'}
-      </div>
+      <textarea
+        value={details}
+        onChange={(e) => setDetails(e.target.value)}
+        onBlur={commitDetails}
+        placeholder="Add a brief — the idea, hook, angle…"
+        rows={3}
+        className="calos-fr"
+        style={{ width: '100%', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 13.5, color: C.soft, marginBottom: 12, fontFamily: SANS, outline: 'none', resize: 'vertical' }}
+      />
 
       <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
