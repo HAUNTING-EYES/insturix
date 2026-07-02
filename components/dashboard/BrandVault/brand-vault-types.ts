@@ -78,6 +78,36 @@ export interface BrandVaultAcceptedBrandsApiSuccess {
 
 export type BrandVaultAcceptedBrandsApiResult = BrandVaultAcceptedBrandsApiSuccess | BrandVaultApiError;
 
+/**
+ * One bounded scan summary for the brand manager / rescan history UI.
+ * Mirrors the server contract in app/api/brand-vault/brands/[brandId]/scans/route.ts
+ * (kept in sync by hand — a client component cannot import a route without pulling
+ * server-only code into the bundle). No raw candidates or evidence payloads.
+ */
+export interface BrandVaultBrandScanSummary {
+  jobId: string;
+  brandId: string | null;
+  orgId: string | null;
+  userId: string;
+  recordId: string | null;
+  status: 'queued' | 'running' | 'needs_review' | 'accepted' | 'rejected' | 'failed';
+  websiteUrl: string | null;
+  companyName: string | null;
+  normalizedUrl: string | null;
+  candidateCount: number;
+  warningCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrandVaultBrandScansApiSuccess {
+  ok: true;
+  brandId: string;
+  scans: BrandVaultBrandScanSummary[];
+}
+
+export type BrandVaultBrandScansApiResult = BrandVaultBrandScansApiSuccess | BrandVaultApiError;
+
 /** Normalized snapshot the UI renders from, regardless of which route filled it. */
 export interface BrandVaultSnapshot {
   job: BrandRefineryJob | null;
