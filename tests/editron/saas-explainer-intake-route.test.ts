@@ -491,7 +491,7 @@ describe("SaaS explainer routes", () => {
       }) },
     );
   });
-  it("uses the default SaaS structure doctrine when no reference video is provided", async () => {
+  it("uses the default Lovable style reference when no reference video is provided", async () => {
     const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
     const response = await POST(request("/api/services/editron/saas-explainer/generate", {
       brandId: "brand_1",
@@ -501,18 +501,18 @@ describe("SaaS explainer routes", () => {
 
     expect(response.status).toBe(200);
     const scriptInput = mocks.generateScript.mock.calls[0][0];
-    expect(scriptInput.userPrompt).toContain("Style reference: default SaaS structure doctrine.");
+    expect(scriptInput.userPrompt).toContain("Style reference: Lovable 2.0 public SaaS launch video style reference.");
     expect(scriptInput.userPrompt).toContain("hook-value-CTA");
-    expect(scriptInput.userPrompt).toContain("No user reference video was provided");
-    expect(scriptInput.userPrompt).toContain("Do not copy Lovable, Beehiiv");
-    expect(scriptInput.context.projectSummary).toContain("default SaaS structure doctrine");
+    expect(scriptInput.userPrompt).toContain("https://www.youtube.com/watch?v=xDwR1_vrIg8");
+    expect(scriptInput.userPrompt).toContain("Do not copy Lovable's exact layouts");
+    expect(scriptInput.context.projectSummary).toContain("Lovable 2.0 public SaaS launch video style reference");
     expect(mocks.buildSaasGeneratedSceneOverlays).toHaveBeenCalledWith(expect.objectContaining({
       referenceStyleBrief: expect.objectContaining({
-        summary: "Default SaaS explainer structure doctrine for no-reference generation.",
+        summary: "Default SaaS explainer style reference informed by Lovable 2.0 and the SaaS structure doctrine.",
         category: "saas_product_demo",
-        visualLanguage: expect.arrayContaining(["workflow demo", "clear CTA and logo close"]),
+        visualLanguage: expect.arrayContaining(["public launch-video energy", "workspace collaboration cues", "clear CTA and logo close"]),
         transferBoundaries: expect.arrayContaining([
-          expect.stringContaining("No user reference video"),
+          expect.stringContaining("Default style reference"),
           expect.stringContaining("Do not invent customer names"),
         ]),
       }),
@@ -521,16 +521,23 @@ describe("SaaS explainer routes", () => {
       { userId: "user_1", projectId: "project_1" },
       { $set: expect.objectContaining({
         saasExplainer: expect.objectContaining({
-          styleSource: "default_saas_structure",
+          styleSource: "default_style_reference_video",
           structureDoctrine: expect.objectContaining({
             version: "saas-structure-doctrine/v1",
-            source: "default_saas_structure",
+            source: "default_style_reference_video",
             referenceProvided: false,
             defaultUsed: true,
+            defaultReference: expect.objectContaining({
+              label: "Lovable 2.0 public SaaS launch video style reference",
+              url: "https://www.youtube.com/watch?v=xDwR1_vrIg8",
+              uploadedFileName: "YTDown_YouTube_Lovable-2-0-is-here-Multiplayer-vibe-cod_Media_xDwR1_vrIg8_002_720p.mp4",
+              usage: "style_only",
+            }),
             requiredSceneFamilies: expect.arrayContaining(["hook", "workflow_demo", "cta", "logo_outro"]),
             sourceDocuments: expect.arrayContaining([
               "docs/agents/reference/general/phase_f_g_saas_motion.md",
               "lib/editron/data/creative-knowledge-graph.json",
+              "https://www.youtube.com/watch?v=xDwR1_vrIg8",
             ]),
           }),
           referenceVideo: { provided: false },

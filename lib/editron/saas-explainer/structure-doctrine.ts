@@ -1,15 +1,20 @@
-import type { SaasExplainerReferenceStyleBrief } from "@/lib/editron/saas-explainer/reference-analysis";
+﻿import type { SaasExplainerReferenceStyleBrief } from "@/lib/editron/saas-explainer/reference-analysis";
 
 export const SAAS_STRUCTURE_DOCTRINE_VERSION = "saas-structure-doctrine/v1";
+export const DEFAULT_SAAS_STYLE_REFERENCE_LABEL = "Lovable 2.0 public SaaS launch video style reference";
+export const DEFAULT_SAAS_STYLE_REFERENCE_URL = "https://www.youtube.com/watch?v=xDwR1_vrIg8";
+export const DEFAULT_SAAS_STYLE_REFERENCE_FILE =
+  "YTDown_YouTube_Lovable-2-0-is-here-Multiplayer-vibe-cod_Media_xDwR1_vrIg8_002_720p.mp4";
 
 export const DEFAULT_SAAS_STRUCTURE_STYLE_BRIEF: SaasExplainerReferenceStyleBrief = {
-  summary: "Default SaaS explainer structure doctrine for no-reference generation.",
+  summary: "Default SaaS explainer style reference informed by Lovable 2.0 and the SaaS structure doctrine.",
   category: "saas_product_demo",
-  pacing: "medium; hook-value-CTA; readable holds on product proof; final CTA resolution",
-  uiTreatment: "balanced UI density; centered app surfaces; product workflow evidence before abstract claims",
+  pacing: "confident launch tempo; hook-value-CTA; quick UI-led beats with readable holds on product proof",
+  uiTreatment: "polished SaaS workspace surfaces; multiplayer/product-state emphasis; product workflow evidence before abstract claims",
   visualLanguage: [
+    "public launch-video energy",
     "product-led opening",
-    "problem before-state",
+    "workspace collaboration cues",
     "workflow demo",
     "focused feature proof",
     "sourced proof or metric only",
@@ -17,10 +22,12 @@ export const DEFAULT_SAAS_STRUCTURE_STYLE_BRIEF: SaasExplainerReferenceStyleBrie
   ],
   typography: "large value claim, smaller UI labels, captions kept readable and separated from graphics",
   colorPalette: [],
-  motion: "clean pushes, restrained UI state changes, proof-screen holds, simple logo fade or scale close",
+  motion: "clean pushes, crisp UI state changes, multiplayer presence beats, proof-screen holds, simple logo fade or scale close",
   transferBoundaries: [
-    "No user reference video was provided; use this as structure doctrine only.",
-    "Do not copy Lovable, Beehiiv, or any third-party layout, wording, claims, logos, or assets.",
+    `Default style reference: ${DEFAULT_SAAS_STYLE_REFERENCE_LABEL} (${DEFAULT_SAAS_STYLE_REFERENCE_URL}).`,
+    `Uploaded local reference file observed: ${DEFAULT_SAAS_STYLE_REFERENCE_FILE}.`,
+    "Use the default reference for pacing, UI treatment, typography density, and motion language only.",
+    "Do not copy Lovable's exact layouts, wording, claims, logos, product screens, or proprietary assets.",
     "Do not invent customer names, metrics, integrations, or product capabilities.",
     "If product visual evidence is missing, keep scenes in clearly synthetic demo mode.",
   ],
@@ -34,17 +41,33 @@ export function resolveSaasStructureStyleBrief(
 
 export function buildSaasStructureDoctrineMetadata(referenceProvided: boolean): {
   version: string;
-  source: "reference_video" | "default_saas_structure";
+  source: "reference_video" | "default_style_reference_video";
   referenceProvided: boolean;
   defaultUsed: boolean;
+  defaultReference?: {
+    label: string;
+    url: string;
+    uploadedFileName: string;
+    usage: "style_only";
+  };
   requiredSceneFamilies: string[];
   sourceDocuments: string[];
 } {
   return {
     version: SAAS_STRUCTURE_DOCTRINE_VERSION,
-    source: referenceProvided ? "reference_video" : "default_saas_structure",
+    source: referenceProvided ? "reference_video" : "default_style_reference_video",
     referenceProvided,
     defaultUsed: !referenceProvided,
+    ...(!referenceProvided
+      ? {
+          defaultReference: {
+            label: DEFAULT_SAAS_STYLE_REFERENCE_LABEL,
+            url: DEFAULT_SAAS_STYLE_REFERENCE_URL,
+            uploadedFileName: DEFAULT_SAAS_STYLE_REFERENCE_FILE,
+            usage: "style_only" as const,
+          },
+        }
+      : {}),
     requiredSceneFamilies: [
       "hook",
       "problem",
@@ -59,6 +82,7 @@ export function buildSaasStructureDoctrineMetadata(referenceProvided: boolean): 
     sourceDocuments: [
       "docs/agents/reference/general/phase_f_g_saas_motion.md",
       "lib/editron/data/creative-knowledge-graph.json",
+      DEFAULT_SAAS_STYLE_REFERENCE_URL,
     ],
   };
 }

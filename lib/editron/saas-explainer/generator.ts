@@ -21,6 +21,7 @@ import {
   type SaasExplainerReferenceStyleBrief,
 } from "@/lib/editron/saas-explainer/reference-analysis";
 import {
+  DEFAULT_SAAS_STYLE_REFERENCE_LABEL,
   buildSaasStructureDoctrineMetadata,
   resolveSaasStructureStyleBrief,
 } from "@/lib/editron/saas-explainer/structure-doctrine";
@@ -138,7 +139,7 @@ export async function createSaasExplainerProject(
 
   const effectiveStyleBrief = resolveSaasStructureStyleBrief(reference.analysis?.styleBrief);
   const structureDoctrine = buildSaasStructureDoctrineMetadata(Boolean(reference.analysis?.styleBrief));
-  const styleSourceLabel = reference.analysis?.styleBrief ? referenceLabel : "default SaaS structure doctrine";
+  const styleSourceLabel = reference.analysis?.styleBrief ? referenceLabel : DEFAULT_SAAS_STYLE_REFERENCE_LABEL;
   const referenceStyleEvidence = formatReferenceStyleEvidence(effectiveStyleBrief);
   const sourceSessionId = `saas_${crypto.randomUUID()}`;
   const sourceScriptId = `script_${sourceSessionId}`;
