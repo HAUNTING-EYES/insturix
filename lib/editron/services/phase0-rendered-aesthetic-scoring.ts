@@ -224,6 +224,7 @@ function frameAwareOverlay(
   if (String(overlay.type ?? '') !== 'caption') return overlay;
   const captionText = activeCaptionTextAtFrame(overlay, frame, fps);
   if (!captionText) return null;
+  const metadata = withoutAtomicReceiptMetadata(asRecord(overlay.metadata));
   return {
     ...overlay,
     from: frame,
@@ -231,6 +232,13 @@ function frameAwareOverlay(
     content: captionText.text,
     text: captionText.text,
     captionText: captionText.text,
+    captions: [{
+      text: captionText.text,
+      startMs: captionText.startMs,
+      endMs: captionText.endMs,
+      words: captionText.words.map((word) => ({ ...word })),
+    }],
+    metadata,
   };
 }
 
@@ -238,13 +246,22 @@ function activeCaptionTextAtFrame(
   overlay: Phase0OverlayLike,
   frame: number,
   fps: number,
-): { text: string; durationFrames: number } | null {
+): { text: string; durationFrames: number; startMs: number; endMs: number; words: Record<string, unknown>[] } | null {
   const captions = Array.isArray((overlay as Record<string, unknown>).captions)
     ? (overlay as Record<string, unknown>).captions as unknown[]
     : [];
   if (!captions.length) {
     const text = firstNonEmptyString(overlay.captionText, overlay.text, overlay.content);
-    return text ? { text, durationFrames: Math.max(1, readNumber(overlay.durationInFrames, 1)) } : null;
+    if (!text) return null;
+    const startMs = (frame / Math.max(1, fps)) * 1000;
+    const durationFrames = Math.max(1, readNumber(overlay.durationInFrames, 1));
+    return {
+      text,
+      durationFrames,
+      startMs,
+      endMs: startMs + (durationFrames / Math.max(1, fps)) * 1000,
+      words: [],
+    };
   }
 
   const timeMs = (frame / Math.max(1, fps)) * 1000;
@@ -262,40 +279,81 @@ function activeCaptionTextAtFrame(
     });
     if (timeMs < startMs || timeMs > endMs) continue;
 
-    const wordText = activeCaptionWords(record.words, timeMs);
+    const visibleWords = visibleCaptionWordsAtFrame(record.words, timeMs, overlay);
+    const wordText = visibleWords
+      .map((word) => firstNonEmptyString(word.word, word.text, word.content))
+      .filter((word): word is string => Boolean(word))
+      .join(' ')
+      .trim();
     const text = wordText || firstNonEmptyString(record.text, record.content, record.word);
     if (!text) return null;
     return {
       text,
       durationFrames: Math.max(1, Math.round(((endMs - startMs) / 1000) * fps)),
+      startMs,
+      endMs,
+      words: visibleWords.length ? visibleWords : [{ word: text, text, startMs, endMs }],
     };
   }
 
   return null;
 }
 
-function activeCaptionWords(words: unknown, timeMs: number): string {
-  if (!Array.isArray(words)) return '';
-  const active = words
-    .map(asRecord)
-    .filter((word) => {
+function visibleCaptionWordsAtFrame(
+  words: unknown,
+  timeMs: number,
+  overlay: Phase0OverlayLike,
+): Record<string, unknown>[] {
+  if (!Array.isArray(words)) return [];
+  const normalized = words.map(asRecord);
+  if (!normalized.length) return [];
+
+  let activeIndex = normalized.findIndex((word) => {
+    const startMs = readTimestampMs({
+      explicitMs: word.startMs,
+      secondsOrMs: [word.start, word.startTime],
+      fallback: 0,
+    });
+    const endMs = readTimestampMs({
+      explicitMs: word.endMs,
+      secondsOrMs: [word.end, word.endTime],
+      fallback: startMs + 350,
+    });
+    return timeMs >= startMs && timeMs <= endMs;
+  });
+  if (activeIndex === -1) {
+    for (let index = 0; index < normalized.length; index += 1) {
       const startMs = readTimestampMs({
-        explicitMs: word.startMs,
-        secondsOrMs: [word.start, word.startTime],
+        explicitMs: normalized[index]?.startMs,
+        secondsOrMs: [normalized[index]?.start, normalized[index]?.startTime],
         fallback: 0,
       });
-      const endMs = readTimestampMs({
-        explicitMs: word.endMs,
-        secondsOrMs: [word.end, word.endTime],
-        fallback: startMs + 350,
-      });
-      return timeMs >= startMs && timeMs <= endMs;
-    })
-    .map((word) => firstNonEmptyString(word.word, word.text, word.content))
-    .filter((word): word is string => Boolean(word));
-  return active.join(' ').trim();
+      if (startMs <= timeMs) activeIndex = index;
+    }
+  }
+  if (activeIndex === -1) activeIndex = 0;
+
+  const display = asRecord((overlay as Record<string, unknown>).displayConfig);
+  const mode = String(display.mode ?? 'phrase');
+  const wordsPerGroup = Math.max(1, Math.floor(readNumber(display.wordsPerGroup, 1)));
+  if (mode === 'word-by-word') return [normalized[activeIndex]].filter((word): word is Record<string, unknown> => Boolean(word));
+  if (mode === 'phrase' || mode === 'instagram' || mode === 'hormozi') {
+    const halfWindow = Math.floor(wordsPerGroup / 2);
+    const start = Math.max(0, activeIndex - halfWindow);
+    const end = Math.min(normalized.length, start + wordsPerGroup);
+    return normalized.slice(start, end);
+  }
+  return normalized;
 }
 
+function withoutAtomicReceiptMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...metadata };
+  delete next.atomicOverlayReceipt;
+  delete next.atomicOverlayReceipts;
+  delete next.atomicOverlayForm;
+  delete next.atomicOverlayForms;
+  return next;
+}
 function renderedOverlayBoxAtFrame(
   overlay: Phase0OverlayLike,
   frame: number,

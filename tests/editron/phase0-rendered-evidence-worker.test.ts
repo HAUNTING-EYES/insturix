@@ -8,7 +8,12 @@ import {
   buildPhase0RenderedStillEvidencePersistSet,
   resolvePhase0RenderedEvidenceConfig,
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
-import type { RawRenderedStillImage } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
+import {
+  buildPhase0RenderedAestheticEvidence,
+  type RawRenderedStillImage,
+} from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
+import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0RenderArtifactPack } from '../../lib/editron/services/phase0-render-artifact-pack';
 import { OverlayType } from '../../components/editron/editor/version-7.0.0/types';
 
 describe('phase0 rendered evidence worker service', () => {
@@ -192,6 +197,83 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.artifactPackStatus).toBe('not-renderable');
     expect(evidence.failedFrames).toEqual([{ frame: -1, renderKind: 'worker', error: 'asset resolution failed' }]);
     expect(evidence.artifactPackIssues).toEqual(['worker-error:asset resolution failed']);
+  });
+
+  it('scores caption evidence from the visible phrase window instead of the full caption group', async () => {
+    const project = {
+      projectId: 'proj_phase0_caption_window',
+      durationInFrames: 120,
+      fps: 30,
+      playerDimensions: { width: 320, height: 180 },
+      overlays: [{
+        id: 'caption-track',
+        type: OverlayType.CAPTION,
+        from: 0,
+        durationInFrames: 120,
+        left: 40,
+        top: 40,
+        width: 180,
+        height: 52,
+        row: 6,
+        content: 'So if you wanna see how I edit video, if that might help you, you can watch that.',
+        text: 'So if you wanna see how I edit video, if that might help you, you can watch that.',
+        displayConfig: {
+          mode: 'phrase',
+          wordsPerGroup: 1,
+          maxWordsPerLine: 4,
+          showPreviousWords: false,
+          fadeOutPreviousWords: false,
+        },
+        styles: {
+          fontSize: '38px',
+          fontWeight: 500,
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          fontFamily: 'Inter',
+        },
+        captions: [{
+          text: 'So if you wanna see how I edit video, if that might help you, you can watch that.',
+          startMs: 0,
+          endMs: 4000,
+          words: [
+            { word: 'So', startMs: 0, endMs: 180 },
+            { word: 'if', startMs: 220, endMs: 420 },
+            { word: 'you', startMs: 460, endMs: 620 },
+            { word: 'wanna', startMs: 660, endMs: 880 },
+            { word: 'see', startMs: 920, endMs: 1100 },
+            { word: 'how', startMs: 1140, endMs: 1300 },
+            { word: 'I', startMs: 1340, endMs: 1420 },
+            { word: 'edit', startMs: 1460, endMs: 1660 },
+            { word: 'video,', startMs: 1700, endMs: 1940 },
+            { word: 'if', startMs: 1980, endMs: 2140 },
+            { word: 'that', startMs: 2180, endMs: 2340 },
+            { word: 'might', startMs: 2380, endMs: 2580 },
+            { word: 'help', startMs: 2620, endMs: 2820 },
+            { word: 'you,', startMs: 2860, endMs: 3060 },
+            { word: 'you', startMs: 3100, endMs: 3260 },
+            { word: 'can', startMs: 3300, endMs: 3460 },
+            { word: 'watch', startMs: 3500, endMs: 3720 },
+            { word: 'that.', startMs: 3760, endMs: 4000 },
+          ],
+        }],
+      }],
+    } as any;
+    const manifest = buildPhase0FixtureManifest(project);
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: 'tmp/phase0-caption-window-test',
+      maxSamples: 1,
+    });
+    const result = await buildPhase0RenderedAestheticEvidence(manifest, artifactPack, {
+      renderedFrames: [{ frame: 8, url: 'https://example.com/full-caption.png', baselineUrl: 'https://example.com/baseline-caption.png' }],
+    }, {
+      readImage: visibleImageReader(),
+    });
+
+    const issues = result?.report.frames?.[0]?.report?.issues ?? [];
+    expect(issues).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: 'long caption is compressed into one row' }),
+      expect.objectContaining({ message: 'caption row is too wide for social-video reading' }),
+    ]));
   });
 
   it('keeps rendered aesthetic scoring safe for Next server route builds', () => {
