@@ -603,9 +603,12 @@ Suggested order:
   - Files: provider factories/wrappers/routes by service.
   - Verify: mocked token usage/provider event tests.
 
-- [ ] T7 (P2) - Admin report - Add backend margin aggregation.
+- [x] T7 (P2) - Admin report - Add backend margin aggregation.
   - Files: financial report service and admin route/tests.
   - Verify: aggregation fixture for revenue, COGS, unknown pricing, negative margin.
+  - Implemented in `lib/financials/provider-cost-margin-report.ts`, `app/api/admin/financials/provider-cost-margin/route.ts`, and `tests/financials/provider-cost-margin-report.test.ts`.
+  - Backend admin route now returns grouped provider margin report data by service, provider, org, user, or day. It includes charged credits, estimated revenue, provider cost, gross margin, missing-pricing counts, failed spend, retry counts, unknown-pricing rows, and negative-margin rows.
+  - Verified: focused Vitest margin report test passed, `npx eslint . --quiet` passed, `git diff --check` passed, and gitleaks working-tree scan passed. Full `npx tsc --noEmit --pretty false` remains blocked by unrelated baseline errors, including existing Clickatron/Zod resolution errors, SaaS intake type drift, and legacy script duplicate globals; the new T7 files were not in the emitted error list.
 
 ## Verification Notes
 
