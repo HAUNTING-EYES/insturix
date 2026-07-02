@@ -12,6 +12,7 @@ import {
 import type { CalItem } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
 import { ContentModal } from './calos-content-modal';
+import CalosCampaignBar from './calos-campaign-bar';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -198,6 +199,8 @@ export default function CalosCalendarV3() {
         .calos-grid{display:grid;grid-template-columns:repeat(7,1fr)}
         .calos-tw{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
         .calos-wrap{display:grid;grid-template-columns:minmax(190px,18%) minmax(0,1fr);gap:16px;align-items:start}
+        .calos-trend-select{height:34px;max-width:180px;background:${C.surface};color:${C.soft};border:1px solid ${C.border};border-radius:7px;padding:0 10px;font-family:${MONO};font-size:11px;letter-spacing:0.03em;outline:none;cursor:pointer}
+        .calos-trend-select:disabled{opacity:.5;cursor:not-allowed}
         @keyframes calos-tin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
         @media(max-width:1024px){.calos-min{min-width:820px}.calos-wrap{grid-template-columns:1fr}}
       `}</style>
@@ -234,6 +237,9 @@ export default function CalosCalendarV3() {
             <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'clearall' })}>Clear all</Btn>
           </div>
         </div>
+
+        {/* ═ CAMPAIGN BAR ═ */}
+        {brandId && <CalosCampaignBar brandId={brandId} onAfterGenerate={refresh} />}
 
         {/* ═ CONTROL BAR ═ */}
         <div className="calos-tw" style={{ padding: 10, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 12 }}>
