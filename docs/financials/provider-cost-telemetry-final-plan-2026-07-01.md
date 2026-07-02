@@ -602,6 +602,7 @@ Suggested order:
 - [ ] T6 (P2) - LLM/Search/Social - Record ThinkForge, CalOS, Brand Vault, Alyzitron, UploaderX events.
   - Files: provider factories/wrappers/routes by service.
   - Verify: mocked token usage/provider event tests.
+  - Partial 2026-07-03: UploaderX and CalOS X social provider events are wired for `x-api` cost visibility. Normal UploaderX X publish records media upload and final publish events; chunked UploaderX X publish records start/transfer/finalize/poll/publish phase events; CalOS X scheduled publishing records final publish success/failure. UploaderX final publish events attach the credit transaction ID and the current 3-credit X publish charge only after credit deduction returns a transaction ID. X API pricing remains `pricing_to_be_seen` until invoice-backed rates are added.
 
 - [x] T7 (P2) - Admin report - Add backend margin aggregation.
   - Files: financial report service and admin route/tests.

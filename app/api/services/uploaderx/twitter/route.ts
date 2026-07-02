@@ -5,8 +5,15 @@ import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+import { getCreditCost } from "@/lib/config/creditCosts";
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 
 export const maxDuration = 300;
+
+const UPLOADERX_TWITTER_PUBLISH_CREDITS = getCreditCost("uploaderx", "platform_publish", {
+  requestType: "twitter",
+});
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -167,6 +174,7 @@ export async function POST(req: Request) {
     }
     let mediaId: string | undefined;
     let processingState: string | undefined;
+    let mediaUploadRequestCount = 0;
     if (gcsPath) {
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
       const fileSize = Number(videoAsset.size || 0);
@@ -197,6 +205,7 @@ export async function POST(req: Request) {
           media_category: "tweet_video",
         }),
       });
+      mediaUploadRequestCount += 1;
 
       let initData: any = {};
       const initResponseText = await initResponse.text();
@@ -209,6 +218,16 @@ export async function POST(req: Request) {
       }
 
       if (!initResponse.ok || initData.error) {
+        await recordUploaderXTwitterCost({
+          status: "failed",
+          operation: "social_media_upload",
+          userId: session.userId,
+          videoUuid,
+          requestCount: mediaUploadRequestCount,
+          responseStatus: initResponse.status,
+          phase: "initialize",
+          postType: postType || "video",
+        });
         return NextResponse.json(
           { success: false, error: "Failed to initialize Twitter upload", details: initData },
           { status: 500 }
@@ -241,6 +260,7 @@ export async function POST(req: Request) {
             media: chunk.toString("base64"),
           }),
         });
+        mediaUploadRequestCount += 1;
 
         if (!appendResponse.ok) {
           let appendError: any = {};
@@ -253,6 +273,18 @@ export async function POST(req: Request) {
             }
           }
 
+          await recordUploaderXTwitterCost({
+            status: "failed",
+            operation: "social_media_upload",
+            userId: session.userId,
+            videoUuid,
+            mediaId,
+            requestCount: mediaUploadRequestCount,
+            responseStatus: appendResponse.status,
+            phase: "append",
+            segmentIndex: i,
+            postType: postType || "video",
+          });
           return NextResponse.json(
             {
               success: false,
@@ -272,6 +304,7 @@ export async function POST(req: Request) {
           "Content-Type": "application/json",
         },
       });
+      mediaUploadRequestCount += 1;
 
       let finalizeData: any = {};
       const finalizeResponseText = await finalizeResponse.text();
@@ -282,6 +315,17 @@ export async function POST(req: Request) {
           // Twitter may return empty response or malformed JSON
           // If status is OK, treat as success
           if (!finalizeResponse.ok) {
+            await recordUploaderXTwitterCost({
+              status: "failed",
+              operation: "social_media_upload",
+              userId: session.userId,
+              videoUuid,
+              mediaId,
+              requestCount: mediaUploadRequestCount,
+              responseStatus: finalizeResponse.status,
+              phase: "finalize",
+              postType: postType || "video",
+            });
             return NextResponse.json(
               { success: false, error: "Failed to finalize Twitter upload", details: { raw: finalizeResponseText } },
               { status: 500 }
@@ -291,19 +335,53 @@ export async function POST(req: Request) {
       }
 
       if (!finalizeResponse.ok || finalizeData.error) {
+        await recordUploaderXTwitterCost({
+          status: "failed",
+          operation: "social_media_upload",
+          userId: session.userId,
+          videoUuid,
+          mediaId,
+          requestCount: mediaUploadRequestCount,
+          responseStatus: finalizeResponse.status,
+          phase: "finalize",
+          postType: postType || "video",
+        });
         return NextResponse.json(
           { success: false, error: "Failed to finalize Twitter upload", details: finalizeData },
           { status: 500 }
         );
       }
 
-      processingState = await pollMediaStatusV2(mediaId, accessToken);
+      const mediaStatus = await pollMediaStatusV2(mediaId, accessToken);
+      processingState = mediaStatus.state;
+      mediaUploadRequestCount += mediaStatus.requestCount;
       if (processingState !== "succeeded") {
+        await recordUploaderXTwitterCost({
+          status: "failed",
+          operation: "social_media_upload",
+          userId: session.userId,
+          videoUuid,
+          mediaId,
+          requestCount: mediaUploadRequestCount,
+          phase: "poll",
+          postType: postType || "video",
+        });
         return NextResponse.json(
           { success: false, error: `Twitter video processing failed: ${processingState}` },
           { status: 500 }
         );
       }
+
+      await recordUploaderXTwitterCost({
+        status: "success",
+        operation: "social_media_upload",
+        userId: session.userId,
+        videoUuid,
+        mediaId,
+        requestCount: mediaUploadRequestCount,
+        phase: "complete",
+        postType: postType || "video",
+      });
     }
 
     const tweetPayload: any = {
@@ -336,6 +414,17 @@ export async function POST(req: Request) {
     }
 
     if (!tweetResponse.ok || tweetData.error) {
+      await recordUploaderXTwitterCost({
+        status: "failed",
+        operation: "social_publish",
+        userId: session.userId,
+        videoUuid,
+        mediaId,
+        requestCount: 1,
+        responseStatus: tweetResponse.status,
+        phase: "publish",
+        postType: postType || "video",
+      });
       return NextResponse.json(
         {
           success: false,
@@ -376,7 +465,21 @@ export async function POST(req: Request) {
       );
     }
 
-    await deductPublishCredits(publishCreditCheck);
+    const deductResult = await deductPublishCredits(publishCreditCheck);
+    await recordUploaderXTwitterCost({
+      status: "success",
+      operation: "social_publish",
+      userId: session.userId,
+      videoUuid,
+      mediaId,
+      tweetId,
+      chargedCredits: deductResult.transactionId ? UPLOADERX_TWITTER_PUBLISH_CREDITS : undefined,
+      creditTransactionId: deductResult.transactionId,
+      requestCount: 1,
+      responseStatus: tweetResponse.status,
+      phase: "publish",
+      postType: postType || "video",
+    });
 
     return NextResponse.json({
       success: true,
@@ -395,15 +498,63 @@ export async function POST(req: Request) {
   }
 }
 
-async function deductPublishCredits(creditCheck: CreditCheckResult) {
+async function deductPublishCredits(creditCheck: CreditCheckResult): Promise<{ transactionId?: string }> {
   try {
-    await creditCheck.deduct();
+    return await creditCheck.deduct();
   } catch (error) {
     console.error("[UploaderX:Twitter] publish credit deduction failed:", error);
+    return {};
   }
 }
 
-async function pollMediaStatusV2(mediaId: string, accessToken: string): Promise<string> {
+type XCostOperation = "social_publish" | "social_media_upload";
+
+async function recordUploaderXTwitterCost(input: {
+  status: ProviderCostEventStatus;
+  operation: XCostOperation;
+  userId: string;
+  videoUuid?: string;
+  mediaId?: string;
+  tweetId?: string;
+  chargedCredits?: number;
+  creditTransactionId?: string;
+  requestCount: number;
+  responseStatus?: number;
+  phase: string;
+  postType?: string;
+  segmentIndex?: number;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.operation === "social_publish" && input.tweetId
+        ? `uploaderx:twitter:publish:${input.tweetId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    assetId: input.videoUuid,
+    taskId: input.videoUuid,
+    creditTransactionId: input.creditTransactionId,
+    service: "uploaderx",
+    action: "platform_publish",
+    route: "/api/services/uploaderx/twitter",
+    provider: "x-api",
+    model: "twitter-v2",
+    operation: input.operation,
+    chargedCredits: input.chargedCredits,
+    providerJobId: input.tweetId ?? input.mediaId,
+    units: { requestCount: input.requestCount },
+    metadata: {
+      platform: "twitter",
+      phase: input.phase,
+      postType: input.postType,
+      responseStatus: input.responseStatus,
+      hasMedia: Boolean(input.mediaId),
+      segmentIndex: input.segmentIndex,
+    },
+  });
+}
+
+async function pollMediaStatusV2(mediaId: string, accessToken: string): Promise<{ state: string; requestCount: number }> {
   const maxAttempts = 60;
   const interval = 5000;
   let attempts = 0;
@@ -434,17 +585,17 @@ async function pollMediaStatusV2(mediaId: string, accessToken: string): Promise<
 
     const processingInfo = data.processing_info;
     if (!processingInfo) {
-      return "succeeded";
+      return { state: "succeeded", requestCount: attempts };
     }
 
     const state = processingInfo.state;
     if (state === "succeeded") {
-      return "succeeded";
+      return { state: "succeeded", requestCount: attempts };
     }
     if (state === "failed") {
-      return "failed";
+      return { state: "failed", requestCount: attempts };
     }
   }
 
-  return "timed_out";
+  return { state: "timed_out", requestCount: attempts };
 }
