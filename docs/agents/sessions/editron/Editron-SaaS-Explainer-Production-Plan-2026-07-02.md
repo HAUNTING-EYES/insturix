@@ -14,7 +14,9 @@ This is the binding plan for the SaaS explainer lane. It exists because the firs
 ## Current Implementation Status
 
 - Overall plan: incomplete.
-- Phase 1 is the active branch scope.
+- Phase 1 and Phase 2 are implemented for this lane.
+- Phase 3 is implemented in the current branch: generated-scene planning now emits scene family, evidence source, visual goal, product UI state, motion intent, copy role, and claim mode; the renderer has deterministic family-specific branches.
+- Branch-wide `npx tsc --noEmit` is still blocked by unrelated script/test baseline errors, so this is not a full-lane completion claim.
 - Existing rendered MP4 proof shows motion can export, but it is not quality proof.
 - Completion can only be claimed after the gates in this document pass.
 
@@ -135,8 +137,8 @@ Acceptance:
 
 1. Phase 1: completion gate honesty.
 2. Phase 2: Brand Vault default contract.
-3. Phase 3: scene family planner.
-4. Phase 4: reference video analyzer hardening.
+3. Phase 3: scene family planner. Done in current branch, pending rendered quality proof.
+4. Phase 4: reference video analyzer hardening. Next.
 5. Phase 5: product visual evidence.
 6. Phase 7: rendered quality gate.
 7. Phase 8: export parity automation.

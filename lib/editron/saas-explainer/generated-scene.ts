@@ -18,6 +18,30 @@ export interface BuildSaasGeneratedSceneOverlaysInput {
 }
 
 type ResolvedSaasVoice = Pick<SaasExplainerVoiceProfile, "voiceId" | "provider" | "providerVoiceId" | "contentType">;
+export type SaasSceneFamily =
+  | "hook"
+  | "problem"
+  | "workflow_demo"
+  | "feature_demo"
+  | "proof_metric"
+  | "comparison"
+  | "social_proof"
+  | "cta"
+  | "logo_outro";
+
+export type SaasSceneEvidenceSource = "brand_vault" | "script" | "product_url" | "reference_video" | "scene_descriptor";
+
+export interface SaasSceneFamilyPlan {
+  family: SaasSceneFamily;
+  evidenceSource: SaasSceneEvidenceSource;
+  sourcePaths: string[];
+  visualGoal: string;
+  productUiState: string;
+  motionIntent: string;
+  copyRole: string;
+  claimMode: "evidence_backed" | "synthetic_demo_only";
+}
+
 export interface SaasGeneratedSceneElement {
   id: string;
   role: "headline" | "app-shell" | "panel" | "metric" | "caption" | "cta" | "logo-mark";
@@ -50,6 +74,7 @@ export interface SaasGeneratedSceneModel {
     uiTreatment: string;
     motion: string;
   };
+  familyPlan: SaasSceneFamilyPlan;
   brandContext: {
     source: SaasExplainerBrandContext["metadata"]["source"];
     acceptedProfile: boolean;
@@ -104,6 +129,13 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
     const durationInFrames = Math.max(1, Math.round(scene.durationSeconds * input.dimensions.fps));
     const sceneId = `saas_scene_${scene.sceneIndex}`;
     const voiceoverScript = cleanVisibleText(scene.narration || "", 320);
+    const familyPlan = planSceneFamily({
+      scene,
+      sceneCount: input.scenes.length,
+      input: input.input,
+      brandContext: input.brandContext,
+      referenceStyleBrief: input.referenceStyleBrief,
+    });
     const model: SaasGeneratedSceneModel = {
       schemaVersion: "saas-generated-scene/v1",
       sceneId,
@@ -112,6 +144,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
       productName: brand.name,
       brand,
       style,
+      familyPlan,
       brandContext: buildSceneBrandContext(input.brandContext),
       voiceover: voiceoverScript
         ? {
@@ -125,7 +158,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
               : {}),
           }
         : null,
-      elements: buildSceneElements(scene, input.input, brand, input.brandContext),
+      elements: buildSceneElements(scene, input.input, brand, input.brandContext, familyPlan),
       captionTracks: voiceoverScript
         ? [{
             id: `${sceneId}_caption_0`,
@@ -158,7 +191,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
       rotation: 0,
       content: model.title,
       sceneModel: model,
-      sourceMap: buildSourceMap(scene, input.brandContext),
+      sourceMap: buildSourceMap(scene, input.brandContext, familyPlan),
       styles: { opacity: 1 },
       metadata: {
         sourceType: "saas-explainer-generated-scene",
@@ -232,14 +265,214 @@ export function isPromptLikeVisibleText(value: string): boolean {
   return /(^|\b)(visual\s*:|voiceover\s*:|narration\s*:|audio\s*:|camera\s+direction\b|video\s+motion\b|visualdescription\b|audiodescription\b|videomotionprompt\b|scene\s+prompt\b|write\s+a\b|generate\s+a\b|source\s*map\b|metadata\b|llm\b)/i.test(value);
 }
 
+const FAMILY_SEQUENCE: SaasSceneFamily[] = [
+  "hook",
+  "problem",
+  "workflow_demo",
+  "feature_demo",
+  "proof_metric",
+  "cta",
+  "logo_outro",
+];
+
+function planSceneFamily(input: {
+  scene: SceneDescriptor;
+  sceneCount: number;
+  input: NormalizedSaasExplainerIntake;
+  brandContext: SaasExplainerBrandContext;
+  referenceStyleBrief?: SaasExplainerReferenceStyleBrief;
+}): SaasSceneFamilyPlan {
+  const evidenceSource = resolveEvidenceSource(input.input, input.brandContext, input.referenceStyleBrief);
+  const detectedFamily = detectSceneFamily(input.scene, input.sceneCount);
+  const family = constrainFamilyForEvidence(detectedFamily, evidenceSource, input.brandContext);
+  const claimMode = evidenceSource === "scene_descriptor" ? "synthetic_demo_only" : "evidence_backed";
+
+  return {
+    family,
+    evidenceSource,
+    sourcePaths: sourcePathsForEvidence(evidenceSource),
+    visualGoal: familyVisualGoal(family, input.brandContext, claimMode),
+    productUiState: familyProductUiState(family, input.brandContext),
+    motionIntent: familyMotionIntent(family, input.brandContext, input.referenceStyleBrief),
+    copyRole: familyCopyRole(family),
+    claimMode,
+  };
+}
+
+function resolveEvidenceSource(
+  input: NormalizedSaasExplainerIntake,
+  brandContext: SaasExplainerBrandContext,
+  referenceStyleBrief?: SaasExplainerReferenceStyleBrief,
+): SaasSceneEvidenceSource {
+  if (input.script) return "script";
+  if (input.productUrl) return "product_url";
+  if (brandContext.metadata.acceptedProfile) return "brand_vault";
+  if (referenceStyleBrief) return "reference_video";
+  return "scene_descriptor";
+}
+
+function detectSceneFamily(scene: SceneDescriptor, sceneCount: number): SaasSceneFamily {
+  const text = [scene.title, scene.visualDescription, scene.narration, scene.videoMotionPrompt]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const index = Math.max(0, scene.sceneIndex);
+  if (index === 0) return "hook";
+  if (index >= sceneCount - 1 && /\b(logo|outro|end card|sign off|brand close)\b/.test(text)) return "logo_outro";
+  if (index >= sceneCount - 1 || /\b(cta|book|start|get started|try|contact)\b/.test(text)) return "cta";
+  if (/\b(problem|pain|friction|fragment|manual|spreadsheet|stuck|bottleneck|before)\b/.test(text)) return "problem";
+  if (/\b(compare|comparison|versus|vs\.?|before.*after|old.*new)\b/.test(text)) return "comparison";
+  if (/\b(testimonial|social proof|trusted by|customer|teams trust|quote)\b/.test(text)) return "social_proof";
+  if (/\b(proof|metric|result|percentage|percent|roi|faster|saved|ready)\b/.test(text)) return "proof_metric";
+  if (/\b(feature|capability|automation|integration|analyze|design|distribute|share|edit)\b/.test(text)) return "feature_demo";
+  if (/\b(workflow|flow|process|pipeline|workspace|step|handoff)\b/.test(text)) return "workflow_demo";
+  return FAMILY_SEQUENCE[Math.min(index, FAMILY_SEQUENCE.length - 1)] ?? "workflow_demo";
+}
+
+function constrainFamilyForEvidence(
+  family: SaasSceneFamily,
+  evidenceSource: SaasSceneEvidenceSource,
+  brandContext: SaasExplainerBrandContext,
+): SaasSceneFamily {
+  if (evidenceSource !== "scene_descriptor") return family;
+  if (["proof_metric", "social_proof", "comparison", "feature_demo"].includes(family)) return "workflow_demo";
+  if (family === "logo_outro" && brandContext.defaults.visual.logoAssets.length === 0) return "cta";
+  return family;
+}
+
+function sourcePathsForEvidence(source: SaasSceneEvidenceSource): string[] {
+  if (source === "brand_vault") return ["brandContext.defaults.brief", "brandContext.defaults.visual", "brandContext.defaults.motion"];
+  if (source === "script") return ["input.script", "SceneDescriptor"];
+  if (source === "product_url") return ["input.productUrl", "SceneDescriptor"];
+  if (source === "reference_video") return ["referenceStyleBrief", "SceneDescriptor"];
+  return ["SceneDescriptor"];
+}
+
+function familyVisualGoal(
+  family: SaasSceneFamily,
+  brandContext: SaasExplainerBrandContext,
+  claimMode: SaasSceneFamilyPlan["claimMode"],
+): string {
+  const product = brandContext.defaults.brief.productName || brandContext.defaults.brief.productServices[0] || "the product";
+  if (claimMode === "synthetic_demo_only") return `Show a clearly synthetic ${product} UI moment without numeric or customer claims.`;
+  const goals: Record<SaasSceneFamily, string> = {
+    hook: `Open with ${product} brand/product context and one readable product promise.`,
+    problem: "Show the before-state friction without inventing metrics.",
+    workflow_demo: "Hold on a product workflow long enough to evaluate the UI state.",
+    feature_demo: "Show one sourced product capability as a focused UI state.",
+    proof_metric: "Show proof only from sourced brand, script, URL, or reference evidence.",
+    comparison: "Show before/after contrast without fabricated competitor claims.",
+    social_proof: "Show sourced trust evidence or downgrade to generic proof language.",
+    cta: "Resolve into a next-step panel with the product and brand visible.",
+    logo_outro: "Close on a simple logo/product end card with no complex animation.",
+  };
+  return goals[family];
+}
+
+function familyProductUiState(family: SaasSceneFamily, brandContext: SaasExplainerBrandContext): string {
+  const job = brandContext.defaults.brief.jobsToBeDone[0];
+  const service = brandContext.defaults.brief.productServices[0];
+  const base = job || service || "product workspace";
+  const states: Record<SaasSceneFamily, string> = {
+    hook: `${base} overview`,
+    problem: "fragmented before-state board",
+    workflow_demo: `${base} workflow path`,
+    feature_demo: `${base} feature focus`,
+    proof_metric: "sourced proof panel",
+    comparison: "before and after split view",
+    social_proof: "trust evidence panel",
+    cta: "next-step action panel",
+    logo_outro: "brand close card",
+  };
+  return states[family];
+}
+
+function familyMotionIntent(
+  family: SaasSceneFamily,
+  brandContext: SaasExplainerBrandContext,
+  referenceStyleBrief?: SaasExplainerReferenceStyleBrief,
+): string {
+  if (referenceStyleBrief?.motion) return cleanVisibleText(referenceStyleBrief.motion, 120);
+  const energy = brandContext.defaults.motion.motionEnergy ?? 0.5;
+  const tempo = energy > 0.65 ? "crisp" : energy < 0.35 ? "measured" : "balanced";
+  const intents: Record<SaasSceneFamily, string> = {
+    hook: `${tempo} push-in with brand reveal`,
+    problem: `${tempo} friction stack reveal`,
+    workflow_demo: `${tempo} stepwise UI state change`,
+    feature_demo: `${tempo} focus highlight over one capability`,
+    proof_metric: `${tempo} proof hold with restrained emphasis`,
+    comparison: `${tempo} split-screen transition`,
+    social_proof: `${tempo} trust-card reveal`,
+    cta: `${tempo} settle into action panel`,
+    logo_outro: "simple fade and scale logo close",
+  };
+  return intents[family];
+}
+
+function familyCopyRole(family: SaasSceneFamily): string {
+  const roles: Record<SaasSceneFamily, string> = {
+    hook: "open the product promise",
+    problem: "name the pain point",
+    workflow_demo: "explain the workflow step",
+    feature_demo: "explain one sourced capability",
+    proof_metric: "frame sourced proof without invention",
+    comparison: "contrast before and after state",
+    social_proof: "show trust evidence when sourced",
+    cta: "ask for the next action",
+    logo_outro: "leave brand recall",
+  };
+  return roles[family];
+}
+
+function familyPanelLabel(family: SaasSceneFamily): string {
+  const labels: Record<SaasSceneFamily, string> = {
+    hook: "Product promise",
+    problem: "Before state",
+    workflow_demo: "Workflow path",
+    feature_demo: "Feature focus",
+    proof_metric: "Sourced proof",
+    comparison: "Before / after",
+    social_proof: "Trust signal",
+    cta: "Next step",
+    logo_outro: "Brand close",
+  };
+  return labels[family];
+}
+
+function familyMetricLabel(plan: SaasSceneFamilyPlan): string {
+  if (plan.family === "problem") return "Friction";
+  if (plan.family === "proof_metric") return "Proof";
+  if (plan.family === "comparison") return "Contrast";
+  if (plan.family === "cta") return "Action";
+  if (plan.family === "logo_outro") return "Recall";
+  return "Scene";
+}
+
+function familyMetricValue(plan: SaasSceneFamilyPlan, scene: SceneDescriptor): string {
+  if (plan.claimMode === "synthetic_demo_only") return "Demo";
+  if (plan.family === "workflow_demo") return "Flow";
+  if (plan.family === "feature_demo") return "Focus";
+  if (plan.family === "proof_metric") return "Sourced";
+  if (plan.family === "comparison") return "Shift";
+  if (plan.family === "cta") return "Next";
+  if ((scene as { sceneType?: string }).sceneType === "montage") return "Multi-step";
+  return "Product-led";
+}
+
+function familyCtaText(input: NormalizedSaasExplainerIntake, plan: SaasSceneFamilyPlan): string {
+  if (plan.family === "cta" || plan.family === "logo_outro") return input.outcome || "Book a product walkthrough";
+  return input.outcome || plan.copyRole;
+}
+
 function buildSceneElements(
   scene: SceneDescriptor,
   input: NormalizedSaasExplainerIntake,
   brand: SaasGeneratedSceneModel["brand"],
   brandContext: SaasExplainerBrandContext,
+  familyPlan: SaasSceneFamilyPlan,
 ): SaasGeneratedSceneElement[] {
   const title = cleanVisibleText(scene.title || input.outcome || "Launch workflow", 72);
-  const visual = cleanVisibleText(scene.visualDescription || input.outcome || "Product workflow", 96);
+  const visual = cleanVisibleText(scene.visualDescription || familyPlan.visualGoal || input.outcome || "Product workflow", 96);
   const product = brand.name;
 
   return [
@@ -252,9 +485,9 @@ function buildSceneElements(
       items: deriveFlowItems(scene, input, brandContext),
       emphasis: "primary",
     },
-    { id: "proof_panel", role: "panel", label: "Proof moment", text: visual, emphasis: "muted" },
-    { id: "metric_0", role: "metric", label: "Mode", value: productMetricLabel(scene), emphasis: "accent" },
-    { id: "cta", role: "cta", text: cleanVisibleText(input.outcome || "Turn brand context into launch assets", 90), emphasis: "accent" },
+    { id: "proof_panel", role: "panel", label: familyPanelLabel(familyPlan.family), text: visual, emphasis: "muted" },
+    { id: "metric_0", role: "metric", label: familyMetricLabel(familyPlan), value: familyMetricValue(familyPlan, scene), emphasis: "accent" },
+    { id: "cta", role: "cta", text: cleanVisibleText(familyCtaText(input, familyPlan), 90), emphasis: "accent" },
   ];
 }
 
@@ -318,13 +551,14 @@ function deriveFlowItems(
     .slice(0, 4);
 }
 
-function buildSourceMap(scene: SceneDescriptor, brandContext: SaasExplainerBrandContext): Record<string, unknown> {
+function buildSourceMap(scene: SceneDescriptor, brandContext: SaasExplainerBrandContext, familyPlan: SaasSceneFamilyPlan): Record<string, unknown> {
   return {
     scene: {
       index: scene.sceneIndex,
       title: "SceneDescriptor.title",
       narration: scene.narration ? "SceneDescriptor.narration" : null,
       visual: scene.visualDescription ? "SceneDescriptor.visualDescription" : null,
+      familyPlan,
     },
     brand: {
       source: brandContext.metadata.source,
@@ -393,13 +627,6 @@ function pickResolvedVoice(profile: SaasExplainerVoiceProfile): ResolvedSaasVoic
     providerVoiceId: profile.providerVoiceId,
     contentType: profile.contentType,
   };
-}
-
-function productMetricLabel(scene: SceneDescriptor): string {
-  if ((scene as any).sceneType === "montage") return "Multi-step";
-  if (scene.mood === "energetic") return "Fast path";
-  if (scene.mood === "serious") return "Control";
-  return "Product-led";
 }
 
 function cleanVisibleText(value: string, maxLength: number): string {

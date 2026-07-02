@@ -1,6 +1,6 @@
 import React from "react";
 import { Easing, interpolate, useCurrentFrame } from "remotion";
-import type { GeneratedSceneElement, GeneratedSceneOverlay } from "../../types";
+import type { GeneratedSceneElement, GeneratedSceneFamilyPlan, GeneratedSceneOverlay } from "../../types";
 
 type GeneratedSceneLike = GeneratedSceneOverlay & {
   sceneModel?: GeneratedSceneOverlay["sceneModel"] & Record<string, unknown>;
@@ -9,6 +9,17 @@ type GeneratedSceneLike = GeneratedSceneOverlay & {
 const DEFAULT_ITEMS = ["Plan", "Generate", "Review", "Publish"];
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_BALANCED = Easing.bezier(0.45, 0, 0.55, 1);
+
+const FALLBACK_FAMILY_PLAN: GeneratedSceneFamilyPlan = {
+  family: "workflow_demo",
+  evidenceSource: "scene_descriptor",
+  sourcePaths: ["SceneDescriptor"],
+  visualGoal: "Show a readable product workflow state.",
+  productUiState: "product workflow",
+  motionIntent: "balanced stepwise UI state change",
+  copyRole: "explain the workflow step",
+  claimMode: "synthetic_demo_only",
+};
 
 export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike }> = ({ overlay }) => {
   const frame = useCurrentFrame();
@@ -22,6 +33,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
   const panel = findElement(elements, "panel");
   const metric = findElement(elements, "metric");
   const cta = findElement(elements, "cta");
+  const familyPlan = normalizeFamilyPlan(model?.familyPlan);
   const caption = model?.captionTracks?.[0]?.text;
 
   const accent = safeColor(brand.accentColor, "#D4A652");
@@ -128,7 +140,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
               transform: `translateY(${(1 - proofIn) * 14}px)`,
             }}
           >
-            {panel?.text || model?.style?.uiTreatment || "Readable product proof with motion-led UI moments."}
+            {panel?.text || familyPlan.visualGoal || model?.style?.uiTreatment || "Readable product proof with motion-led UI moments."}
           </p>
         </section>
 
@@ -149,7 +161,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
             {[0, 1, 2].map((dot) => (
               <span key={dot} style={{ width: 12, height: 12, borderRadius: 999, background: dot === 0 ? accent : "rgba(255,255,255,0.22)" }} />
             ))}
-            <span style={{ marginLeft: 18, color: muted, fontSize: 18 }}>{shell?.label || "Product workspace"}</span>
+            <span style={{ marginLeft: 18, color: muted, fontSize: 18 }}>{shell?.label || familyPlan.productUiState || "Product workspace"}</span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "210px 1fr", minHeight: 562 }}>
             <aside style={{ padding: 24, borderRight: "1px solid rgba(255,255,255,0.1)", position: "relative" }}>
@@ -190,8 +202,8 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
               })}
             </aside>
             <main style={{ padding: 30, display: "grid", gridTemplateRows: "120px 1fr 118px", gap: 22, position: "relative" }}>
-              <MetricCards metricLabel={metric?.label} metricValue={metric?.value} activeStep={activeStep} accent={accent} text={text} muted={muted} localFrame={localFrame} />
-              <ProductProofPanel accent={accent} activeStep={activeStep} localFrame={localFrame} duration={duration} />
+              <MetricCards metricLabel={metric?.label} metricValue={metric?.value} familyPlan={familyPlan} activeStep={activeStep} accent={accent} text={text} muted={muted} localFrame={localFrame} />
+              <ProductProofPanel accent={accent} text={text} muted={muted} activeStep={activeStep} localFrame={localFrame} duration={duration} familyPlan={familyPlan} />
               <div
                 style={{
                   borderRadius: 18,
@@ -254,6 +266,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
 function MetricCards(props: {
   metricLabel?: string;
   metricValue?: string;
+  familyPlan: GeneratedSceneFamilyPlan;
   activeStep: number;
   accent: string;
   text: string;
@@ -261,9 +274,9 @@ function MetricCards(props: {
   localFrame: number;
 }) {
   const values = [
-    { label: "Brief", value: props.activeStep > 0 ? "Mapped" : "Active" },
-    { label: props.metricLabel || "Mode", value: props.metricValue || "Product-led" },
-    { label: "Ready", value: `${Math.round(interpolate(props.activeStep, [0, 3], [62, 96], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }))}%` },
+    { label: "Family", value: familyLabel(props.familyPlan.family) },
+    { label: props.metricLabel || "Focus", value: props.metricValue || familyFocusValue(props.familyPlan) },
+    { label: "Evidence", value: props.familyPlan.claimMode === "evidence_backed" ? "Sourced" : "Demo" },
   ];
 
   return (
@@ -296,16 +309,84 @@ function MetricCards(props: {
 
 function ProductProofPanel(props: {
   accent: string;
+  text: string;
+  muted: string;
   activeStep: number;
   localFrame: number;
   duration: number;
+  familyPlan: GeneratedSceneFamilyPlan;
 }) {
   const panelPulse = progress(props.localFrame, props.duration * 0.34, props.duration * 0.48, EASE_BALANCED);
+  const family = props.familyPlan.family;
+
+  if (family === "problem") {
+    return (
+      <div style={panelBaseStyle(props.accent)}>
+        {["Scattered inputs", "Slow review", "Launch drag"].map((label, index) => {
+          const rowIn = progress(props.localFrame, 34 + index * 10, 68 + index * 10, EASE_OUT);
+          return (
+            <div key={label} style={{ display: "grid", gridTemplateColumns: "42px 1fr 84px", alignItems: "center", gap: 18, marginBottom: 24, opacity: rowIn, transform: `translateX(${(1 - rowIn) * -24}px)` }}>
+              <span style={{ width: 28, height: 28, borderRadius: 999, border: `2px solid ${props.accent}`, background: `${props.accent}18` }} />
+              <div style={{ height: 24, borderRadius: 999, background: "rgba(255,255,255,0.12)" }} />
+              <div style={{ color: props.muted, fontSize: 16 }}>{label}</div>
+            </div>
+          );
+        })}
+        <div style={{ marginTop: 22, padding: 18, borderRadius: 16, background: `${props.accent}12`, color: props.text, fontSize: 22, fontWeight: 800 }}>
+          {props.familyPlan.productUiState}
+        </div>
+      </div>
+    );
+  }
+
+  if (family === "comparison") {
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        {["Before", "After"].map((label, index) => {
+          const sideIn = progress(props.localFrame, 36 + index * 14, 78 + index * 14, EASE_OUT);
+          return (
+            <div key={label} style={{ borderRadius: 18, background: index === 1 ? `${props.accent}18` : "rgba(255,255,255,0.055)", border: `1px solid ${index === 1 ? `${props.accent}44` : "rgba(255,255,255,0.11)"}`, padding: 22, opacity: sideIn, transform: `translateY(${(1 - sideIn) * 22}px)` }}>
+              <div style={{ color: index === 1 ? props.accent : props.muted, fontSize: 20, fontWeight: 800 }}>{label}</div>
+              {[0, 1, 2].map((bar) => <div key={bar} style={{ marginTop: 26, height: 22, borderRadius: 999, background: index === 1 && bar === props.activeStep % 3 ? `${props.accent}88` : "rgba(255,255,255,0.13)", width: `${82 - bar * 14}%` }} />)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (family === "proof_metric" || family === "social_proof") {
+    const ring = interpolate(panelPulse, [0, 1], [42, 78]);
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateColumns: "190px 1fr", gap: 28, alignItems: "center" }}>
+        <div style={{ width: 168, height: 168, borderRadius: 999, border: `14px solid ${props.accent}44`, boxShadow: `inset 0 0 0 ${ring}px ${props.accent}16`, display: "grid", placeItems: "center", color: props.accent, fontSize: 24, fontWeight: 900 }}>
+          {props.familyPlan.claimMode === "evidence_backed" ? "Proof" : "Demo"}
+        </div>
+        <div>
+          <div style={{ color: props.text, fontSize: 26, fontWeight: 850 }}>{props.familyPlan.visualGoal}</div>
+          <div style={{ marginTop: 24, height: 22, width: `${48 + panelPulse * 38}%`, borderRadius: 999, background: `${props.accent}88` }} />
+          <div style={{ marginTop: 18, height: 18, width: "62%", borderRadius: 999, background: "rgba(255,255,255,0.13)" }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (family === "cta" || family === "logo_outro") {
+    const cardIn = progress(props.localFrame, props.duration * 0.28, props.duration * 0.48, EASE_OUT);
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), display: "grid", placeItems: "center", textAlign: "center" }}>
+        <div style={{ width: 112, height: 112, borderRadius: 26, background: props.accent, boxShadow: `0 0 ${34 + panelPulse * 26}px ${props.accent}77`, transform: `scale(${0.84 + cardIn * 0.16})` }} />
+        <div style={{ marginTop: 26, color: props.text, fontSize: 30, fontWeight: 900 }}>{props.familyPlan.productUiState}</div>
+        <div style={{ marginTop: 16, color: props.muted, fontSize: 20, maxWidth: 520 }}>{props.familyPlan.visualGoal}</div>
+      </div>
+    );
+  }
+
   const focusX = [8, 54, 8, 54][props.activeStep] ?? 8;
   const focusY = [62, 62, 18, 18][props.activeStep] ?? 62;
 
   return (
-    <div style={{ borderRadius: 22, background: "rgba(255,255,255,0.045)", border: `1px solid ${props.accent}44`, padding: 24, position: "relative", overflow: "hidden" }}>
+    <div style={panelBaseStyle(props.accent)}>
       <div
         style={{
           position: "absolute",
@@ -323,41 +404,67 @@ function ProductProofPanel(props: {
       <div style={{ height: 18, width: `${52 + progress(props.localFrame, 42, 82, EASE_OUT) * 34}%`, background: `${props.accent}88`, borderRadius: 999 }} />
       {[0, 1, 2, 3].map((bar) => {
         const fill = progress(props.localFrame, 56 + bar * 10, 102 + bar * 10, EASE_OUT);
-        return (
-          <div
-            key={bar}
-            style={{
-              marginTop: 28,
-              height: 24,
-              width: `${30 + fill * (58 - bar * 8)}%`,
-              background: "rgba(255,255,255,0.12)",
-              borderRadius: 999,
-            }}
-          />
-        );
+        return <div key={bar} style={{ marginTop: 28, height: 24, width: `${30 + fill * (58 - bar * 8)}%`, background: "rgba(255,255,255,0.12)", borderRadius: 999 }} />;
       })}
       <div style={{ marginTop: 34, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         {[0, 1].map((card) => {
           const cardIn = progress(props.localFrame, props.duration * (card === 0 ? 0.32 : 0.48), props.duration * (card === 0 ? 0.46 : 0.62), EASE_OUT);
-          return (
-            <div
-              key={card}
-              style={{
-                height: 120,
-                borderRadius: 18,
-                background: card === props.activeStep % 2 ? `${props.accent}18` : "rgba(255,255,255,0.055)",
-                border: `1px solid ${card === props.activeStep % 2 ? `${props.accent}33` : "rgba(255,255,255,0.1)"}`,
-                opacity: cardIn,
-                transform: `translateY(${(1 - cardIn) * 18}px)`,
-              }}
-            />
-          );
+          return <div key={card} style={{ height: 120, borderRadius: 18, background: card === props.activeStep % 2 ? `${props.accent}18` : "rgba(255,255,255,0.055)", border: `1px solid ${card === props.activeStep % 2 ? `${props.accent}33` : "rgba(255,255,255,0.1)"}`, opacity: cardIn, transform: `translateY(${(1 - cardIn) * 18}px)` }} />;
         })}
       </div>
     </div>
   );
 }
 
+function normalizeFamilyPlan(plan: GeneratedSceneFamilyPlan | undefined): GeneratedSceneFamilyPlan {
+  if (!plan || !isSceneFamily(plan.family)) return FALLBACK_FAMILY_PLAN;
+  return {
+    ...FALLBACK_FAMILY_PLAN,
+    ...plan,
+    sourcePaths: Array.isArray(plan.sourcePaths) ? plan.sourcePaths : FALLBACK_FAMILY_PLAN.sourcePaths,
+  };
+}
+
+function isSceneFamily(value: unknown): value is GeneratedSceneFamilyPlan["family"] {
+  return ["hook", "problem", "workflow_demo", "feature_demo", "proof_metric", "comparison", "social_proof", "cta", "logo_outro"].includes(String(value));
+}
+
+function familyLabel(family: GeneratedSceneFamilyPlan["family"]): string {
+  const labels: Record<GeneratedSceneFamilyPlan["family"], string> = {
+    hook: "Hook",
+    problem: "Problem",
+    workflow_demo: "Workflow",
+    feature_demo: "Feature",
+    proof_metric: "Proof",
+    comparison: "Compare",
+    social_proof: "Trust",
+    cta: "CTA",
+    logo_outro: "Outro",
+  };
+  return labels[family];
+}
+
+function familyFocusValue(plan: GeneratedSceneFamilyPlan): string {
+  if (plan.family === "problem") return "Friction";
+  if (plan.family === "feature_demo") return "Focus";
+  if (plan.family === "proof_metric") return "Proof";
+  if (plan.family === "comparison") return "Shift";
+  if (plan.family === "cta") return "Next";
+  if (plan.family === "logo_outro") return "Recall";
+  return "Flow";
+}
+
+function panelBaseStyle(accent: string): React.CSSProperties {
+  return {
+    borderRadius: 22,
+    background: "rgba(255,255,255,0.045)",
+    border: `1px solid ${accent}44`,
+    padding: 24,
+    position: "relative",
+    overflow: "hidden",
+    minHeight: 0,
+  };
+}
 function findElement(elements: GeneratedSceneElement[], role: GeneratedSceneElement["role"]): GeneratedSceneElement | undefined {
   return elements.find((element) => element.role === role);
 }

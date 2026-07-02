@@ -413,6 +413,28 @@ export type HtmlSceneOverlay = BaseOverlay & {
   };
 };
 
+export type GeneratedSceneFamily =
+  | "hook"
+  | "problem"
+  | "workflow_demo"
+  | "feature_demo"
+  | "proof_metric"
+  | "comparison"
+  | "social_proof"
+  | "cta"
+  | "logo_outro";
+
+export type GeneratedSceneFamilyPlan = {
+  family: GeneratedSceneFamily;
+  evidenceSource: "brand_vault" | "script" | "product_url" | "reference_video" | "scene_descriptor";
+  sourcePaths: string[];
+  visualGoal: string;
+  productUiState: string;
+  motionIntent: string;
+  copyRole: string;
+  claimMode: "evidence_backed" | "synthetic_demo_only";
+};
+
 export type GeneratedSceneElement = {
   id: string;
   role: "headline" | "app-shell" | "panel" | "metric" | "caption" | "cta" | "logo-mark";
@@ -448,6 +470,7 @@ export type GeneratedSceneOverlay = BaseOverlay & {
       uiTreatment: string;
       motion: string;
     };
+    familyPlan?: GeneratedSceneFamilyPlan;
     voiceover: {
       script: string;
       status: "pending_tts" | "ready";
@@ -465,6 +488,9 @@ export type GeneratedSceneOverlay = BaseOverlay & {
       promptLeakChecked: true;
       brandTokensApplied: boolean;
       readableUiProof: true;
+      productSpecificVisualProof?: boolean;
+      motionChoreographyPlanned?: boolean;
+      finalVisualProof?: boolean;
     };
   };
   sourceMap: Record<string, unknown>;

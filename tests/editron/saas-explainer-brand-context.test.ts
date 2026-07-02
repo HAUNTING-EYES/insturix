@@ -200,27 +200,89 @@ describe("SaaS explainer Brand Vault context", () => {
     expect(context.promptBlock).toContain("Do not use stock-photo language");
 
     const overlays = buildSaasGeneratedSceneOverlays({
-      scenes: [{
-        sceneIndex: 0,
-        title: "Hook",
-        narration: "Launch trusted video systems in days.",
-        visualDescription: "Show the product dashboard and proof panel.",
-        videoMotionPrompt: "Slow push across the dashboard.",
-        audioDescription: "",
-        musicDescription: "",
-        sfxDescription: "",
-        durationSeconds: 6,
-        mood: "energetic",
-        imageQualityTokens: "clean SaaS dashboard",
-        videoQualityTokens: "subtle product demo motion",
-        generationUnitId: "unit_1",
-        primaryVisualForUnit: true,
-        sceneType: "continuous",
-        assetRecommendation: "ai-video",
-      }],
+      scenes: [
+        {
+          sceneIndex: 0,
+          title: "Hook",
+          narration: "Launch trusted video systems in days.",
+          visualDescription: "Show the product dashboard and proof panel.",
+          videoMotionPrompt: "Slow push across the dashboard.",
+          audioDescription: "",
+          musicDescription: "",
+          sfxDescription: "",
+          durationSeconds: 6,
+          mood: "energetic",
+          imageQualityTokens: "clean SaaS dashboard",
+          videoQualityTokens: "subtle product demo motion",
+          generationUnitId: "unit_1",
+          primaryVisualForUnit: true,
+          sceneType: "continuous",
+          assetRecommendation: "ai-video",
+        },
+        {
+          sceneIndex: 1,
+          title: "Problem",
+          narration: "Agency teams lose speed when launch work is scattered.",
+          visualDescription: "Show fragmented review, handoff, and production inputs before Signal House organizes the workflow.",
+          videoMotionPrompt: "Stack friction cards, then focus the product workspace.",
+          audioDescription: "",
+          musicDescription: "",
+          sfxDescription: "",
+          durationSeconds: 6,
+          mood: "serious",
+          imageQualityTokens: "clean SaaS dashboard",
+          videoQualityTokens: "measured product demo motion",
+          generationUnitId: "unit_2",
+          primaryVisualForUnit: true,
+          sceneType: "continuous",
+          assetRecommendation: "ai-video",
+        },
+        {
+          sceneIndex: 2,
+          title: "CTA",
+          narration: "Start with the system your team can actually run.",
+          visualDescription: "Resolve into a next-step product panel with the Signal House brand visible.",
+          videoMotionPrompt: "Settle into a clean action panel.",
+          audioDescription: "",
+          musicDescription: "",
+          sfxDescription: "",
+          durationSeconds: 6,
+          mood: "optimistic",
+          imageQualityTokens: "clean SaaS dashboard",
+          videoQualityTokens: "settled CTA motion",
+          generationUnitId: "unit_3",
+          primaryVisualForUnit: true,
+          sceneType: "continuous",
+          assetRecommendation: "ai-video",
+        },
+      ],
       dimensions: { width: 1920, height: 1080, fps: 30 },
       input: { durationSec: 45, aspectRatio: "16:9", brandId: "brand_signal" },
       brandContext: context,
+    });
+    const generatedScenes = overlays.filter((overlay) => overlay.type === "generated-scene");
+    expect(generatedScenes.map((overlay) => overlay.sceneModel.familyPlan.family)).toEqual(["hook", "problem", "cta"]);
+    expect(generatedScenes[0].sceneModel.familyPlan).toMatchObject({
+      evidenceSource: "brand_vault",
+      claimMode: "evidence_backed",
+      visualGoal: expect.stringContaining("Signal House"),
+      productUiState: expect.any(String),
+      motionIntent: expect.any(String),
+      copyRole: "open the product promise",
+    });
+    expect(generatedScenes[1].sceneModel.familyPlan).toMatchObject({
+      family: "problem",
+      evidenceSource: "brand_vault",
+      copyRole: "name the pain point",
+    });
+    expect(generatedScenes[2].sceneModel.familyPlan).toMatchObject({
+      family: "cta",
+      productUiState: "next-step action panel",
+      copyRole: "ask for the next action",
+    });
+    expect(generatedScenes[0].sourceMap.scene.familyPlan).toMatchObject({
+      family: "hook",
+      sourcePaths: expect.arrayContaining(["brandContext.defaults.brief"]),
     });
     const generatedScene = overlays.find((overlay) => overlay.type === "generated-scene");
     expect(generatedScene).toBeTruthy();
