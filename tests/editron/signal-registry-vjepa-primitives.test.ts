@@ -261,4 +261,81 @@ describe('signal registry V-JEPA primitive bridge', () => {
     expect(segmentAnalysis?.segments[0].visual).not.toBeNull();
     expect(segmentAnalysis?.segments[1].visual).toBeNull();
   });
+
+  it('projects holistic visual setup into global signals from SegmentAnalysis', () => {
+    const rawFootage = {
+      originalDurationMs: 3_000,
+      estimatedCleanDurationMs: 3_000,
+      transcription: { segments: [], words: [] },
+      silenceGaps: [],
+      contentTypeDetection: { contentType: 'product-demo', confidence: 0.8 },
+      segments: [{
+        startMs: 0,
+        endMs: 3_000,
+        text: 'screen walkthrough',
+        wordCount: 2,
+        fillerCount: 0,
+        silenceGapCount: 0,
+        avgWordGapMs: 120,
+      }],
+    } as any;
+
+    const segmentAnalysis = buildSegmentAnalysis(
+      rawFootage,
+      {
+        sourceVideoUrl: 'https://example.com/demo.mp4',
+        contentType: 'product-demo',
+        platform: 'youtube',
+        title: 'Demo',
+        overallMusicPrompt: '',
+        globalEditDirections: {
+          colorGrade: 'neutral',
+          pacing: 'medium',
+          graphicsDensity: 'moderate',
+          musicMood: '',
+          narrativeArc: 'hook-value-cta',
+        },
+        visualSetup: {
+          environment: 'screen-recording',
+          subjectCount: 0,
+          hasFace: false,
+          dominantShotScale: 'wide',
+          availableShotTypes: ['screen-share'],
+          lightingQuality: 'professional',
+          productionQuality: 'prosumer',
+          colorTemperature: 'cool',
+          hasBRoll: true,
+          cameraMovement: 'static',
+          visualComplexity: 0.74,
+          backgroundDescription: 'dashboard UI',
+          notableVisualElements: ['pricing table'],
+        },
+        scenes: [],
+        analyzedAt: '2026-07-03T00:00:00.000Z',
+      },
+      null,
+      null,
+      null,
+    );
+
+    const timeline = buildSignalTimelineFromAnalysis(segmentAnalysis!, [], rawFootage, [], 30);
+
+    expect(timeline.globalSignals).toEqual(expect.objectContaining({
+      'enrichment.visual_setup_source': 'gemini-visual-understanding',
+      'visual.environment': 'screen-recording',
+      'visual.scene_type': 'screen-recording',
+      'visual.shot_scale': 'wide',
+      'visual.dominant_shot_scale': 'wide',
+      'visual.has_face': 0,
+      'visual.subject_count': 0,
+      'visual.has_b_roll': 1,
+      'visual.camera_movement': 'static',
+      'visual.lighting_quality': 'professional',
+      'visual.production_quality_label': 'prosumer',
+      'visual.production_quality': 0.72,
+      'visual.color_temperature': 'cool',
+      'visual.visual_complexity': 0.74,
+      visual_complexity: 0.74,
+    }));
+  });
 });

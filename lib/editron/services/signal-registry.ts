@@ -1267,7 +1267,7 @@ export function buildSignalTimelineFromAnalysis(
     }
   }
 
-  return buildSignalTimeline(
+  const timeline = buildSignalTimeline(
     analyses,
     rawFootage,
     overlays,
@@ -1276,6 +1276,44 @@ export function buildSignalTimelineFromAnalysis(
     wav2vecSegments.length > 0 ? { segments: wav2vecSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
     essentiaAnalysis,
   );
+
+  applyVisualSetupGlobalSignals(timeline, segmentAnalysis.globalContext.visualSetup);
+  return timeline;
+}
+
+function applyVisualSetupGlobalSignals(
+  timeline: SignalTimeline,
+  visualSetup: SegmentAnalysis['globalContext']['visualSetup'] | null | undefined,
+): void {
+  if (!visualSetup) return;
+
+  timeline.globalSignals['enrichment.visual_setup_source'] = 'gemini-visual-understanding';
+  timeline.globalSignals['visual.environment'] = visualSetup.environment;
+  timeline.globalSignals['visual.scene_type'] = visualSetup.environment;
+  timeline.globalSignals['visual.shot_scale'] = visualSetup.dominantShotScale;
+  timeline.globalSignals['visual.dominant_shot_scale'] = visualSetup.dominantShotScale;
+  timeline.globalSignals['visual.has_face'] = visualSetup.hasFace ? 1 : 0;
+  timeline.globalSignals['visual.subject_count'] = Math.max(0, visualSetup.subjectCount);
+  timeline.globalSignals['visual.has_b_roll'] = visualSetup.hasBRoll ? 1 : 0;
+  timeline.globalSignals['visual.camera_movement'] = visualSetup.cameraMovement;
+  timeline.globalSignals['visual.lighting_quality'] = visualSetup.lightingQuality;
+  timeline.globalSignals['visual.production_quality_label'] = visualSetup.productionQuality;
+  timeline.globalSignals['visual.production_quality'] = productionQualityScore(visualSetup.productionQuality);
+  timeline.globalSignals['visual.color_temperature'] = visualSetup.colorTemperature;
+  timeline.globalSignals['visual.visual_complexity'] = clamp01(visualSetup.visualComplexity);
+  timeline.globalSignals['visual_complexity'] = clamp01(visualSetup.visualComplexity);
+}
+
+function productionQualityScore(value: NonNullable<SegmentAnalysis['globalContext']['visualSetup']>['productionQuality']): number {
+  if (value === 'professional') return 1;
+  if (value === 'prosumer') return 0.72;
+  if (value === 'casual') return 0.42;
+  return 0.18;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }
 
 /**
