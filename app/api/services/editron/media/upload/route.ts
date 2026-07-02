@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File too large. Maximum size is 3GB.' }, { status: 413 });
     }
 
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
 
     if (!userId) {
       return NextResponse.json(
@@ -119,6 +119,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const db = await getDatabase();
+    const completedMultipartUpload = await db.collection(COLLECTIONS.MEDIA_UPLOADS).findOne({
+      assetId,
+      userId,
+      status: 'completed',
+      storageUsageRecordedAt: { $exists: true },
+    });
+    const storageAlreadyRecorded = Boolean(completedMultipartUpload);
+    const storedSizeBytes = actualSize ?? (typeof size === 'number' ? size : Number(size) || 0);
+
+    if (!storageAlreadyRecorded) {
+      const { checkStorageQuota, formatStorageBytes } = await import('@/lib/services/storage-quota-service');
+      const quota = await checkStorageQuota(userId, orgId, storedSizeBytes);
+      if (!quota.allowed) {
+        try {
+          await deleteUploadedObject(gcsPath, assetId);
+        } catch (delErr: unknown) {
+          console.error('[Upload] failed to delete over-quota object:', delErr instanceof Error ? delErr.message : delErr);
+        }
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Storage limit reached (${formatStorageBytes(quota.usedBytes)} of ${formatStorageBytes(quota.limitBytes)} used). Free up space or upgrade your plan.`,
+            code: 'storage_quota_exceeded',
+          },
+          { status: 413 },
+        );
+      }
+    }
+
     // Determine file type
     let fileType: 'video' | 'audio' | 'image';
     if (type) {
@@ -179,16 +210,20 @@ export async function POST(request: NextRequest) {
       gcsPath,
       cachedUrl: readUrl,
       urlExpiresAt: new Date(readUrlExpiresAt),
-      size: actualSize ?? size ?? 0,
+      size: storedSizeBytes,
       thumbnail: thumbnail || undefined,
       duration: verifiedDuration,
       dimensions: parsedDimensions,
       uploadedAt: new Date(),
+      ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
     };
 
-    const db = await getDatabase();
     await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(mediaAsset);
+    if (!storageAlreadyRecorded) {
+      const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
+      await recordStorageUsage(resolveStorageOwner(userId, orgId), storedSizeBytes);
+    }
 
     // ── Trigger async asset analysis via QStash ──
     // Runs 5-Track analysis (video), Gemini Vision (image), or basic tagging (audio)
@@ -345,6 +380,17 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+async function deleteUploadedObject(gcsPath: string | null | undefined, r2Key: string): Promise<void> {
+  if (gcsPath) {
+    const { deleteFromGCS } = await import('@/lib/editron/services/gcs-service');
+    await deleteFromGCS(gcsPath);
+    return;
+  }
+
+  const { deleteFromR2 } = await import('@/lib/editron/services/r2-service');
+  await deleteFromR2(r2Key);
 }
 
 type AssetAnalysisRequestType = 'video' | 'image' | 'audio';

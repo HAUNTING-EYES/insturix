@@ -5,7 +5,7 @@
  * Updates the mediaUploads tracking record to 'completed'.
  * Returns the final public CDN URL for the assembled file.
  *
- * maxDuration = 60 — CompleteMultipartUpload on R2 can take time for large files.
+ * maxDuration = 60 because CompleteMultipartUpload on R2 can take time for large files.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,6 +17,7 @@ import {
 } from '@/lib/editron/services/r2-service';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import type { MultipartPart } from '@/lib/editron/services/r2-service';
+import { recordStorageUsage, resolveStorageOwner } from '@/lib/services/storage-quota-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -25,7 +26,7 @@ const MEDIA_UPLOADS_COLLECTION = 'mediaUploads';
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
@@ -69,7 +70,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Abort path ──
     if (abort) {
       await abortMultipartUpload(upload.r2Key, uploadId);
       await db.collection(MEDIA_UPLOADS_COLLECTION).updateOne(
@@ -80,7 +80,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, aborted: true });
     }
 
-    // ── Complete path ──
     if (!parts?.length) {
       return NextResponse.json(
         { success: false, error: 'Missing parts[] for complete (or set abort: true)' },
@@ -88,10 +87,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Assemble all parts on R2
     const publicUrl = await completeMultipartUpload(upload.r2Key, uploadId, parts);
 
-    // Mark tracking record as completed
     await db.collection(MEDIA_UPLOADS_COLLECTION).updateOne(
       { assetId, userId },
       {
@@ -104,7 +101,19 @@ export async function POST(request: NextRequest) {
       },
     );
 
-    console.log(`[Multipart] Complete: ${assetId} (${parts.length} parts) → ${publicUrl}`);
+    const storedBytes = Number(upload.totalSize) || 0;
+    await recordStorageUsage(resolveStorageOwner(userId, upload.orgId ?? orgId), storedBytes);
+    await db.collection(MEDIA_UPLOADS_COLLECTION).updateOne(
+      { assetId, userId },
+      {
+        $set: {
+          storageUsageRecordedAt: new Date(),
+          storageUsageBytes: storedBytes,
+        },
+      },
+    );
+
+    console.log(`[Multipart] Complete: ${assetId} (${parts.length} parts) -> ${publicUrl}`);
 
     return NextResponse.json({
       success: true,
