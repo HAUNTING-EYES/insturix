@@ -1085,6 +1085,7 @@ export function useExportPipeline(
               aspectRatio,
               sceneIndices: allSceneIndices,
               videoModel,
+              brandId: sourceBrandId || undefined,
               enableChaining,
             }),
           });

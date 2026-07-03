@@ -14,6 +14,7 @@ import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-track-analysis';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { addProjectToLink } from '@/lib/shared/project-links';
+import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -233,6 +234,23 @@ export async function POST(
       );
     }
 
+    const brandReferenceIssue = await resolveStoryboardBrandReferenceIssue({
+      storyboard,
+      userId,
+      brandId,
+    });
+    if (brandReferenceIssue) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: brandReferenceIssue.message,
+          reason: brandReferenceIssue.reason,
+          brandReferenceIssue,
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
     // Deduct base finalize credits. Generated BGM/SFX are billed separately below.
     const deductResult = await CreditsService.deductCredits(
       userId, 'pipeline', 'storyboard_finalize',

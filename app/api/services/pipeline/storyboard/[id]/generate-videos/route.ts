@@ -30,6 +30,7 @@ import {
 } from '@/lib/pipeline/llm-scene-parser';
 import { getActualVideoDuration } from '@/lib/pipeline/adapters/video-model-configs';
 import { getDatabase } from '@/lib/editron/db/mongodb';
+import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -69,12 +70,14 @@ export async function POST(
       provider,
       aspectRatio,
       videoModel,
+      brandId,
       enableChaining = false,
     }: {
       sceneIndices?: number[];
       provider?: VideoProvider;
       aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
       videoModel?: FalVideoModel | 'auto';
+      brandId?: string;
       /** Enable cross-scene chaining (next scene's image as end-frame). Default: false */
       enableChaining?: boolean;
     } = body;
@@ -87,6 +90,23 @@ export async function POST(
       );
     }
 
+    const brandReferenceIssue = await resolveStoryboardBrandReferenceIssue({
+      storyboard,
+      userId,
+      brandId,
+    });
+    if (brandReferenceIssue) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: brandReferenceIssue.message,
+          reason: brandReferenceIssue.reason,
+          brandReferenceIssue,
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
     // E1 FIX: Check for active video generation batch — prevent concurrent runs
     const db0 = await getDatabase();
     const activeBatch = await db0.collection(VIDEO_BATCHES_COLLECTION).findOne({
