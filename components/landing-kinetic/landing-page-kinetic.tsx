@@ -176,6 +176,8 @@ function StartupBaseBadges() {
           src="https://statics.startupbase.io/site/badges/featured-on-sb-dark.svg"
           alt="Featured on StartupBase"
           height={55}
+          loading="lazy"
+          fetchPriority="low"
         />
       </a>
     </div>
