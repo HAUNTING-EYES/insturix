@@ -133,6 +133,7 @@ export type AtomicOverlayAtomKind =
   | 'emotion-arousal'
   | 'topic-shift'
   | 'rhythm-density'
+  | 'content-signal'
   | 'brand-vibe'
   | 'screen-region'
   | 'safe-zone'

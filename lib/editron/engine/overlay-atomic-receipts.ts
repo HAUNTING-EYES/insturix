@@ -91,7 +91,8 @@ export function isAtomicOverlayReceiptCurrent(overlay: Overlay): boolean {
     && optionalAtomMatches(receipt, "font-weight", "text.font_weight", styleLike.fontWeight)
     && optionalAtomMatches(receipt, "text-color", "text.color", styleLike.color)
     && optionalAtomMatches(receipt, "background-color", "style.background_color", styleLike.backgroundColor)
-    && optionalAtomMatches(receipt, "border-radius", "style.border_radius", styleLike.borderRadius);
+    && optionalAtomMatches(receipt, "border-radius", "style.border_radius", styleLike.borderRadius)
+    && contentSignalAtomsCurrent(receipt, overlay);
 }
 
 export function withAtomicOverlayReceipt<T extends Overlay>(
@@ -107,7 +108,8 @@ export function withAtomicOverlayReceipt<T extends Overlay>(
     : [];
   const family = overlayFamily(String(overlay.type));
   const momentBundle = options.momentBundle ?? atomicMomentBundleFromMetadata(metadata);
-  const signalOverrides = overlaySignalOverrides(metadata, options, momentBundle);
+  const overlayContentSignals = overlayContentSignalOverrides(overlay);
+  const signalOverrides = overlaySignalOverrides(metadata, options, momentBundle, overlayContentSignals);
   const brandInputs = compactRecord({
     ...(recordFromUnknown(metadata?.atomicOverlayBrand) ?? {}),
     ...(recordFromUnknown(metadata?.brandInputs) ?? {}),
@@ -233,6 +235,7 @@ function overlayAtoms(
   const displayConfig = String(overlay.type) === "caption" && "displayConfig" in overlay && isRecord(overlay.displayConfig)
     ? overlay.displayConfig as unknown as CaptionDisplayConfig
     : undefined;
+  atoms.push(...contentSignalAtoms(signals));
   const themeTokens = text.trim() && signals ? resolveMotionTokens(contentSignalsFromSignals(signals), brandInputs) : undefined;
   const resolvedCaptionDisplay = String(overlay.type) === "caption"
     ? resolveCaptionDisplay(text, displayConfig, signals, themeTokens)
@@ -758,6 +761,34 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function contentSignalAtoms(signals?: Record<string, unknown>): AtomicOverlayAtom[] {
+  if (!signals) return [];
+  return Object.entries(contentSignalsFromSignals(signals))
+    .flatMap(([key, value]) => {
+      if (typeof value !== "number" && typeof value !== "string" && typeof value !== "boolean") return [];
+      return [overlayAtom("content-signal", `content_signal.${key}`, value, contentSignalStrength(value), "derived-signal")];
+    });
+}
+
+function contentSignalAtomsCurrent(receipt: AtomicOverlayReceipt, overlay: Overlay): boolean {
+  const expected = contentSignalAtoms(overlayContentSignalOverrides(overlay));
+  if (expected.length === 0) return true;
+  return expected.every((expectedAtom) => {
+    const actual = receipt.atoms.find((atom) => atom.kind === "content-signal" && atom.key === expectedAtom.key);
+    return actual ? atomValueMatches(actual.value, expectedAtom.value) : false;
+  });
+}
+
+function contentSignalStrength(value: number | string | boolean): number {
+  if (typeof value === "number") return Math.abs(value);
+  return value ? 1 : 0;
+}
+
+function atomValueMatches(actual: unknown, expected: unknown): boolean {
+  if (typeof actual === "number" && typeof expected === "number") return Math.abs(actual - expected) < 0.000001;
+  return actual === expected;
+}
+
 function contentSignalsFromSignals(signals: Record<string, unknown>): Partial<ContentSignals> {
   return compactRecord({
     formality: signalNumber(signals, "formality", "content.formality", "personality.formality", "brand.formality"),
@@ -873,6 +904,11 @@ function recordFromUnknown(value: unknown): Record<string, unknown> | undefined 
   return isRecord(value) ? value : undefined;
 }
 
+function overlayContentSignalOverrides(overlay: Overlay): Record<string, unknown> | undefined {
+  const contentSignals = recordFromUnknown((overlay as Overlay & { contentSignals?: unknown }).contentSignals);
+  return contentSignals && Object.keys(contentSignals).length > 0 ? contentSignals : undefined;
+}
+
 function atomicMomentBundleFromMetadata(metadata: OverlayMetadata | undefined): AtomicMomentBundle | undefined {
   const candidate = metadata?.atomicMomentBundle;
   if (!isRecord(candidate) || candidate.version !== "moment-bundle-v1") return undefined;
@@ -884,11 +920,13 @@ function overlaySignalOverrides(
   metadata: OverlayMetadata | undefined,
   options: AtomicOverlayReceiptOptions,
   momentBundle?: AtomicMomentBundle,
+  overlayContentSignals?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   const merged = compactRecord({
     ...(momentBundle ? momentBundleToSignalMap(momentBundle) : {}),
     ...(recordFromUnknown(metadata?.rawSignals) ?? {}),
     ...(recordFromUnknown(metadata?.signals) ?? {}),
+    ...(overlayContentSignals ?? {}),
     ...(recordFromUnknown(metadata?.atomicOverlaySignals) ?? {}),
     ...(recordFromUnknown(options.signals) ?? {}),
   });
