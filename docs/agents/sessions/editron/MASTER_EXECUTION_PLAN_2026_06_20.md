@@ -26,9 +26,11 @@ Current status of those handoff tasks (code-verified 2026-06-30):
 2. **P1 Embedding 404 -- DONE IN CODE.** Live code no longer calls `text-embedding-004`; the shared Gemini embedding
    helper uses `gemini-embedding-001` with `outputDimensionality=768`, and the Python Graphiti path uses the same
    768-dimensional contract. Remaining work is only data backfill/ops if old assets still have null vectors.
-3. **P1 Auto-BGM speech-rhythm false suppression -- DONE IN CODE, L3 VERIFY STILL NEEDED.** Source music detection
-   no longer treats speech-derived BPM as music by itself; regression covers speech-only talking head. A fresh run
-   with `FAL_AI_API_KEY` + `QSTASH_TOKEN` must still prove a real BGM overlay lands when the recommendation says yes.
+3. **P1/P7 Auto-BGM source-music contract -- DONE IN CODE, L3 VERIFY STILL NEEDED.** Source music detection
+   no longer treats speech-derived BPM as music by itself and now consumes project-level Essentia `musicAnalysis`
+   when per-asset `musicStructure` is absent; regressions cover speech-only false positives and project-level music
+   analysis. A fresh run with `FAL_AI_API_KEY` + `QSTASH_TOKEN` must still prove a real BGM overlay lands when the
+   recommendation says yes.
 4. **P2 Transition produce-then-suppress -- DONE IN CODE.** `signal-executor.ts` pre-gates signal transitions against
    clip boundaries/pairs and annotates `transitionProducerGate`; focused signal/unified-bundle tests pass.
 5. **P2 Chapter-concat for >15-min renders -- BUILT AND PLAN-MARKED LIVE, OPS VERIFY ONLY.** The Modal concat path,
@@ -82,10 +84,12 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 Source run: `proj_evz_c18y-cd5` / `front-end-log-export-2026-07-03T06-55-08.csv`.
 These are plan amendments, not a new roadmap.
 
-1. **P7 Auto-BGM music-analysis contract mismatch.** TRIBE/Essentia produced project-level
+1. **P7 Auto-BGM music-analysis contract mismatch - FIXED IN CODE, L3 VERIFY STILL NEEDED.** TRIBE/Essentia produced project-level
    `musicAnalysis` (`musicPresence`, BPM, beats, sections), but Auto-BGM reason still reported
-   `sourceMusicConfidence=0.00; no music-structure analysis`. Root contract: BGM recommendation
-   must consume project-level music analysis, not only `analyses[].musicStructure`.
+   `sourceMusicConfidence=0.00; no music-structure analysis` in the 2026-07-03 run. Current code now passes
+   `projectDoc.musicAnalysis` from both Path E and Path D into `computeGenreParameters`, and
+   `genre-parameter-computer.test.ts` proves project-level Essentia analysis is consumed when asset-level
+   `musicStructure` is absent. Remaining work is live proof that the async BGM worker actually creates the overlay.
 2. **P0 rendered-evidence signal propagation mismatch - FIXED IN CODE 2026-07-03.** Persisted MG overlays contain
    `cinematic_moment` / `narrative_pressure`, but the Phase0 rendered-evidence path logged them
    missing while scoring samples. Root contract: render/judge code must evaluate the same MG
