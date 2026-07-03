@@ -90,6 +90,9 @@ export function ClickatronHandoffPanel({
     ...(handoffState?.requiredUserInput || []).map((message) => ({ message })),
     ...(handoffState?.issues || []),
   ].slice(0, 3);
+  const visualPlanApproval = handoffState?.approval;
+  const needsVisualPlanApproval = Boolean(visualPlanApproval?.visualPlanRequired && !visualPlanApproval.visualPlanApproved);
+  const approvedVisualPlan = Boolean(visualPlanApproval?.visualPlanApproved);
   const debugPayload = handoffState
     ? JSON.stringify({
         status: handoffState.status,
@@ -250,6 +253,38 @@ export function ClickatronHandoffPanel({
             </p>
           ))}
         </div>
+      )}
+
+      {needsVisualPlanApproval && (
+        <button
+          type="button"
+          onClick={() => setVisualChoice("approvedVisualPlan", "true")}
+          style={{
+            marginTop: 10,
+            width: "100%",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            borderRadius: 4,
+            border: "1px solid rgba(94,201,126,0.28)",
+            background: "rgba(94,201,126,0.1)",
+            color: "#9FE3AE",
+            padding: "8px 10px",
+            fontSize: 11,
+            fontWeight: 700,
+          }}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Approve visual plan
+        </button>
+      )}
+
+      {approvedVisualPlan && (
+        <p style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#9FE3AE" }}>
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Visual plan approved for Clickatron.
+        </p>
       )}
 
       {debugPayload && (

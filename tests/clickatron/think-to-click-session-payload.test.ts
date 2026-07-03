@@ -152,6 +152,59 @@ describe("ThinkForge to Clickatron session payload", () => {
     expect(() => buildClickatronSessionFormData(state)).toThrow("not ready to send: needs_user_input");
   });
 
+  it("builds Clickatron FormData after a derived carousel plan is approved", () => {
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_123",
+      scriptId: "script_456",
+      blocks: sourceBlocks(),
+      userVisualChoices: {
+        kind: "carousel",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+        imageStyle: "editorial",
+      },
+      projectMeta: {
+        brandId: "brand_current",
+      },
+    });
+    const state = buildThinkToClickHandoffState({
+      context,
+      blocks: sourceBlocks(),
+      userVisualChoices: {
+        kind: "carousel",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+        imageStyle: "editorial",
+        approvedVisualPlan: "true",
+      },
+    });
+
+    const formData = buildClickatronSessionFormData(state);
+    const metadata = JSON.parse(String(formData.get("metadata")));
+
+    expect(state.status).toBe("ready");
+    expect(state.canSendToClickatron).toBe(true);
+    expect(state.payloadPreview?.readyToGenerate).toBe(true);
+    expect(state.requiredUserInput).toEqual([]);
+    expect(state.approval).toMatchObject({
+      visualPlanRequired: true,
+      visualPlanApproved: true,
+      reasonCodes: ["derived_from_visible_content"],
+    });
+    expect(metadata.clickatron.creativeSpec.kind).toBe("carousel");
+    expect(metadata.clickatron.creativeSpec.renderPlan.slides).toHaveLength(1);
+    expect(metadata.clickatron.creativeSpec.validation.status).toBe("ready");
+    expect(metadata.clickatron.creativeSpec.validation.needsUserInput).toBeUndefined();
+    expect(metadata.clickatronHandoff.visualPlanApproval).toMatchObject({
+      visualPlanApproved: true,
+      reasonCodes: ["derived_from_visible_content"],
+    });
+  });
+
   it("builds Clickatron FormData from post writer output with a real image prompt", () => {
     const context = buildThinkToClickContext({
       sessionId: "tf_session_123",

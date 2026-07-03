@@ -621,6 +621,12 @@ export default function ThinkForgeLanding() {
 	// Handlers using autosave hook
 	const handleApplyEdit = useCallback((updated: Script) => {
 		const model = scriptToModel(updated);
+		const metadata = ((updated as any).metadata || {}) as Record<string, unknown>;
+		const isRemoteAiUpdate = metadata.source === 'ai';
+		if (isRemoteAiUpdate) {
+			scriptHook.setScriptWithoutSave(model);
+			return;
+		}
 		scriptHook.setScriptAndQueueSave(model);
 	}, [scriptHook, scriptToModel]);
 

@@ -41,6 +41,23 @@ function normalizeMessage(m: any): ChatMessage {
   };
 }
 
+function normalizeRemoteScriptUpdate(script: any, metadata?: Record<string, any> | null, fallbackWorkflow = 'create') {
+  const mergedMetadata = {
+    ...(script?.metadata && typeof script.metadata === 'object' ? script.metadata : {}),
+    ...(metadata && typeof metadata === 'object' ? metadata : {}),
+  };
+
+  return {
+    ...script,
+    metadata: {
+      ...mergedMetadata,
+      workflow: mergedMetadata.workflow || fallbackWorkflow,
+      source: mergedMetadata.source || 'ai',
+    },
+  };
+}
+
+
 export function useThinkForgeChat(sessionId: string | null, threadId: string | null, initialMessages?: any[], options?: ChatHookOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -340,11 +357,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             setGenerationMessage(data.message);
           }
         } else if (data?.type === 'script_update') {
+          const remoteScript = normalizeRemoteScriptUpdate(data.script, data.metadata, data?.metadata?.workflow || 'create');
           if (options?.onScriptUpdate) {
-            options.onScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+            options.onScriptUpdate(remoteScript);
           }
           if (optionsRef.current?.onRemoteScriptUpdate) {
-            optionsRef.current.onRemoteScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+            optionsRef.current.onRemoteScriptUpdate(remoteScript);
           }
         } else if (data?.type === 'thinking') {
           if (data.content) {
@@ -407,7 +425,8 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options.scriptId)}`, { cache: 'no-store' });
             if (res.ok) {
               const data = await res.json();
-              optionsRef.current.onRemoteScriptUpdate(data);
+              const fallbackWorkflow = intentRef.current === 'edit' ? 'edit' : 'create';
+              optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow));
             }
           } catch (e) {
             console.error('[useThinkForgeChat] fallbackResync script fetch failed:', e);
@@ -555,7 +574,8 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         setGenerationProgress(null);
         setGenerationMessage(null);
         if (data.script && optionsRef.current?.onRemoteScriptUpdate) {
-          optionsRef.current.onRemoteScriptUpdate(data.script);
+          const fallbackWorkflow = gen.type === 'script_edit' ? 'edit' : 'create';
+          optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data.script, data.script?.metadata, fallbackWorkflow));
         }
         await refreshMessages();
       } else if (gen.status === 'cancelled') {

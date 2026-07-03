@@ -22,6 +22,7 @@ export interface ThinkToClickUserVisualChoices {
   vibe?: string;
   imageStyle?: string;
   notes?: string;
+  approvedVisualPlan?: boolean | string;
 }
 
 export interface ThinkToClickSessionPayloadPreview {
@@ -46,6 +47,11 @@ export interface ThinkToClickHandoffState {
   isBlocked: boolean;
   issues: ClickatronCreativeValidationIssue[];
   requiredUserInput: string[];
+  approval?: {
+    visualPlanRequired: boolean;
+    visualPlanApproved: boolean;
+    reasonCodes: string[];
+  };
   display: {
     statusLabel: string;
     readinessCopy: string;
@@ -106,6 +112,20 @@ const STATUS_COPY: Record<ThinkToClickHandoffStatus, { label: string; readinessC
   missing_sidecar: { label: "Missing sidecar", readinessCopy: "This ThinkForge output has no Clickatron creative sidecar yet." },
 };
 
+const VISUAL_PLAN_APPROVAL_ISSUE_CODES = new Set([
+  "derived_from_visible_content",
+  "carousel_slides_derived_from_single_prompt",
+  "carousel_slides_recovered_from_visible_blocks",
+]);
+
+function hasApprovedVisualPlan(choices?: ThinkToClickUserVisualChoices | null): boolean {
+  return choices?.approvedVisualPlan === true || choices?.approvedVisualPlan === "true";
+}
+
+function visualPlanApprovalReasonCodes(issues: ClickatronCreativeValidationIssue[]): string[] {
+  return [...new Set(issues.map((issue) => issue.code).filter((code) => VISUAL_PLAN_APPROVAL_ISSUE_CODES.has(code)))];
+}
+
 export function buildThinkToClickHandoffState(input: ThinkToClickHandoffInput): ThinkToClickHandoffState {
   const parsed = readCreativeSpec(input.context);
   if (!parsed.spec) {
@@ -124,16 +144,20 @@ export function buildThinkToClickHandoffState(input: ThinkToClickHandoffInput): 
     validation.issues.push(issueOf("missing_session_draft", "Clickatron session draft is missing from the ThinkForge context.", "error"));
   }
 
-  const canSendToClickatron = validation.status === "ready" && Boolean(payloadPreview?.readyToGenerate);
+  const effectivePayloadPreview = payloadPreview
+    ? { ...payloadPreview, readyToGenerate: validation.status === "ready" }
+    : undefined;
+  const canSendToClickatron = validation.status === "ready" && Boolean(effectivePayloadPreview?.readyToGenerate);
   return {
     status: validation.status,
     canSendToClickatron,
     isBlocked: !canSendToClickatron,
     issues: validation.issues,
     requiredUserInput: validation.requiredUserInput,
+    ...(validation.approval ? { approval: validation.approval } : {}),
     display: displayFor(parsed.spec, validation.status, source, input.userVisualChoices),
     debug: debugFor(parsed.spec, input.context, source, parsed.error),
-    ...(payloadPreview ? { payloadPreview } : {}),
+    ...(effectivePayloadPreview ? { payloadPreview: effectivePayloadPreview } : {}),
   };
 }
 
@@ -180,9 +204,15 @@ function effectiveValidation(
   spec: ClickatronCreativeSpec,
   input: ThinkToClickHandoffInput,
   missingSourceBlockIds: string[],
-): { status: ClickatronValidationStatus; issues: ClickatronCreativeValidationIssue[]; requiredUserInput: string[] } {
+): {
+  status: ClickatronValidationStatus;
+  issues: ClickatronCreativeValidationIssue[];
+  requiredUserInput: string[];
+  approval?: NonNullable<ThinkToClickHandoffState["approval"]>;
+} {
   let status = spec.validation.status;
   const issues = [...(spec.validation.issues || [])];
+  let requiredUserInput = [...(spec.validation.needsUserInput || [])];
   const storedHash = toNonEmptyString(spec.source.contentHash);
   const currentHash = toNonEmptyString(input.currentContentHash);
 
@@ -194,7 +224,21 @@ function effectiveValidation(
     status = status === "invalid" ? status : "stale";
     issues.push(issueOf("source_blocks_missing", "One or more source blocks referenced by the sidecar are missing.", "warning"));
   }
-  return { status, issues, requiredUserInput: spec.validation.needsUserInput || [] };
+
+  const reasonCodes = visualPlanApprovalReasonCodes(issues);
+  const visualPlanRequired = status === "needs_user_input" && reasonCodes.length > 0;
+  const visualPlanApproved = visualPlanRequired && hasApprovedVisualPlan(input.userVisualChoices);
+  const approval = visualPlanRequired || visualPlanApproved
+    ? { visualPlanRequired: true, visualPlanApproved, reasonCodes }
+    : undefined;
+
+  if (visualPlanApproved) {
+    status = "ready";
+    requiredUserInput = [];
+    issues.push(issueOf("visual_plan_approved_by_user", "User reviewed and approved the derived Clickatron visual plan.", "info"));
+  }
+
+  return { status, issues, requiredUserInput, ...(approval ? { approval } : {}) };
 }
 
 function displayFor(
@@ -300,6 +344,7 @@ function resolvedChoices(spec: ClickatronCreativeSpec, choices?: ThinkToClickUse
     vibe: toNonEmptyString(choices?.vibe),
     imageStyle: toNonEmptyString(choices?.imageStyle),
     notes: toNonEmptyString(choices?.notes),
+    approvedVisualPlan: hasApprovedVisualPlan(choices) || undefined,
   });
 }
 

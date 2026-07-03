@@ -60,6 +60,12 @@ export function ExportToEditronDialog({
 
   const { step, stepDescription, handleClose } = pipeline;
 
+  const handleDialogOpenChange = React.useCallback((nextOpen: boolean) => {
+    if (!nextOpen) {
+      handleClose();
+    }
+  }, [handleClose]);
+
   // Wider dialog for reference review step
   const maxWidth =
     step === "reviewing-references"
@@ -67,9 +73,9 @@ export function ExportToEditronDialog({
       : "sm:max-w-[520px]";
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-y-auto rounded-md`}
+        className={`${maxWidth} text-[#ECE9E1] p-0 overflow-y-auto rounded-md [&>button:last-child]:z-30 [&>button:last-child]:text-[#B5B2A8] [&>button:last-child]:hover:text-[#ECE9E1]`}
         style={{
           background: "#131312",
           borderColor: "#282724",
