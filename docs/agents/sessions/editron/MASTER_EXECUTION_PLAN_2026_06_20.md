@@ -371,7 +371,7 @@ From whole-track to moment-scoped groups:
 ### Phase 4 - Visual perception and visual cut intelligence
 Add a VLM/perception layer after V-JEPA + transcript/audio analysis and before the Director/planner. This is perception, not decision authority.
 
-Current implementation note (code-verified 2026-07-03): the first P4 slice exists. `video-analysis/route.ts` runs a pre-cut V-JEPA pass, calls `refineCutPlanWithVisualIntelligence`, replaces the raw `silenceRemovalPlan`, persists `intelligence.visualCutIntelligence`, and then the existing silence-removal executor applies that refined plan. This covers V-JEPA-based visual protection, visual dead-air removal, and visual-boundary split actions. It does **not** complete the full semantic VLM layer, calibration, real rendered proof, or overlay-placement use of perception facts.
+Current implementation note (code-verified 2026-07-03): the first P4 slice exists. video-analysis/route.ts runs a pre-cut V-JEPA pass, calls refineCutPlanWithVisualIntelligence, replaces the raw silenceRemovalPlan, persists intelligence.visualCutIntelligence, and then the existing silence-removal executor applies that refined plan. This covers V-JEPA-based visual protection, visual dead-air removal, visual-boundary split actions, and a persisted visualCutIntelligence.perception summary for downstream planners (primary visual mode, subject/text/motion ratios, negative-space preference, placement trust, explainability, and missing evidence). It does not complete the full semantic VLM layer, calibration, real rendered proof, or actual overlay-placement consumption of those perception facts.
 
 Inputs:
 - V-JEPA dense primitives and coverage/degraded-mode policy
