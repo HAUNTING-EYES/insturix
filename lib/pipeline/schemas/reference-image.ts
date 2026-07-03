@@ -44,6 +44,7 @@ export interface ReferenceImageSet {
   refSetId: string;
   userId: string;
   sourceScriptId?: string;
+  brandId?: string;
   subjects: SubjectReference[];
   status: 'generating' | 'ready' | 'approved' | 'partial' | 'error';
   createdAt: Date;
