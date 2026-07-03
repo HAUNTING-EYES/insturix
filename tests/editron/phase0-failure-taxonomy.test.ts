@@ -283,6 +283,38 @@ describe('phase0 failure taxonomy', () => {
     expect(taxonomy.summary.warn).toBeGreaterThan(0);
   });
 
+  it('does not flag MG atomic spine incomplete when semantic atoms use persisted metadata/content object shape', () => {
+    const project = cleanProject();
+    const mg = project.overlays?.find((overlay) => overlay.type === 'motion-graphic');
+    expect(mg).toBeTruthy();
+    if (!mg) return;
+
+    mg.content = {
+      semanticAtoms: { identity: { name: 'Hank Green' }, evidencePhrase: { text: 'creator context' } },
+      relations: { introduces: { from: 'identity', to: 'evidencePhrase' } },
+    };
+    mg.metadata = {
+      atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+      atomicOverlayReceipt: { family: 'motion-graphic' },
+      semanticAtoms: { identity: { name: 'Hank Green' }, evidencePhrase: { text: 'creator context' } },
+      relations: { introduces: { from: 'identity', to: 'evidencePhrase' } },
+    };
+
+    const manifest = buildPhase0FixtureManifest(project);
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_mg_persisted_shape',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(manifest.overlayFamilies.motionGraphics[0]).toMatchObject({
+      hasAtomicPlan: true,
+      hasAtomicReceipt: true,
+      semanticAtomCount: 2,
+      relationCount: 1,
+    });
+    expect(taxonomy.classes.map((item) => item.id)).not.toContain('overlay.mg_atomic_spine_incomplete');
+  });
+
   it('fails when the render artifact pack is missing or not renderable', () => {
     const project: Phase0FixtureProject = {
       projectId: 'proj_no_render',

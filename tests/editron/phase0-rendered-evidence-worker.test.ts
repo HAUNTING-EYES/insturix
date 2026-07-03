@@ -82,6 +82,7 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.renderedQualityEvidence).toMatchObject({
       qualityEvidenceSource: 'rendered-aesthetic',
       renderedAestheticSampledFrames: 2,
+      renderedAestheticArtifactAccess: 'worker-local',
     });
     expect(evidence.renderedAestheticReport?.frames?.[0]).toMatchObject({
       fullStill: expect.stringContaining('/full-f'),
@@ -90,7 +91,10 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.phase0LiveTruth).toMatchObject({
       source: 'phase0-rendered-evidence-worker',
       renderArtifacts: { status: 'rendered' },
-      qualityEvidence: { qualityEvidenceSource: 'rendered-aesthetic' },
+      qualityEvidence: {
+        qualityEvidenceSource: 'rendered-aesthetic',
+        renderedAestheticArtifactAccess: 'worker-local',
+      },
     });
     expect(evidence.phase0LiveTruth?.failureClasses.map((item) => item.id)).not.toContain('render.artifact_pack_missing');
   });
@@ -125,6 +129,7 @@ describe('phase0 rendered evidence worker service', () => {
       renderedAestheticStatus: 'fail',
       renderedAestheticFailFrameCount: 1,
       renderedAestheticSampledFrames: 1,
+      renderedAestheticArtifactAccess: 'worker-local',
     });
     expect(evidence.renderedAestheticReport?.frames?.[0]?.report?.issues).toEqual(
       expect.arrayContaining([

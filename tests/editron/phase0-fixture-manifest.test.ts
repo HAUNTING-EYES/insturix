@@ -555,6 +555,59 @@ describe('phase0 fixture manifest', () => {
     });
   });
 
+  it('counts MG semantic atoms persisted under metadata and content object contracts', () => {
+    const manifest = buildPhase0FixtureManifest(baseProject({
+      overlays: [
+        {
+          id: 'mg-metadata-semantic',
+          type: 'motion-graphic',
+          from: 0,
+          durationInFrames: 30,
+          content: 'metadata-backed semantic atoms',
+          metadata: {
+            graphicType: 'structured',
+            atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+            atomicOverlayReceipt: { family: 'motion-graphic' },
+            semanticAtoms: { keyword: { value: 'myth' }, claim: { value: 'internet myth' } },
+            relations: { supports: { from: 'keyword', to: 'claim' } },
+          },
+        },
+        {
+          id: 'mg-content-semantic',
+          type: 'motion-graphic',
+          from: 30,
+          durationInFrames: 30,
+          content: {
+            semanticAtoms: { identity: { name: 'Hank Green' }, evidencePhrase: { text: 'creator context' } },
+            relations: { introduces: { from: 'identity', to: 'evidencePhrase' } },
+          },
+          metadata: {
+            graphicType: 'identity',
+            atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+            atomicOverlayReceipt: { family: 'motion-graphic' },
+          },
+        },
+      ],
+    }));
+
+    expect(manifest.overlayFamilies.motionGraphics).toEqual([
+      expect.objectContaining({
+        id: 'mg-metadata-semantic',
+        hasAtomicPlan: true,
+        hasAtomicReceipt: true,
+        semanticAtomCount: 2,
+        relationCount: 1,
+      }),
+      expect.objectContaining({
+        id: 'mg-content-semantic',
+        hasAtomicPlan: true,
+        hasAtomicReceipt: true,
+        semanticAtomCount: 2,
+        relationCount: 1,
+      }),
+    ]);
+  });
+
   it('records missing or weak cut-plan evidence without rewriting cuts', () => {
     const missing = buildPhase0FixtureManifest(baseProject({ rawFootageAnalysis: undefined }));
     expect(missing.cutPlan).toMatchObject({

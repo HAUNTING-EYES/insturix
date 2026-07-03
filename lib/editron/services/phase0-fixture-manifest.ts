@@ -16,6 +16,7 @@ type JsonRecord = Record<string, unknown>;
 
 type Phase0RenderedAestheticStatus = 'pass' | 'warn' | 'fail';
 type Phase0RenderedIssueSeverity = 'info' | 'warn' | 'fail';
+type Phase0RenderedArtifactAccess = 'missing' | 'workspace-local' | 'worker-local';
 
 type Phase0UnifiedDecisionAuthoritySummary = {
   version: string;
@@ -42,7 +43,7 @@ export interface Phase0OverlayLike extends JsonRecord {
   sourceStartFrame?: number;
   videoStartTime?: number;
   assetId?: string;
-  content?: string;
+  content?: unknown;
   text?: string;
   captionText?: string;
   transitionStyle?: string;
@@ -203,6 +204,8 @@ export interface Phase0RenderedQualityEvidencePayload {
   renderedAestheticSampledFrames: number;
   renderedAestheticJson: string | null;
   renderedAestheticHtml: string | null;
+  renderedAestheticArtifactAccess: Phase0RenderedArtifactAccess;
+  renderedAestheticArtifactNote: string | null;
 }
 
 export function buildPhase0FixtureManifest(
@@ -340,6 +343,10 @@ export function buildPhase0RenderedQualityEvidencePayload(
     renderedAestheticSampledFrames: hasRenderedEvidence ? summary.sampledFrames : 0,
     renderedAestheticJson: hasRenderedEvidence ? manifest.renderArtifacts.renderedAestheticJson : null,
     renderedAestheticHtml: hasRenderedEvidence ? manifest.renderArtifacts.renderedAestheticHtml : null,
+    renderedAestheticArtifactAccess: hasRenderedEvidence ? 'workspace-local' : 'missing',
+    renderedAestheticArtifactNote: hasRenderedEvidence
+      ? 'Rendered aesthetic report paths are workspace-local artifact paths for the fixture or current process.'
+      : 'Rendered aesthetic report artifacts are missing.',
   };
 }
 
@@ -1188,8 +1195,8 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         graphicType: readString(overlay.metadata?.graphicType ?? overlay.metadata?.creativeDecisionType),
         hasAtomicPlan: Boolean(overlay.metadata?.atomicOverlayPlan),
         hasAtomicReceipt: Boolean(overlay.metadata?.atomicOverlayReceipt),
-        semanticAtomCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'semanticAtoms'),
-        relationCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'relations'),
+        semanticAtomCount: countMotionGraphicSemanticAtoms(overlay),
+        relationCount: countMotionGraphicRelations(overlay),
       })),
     captions: {
       count: captionOverlays.length,
@@ -1658,6 +1665,33 @@ function readArrayLength(value: unknown, key: string) {
 
 function readUnknownArrayLength(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function countMotionGraphicSemanticAtoms(overlay: Phase0OverlayLike): number {
+  return Math.max(
+    readArrayLength(overlay.metadata?.atomicMomentBundle, 'semanticAtoms'),
+    readUnknownCollectionLength(overlay.metadata?.semanticAtoms),
+    readNestedUnknownCollectionLength(overlay.content, 'semanticAtoms'),
+  );
+}
+
+function countMotionGraphicRelations(overlay: Phase0OverlayLike): number {
+  return Math.max(
+    readArrayLength(overlay.metadata?.atomicMomentBundle, 'relations'),
+    readUnknownCollectionLength(overlay.metadata?.relations),
+    readNestedUnknownCollectionLength(overlay.content, 'relations'),
+  );
+}
+
+function readUnknownCollectionLength(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (isRecord(value)) return Object.keys(value).length;
+  return 0;
+}
+
+function readNestedUnknownCollectionLength(value: unknown, key: string): number {
+  if (!isRecord(value)) return 0;
+  return readUnknownCollectionLength(value[key]);
 }
 
 function overlayId(overlay: Phase0OverlayLike) {

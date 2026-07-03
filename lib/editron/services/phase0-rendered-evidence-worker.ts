@@ -343,11 +343,16 @@ export async function buildPhase0RenderedStillEvidence(
           artifactPack,
           renderedAestheticReport: aestheticEvidence.report,
         });
+        const renderedQualityEvidence = markWorkerLocalRenderedAestheticArtifacts(aestheticEvidence.qualityEvidence);
+        const workerPhase0LiveTruth: Phase0LiveTruthSnapshot = {
+          ...phase0LiveTruth,
+          qualityEvidence: renderedQualityEvidence,
+        };
         evidence = {
           ...evidence,
           renderedAestheticReport: aestheticEvidence.report,
-          renderedQualityEvidence: aestheticEvidence.qualityEvidence,
-          phase0LiveTruth,
+          renderedQualityEvidence,
+          phase0LiveTruth: workerPhase0LiveTruth,
         };
       }
     } catch (err: unknown) {
@@ -364,6 +369,18 @@ export async function buildPhase0RenderedStillEvidence(
   }
 
   return evidence;
+}
+
+
+function markWorkerLocalRenderedAestheticArtifacts(
+  evidence: Phase0RenderedQualityEvidencePayload,
+): Phase0RenderedQualityEvidencePayload {
+  if (evidence.qualityEvidenceSource !== 'rendered-aesthetic') return evidence;
+  return {
+    ...evidence,
+    renderedAestheticArtifactAccess: 'worker-local',
+    renderedAestheticArtifactNote: 'Rendered aesthetic report paths were created inside the Phase0 worker filesystem; use persisted rendered still URLs for durable visual evidence.',
+  };
 }
 
 export function buildPhase0RenderedStillEvidenceFailure(input: {
