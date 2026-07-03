@@ -109,6 +109,22 @@ describe('rendered aesthetic harness helpers', () => {
     expect(renderOverlays.map((overlay) => overlay.id)).toEqual([21]);
   });
 
+  it('merges manual benchmark frames with animation-state samples', () => {
+    const samples = resolveRenderedAestheticSamplePlan({
+      durationInFrames: 240,
+      sampleFrames: [0, 90, 150],
+    }, [generatedSceneOverlay({ id: 21, from: 0, durationInFrames: 180 })], { maxSamples: 5 });
+
+    expect(samples.map((sample) => [sample.frame, sample.roles])).toEqual([
+      [0, ['manual']],
+      [8, ['entry-settle']],
+      [90, ['manual']],
+      [150, ['manual']],
+      [172, ['exit-prep']],
+    ]);
+    expect(samples.filter((sample) => sample.roles.some((role) => role !== 'manual' && role !== 'hold'))).toHaveLength(2);
+  });
+
   it('keeps zoom and SFX in the sample plan without adding them to overlay-only still renders', () => {
     const samples = planRenderedAestheticSamples([
       zoomOverlay({ id: 11, from: 20, durationInFrames: 30 }),

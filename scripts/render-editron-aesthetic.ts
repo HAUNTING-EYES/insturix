@@ -453,19 +453,77 @@ function manualSamples(
     });
 }
 
+function mergeManualSamplesWithPlannedCoverage(
+  manual: RenderedAestheticSample[],
+  planned: RenderedAestheticSample[],
+  maxSamples: number,
+): RenderedAestheticSample[] {
+  if (manual.length === 0) return planned;
+
+  const merged = new Map<number, RenderedAestheticSample>();
+  for (const sample of manual) mergeSample(merged, sample);
+  for (const sample of planned) mergeSample(merged, sample);
+
+  const sorted = [...merged.values()].sort((a, b) => a.frame - b.frame);
+  const manualSamples = sorted.filter((sample) => sample.roles.includes('manual'));
+  const cap = Math.max(manualSamples.length, Math.floor(maxSamples));
+  if (sorted.length <= cap) return sorted;
+
+  const plannedOnly = sorted.filter((sample) => !sample.roles.includes('manual'));
+  const selectedPlanned = selectEvenly(plannedOnly, cap - manualSamples.length);
+  return [...manualSamples, ...selectedPlanned].sort((a, b) => a.frame - b.frame);
+}
+
+function mergeSample(samples: Map<number, RenderedAestheticSample>, sample: RenderedAestheticSample): void {
+  const existing = samples.get(sample.frame);
+  if (existing) {
+    existing.roles = uniqueSampleRoles([...existing.roles, ...sample.roles]);
+    existing.sourceOverlayIds = uniqueIds([...existing.sourceOverlayIds, ...sample.sourceOverlayIds]);
+    existing.sourceOverlayTypes = uniqueStrings([...existing.sourceOverlayTypes, ...sample.sourceOverlayTypes]);
+    return;
+  }
+
+  samples.set(sample.frame, {
+    frame: sample.frame,
+    roles: uniqueSampleRoles(sample.roles),
+    sourceOverlayIds: uniqueIds(sample.sourceOverlayIds),
+    sourceOverlayTypes: uniqueStrings(sample.sourceOverlayTypes),
+  });
+}
+
+function selectEvenly<T>(items: T[], count: number): T[] {
+  if (count <= 0) return [];
+  if (items.length <= count) return items;
+  const selected = new Set<number>();
+  for (let i = 0; i < count; i += 1) {
+    const index = Math.round((i * (items.length - 1)) / Math.max(1, count - 1));
+    selected.add(index);
+  }
+  return [...selected].sort((a, b) => a - b).map((index) => items[index]);
+}
+
 export function resolveRenderedAestheticSamplePlan(
   input: Pick<RenderedAestheticProjectInput, 'durationInFrames' | 'sampleFrames' | 'samplePlan'>,
   overlays: Overlay[],
   options: Pick<RenderedAestheticHarnessOptions, 'maxSamples' | 'sampleFrames'> = {},
 ): RenderedAestheticSample[] {
+  const maxSamples = options.maxSamples ?? 18;
   if (options.sampleFrames?.length) {
-    return manualSamples(options.sampleFrames, overlays, input.durationInFrames);
+    return mergeManualSamplesWithPlannedCoverage(
+      manualSamples(options.sampleFrames, overlays, input.durationInFrames),
+      planRenderedAestheticSamples(overlays, input.durationInFrames, maxSamples),
+      maxSamples,
+    );
   }
   if (input.samplePlan?.length) return input.samplePlan;
   if (input.sampleFrames?.length) {
-    return manualSamples(input.sampleFrames, overlays, input.durationInFrames);
+    return mergeManualSamplesWithPlannedCoverage(
+      manualSamples(input.sampleFrames, overlays, input.durationInFrames),
+      planRenderedAestheticSamples(overlays, input.durationInFrames, maxSamples),
+      maxSamples,
+    );
   }
-  return planRenderedAestheticSamples(overlays, input.durationInFrames, options.maxSamples ?? 18);
+  return planRenderedAestheticSamples(overlays, input.durationInFrames, maxSamples);
 }
 
 export function normalizeRenderedAestheticSamplePlan(value: unknown, durationInFrames: number): RenderedAestheticSample[] | undefined {
