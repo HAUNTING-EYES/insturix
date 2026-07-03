@@ -46,6 +46,9 @@ export interface Phase0RenderedAestheticReportLike {
   };
   frames?: Array<{
     frame?: number;
+    activeOverlayTypes?: string[];
+    fullStill?: string;
+    baselineStill?: string;
     report?: {
       issues?: Array<{
         dimension?: string;
@@ -914,8 +917,16 @@ function collectRenderedIssues(renderedReport: Phase0RenderedAestheticReportLike
     message: string;
     overlayId: string | number | null;
     evidence: string | null;
+    fullStill: string | null;
+    baselineStill: string | null;
+    activeOverlayTypes: string[];
   }> = [];
   for (const frame of renderedReport.frames ?? []) {
+    const fullStill = typeof frame.fullStill === 'string' && frame.fullStill.trim() ? frame.fullStill.trim() : null;
+    const baselineStill = typeof frame.baselineStill === 'string' && frame.baselineStill.trim() ? frame.baselineStill.trim() : null;
+    const activeOverlayTypes = Array.isArray(frame.activeOverlayTypes)
+      ? frame.activeOverlayTypes.filter((type): type is string => typeof type === 'string' && type.trim().length > 0).slice(0, TIMELINE_SAMPLE_LIMIT)
+      : [];
     for (const issue of frame.report?.issues ?? []) {
       const dimension = typeof issue.dimension === 'string' && issue.dimension.trim() ? issue.dimension.trim() : 'unknown';
       const severity = issue.severity === 'fail' || issue.severity === 'warn' || issue.severity === 'info'
@@ -928,6 +939,9 @@ function collectRenderedIssues(renderedReport: Phase0RenderedAestheticReportLike
         message: typeof issue.message === 'string' ? issue.message : '',
         overlayId: typeof issue.overlayId === 'string' || typeof issue.overlayId === 'number' ? issue.overlayId : null,
         evidence: typeof issue.evidence === 'string' ? issue.evidence : null,
+        fullStill,
+        baselineStill,
+        activeOverlayTypes,
       });
     }
   }
@@ -944,6 +958,9 @@ function groupRenderedIssues(issues: ReturnType<typeof collectRenderedIssues>) {
       overlayId: string | number | null;
       message: string;
       evidence: string | null;
+      fullStill: string | null;
+      baselineStill: string | null;
+      activeOverlayTypes: string[];
     }>;
   }>();
   for (const issue of issues) {
@@ -961,6 +978,9 @@ function groupRenderedIssues(issues: ReturnType<typeof collectRenderedIssues>) {
         overlayId: issue.overlayId,
         message: issue.message,
         evidence: issue.evidence,
+        fullStill: issue.fullStill,
+        baselineStill: issue.baselineStill,
+        activeOverlayTypes: issue.activeOverlayTypes,
       });
     }
     groups.set(key, group);

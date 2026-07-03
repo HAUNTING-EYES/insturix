@@ -516,6 +516,9 @@ describe('phase0 failure taxonomy', () => {
       },
       frames: [{
         frame: 12,
+        activeOverlayTypes: ['caption'],
+        fullStill: 's3://phase0/full-12.png',
+        baselineStill: 's3://phase0/base-12.png',
         report: {
           issues: [{
             dimension: 'contrast',
@@ -533,6 +536,9 @@ describe('phase0 failure taxonomy', () => {
         },
       }, {
         frame: 48,
+        activeOverlayTypes: ['motion-graphic'],
+        fullStill: 's3://phase0/full-48.png',
+        baselineStill: 's3://phase0/base-48.png',
         report: {
           issues: [{
             dimension: 'occlusion',
@@ -586,6 +592,9 @@ describe('phase0 failure taxonomy', () => {
           overlayId: 'caption-1',
           message: 'rendered text contrast is below accessibility floor',
           evidence: 'contrast=1.37; required=4.5',
+          fullStill: 's3://phase0/full-12.png',
+          baselineStill: 's3://phase0/base-12.png',
+          activeOverlayTypes: ['caption'],
         }],
       },
     });

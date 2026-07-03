@@ -501,6 +501,7 @@ Move key issue checks from observe to enforce for production:
 - overlay overlap / blank / unreadable / collision / drift / excessive repetition / timing miss.
 - rendered evidence required for â€œgood enoughâ€.
 - failure taxonomy must keep overlay IDs + frame ranges + artifact links.
+- Current implementation note (2026-07-04): rendered aesthetic issue groups now preserve sampled still artifact paths and active overlay types next to frame/overlay evidence; remaining work is live proof and policy hardening.
 
 ### Phase 13 - Cross-overlay choreography
 One timeline memory for all families:
