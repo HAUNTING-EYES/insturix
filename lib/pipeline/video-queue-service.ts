@@ -15,7 +15,7 @@
  */
 
 import { Redis } from '@upstash/redis';
-import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 
 // ─── Redis Queue ─────────────────────────────────────────────────
@@ -92,6 +92,7 @@ export interface VideoJob {
   userId: string;
   storyboardId: string;
   sceneIndex: number;
+  subShotIndex?: number;
   status: VideoJobStatus;
   videoModel: string;
   videoUrl?: string;
@@ -348,6 +349,156 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   );
 }
 
+function cleanString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function jobHasCompletedVideo(job: VideoJob): boolean {
+  return job.status === 'completed' && Boolean(cleanString(job.videoUrl));
+}
+
+function videoEvidenceForJob(storyboard: any, job: VideoJob): Partial<VideoJob> | null {
+  const scenes = Array.isArray(storyboard?.scenes) ? storyboard.scenes : [];
+  const scene = scenes.find((candidate: any) => candidate?.sceneIndex === job.sceneIndex);
+  if (!scene) return null;
+
+  if (typeof job.subShotIndex === 'number') {
+    const subShots = Array.isArray(scene?.descriptor?.subShots) ? scene.descriptor.subShots : [];
+    const subShot = subShots[job.subShotIndex];
+    if (cleanString(subShot?.videoUrl)) {
+      return {
+        videoUrl: cleanString(subShot.videoUrl),
+        videoAssetId: cleanString(subShot.videoAssetId),
+        videoGcsPath: cleanString(subShot.videoGcsPath),
+        videoDurationMs: typeof subShot.videoDurationMs === 'number' ? subShot.videoDurationMs : undefined,
+      };
+    }
+    if (job.subShotIndex !== 0) return null;
+  }
+
+  if (!cleanString(scene.videoUrl)) return null;
+  return {
+    videoUrl: cleanString(scene.videoUrl),
+    videoAssetId: cleanString(scene.videoAssetId),
+    videoGcsPath: cleanString(scene.videoGcsPath),
+    videoDurationMs: typeof scene.videoDurationMs === 'number' ? scene.videoDurationMs : undefined,
+  };
+}
+
+function summarizeVideoBatchFromJobs(batch: VideoBatch, jobs: VideoJob[], updatedAt: Date): VideoBatch {
+  const completed = jobs.filter(jobHasCompletedVideo).length;
+  const failed = jobs.filter((job) => job.status === 'failed' && !jobHasCompletedVideo(job)).length;
+  const total = Math.max(Number(batch.totalScenes) || 0, jobs.length);
+  const done = completed + failed;
+
+  let status: VideoBatch['status'] = 'processing';
+  if (total > 0 && done >= total) {
+    if (failed === 0) status = 'completed';
+    else if (completed === 0) status = 'failed';
+    else status = 'partial';
+  }
+
+  return {
+    ...batch,
+    totalScenes: total,
+    completed,
+    failed,
+    status,
+    updatedAt,
+  };
+}
+
+async function persistVideoBatchSummary(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  batch: VideoBatch,
+  summarized: VideoBatch,
+): Promise<void> {
+  if (
+    summarized.completed === batch.completed &&
+    summarized.failed === batch.failed &&
+    summarized.status === batch.status &&
+    summarized.totalScenes === batch.totalScenes
+  ) {
+    return;
+  }
+
+  await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
+    { _id: batch._id, userId: batch.userId } as any,
+    {
+      $set: {
+        totalScenes: summarized.totalScenes,
+        completed: summarized.completed,
+        failed: summarized.failed,
+        status: summarized.status,
+        updatedAt: summarized.updatedAt,
+      },
+    },
+  );
+}
+
+async function reconcileVideoBatchFromStoryboard(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  batch: VideoBatch,
+  jobs: VideoJob[],
+): Promise<{ batch: VideoBatch; jobs: VideoJob[] }> {
+  const needsEvidence = jobs.some((job) => !jobHasCompletedVideo(job));
+  if (!needsEvidence) {
+    const summarized = summarizeVideoBatchFromJobs(batch, jobs, new Date());
+    await persistVideoBatchSummary(db, batch, summarized);
+    return { batch: summarized, jobs };
+  }
+
+  const storyboard = await db.collection('storyboards').findOne({
+    storyboardId: batch.storyboardId,
+    userId: batch.userId,
+  } as any);
+  if (!storyboard) {
+    const summarized = summarizeVideoBatchFromJobs(batch, jobs, new Date());
+    await persistVideoBatchSummary(db, batch, summarized);
+    return { batch: summarized, jobs };
+  }
+
+  const now = new Date();
+  const reconciledJobs: VideoJob[] = [];
+  for (const job of jobs) {
+    const evidence = videoEvidenceForJob(storyboard, job);
+    if (!evidence?.videoUrl || jobHasCompletedVideo(job)) {
+      reconciledJobs.push(job);
+      continue;
+    }
+
+    const reconciledJob = {
+      ...job,
+      ...evidence,
+      status: 'completed' as const,
+      completedAt: job.completedAt ?? now,
+    };
+    reconciledJobs.push(reconciledJob);
+
+    await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+      { _id: job._id, userId: job.userId, batchId: job.batchId } as any,
+      {
+        $set: {
+          status: 'completed',
+          videoUrl: evidence.videoUrl,
+          ...(evidence.videoAssetId ? { videoAssetId: evidence.videoAssetId } : {}),
+          ...(evidence.videoGcsPath ? { videoGcsPath: evidence.videoGcsPath } : {}),
+          ...(typeof evidence.videoDurationMs === 'number' ? { videoDurationMs: evidence.videoDurationMs } : {}),
+          completedAt: reconciledJob.completedAt,
+          reconciledFromStoryboard: true,
+          reconciledAt: now,
+        },
+        $unset: { error: '' },
+      },
+    );
+  }
+
+  const summarized = summarizeVideoBatchFromJobs(batch, reconciledJobs, now);
+  await persistVideoBatchSummary(db, batch, summarized);
+  return { batch: summarized, jobs: reconciledJobs };
+}
 // ─── Status Polling ──────────────────────────────────────────────
 
 /**
@@ -374,7 +525,7 @@ export async function getVideoBatchStatus(
     .sort({ sceneIndex: 1 })
     .toArray() as any[];
 
-  return { batch, jobs };
+  return reconcileVideoBatchFromStoryboard(db, batch as VideoBatch, jobs as VideoJob[]);
 }
 
 /**
