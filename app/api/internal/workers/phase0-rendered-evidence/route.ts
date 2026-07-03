@@ -12,6 +12,9 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import {
+  buildPhase0RenderedEvidenceClaimFilter,
+  buildPhase0RenderedEvidenceClaimRelease,
+  buildPhase0RenderedEvidenceClaimUpdate,
   buildPhase0RenderedStillEvidence,
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidencePersistSet,
@@ -55,6 +58,20 @@ async function handler(request: NextRequest) {
     );
   }
 
+  const claimNow = new Date();
+  const claim = await db.collection('projects').updateOne(
+    buildPhase0RenderedEvidenceClaimFilter({ projectId, now: claimNow }),
+    buildPhase0RenderedEvidenceClaimUpdate({ now: claimNow, requestedAt: body.requestedAt }),
+  );
+  if (claim.matchedCount === 0) {
+    console.log(`[Phase0RenderedEvidence] ${projectId}: duplicate delivery skipped; rendered evidence already claimed`);
+    return NextResponse.json({
+      success: true,
+      projectId,
+      skipped: 'duplicate-delivery',
+      stage: 'phase0-rendered-evidence',
+    });
+  }
   let evidence: Phase0RenderedStillEvidence;
   try {
     const overlays = Array.isArray(project.overlays) ? project.overlays : [];
@@ -71,7 +88,11 @@ async function handler(request: NextRequest) {
       capturedAt: body.requestedAt,
       error: err instanceof Error ? err.message : String(err),
     });
-    await persistPhase0RenderedStillEvidence(db, projectId, evidence);
+    try {
+      await persistPhase0RenderedStillEvidence(db, projectId, evidence);
+    } finally {
+      await releasePhase0RenderedEvidenceClaim(db, projectId);
+    }
     console.error(`[Phase0RenderedEvidence] ${projectId}: failed: ${evidence.failedFrames[0]?.error}`);
     return NextResponse.json(
       { success: false, projectId, status: evidence.status, error: evidence.failedFrames[0]?.error },
@@ -79,7 +100,11 @@ async function handler(request: NextRequest) {
     );
   }
 
-  await persistPhase0RenderedStillEvidence(db, projectId, evidence);
+  try {
+    await persistPhase0RenderedStillEvidence(db, projectId, evidence);
+  } finally {
+    await releasePhase0RenderedEvidenceClaim(db, projectId);
+  }
 
   console.log(
     `[Phase0RenderedEvidence] ${projectId}: status=${evidence.status}, ` +
@@ -110,6 +135,22 @@ async function persistPhase0RenderedStillEvidence(
   );
 }
 
+async function releasePhase0RenderedEvidenceClaim(
+  db: { collection(name: string): { updateOne(filter: unknown, update: unknown): Promise<unknown> } },
+  projectId: string,
+) {
+  try {
+    await db.collection('projects').updateOne(
+      { projectId },
+      buildPhase0RenderedEvidenceClaimRelease(),
+    );
+  } catch (err) {
+    console.warn(
+      `[Phase0RenderedEvidence] ${projectId}: failed to release rendered evidence claim`,
+      err,
+    );
+  }
+}
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;

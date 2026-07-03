@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildPhase0RenderedEvidenceClaimFilter,
+  buildPhase0RenderedEvidenceClaimRelease,
+  buildPhase0RenderedEvidenceClaimUpdate,
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidence,
   buildPhase0RenderedStillEvidencePersistSet,
@@ -294,6 +297,51 @@ describe('phase0 rendered evidence worker service', () => {
     expect(source).not.toContain("from 'remotion'");
     expect(source).not.toContain('from "remotion"');
     expect(source).toContain('evaluateScoringKeyframeTracks');
+  });
+
+  it('builds a project-level claim for the expensive rendered-evidence worker', () => {
+    const now = new Date('2026-07-03T12:00:00.000Z');
+
+    expect(buildPhase0RenderedEvidenceClaimFilter({
+      projectId: 'proj_phase0_claim',
+      now,
+      staleMs: 20 * 60 * 1000,
+    })).toEqual({
+      projectId: 'proj_phase0_claim',
+      $and: [
+        {
+          $or: [
+            { 'intelligence.phase0RenderedEvidenceLockAt': { $exists: false } },
+            { 'intelligence.phase0RenderedEvidenceLockAt': null },
+            { 'intelligence.phase0RenderedEvidenceLockAt': { $lt: new Date('2026-07-03T11:40:00.000Z') } },
+          ],
+        },
+        {
+          $or: [
+            { 'intelligence.phase0RenderedStillEvidence.status': { $exists: false } },
+            { 'intelligence.phase0RenderedStillEvidence.version': { $ne: 'editron-phase0-rendered-still-evidence-v1' } },
+            { 'intelligence.phase0RenderedStillEvidence.status': { $nin: ['completed', 'partial'] } },
+          ],
+        },
+      ],
+    });
+
+    expect(buildPhase0RenderedEvidenceClaimUpdate({
+      now,
+      requestedAt: '2026-07-03T11:59:00.000Z',
+    })).toEqual({
+      $set: {
+        'intelligence.phase0RenderedEvidenceLockAt': now,
+        'intelligence.phase0RenderedEvidenceLockRequestedAt': '2026-07-03T11:59:00.000Z',
+      },
+    });
+
+    expect(buildPhase0RenderedEvidenceClaimRelease()).toEqual({
+      $unset: {
+        'intelligence.phase0RenderedEvidenceLockAt': '',
+        'intelligence.phase0RenderedEvidenceLockRequestedAt': '',
+      },
+    });
   });
 });
 

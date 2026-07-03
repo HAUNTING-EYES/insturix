@@ -18,6 +18,7 @@ import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './ph
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
+const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
 
 type Phase0RenderedStillEvidenceStatus = 'completed' | 'partial' | 'failed' | 'skipped';
 
@@ -70,6 +71,57 @@ export interface Phase0RenderedStillEvidence {
   phase0LiveTruth?: Phase0LiveTruthSnapshot;
 }
 
+export function buildPhase0RenderedEvidenceClaimFilter(input: {
+  projectId: string;
+  now?: Date;
+  staleMs?: number;
+}): Record<string, unknown> {
+  const now = input.now ?? new Date();
+  const staleMs = input.staleMs ?? DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS;
+  const staleBefore = new Date(now.getTime() - staleMs);
+
+  return {
+    projectId: input.projectId,
+    $and: [
+      {
+        $or: [
+          { 'intelligence.phase0RenderedEvidenceLockAt': { $exists: false } },
+          { 'intelligence.phase0RenderedEvidenceLockAt': null },
+          { 'intelligence.phase0RenderedEvidenceLockAt': { $lt: staleBefore } },
+        ],
+      },
+      {
+        $or: [
+          { 'intelligence.phase0RenderedStillEvidence.status': { $exists: false } },
+          { 'intelligence.phase0RenderedStillEvidence.version': { $ne: PHASE0_RENDERED_STILL_EVIDENCE_VERSION } },
+          { 'intelligence.phase0RenderedStillEvidence.status': { $nin: ['completed', 'partial'] } },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildPhase0RenderedEvidenceClaimUpdate(input: {
+  now?: Date;
+  requestedAt?: string;
+} = {}): Record<string, unknown> {
+  const now = input.now ?? new Date();
+  return {
+    $set: {
+      'intelligence.phase0RenderedEvidenceLockAt': now,
+      'intelligence.phase0RenderedEvidenceLockRequestedAt': input.requestedAt ?? now.toISOString(),
+    },
+  };
+}
+
+export function buildPhase0RenderedEvidenceClaimRelease(): Record<string, unknown> {
+  return {
+    $unset: {
+      'intelligence.phase0RenderedEvidenceLockAt': '',
+      'intelligence.phase0RenderedEvidenceLockRequestedAt': '',
+    },
+  };
+}
 type RenderStill = typeof renderStillOnLambda;
 
 export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) {
