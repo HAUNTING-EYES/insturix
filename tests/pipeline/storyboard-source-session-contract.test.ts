@@ -49,6 +49,21 @@ describe('storyboard source session lineage contract', () => {
     expect(coverageCheckIndex).toBeLessThan(finalizeChargeIndex);
   });
 
+  it('preflights direct script imports before spending credits or writing Editron project state', () => {
+    const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
+
+    expect(exportHook).toContain('setScriptImportPreflight(null)');
+    expect(exportHook).toContain('runSubjectExtractionAndReferences(exportData.scenes || [], projectTitle)');
+    expect(exportHook).toContain('Cannot preflight Editron import: ThinkForge session id is missing.');
+    expect(exportHook).toContain('dryRun: true');
+    expect(exportHook).toContain('Failed to preflight Editron import');
+    expect(exportHook).toContain('preflightData.creditsDeducted !== 0');
+    expect(exportHook).toContain('preflightData.writeOperationsSkipped !== true');
+    expect(exportHook).toContain('Editron import preflight produced no timeline overlays.');
+    expect(exportHook).toContain('setScriptImportPreflight(preflightData as EditronImportPreflightResult)');
+    expect(exportHook.indexOf('dryRun: true')).toBeLessThan(exportHook.lastIndexOf('Failed to create Editron project'));
+  });
+
   it('finalize reuses or tags projects from explicit sourceSessionId before legacy projectId fallback', () => {
     const finalizeRoute = read('app/api/services/pipeline/storyboard/[id]/finalize/route.ts');
 
