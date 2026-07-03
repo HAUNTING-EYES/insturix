@@ -128,16 +128,56 @@ export async function getExtraStorageEnabled(owner: StorageOwner): Promise<boole
   }
 }
 
-/** Set the owner's paid-overage opt-in. */
-export async function setExtraStorageEnabled(owner: StorageOwner, enabled: boolean): Promise<void> {
+/**
+ * Set the owner's paid-overage opt-in. `billingUserId` = the user whose main
+ * credit wallet the monthly overage is charged to (the one who enabled it, and
+ * whose plan defines the org's cap). Stored so the billing cron needn't resolve
+ * org membership.
+ */
+export async function setExtraStorageEnabled(
+  owner: StorageOwner,
+  enabled: boolean,
+  billingUserId: string,
+): Promise<void> {
   const db = await getDatabase();
   await db.collection(STORAGE_USAGE_COLLECTION).updateOne(
     { ownerId: owner.id },
     {
-      $set: { extraStorageEnabled: enabled, ownerType: owner.type, updatedAt: new Date() },
+      $set: {
+        extraStorageEnabled: enabled,
+        ownerType: owner.type,
+        updatedAt: new Date(),
+        ...(enabled ? { overageBillingUserId: billingUserId } : {}),
+      },
       $setOnInsert: { ownerId: owner.id },
     },
     { upsert: true },
+  );
+}
+
+export interface OverageOwnerRecord {
+  ownerId: string;
+  ownerType: 'org' | 'user';
+  usedBytes: number;
+  overageBillingUserId?: string;
+  lastOverageBilledMonth?: string; // 'YYYY-MM' — idempotency for the monthly cron
+}
+
+/** Owners who opted into paid overage — the monthly billing cron iterates these. */
+export async function listOverageOwners(): Promise<OverageOwnerRecord[]> {
+  const db = await getDatabase();
+  return (await db
+    .collection(STORAGE_USAGE_COLLECTION)
+    .find({ extraStorageEnabled: true })
+    .toArray()) as unknown as OverageOwnerRecord[];
+}
+
+/** Stamp the month an owner's overage was charged (idempotency for the monthly cron). */
+export async function markOverageBilled(ownerId: string, month: string): Promise<void> {
+  const db = await getDatabase();
+  await db.collection(STORAGE_USAGE_COLLECTION).updateOne(
+    { ownerId },
+    { $set: { lastOverageBilledMonth: month } },
   );
 }
 

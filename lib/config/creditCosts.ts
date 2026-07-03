@@ -331,6 +331,19 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       },
     },
   ],
+  storage: [
+    {
+      service: 'storage',
+      action: 'overage',
+      billingType: 'per_request',
+      // Credits per GB-over-cap, charged MONTHLY when the owner opted into extra
+      // storage. 3 credits ≈ $0.10/GB·mo at 30 cr/$ (~5× the ~$0.02 R2/GCS cost).
+      // Pass quantity = GB over cap. Main pool (not AI-media). ADJUSTABLE.
+      baseCost: 3,
+      description: 'Per GB of storage over the plan cap, billed monthly (extra-storage opt-in)',
+      modelMultipliers: {},
+    },
+  ],
   pipeline: [
     {
       service: 'pipeline',

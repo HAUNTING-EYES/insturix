@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/storage-overage",
+      "schedule": "0 3 1 * *"
+    },
+    {
       "path": "/api/cron/check-task-timeouts",
       "schedule": "*/15 * * * *"
     },
