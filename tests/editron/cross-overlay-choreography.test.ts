@@ -90,6 +90,88 @@ describe('cross-overlay choreography scheduler', () => {
     expect(result.decisions.map((item) => item.params.crossOverlayChoreography.syncGroupId)).toEqual(['sync:300', 'sync:300']);
   });
 
+  it('suppresses unlinked text and motion lane decisions on the same moment', () => {
+    const result = applyCrossOverlayChoreography([
+      decision({
+        type: 'graphic',
+        frame: 420,
+        durationFrames: 70,
+        confidence: 0.92,
+        source: 'signal-executor:mg',
+      }),
+      decision({
+        type: 'transition',
+        frame: 432,
+        durationFrames: 16,
+        confidence: 0.82,
+        source: 'signal-executor:transition',
+        params: {
+          transitionBoundaryPlan: {
+            crossFamily: {
+              mgConflictRisk: 0.74,
+              captionConflictRisk: 0.12,
+              zoomBridgeAllowed: false,
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(result.decisions.map((item) => item.type)).toEqual(['graphic']);
+    expect(result.suppressed[0]).toEqual(expect.objectContaining({
+      reason: 'text-motion-stack',
+      family: 'transition',
+      conflictingWith: expect.objectContaining({
+        type: 'graphic',
+        family: 'mg',
+      }),
+    }));
+    expect(result.report.suppressedByReason).toEqual(expect.objectContaining({ 'text-motion-stack': 1 }));
+    expect(result.report.suppressedByFamily).toEqual(expect.objectContaining({ transition: 1 }));
+  });
+
+  it('allows text and motion lane decisions when the MG contract licenses transition coordination', () => {
+    const result = applyCrossOverlayChoreography([
+      decision({
+        type: 'graphic',
+        frame: 420,
+        durationFrames: 70,
+        confidence: 0.9,
+        source: 'signal-executor:mg',
+        params: {
+          coordinateWithTransition: true,
+          boundaryFrame: 420,
+        },
+      }),
+      decision({
+        type: 'transition',
+        frame: 426,
+        durationFrames: 16,
+        confidence: 0.84,
+        source: 'signal-executor:transition',
+        params: {
+          boundaryFrame: 420,
+          transitionBoundaryPlan: {
+            crossFamily: {
+              mgConflictRisk: 0.72,
+              captionConflictRisk: 0.12,
+              zoomBridgeAllowed: false,
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(result.suppressed).toEqual([]);
+    expect(result.decisions.map((item) => item.type).sort()).toEqual(['graphic', 'transition']);
+    expect(result.report.syncGroups).toEqual([expect.objectContaining({
+      id: 'sync:420',
+      lanes: ['motion', 'text'],
+      families: ['mg', 'transition'],
+      decisionTypes: ['graphic', 'transition'],
+      count: 2,
+    })]);
+  });
   it('does not treat missing SFX anchor atoms as a valid sync link', () => {
     const result = applyCrossOverlayChoreography([
       decision({

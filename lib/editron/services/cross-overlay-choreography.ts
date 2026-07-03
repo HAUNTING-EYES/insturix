@@ -44,6 +44,8 @@ export interface CrossOverlayChoreographyReport {
   laneLoad: Record<CrossOverlayChoreographyLane, number>;
   syncGroups: CrossOverlayChoreographySyncGroup[];
   suppressed: Array<Omit<CrossOverlayChoreographySuppression, 'decision'>>;
+  suppressedByReason: Record<string, number>;
+  suppressedByFamily: Partial<Record<CrossOverlayChoreographyFamily, number>>;
 }
 
 export interface CrossOverlayChoreographySyncGroup {
@@ -123,6 +125,12 @@ function findChoreographyConflict(
     if (isMotionFamily(family) && isMotionFamily(existingFamily) && frameDistance <= MOTION_SYNC_WINDOW_FRAMES) {
       if (!isTransitionZoomBridgeAllowed(candidate, existing)) {
         return { reason: 'motion-lane-stack', conflictingWith: existing };
+      }
+    }
+
+    if (isTextMotionPair(family, existingFamily) && framesNear(candidate, existing, MOTION_SYNC_WINDOW_FRAMES)) {
+      if (!isTextMotionCoordinationAllowed(candidate, existing)) {
+        return { reason: 'text-motion-stack', conflictingWith: existing };
       }
     }
 
@@ -208,6 +216,8 @@ function buildResult(
       laneLoad: buildLaneLoad(decisions),
       syncGroups: buildSyncGroups(decisions),
       suppressed: suppressed.map(({ decision: _decision, ...rest }) => rest),
+      suppressedByReason: countSuppressedByReason(suppressed),
+      suppressedByFamily: countSuppressedByFamily(suppressed),
     },
   };
 }
@@ -253,6 +263,10 @@ function isMotionFamily(family: CrossOverlayChoreographyFamily): boolean {
   return family === 'camera' || family === 'transition';
 }
 
+function isTextMotionPair(a: CrossOverlayChoreographyFamily, b: CrossOverlayChoreographyFamily): boolean {
+  return (isTextLaneFamily(a) && isMotionFamily(b)) || (isMotionFamily(a) && isTextLaneFamily(b));
+}
+
 function isVisualFamily(family: CrossOverlayChoreographyFamily): boolean {
   return family === 'caption' || family === 'mg' || family === 'camera' || family === 'transition';
 }
@@ -288,6 +302,42 @@ function isTransitionZoomBridgeAllowed(a: EditDecision, b: EditDecision): boolea
     || booleanAtPath(b.params, ['transitionBoundaryPlan.crossFamily.zoomBridgeAllowed']);
 }
 
+function isTextMotionCoordinationAllowed(a: EditDecision, b: EditDecision): boolean {
+  const text = isTextLaneFamily(familyForDecision(a)) ? a : b;
+  const motion = text === a ? b : a;
+  const textFamily = familyForDecision(text);
+  const motionFamily = familyForDecision(motion);
+
+  if (textFamily === 'mg') {
+    if (motionFamily === 'camera' && booleanParam(text, [
+      'coordinateWithZoom',
+      'coordinate_with_zoom',
+      'mgExpressionAuthority.visualIntent.choreography.coordinateWithZoom',
+    ])) return true;
+    if (motionFamily === 'transition' && booleanParam(text, [
+      'coordinateWithTransition',
+      'coordinate_with_transition',
+      'mgExpressionAuthority.visualIntent.choreography.coordinateWithTransition',
+    ])) return true;
+  }
+
+  if (textFamily === 'caption') {
+    if (motionFamily === 'camera' && lowRisk(text, ['captionMomentPlan.crossFamily.zoomConflictRisk'])) return true;
+    if (motionFamily === 'transition' && lowRisk(text, ['captionMomentPlan.crossFamily.transitionConflictRisk'])) return true;
+  }
+
+  if (textFamily === 'mg' && lowRisk(motion, [
+    'transitionBoundaryPlan.crossFamily.mgConflictRisk',
+    'zoomMotionPlan.crossFamily.mgConflictRisk',
+  ])) return true;
+  if (textFamily === 'caption' && lowRisk(motion, [
+    'transitionBoundaryPlan.crossFamily.captionConflictRisk',
+    'zoomMotionPlan.crossFamily.captionConflictRisk',
+  ])) return true;
+
+  return hasSharedChoreographySync(text, motion);
+}
+
 function isAudioLinkedToVisualBeat(audio: EditDecision, visual: EditDecision): boolean {
   const anchorFrame = numberParam(audio, ['beatFrame', 'anchorFrame', 'boundaryFrame']);
   return booleanAtPath(audio.params, ['sfxSyncPlan.crossFamily.linkedOverlay'])
@@ -303,6 +353,9 @@ function decisionsCoordinate(a: EditDecision, b: EditDecision): boolean {
   }
   if (isMotionFamily(aFamily) && isMotionFamily(bFamily)) {
     return isTransitionZoomBridgeAllowed(a, b);
+  }
+  if (isTextMotionPair(aFamily, bFamily)) {
+    return isTextMotionCoordinationAllowed(a, b);
   }
   if (aFamily === 'audio' && isVisualFamily(bFamily)) {
     return isAudioLinkedToVisualBeat(a, b);
@@ -366,6 +419,24 @@ function buildSyncGroups(decisions: EditDecision[]): CrossOverlayChoreographySyn
     .sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
 }
 
+function countSuppressedByReason(suppressed: CrossOverlayChoreographySuppression[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of suppressed) {
+    counts[item.reason] = (counts[item.reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function countSuppressedByFamily(
+  suppressed: CrossOverlayChoreographySuppression[],
+): Partial<Record<CrossOverlayChoreographyFamily, number>> {
+  const counts: Partial<Record<CrossOverlayChoreographyFamily, number>> = {};
+  for (const item of suppressed) {
+    counts[item.family] = (counts[item.family] ?? 0) + 1;
+  }
+  return counts;
+}
+
 function framesNear(a: EditDecision, b: EditDecision, windowFrames: number): boolean {
   const aStart = a.frame;
   const aEnd = a.frame + Math.max(1, a.durationFrames ?? 1);
@@ -401,6 +472,24 @@ function booleanAtPath(record: Record<string, unknown>, paths: string[]): boolea
     if (typeof value === 'boolean') return value;
   }
   return false;
+}
+
+function lowRisk(decision: EditDecision, paths: string[], maxRisk = 0.35): boolean {
+  for (const path of paths) {
+    const value = valueAtPath(decision.params, path);
+    if (typeof value === 'number' && Number.isFinite(value) && value < maxRisk) return true;
+  }
+  return false;
+}
+
+function hasSharedChoreographySync(a: EditDecision, b: EditDecision): boolean {
+  const aSync = resolveDecisionSyncFrame(a);
+  const bSync = resolveDecisionSyncFrame(b);
+  if (aSync === null || bSync === null) return false;
+  return Math.abs(aSync - bSync) <= AUDIO_SYNC_WINDOW_FRAMES && (
+    booleanParam(a, ['linkedOverlay', 'linked_overlay', 'coordinateWithMotion', 'coordinate_with_motion'])
+    || booleanParam(b, ['linkedOverlay', 'linked_overlay', 'coordinateWithMotion', 'coordinate_with_motion'])
+  );
 }
 
 function numberParam(decision: EditDecision, aliases: string[]): number | undefined {
