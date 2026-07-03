@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildAtomicMomentBundle } from '../../lib/editron/services/moment-bundle';
 import { buildSegmentAnalysis } from '../../lib/editron/services/segment-analysis-builder';
 import { buildSignalTimeline, buildSignalTimelineFromAnalysis } from '../../lib/editron/services/signal-registry';
 
@@ -312,6 +313,12 @@ describe('signal registry V-JEPA primitive bridge', () => {
             preferredOverlayRegion: 'right',
             screenAwarePlacementTrust: 'trusted',
             visualExplainability: 'high',
+            visibleExplanationRatio: 0.75,
+            visualStateChangeCount: 2,
+            visualStateChangeRatePerMinute: 40,
+            visuallyValuableSilentRatio: 0.25,
+            brollUsefulnessRatio: 0.5,
+            visualDeadAirRatio: 0.1,
             reasons: ['screen-text-dominant'],
             missingEvidence: ['eye-contact'],
           },
@@ -340,10 +347,26 @@ describe('signal registry V-JEPA primitive bridge', () => {
       'visual.perception.avg_viewer_value': 0.74,
       'visual.perception.avg_cut_eligibility': 0.41,
       'visual.perception.avg_coverage_trust': 0.88,
+      'visual.perception.visible_explanation_ratio': 0.75,
+      'visual.perception.state_change_count': 2,
+      'visual.perception.state_change_rate_per_minute': 40,
+      'visual.perception.valuable_silent_ratio': 0.25,
+      'visual.perception.broll_usefulness_ratio': 0.5,
+      'visual.perception.dead_air_ratio': 0.1,
       'visual.perception.negative_space.right': 0.66,
       'visual.perception.missing_evidence_count': 1,
       'visual.perception.reason_count': 1,
     }));
+    const bundle = buildAtomicMomentBundle({
+      frame: 0,
+      fps: 30,
+      snapshot: timeline.globalSignals,
+    });
+    expect(bundle.primitiveAtoms).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'visual.perception.visible_explanation_ratio', value: 0.75, level: 'primitive' }),
+      expect.objectContaining({ key: 'visual.perception.state_change_count', value: 2, level: 'primitive' }),
+      expect.objectContaining({ key: 'visual.perception.valuable_silent_ratio', value: 0.25, level: 'primitive' }),
+    ]));
   });
   it('projects holistic visual setup into global signals from SegmentAnalysis', () => {
     const rawFootage = {

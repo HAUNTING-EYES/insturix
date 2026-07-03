@@ -262,6 +262,12 @@ function setVisualPerceptionNumbers(globalSignals: SignalValues, perception: Vis
   setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_text_coverage', perception.avgTextCoverage);
   setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_object_count', perception.avgObjectCount);
   setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_face_count', perception.avgFaceCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.visible_explanation_ratio', perception.visibleExplanationRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.state_change_count', perception.visualStateChangeCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.state_change_rate_per_minute', perception.visualStateChangeRatePerMinute);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.valuable_silent_ratio', perception.visuallyValuableSilentRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.broll_usefulness_ratio', perception.brollUsefulnessRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.dead_air_ratio', perception.visualDeadAirRatio);
   setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.top', perception.avgNegativeSpace.top);
   setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.right', perception.avgNegativeSpace.right);
   setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.bottom', perception.avgNegativeSpace.bottom);
