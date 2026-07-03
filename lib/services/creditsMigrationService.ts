@@ -6,11 +6,12 @@
  */
 
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import { User } from "@/schemas/user";
+import { User, ICreditTransaction } from "@/schemas/user";
 import { CreditsService } from "./creditsService";
-import { PLAN_CREDIT_ALLOCATIONS } from "@/lib/config/creditCosts";
+import { PLAN_CREDIT_ALLOCATIONS, getPlanMediaCreditAllocation } from "@/lib/config/creditCosts";
 import { UserInitializationService } from "./userInitializationService";
 import { currentUser } from "@clerk/nextjs/server";
+import { nanoid } from "nanoid";
 
 const migrationCache = new Set<string>(); // In-memory cache to avoid repeated checks
 
@@ -64,7 +65,10 @@ export class CreditsMigrationService {
       );
 
       if (hasCredits) {
-        // Already migrated, add to cache
+        // Already migrated on the main pool — but users who predate the media
+        // pool need a one-time media backfill. (New activations already receive
+        // media via grantSubscriptionCredits, so this only heals legacy users.)
+        await this.ensureMediaPool(clerkUserId, user);
         migrationCache.add(clerkUserId);
         return { migrated: false };
       }
@@ -96,6 +100,68 @@ export class CreditsMigrationService {
     } catch (error) {
       console.error(`[CreditsMigration] Error migrating user ${clerkUserId}:`, error);
       return { migrated: false };
+    }
+  }
+
+  /**
+   * One-time media-pool backfill for users who predate the media pool.
+   *
+   * Grants the plan's media allocation WITHOUT touching the main pool, so a
+   * mid-cycle user's already-spent workflow credits are never refilled. Fully
+   * idempotent: the atomic filter only matches when no media grant has ever
+   * happened, so repeated calls (every balance fetch) are safe no-ops.
+   */
+  static async ensureMediaPool(clerkUserId: string, user: any): Promise<boolean> {
+    try {
+      const planType = (user.currentPlan?.name || 'free').toLowerCase();
+      const mediaAllocation = getPlanMediaCreditAllocation(planType);
+      if (mediaAllocation <= 0) return false; // plan has no media pool
+
+      // Never re-grant / never refill: skip if a media grant already happened.
+      const alreadyGranted = user.creditsBalance?.lastMediaGrant != null
+        || (user.creditsBalance?.mediaCredits ?? 0) > 0;
+      if (alreadyGranted) return false;
+
+      const now = new Date();
+      const expiry = user.currentPlan?.endDate ? new Date(user.currentPlan.endDate) : new Date(now);
+      if (!user.currentPlan?.endDate) expiry.setMonth(expiry.getMonth() + 1);
+
+      const grantTxn: ICreditTransaction = {
+        id: `txn_${nanoid(12)}`,
+        type: 'subscription_grant',
+        amount: mediaAllocation,
+        timestamp: now,
+        balanceAfter: 0,
+        metadata: { pool: 'media', planType, reason: 'media_pool_backfill', expiry: expiry.toISOString() },
+      };
+
+      // Atomic + idempotent: only grant when NO prior media grant exists.
+      const res = await User.updateOne(
+        {
+          clerkUserId,
+          $and: [
+            { $or: [{ 'creditsBalance.lastMediaGrant': null }, { 'creditsBalance.lastMediaGrant': { $exists: false } }] },
+            { $or: [{ 'creditsBalance.mediaCredits': { $lte: 0 } }, { 'creditsBalance.mediaCredits': { $exists: false } }] },
+          ],
+        },
+        {
+          $set: {
+            'creditsBalance.mediaCredits': mediaAllocation,
+            'creditsBalance.lastMediaGrant': now,
+            'creditsBalance.mediaCreditsExpiry': expiry,
+          },
+          $push: { 'creditsBalance.creditHistory': { $each: [grantTxn], $slice: -100 } },
+        },
+      );
+
+      if (res.modifiedCount > 0) {
+        console.log(`[CreditsMigration] Backfilled ${mediaAllocation} media credits for ${clerkUserId} (${planType})`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error(`[CreditsMigration] Error backfilling media pool for ${clerkUserId}:`, error);
+      return false;
     }
   }
 

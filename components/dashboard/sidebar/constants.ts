@@ -10,6 +10,7 @@ import {
   Upload,
   Archive,
   CalendarDays,
+  FolderOpen,
 } from "lucide-react"
 import type { Product } from "./types"
 
@@ -107,6 +108,15 @@ export const growthLegalTools: Product[] = [
     description: "Brand memory",
     color: "#D4A652",
     hoverColor: "#D4A652",
+    isPro: false,
+  },
+  {
+    name: "My Content",
+    path: "/dashboard/my-content",
+    icon: FolderOpen,
+    description: "Everything you've made",
+    color: "#5CB8CC",
+    hoverColor: "#74C6D6",
     isPro: false,
   },
   {

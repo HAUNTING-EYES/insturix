@@ -1,7 +1,10 @@
 // Untracked — per-MG signal variation check. Are the per-moment signals DISTINCT per graphic,
 // or the same video-level value on all of them? (Answers: did the monotony actually improve?)
 import { MongoClient } from 'mongodb';
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = process.env.MONGODB_URI ?? '';
+if (!uri) {
+  throw new Error('MONGODB_URI is required to run scripts/check-mg-signals.ts');
+}
 const PID = process.argv[2] || 'proj_-BouQMiMnZf3';
 
 async function main() {

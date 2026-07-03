@@ -35,11 +35,12 @@ export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
 
   useEffect(() => {
     if (!sessionId) return;
+    const activeSessionId = sessionId;
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch(`/api/services/thinkforge/script/list?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+        const res = await fetch(`/api/services/thinkforge/script/list?sessionId=${encodeURIComponent(activeSessionId)}`, { cache: 'no-store' });
         if (!res.ok) throw new Error('Failed to load scripts');
         const data = await res.json();
         const items = Array.isArray(data?.scripts) ? data.scripts : [];

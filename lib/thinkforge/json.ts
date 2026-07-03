@@ -1,5 +1,8 @@
 // JSON safety + sanitization helpers for ThinkForge
 
+import { validateThinkForgeBlocks } from './schemas/thinkforge-block';
+import { applyThinkForgeBlockPatches, type ThinkForgeBlockPatch } from './utils/thinkforge-block-patch';
+
 // Script-oriented caps are intentionally generous to avoid unintended truncation
 // during long-form generation. Chat-oriented caps stay lower to prevent verbose
 // responses from unrelated agents.
@@ -30,6 +33,21 @@ export type ScriptModel = {
   } | null;
 };
 
+type BlockPatchPayload = {
+  title?: string | null;
+  outline?: string | null;
+  content?: string | null;
+  blocks?: Block[] | null;
+  replacements?: Array<{
+    blockId?: string;
+    id?: string;
+    content?: unknown;
+    text?: string;
+    newText?: string;
+    kind?: string;
+    meta?: { role?: string; goal?: string };
+  }> | null;
+};
 export function stripCodeFences(input: string): string {
   if (!input) return "";
   let s = String(input).trim();
@@ -88,8 +106,37 @@ export function parseJsonLenient(input: string): any {
   }
 }
 
-import { validateThinkForgeBlocks } from './schemas/thinkforge-block';
 
+export function applyBlockPatches(currentBlocks: Block[] | null | undefined, payload: BlockPatchPayload): Block[] {
+  const current = validateThinkForgeBlocks(Array.isArray(currentBlocks) ? currentBlocks : []);
+  const replacements = Array.isArray(payload?.replacements) ? payload.replacements : [];
+
+  if (replacements.length > 0) {
+    const patches: ThinkForgeBlockPatch[] = [];
+    for (const replacement of replacements) {
+      const blockId = replacement.blockId || replacement.id;
+      if (!blockId) continue;
+
+      patches.push({
+        blockId,
+        content: Array.isArray(replacement.content) ? replacement.content as any : undefined,
+        text: replacement.text ?? replacement.newText,
+        kind: replacement.kind as any,
+        meta: replacement.meta,
+      });
+    }
+
+    if (patches.length > 0) {
+      return applyThinkForgeBlockPatches(current, patches);
+    }
+  }
+
+  if (Array.isArray(payload?.blocks)) {
+    return validateThinkForgeBlocks(payload.blocks);
+  }
+
+  return current;
+}
 export function sanitizeServerScript(input: any): ScriptModel {
   const title = typeof input?.title === 'string' ? input.title.slice(0, 160) : (input?.title ?? null);
   const blocks = validateThinkForgeBlocks(Array.isArray(input?.blocks) ? input.blocks : []);

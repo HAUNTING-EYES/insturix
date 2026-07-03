@@ -160,3 +160,20 @@ export async function fileExists(gcsPath: string): Promise<boolean> {
   const [exists] = await blob.exists();
   return exists;
 }
+
+/**
+ * Get the actual byte size of a GCS object. Returns null if missing or unreadable —
+ * callers fail open on null. GCS reports `size` as a string, so it is parsed here.
+ */
+export async function getGcsObjectSize(gcsPath: string): Promise<number | null> {
+  try {
+    const blob = bucket.file(gcsPath);
+    const [metadata] = await blob.getMetadata();
+    const raw = metadata.size;
+    const size = typeof raw === 'string' ? parseInt(raw, 10) : raw;
+    return typeof size === 'number' && !Number.isNaN(size) ? size : null;
+  } catch (err: unknown) {
+    console.warn('[GCS] getGcsObjectSize failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}

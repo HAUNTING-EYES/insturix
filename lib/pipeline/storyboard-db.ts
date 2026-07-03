@@ -9,6 +9,12 @@ import type { Storyboard, StoryboardScene } from './schemas/storyboard';
 
 const COLLECTION = 'storyboards';
 
+function cleanString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 /**
  * Save or upsert a storyboard document.
  */
@@ -164,6 +170,35 @@ export async function getStoryboardByProjectId(
     userId,
   });
   return doc as unknown as Storyboard | null;
+}
+
+/**
+ * Resolve storyboard context for an Editron project.
+ * New projects store sourceStoryboardId directly; older/reused projects may only
+ * have the reverse storyboards.projectId link.
+ */
+export async function getStoryboardForProjectContext(
+  project: { projectId?: string; sourceStoryboardId?: string },
+  userId: string,
+): Promise<Storyboard | null> {
+  const db = await getDatabase();
+  const sourceStoryboardId = cleanString(project.sourceStoryboardId);
+  if (sourceStoryboardId) {
+    const bySourceId = await db.collection(COLLECTION).findOne({
+      storyboardId: sourceStoryboardId,
+      userId,
+    });
+    if (bySourceId) return bySourceId as unknown as Storyboard;
+  }
+
+  const projectId = cleanString(project.projectId);
+  if (!projectId) return null;
+
+  const byProjectId = await db.collection(COLLECTION).findOne({
+    projectId,
+    userId,
+  });
+  return byProjectId as unknown as Storyboard | null;
 }
 
 /**

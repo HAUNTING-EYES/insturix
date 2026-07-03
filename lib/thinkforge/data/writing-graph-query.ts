@@ -415,7 +415,7 @@ export function getConstraints(section?: string): ConstraintDef[] {
   return result;
 }
 
-function loadAntiAiFillerPatterns(): AntiAiFillerPattern[] {
+export function loadAntiAiFillerPatterns(): AntiAiFillerPattern[] {
   if (cachedAntiAiFillerPatterns) return cachedAntiAiFillerPatterns;
 
   const attempts: string[] = [];

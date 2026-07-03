@@ -32,6 +32,11 @@ function richSnapshot(): SignalSnapshot {
     'visual.object_count': 5,
     'visual.negative_space.right': 0.82,
     'visual.negative_space.left': 0.12,
+    'visual.perception.primary_mode': 'screen-text',
+    'visual.perception.preferred_overlay_region': 'right',
+    'visual.perception.placement_trust': 'trusted',
+    'visual.perception.avg_viewer_value': 0.74,
+    'visual.perception.negative_space.right': 0.66,
     'composite.cinematic_moment': 0.74,
     'composite.narrative_pressure': 0.68,
   };
@@ -59,6 +64,9 @@ describe('atomic moment bundle', () => {
       expect.objectContaining({ level: 'primitive', key: 'visual.main_subject.x', value: 0.22 }),
       expect.objectContaining({ level: 'primitive', key: 'visual.text_coverage', value: 0.38 }),
       expect.objectContaining({ level: 'primitive', key: 'visual.motion_vector.x', value: -0.35 }),
+      expect.objectContaining({ level: 'primitive', key: 'visual.perception.primary_mode', value: 'screen-text' }),
+      expect.objectContaining({ level: 'primitive', key: 'visual.perception.placement_trust', value: 'trusted' }),
+      expect.objectContaining({ level: 'primitive', key: 'visual.perception.avg_viewer_value', value: 0.74 }),
     ]));
     expect(bundle.derivedAtoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ level: 'derived', key: 'moment.speech_peak' }),
@@ -93,12 +101,16 @@ describe('atomic moment bundle', () => {
     expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.main_subject.x')).toBe(true);
     expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.text_coverage')).toBe(true);
     expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.negative_space.right')).toBe(true);
+    expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.perception.primary_mode')).toBe(true);
+    expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.perception.avg_viewer_value')).toBe(true);
     expect(primitiveKeys).toEqual(expect.arrayContaining([
       'speech.energy',
       'speech.emotion_intensity',
       'visual.motion_vector.x',
       'visual.face_count',
       'visual.object_count',
+      'visual.perception.primary_mode',
+      'visual.perception.preferred_overlay_region',
     ]));
   });
 
@@ -123,6 +135,67 @@ describe('atomic moment bundle', () => {
     expect(JSON.stringify(bundle)).not.toContain('keyword-highlight');
   });
 
+  it('uses trusted perception as fallback screen context without overriding direct primitives', () => {
+    const fallbackBundle = buildAtomicMomentBundle({
+      frame: 60,
+      fps: 30,
+      snapshot: {
+        frame: 60,
+        timestampMs: 2_000,
+        'visual.perception.status': 'available',
+        'visual.perception.placement_trust': 'trusted',
+        'visual.perception.avg_viewer_value': 0.72,
+        'visual.perception.avg_text_coverage': 0.28,
+        'visual.perception.screen_clutter_ratio': 0.64,
+        'visual.perception.face_presence_ratio': 0.2,
+        'visual.perception.motion_presence_ratio': 0.58,
+        'visual.perception.negative_space.right': 0.66,
+      } as SignalSnapshot,
+    });
+
+    expect(fallbackBundle.screen.negativeSpace).toEqual({ region: 'right', strength: 0.66 });
+    expect(fallbackBundle.screen.busyness).toBeGreaterThan(0.4);
+    expect(fallbackBundle.screen.visualSalience).toBeGreaterThan(0.5);
+    expect(fallbackBundle.constraints.preferNegativeSpace).toBe(true);
+    const fallbackSignals = momentBundleToSignalMap(fallbackBundle);
+    expect(fallbackSignals['visual.negative_space.right']).toBe(0.66);
+    expect(fallbackSignals.negative_space_right).toBe(0.66);
+    expect(fallbackSignals.negative_space).toBe(0.66);
+
+    const directBundle = buildAtomicMomentBundle({
+      frame: 60,
+      fps: 30,
+      snapshot: {
+        frame: 60,
+        timestampMs: 2_000,
+        'visual.negative_space.left': 0.81,
+        'visual.perception.placement_trust': 'trusted',
+        'visual.perception.negative_space.right': 0.66,
+      } as SignalSnapshot,
+    });
+    expect(directBundle.screen.negativeSpace).toEqual({ region: 'left', strength: 0.81 });
+    const directSignals = momentBundleToSignalMap(directBundle);
+    expect(directSignals['visual.negative_space.left']).toBe(0.81);
+    expect(directSignals.negative_space_left).toBe(0.81);
+    expect(directSignals['visual.negative_space.right']).toBeUndefined();
+  });
+
+  it('does not invent placement from degraded perception trust', () => {
+    const bundle = buildAtomicMomentBundle({
+      frame: 60,
+      fps: 30,
+      snapshot: {
+        frame: 60,
+        timestampMs: 2_000,
+        'visual.perception.status': 'available',
+        'visual.perception.placement_trust': 'degraded',
+        'visual.perception.negative_space.right': 0.88,
+      } as SignalSnapshot,
+    });
+
+    expect(bundle.screen.negativeSpace).toEqual({ region: 'none', strength: 0 });
+    expect(bundle.constraints.preferNegativeSpace).toBe(false);
+  });
   it('lets zoom and transition forms consume moment bundles without preset labels', () => {
     const bundle = buildAtomicMomentBundle({
       frame: 90,

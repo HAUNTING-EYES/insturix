@@ -26,8 +26,13 @@ export async function GET(request: NextRequest) {
     console.log('[plans API] GET - requested currency:', currency, 'url:', request.url);
     const includeInactive = searchParams.get("includeInactive") === "true";
 
-    const filter = includeInactive ? {} : { isActive: true };
-    
+    // Public plan set is agency-only. Legacy plus/pro/premium are retained in the DB for
+    // historical user records but must never surface on the public pricing API.
+    const PUBLIC_PLAN_TYPES = ["free", "agency_starter", "agency_growth", "agency_scale"];
+    const filter = includeInactive
+      ? {}
+      : { isActive: true, type: { $in: PUBLIC_PLAN_TYPES } };
+
     const plans = await Plan.find(filter)
       .sort({ sortOrder: 1, createdAt: 1 })
       .lean<IPlanDocument[]>();

@@ -133,7 +133,13 @@ export function findClickatronCreativeSpecInBlocks(blocks?: ThinkForgeBlock[] | 
   for (const block of blocks) {
     const candidate = block.exportMeta?.clickatron;
     if (candidate) {
-      return normalizeClickatronCreativeSpec(candidate);
+      try {
+        return normalizeClickatronCreativeSpec(candidate);
+      } catch (error) {
+        const repaired = repairCarouselSidecarSlidesFromVisibleBlocks(candidate, blocks, error);
+        if (repaired) return repaired;
+        throw error;
+      }
     }
   }
   return undefined;
@@ -275,23 +281,106 @@ function visibleTextLayers(
   return layers.length > 0 ? layers : undefined;
 }
 
+function derivedCarouselSlidesFromVisibleBlocks(
+  summary: ReturnType<typeof summarizeVisibleBlocks>,
+  textPolicy: ClickatronTextPolicy,
+  promptBase: string,
+) {
+  return summary.sourceBlocks.slice(0, MAX_CAROUSEL_SLIDES).map((block, index) => {
+    const slideTextLayers = visibleTextLayers([block], textPolicy);
+    const slideKeywords = visualKeywords(block.sceneText || block.text || "");
+    return {
+      id: `slide_${index + 1}`,
+      index,
+      title: textSnippet(block.text || block.sceneText, 64) || `Slide ${index + 1}`,
+      sourceBlockIds: [block.id],
+      imagePrompt: [
+        `${promptBase} Slide ${index + 1}: text-free visual variation with consistent brand-safe composition.`,
+        slideKeywords ? `Slide concepts to interpret, not draw as text: ${slideKeywords}.` : undefined,
+        "Do not rasterize the source copy; keep exact words in editable text layers.",
+      ].filter(Boolean).join(" "),
+      layoutIntent: "Text-free slide background; final copy must be added as editable overlay text.",
+      ...(slideTextLayers ? { textLayers: slideTextLayers } : {}),
+    };
+  });
+}
+function readRenderPlanTextPolicy(value: unknown): ClickatronTextPolicy {
+  const text = toNonEmptyString(value);
+  if (text === "no_generated_text" || text === "minimal_generated_text" || text === "editable_text_layers") {
+    return text;
+  }
+  return "editable_text_layers";
+}
+
+function repairCarouselSidecarSlidesFromVisibleBlocks(
+  candidate: unknown,
+  blocks: ThinkForgeBlock[],
+  error: unknown,
+): ClickatronCreativeSpec | undefined {
+  if (!(error instanceof Error) || !/carousel specs require at least one renderPlan\.slides item/i.test(error.message)) {
+    return undefined;
+  }
+
+  const spec = toPlainRecord(candidate);
+  if (toNonEmptyString(spec?.kind) !== "carousel") return undefined;
+
+  const renderPlan = toPlainRecord(spec?.renderPlan);
+  const summary = summarizeVisibleBlocks(blocks);
+  if (!renderPlan || summary.sourceBlocks.length === 0) return undefined;
+
+  const textPolicy = readRenderPlanTextPolicy(renderPlan.textPolicy);
+  const imagePrompt = toNonEmptyString(renderPlan.imagePrompt)
+    || "Recovered carousel overview from ThinkForge visible blocks.";
+
+  return normalizeClickatronCreativeSpec({
+    ...spec,
+    renderPlan: {
+      ...renderPlan,
+      textPolicy,
+      imagePrompt,
+      slides: derivedCarouselSlidesFromVisibleBlocks(
+        summary,
+        textPolicy,
+        `Recovered sidecar carousel system: ${imagePrompt}`,
+      ),
+    },
+    validation: {
+      status: "needs_user_input",
+      issues: [{
+        code: "carousel_slides_recovered_from_visible_blocks",
+        message: "The hidden Clickatron sidecar declared a carousel without slide render plans, so ThinkForge derived review-required slides from visible blocks instead of failing export.",
+        severity: "warning",
+      }],
+      needsUserInput: ["Review and confirm the recovered carousel slide plan before sending to Clickatron."],
+    },
+  });
+}
+
 function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput, visualPrompts: Record<string, unknown>): ClickatronCreativeSpec | undefined {
   const summary = summarizeVisibleBlocks(input.blocks);
   if (summary.sourceBlockIds.length === 0) return undefined;
 
   const choices = input.userVisualChoices || {};
+  const writerOutput = toPlainRecord(input.writerOutput);
+  const writerType = toNonEmptyString(writerOutput?.writerType);
   
-  const carouselPrompts = Array.isArray(visualPrompts.carouselPrompts) ? visualPrompts.carouselPrompts : [];
-  const scenePrompts = Array.isArray(visualPrompts.scenePrompts) ? visualPrompts.scenePrompts : [];
-  const singleImagePrompt = typeof visualPrompts.singleImagePrompt === "string" ? visualPrompts.singleImagePrompt : undefined;
+  const carouselPrompts = Array.isArray(visualPrompts.carouselPrompts)
+    ? visualPrompts.carouselPrompts.filter((prompt): prompt is string => typeof prompt === "string" && prompt.trim().length > 0)
+    : [];
+  const scenePrompts = Array.isArray(visualPrompts.scenePrompts)
+    ? visualPrompts.scenePrompts.filter((prompt): prompt is string => typeof prompt === "string" && prompt.trim().length > 0)
+    : [];
+  const singleImagePrompt = toNonEmptyString(visualPrompts.singleImagePrompt);
 
   const hasCarousel = carouselPrompts.length > 0;
   const hasScene = scenePrompts.length > 0;
+  const hasStaticClickatronPrompt = Boolean(singleImagePrompt) || hasCarousel;
+  const hasScriptSceneOnlyPrompt = writerType === "script" && !hasStaticClickatronPrompt && hasScene;
   // ponytail: real writer visual prompt present, vs the placeholder fallbacks below. Drives an honest
   // validation.status instead of a hardcoded "ready". Fact-level grounding (does the prompt carry the
   // brand/offer/price) needs the resolved signal profile wired into this path (Phase 4), then reuse
   // applyContentSignalProfileToClickatronExportMeta.
-  const hasRealPrompt = Boolean(singleImagePrompt) || hasCarousel || hasScene;
+  const hasRealPrompt = hasStaticClickatronPrompt || (hasScene && !hasScriptSceneOnlyPrompt);
 
   // ponytail: pull grounded facts + forbidden visible-text off the signal trace (now persisted by
   // chat-service Phase 4) so the image carries them. Mirrors the sidecar; flows to the model via
@@ -307,7 +396,7 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   let kind: ClickatronCreativeKind = "single_post_visual";
   if (choices.kind) {
     kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
-  } else if (hasCarousel || hasScene) {
+  } else if (hasCarousel || (hasScene && writerType !== "script")) {
     kind = "carousel";
   }
 
@@ -361,10 +450,17 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
           ...(slideTextLayers ? { textLayers: slideTextLayers } : {}),
         };
       });
+    } else if (singleImagePrompt) {
+      slides = derivedCarouselSlidesFromVisibleBlocks(
+        summary,
+        textPolicy,
+        `Writer visual system: ${singleImagePrompt}. Treat it as carousel style guidance, not final slide copy.`,
+      );
     }
   }
 
   const rootTextLayers = wantsCarousel ? undefined : visibleTextLayers(summary.sourceBlocks.slice(0, 4), textPolicy);
+  const hasDerivedCarouselSlidesFromSinglePrompt = Boolean(wantsCarousel && singleImagePrompt && !hasCarousel && !hasScene && slides?.length);
 
   return normalizeClickatronCreativeSpec({
     schemaVersion: CLICKATRON_CREATIVE_SPEC_VERSION,
@@ -401,16 +497,36 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
       ...(rootTextLayers ? { textLayers: rootTextLayers } : {}),
       ...(slides && slides.length > 0 ? { slides } : {}),
     },
-    validation: hasRealPrompt
+    validation: hasRealPrompt && !hasScriptSceneOnlyPrompt && !hasDerivedCarouselSlidesFromSinglePrompt
       ? { status: "ready" }
-      : {
-          status: "needs_user_input",
-          issues: [{
-            code: "missing_writer_visual_prompt",
-            message: "Writer produced no visual prompt; the image would render from a generic placeholder. Add a visual prompt before sending to Clickatron.",
-            severity: "warning",
-          }],
-        },
+      : hasScriptSceneOnlyPrompt
+        ? {
+            status: "needs_user_input",
+            issues: [{
+              code: "script_scene_prompts_need_clickatron_target",
+              message: "Script scene prompts are video/Editron visual metadata. Choose a static Clickatron brief or explicit carousel handoff before sending to Clickatron.",
+              severity: "warning",
+            }],
+            needsUserInput: ["Confirm a static Clickatron visual or regenerate this as a post/carousel brief before sending."],
+          }
+        : hasDerivedCarouselSlidesFromSinglePrompt
+          ? {
+              status: "needs_user_input",
+              issues: [{
+                code: "carousel_slides_derived_from_single_prompt",
+                message: "The writer produced only a single-image Clickatron prompt, so ThinkForge derived carousel slides from visible source blocks. Review the slide plan before sending.",
+                severity: "warning",
+              }],
+              needsUserInput: ["Review and confirm the derived carousel slide plan before sending to Clickatron."],
+            }
+        : {
+            status: "needs_user_input",
+            issues: [{
+              code: "missing_writer_visual_prompt",
+              message: "Writer produced no visual prompt; the image would render from a generic placeholder. Add a visual prompt before sending to Clickatron.",
+              severity: "warning",
+            }],
+          },
   });
 }
 
@@ -494,12 +610,13 @@ export function buildVisibleContentClickatronCreativeSpec(input: ThinkToClickCon
       } : {}),
     },
     validation: {
-      status: "ready",
+      status: "needs_user_input",
       issues: [{
         code: "derived_from_visible_content",
-        message: "No hidden Clickatron sidecar was found; derived a text-free visual brief from visible ThinkForge blocks.",
+        message: "No hidden Clickatron sidecar was found; derived a draft text-free visual brief from visible ThinkForge blocks. Review and confirm before sending to Clickatron.",
         severity: "warning",
       }],
+      needsUserInput: ["Review and confirm the derived visual brief before sending to Clickatron."],
     },
   });
 }
@@ -562,7 +679,11 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
 
   let creativeSpec: ClickatronCreativeSpec | undefined = undefined;
 
-  if (visualPrompts && (visualPrompts.singleImagePrompt || visualPrompts.carouselPrompts || visualPrompts.scenePrompts)) {
+  if (visualPrompts && (
+    toNonEmptyString(visualPrompts.singleImagePrompt) ||
+    (Array.isArray(visualPrompts.carouselPrompts) && visualPrompts.carouselPrompts.some((prompt) => toNonEmptyString(prompt))) ||
+    (Array.isArray(visualPrompts.scenePrompts) && visualPrompts.scenePrompts.some((prompt) => toNonEmptyString(prompt)))
+  )) {
     creativeSpec = buildWriterOutputClickatronCreativeSpec(input, visualPrompts);
   }
 

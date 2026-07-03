@@ -28,12 +28,15 @@ export function buildClickatronPromptFromHandoff(handoffState: ThinkToClickHando
 }
 
 export function buildClickatronMetadataFromHandoff(handoffState: ThinkToClickHandoffState): Record<string, unknown> {
+  const metadata = withApprovedVisualPlanMetadata(handoffState.payloadPreview?.metadata || {}, handoffState);
+
   return {
-    ...(handoffState.payloadPreview?.metadata || {}),
+    ...metadata,
     clickatronHandoff: {
       status: handoffState.status,
       visualChoices: handoffState.display.visualChoices,
       requiredUserInput: handoffState.requiredUserInput,
+      ...(handoffState.approval ? { visualPlanApproval: handoffState.approval } : {}),
       sourceBlockIds: handoffState.debug.sourceBlockIds,
       contentHash: handoffState.debug.contentHash,
       contentCardId: handoffState.debug.contentCardId,
@@ -46,6 +49,9 @@ export function buildClickatronSessionFormData(handoffState: ThinkToClickHandoff
   const payload = handoffState.payloadPreview;
   if (!payload) {
     throw new Error("Clickatron handoff is missing a session payload.");
+  }
+  if (!handoffState.canSendToClickatron) {
+    throw new Error(`Clickatron handoff is not ready to send: ${handoffState.status}`);
   }
 
   const formData = new FormData();
@@ -61,8 +67,50 @@ export function buildClickatronSessionFormData(handoffState: ThinkToClickHandoff
   return formData;
 }
 
+function withApprovedVisualPlanMetadata(
+  metadata: Record<string, unknown>,
+  handoffState: ThinkToClickHandoffState,
+): Record<string, unknown> {
+  if (!handoffState.approval?.visualPlanApproved) return metadata;
+
+  const clickatron = isRecord(metadata.clickatron) ? metadata.clickatron : undefined;
+  const creativeSpec = isRecord(clickatron?.creativeSpec) ? clickatron.creativeSpec : undefined;
+  if (!clickatron || !creativeSpec) return metadata;
+
+  const validation = isRecord(creativeSpec.validation) ? creativeSpec.validation : {};
+  const existingIssues = Array.isArray(validation.issues) ? validation.issues : [];
+  const approvalIssue = {
+    code: "visual_plan_approved_by_user",
+    message: "User reviewed and approved the derived Clickatron visual plan.",
+    severity: "info",
+  };
+  const issues = existingIssues.some((issue) => isRecord(issue) && issue.code === approvalIssue.code)
+    ? existingIssues
+    : [...existingIssues, approvalIssue];
+
+  return {
+    ...metadata,
+    clickatron: {
+      ...clickatron,
+      creativeSpec: {
+        ...creativeSpec,
+        validation: {
+          ...validation,
+          status: "ready",
+          issues,
+          needsUserInput: undefined,
+        },
+      },
+    },
+  };
+}
+
 function appendContextField(formData: FormData, key: string, value: unknown) {
   if (typeof value === "string" && value.trim().length > 0) {
     formData.append(key, value.trim());
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

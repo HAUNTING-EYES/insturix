@@ -6,6 +6,7 @@ import axios from "axios";
 import FormData from "form-data";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 export const maxDuration = 300;
 
@@ -179,6 +180,8 @@ export async function POST(req: Request) {
       }
     }
 
+    let publishCreditCheck: CreditCheckResult;
+
     if (existingFbVideoId) {
       if (scheduledPublishAt) {
         return NextResponse.json(
@@ -187,6 +190,12 @@ export async function POST(req: Request) {
         );
       }
 
+      publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
       const updateRes = await fetch(`https://graph.facebook.com/v21.0/${existingFbVideoId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -208,6 +217,8 @@ export async function POST(req: Request) {
         );
       }
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         facebookUrl: `https://www.facebook.com/${targetPage.pageId}/videos/${existingFbVideoId}`,
@@ -216,6 +227,12 @@ export async function POST(req: Request) {
       });
     }
 
+    publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+      requestType: "facebook",
+    });
+    if (!publishCreditCheck.allowed) {
+      return publishCreditCheck.errorResponse!;
+    }
     const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
     const fileSize = Number(videoAsset.size || 0);
     const fileName = videoAsset.filename || gcsPath.split("/").pop() || "video.mp4";
@@ -286,6 +303,8 @@ export async function POST(req: Request) {
                 );
               }
             }
+
+            await deductPublishCredits(publishCreditCheck);
 
             return NextResponse.json({
               success: true,
@@ -536,6 +555,8 @@ export async function POST(req: Request) {
       }
     }
 
+    await deductPublishCredits(publishCreditCheck);
+
     return NextResponse.json({
       success: true,
       facebookUrl,
@@ -551,5 +572,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "Facebook upload failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:Facebook] publish credit deduction failed:", error);
   }
 }

@@ -36,19 +36,20 @@
 
 Change these ONLY in the "Preview" environment (NOT Production):
 
+Do not paste real credential values into this file. Pull them from the team's approved secret manager or provider dashboard at execution time.
+
 | Variable | New Preview Value |
-|----------|------------------|
-| `GOOGLE_CLOUD_PROJECT` | `insturix-preview-v2` |
+|----------|------------------|| `GOOGLE_CLOUD_PROJECT` | `insturix-preview-v2` |
 | `GOOGLE_CLOUD_PROJECT_ID` | `insturix-preview-v2` |
 | `GOOGLE_CLOUD_CREDENTIALS` | base64 of `insturix-preview-sa-key.json` (see secrets/ folder) |
 | `GCS_BUCKET_NAME` | `insturix-prev-gcs-v2` |
 | `ALYZITRON_GCS_BUCKET_NAME` | `alyzitron-uploads-v2` |
 | `MUSITRON_GCS_BUCKET_NAME` | `musitron-v2` |
 | `GCS_BUCKET_NAME_MUSITRON` | `musitron-v2` |
-| `GEMINI_API_KEY` | `AIzaSyA5vFtuZCM9Lu8VE3_d5C11qZKbrLwbO34` |
-| `GOOGLE_API_KEY` | `AIzaSyA5vFtuZCM9Lu8VE3_d5C11qZKbrLwbO34` |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | `AIzaSyA5vFtuZCM9Lu8VE3_d5C11qZKbrLwbO34` |
-| `YOUTUBE_API_KEY` | `AIzaSyCQ4wc6egSLGJmr6iVrf2DKvxUZ3KEsPg0` |
+| `GEMINI_API_KEY` | `<preview-gemini-api-key-from-secret-manager>` |
+| `GOOGLE_API_KEY` | `<preview-google-api-key-from-secret-manager>` |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | `<preview-google-generative-ai-api-key-from-secret-manager>` |
+| `YOUTUBE_API_KEY` | `<preview-youtube-api-key-from-secret-manager>` |
 
 **Then trigger a new preview deploy** (push to branch or redeploy existing).
 

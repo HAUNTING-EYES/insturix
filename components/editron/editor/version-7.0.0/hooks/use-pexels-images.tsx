@@ -28,19 +28,18 @@ export function usePexelsImages() {
   const fetchImages = async (query: string) => {
     setIsLoading(true);
     try {
-      // Make API request to Pexels
+      const params = new URLSearchParams({
+        type: "images",
+        query,
+        per_page: "80",
+      });
+
+      // Make API request through our authenticated server proxy.
       // Parameters:
       // - query: search term
       // - per_page: number of results to return
       // - orientation: aspect ratio of images
-      const response = await fetch(
-        `https://api.pexels.com/v1/search?query=${query}&per_page=200`,
-        {
-          headers: {
-            Authorization: process.env.NEXT_PUBLIC_PEXELS_API_KEY || "",
-          },
-        }
-      );
+      const response = await fetch(`/api/services/editron/pexels/search?${params}`);
 
       // Check if the request was successful
       if (!response.ok)
@@ -53,8 +52,7 @@ export function usePexelsImages() {
       console.error("Error fetching Pexels media:", error);
       toast({
         title: "Error fetching media",
-        description:
-          "Failed to fetch media. Have you added your own Pexels API key?",
+        description: "Pexels search is not available right now.",
         variant: "destructive",
       });
     } finally {

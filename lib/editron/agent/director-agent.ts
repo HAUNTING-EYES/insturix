@@ -51,6 +51,10 @@ import {
 } from '@/lib/editron/agent/director-observability';
 import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
 import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
+import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
+import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
+import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
+import { dispatchPhase0RenderedEvidenceJob } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -270,6 +274,136 @@ async function persistPostBundleProfileActionPolicy(
   }
 }
 
+async function persistFinalPhase0LiveTruth(options: {
+  projectId: string;
+  project: any;
+  projectDoc: any;
+  overlays: any[];
+  constraintViolations?: any[];
+  genreParams?: any;
+}): Promise<ReturnType<typeof buildPhase0LiveTruthSnapshot>> {
+  const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
+  const reviewedAt = new Date();
+  const fps = options.project?.fps || 30;
+  const finalQualityReport = runQualityReview(
+    options.overlays,
+    fps,
+    undefined,
+    undefined,
+    options.constraintViolations,
+    undefined,
+    options.genreParams,
+  );
+  const persistedQualityReview = buildPersistedQualityReview(finalQualityReport, reviewedAt);
+  const truthDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+  const persistedProjectDoc = await truthDb.collection('projects').findOne(
+    { projectId: options.projectId },
+    {
+      projection: {
+        projectId: 1,
+        id: 1,
+        durationInFrames: 1,
+        fps: 1,
+        playerDimensions: 1,
+        aspectRatio: 1,
+        rawFootageAnalysis: 1,
+        vjepaAnalysis: 1,
+        intelligence: 1,
+      },
+    },
+  );
+
+  const truthProject = {
+    ...(persistedProjectDoc ?? {}),
+    projectId: options.projectId,
+    id: persistedProjectDoc?.id ?? options.project?.id,
+    durationInFrames: persistedProjectDoc?.durationInFrames ?? options.project?.durationInFrames,
+    fps: persistedProjectDoc?.fps ?? options.project?.fps,
+    playerDimensions: persistedProjectDoc?.playerDimensions ?? options.project?.playerDimensions,
+    aspectRatio: persistedProjectDoc?.aspectRatio ?? options.project?.aspectRatio,
+    rawFootageAnalysis: persistedProjectDoc?.rawFootageAnalysis ?? options.projectDoc?.rawFootageAnalysis,
+    vjepaAnalysis: persistedProjectDoc?.vjepaAnalysis ?? options.projectDoc?.vjepaAnalysis,
+    intelligence: persistedProjectDoc?.intelligence ?? options.projectDoc?.intelligence,
+    overlays: options.overlays,
+    qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
+  };
+  const capturedAt = reviewedAt.toISOString();
+  const artifactDir = buildLivePhase0ArtifactDir(options.projectId, capturedAt);
+  const artifactManifest = buildPhase0FixtureManifest(truthProject, {
+    capturedAt,
+    source: 'director-final-save',
+    artifactDir,
+  });
+  const artifactPack = buildPhase0RenderArtifactPack(truthProject, artifactManifest, {
+    artifactDir,
+  });
+  const snapshot = buildPhase0LiveTruthSnapshot(truthProject, {
+    capturedAt,
+    source: 'director-final-save',
+    artifactDir,
+    artifactPack,
+  });
+
+  await truthDb.collection('projects').updateOne(
+    { projectId: options.projectId },
+    {
+      $set: {
+        qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
+        'intelligence.phase0LiveTruth': snapshot,
+        'intelligence.renderedQualityEvidence': snapshot.qualityEvidence,
+        'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack),
+      },
+    },
+  );
+
+  return snapshot;
+}
+function buildLivePhase0ArtifactDir(projectId: string, capturedAt: string): string {
+  const safeProjectId = safePhase0PathSegment(projectId || 'unknown-project');
+  const safeRunId = safePhase0PathSegment(capturedAt);
+  return `.calibration-temp/phase0-live/${safeProjectId}/${safeRunId}`;
+}
+
+function safePhase0PathSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96) || 'unknown';
+}
+
+function buildLivePhase0FixtureArtifact(
+  snapshot: ReturnType<typeof buildPhase0LiveTruthSnapshot>,
+  artifactPack: ReturnType<typeof buildPhase0RenderArtifactPack>,
+) {
+  return {
+    version: 'editron-phase0-live-fixture-artifact-v1' as const,
+    persistedAt: snapshot.capturedAt,
+    materialization: 'planned-not-rendered' as const,
+    artifactDir: artifactPack.artifactDir,
+    renderInputPath: artifactPack.paths.renderInput,
+    renderedAestheticDir: artifactPack.paths.renderedAestheticDir,
+    renderedAestheticJson: artifactPack.paths.renderedAestheticJson,
+    renderedAestheticHtml: artifactPack.paths.renderedAestheticHtml,
+    renderCommand: artifactPack.renderCommand,
+    artifactPackStatus: artifactPack.status,
+    artifactPackIssues: artifactPack.issues.slice(0, 20),
+    renderArtifactsStatus: snapshot.renderArtifacts.status,
+    qualityEvidenceSource: snapshot.qualityEvidence.qualityEvidenceSource,
+    sampledFrameCount: artifactPack.samplePlan.sampledFrames.length,
+    sampledFrames: artifactPack.samplePlan.sampledFrames.slice(0, 80),
+    droppedSampleCount: artifactPack.samplePlan.droppedSampleCount,
+    familyCoverage: {
+      auditedVisualCount: artifactPack.familyCoverage.auditedVisualCount,
+      auditedMotionCount: artifactPack.familyCoverage.auditedMotionCount,
+      auditedAudioCount: artifactPack.familyCoverage.auditedAudioCount,
+      presentRequiredFamilies: artifactPack.familyCoverage.presentRequiredFamilies,
+      missingRequiredFamilies: artifactPack.familyCoverage.missingRequiredFamilies,
+      incompleteFamilies: artifactPack.familyCoverage.incompleteFamilies,
+    },
+  };
+}
+
 function isCanonicalDecisionTimelineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('canonical decision timeline');
 }
@@ -371,6 +505,7 @@ export async function executeDirectorPlan(
     // Previously declared inside the { } block below → caused "storyboardScenes is not defined"
     // which silently killed captions, filters, transitions, and quality review.
     let storyboardScenes: any[] = [];
+    let storyboardContextSource: 'storyboard' | 'raw-footage-analysis' | 'synthetic-storyboard' | null = null;
     // Fix 24: Hoist per-asset analysis data to function scope so continuity scoring
     // can use real 5-Track visual data (dominant colors, energy) instead of empty arrays.
     const perAssetAnalysis = new Map<string, any>();
@@ -378,13 +513,24 @@ export async function executeDirectorPlan(
     // Path D: hoisted constraint violations + genre params for quality review step 11
     let pathDConstraintViolations: any[] | undefined;
     let pathDGenreParams: any | undefined;
+    let pathEGenreParams: any | undefined;
     let briefCaptionStyle: string | undefined;
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
     let postBundleProfileActionPolicy: PostBundleProfileActionPolicySummary | null = null;
 
-    const edlSummary: { totalDecisions: number; executed: number; skipped: number; byType: Record<string, number>; cinematicMoments: number; assetsAnalyzed: number; assetsFailed: number; failedAssets: string[] } = {
+    const edlSummary: {
+      totalDecisions: number;
+      executed: number;
+      skipped: number;
+      byType: Record<string, number>;
+      cinematicMoments: number;
+      assetsAnalyzed: number;
+      assetsFailed: number;
+      failedAssets: string[];
+      skipReason?: 'creative-brief-per-asset-analysis-bypassed' | 'asset-analysis-unavailable';
+    } = {
       totalDecisions: 0, executed: 0, skipped: 0, byType: {}, cinematicMoments: 0,
       assetsAnalyzed: 0, assetsFailed: 0, failedAssets: [],
     };
@@ -400,24 +546,25 @@ export async function executeDirectorPlan(
       try {
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
         projectDoc = await db.collection('projects').findOne({ projectId }) as any;
-        const storyboardId = projectDoc?.sourceStoryboardId;
-        if (storyboardId) {
-          // Path A: ThinkForge storyboard (Mode 1: script → AI video)
-          const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
-          const sb = await getStoryboard(storyboardId, userId);
-          if (sb) {
-            storyboardScenes = sb.scenes.map(s => ({
-              sceneIndex: s.sceneIndex,
-              sceneType: (s as any).sceneType || 'continuous',
-              narration: s.descriptor.narration,
-              visualDescription: s.descriptor.visualDescription,
-              mood: s.descriptor.mood,
-              audioDescription: s.descriptor.audioDescription,
-              cameraDirection: s.descriptor.cameraDirection,
-              editDirections: s.descriptor.editDirections,
-            }));
-            console.log(`[Director] Found storyboard with ${storyboardScenes.length} scenes`);
-          }
+        const { getStoryboardForProjectContext } = await import('@/lib/pipeline/storyboard-db');
+        const sb = await getStoryboardForProjectContext({
+          projectId,
+          sourceStoryboardId: projectDoc?.sourceStoryboardId,
+        }, userId);
+        if (sb) {
+          // Path A: ThinkForge storyboard (Mode 1: script -> AI video)
+          storyboardScenes = sb.scenes.map(s => ({
+            sceneIndex: s.sceneIndex,
+            sceneType: (s as any).sceneType || 'continuous',
+            narration: s.descriptor.narration,
+            visualDescription: s.descriptor.visualDescription,
+            mood: s.descriptor.mood,
+            audioDescription: s.descriptor.audioDescription,
+            cameraDirection: s.descriptor.cameraDirection,
+            editDirections: s.descriptor.editDirections,
+          }));
+          storyboardContextSource = 'storyboard';
+          console.log(`[Director] Found storyboard with ${storyboardScenes.length} scenes`);
         } else if (projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
           // Path C: Raw Footage Analysis (Mode 2 with transcript intelligence)
           // Built by raw-footage-processor.ts from real transcript data.
@@ -438,6 +585,7 @@ export async function executeDirectorPlan(
               onScreenText: [],
             },
           }));
+          storyboardContextSource = 'raw-footage-analysis';
           // Carry Gemini file URI from VU (if VU ran in parallel and produced one)
           // so 5-Track can skip redundant CDN download + Gemini upload (saves ~30s).
           if (projectDoc.syntheticStoryboard?.geminiFileUri) {
@@ -457,6 +605,7 @@ export async function executeDirectorPlan(
             cameraDirection: s.descriptor?.cameraDirection || 'static',
             editDirections: s.descriptor?.editDirections,
           }));
+          storyboardContextSource = 'synthetic-storyboard';
           // Carry Gemini file URI from VideoUnderstanding so 5-Track can skip redundant CDN download
           if (ssb.geminiFileUri) {
             (projectDoc as any)._vuGeminiFileUri = ssb.geminiFileUri;
@@ -468,15 +617,20 @@ export async function executeDirectorPlan(
       }
 
       const isAIProject = storyboardScenes.length > 0;
+      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
 
       // ── Per-asset analysis with INDIVIDUAL error isolation ──
-      // SKIP when Creative Brief is active — Path E watches the video directly via
+      // SKIP only for raw-footage Creative Brief mode — Path E watches that video directly via
       // geminiFileUri. Running 43 per-asset Gemini calls exhausts quota before
       // the Creative Brief can make its ONE call. This was the root cause of
       // proj_FGHYdAd7VkhU producing zero editing decisions.
-      const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';
+      // AI storyboard projects do not enter Path E, so they must still run
+      // per-asset analysis even when USE_CREATIVE_BRIEF=true.
+      const creativeBriefPerAssetBypassActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;
+      const skipPerAssetAnalysis = creativeBriefPerAssetBypassActive;
       if (skipPerAssetAnalysis) {
-        console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
+        edlSummary.skipReason = 'creative-brief-per-asset-analysis-bypassed';
+        console.log(`[Director] Skipping per-asset 5-Track analysis (USE_CREATIVE_BRIEF=true, raw-footage mode, ${videoOverlays.length} assets). Creative Brief uses geminiFileUri directly.`);
       } else {
         onProgress?.(0, 0, `Analyzing ${videoOverlays.length} video assets (5-track)...`);
       }
@@ -609,7 +763,6 @@ export async function executeDirectorPlan(
       let pathDHandled = false;
       let unifiedDecisionBundle: UnifiedDecisionBundle | null = null;
       const unifiedDecisionCandidates: UnifiedDecisionProducerCandidate[] = [];
-      const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;
       let editedTimelineContext: any = null;
       if (hasRawFootage) {
         try {
@@ -717,12 +870,12 @@ export async function executeDirectorPlan(
           };
 
           // Compute per-video genre parameters from signals (no profiles)
-          let pathEGenreParams: import('@/lib/editron/services/graph-query').GenreParameters | undefined;
           try {
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
             const genreResult = computeGenreParameters({
               rawFootage: decisionRawFootage,
               analyses,
+              musicAnalysis: projectDoc.musicAnalysis ?? null,
               videoDurationSec: cleanDurationSec,
             });
             pathEGenreParams = genreResult.genreParams;
@@ -1072,6 +1225,7 @@ export async function executeDirectorPlan(
             const genreOutput = computeGenreParameters({
               rawFootage: pathDDecisionRawFootage,
               analyses,
+              musicAnalysis: projectDoc.musicAnalysis ?? null,
               videoDurationSec: (editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000,
               userPlatform: brief?.platform,
               userIntent: brief?.intent,
@@ -1538,22 +1692,44 @@ export async function executeDirectorPlan(
           // project: storyboard projects already get BGM from finalize, so dispatching here too
           // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
           // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
+          const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
+          const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
+          const isStoryboardProject = storyboardContextSource === 'storyboard';
           try {
-            const bgmRec = (pathDGenreParams as any)?.bgmRecommendation;
-            const isStoryboardProject = !!(projectDoc as any)?.sourceStoryboardId;
-            if (bgmRec?.shouldAddBgm === true && !isStoryboardProject) {
+            const {
+              buildAutoBgmDecisionEvidence,
+              persistAutoBgmDecisionEvidence,
+            } = await import('@/lib/editron/services/auto-bgm-decision');
+            const bgmFps = project.fps || 30;
+            const bgmTotalFrames = overlays.reduce(
+              (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
+              0,
+            );
+            const bgmDurationSec = Math.round(bgmTotalFrames / bgmFps);
+            const persistAutoBgmEvidence = async (evidenceInput: Record<string, any>) => {
+              const evidence = buildAutoBgmDecisionEvidence({
+                recommendation: bgmRec,
+                isStoryboardProject,
+                durationSec: bgmDurationSec,
+                totalFrames: bgmTotalFrames,
+                fps: bgmFps,
+                ...evidenceInput,
+              });
+              await persistAutoBgmDecisionEvidence(projectId, evidence);
+              return evidence;
+            };
+
+            if (bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
+              const evidence = await persistAutoBgmEvidence({});
+              console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
+            } else {
               const { isBGMAvailable, buildMusicPrompt } = await import('@/lib/pipeline/bgm-service');
-              const bgmFps = project.fps || 30;
-              const bgmTotalFrames = overlays.reduce(
-                (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
-                0,
-              );
-              const bgmDurationSec = Math.round(bgmTotalFrames / bgmFps);
-              if (isBGMAvailable() && bgmDurationSec >= 10) {
-                // No scene descriptors / overallMusicPrompt on the auto-edit path — derive a music
+              const providerAvailable = isBGMAvailable();
+              if (providerAvailable && bgmDurationSec >= 10) {
+                // No scene descriptors / overallMusicPrompt on the auto-edit path - derive a music
                 // mood from genre signals; buildMusicPrompt maps mood+pacing -> BPM tier + key/mode.
-                const bgmEnergy = typeof pathDGenreParams?.energy_baseline === 'number' ? pathDGenreParams.energy_baseline : 0.5;
-                const bgmFormality = typeof pathDGenreParams?.formality === 'number' ? pathDGenreParams.formality : 0.5;
+                const bgmEnergy = typeof bgmGenreParams?.energy_baseline === 'number' ? bgmGenreParams.energy_baseline : 0.5;
+                const bgmFormality = typeof bgmGenreParams?.formality === 'number' ? bgmGenreParams.formality : 0.5;
                 const bgmMood = bgmEnergy > 0.6 ? 'energetic'
                   : bgmEnergy < 0.35 ? (bgmFormality > 0.55 ? 'calm' : 'nostalgic')
                   : (bgmFormality > 0.6 ? 'sophisticated' : 'inspirational');
@@ -1563,7 +1739,7 @@ export async function executeDirectorPlan(
                   bgmDurationSec,
                 );
                 const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
-                await dispatchAudioJob({
+                const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
                   projectId,
                   userId,
@@ -1573,15 +1749,44 @@ export async function executeDirectorPlan(
                   totalFrames: bgmTotalFrames,
                   fps: bgmFps,
                 }, 'BGM(auto-edit)');
-                console.log(`[Director] Auto-BGM dispatched (mood=${bgmMood}, pacing=${bgmPacing}, ${bgmDurationSec}s) — signal shouldAddBgm=true, non-storyboard`);
+                const evidence = await persistAutoBgmEvidence({
+                  providerAvailable,
+                  mood: bgmMood,
+                  pacing: bgmPacing,
+                  musicPrompt: bgmMusicPrompt,
+                  dispatchResult,
+                });
+                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, mood=${bgmMood}, pacing=${bgmPacing}, durationSec=${bgmDurationSec}`);
               } else {
-                console.log(`[Director] Auto-BGM skipped: isBGMAvailable=${isBGMAvailable()}, durationSec=${bgmDurationSec}`);
+                const evidence = await persistAutoBgmEvidence({ providerAvailable });
+                console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, providerAvailable=${providerAvailable}, durationSec=${bgmDurationSec}`);
               }
             }
           } catch (bgmErr: any) {
             console.warn(`[Director] Auto-BGM dispatch failed (non-fatal): ${bgmErr?.message ?? bgmErr}`);
+            try {
+              const {
+                buildAutoBgmDecisionEvidence,
+                persistAutoBgmDecisionEvidence,
+              } = await import('@/lib/editron/services/auto-bgm-decision');
+              const bgmFps = project.fps || 30;
+              const bgmTotalFrames = overlays.reduce(
+                (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
+                0,
+              );
+              const evidence = buildAutoBgmDecisionEvidence({
+                recommendation: (bgmGenreParams as any)?.bgmRecommendation,
+                isStoryboardProject,
+                durationSec: Math.round(bgmTotalFrames / bgmFps),
+                totalFrames: bgmTotalFrames,
+                fps: bgmFps,
+                error: bgmErr,
+              });
+              await persistAutoBgmDecisionEvidence(projectId, evidence);
+            } catch (persistBgmErr: any) {
+              console.warn(`[Director] Auto-BGM evidence persistence failed (non-fatal): ${persistBgmErr?.message ?? persistBgmErr}`);
+            }
           }
-
           pathDHandled = true;
           unifiedDecisionBundleExecuted = true;
           console.log(
@@ -1639,12 +1844,17 @@ export async function executeDirectorPlan(
             if (project.brandId && userId) {
               try {
                 const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
-                const { buildBrandContextBlock } = await import('@/lib/shared/brand-context-block');
+                const { buildBrandContextBlock, buildRichBrandContextBlock } = await import('@/lib/shared/brand-context-block');
                 const resolution = await resolveEffectiveBrandWithProfile(userId, project.brandId, {
                   service: 'editron',
                   orgId: project.orgId ?? null,
                 });
-                brandBlock = buildBrandContextBlock(resolution.brand);
+                // Prefer the RICH brand block (full vault voice/identity/audience — ~40 signals) when
+                // an accepted profile exists; fall back to the thin legacy block otherwise. Mirrors the
+                // saas-explainer path so the creative-intent LLM writes on-brand copy, not generic.
+                brandBlock = resolution.acceptedProfile
+                  ? buildRichBrandContextBlock(resolution.acceptedProfile, resolution.brand)
+                  : buildBrandContextBlock(resolution.brand);
                 if (brandBlock) {
                   console.log(`[Director] Brand context: ${resolution.brand?.name} (${project.brandId}) from ${resolution.source}`);
                 }
@@ -1825,7 +2035,11 @@ export async function executeDirectorPlan(
       } else if (!pathDHandled) {
         // C6 FIX: Zero assets analyzed AND Path D didn't run — skip EDL but STILL
         // run profile-based steps (filters, transitions, captions, motion graphics).
-        const failMsg = `Intelligence: 0/${videoOverlays.length} video assets analyzed (${edlSummary.failedAssets.join(', ')}). EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
+        const intelligenceReason = edlSummary.skipReason ?? 'asset-analysis-unavailable';
+        const failureDetails = edlSummary.failedAssets.length > 0 ? ` (${edlSummary.failedAssets.join(', ')})` : '';
+        const failMsg = intelligenceReason === 'creative-brief-per-asset-analysis-bypassed'
+          ? `Intelligence: per-asset analysis bypassed for raw-footage Creative Brief mode; no executable Path E/D decisions were produced. EDL skipped — profile-based steps (filters, transitions, captions) will still run.`
+          : `Intelligence: 0/${videoOverlays.length} video assets analyzed${failureDetails}. EDL skipped — profile-based steps (filters, transitions, captions) will still run.`;
         console.warn(`[Director] ${failMsg}`);
         result.warnings.push(failMsg);
 
@@ -1836,6 +2050,7 @@ export async function executeDirectorPlan(
             { projectId },
             { $set: {
               'intelligence.status': 'skipped_edl',
+              'intelligence.reason': intelligenceReason,
               'intelligence.failedAssets': edlSummary.failedAssets,
               'intelligence.lastAttempt': new Date(),
               'intelligence.message': failMsg,
@@ -2391,6 +2606,38 @@ export async function executeDirectorPlan(
       await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
     }
 
+    try {
+      const phase0Truth = await persistFinalPhase0LiveTruth({
+        projectId,
+        project,
+        projectDoc,
+        overlays: persistableOverlays,
+        constraintViolations: pathDConstraintViolations,
+        genreParams: pathDGenreParams,
+      });
+      (result as any).phase0LiveTruth = {
+        version: phase0Truth.version,
+        status: phase0Truth.status,
+        summary: phase0Truth.summary,
+        qualityEvidence: phase0Truth.qualityEvidence,
+      };
+      console.log(
+        `[Director] Phase0 live truth: status=${phase0Truth.status}, ` +
+        `fail=${phase0Truth.summary.fail}, warn=${phase0Truth.summary.warn}, ` +
+        `qualityEvidence=${phase0Truth.qualityEvidence.qualityEvidenceSource}/${phase0Truth.qualityEvidence.renderedAestheticStatus}`,
+      );
+      const renderedEvidenceDispatch = await dispatchPhase0RenderedEvidenceJob({ projectId, userId });
+      if (renderedEvidenceDispatch.dispatched) {
+        console.log(
+          `[Director] Phase0 rendered evidence dispatched` +
+          `${renderedEvidenceDispatch.messageId ? ` (messageId=${renderedEvidenceDispatch.messageId})` : ''}`,
+        );
+      } else {
+        console.log(`[Director] Phase0 rendered evidence not dispatched: ${renderedEvidenceDispatch.reason}`);
+      }
+    } catch (truthErr: unknown) {
+      console.warn('[Director] non-fatal Phase0 live truth persistence:', truthErr instanceof Error ? truthErr.message : truthErr);
+    }
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');
 
@@ -3098,7 +3345,7 @@ async function executeAction(
             { projectId },
             {
               $set: {
-                qualityReview: persistedQualityReview,
+                qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
               },
             },
           );

@@ -88,12 +88,28 @@ export interface IUserOrganization {
   joinedAt: Date;
 }
 
+export interface IUploaderXOAuthStateRecord {
+  state: string;
+  userId: string;
+  provider: "facebook" | "instagram" | "linkedin";
+  orgId?: string | null;
+  brandId?: string | null;
+  workspaceId?: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
 export interface ICreditsBalance {
-  subscriptionCredits: number; // Monthly credits from subscription (expire)
-  topupCredits: number; // Purchased credits (never expire)
-  lastSubscriptionGrant: Date | null; // When subscription credits were last granted
-  subscriptionCreditsExpiry: Date | null; // When current subscription credits expire
-  creditHistory: ICreditTransaction[]; // Transaction history (capped)
+  subscriptionCredits: number; // MAIN pool — monthly credits from subscription (expire)
+  topupCredits: number; // MAIN pool — purchased credits (never expire)
+  lastSubscriptionGrant: Date | null; // When main subscription credits were last granted
+  subscriptionCreditsExpiry: Date | null; // When current main subscription credits expire
+  // MEDIA pool (image/video/audio generation) — granted on top of the main pool.
+  mediaCredits: number; // MEDIA pool — monthly credits from subscription (expire)
+  mediaTopupCredits: number; // MEDIA pool — purchased credits (never expire)
+  lastMediaGrant: Date | null; // When media subscription credits were last granted
+  mediaCreditsExpiry: Date | null; // When current media subscription credits expire
+  creditHistory: ICreditTransaction[]; // Transaction history (capped, shared across both pools)
 }
 
 interface IUser extends Document {
@@ -104,10 +120,19 @@ interface IUser extends Document {
   currentPlan: IUserPlan;
   planHistory: IUserPlan[];
   subscriptions: ISubscription[];
+  /** A scheduled plan change (downgrade) that Razorpay applies at cycle end. */
+  pendingPlanChange?: {
+    toPlanType: string; // UserType value, e.g. "agency_growth"
+    toPlanId: string; // Razorpay plan_id the subscription will switch to
+    effectiveAt: Date | null; // when it takes effect (current cycle end)
+    scheduledAt: Date;
+    direction: 'downgrade';
+  } | null;
   uiMessages: IUiMessage[];
   trialUsed: boolean; // Track if user has used their one-time trial
   creditsBalance: ICreditsBalance; // Credits system balance
   organizations: IUserOrganization[]; // User's organization memberships
+  uploaderXOAuthStates?: Partial<Record<"facebook" | "instagram" | "linkedin", IUploaderXOAuthStateRecord>>;
   preferences: {
     currency: string;
     notifications: {
@@ -298,14 +323,31 @@ const creditTransactionSchema = new Schema<ICreditTransaction>({
 
 // Credits balance schema
 const creditsBalanceSchema = new Schema<ICreditsBalance>({
+  // MAIN pool
   subscriptionCredits: { type: Number, required: true, default: 0, min: 0 },
   topupCredits: { type: Number, required: true, default: 0, min: 0 },
   lastSubscriptionGrant: { type: Date, default: null },
   subscriptionCreditsExpiry: { type: Date, default: null },
+  // MEDIA pool (image/video/audio generation) — granted on top of the main pool
+  mediaCredits: { type: Number, required: true, default: 0, min: 0 },
+  mediaTopupCredits: { type: Number, required: true, default: 0, min: 0 },
+  lastMediaGrant: { type: Date, default: null },
+  mediaCreditsExpiry: { type: Date, default: null },
   creditHistory: {
     type: [creditTransactionSchema],
     default: [],
   },
+}, { _id: false });
+
+const uploaderXOAuthStateSchema = new Schema<IUploaderXOAuthStateRecord>({
+  state: { type: String, required: true },
+  userId: { type: String, required: true },
+  provider: { type: String, required: true, enum: ["facebook", "instagram", "linkedin"] },
+  orgId: { type: String, default: null },
+  brandId: { type: String, default: null },
+  workspaceId: { type: String, default: null },
+  createdAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: true },
 }, { _id: false });
 
 const userSchema = new Schema<IUser>({
@@ -343,6 +385,16 @@ const userSchema = new Schema<IUser>({
   subscriptions: {
     type: [subscriptionSchema],
     default: [],
+  },
+  pendingPlanChange: {
+    type: new Schema({
+      toPlanType: { type: String, required: true },
+      toPlanId: { type: String, required: true },
+      effectiveAt: { type: Date, default: null },
+      scheduledAt: { type: Date, required: true },
+      direction: { type: String, enum: ['downgrade'], required: true },
+    }, { _id: false }),
+    default: null,
   },
   uiMessages: {
     type: [new Schema<IUiMessage>({
@@ -392,6 +444,11 @@ const userSchema = new Schema<IUser>({
       planExpiry: { type: Boolean, default: true },
       paymentReminders: { type: Boolean, default: true },
     },
+  },
+  uploaderXOAuthStates: {
+    facebook: { type: uploaderXOAuthStateSchema, default: undefined },
+    instagram: { type: uploaderXOAuthStateSchema, default: undefined },
+    linkedin: { type: uploaderXOAuthStateSchema, default: undefined },
   },
   facebookTokens: {
     userAccessToken: String,

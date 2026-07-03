@@ -12,6 +12,7 @@ import { evaluateAllTracks } from '../components/editron/editor/version-7.0.0/ut
 import { ensureLiveAtomicOverlayReceipt } from '../lib/editron/engine/overlay-atomic-receipts';
 import {
   scoreRenderedFrameAesthetic,
+  type RenderedAestheticIssue,
   type RenderedFrameAestheticReport,
   type RenderedOverlayBox,
   type RenderedOverlayEvidence,
@@ -45,6 +46,7 @@ const AUDITED_VISUAL_TYPES = new Set<string>([
   'sticker',
   'image',
   'html-scene',
+  OverlayType.GENERATED_SCENE,
   'html-sticker',
   'transition',
 ]);
@@ -104,7 +106,13 @@ export interface RenderedAestheticFrameReport {
   timelineEvidence: RenderedTimelineOverlayEvidence[];
   fullStill: string;
   baselineStill: string;
+  motionProbeStill?: string;
+  motionDelta?: MotionDeltaEvidence;
   report: RenderedFrameAestheticReport;
+}
+
+export interface RenderedAestheticProjectIssue extends RenderedAestheticIssue {
+  gateId: 'G8_motion_variety';
 }
 
 export interface RenderedTimelineOverlayEvidence {
@@ -144,7 +152,9 @@ export interface RenderedAestheticHarnessReport {
     failFrames: number;
     sampledFrames: number;
     animationSampleFrames: number;
+    projectIssueCount: number;
   };
+  projectIssues: RenderedAestheticProjectIssue[];
   frames: RenderedAestheticFrameReport[];
 }
 
@@ -159,6 +169,25 @@ export interface RawImage {
   channels: number;
 }
 
+type RemotionComposition = Awaited<ReturnType<typeof selectComposition>>;
+
+export interface MotionDeltaEvidence {
+  fromFrame: number;
+  toFrame: number;
+  changedPixelRatio: number;
+  meanAbsoluteLumaDelta: number;
+  sampledPixels: number;
+}
+
+interface MotionProbeResult {
+  still?: string;
+  delta?: MotionDeltaEvidence;
+  error?: string;
+}
+
+const MOTION_DELTA_PROBE_GAP_FRAMES = 6;
+const MOTION_DELTA_CHANGED_RATIO_FLOOR = 0.001;
+const MOTION_DELTA_LUMA_FLOOR = 0.0015;
 interface OverlayPixelEvidence {
   visiblePixelRatio?: number;
   foregroundLuma?: number;
@@ -265,6 +294,19 @@ export async function runRenderedAestheticHarness(
       })
       : new Map<string, RawImage>();
     const image = fullImage ? imageStats(fullImage) : undefined;
+    const motionProbeOverlays = motionProbeVisualOverlays(sample, activeAuditedVisualOverlays);
+    const motionProbe = fullImage && motionProbeOverlays.length > 0
+      ? await renderMotionProbe({
+        fullImage,
+        sample,
+        activeVisualOverlays: motionProbeOverlays,
+        durationInFrames: input.durationInFrames,
+        frameDir,
+        composition: fullComposition,
+        serveUrl,
+        inputProps: fullProps,
+      })
+      : undefined;
     const evidence = fullImage && baselineImage
       ? activeRenderedOverlayEvidence(overlays, frame, {
         baselineImage,
@@ -276,7 +318,7 @@ export async function runRenderedAestheticHarness(
       : activeRenderedOverlayEvidence(overlays, frame, { fps: input.fps, sample });
     const timelineEvidence = activeTimelineOverlayEvidence(overlays, frame);
 
-    const report = scoreRenderedFrameAesthetic({
+    let report = scoreRenderedFrameAesthetic({
       width: input.width,
       height: input.height,
       fps: input.fps,
@@ -295,6 +337,7 @@ export async function runRenderedAestheticHarness(
       renderError,
       overlays: evidence,
     });
+    report = applyMotionDeltaGate(report, motionProbe);
 
     const activeIds = uniqueIds([
       ...evidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
@@ -313,6 +356,8 @@ export async function runRenderedAestheticHarness(
       timelineEvidence,
       fullStill,
       baselineStill,
+      ...(motionProbe?.still ? { motionProbeStill: motionProbe.still } : {}),
+      ...(motionProbe?.delta ? { motionDelta: motionProbe.delta } : {}),
       report,
     });
   }
@@ -372,10 +417,7 @@ export function hydratePhase0RenderArtifactPackForTaxonomy(
   const renderInputPath = typeof artifactPack.paths?.renderInput === 'string' && artifactPack.paths.renderInput.trim()
     ? artifactPack.paths.renderInput
     : path.join(runDir, 'render-input.json');
-  const resolvedRenderInputPath = path.resolve(runDir, renderInputPath);
-  if (!fs.existsSync(resolvedRenderInputPath)) {
-    throw new Error(`Phase 0 render input missing for taxonomy update: ${resolvedRenderInputPath}`);
-  }
+  const resolvedRenderInputPath = resolvePhase0RenderInputPath(renderInputPath, runDir);
 
   const renderInput = JSON.parse(fs.readFileSync(resolvedRenderInputPath, 'utf8')) as Phase0RenderInput;
   if (!Array.isArray(renderInput.overlays)) {
@@ -386,6 +428,21 @@ export function hydratePhase0RenderArtifactPackForTaxonomy(
     ...artifactPack,
     renderInput,
   };
+}
+
+
+function resolvePhase0RenderInputPath(renderInputPath: string, runDir: string): string {
+  const candidates = uniqueStrings([
+    path.isAbsolute(renderInputPath)
+      ? renderInputPath
+      : path.resolve(process.cwd(), renderInputPath),
+    path.resolve(runDir, renderInputPath),
+    path.join(runDir, 'render-input.json'),
+  ]);
+  const existing = candidates.find((candidate) => fs.existsSync(candidate));
+  if (existing) return existing;
+
+  throw new Error(`Phase 0 render input missing for taxonomy update. Checked: ${candidates.join(', ')}`);
 }
 
 export function planRenderedAestheticSamples(
@@ -440,19 +497,77 @@ function manualSamples(
     });
 }
 
+function mergeManualSamplesWithPlannedCoverage(
+  manual: RenderedAestheticSample[],
+  planned: RenderedAestheticSample[],
+  maxSamples: number,
+): RenderedAestheticSample[] {
+  if (manual.length === 0) return planned;
+
+  const merged = new Map<number, RenderedAestheticSample>();
+  for (const sample of manual) mergeSample(merged, sample);
+  for (const sample of planned) mergeSample(merged, sample);
+
+  const sorted = [...merged.values()].sort((a, b) => a.frame - b.frame);
+  const manualSamples = sorted.filter((sample) => sample.roles.includes('manual'));
+  const cap = Math.max(manualSamples.length, Math.floor(maxSamples));
+  if (sorted.length <= cap) return sorted;
+
+  const plannedOnly = sorted.filter((sample) => !sample.roles.includes('manual'));
+  const selectedPlanned = selectEvenly(plannedOnly, cap - manualSamples.length);
+  return [...manualSamples, ...selectedPlanned].sort((a, b) => a.frame - b.frame);
+}
+
+function mergeSample(samples: Map<number, RenderedAestheticSample>, sample: RenderedAestheticSample): void {
+  const existing = samples.get(sample.frame);
+  if (existing) {
+    existing.roles = uniqueSampleRoles([...existing.roles, ...sample.roles]);
+    existing.sourceOverlayIds = uniqueIds([...existing.sourceOverlayIds, ...sample.sourceOverlayIds]);
+    existing.sourceOverlayTypes = uniqueStrings([...existing.sourceOverlayTypes, ...sample.sourceOverlayTypes]);
+    return;
+  }
+
+  samples.set(sample.frame, {
+    frame: sample.frame,
+    roles: uniqueSampleRoles(sample.roles),
+    sourceOverlayIds: uniqueIds(sample.sourceOverlayIds),
+    sourceOverlayTypes: uniqueStrings(sample.sourceOverlayTypes),
+  });
+}
+
+function selectEvenly<T>(items: T[], count: number): T[] {
+  if (count <= 0) return [];
+  if (items.length <= count) return items;
+  const selected = new Set<number>();
+  for (let i = 0; i < count; i += 1) {
+    const index = Math.round((i * (items.length - 1)) / Math.max(1, count - 1));
+    selected.add(index);
+  }
+  return [...selected].sort((a, b) => a - b).map((index) => items[index]);
+}
+
 export function resolveRenderedAestheticSamplePlan(
   input: Pick<RenderedAestheticProjectInput, 'durationInFrames' | 'sampleFrames' | 'samplePlan'>,
   overlays: Overlay[],
   options: Pick<RenderedAestheticHarnessOptions, 'maxSamples' | 'sampleFrames'> = {},
 ): RenderedAestheticSample[] {
+  const maxSamples = options.maxSamples ?? 18;
   if (options.sampleFrames?.length) {
-    return manualSamples(options.sampleFrames, overlays, input.durationInFrames);
+    return mergeManualSamplesWithPlannedCoverage(
+      manualSamples(options.sampleFrames, overlays, input.durationInFrames),
+      planRenderedAestheticSamples(overlays, input.durationInFrames, maxSamples),
+      maxSamples,
+    );
   }
   if (input.samplePlan?.length) return input.samplePlan;
   if (input.sampleFrames?.length) {
-    return manualSamples(input.sampleFrames, overlays, input.durationInFrames);
+    return mergeManualSamplesWithPlannedCoverage(
+      manualSamples(input.sampleFrames, overlays, input.durationInFrames),
+      planRenderedAestheticSamples(overlays, input.durationInFrames, maxSamples),
+      maxSamples,
+    );
   }
-  return planRenderedAestheticSamples(overlays, input.durationInFrames, options.maxSamples ?? 18);
+  return planRenderedAestheticSamples(overlays, input.durationInFrames, maxSamples);
 }
 
 export function normalizeRenderedAestheticSamplePlan(value: unknown, durationInFrames: number): RenderedAestheticSample[] | undefined {
@@ -488,6 +603,83 @@ export function normalizeRenderedAestheticSamplePlan(value: unknown, durationInF
   return samples.length ? samples : undefined;
 }
 
+export function evaluateProjectLevelRenderedGates(overlays: Overlay[]): RenderedAestheticProjectIssue[] {
+  return evaluateSaasMotionVarietyGate(overlays);
+}
+
+export function evaluateSaasMotionVarietyGate(overlays: Overlay[]): RenderedAestheticProjectIssue[] {
+  const scenes = overlays
+    .filter(isSaasGeneratedSceneOverlay)
+    .map((overlay): { id: string | number; from: number; varietyKey: string | undefined } => ({
+      id: overlay.id,
+      from: overlay.from,
+      varietyKey: readSaasSceneVarietyKey(overlay),
+    }))
+    .filter((scene): scene is { id: string | number; from: number; varietyKey: string } => Boolean(scene.varietyKey))
+    .sort((a, b) => a.from - b.from);
+
+  if (scenes.length < 2) return [];
+
+  const issues: RenderedAestheticProjectIssue[] = [];
+  const sequence = scenes.map((scene) => scene.varietyKey).join(' > ');
+  for (let index = 1; index < scenes.length; index += 1) {
+    const previous = scenes[index - 1];
+    const current = scenes[index];
+    if (!previous || !current || previous.varietyKey !== current.varietyKey) continue;
+    issues.push({
+      gateId: 'G8_motion_variety',
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: `SaaS scene variety repeats ${current.varietyKey} consecutively`,
+      overlayId: current.id,
+      relatedOverlayId: previous.id,
+      evidence: `sequence=${sequence}`,
+    });
+  }
+
+  const counts = new Map<string, number>();
+  for (const scene of scenes) counts.set(scene.varietyKey, (counts.get(scene.varietyKey) ?? 0) + 1);
+  for (const [varietyKey, count] of counts) {
+    const share = count / scenes.length;
+    if (share <= 0.4) continue;
+    issues.push({
+      gateId: 'G8_motion_variety',
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: `SaaS scene variety overuses ${varietyKey}`,
+      evidence: `count=${count}/${scenes.length}; share=${round3(share)}; sequence=${sequence}`,
+    });
+  }
+
+  return issues;
+}
+
+function isSaasGeneratedSceneOverlay(overlay: Overlay): boolean {
+  if (overlay.type !== OverlayType.GENERATED_SCENE) return false;
+  const record = overlay as Overlay & { sceneModel?: unknown; metadata?: unknown };
+  const sceneModel = isRecord(record.sceneModel) ? record.sceneModel : undefined;
+  const metadata = isRecord(record.metadata) ? record.metadata : undefined;
+  return stringProp(sceneModel, 'schemaVersion') === 'saas-generated-scene/v1'
+    || stringProp(metadata, 'sourceType') === 'saas-explainer-generated-scene';
+}
+
+function readSaasSceneVarietyKey(overlay: Overlay): string | undefined {
+  const record = overlay as Overlay & { sceneModel?: unknown };
+  const sceneModel = isRecord(record.sceneModel) ? record.sceneModel : undefined;
+  const familyPlan = isRecord(sceneModel?.familyPlan) ? sceneModel.familyPlan : undefined;
+  return normalizeVarietyKey(
+    stringProp(familyPlan, 'visualArchetype')
+    ?? stringProp(sceneModel, 'visualArchetype')
+    ?? stringProp(familyPlan, 'family'),
+  );
+}
+
+function normalizeVarietyKey(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/g, '_');
+  return normalized || undefined;
+}
 function readSampleRole(value: unknown): RenderedAestheticSampleRole | undefined {
   if (
     value === 'manual' ||
@@ -725,15 +917,16 @@ function activeRenderedOverlayEvidence(
       const box = paintedBox ? { ...fallbackBox, ...paintedBox } : fallbackBox;
       const receipt = buildFrameAwareOverlayReceipt(overlayAtomicReceipt(overlay), overlay, frame, renderEvidence.fps);
       if (!receipt && String(overlay.type) === String(OverlayType.CAPTION)) return [];
+      const family = auditedOverlayEvidenceFamily(overlay, receipt);
       const pixelImage = isolatedImage ?? renderEvidence.fallbackImage;
       const pixels = pixelImage && renderEvidence.baselineImage ? overlayPixelEvidence(pixelImage, renderEvidence.baselineImage, box) : {};
       return [{
         id: overlay.id,
         type: String(overlay.type),
-        family: receipt?.family,
+        family,
         receipt,
         sampleRoles: sampleRolesForOverlay(renderEvidence.sample, overlay),
-        visualIntentStageMode: overlayVisualIntentStageMode(overlay),
+        visualIntentStageMode: overlayVisualIntentStageMode(overlay) ?? fallbackVisualIntentStageMode(overlay),
         box: {
           ...box,
           ...pixels,
@@ -791,6 +984,19 @@ function overlayVisualIntentStageMode(overlay: Overlay): string | undefined {
     : undefined;
   const recipeIntent = isRecord(recipe?.visualIntent) ? recipe.visualIntent : undefined;
   return stringValue(planIntent?.stageMode) ?? stringValue(recipeIntent?.stageMode);
+}
+
+function auditedOverlayEvidenceFamily(
+  overlay: Overlay,
+  receipt: RenderedOverlayEvidence['receipt'],
+): RenderedOverlayEvidence['family'] {
+  if (overlay.type === OverlayType.GENERATED_SCENE) return 'motion-graphic';
+  return receipt?.family;
+}
+
+function fallbackVisualIntentStageMode(overlay: Overlay): string | undefined {
+  if (overlay.type === OverlayType.GENERATED_SCENE) return 'full-frame-graphic-scene';
+  return undefined;
 }
 
 export function changedPixelBounds(fullImage: RawImage, baselineImage: RawImage): RenderedOverlayBox | undefined {
@@ -1156,6 +1362,153 @@ function imageStats(image: RawImage): RenderImageStats {
   };
 }
 
+function motionProbeVisualOverlays(sample: RenderedAestheticSample, activeVisualOverlays: Overlay[]): Overlay[] {
+  if (!sample.roles.some((role) => role !== 'manual' && role !== 'hold' && role !== 'sfx-sync')) return [];
+  return activeVisualOverlays.filter(isMotionProbeEligibleOverlay);
+}
+
+function isMotionProbeEligibleOverlay(overlay: Overlay): boolean {
+  if (overlay.type === OverlayType.GENERATED_SCENE) return true;
+  return Array.isArray(overlay.keyframeTracks) && overlay.keyframeTracks.some((track) => track.keyframes.length > 1);
+}
+
+async function renderMotionProbe(input: {
+  fullImage: RawImage;
+  sample: RenderedAestheticSample;
+  activeVisualOverlays: Overlay[];
+  durationInFrames: number;
+  frameDir: string;
+  composition: RemotionComposition;
+  serveUrl: string;
+  inputProps: Record<string, unknown>;
+}): Promise<MotionProbeResult> {
+  const probeFrame = chooseMotionProbeFrame(input.sample, input.activeVisualOverlays, input.durationInFrames);
+  if (probeFrame === undefined) {
+    return { error: `no active visual overlay near frame ${input.sample.frame} for motion probe` };
+  }
+
+  const still = path.join(input.frameDir, `motion-probe-${String(probeFrame).padStart(5, '0')}.png`);
+  try {
+    await renderStill({
+      composition: input.composition,
+      serveUrl: input.serveUrl,
+      output: still,
+      frame: probeFrame,
+      inputProps: input.inputProps,
+      imageFormat: 'png',
+      chromiumOptions: { headless: true },
+      overwrite: true,
+    });
+    const probeImage = await readRawImage(still);
+    return {
+      still,
+      delta: imageMotionDelta(input.fullImage, probeImage, input.sample.frame, probeFrame),
+    };
+  } catch (error) {
+    return {
+      still,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function chooseMotionProbeFrame(
+  sample: RenderedAestheticSample,
+  activeVisualOverlays: Overlay[],
+  durationInFrames: number,
+): number | undefined {
+  const gap = MOTION_DELTA_PROBE_GAP_FRAMES;
+  const direction = sample.roles.includes('exit-prep') ? -1 : 1;
+  const seen = new Set<number>();
+  const candidates = [
+    sample.frame + direction * gap,
+    sample.frame - direction * gap,
+    sample.frame + direction,
+    sample.frame - direction,
+  ]
+    .map((frame) => clampFrame(frame, durationInFrames))
+    .filter((frame) => {
+      if (frame === sample.frame || seen.has(frame)) return false;
+      seen.add(frame);
+      return true;
+    });
+
+  return candidates.find((frame) => activeVisualOverlays.some((overlay) => isActiveAtFrame(overlay, frame)));
+}
+
+export function imageMotionDelta(fromImage: RawImage, toImage: RawImage, fromFrame = 0, toFrame = 0): MotionDeltaEvidence {
+  const width = Math.min(fromImage.width, toImage.width);
+  const height = Math.min(fromImage.height, toImage.height);
+  let changed = 0;
+  let lumaDeltaSum = 0;
+  let sampled = 0;
+  const step = samplingStep(width * height, 60000);
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const fromOffset = pixelOffset(fromImage, x, y);
+      const toOffset = pixelOffset(toImage, x, y);
+      if (pixelChanged(fromImage.data, toImage.data, fromOffset, toOffset)) changed += 1;
+      const fromLuma = luma01(fromImage.data[fromOffset], fromImage.data[fromOffset + 1], fromImage.data[fromOffset + 2]);
+      const toLuma = luma01(toImage.data[toOffset], toImage.data[toOffset + 1], toImage.data[toOffset + 2]);
+      lumaDeltaSum += Math.abs(fromLuma - toLuma);
+      sampled += 1;
+    }
+  }
+
+  return {
+    fromFrame,
+    toFrame,
+    changedPixelRatio: sampled > 0 ? changed / sampled : 0,
+    meanAbsoluteLumaDelta: sampled > 0 ? lumaDeltaSum / sampled : 0,
+    sampledPixels: sampled,
+  };
+}
+
+function applyMotionDeltaGate(report: RenderedFrameAestheticReport, motionProbe: MotionProbeResult | undefined): RenderedFrameAestheticReport {
+  const issue = motionDeltaIssue(motionProbe);
+  if (!issue) return report;
+
+  return {
+    ...report,
+    score: 0,
+    status: 'fail',
+    issues: [...report.issues, issue],
+    subscores: {
+      ...report.subscores,
+      motion: 0,
+    },
+  };
+}
+
+function motionDeltaIssue(motionProbe: MotionProbeResult | undefined): RenderedAestheticIssue | undefined {
+  if (!motionProbe) return undefined;
+  if (motionProbe.error) {
+    return {
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: 'motion probe could not be rendered',
+      evidence: motionProbe.error,
+    };
+  }
+  const delta = motionProbe.delta;
+  if (!delta) return undefined;
+  if (
+    delta.changedPixelRatio <= MOTION_DELTA_CHANGED_RATIO_FLOOR
+    && delta.meanAbsoluteLumaDelta <= MOTION_DELTA_LUMA_FLOOR
+  ) {
+    return {
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: 'animation-state sample has near-zero rendered motion delta',
+      evidence: `frames=${delta.fromFrame}->${delta.toFrame}; changedPixelRatio=${round3(delta.changedPixelRatio)}; meanAbsLumaDelta=${round3(delta.meanAbsoluteLumaDelta)}; sampledPixels=${delta.sampledPixels}`,
+    };
+  }
+  return undefined;
+}
+
 function overlayPixelEvidence(
   fullImage: RawImage,
   baselineImage: RawImage,
@@ -1216,9 +1569,13 @@ function buildHarnessReport(input: {
   const passFrames = input.frames.filter((frame) => frame.report.status === 'pass').length;
   const warnFrames = input.frames.filter((frame) => frame.report.status === 'warn').length;
   const failFrames = input.frames.filter((frame) => frame.report.status === 'fail').length;
-  const score = round3(input.frames.length
+  const frameScore = round3(input.frames.length
     ? Math.min(...input.frames.map((frame) => frame.report.score))
     : 0);
+  const projectIssues = evaluateProjectLevelRenderedGates(input.input.overlays);
+  const projectFail = projectIssues.some((issue) => issue.severity === 'fail');
+  const projectWarn = projectIssues.some((issue) => issue.severity === 'warn');
+  const score = projectFail ? 0 : frameScore;
   const jsonReport = path.join(input.outputDir, 'rendered-aesthetic.json');
   const htmlReport = path.join(input.outputDir, 'report.html');
 
@@ -1239,19 +1596,26 @@ function buildHarnessReport(input: {
       auditedOverlayCount: input.input.overlays.filter(isSampledOverlay).length,
     },
     summary: {
-      status: failFrames > 0 ? 'fail' : warnFrames > 0 ? 'warn' : 'pass',
+      status: projectFail || failFrames > 0 ? 'fail' : projectWarn || warnFrames > 0 ? 'warn' : 'pass',
       score,
       passFrames,
       warnFrames,
       failFrames,
       sampledFrames: input.frames.length,
       animationSampleFrames: input.frames.filter((frame) => frame.sample.roles.some((role) => role !== 'manual' && role !== 'hold')).length,
+      projectIssueCount: projectIssues.length,
     },
+    projectIssues,
     frames: input.frames,
   };
 }
 
 export function renderRenderedAestheticHtmlReport(report: RenderedAestheticHarnessReport): string {
+  const projectIssueCards = report.projectIssues.length > 0
+    ? `<section class="frame-card fail"><h2>Project gates</h2><ul class="issues">${report.projectIssues.map((issue) => (
+      `<li><strong>${escapeHtml(issue.gateId)}</strong> ${escapeHtml(issue.severity)}: ${escapeHtml(issue.message)}${issue.evidence ? `<small>${escapeHtml(issue.evidence)}</small>` : ''}</li>`
+    )).join('')}</ul></section>`
+    : '';
   const frameCards = report.frames.map((frame) => {
     const issues = frame.report.issues.length > 0
       ? frame.report.issues.map((issue) => (
@@ -1337,11 +1701,13 @@ export function renderRenderedAestheticHtmlReport(report: RenderedAestheticHarne
       <div class="box"><span>Canvas</span>${report.width} x ${report.height} @ ${report.fps}fps</div>
       <div class="box"><span>Duration</span>${report.durationInFrames} frames</div>
       <div class="box"><span>Samples</span>${report.summary.sampledFrames} frames, ${report.summary.animationSampleFrames} animation-state frames</div>
+      <div class="box"><span>Project gates</span>${report.summary.projectIssueCount} issue(s)</div>
       <div class="box"><span>Overlays</span>${report.project.auditedOverlayCount} audited | ${escapeHtml(formatOverlayCounts(report.project.overlayCounts))}</div>
       <div class="box"><span>Input</span>${escapeHtml(report.project.inputFile ?? report.inputFile ?? 'self-test')}</div>
     </div>
   </header>
   <main>
+    ${projectIssueCards}
     ${frameCards}
   </main>
 </body>
@@ -1396,6 +1762,7 @@ function resetOutputDir(outputDir: string): void {
   const allowedRoots = [
     path.resolve(process.cwd(), '.calibration-temp', 'rendered-aesthetic'),
     path.resolve(process.cwd(), '.calibration-temp', 'phase0-fixtures'),
+    path.resolve(process.cwd(), '.calibration-temp', 'phase0-live'),
   ];
   const resolved = path.resolve(outputDir);
   if (!allowedRoots.some((root) => isInsideAllowedRoot(resolved, root))) {
@@ -1501,12 +1868,12 @@ function pixelOffset(image: RawImage, x: number, y: number): number {
   return (y * image.width + x) * image.channels;
 }
 
-function pixelChanged(full: Buffer, baseline: Buffer, offset: number): boolean {
+function pixelChanged(full: Buffer, baseline: Buffer, fullOffset: number, baselineOffset = fullOffset): boolean {
   return Math.max(
-    Math.abs(full[offset] - baseline[offset]),
-    Math.abs(full[offset + 1] - baseline[offset + 1]),
-    Math.abs(full[offset + 2] - baseline[offset + 2]),
-    Math.abs(full[offset + 3] - baseline[offset + 3]),
+    Math.abs(full[fullOffset] - baseline[baselineOffset]),
+    Math.abs(full[fullOffset + 1] - baseline[baselineOffset + 1]),
+    Math.abs(full[fullOffset + 2] - baseline[baselineOffset + 2]),
+    Math.abs(full[fullOffset + 3] - baseline[baselineOffset + 3]),
   ) > 10;
 }
 

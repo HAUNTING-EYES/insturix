@@ -1,12 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getStoryboard, updateStoryboardScene, updateStoryboardVoiceover } from '@/lib/pipeline/storyboard-db';
-import { generateVoiceover, isTTSAvailable } from '@/lib/pipeline/tts-service';
+import { getCreditCost } from '@/lib/config/creditCosts';
+import { generateVoiceover, isTTSAvailable, TTS_VOICES } from '@/lib/pipeline/tts-service';
 import { CreditsService } from '@/lib/services/creditsService';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes — supports 60+ scenes with parallel TTS
 
+type VoiceoverProvider = 'kokoro' | 'deepgram';
+
+function getVoiceoverProvider(voice?: string): VoiceoverProvider {
+  const voiceId = voice || 'kokoro-heart';
+  const voiceConfig = TTS_VOICES.find((candidate) => candidate.id === voiceId);
+  return voiceConfig?.provider || (voiceId.startsWith('kokoro-') ? 'kokoro' : 'deepgram');
+}
+
+function getBillableVoiceoverCharacterCount(
+  scenes: Array<{ descriptor: { narration?: string | null } }>,
+): number {
+  const characterCount = scenes.reduce(
+    (sum, scene) => sum + (scene.descriptor.narration?.trim().length || 0),
+    0,
+  );
+  return Math.max(characterCount, 1);
+}
+
+async function refundVoiceoverCredits(userId: string, amount: number, reason: string): Promise<void> {
+  if (amount <= 0) return;
+  try {
+    await CreditsService.refundCredits(userId, amount, reason, {
+      service: 'pipeline',
+      action: 'voiceover_generation',
+    });
+  } catch (refundErr: any) {
+    console.error(`[Voiceover] Credit refund failed: ${refundErr.message}`);
+  }
+}
 /**
  * POST /api/services/pipeline/storyboard/[id]/voiceover
  * Generate AI voiceover for all narrations in the storyboard.
@@ -17,8 +47,13 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  let voiceoverCreditsDeducted = 0;
+  let ttsWorkStarted = false;
+  let creditUserId: string | null = null;
+
   try {
     const { userId } = await auth();
+    creditUserId = userId || null;
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -56,17 +91,34 @@ export async function POST(
       return NextResponse.json({ error: 'No scenes have narration text' }, { status: 400 });
     }
 
-    // A1 FIX: Atomic credit deduction — single call for all scenes
-    const deductResult = await CreditsService.deductCredits(
-      userId, 'pipeline', 'voiceover_generation', { quantity: scenesWithNarration.length },
-    );
-    if (!deductResult.success) {
+    const voiceoverProvider = getVoiceoverProvider(voice);
+    const billableCharacters = getBillableVoiceoverCharacterCount(scenesWithNarration);
+    const requiredCredits = getCreditCost('pipeline', 'voiceover_generation', {
+      characterCount: billableCharacters,
+      requestType: voiceoverProvider,
+    });
+
+    const preCheck = await CreditsService.getBalance(userId);
+    if (!preCheck || preCheck.totalCredits < requiredCredits) {
       return NextResponse.json(
-        { error: 'Insufficient credits', required: scenesWithNarration.length },
+        { error: 'Insufficient credits', required: requiredCredits, available: preCheck?.totalCredits || 0 },
         { status: 402 },
       );
     }
 
+    const deductResult = await CreditsService.deductCredits(
+      userId,
+      'pipeline',
+      'voiceover_generation',
+      { characterCount: billableCharacters, requestType: voiceoverProvider },
+    );
+    if (!deductResult.success) {
+      return NextResponse.json(
+        { error: deductResult.error || 'Insufficient credits', required: requiredCredits },
+        { status: 402 },
+      );
+    }
+    voiceoverCreditsDeducted = deductResult.creditsDeducted;
     await updateStoryboardVoiceover(id, {
       voice: voice || 'aura-asteria-en',
       language: language || 'en',
@@ -83,6 +135,7 @@ export async function POST(
     const errors: Array<{ sceneIndex: number; error: string }> = [];
 
     for (let i = 0; i < scenesWithNarration.length; i += BATCH_SIZE) {
+      ttsWorkStarted = true;
       const batch = scenesWithNarration.slice(i, i + BATCH_SIZE);
 
       const batchResults = await Promise.allSettled(
@@ -143,6 +196,13 @@ export async function POST(
     });
   } catch (error: any) {
     console.error('[Voiceover]', error);
+    if (creditUserId && voiceoverCreditsDeducted > 0 && !ttsWorkStarted) {
+      await refundVoiceoverCredits(
+        creditUserId,
+        voiceoverCreditsDeducted,
+        `voiceover failed before TTS work started: ${error.message}`,
+      );
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

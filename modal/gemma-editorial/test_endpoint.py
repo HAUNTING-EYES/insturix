@@ -27,8 +27,10 @@ def get_segments_from_mongo(project_id: str) -> list[dict]:
         print("pip install pymongo first")
         sys.exit(1)
 
-    uri = os.environ.get("MONGODB_URI",
-        "mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority")
+    uri = os.environ.get("MONGODB_URI")
+    if not uri:
+        print("MONGODB_URI is required; refusing to use a committed fallback connection string")
+        sys.exit(1)
     client = MongoClient(uri)
     db = client["editron_prev"]
     proj = db.projects.find_one({"projectId": project_id})

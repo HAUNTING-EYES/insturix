@@ -8,7 +8,7 @@ handover, matching the prior chat labels). Re-label freely if your canonical num
 > Deeper architecture/decisions/bugs/roadmap behind these sessions: `docs/agents/vault/`.
 > Non-session knowledge (visions, rules, audits, specs): `docs/agents/reference/<workstream>/`.
 
-## Editron (47 sessions, including migration/pre-calibration notes)
+## Editron (50 sessions, including migration/pre-calibration notes)
 | # | Date | Topic | File (in `sessions/editron/`) |
 |---|---|---|---|
 | 01 | 05-05 | Editron handover | `Editron-01-session_handover_2026_05_05_editron.md` |
@@ -60,6 +60,7 @@ handover, matching the prior chat labels). Re-label freely if your canonical num
 | **47** | **06-04** | **Atomic overlay upload-to-edit pre-calibration foundation.** EDL-created atomic metadata now has a renderer bridge fixture; calibration remains next, not started. | `Editron-47-Session-2026-06-04-Atomic-Overlay-Upload-To-Edit-PreCalibration.md` |
 | **48** | **06-04** | **V-JEPA atoms + moment bundles TODO.** Visual primitives and moment bundle next-work list. | `Editron-48-Session-2026-06-04-VJEPA-Atoms-Moment-Bundles-TODO.md` |
 | **49** | **06-07** | **Claude Code calibration handoff.** Long-running reference calibration operator brief: run/repair calibration loop, produce failure clusters, avoid preset/menu layers. | `Editron-49-Session-2026-06-07-Claude-Calibration-HANDOFF.md` |
+| **50** | **07-02** | **SaaS explainer production plan.** Binding plan after the still-frame/VO failure: Brand Vault defaults, reference-video style analysis, scene families, completion gates, rendered quality, and export parity. | `Editron-SaaS-Explainer-Production-Plan-2026-07-02.md` |
 
 ## UIUX (4)
 | # | Date | Topic | File (in `sessions/uiux/`) |

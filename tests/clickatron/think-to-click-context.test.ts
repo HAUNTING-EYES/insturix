@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildThinkToClickContext, pickThinkForgeProjectMeta } from "@/lib/thinkforge/clickatron-context";
+import { buildThinkToClickContext, findClickatronCreativeSpecInBlocks, pickThinkForgeProjectMeta } from "@/lib/thinkforge/clickatron-context";
 import { mergeThinkForgeProjectMetadata } from "@/lib/thinkforge/state/types";
 import type { ClickatronCreativeSpec } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
@@ -269,7 +269,81 @@ describe("ThinkForge to Clickatron context", () => {
     expect(JSON.stringify(context.metadata)).not.toContain("turn market news into a brand-safe carousel");
   });
 
-  it("derives carousel fallback from visible blocks without putting exact copy in the raster prompt", () => {
+  it("recovers invalid hidden carousel sidecars into review-required slide plans", () => {
+    const blocks: ThinkForgeBlock[] = [
+      {
+        id: "blk_cover",
+        kind: "paragraph",
+        content: [{ type: "text", text: "Your approval queue is not a workflow. It is a waiting room.", styles: {} }],
+        exportMeta: {
+          clickatron: {
+            schemaVersion: 1,
+            kind: "carousel",
+            assetIntent: "carousel",
+            platform: "linkedin",
+            aspectRatio: "4:5",
+            source: {
+              sourceService: "thinkforge",
+              sourceBlockIds: ["blk_cover"],
+            },
+            userIntent: {
+              visualMode: "text_forward_graphic",
+              wantsCarousel: true,
+            },
+            creativeBrief: {
+              objective: "turn approval friction into a carousel",
+              coreMessage: "approval queues need one owner",
+            },
+            renderPlan: {
+              textPolicy: "editable_text_layers",
+              imagePrompt: "Editorial carousel system with queue cards collapsing into one owner lane.",
+              slides: [],
+            },
+            validation: {
+              status: "ready",
+            },
+          },
+        },
+      },
+      {
+        id: "blk_payoff",
+        kind: "paragraph",
+        content: [{ type: "text", text: "Give every asset one final owner before production starts.", styles: {} }],
+      },
+    ];
+
+    const context = buildThinkToClickContext({
+      sessionId: "tf_invalid_sidecar_carousel",
+      scriptId: "script_invalid_sidecar_carousel",
+      title: "Approval queue carousel",
+      blocks,
+      creativeSpec: findClickatronCreativeSpecInBlocks(blocks),
+      userVisualChoices: {
+        kind: "carousel",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+      },
+    });
+
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(spec.kind).toBe("carousel");
+    expect(spec.renderPlan.slides).toHaveLength(2);
+    expect(spec.renderPlan.slides?.[0].sourceBlockIds).toEqual(["blk_cover"]);
+    expect(spec.renderPlan.slides?.[1].sourceBlockIds).toEqual(["blk_payoff"]);
+    expect(spec.renderPlan.slides?.[0].imagePrompt).toContain("Editorial carousel system");
+    expect(spec.validation.status).toBe("needs_user_input");
+    expect(spec.validation.issues).toEqual([
+      expect.objectContaining({ code: "carousel_slides_recovered_from_visible_blocks" }),
+    ]);
+    expect(context.sessionDraft?.readyToGenerate).toBe(false);
+    expect(context.sessionDraft?.validation.needsUserInput).toEqual([
+      "Review and confirm the recovered carousel slide plan before sending to Clickatron.",
+    ]);
+  });
+  it("derives a non-sendable carousel draft from visible blocks without putting exact copy in the raster prompt", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_hook",
@@ -320,6 +394,14 @@ describe("ThinkForge to Clickatron context", () => {
     expect(spec.kind).toBe("carousel");
     expect(spec.platform).toBe("linkedin");
     expect(spec.aspectRatio).toBe("4:5");
+    expect(spec.validation.status).toBe("needs_user_input");
+    expect(spec.validation.issues).toEqual([
+      expect.objectContaining({ code: "derived_from_visible_content" }),
+    ]);
+    expect(context.sessionDraft?.readyToGenerate).toBe(false);
+    expect(context.sessionDraft?.validation.needsUserInput).toEqual([
+      "Review and confirm the derived visual brief before sending to Clickatron.",
+    ]);
     expect(spec.renderPlan.textPolicy).toBe("editable_text_layers");
     expect(spec.renderPlan.imagePrompt).toContain("Image style: editorial collage");
     expect(spec.renderPlan.imagePrompt).toContain("Concept keywords to interpret, not draw as text");
@@ -335,5 +417,101 @@ describe("ThinkForge to Clickatron context", () => {
     expect(context.sessionDraft?.prompt).not.toContain("Bridge the 10x production gap without burnout.");
     // signalTrace intentionally not echoed to the client handoff (65059c7e).
     expect((context.metadata.thinkforge as Record<string, unknown>).signalTrace).toBeUndefined();
+  });
+
+  it("derives review-required carousel slides when writer output only has a single image prompt", () => {
+    const blocks: ThinkForgeBlock[] = [
+      {
+        id: "blk_hook",
+        kind: "paragraph",
+        content: [{ type: "text", text: "Ops teams lose launch weeks to scattered approvals.", styles: {} }],
+      },
+      {
+        id: "blk_payoff",
+        kind: "paragraph",
+        content: [{ type: "text", text: "One approval owner turns feedback into a production lane.", styles: {} }],
+      },
+    ];
+
+    const context = buildThinkToClickContext({
+      sessionId: "tf_writer_single_prompt",
+      scriptId: "script_writer_single_prompt",
+      title: "Approval Ops Carousel",
+      blocks,
+      writerOutput: {
+        writerType: "post",
+        visualPrompts: {
+          singleImagePrompt: "Editorial workflow graphic with connected approval lanes and document stacks.",
+        },
+      },
+      userVisualChoices: {
+        kind: "carousel",
+        platform: "linkedin",
+        aspectRatio: "4:5",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+      },
+    });
+
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(spec.kind).toBe("carousel");
+    expect(spec.renderPlan.slides).toHaveLength(2);
+    expect(spec.renderPlan.slides?.[0].imagePrompt).toContain("Editorial workflow graphic");
+    expect(spec.renderPlan.slides?.[0].textLayers?.[0]).toMatchObject({
+      text: "Ops teams lose launch weeks to scattered approvals.",
+      sourceBlockId: "blk_hook",
+      locked: true,
+    });
+    expect(spec.validation.status).toBe("needs_user_input");
+    expect(spec.validation.issues).toEqual([
+      expect.objectContaining({ code: "carousel_slides_derived_from_single_prompt" }),
+    ]);
+    expect(context.sessionDraft?.readyToGenerate).toBe(false);
+    expect(context.sessionDraft?.validation.needsUserInput).toEqual([
+      "Review and confirm the derived carousel slide plan before sending to Clickatron.",
+    ]);
+  });
+
+  it("does not turn script scene prompts into a sendable single-post Clickatron spec", () => {
+    const blocks: ThinkForgeBlock[] = [
+      {
+        id: "scene_source",
+        kind: "paragraph",
+        content: [{ type: "text", text: "Scene 1: The Missed Future. A designer waits for renders while posts pile up.", styles: {} }],
+      },
+    ];
+
+    const context = buildThinkToClickContext({
+      sessionId: "tf_script_session",
+      scriptId: "script_video",
+      title: "The Missed Future",
+      blocks,
+      writerOutput: {
+        writerType: "script",
+        visualPrompts: {
+          scenePrompts: ["Scene 1: A designer frustrated with file transfers. A video editor waiting for renders."],
+        },
+      },
+      userVisualChoices: {
+        kind: "single_post_visual",
+        platform: "linkedin",
+        aspectRatio: "1:1",
+        visualMode: "text_forward_graphic",
+        textDensity: "medium",
+      },
+    });
+
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(spec.kind).toBe("single_post_visual");
+    expect(spec.validation.status).toBe("needs_user_input");
+    expect(spec.validation.issues).toEqual([
+      expect.objectContaining({ code: "script_scene_prompts_need_clickatron_target" }),
+    ]);
+    expect(context.sessionDraft?.readyToGenerate).toBe(false);
+    expect(context.sessionDraft?.validation.needsUserInput).toEqual([
+      "Confirm a static Clickatron visual or regenerate this as a post/carousel brief before sending.",
+    ]);
   });
 });

@@ -2,8 +2,18 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Monitor, MapPin, Heart, Info } from "lucide-react";
-import { ContextValues } from "@/app/api/services/alyzitron/types";
+import {
+  Gauge,
+  Heart,
+  Info,
+  MapPin,
+  Monitor,
+  Sparkles,
+  Target,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
+import type { AlyzitronContentIntent, ContextValues } from "@/app/api/services/alyzitron/types";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -20,6 +30,23 @@ const platforms = [
   "Television / News",
   "OTT / YouTube",
 ];
+
+const contentIntentOptions: Array<{
+  value: AlyzitronContentIntent | "auto";
+  label: string;
+  Icon: LucideIcon;
+}> = [
+  { value: "auto", label: "Auto", Icon: Gauge },
+  { value: "own_content", label: "My content", Icon: UserRound },
+  { value: "competitor_content", label: "Competitor", Icon: Target },
+  { value: "reference_content", label: "Reference", Icon: Sparkles },
+];
+
+function withoutContentIntent(value: ContextValues): ContextValues {
+  const next = { ...value };
+  delete next.contentIntent;
+  return next;
+}
 
 export function ContextSelector({
   value,
@@ -57,6 +84,39 @@ export function ContextSelector({
                   onChange({ ...value, familyFriendly: checked })
                 }
               />
+            </div>
+
+            {/* Analysis Lens */}
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-[#D4A652]" />
+                <p className="text-[14px] font-medium text-[#ECE9E1]">Analysis lens</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {contentIntentOptions.map(({ value: optionValue, label, Icon }) => {
+                  const active = (value.contentIntent ?? "auto") === optionValue;
+                  const nextIntent = optionValue === "auto" ? undefined : optionValue;
+
+                  return (
+                    <button
+                      key={optionValue}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        onChange(nextIntent ? { ...value, contentIntent: nextIntent } : withoutContentIntent(value))
+                      }
+                      className={`flex h-11 items-center justify-center gap-2 rounded-full px-3 text-sm transition ${active
+                          ? "bg-[#D4A652] text-black"
+                          : "border border-[#282724] bg-[#131312] text-[#B5B2A8] hover:border-[#D4A652]/40 hover:text-[#ECE9E1]"
+                        }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Platform */}

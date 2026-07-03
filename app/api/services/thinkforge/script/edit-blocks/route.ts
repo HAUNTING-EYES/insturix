@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { createScriptAuthorAgent, type ScriptAuthorIntentInput } from '@/lib/thinkforge/agents/script-author-agent';
+import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writer-edit';
 import type { AssembledContext } from '@/lib/thinkforge/agents/types';
 import { ScriptIntent } from '@/lib/thinkforge/protocol/intent';
 import { classifyIntent } from '@/lib/thinkforge/protocol/intent-classifier';
@@ -72,6 +73,28 @@ export async function POST(req: Request) {
     }
     if (indices && indices.length > 0) {
       enrichedInstruction += `\n\nFocus on blocks at indices: ${indices.join(', ')}`;
+    }
+
+    const existingContent = typeof existingScript?.content === 'string' ? existingScript.content : '';
+    const existingBlocksForEdit = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
+
+    // P5 PRIMARY: revise the whole document via the flat writer (eval-validated 4.89/5 in
+    // scripts/prompt-optimization/eval-thinkforge-edit.ts). Only for a real edit of an existing
+    // doc; ANY failure falls straight through to the legacy ScriptAuthor block-command path below,
+    // which is left completely unchanged.
+    if (sessionId && existingContent.trim().length > 0 && existingBlocksForEdit.length > 0) {
+      try {
+        const revised = await reviseDocumentViaFlatWriter({
+          userId, sessionId, scriptId, existingScript, existingContent,
+          instruction: enrichedInstruction, selection, baseVersion,
+        });
+        return NextResponse.json({
+          title: revised.title, content: revised.content, blocks: revised.blocks,
+          metadata: { editMode: 'flat-writer' }, replacements: [],
+        });
+      } catch (flatErr) {
+        console.error('[ThinkForge:edit-blocks] flat-writer path failed; falling back to legacy author:', flatErr);
+      }
     }
 
     const intent = await classifyIntent({ userMessage: enrichedInstruction });

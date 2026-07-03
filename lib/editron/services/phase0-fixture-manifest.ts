@@ -16,6 +16,7 @@ type JsonRecord = Record<string, unknown>;
 
 type Phase0RenderedAestheticStatus = 'pass' | 'warn' | 'fail';
 type Phase0RenderedIssueSeverity = 'info' | 'warn' | 'fail';
+type Phase0RenderedArtifactAccess = 'missing' | 'workspace-local' | 'worker-local';
 
 type Phase0UnifiedDecisionAuthoritySummary = {
   version: string;
@@ -42,7 +43,7 @@ export interface Phase0OverlayLike extends JsonRecord {
   sourceStartFrame?: number;
   videoStartTime?: number;
   assetId?: string;
-  content?: string;
+  content?: unknown;
   text?: string;
   captionText?: string;
   transitionStyle?: string;
@@ -103,6 +104,15 @@ export interface Phase0RenderedAestheticReportLike {
     };
   }>;
 }
+export interface Phase0RenderedIssueSample {
+  frame: number;
+  dimension: string;
+  severity: 'info' | 'warn' | 'fail';
+  overlayId: string | number | null;
+  message: string;
+  evidence: string | null;
+}
+
 export interface BuildPhase0FixtureManifestOptions {
   capturedAt?: string;
   source?: string;
@@ -171,6 +181,7 @@ export interface Phase0FixtureManifest {
     renderedIssueCount: number;
     renderedIssuesBySeverity: Record<Phase0RenderedIssueSeverity, number>;
     renderedIssuesByDimension: Record<string, number>;
+    renderedIssueSamples: Phase0RenderedIssueSample[];
     sampledFrames: Array<{
       frame: number;
       status: Phase0RenderedAestheticStatus | null;
@@ -203,6 +214,9 @@ export interface Phase0RenderedQualityEvidencePayload {
   renderedAestheticSampledFrames: number;
   renderedAestheticJson: string | null;
   renderedAestheticHtml: string | null;
+  renderedAestheticArtifactAccess: Phase0RenderedArtifactAccess;
+  renderedAestheticArtifactNote: string | null;
+  renderedAestheticIssueSamples: Phase0RenderedIssueSample[];
 }
 
 export function buildPhase0FixtureManifest(
@@ -257,6 +271,7 @@ export function buildPhase0FixtureManifest(
       renderedIssueCount: 0,
       renderedIssuesBySeverity: { fail: 0, warn: 0, info: 0 },
       renderedIssuesByDimension: {},
+      renderedIssueSamples: [],
       sampledFrames: [],
     },
     failureClasses: [],
@@ -294,6 +309,7 @@ export function withPhase0RenderArtifactPack(
       renderedIssueCount: 0,
       renderedIssuesBySeverity: { fail: 0, warn: 0, info: 0 },
       renderedIssuesByDimension: {},
+      renderedIssueSamples: [],
       sampledFrames: [],
     },
   };
@@ -316,6 +332,7 @@ export function withPhase0RenderedAestheticReport(
       renderedIssueCount: evidence.issueCount,
       renderedIssuesBySeverity: evidence.issuesBySeverity,
       renderedIssuesByDimension: evidence.issuesByDimension,
+      renderedIssueSamples: evidence.issueSamples,
       sampledFrames: evidence.sampledFrames,
     },
   };
@@ -340,6 +357,11 @@ export function buildPhase0RenderedQualityEvidencePayload(
     renderedAestheticSampledFrames: hasRenderedEvidence ? summary.sampledFrames : 0,
     renderedAestheticJson: hasRenderedEvidence ? manifest.renderArtifacts.renderedAestheticJson : null,
     renderedAestheticHtml: hasRenderedEvidence ? manifest.renderArtifacts.renderedAestheticHtml : null,
+    renderedAestheticArtifactAccess: hasRenderedEvidence ? 'workspace-local' : 'missing',
+    renderedAestheticArtifactNote: hasRenderedEvidence
+      ? 'Rendered aesthetic report paths are workspace-local artifact paths for the fixture or current process.'
+      : 'Rendered aesthetic report artifacts are missing.',
+    renderedAestheticIssueSamples: hasRenderedEvidence ? manifest.renderArtifacts.renderedIssueSamples.slice(0, 24) : [],
   };
 }
 
@@ -556,6 +578,7 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
       evidence: null,
       signalDecisionHealth: summarizeSignalDecisionHealth(null),
       decisionOutputTrace: summarizeDecisionOutputTrace(null),
+      crossOverlayChoreography: summarizeCrossOverlayChoreography(null),
     };
   }
 
@@ -575,9 +598,92 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
     evidence,
     signalDecisionHealth: summarizeSignalDecisionHealth(evidence),
     decisionOutputTrace: summarizeDecisionOutputTrace(bundle.executionTrace),
+    crossOverlayChoreography: summarizeCrossOverlayChoreography(evidence),
   };
 }
 
+function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
+  const report = isRecord(evidence?.crossOverlayChoreography) ? evidence.crossOverlayChoreography : null;
+  if (!report) {
+    return {
+      version: 'phase0-cross-overlay-choreography-v1' as const,
+      status: 'missing' as const,
+      issue: 'unifiedDecisionBundle.evidence.crossOverlayChoreography is missing',
+      inputDecisionCount: 0,
+      outputDecisionCount: 0,
+      suppressedDecisionCount: 0,
+      suppressionRate: null,
+      syncGroupCount: 0,
+      laneLoad: {} as Record<string, number>,
+      suppressedByReason: {} as Record<string, number>,
+      suppressedByFamily: {} as Record<string, number>,
+      topSuppressions: [] as Array<Record<string, unknown>>,
+      syncGroups: [] as Array<Record<string, unknown>>,
+      calibrationStatus: null,
+    };
+  }
+
+  const inputDecisionCount = readPositiveNumber(report.inputDecisionCount, 0);
+  const suppressedDecisionCount = readPositiveNumber(report.suppressedDecisionCount, 0);
+  const syncGroups = Array.isArray(report.syncGroups)
+    ? report.syncGroups.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySyncGroup)
+    : [];
+  return {
+    version: 'phase0-cross-overlay-choreography-v1' as const,
+    status: 'present' as const,
+    issue: null,
+    inputDecisionCount,
+    outputDecisionCount: readPositiveNumber(report.outputDecisionCount, 0),
+    suppressedDecisionCount,
+    suppressionRate: inputDecisionCount > 0 ? round(suppressedDecisionCount / inputDecisionCount) : null,
+    syncGroupCount: syncGroups.length,
+    laneLoad: normalizeNumberRecord(report.laneLoad),
+    suppressedByReason: normalizeNumberRecord(report.suppressedByReason),
+    suppressedByFamily: normalizeNumberRecord(report.suppressedByFamily),
+    topSuppressions: Array.isArray(report.suppressed)
+      ? report.suppressed.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySuppression)
+      : [],
+    syncGroups,
+    calibrationStatus: readString(report.calibrationStatus) || null,
+  };
+}
+
+function summarizeCrossOverlaySuppression(item: JsonRecord) {
+  const conflictingWith = isRecord(item.conflictingWith) ? item.conflictingWith : {};
+  return {
+    reason: readString(item.reason) || 'unknown',
+    family: readString(item.family) || 'unknown',
+    frame: readNullableNumber(item.frame),
+    conflictingWith: {
+      type: readString(conflictingWith.type) || null,
+      frame: readNullableNumber(conflictingWith.frame),
+      family: readString(conflictingWith.family) || null,
+      source: preview(conflictingWith.source, 80) || null,
+    },
+    calibrationStatus: readString(item.calibrationStatus) || null,
+  };
+}
+
+function summarizeCrossOverlaySyncGroup(item: JsonRecord) {
+  return {
+    id: readString(item.id) || 'unknown',
+    lane: readString(item.lane) || null,
+    lanes: readStringArray(item.lanes).slice(0, 8),
+    frame: readNullableNumber(item.frame),
+    families: readStringArray(item.families).slice(0, 8),
+    decisionTypes: readStringArray(item.decisionTypes).slice(0, 8),
+    count: readPositiveNumber(item.count, 0),
+  };
+}
+
+function normalizeNumberRecord(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  const result: Record<string, number> = {};
+  for (const [key, count] of Object.entries(value)) {
+    result[key] = readPositiveNumber(count, 0);
+  }
+  return sortRecordByKey(result);
+}
 function summarizeDecisionOutputTrace(trace: unknown) {
   if (!isRecord(trace)) {
     return {
@@ -687,6 +793,9 @@ function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
       normalizedCandidateCount: 0,
       unnormalizedCandidateCount: 0,
       promotionRate: null,
+      visualSetupSignalCandidateCount: 0,
+      visualSetupSignalCoverageRate: null,
+      visualSetupSignalKeys: [],
       outcomes: {},
       topReasons: [],
       candidateSamples: [],
@@ -705,6 +814,7 @@ function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
   const executableSignalOutcomeCount = addedExecutableCount + signalPrimaryCount + validatedPrimaryCount;
   const normalizedCandidateCount = candidates.filter(hasSignalCandidateScoreFields).length;
   const unnormalizedCandidateCount = Math.max(0, candidates.length - normalizedCandidateCount);
+  const visualSetupSignalCandidateCount = candidates.filter(hasVisualSetupSignalEvidence).length;
   const status: Phase0SignalDecisionHealthStatus = totalCount === 0
     ? 'empty'
     : executableSignalOutcomeCount === 0
@@ -728,6 +838,9 @@ function summarizeSignalDecisionHealth(evidence: JsonRecord | null) {
     normalizedCandidateCount,
     unnormalizedCandidateCount,
     promotionRate: totalCount > 0 ? round(executableSignalOutcomeCount / totalCount) : null,
+    visualSetupSignalCandidateCount,
+    visualSetupSignalCoverageRate: candidates.length > 0 ? round(visualSetupSignalCandidateCount / candidates.length) : null,
+    visualSetupSignalKeys: summarizeVisualSetupSignalKeys(candidates),
     outcomes: normalizeOutcomeCounts(outcomes),
     topReasons: summarizeAuditBuckets(audit.byReason).slice(0, 10),
     candidateSamples: candidates.slice(0, 20).map(summarizeSignalCandidateSample),
@@ -760,10 +873,46 @@ function summarizeSignalCandidateSample(candidate: JsonRecord) {
     riskFlags: readStringArray(candidate.riskFlags).slice(0, 6),
     hasSignals: sourcePacket.hasSignals === true,
     signalKeyCount: Array.isArray(sourcePacket.signalKeys) ? sourcePacket.signalKeys.length : 0,
+    hasVisualSetupSignals: hasVisualSetupSignalEvidence(candidate),
+    visualSetupSignalKeyCount: summarizeCandidateVisualSetupSignalKeys(candidate).length,
+    visualSetupSignalKeys: summarizeCandidateVisualSetupSignalKeys(candidate),
     hasAtomicMomentBundle: sourcePacket.hasAtomicMomentBundle === true,
     hasUnifiedMomentEvidence: sourcePacket.hasUnifiedMomentEvidence === true,
     calibrationStatus: readString(candidate.calibrationStatus),
   };
+}
+
+function hasVisualSetupSignalEvidence(candidate: JsonRecord): boolean {
+  return summarizeCandidateVisualSetupSignalKeys(candidate).length > 0;
+}
+
+function summarizeVisualSetupSignalKeys(candidates: JsonRecord[]): string[] {
+  return unique(candidates.flatMap(summarizeCandidateVisualSetupSignalKeys)).slice(0, 24);
+}
+
+function summarizeCandidateVisualSetupSignalKeys(candidate: JsonRecord): string[] {
+  const sourcePacket = isRecord(candidate.sourcePacket) ? candidate.sourcePacket : {};
+  const explicitKeys = readStringArray(sourcePacket.visualSetupSignalKeys).filter(isVisualSetupSignalKey);
+  const fallbackKeys = readStringArray(sourcePacket.signalKeys).filter(isVisualSetupSignalKey);
+  return unique([...explicitKeys, ...fallbackKeys]).slice(0, 24);
+}
+
+function isVisualSetupSignalKey(key: string): boolean {
+  return key === 'visual_complexity'
+    || key === 'enrichment.visual_setup_source'
+    || key === 'visual.environment'
+    || key === 'visual.scene_type'
+    || key === 'visual.shot_scale'
+    || key === 'visual.dominant_shot_scale'
+    || key === 'visual.has_face'
+    || key === 'visual.subject_count'
+    || key === 'visual.has_b_roll'
+    || key === 'visual.camera_movement'
+    || key === 'visual.lighting_quality'
+    || key === 'visual.production_quality_label'
+    || key === 'visual.production_quality'
+    || key === 'visual.color_temperature'
+    || key === 'visual.visual_complexity';
 }
 
 function summarizeSignalEvidenceSample(sample: JsonRecord) {
@@ -1048,6 +1197,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
 
 function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimensions?: { width?: number; height?: number }) {
   const captionOverlays = overlays.filter((overlay) => overlay.type === 'caption' || overlay.type === 'text');
+  const sfxOverlays = overlays.filter(isSfxOverlay);
   const captionStats = summarizeCaptionStats(captionOverlays);
   return {
     motionGraphics: overlays
@@ -1060,8 +1210,8 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         graphicType: readString(overlay.metadata?.graphicType ?? overlay.metadata?.creativeDecisionType),
         hasAtomicPlan: Boolean(overlay.metadata?.atomicOverlayPlan),
         hasAtomicReceipt: Boolean(overlay.metadata?.atomicOverlayReceipt),
-        semanticAtomCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'semanticAtoms'),
-        relationCount: readArrayLength(overlay.metadata?.atomicMomentBundle, 'relations'),
+        semanticAtomCount: countMotionGraphicSemanticAtoms(overlay),
+        relationCount: countMotionGraphicRelations(overlay),
       })),
     captions: {
       count: captionOverlays.length,
@@ -1094,16 +1244,14 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         .filter(Boolean),
     },
     sfx: {
-      count: overlays.filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio').length,
-      roles: unique(overlays
-        .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+      count: sfxOverlays.length,
+      roles: unique(sfxOverlays
         .map((overlay) => readString(overlay.metadata?.role ?? (overlay.metadata?.atomicSfxForm as JsonRecord | undefined)?.role))
         .filter(Boolean)),
-      withAtomicForm: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && overlay.metadata?.atomicSfxForm).length,
-      withTransitionAnchor: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && isTransitionAnchoredSfx(overlay)).length,
-      withTransitionEvidence: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && isTransitionAnchoredSfx(overlay) && hasSfxTransitionEvidence(overlay)).length,
-      transitionEvidenceMissing: overlays
-        .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+      withAtomicForm: sfxOverlays.filter((overlay) => overlay.metadata?.atomicSfxForm).length,
+      withTransitionAnchor: sfxOverlays.filter((overlay) => isTransitionAnchoredSfx(overlay)).length,
+      withTransitionEvidence: sfxOverlays.filter((overlay) => isTransitionAnchoredSfx(overlay) && hasSfxTransitionEvidence(overlay)).length,
+      transitionEvidenceMissing: sfxOverlays
         .map(sfxTransitionEvidenceMissing)
         .filter(Boolean),
     },
@@ -1203,6 +1351,25 @@ function hasTransitionBoundaryReason(overlay: Phase0OverlayLike): boolean {
       || kind.includes('boundary')
     ));
   });
+}
+
+function isSfxOverlay(overlay: Phase0OverlayLike): boolean {
+  return isAudioOverlay(overlay) && !isVoiceoverOverlay(overlay);
+}
+
+function isAudioOverlay(overlay: Phase0OverlayLike): boolean {
+  return overlay.type === 'sound' || overlay.type === 'audio';
+}
+
+function isVoiceoverOverlay(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  return metadata.isVoiceover === true
+    || hasValue(metadata.narrationText)
+    || hasValue(metadata.voiceoverSlotId)
+    || readString(metadata.kind) === 'voiceover'
+    || String(overlay.assetId ?? '').startsWith('voiceover_')
+    || String(overlay.content ?? '').startsWith('VO ready:')
+    || String(overlay.content ?? '').startsWith('VO pending:');
 }
 
 function sfxTransitionEvidenceMissing(overlay: Phase0OverlayLike) {
@@ -1418,15 +1585,27 @@ function summarizeRenderedAestheticReport(report: Phase0RenderedAestheticReportL
   const frames = Array.isArray(report.frames) ? report.frames : [];
   const issuesBySeverity: Record<Phase0RenderedIssueSeverity, number> = { fail: 0, warn: 0, info: 0 };
   const issuesByDimension: Record<string, number> = {};
+  const issueSamples: Phase0RenderedIssueSample[] = [];
   let issueCount = 0;
 
   for (const frame of frames) {
+    const frameNumber = readPositiveNumber(frame.frame, 0);
     for (const issue of frame.report?.issues ?? []) {
       const severity = readRenderedIssueSeverity(issue.severity);
       const dimension = readString(issue.dimension) || 'unknown';
       issueCount += 1;
       issuesBySeverity[severity] += 1;
       issuesByDimension[dimension] = (issuesByDimension[dimension] ?? 0) + 1;
+      if (issueSamples.length < 24) {
+        issueSamples.push({
+          frame: frameNumber,
+          dimension,
+          severity,
+          overlayId: readIssueOverlayId(issue.overlayId),
+          message: readString(issue.message) || 'Rendered aesthetic issue',
+          evidence: readString(issue.evidence) || null,
+        });
+      }
     }
   }
 
@@ -1443,6 +1622,7 @@ function summarizeRenderedAestheticReport(report: Phase0RenderedAestheticReportL
     issueCount,
     issuesBySeverity,
     issuesByDimension: sortRecordByKey(issuesByDimension),
+    issueSamples,
     sampledFrames: frames.slice(0, 40).map((frame) => ({
       frame: readPositiveNumber(frame.frame, 0),
       status: readRenderedStatus(frame.report?.status),
@@ -1462,6 +1642,10 @@ function readRenderedStatus(value: unknown): Phase0RenderedAestheticStatus | nul
 
 function readRenderedIssueSeverity(value: unknown): Phase0RenderedIssueSeverity {
   return value === 'fail' || value === 'warn' || value === 'info' ? value : 'warn';
+}
+
+function readIssueOverlayId(value: unknown): string | number | null {
+  return typeof value === 'string' || typeof value === 'number' ? value : null;
 }
 
 function readIdArray(value: unknown): Array<string | number> {
@@ -1513,6 +1697,33 @@ function readArrayLength(value: unknown, key: string) {
 
 function readUnknownArrayLength(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function countMotionGraphicSemanticAtoms(overlay: Phase0OverlayLike): number {
+  return Math.max(
+    readArrayLength(overlay.metadata?.atomicMomentBundle, 'semanticAtoms'),
+    readUnknownCollectionLength(overlay.metadata?.semanticAtoms),
+    readNestedUnknownCollectionLength(overlay.content, 'semanticAtoms'),
+  );
+}
+
+function countMotionGraphicRelations(overlay: Phase0OverlayLike): number {
+  return Math.max(
+    readArrayLength(overlay.metadata?.atomicMomentBundle, 'relations'),
+    readUnknownCollectionLength(overlay.metadata?.relations),
+    readNestedUnknownCollectionLength(overlay.content, 'relations'),
+  );
+}
+
+function readUnknownCollectionLength(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (isRecord(value)) return Object.keys(value).length;
+  return 0;
+}
+
+function readNestedUnknownCollectionLength(value: unknown, key: string): number {
+  if (!isRecord(value)) return 0;
+  return readUnknownCollectionLength(value[key]);
 }
 
 function overlayId(overlay: Phase0OverlayLike) {

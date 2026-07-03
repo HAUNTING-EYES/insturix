@@ -15,7 +15,7 @@ import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/dat
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult } from '@/lib/pipeline/sfx-library-service';
+import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
 import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
 import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
@@ -243,6 +243,7 @@ interface SfxCacheEntry {
   source?: SFXLibraryResult['source'];
   originalTitle?: string;
   assetQuality: AtomicSfxCandidateEvaluation;
+  providerSearchReport?: SFXLibrarySearchReport;
 }
 
 type SfxAssetCache = Map<string, SfxCacheEntry | null>;
@@ -376,6 +377,7 @@ function overlayTraceSignature(overlay: Overlay): string {
       atomicZoomForm: compactTraceRecord(metadata.atomicZoomForm, 16),
       atomicTransitionForm: compactTraceRecord(metadata.atomicTransitionForm, 16),
       atomicSfxForm: compactTraceRecord(metadata.atomicSfxForm, 16),
+      sfxPlannerEvidence: compactTraceRecord(metadata.sfxPlannerEvidence, 16),
       transitionSfxPlacement: compactTraceRecord(metadata.transitionSfxPlacement, 12),
     },
   });
@@ -420,6 +422,97 @@ function traceScalar(value: unknown): unknown {
 
 function isTraceRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function traceRecordField(source: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  if (!source) return undefined;
+  const value = source[key];
+  return isTraceRecord(value) ? value : undefined;
+}
+
+function traceStringField(source: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = source?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function traceBooleanField(source: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = source?.[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function traceNumberField(source: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = source?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? round4(value) : undefined;
+}
+
+function traceStringArrayField(source: Record<string, unknown> | undefined, key: string): string[] {
+  const value = source?.[key];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map(entry => entry.trim())
+    .slice(0, 12);
+}
+
+function traceNestedNumberField(source: Record<string, unknown> | undefined, objectKey: string, key: string): number | undefined {
+  return traceNumberField(traceRecordField(source, objectKey), key);
+}
+
+function traceNestedBooleanField(source: Record<string, unknown> | undefined, objectKey: string, key: string): boolean | undefined {
+  return traceBooleanField(traceRecordField(source, objectKey), key);
+}
+
+function traceNestedStringField(source: Record<string, unknown> | undefined, objectKey: string, key: string): string | undefined {
+  return traceStringField(traceRecordField(source, objectKey), key);
+}
+
+function buildSfxPlannerEvidence(
+  sfxSyncPlan: Record<string, unknown> | undefined,
+  sfxFamilyPlanner: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!sfxSyncPlan && !sfxFamilyPlanner) return undefined;
+  const reasonKeys = Array.from(new Set([
+    ...traceStringArrayField(sfxSyncPlan, 'reasonKeys'),
+    ...traceStringArrayField(sfxFamilyPlanner, 'reasonKeys'),
+  ])).slice(0, 12);
+  const crossFamily = traceRecordField(sfxSyncPlan, 'crossFamily')
+    ?? traceRecordField(sfxFamilyPlanner, 'crossFamily');
+
+  return {
+    version: 'sfx-planner-evidence-v1',
+    placementAllowed: traceBooleanField(sfxSyncPlan, 'placementAllowed')
+      ?? traceBooleanField(sfxFamilyPlanner, 'placementAllowed'),
+    executionLicense: traceStringField(sfxFamilyPlanner, 'executionLicense'),
+    reasonKeys,
+    syncWindow: {
+      anchorFrame: traceNestedNumberField(sfxSyncPlan, 'syncWindow', 'anchorFrame'),
+      distanceFrames: traceNestedNumberField(sfxSyncPlan, 'syncWindow', 'distanceFrames'),
+      driftRisk: traceNestedNumberField(sfxSyncPlan, 'syncWindow', 'driftRisk'),
+      toleranceFrames: traceNestedNumberField(sfxSyncPlan, 'syncWindow', 'toleranceFrames'),
+    },
+    mixSafety: {
+      overmixRisk: traceNestedNumberField(sfxSyncPlan, 'mixSafety', 'overmixRisk'),
+      nearestSoundDistanceFrames: traceNestedNumberField(sfxSyncPlan, 'mixSafety', 'nearestSoundDistanceFrames'),
+      recentSfxCount: traceNestedNumberField(sfxSyncPlan, 'mixSafety', 'recentSfxCount'),
+    },
+    providerGate: {
+      providerRisk: traceNestedNumberField(sfxSyncPlan, 'providerGate', 'providerRisk'),
+      qualityFloor: traceNestedNumberField(sfxSyncPlan, 'providerGate', 'qualityFloor'),
+      expectedQueryStrength: traceNestedNumberField(sfxSyncPlan, 'providerGate', 'expectedQueryStrength'),
+    },
+    crossFamily: {
+      transitionAnchored: traceNestedBooleanField(sfxSyncPlan, 'crossFamily', 'transitionAnchored')
+        ?? traceNestedBooleanField(sfxFamilyPlanner, 'crossFamily', 'transitionAnchored'),
+      mgAnchored: traceNestedBooleanField(sfxSyncPlan, 'crossFamily', 'mgAnchored')
+        ?? traceNestedBooleanField(sfxFamilyPlanner, 'crossFamily', 'mgAnchored'),
+      zoomAnchored: traceNestedBooleanField(sfxSyncPlan, 'crossFamily', 'zoomAnchored')
+        ?? traceNestedBooleanField(sfxFamilyPlanner, 'crossFamily', 'zoomAnchored'),
+      captionConflict: traceNestedBooleanField(sfxSyncPlan, 'crossFamily', 'captionConflict')
+        ?? traceNestedBooleanField(sfxFamilyPlanner, 'crossFamily', 'captionConflict'),
+      syncSource: traceNestedStringField(sfxSyncPlan, 'crossFamily', 'syncSource')
+        ?? traceNestedStringField(sfxFamilyPlanner, 'crossFamily', 'syncSource'),
+      evidenceKeys: crossFamily ? Object.keys(crossFamily).sort().slice(0, 12) : [],
+    },
+  };
 }
 
 // ─── Executor ────────────────────────────────────────────────────
@@ -572,8 +665,15 @@ export async function executeEDL(
     for (const [searchQuery, form] of uniqueForms) {
       try {
         // Atomic SFX form converts raw labels/signals into concrete search terms and timing.
-        const result = await searchAndDownloadSFX(searchQuery, userId, form.asset.maxDurationSec, form);
-        const accepted = acceptedSfxCacheEntry(form, result);
+        let providerSearchReport: SFXLibrarySearchReport | undefined;
+        const result = await searchAndDownloadSFX(
+          searchQuery,
+          userId,
+          form.asset.maxDurationSec,
+          form,
+          (report) => { providerSearchReport = report; },
+        );
+        const accepted = acceptedSfxCacheEntry(form, result, providerSearchReport);
         sfxCache.set(searchQuery, accepted);
         const token = form.intent;
         console.log(`[EDL-Exec] SFX pre-resolve: "${token}" → query="${searchQuery}" → ${accepted ? 'accepted' : 'null/rejected'}`);
@@ -1662,7 +1762,11 @@ function nearestFrameDistance(frame: number, anchors: number[]): number | null {
   return best;
 }
 
-function acceptedSfxCacheEntry(form: AtomicSfxForm, result: SFXLibraryResult | null): SfxCacheEntry | null {
+function acceptedSfxCacheEntry(
+  form: AtomicSfxForm,
+  result: SFXLibraryResult | null,
+  providerSearchReport?: SFXLibrarySearchReport,
+): SfxCacheEntry | null {
   const assetQuality = evaluateAtomicSfxAssetCandidate(form, result);
   if (!result || !assetQuality.accepted) return null;
   return {
@@ -1672,6 +1776,7 @@ function acceptedSfxCacheEntry(form: AtomicSfxForm, result: SFXLibraryResult | n
     source: result.source,
     originalTitle: result.originalTitle,
     assetQuality,
+    providerSearchReport,
   };
 }
 
@@ -2031,8 +2136,15 @@ async function applyDecision(
       const searchQuery = atomicSfxSearchQuery(atomicSfxForm);
       let cached = sfxCache.get(searchQuery);
       if (cached === undefined) {
-        const fetched = await searchAndDownloadSFX(searchQuery, userId, atomicSfxForm.asset.maxDurationSec, atomicSfxForm);
-        cached = acceptedSfxCacheEntry(atomicSfxForm, fetched);
+        let providerSearchReport: SFXLibrarySearchReport | undefined;
+        const fetched = await searchAndDownloadSFX(
+          searchQuery,
+          userId,
+          atomicSfxForm.asset.maxDurationSec,
+          atomicSfxForm,
+          (report) => { providerSearchReport = report; },
+        );
+        cached = acceptedSfxCacheEntry(atomicSfxForm, fetched, providerSearchReport);
         sfxCache.set(searchQuery, cached);
       }
       if (!cached) return null;
@@ -2040,6 +2152,11 @@ async function applyDecision(
       const sfxStartFrame = atomicSfxForm.timing.startFrame;
       const sfxDurFrames = atomicSfxForm.timing.durationFrames;
       const sfxId = deterministicOverlayId(idEpoch, 'sfx-trigger', decision.frame, decisionIndex);
+      const sfxSyncPlan = isTraceRecord(decision.params.sfxSyncPlan) ? decision.params.sfxSyncPlan : undefined;
+      const unifiedDecisionMerge = isTraceRecord(decision.params.unifiedDecisionMerge) ? decision.params.unifiedDecisionMerge : undefined;
+      const familyPlannerCandidate = unifiedDecisionMerge?.['familyPlanner'];
+      const sfxFamilyPlanner = isTraceRecord(familyPlannerCandidate) ? familyPlannerCandidate : undefined;
+      const sfxPlannerEvidence = buildSfxPlannerEvidence(sfxSyncPlan, sfxFamilyPlanner);
       const atomicOverlayReceipt = buildOverlayAtomicReceipt({
         family: 'sfx',
         intent: atomicSfxForm.intent,
@@ -2071,6 +2188,13 @@ async function applyDecision(
           assetQualityReasons: cached.assetQuality.reasons.join('|'),
           assetSource: cached.source,
           assetTitle: cached.originalTitle,
+          sfxPlannerPlacementAllowed: traceBooleanField(sfxPlannerEvidence, 'placementAllowed') ?? '',
+          sfxPlannerReasonKeys: traceStringArrayField(sfxPlannerEvidence, 'reasonKeys').join('|'),
+          sfxPlannerSyncDistanceFrames: traceNestedNumberField(sfxPlannerEvidence, 'syncWindow', 'distanceFrames') ?? '',
+          sfxPlannerDriftRisk: traceNestedNumberField(sfxPlannerEvidence, 'syncWindow', 'driftRisk') ?? '',
+          sfxPlannerOvermixRisk: traceNestedNumberField(sfxPlannerEvidence, 'mixSafety', 'overmixRisk') ?? '',
+          sfxPlannerProviderRisk: traceNestedNumberField(sfxPlannerEvidence, 'providerGate', 'providerRisk') ?? '',
+          sfxPlannerExecutionLicense: traceStringField(sfxPlannerEvidence, 'executionLicense') ?? '',
         },
         atoms: [
           overlayAtom('temporal-anchor', 'timeline.frame', atomicSfxForm.timing.syncFrame, 1, 'edl'),
@@ -2107,6 +2231,8 @@ async function applyDecision(
           sfxStartFrame: atomicSfxForm.timing.startFrame,
           sfxAnchor: atomicSfxForm.timing.anchor,
           sfxAssetQuality: cached.assetQuality,
+          sfxProviderSearchReport: cached.providerSearchReport,
+          sfxPlannerEvidence,
           ...atomicMomentBundleMetadata(decision),
           atomicSfxForm,
           atomicSfxForms: [atomicSfxForm],

@@ -44,13 +44,14 @@ export function ChatHistoryPanel({
   // Load threads for this session
   useEffect(() => {
     if (!open || !sessionId) return;
+    const activeSessionId = sessionId;
     
     let cancelled = false;
     
     async function loadThreads() {
       setLoadingThreads(true);
       try {
-        const res = await fetch(`/api/services/thinkforge/chat/threads?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+        const res = await fetch(`/api/services/thinkforge/chat/threads?sessionId=${encodeURIComponent(activeSessionId)}`, { cache: 'no-store' });
         if (!res.ok) throw new Error('Failed to load threads');
         const data = await res.json();
         const items = Array.isArray(data?.threads) ? data.threads : [];

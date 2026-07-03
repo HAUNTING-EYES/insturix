@@ -45,12 +45,15 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
     newSubjectScenes,
     setNewSubjectScenes,
     regeneratingSubjectIds,
+    referenceContinueBlocked,
+    referenceContinueMessage,
     error,
     handleGenerateSuggested,
     handleAddSubject,
     handlePhase2,
     setApprovedSubjectIds,
   } = pipeline;
+  const referenceActionDisabled = regeneratingSubjectIds.size > 0 || referenceContinueBlocked;
 
   return (
     <motion.div
@@ -72,6 +75,12 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
         These reference images guide AI for visual consistency. Approve, reject,
         regenerate, or add more from script suggestions below.
       </p>
+
+      {referenceContinueBlocked && (
+        <div className="border border-[#D46A5C]/35 bg-[#D46A5C]/10 px-2.5 py-2 text-[11px] text-[#D46A5C]">
+          {referenceContinueMessage}
+        </div>
+      )}
 
       {/* Subject grid */}
       <div className="grid grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
@@ -263,19 +272,20 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
             setApprovedSubjectIds(new Set());
             handlePhase2();
           }}
-          style={{ padding: "7px 14px", borderRadius: 4, background: "transparent", border: "1px solid #282724", color: "#7A776E", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          disabled={referenceActionDisabled}
+          style={{ padding: "7px 14px", borderRadius: 4, background: "transparent", border: "1px solid #282724", color: "#7A776E", fontSize: 13, fontWeight: 600, cursor: referenceActionDisabled ? "not-allowed" : "pointer", opacity: referenceActionDisabled ? 0.5 : 1 }}
         >
           Skip References
         </button>
         <button
           onClick={() => handlePhase2()}
-          disabled={regeneratingSubjectIds.size > 0}
+          disabled={referenceActionDisabled}
           style={{
             padding: "7px 14px", borderRadius: 4,
             background: "#D4A652", border: "none",
-            color: "#0B0B0A", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            color: "#0B0B0A", fontSize: 13, fontWeight: 600, cursor: referenceActionDisabled ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", gap: 6,
-            opacity: regeneratingSubjectIds.size > 0 ? 0.5 : 1,
+            opacity: referenceActionDisabled ? 0.5 : 1,
           }}
         >
           Continue with {approvedSubjectIds.size} Reference{approvedSubjectIds.size !== 1 ? "s" : ""}

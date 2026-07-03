@@ -13,7 +13,7 @@
  * 1.   Transcribe + classify + build cut plan (processRawFootage)
  * 1.55 Fix duration from transcript timestamps
  * 1.6  Execute silence removal (apply cuts to timeline)
- * 2.   Visual Understanding — segment-aware (Gemini Vision → SyntheticStoryboard)
+ * 2.   Visual Understanding Ã¢â‚¬â€ segment-aware (Gemini Vision Ã¢â€ â€™ SyntheticStoryboard)
  * 3.   Genre parameters + Thompson Sampling bandit
  * 4.   Store Phase 1 results on project doc
  * 4.5  Dispatch TRIBE worker via QStash (or run Steps 3.5-3.7 + Director inline in dev)
@@ -25,6 +25,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
+import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
@@ -32,6 +37,7 @@ export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2
 interface VideoAnalysisPayload {
   projectId: string;
   userId: string;
+  orgId?: string;
   assetId: string;
   videoUrl: string;
   durationSec: number;
@@ -40,6 +46,7 @@ interface VideoAnalysisPayload {
   // Optional multi-path inputs
   userIntent?: string;
   referenceAssetId?: string;
+  referenceVideoUrl?: string;
   script?: string;
   platform?: string;
   // Creative Brief preferences (Director's Cut architecture)
@@ -49,6 +56,8 @@ interface VideoAnalysisPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  creditTransactionId?: string;
+  chargedCredits?: number;
 }
 
 async function handler(request: NextRequest) {
@@ -60,9 +69,9 @@ async function handler(request: NextRequest) {
   try {
     const payload: VideoAnalysisPayload = await request.json();
     const {
-      projectId, userId, assetId, videoUrl, durationSec,
+      projectId, userId, orgId, assetId, videoUrl, durationSec,
       title, profileId: initialProfileId,
-      userIntent, referenceAssetId, script, platform,
+      userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
     } = payload;
     trackedProjectId = projectId;
@@ -82,16 +91,19 @@ async function handler(request: NextRequest) {
       { $set: { autoEditStatus: 'analyzing', autoEditStartedAt: new Date() } },
     );
 
-    // ─── Step 1: Transcription + Cuts FIRST ────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Transcription + Cuts FIRST Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // Architecture: cuts FIRST, analyze SECOND.
     // processRawFootage runs Deepgram transcription (~10-30s, NOT Gemini) then
     // Gemini transcript editor (~10-30s). After cuts are decided, VU runs at
     // Step 2 with segment context so it analyzes what the viewer will see.
     let syntheticStoryboard: any = null;
     let rawFootageAnalysis: any = null;
+    let precutVjepaAnalysis: any = null;
+    let visualCutIntelligence: any = null;
 
     console.log(`[VideoAnalysisWorker] Step 1: Transcribing + cutting ${Math.round(durationSec)}s video (${assetId})...`);
 
+    const rawFootageStartedAt = Date.now();
     try {
       await db.collection('projects').updateOne(
         { projectId },
@@ -100,32 +112,272 @@ async function handler(request: NextRequest) {
       const { processRawFootage } = await import('@/lib/editron/services/raw-footage-processor');
       rawFootageAnalysis = await processRawFootage(assetId, userId, durationSec, platform, userIntent);
       console.log(`[VideoAnalysisWorker] Raw footage: ${rawFootageAnalysis.contentTypeDetection.contentType} (${rawFootageAnalysis.silenceRemovalPlan.length} removals, clean=${Math.round(rawFootageAnalysis.estimatedCleanDurationMs / 1000)}s)`);
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'raw_footage_processing',
+        status: 'success',
+        provider: 'editron-transcription-pipeline',
+        model: 'grok-deepgram-gemini-transcript-editor',
+        operation: 'transcription_pipeline',
+        includeRevenue: true,
+        units: {
+          requestCount: 1,
+          mediaSeconds: durationSec,
+          functionMs: Date.now() - rawFootageStartedAt,
+        },
+        metadata: {
+          contentType: rawFootageAnalysis.contentTypeDetection?.contentType,
+          wordCount: rawFootageAnalysis.transcription?.words?.length ?? 0,
+          segmentCount: rawFootageAnalysis.segments?.length ?? 0,
+          silenceRemovalCount: rawFootageAnalysis.silenceRemovalPlan?.length ?? 0,
+          editMethod: rawFootageAnalysis.editMethod,
+        },
+      });
     } catch (rawErr: unknown) {
       const msg = rawErr instanceof Error ? rawErr.message : String(rawErr);
       const stack = rawErr instanceof Error ? rawErr.stack : '';
       console.error(`[VideoAnalysisWorker] Raw footage processing FAILED: ${msg}`);
       if (stack) console.error(`[VideoAnalysisWorker] Stack: ${stack}`);
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'raw_footage_processing',
+        status: 'failed',
+        provider: 'editron-transcription-pipeline',
+        model: 'grok-deepgram-gemini-transcript-editor',
+        operation: 'transcription_pipeline',
+        includeRevenue: true,
+        units: {
+          requestCount: 1,
+          mediaSeconds: durationSec,
+          functionMs: Date.now() - rawFootageStartedAt,
+        },
+        metadata: { errorClass: rawErr instanceof Error ? rawErr.name : 'Error' },
+      });
     }
 
-    // ─── Reference style transfer (if provided) ───────────────────
+    // Reference style transfer (if provided)
     let editDNA: any = null;
-    if (referenceAssetId) {
+    let referenceVideoAnalysis: any = null;
+    if (referenceAssetId || referenceVideoUrl) {
       try {
         const { assetResolver } = await import('@/lib/editron/services/asset-resolver');
-        const refUrl = await assetResolver.resolveAssetUrl(referenceAssetId, userId);
-        if (refUrl) {
-          const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
-          editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
-          console.log(`[VideoAnalysisWorker] EditDNA extracted from reference`);
+        const { resolveReferenceVideoSource } = await import('@/lib/editron/reference-video/reference-video-source');
+        const referenceSourceResult = await resolveReferenceVideoSource({
+          userId,
+          referenceAssetId,
+          referenceVideoUrl,
+          assetResolver,
+        });
+
+        if (!referenceSourceResult.ok) {
+          referenceVideoAnalysis = {
+            provider: 'glm-saas-reference',
+            status: 'rejected',
+            sourceKind: referenceSourceResult.sourceKind,
+            reason: referenceSourceResult.reason,
+            diagnostics: referenceSourceResult.diagnostics,
+          };
+          console.warn(`[VideoAnalysisWorker] Reference source rejected: ${referenceSourceResult.reason}`);
+        } else {
+          const referenceSource = referenceSourceResult.source;
+          const refUrl = referenceSource.videoUrl;
+          const referenceId = referenceSource.referenceId;
+          const referenceDurationSec = referenceSource.durationSec;
+          const referenceSourceLabel = referenceSource.sourceLabel;
+          const referenceSourceFingerprint = referenceSource.sourceFingerprint;
+
+          if (isSaasReferenceGlmEnabled()) {
+            try {
+              const { sampleReferenceVideoFrames } = await import('@/lib/editron/reference-video/reference-frame-sampler');
+              const {
+                analyzeSaasReferenceVideo,
+                DEFAULT_GLM_ANALYSIS_MODEL,
+                DEFAULT_GLM_GATE_MODEL,
+              } = await import('@/lib/editron/reference-video/saas-reference-video-analyzer');
+              const { mapSaasReferenceAnalysisToEditDNA } = await import('@/lib/editron/reference-video/saas-reference-edit-dna');
+              const {
+                buildSaasReferenceAnalysisCacheKey,
+                readSaasReferenceAnalysisCache,
+                writeSaasReferenceAnalysisCache,
+              } = await import('@/lib/editron/reference-video/saas-reference-analysis-cache');
+
+              const referenceAnalysisCacheKey = buildSaasReferenceAnalysisCacheKey({
+                referenceAssetId: referenceId,
+                durationSec: referenceDurationSec,
+                sourceFingerprint: referenceSourceFingerprint,
+                script,
+                brandContext: userIntent,
+                gateModel: DEFAULT_GLM_GATE_MODEL,
+                analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+              });
+              const cachedSaasResult = await readSaasReferenceAnalysisCache(referenceAnalysisCacheKey);
+
+              if (cachedSaasResult) {
+                if (cachedSaasResult.status === 'accepted') {
+                  editDNA = mapSaasReferenceAnalysisToEditDNA({
+                    analysis: cachedSaasResult.analysis,
+                    gate: cachedSaasResult.gate,
+                    cacheKey: cachedSaasResult.cacheKey,
+                    sourceName: referenceSourceLabel,
+                  });
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: 'accepted',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'hit',
+                    frameSamples: [],
+                    gate: cachedSaasResult.gate,
+                    gateDecision: cachedSaasResult.gateDecision,
+                    analysis: cachedSaasResult.analysis,
+                    evaluationWindowSec: cachedSaasResult.evaluationWindowSec,
+                    cacheKey: cachedSaasResult.cacheKey,
+                    analyzerCacheKey: cachedSaasResult.analyzerCacheKey,
+                    model: cachedSaasResult.model,
+                    usage: cachedSaasResult.usage,
+                  };
+                } else {
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: 'rejected',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'hit',
+                    reason: cachedSaasResult.reason,
+                    diagnostics: cachedSaasResult.diagnostics,
+                    gate: cachedSaasResult.gate,
+                    gateDecision: cachedSaasResult.gateDecision,
+                    cacheKey: cachedSaasResult.cacheKey,
+                    analyzerCacheKey: cachedSaasResult.analyzerCacheKey,
+                    frameSamples: [],
+                  };
+                }
+                console.log(`[VideoAnalysisWorker] GLM SaaS reference cache hit (${cachedSaasResult.status})`);
+              } else {
+                const frameSamples = await sampleReferenceVideoFrames({
+                  videoUrl: refUrl,
+                  userId,
+                  referenceAssetId: referenceId,
+                  durationSec: referenceDurationSec,
+                });
+                const saasResult = await analyzeSaasReferenceVideo({
+                  videoUrl: refUrl,
+                  frameImageUrls: frameSamples.map((sample) => sample.url),
+                  durationSec: referenceDurationSec,
+                  sourceLabel: referenceSourceLabel,
+                  script,
+                  brandContext: userIntent,
+                  gateModel: DEFAULT_GLM_GATE_MODEL,
+                  analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+                });
+
+                if (saasResult.ok) {
+                  editDNA = mapSaasReferenceAnalysisToEditDNA({
+                    analysis: saasResult.analysis,
+                    gate: saasResult.gate,
+                    cacheKey: referenceAnalysisCacheKey,
+                    sourceName: referenceSourceLabel,
+                  });
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: 'accepted',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'miss',
+                    frameSamples,
+                    gate: saasResult.gate,
+                    gateDecision: saasResult.gateDecision,
+                    analysis: saasResult.analysis,
+                    evaluationWindowSec: saasResult.evaluationWindowSec,
+                    cacheKey: referenceAnalysisCacheKey,
+                    analyzerCacheKey: saasResult.cacheKey,
+                    model: saasResult.model,
+                    usage: saasResult.usage,
+                  };
+                  await writeSaasReferenceAnalysisCache({
+                    status: 'accepted',
+                    cacheKey: referenceAnalysisCacheKey,
+                    analyzerCacheKey: saasResult.cacheKey,
+                    referenceAssetId: referenceId,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    gateModel: DEFAULT_GLM_GATE_MODEL,
+                    analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+                    gate: saasResult.gate,
+                    gateDecision: saasResult.gateDecision,
+                    analysis: saasResult.analysis,
+                    evaluationWindowSec: saasResult.evaluationWindowSec,
+                    model: saasResult.model,
+                    usage: saasResult.usage,
+                  });
+                  console.log(`[VideoAnalysisWorker] GLM SaaS reference accepted (${saasResult.evaluationWindowSec}s window)`);
+                } else {
+                  referenceVideoAnalysis = {
+                    provider: 'glm-saas-reference',
+                    status: saasResult.reason === 'not_a_saas_reference_video' ? 'rejected' : 'failed',
+                    sourceKind: referenceSource.kind,
+                    referenceId,
+                    sourceLabel: referenceSourceLabel,
+                    sourceFingerprint: referenceSourceFingerprint,
+                    cacheStatus: 'miss',
+                    reason: saasResult.reason,
+                    diagnostics: saasResult.diagnostics,
+                    gate: saasResult.gate,
+                    gateDecision: saasResult.gateDecision,
+                    cacheKey: referenceAnalysisCacheKey,
+                    analyzerCacheKey: saasResult.cacheKey,
+                    raw: saasResult.raw,
+                    frameSamples,
+                  };
+                  if (saasResult.reason === 'not_a_saas_reference_video') {
+                    await writeSaasReferenceAnalysisCache({
+                      status: 'rejected',
+                      reason: 'not_a_saas_reference_video',
+                      diagnostics: saasResult.diagnostics,
+                      cacheKey: referenceAnalysisCacheKey,
+                      analyzerCacheKey: saasResult.cacheKey,
+                      referenceAssetId: referenceId,
+                      sourceFingerprint: referenceSourceFingerprint,
+                      gateModel: DEFAULT_GLM_GATE_MODEL,
+                      analysisModel: DEFAULT_GLM_ANALYSIS_MODEL,
+                      gate: saasResult.gate,
+                      gateDecision: saasResult.gateDecision,
+                    });
+                  }
+                  console.warn(`[VideoAnalysisWorker] GLM SaaS reference not applied: ${saasResult.reason}`);
+                }
+              }
+            } catch (glmRefErr: unknown) {
+              const msg = glmRefErr instanceof Error ? glmRefErr.message : String(glmRefErr);
+              referenceVideoAnalysis = {
+                provider: 'glm-saas-reference',
+                status: 'failed',
+                sourceKind: referenceSource.kind,
+                referenceId,
+                sourceLabel: referenceSourceLabel,
+                sourceFingerprint: referenceSourceFingerprint,
+                reason: msg,
+              };
+              console.warn(`[VideoAnalysisWorker] GLM SaaS reference extraction failed: ${msg}`);
+            }
+          }
+
+          if (!editDNA && shouldRunLegacyReferenceExtraction(referenceVideoAnalysis)) {
+            const { extractEditDNA } = await import('@/lib/editron/services/style-transfer-service');
+            editDNA = await extractEditDNA({ videoUrl: refUrl, userId, projectId });
+            console.log(`[VideoAnalysisWorker] EditDNA extracted from reference`);
+          }
         }
       } catch (refErr: unknown) {
         const msg = refErr instanceof Error ? refErr.message : String(refErr);
         console.warn(`[VideoAnalysisWorker] Reference extraction failed: ${msg}`);
       }
     }
-
-    // ─── Step 1.55: Fix video duration + register asset if missing ──
-    // The from-asset route uses asset.duration which may be missing (defaults to 30s).
+    // Step 1.55: Fix video duration + register asset if missing.
+    // The from-asset route uses asset.duration, which may be missing (defaults to 30s).
     // Transcription timestamps reveal the REAL video length.
     // Also: multipart upload may have failed to register the asset in media_assets.
     // If asset is missing from DB, register it here (fixes "video disappears on refresh"
@@ -180,7 +432,7 @@ async function handler(request: NextRequest) {
           });
           console.log(`[VideoAnalysisWorker] Registered missing asset ${assetId} in media_assets (duration=${actualDurationSec.toFixed(1)}s)`);
         } else if (!existingAsset.duration && actualDurationSec > 0) {
-          // Asset exists but duration missing — update it
+          // Asset exists but duration missing Ã¢â‚¬â€ update it
           await db.collection('media_assets').updateOne(
             { assetId },
             { $set: { duration: actualDurationSec } },
@@ -193,7 +445,85 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 1.6: Execute Silence Removal (BEFORE Director) ─────
+    // Step 1.58: Visual cut intelligence runs once for every raw-footage plan.
+    // Speech-heavy footage remains transcript-led; visual evidence can only protect/refine it.
+    // Low/no-speech footage is visual-led and may add visual removals/splits.
+    if (rawFootageAnalysis) {
+      try {
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'analyzing_visual_cuts' } },
+        );
+
+        const segmentInputs = (rawFootageAnalysis.segments || []).map((seg: any) => ({
+          startMs: seg.startMs,
+          endMs: seg.endMs,
+        }));
+        const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
+        const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs, {
+          maxSegments: 180,
+        });
+
+        console.log(`[VideoAnalysisWorker] Step 1.58: Visual cut intelligence via V-JEPA (${visualSegmentInputs.length} visual segments, speechCoverage=${((rawFootageAnalysis.speechCoverage ?? 0) * 100).toFixed(1)}%)...`);
+        const visualCutStartedAt = Date.now();
+        precutVjepaAnalysis = await analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'visual_cut_vjepa_modal',
+          status: precutVjepaAnalysis ? 'success' : 'failed',
+          provider: 'modal',
+          model: precutVjepaAnalysis?.modelVersion || 'vjepa-2',
+          operation: 'gpu_video_analysis',
+          units: {
+            requestCount: 1,
+            mediaSeconds: sumSegmentSeconds(visualSegmentInputs),
+            functionMs: Date.now() - visualCutStartedAt,
+            gpuSeconds: msToSeconds(precutVjepaAnalysis?.processingTimeMs),
+          },
+          metadata: {
+            requestedSegmentCount: visualSegmentInputs.length,
+            analyzedSegmentCount: precutVjepaAnalysis?.segments?.length ?? 0,
+            partial: Boolean(precutVjepaAnalysis?.partial),
+          },
+        });
+
+        const {
+          refineCutPlanWithVisualIntelligence,
+          resolveVisualCutRefinementMode,
+        } = await import('@/lib/editron/services/visual-cut-intelligence');
+        const visualCutMode = resolveVisualCutRefinementMode(rawFootageAnalysis);
+        const visualCutResult = refineCutPlanWithVisualIntelligence(rawFootageAnalysis, precutVjepaAnalysis);
+        visualCutIntelligence = visualCutResult.report;
+        rawFootageAnalysis.visualCutIntelligence = visualCutResult.report;
+        rawFootageAnalysis.silenceRemovalPlan = visualCutResult.plan;
+        rawFootageAnalysis.estimatedCleanDurationMs = rawFootageAnalysis.originalDurationMs -
+          (rawFootageAnalysis.silenceRemovalPlan || []).reduce((sum: number, action: any) => {
+            if (action.action === 'remove') return sum + (action.endMs - action.startMs);
+            if (action.action === 'shorten') return sum + (action.endMs - action.startMs) - (action.shortenToMs || 0);
+            return sum;
+          }, 0);
+
+        console.log(
+          `[VideoAnalysisWorker] Visual cuts: status=${visualCutIntelligence.status}, mode=${visualCutMode.mode}, ` +
+          `protected=${visualCutIntelligence.protectedActionCount}, ` +
+          `addedRemovals=${visualCutIntelligence.addedRemovalCount}, ` +
+          `addedSplits=${visualCutIntelligence.addedSplitCount}, ` +
+          `actions=${visualCutIntelligence.inputActionCount}->${visualCutIntelligence.outputActionCount}`
+        );
+      } catch (visualCutErr: unknown) {
+        const msg = visualCutErr instanceof Error ? visualCutErr.message : String(visualCutErr);
+        console.warn(`[VideoAnalysisWorker] Visual cut intelligence failed (non-fatal): ${msg}`);
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'visual_cut_vjepa_modal',
+          status: 'failed',
+          provider: 'modal',
+          model: 'vjepa-2',
+          operation: 'gpu_video_analysis',
+          units: { requestCount: 1, mediaSeconds: durationSec },
+          metadata: { errorClass: visualCutErr instanceof Error ? visualCutErr.name : 'Error' },
+        });
+      }
+    }
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.6: Execute Silence Removal (BEFORE Director) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
         await db.collection('projects').updateOne(
@@ -224,11 +554,12 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 2: Visual Understanding (AFTER cuts, segment-aware) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 2: Visual Understanding (AFTER cuts, segment-aware) Ã¢â€â‚¬Ã¢â€â‚¬
     // VU runs after cuts so it doesn't compete with transcription for Gemini quota,
     // and receives segment context so Gemini focuses on what the viewer will see.
     // Uses effectiveDurationSec (corrected by Step 1.55).
     // Non-fatal: pipeline continues without syntheticStoryboard if VU fails.
+    const videoUnderstandingStartedAt = Date.now();
     try {
       const segmentContext = rawFootageAnalysis ? {
         keptCount: rawFootageAnalysis.segments?.length ?? 0,
@@ -250,9 +581,39 @@ async function handler(request: NextRequest) {
       } else {
         console.warn(`[VideoAnalysisWorker] VU returned null. Continuing without visual setup.`);
       }
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'video_understanding_gemini',
+        status: syntheticStoryboard ? 'success' : 'failed',
+        provider: 'google-gemini',
+        model: 'creative-doc-model',
+        operation: 'video_understanding',
+        units: {
+          requestCount: 1,
+          mediaSeconds: effectiveDurationSec,
+          functionMs: Date.now() - videoUnderstandingStartedAt,
+        },
+        metadata: {
+          keptSegmentCount: segmentContext?.keptCount ?? 0,
+          hasGeminiFileUri: Boolean(syntheticStoryboard?.geminiFileUri),
+          contentType: syntheticStoryboard?.contentType,
+        },
+      });
     } catch (vuErr: unknown) {
       const msg = vuErr instanceof Error ? vuErr.message : String(vuErr);
       console.warn(`[VideoAnalysisWorker] VU failed: ${msg}. Continuing without visual setup.`);
+      await recordVideoAnalysisCostEvent(payload, {
+        stage: 'video_understanding_gemini',
+        status: 'failed',
+        provider: 'google-gemini',
+        model: 'creative-doc-model',
+        operation: 'video_understanding',
+        units: {
+          requestCount: 1,
+          mediaSeconds: effectiveDurationSec,
+          functionMs: Date.now() - videoUnderstandingStartedAt,
+        },
+        metadata: { errorClass: vuErr instanceof Error ? vuErr.name : 'Error' },
+      });
     }
 
     // Platform override
@@ -260,7 +621,7 @@ async function handler(request: NextRequest) {
       syntheticStoryboard.platform = platform;
     }
 
-    // ─── Step 3: Compute Genre Parameters (signal-driven, no profiles) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 3: Compute Genre Parameters (signal-driven, no profiles) Ã¢â€â‚¬Ã¢â€â‚¬
     let genreParameters: any = null;
     let genreParametersSignalComputed: any = null;  // Pre-bandit value for reward feedback
     if (rawFootageAnalysis) {
@@ -281,7 +642,7 @@ async function handler(request: NextRequest) {
         genreParametersSignalComputed = { ...genreOutput.genreParams };  // Snapshot before bandit
         console.log(`[VideoAnalysisWorker] Genre params: pacing=${genreOutput.genreParams.pacing_tolerance.toFixed(1)}, formality=${genreOutput.genreParams.formality.toFixed(2)}, zoom_budget=${genreOutput.genreParams.zoom_budget} (${genreOutput.confidence})`);
 
-        // ─── Step 3.1: Apply Thompson Sampling bandit adjustments ────
+        // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 3.1: Apply Thompson Sampling bandit adjustments Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
         // Load per-user bandit state from MongoDB. If the user has enough
         // project history (>=5), sample learned adjustments to genre dials.
         // Store BOTH signal-computed and adjusted params so reward feedback
@@ -320,7 +681,7 @@ async function handler(request: NextRequest) {
               console.log(`[VideoAnalysisWorker] Bandit: active but no significant adjustments for this context`);
             }
           } else {
-            console.log(`[VideoAnalysisWorker] Bandit: ${banditState ? `${banditState.totalProjects}/5 projects` : 'no state'} — using pure signal computation`);
+            console.log(`[VideoAnalysisWorker] Bandit: ${banditState ? `${banditState.totalProjects}/5 projects` : 'no state'} Ã¢â‚¬â€ using pure signal computation`);
           }
         } catch (banditErr: unknown) {
           const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);
@@ -332,7 +693,7 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Step 4: Store Phase 1 results on project ──────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 4: Store Phase 1 results on project Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // Phase 2 fields (vjepaAnalysis, wav2vecAnalysis, momentWeightMap,
     // segmentAnalysis) are written by the TRIBE worker, not here.
     let persistedRawFootageAnalysis: any = null;
@@ -349,7 +710,10 @@ async function handler(request: NextRequest) {
           ...(syntheticStoryboard && { syntheticStoryboard }),
           ...(syntheticStoryboard?.geminiFileUri && { geminiFileUri: syntheticStoryboard.geminiFileUri }),
           ...(editDNA && { referenceEditDNA: editDNA }),
+          ...(referenceVideoAnalysis && { referenceVideoAnalysis }),
           ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
+          ...(precutVjepaAnalysis && { vjepaAnalysis: precutVjepaAnalysis }),
+          ...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence }),
           ...(genreParameters && { genreParameters }),
           ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
           updatedAt: new Date(),
@@ -357,7 +721,7 @@ async function handler(request: NextRequest) {
       },
     );
 
-    // ─── Step 1.7: Dispatch graph-sync with transcript data ──────
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.7: Dispatch graph-sync with transcript data Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (rawFootageAnalysis) {
       try {
         const qstashToken = process.env.QSTASH_TOKEN;
@@ -365,7 +729,7 @@ async function handler(request: NextRequest) {
           ? `https://${process.env.VERCEL_URL}`
           : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
         if (qstashToken) {
-          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
+          const graphRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${qstashToken}`,
@@ -385,14 +749,31 @@ async function handler(request: NextRequest) {
               },
             }),
           });
+          const graphStatus: ProviderCostEventStatus = graphRes.ok ? 'success' : 'failed';
+          await recordVideoAnalysisCostEvent(payload, {
+            stage: 'graph_sync_qstash',
+            status: graphStatus,
+            provider: 'upstash-qstash',
+            operation: 'queue_message',
+            units: { queueMessages: 1, requestCount: 1 },
+            metadata: { httpStatus: graphRes.status },
+          });
         }
       } catch (err: unknown) {
-        // Non-fatal — graph enrichment is best-effort
+        // Non-fatal Ã¢â‚¬â€ graph enrichment is best-effort
         console.warn('[VideoAnalysisWorker] graph enrichment dispatch failed:', err instanceof Error ? err.message : err);
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'graph_sync_qstash',
+          status: 'failed',
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { errorClass: err instanceof Error ? err.name : 'Error' },
+        });
       }
     }
 
-    // ─── Step 4.5: Dispatch TRIBE worker (or Director directly if no segments) ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 4.5: Dispatch TRIBE worker (or Director directly if no segments) Ã¢â€â‚¬Ã¢â€â‚¬
     // TRIBE worker runs Steps 3.5-3.7 (V-JEPA, Wav2Vec, Essentia, moment weights,
     // segment analysis) then dispatches Director. If no segments exist (transcription
     // failed), skip TRIBE and dispatch Director directly.
@@ -412,7 +793,7 @@ async function handler(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (hasSegments) {
-        // Dispatch TRIBE worker for deep analysis (Steps 3.5-3.7) → it dispatches Director
+        // Dispatch TRIBE worker for deep analysis (Steps 3.5-3.7) Ã¢â€ â€™ it dispatches Director
         const segmentInputs = rawFootageAnalysis.segments.map((seg: any) => ({
           startMs: seg.startMs,
           endMs: seg.endMs,
@@ -420,10 +801,12 @@ async function handler(request: NextRequest) {
         const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
         const tribePayload = {
-          projectId, userId, videoUrl,
+          projectId, userId, orgId, videoUrl,
           segmentInputs,
           visualSegmentInputs,
           directorPayload,
+          creditTransactionId: payload.creditTransactionId,
+          chargedCredits: payload.chargedCredits,
         };
 
         const tribeUrl = `${qstashBaseUrl}/api/internal/workers/tribe-analysis`;
@@ -438,20 +821,30 @@ async function handler(request: NextRequest) {
             'Upstash-Delay': '2s',
             // QStash's default response-wait (~2min) is far shorter than this worker's ~8min
             // (V-JEPA/Wav2Vec GPU analysis runs synchronously). Without this header, QStash
-            // times out the still-running worker and fires its retry → a SECOND concurrent
-            // tribe worker → both fight over the Modal GPU → V-JEPA/Wav2Vec abort → per-moment
-            // signals come back empty → monotonous graphics. 800s matches this stage's
-            // maxDuration (tribe route) and is ≤ the QStash free-plan max (900s/15min). 2026-05-30.
-            // NOTE: value MUST carry a unit — QStash parses it as a Go duration; bare '800'
+            // times out the still-running worker and fires its retry Ã¢â€ â€™ a SECOND concurrent
+            // tribe worker Ã¢â€ â€™ both fight over the Modal GPU Ã¢â€ â€™ V-JEPA/Wav2Vec abort Ã¢â€ â€™ per-moment
+            // signals come back empty Ã¢â€ â€™ monotonous graphics. 800s matches this stage's
+            // maxDuration (tribe route) and is Ã¢â€°Â¤ the QStash free-plan max (900s/15min). 2026-05-30.
+            // NOTE: value MUST carry a unit Ã¢â‚¬â€ QStash parses it as a Go duration; bare '800'
             // returns HTTP 400 "missing unit in duration". Match the 's' suffix used by Upstash-Delay.
             'Upstash-Timeout': '800s',
           },
           body: JSON.stringify(tribePayload),
         });
 
+        const tribeDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'tribe_qstash',
+          status: tribeDispatchStatus,
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { httpStatus: dispatchRes.status, speechSegmentCount: segmentInputs.length, visualSegmentCount: visualSegmentInputs.length },
+        });
+
         if (!dispatchRes.ok) {
           const errBody = await dispatchRes.text().catch(() => 'no body');
-          throw new Error(`TRIBE QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+          throw new Error(`TRIBE QStash dispatch failed: HTTP ${dispatchRes.status} Ã¢â‚¬â€ ${errBody}`);
         }
 
         directorDispatched = true; // TRIBE owns Director dispatch from here
@@ -460,7 +853,7 @@ async function handler(request: NextRequest) {
         console.log(`[VideoAnalysisWorker] Phase 1 complete: ${projectId} in ${totalMs}ms. TRIBE dispatched (messageId=${dispatchData.messageId || 'unknown'}, speechSegments=${segmentInputs.length}, visualSegments=${visualSegmentInputs.length}).`);
         return NextResponse.json({ success: true, totalMs, stage: 'analysis', nextStage: 'tribe-analysis' });
       } else {
-        // No segments — skip TRIBE, dispatch Director directly
+        // No segments Ã¢â‚¬â€ skip TRIBE, dispatch Director directly
         await db.collection('projects').updateOne(
           { projectId },
           { $set: { autoEditStatus: 'directing_queued' } },
@@ -480,9 +873,19 @@ async function handler(request: NextRequest) {
           body: JSON.stringify(directorPayload),
         });
 
+        const directorDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
+        await recordVideoAnalysisCostEvent(payload, {
+          stage: 'director_qstash',
+          status: directorDispatchStatus,
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { httpStatus: dispatchRes.status, reason: 'no_segments' },
+        });
+
         if (!dispatchRes.ok) {
           const errBody = await dispatchRes.text().catch(() => 'no body');
-          throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} — ${errBody}`);
+          throw new Error(`Director QStash dispatch failed: HTTP ${dispatchRes.status} Ã¢â‚¬â€ ${errBody}`);
         }
 
         directorDispatched = true;
@@ -493,11 +896,11 @@ async function handler(request: NextRequest) {
       }
     }
 
-    // ─── Dev fallback: no QStash → run TRIBE steps + Director inline ──
-    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN — running TRIBE + Director inline`);
+    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Dev fallback: no QStash Ã¢â€ â€™ run TRIBE steps + Director inline Ã¢â€â‚¬Ã¢â€â‚¬
+    console.warn(`[VideoAnalysisWorker] No QSTASH_TOKEN Ã¢â‚¬â€ running TRIBE + Director inline`);
 
     // Run Steps 3.5-3.7 inline (V-JEPA + Wav2Vec + Essentia + moment weights + segment analysis)
-    let vjepaAnalysis: any = null;
+    let vjepaAnalysis: any = precutVjepaAnalysis;
     let wav2vecAnalysis: any = null;
 
     if (hasSegments) {
@@ -514,12 +917,20 @@ async function handler(request: NextRequest) {
         const { analyzeVideoWithVjepa, buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
 
-        console.log(`[VideoAnalysisWorker] TRIBE Phase 2 (inline): V-JEPA for ${visualSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
+        console.log(
+          `[VideoAnalysisWorker] TRIBE Phase 2 (inline): ${
+            vjepaAnalysis
+              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
+              : `dispatching V-JEPA for ${visualSegmentInputs.length} visual segments`
+          }; Wav2Vec for ${segmentInputs.length} speech segments...`
+        );
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-          (async () => {
-            return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
-          })(),
+          vjepaAnalysis
+            ? Promise.resolve(vjepaAnalysis)
+            : (async () => {
+                return analyzeVideoWithVjepa(videoUrl, visualSegmentInputs);
+              })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
             return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
@@ -596,7 +1007,7 @@ async function handler(request: NextRequest) {
       { $set: { autoEditStatus: 'directing' } },
     );
 
-    // D-016: Profile selection removed — signal system + Utility AI drive all editing decisions.
+    // D-016: Profile selection removed Ã¢â‚¬â€ signal system + Utility AI drive all editing decisions.
     // Content type still available in rawFootageAnalysis.contentTypeDetection for creative brief context.
     const profileId = initialProfileId;
     if (rawFootageAnalysis?.contentTypeDetection) {
@@ -682,7 +1093,7 @@ async function handler(request: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[VideoAnalysisWorker] Failed: ${msg}`);
 
-    // Mark project as failed — but only if TRIBE/Director hasn't already been dispatched
+    // Mark project as failed Ã¢â‚¬â€ but only if TRIBE/Director hasn't already been dispatched
     // (if dispatched, the downstream worker owns the final status)
     if (trackedProjectId && !directorDispatched) {
       try {
@@ -699,7 +1110,71 @@ async function handler(request: NextRequest) {
   }
 }
 
-// QStash signature verification — skip in dev if signing keys not set
+async function recordVideoAnalysisCostEvent(
+  payload: VideoAnalysisPayload,
+  event: {
+    stage: string;
+    status: ProviderCostEventStatus;
+    provider: string;
+    operation: string;
+    model?: string;
+    includeRevenue?: boolean;
+    estimatedCostUsd?: number;
+    costBasis?: ProviderCostBasis;
+    units?: ProviderCostUnits;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await recordProviderCostEvent({
+    idempotencyKey: `editron:video-analysis:${payload.projectId}:${event.stage}:${event.status}`,
+    status: event.status,
+    userId: payload.userId,
+    orgId: payload.orgId,
+    projectId: payload.projectId,
+    assetId: payload.assetId,
+    creditTransactionId: payload.creditTransactionId,
+    service: 'editron',
+    action: 'auto_edit_analysis',
+    route: '/api/internal/workers/video-analysis',
+    provider: event.provider,
+    model: event.model,
+    operation: event.operation,
+    chargedCredits: event.includeRevenue ? payload.chargedCredits : undefined,
+    estimatedCostUsd: event.estimatedCostUsd,
+    costBasis: event.costBasis,
+    units: event.units,
+    metadata: {
+      stage: event.stage,
+      durationSec: payload.durationSec,
+      ...event.metadata,
+    },
+  });
+}
+
+function sumSegmentSeconds(segments: Array<{ startMs: number; endMs: number }> = []): number | undefined {
+  const seconds = segments.reduce((sum, segment) => {
+    const durationMs = Math.max(0, (segment.endMs ?? 0) - (segment.startMs ?? 0));
+    return sum + durationMs / 1000;
+  }, 0);
+  return seconds > 0 ? seconds : undefined;
+}
+
+function msToSeconds(ms: unknown): number | undefined {
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms / 1000 : undefined;
+}
+
+function isSaasReferenceGlmEnabled(): boolean {
+  const flag = process.env.EDITRON_SAAS_REFERENCE_GLM_ENABLED?.toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
+function shouldRunLegacyReferenceExtraction(referenceVideoAnalysis: any): boolean {
+  if (!isSaasReferenceGlmEnabled()) return true;
+  if (referenceVideoAnalysis?.status === 'rejected') return false;
+  if (referenceVideoAnalysis?.status === 'failed') return false;
+  return process.env.EDITRON_REFERENCE_LEGACY_FALLBACK_ENABLED?.toLowerCase() !== 'false';
+}
+// QStash signature verification Ã¢â‚¬â€ skip in dev if signing keys not set
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;

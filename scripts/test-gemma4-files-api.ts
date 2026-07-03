@@ -14,6 +14,8 @@
  *   npx tsx scripts/test-gemma4-files-api.ts
  */
 
+export {};
+
 async function main() {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {

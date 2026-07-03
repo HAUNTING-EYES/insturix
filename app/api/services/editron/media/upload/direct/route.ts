@@ -17,7 +17,7 @@ export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
@@ -37,6 +37,23 @@ export async function POST(request: NextRequest) {
     // 100MB limit for server-side proxy (larger files need chunked upload)
     if (file.size > 100 * 1024 * 1024) {
       return NextResponse.json({ success: false, error: 'File too large for direct upload. Max 100MB.' }, { status: 413 });
+    }
+
+    // Per-plan storage (owner = org if present, else user). Over cap → LRU-evict
+    // non-protected assets (or allow paid overage); block only when all else is in use.
+    const { recordStorageUsage, resolveStorageOwner, formatStorageBytes } =
+      await import('@/lib/services/storage-quota-service');
+    const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
+    const reservation = await reserveStorageForUpload(userId, orgId, file.size);
+    if (!reservation.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Storage full (${formatStorageBytes(reservation.usedBytes)} of ${formatStorageBytes(reservation.limitBytes)} used) — the rest is pinned or in use. Delete/unpin assets, enable extra storage, or upgrade your plan.`,
+          code: 'storage_quota_exceeded',
+        },
+        { status: 413 },
+      );
     }
 
     console.log(`[upload/direct] Uploading ${file.name} (${Math.round(file.size / 1024)}KB, ${file.type})`);
@@ -70,6 +87,9 @@ export async function POST(request: NextRequest) {
       },
       { upsert: true },
     );
+
+    // Count the stored bytes against the owner's quota (fail-soft).
+    await recordStorageUsage(resolveStorageOwner(userId, orgId), file.size);
 
     console.log(`[upload/direct] Done: ${result.assetId} (${mediaType})`);
 

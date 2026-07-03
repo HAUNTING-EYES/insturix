@@ -298,6 +298,7 @@ describe('signal-executor', () => {
     const { executeSignalDrivenEdit } = await import('@/lib/editron/services/signal-executor');
     const { loadGraph } = await import('@/lib/editron/services/graph-query');
     const { buildMomentWeightMap } = await import('@/lib/editron/services/moment-weight-service');
+    const { normalizeMotionGraphicContent } = await import('@/lib/editron/services/mg-content-atoms');
     const graphIndex = loadGraph();
     const weightMap = buildMomentWeightMap(null, null);
 
@@ -344,6 +345,18 @@ describe('signal-executor', () => {
     expect(params.contentStructure.evidence).toEqual(expect.objectContaining({
       hasScalar: true,
       quantityKind: 'rate',
+    }));
+    expect(params.sourceSpan).toEqual(expect.objectContaining({
+      text: '0.02 humans spoken to per day',
+      startMs: 1000,
+      source: 'signal-event',
+    }));
+    expect(params.contextStartMs).toBe(1000);
+    const normalized = normalizeMotionGraphicContent(params);
+    expect(normalized.semanticMgCandidateLedger.candidates.length).toBeGreaterThan(0);
+    expect(normalized.semanticMgCandidateLedger.candidates[0]?.sourceSpan).toEqual(expect.objectContaining({
+      text: '0.02 humans spoken to per day',
+      startMs: 1000,
     }));
     expect(params.graphicType).toBeUndefined();
   });

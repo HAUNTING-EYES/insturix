@@ -131,6 +131,10 @@ export async function POST(
       imageAssetId: uploadResult.assetId,
       imageGcsPath: uploadResult.gcsPath,
       source: 'user-upload', // Mark as user-uploaded (not AI-generated)
+      referenceProvenance: 'uploaded',
+      referenceProvenanceLabel: 'Uploaded',
+      requiresBrandEvidence: Boolean((subject as any).requiresBrandEvidence),
+      brandEvidenceStatus: (subject as any).requiresBrandEvidence ? 'resolved' : 'not-required',
       generationHistory: [
         ...((subject as any).generationHistory || []),
         {
@@ -160,6 +164,10 @@ export async function POST(
       assetId: uploadResult.assetId,
       visualDescription: analyzedDescription || subject.visualDescription,
       source: 'user-upload',
+      referenceProvenance: update.referenceProvenance,
+      referenceProvenanceLabel: update.referenceProvenanceLabel,
+      requiresBrandEvidence: update.requiresBrandEvidence,
+      brandEvidenceStatus: update.brandEvidenceStatus,
     });
   } catch (error: any) {
     console.error('[upload] Error:', error);

@@ -7,7 +7,7 @@ import { useLocalMedia } from "../../contexts/local-media-context";
 import { formatBytes, formatDuration } from "../../utils/format-utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, Trash2, Image, Video, Music, Search, Tag, ImageIcon, Plus } from "lucide-react";
+import { Loader2, Upload, Trash2, Image, Video, Music, Search, Tag, ImageIcon, Plus, Pin } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +33,7 @@ export function LocalMediaGallery({
 }: {
   onSelectMedia?: (mediaFile: any) => void;
 }) {
-  const { localMediaFiles, addMediaFile, removeMediaFile, isLoading } =
+  const { localMediaFiles, addMediaFile, removeMediaFile, togglePinMediaFile, isLoading } =
     useLocalMedia();
   const [activeTab, setActiveTab] = useState("all");
   const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -259,9 +259,30 @@ export function LocalMediaGallery({
           )}
         </div>
 
+        {/* Pin (reference) button — pinned assets are never auto-deleted and feed Brand Vault / gens */}
+        <button
+          className={`absolute top-2 left-2 p-1.5 rounded-full transition-all duration-200 shadow-sm hover:scale-105 ${
+            file.pinned
+              ? "opacity-100 text-white"
+              : "opacity-0 group-hover/item:opacity-100 bg-black/60 text-white hover:bg-black/80"
+          }`}
+          style={file.pinned ? { background: "var(--accent-gold, #D4A652)" } : undefined}
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePinMediaFile(file.assetId || file.id, !file.pinned);
+          }}
+          title={
+            file.pinned
+              ? "Pinned — kept as a reference, never auto-deleted. Click to unpin."
+              : "Pin as reference (never auto-deleted when storage fills)"
+          }
+        >
+          <Pin className={`w-3.5 h-3.5 ${file.pinned ? "fill-current" : ""}`} />
+        </button>
+
         {/* Delete button */}
         <button
-          className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 
+          className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700
             text-white p-1.5 rounded-full opacity-0 group-hover/item:opacity-100 transition-all duration-200 
             shadow-sm hover:shadow-md transform hover:scale-105"
           onClick={(e) => {

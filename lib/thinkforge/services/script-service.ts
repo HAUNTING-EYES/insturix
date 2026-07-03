@@ -5,8 +5,7 @@
 import * as db from './db';
 import type { Script } from './db';
 import { applyCommand } from './command-service';
-import type { BlockTree } from '../schemas/canonical';
-import type { CIRDocument, CIRSection } from '../schemas/cir';
+import type { ScriptPayload } from '../schemas/route-validation';
 
 export interface ScriptOperation {
   sessionId: string;
@@ -14,12 +13,7 @@ export interface ScriptOperation {
   action: 'get' | 'save' | 'update';
   scriptId?: string;
   baseVersion?: number;
-  script?: {
-    title?: string;
-    content?: string;
-      blocks?: BlockTree | CIRDocument | CIRSection[];
-      richText?: any;
-  };
+  script?: ScriptPayload;
 }
 
 /**

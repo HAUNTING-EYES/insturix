@@ -10,6 +10,7 @@ import {
 import { deriveBrandSignalProfile } from "../../lib/shared/brand-signal-profile";
 import type { BrandSignalProfile } from "../../lib/shared/brand-signal-profile";
 import type { UnifiedBrand } from "../../lib/shared/brand-registry";
+import type { AlyzitronIntentResolution } from "../../app/api/services/alyzitron/types";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -125,20 +126,61 @@ describe("Alyzitron Brand Vault context", () => {
     expect(context.additionalDetails).toContain("BRAND-AWARE ANALYSIS CONTEXT:");
   });
 
-  it("keeps the processor and Gemini prompt wired to brand context", () => {
+
+  it("adds content intent as an idempotent analysis lens", () => {
+    const intentResolution: AlyzitronIntentResolution = {
+      contentIntent: "competitor_content",
+      source: "system_inferred",
+      confidence: 0.75,
+      rationale: ["User context mentions competitor language."],
+      userConfirmed: false,
+    };
+    const brandResolution = {
+      brandId: "brand_alyzi",
+      brand: brand({ name: "Vault Brand" }),
+      profile: null,
+      source: "brand_vault" as const,
+      brandContextBlock: "Brand: Vault Brand\nVoice: Direct.",
+    };
+
+    const context = buildAlyzitronAnalysisContext(
+      { platform: "YouTube", additionalDetails: "Compare this to a rival." },
+      brandResolution,
+      intentResolution,
+    );
+    const rebuilt = buildAlyzitronAnalysisContext(context, brandResolution, intentResolution);
+
+    expect(context.contentIntent).toBe("competitor_content");
+    expect(context.intentSource).toBe("system_inferred");
+    expect(context.intentResolution).toEqual(intentResolution);
+    expect(String(context.additionalDetails).match(/BRAND-AWARE ANALYSIS CONTEXT:/g)).toHaveLength(1);
+    expect(String(context.additionalDetails).match(/ALYZITRON CONTENT INTENT:/g)).toHaveLength(1);
+    expect(context.additionalDetails).toContain("what the user can adapt without copying");
+    expect(rebuilt.additionalDetails).toBe(context.additionalDetails);
+  });
+
+  it("keeps the processor and Gemini prompt wired to brand and intent context", () => {
     const processorRoute = readRepoFile("app/api/services/alyzitron/processor/route.ts");
     const analyzeRoute = readRepoFile("app/api/services/alyzitron/analyze/route.ts");
     const vertexService = readRepoFile("lib/services/vertexAiService.ts");
 
     expect(analyzeRoute).toContain("resolveAlyzitronTaskBrandId");
+    expect(analyzeRoute).toContain("resolveAlyzitronContentIntent");
+    expect(analyzeRoute).toContain("contentIntent: intentResolution.contentIntent");
     expect(analyzeRoute).toContain("context: analysisContext");
     expect(processorRoute).toContain("resolveAlyzitronBrandContext");
-    expect(processorRoute).toContain("buildAlyzitronAnalysisContext(task.context || {}, brandContext)");
+    expect(processorRoute).toContain("resolveAlyzitronContentIntent");
+    expect(processorRoute).toContain("buildAlyzitronAnalysisContext(task.context || {}, brandContext, intentResolution)");
+    expect(processorRoute).toContain("...intentMetadata");
+    expect(processorRoute).toContain("...intentCompletionFields");
     expect(processorRoute).not.toContain("buildAlyzitronAnalysisContext(analysisContext");
     expect(processorRoute).not.toContain("...(analysisMetadata)");
     expect(processorRoute).toContain("analyzeVideoWithGemini(task.videoUrl, analysisContext, analysisMetadata)");
     expect(vertexService).toContain("BRAND ALIGNMENT:");
     expect(vertexService).toContain("Separate observed media facts from brand-fit judgments");
+    expect(vertexService).toContain("CONTENT INTENT LENS:");
+    expect(vertexService).toContain("applicable_takeaways");
+    expect(vertexService).toContain("brand_fit_summary");
     expect(vertexService).toContain("BRAND CONTEXT:");
   });
 });

@@ -24,7 +24,6 @@ import {
 import { buildClickatronSessionFormData } from "@/lib/thinkforge/clickatron-session-payload";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
-import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -41,6 +40,33 @@ export interface DetectedProfileInfo {
   reasoning: string[];
   name: string;
   description: string;
+}
+
+export interface EditronProductionManifest {
+  version?: number;
+  sourceService?: string;
+  sourceSessionId?: string;
+  sourceScriptId?: string;
+  targetDurationSeconds?: number | null;
+  targetDurationSource?: string;
+  parsedDurationSeconds?: number;
+  expectedSceneCount?: number;
+  expectedStoryboardImages?: number;
+  expectedVideoClips?: number;
+  coveragePolicy?: "production-require-all-scenes" | "draft-partial-allowed" | string;
+  warnings?: string[];
+}
+
+export interface EditronImportPreflightResult {
+  dryRun: true;
+  projectId: string | null;
+  overlayCount: number;
+  totalDurationFrames: number;
+  totalDurationSeconds: number;
+  creditsDeducted: number;
+  reusedProject: boolean;
+  wouldReuseProject: boolean;
+  writeOperationsSkipped: boolean;
 }
 
 // ─── Hook return type ────────────────────────────────────────────
@@ -96,6 +122,7 @@ export interface UseExportPipelineReturn {
   audioGenerating: boolean;
   storyboardId: string;
   storyboardScenes: any[];
+  scriptImportPreflight: EditronImportPreflightResult | null;
   videoProgress: { done: number; total: number };
   videosGenerated: boolean;
   clickatronCreating: boolean;
@@ -108,6 +135,10 @@ export interface UseExportPipelineReturn {
   subjects: SubjectRef[];
   approvedSubjectIds: Set<string>;
   setApprovedSubjectIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  missingBrandEvidenceSubjects: SubjectRef[];
+  generatedBrandOwnedSubjects: SubjectRef[];
+  referenceContinueBlocked: boolean;
+  referenceContinueMessage: string;
   regeneratingSubjectIds: Set<string>;
   feedbackSubjectId: string | null;
   setFeedbackSubjectId: (v: string | null) => void;
@@ -159,7 +190,7 @@ export interface UseExportPipelineReturn {
   handleExport: () => Promise<void>;
   handlePostProfileSelection: () => Promise<void>;
   handlePhase2: (parsedScenes?: any[], projectTitle?: string) => Promise<void>;
-  handlePhase3: () => Promise<void>;
+  handlePhase3: (parsedScenes?: any[], projectTitle?: string) => Promise<void>;
   handleRegenerateSubject: (subjectId: string, feedback?: string) => Promise<void>;
   handleUploadSubjectImage: (subjectId: string, file: File) => Promise<void>;
   handleUploadSceneImage: (sceneIndex: number, file: File) => Promise<void>;
@@ -224,6 +255,8 @@ export function useExportPipeline(
   const [audioGenerating, setAudioGenerating] = useState(false);
   const [storyboardId, setStoryboardId] = useState("");
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
+  const [productionManifest, setProductionManifest] = useState<EditronProductionManifest | null>(null);
+  const [scriptImportPreflight, setScriptImportPreflight] = useState<EditronImportPreflightResult | null>(null);
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
   const [clickatronCreating, setClickatronCreating] = useState(false);
@@ -235,6 +268,26 @@ export function useExportPipeline(
     textDensity: "medium",
   });
   const createClickatronSession = useClickatronStore((state) => state.createSession);
+  const sourceSessionId = sessionId || undefined;
+  const sourceBrandId = useMemo(() => {
+    const brandId = typeof projectMeta?.brandId === "string" ? projectMeta.brandId.trim() : "";
+    return brandId || undefined;
+  }, [projectMeta?.brandId]);
+  const requiresProductionCoverage = productionManifest?.coveragePolicy !== "draft-partial-allowed";
+  const getExpectedStoryboardImages = useCallback((currentScenes: any[]) => {
+    const expected = productionManifest?.expectedStoryboardImages;
+    return typeof expected === "number" && expected > 0 ? expected : currentScenes.length;
+  }, [productionManifest]);
+  const getExpectedVideoClips = useCallback((fallbackTotal: number) => {
+    const expected = productionManifest?.expectedVideoClips;
+    return typeof expected === "number" && expected > 0 ? expected : fallbackTotal;
+  }, [productionManifest]);
+  const buildProductionCoverageError = useCallback((kind: "storyboard" | "video", completed: number, expected: number) => {
+    if (kind === "storyboard") {
+      return `Storyboard coverage incomplete: ${completed}/${expected} required scene images are ready. Regenerate or upload missing scene images before generating production videos.`;
+    }
+    return `Video coverage incomplete: ${completed}/${expected} required clips are ready. Retry failed video clips before finalizing a production export.`;
+  }, []);
 
   // ── Reference image state ──────────────────────────────────────
   const [refSetId, setRefSetId] = useState("");
@@ -246,6 +299,34 @@ export function useExportPipeline(
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState("");
   const [overallMusicPrompt, setOverallMusicPrompt] = useState("");
+  const missingBrandEvidenceSubjects = useMemo(
+    () => subjects.filter((s) => Boolean(s.requiresBrandEvidence && !s.imageUrl)),
+    [subjects],
+  );
+  const generatedBrandOwnedSubjects = useMemo(
+    () =>
+      subjects.filter((s) => {
+        if (!sourceBrandId) return false;
+        if (s.requiresBrandEvidence && s.referenceProvenance === "generated") return true;
+        if (s.requiresBrandEvidence) return false;
+        const provenance = s.referenceProvenance;
+        if (provenance && provenance !== "generated") return false;
+        return s.category?.toLowerCase() === "product";
+      }),
+    [sourceBrandId, subjects],
+  );
+  const referenceContinueBlocked = missingBrandEvidenceSubjects.length > 0 || generatedBrandOwnedSubjects.length > 0;
+  const referenceContinueMessage = useMemo(() => {
+    if (missingBrandEvidenceSubjects.length > 0) {
+      const names = missingBrandEvidenceSubjects.map((s) => s.name).join(", ");
+      return `Brand evidence required before storyboard generation: ${names}. Upload evidence or connect Brand Vault evidence for these owned subjects.`;
+    }
+    if (generatedBrandOwnedSubjects.length > 0) {
+      const names = generatedBrandOwnedSubjects.map((s) => s.name).join(", ");
+      return `Brand-owned references cannot use generated/fake or legacy-unverified imagery: ${names}. Upload evidence or use Brand Vault/website evidence.`;
+    }
+    return "";
+  }, [generatedBrandOwnedSubjects, missingBrandEvidenceSubjects]);
 
   // ── Suggested subjects ─────────────────────────────────────────
   const [suggestedSubjects, setSuggestedSubjects] = useState<SuggestedSubject[]>([]);
@@ -279,6 +360,32 @@ export function useExportPipeline(
     }
   };
 
+  const buildSubjectRefFromResponse = (subject: any, priority?: SubjectRef["priority"]): SubjectRef => ({
+    subjectId: subject.subjectId,
+    name: subject.name,
+    category: subject.category,
+    imageUrl: subject.imageUrl || undefined,
+    status: subject.status || (subject.imageUrl ? "generated" : "pending"),
+    scenesAppearingIn: subject.scenesAppearingIn || [],
+    visualDescription: subject.visualDescription,
+    priority,
+    referenceProvenance: subject.referenceProvenance,
+    referenceProvenanceLabel: subject.referenceProvenanceLabel,
+    requiresBrandEvidence: subject.requiresBrandEvidence,
+    brandEvidenceStatus: subject.brandEvidenceStatus,
+    evidenceRequiredReason: subject.evidenceRequiredReason,
+  });
+
+  const shouldAutoApproveReferenceSubject = (subject: SubjectRef): boolean =>
+    Boolean(subject.imageUrl && subject.referenceProvenance !== "missing-brand-evidence" && subject.brandEvidenceStatus !== "missing");
+
+  const applyBrandReferenceWarnings = (warnings: unknown): void => {
+    if (!Array.isArray(warnings) || warnings.length === 0) return;
+    const message = warnings.filter((warning): warning is string => typeof warning === "string" && warning.trim().length > 0).join(" ");
+    if (!message) return;
+    setError(message);
+    sendNotification("Brand Evidence Required", message);
+  };
   const setClickatronVisualChoice = useCallback((key: keyof ThinkToClickUserVisualChoices, value: string) => {
     setClickatronVisualChoices((prev) => ({
       ...prev,
@@ -376,6 +483,8 @@ export function useExportPipeline(
     setProjectId("");
     setStoryboardId("");
     setStoryboardScenes([]);
+    setProductionManifest(null);
+    setScriptImportPreflight(null);
     setVideoProgress({ done: 0, total: 0 });
     setVideosGenerated(false);
     setClickatronCreating(false);
@@ -480,14 +589,14 @@ export function useExportPipeline(
   // Phase 1: Parse scenes -> Extract subjects -> Gen references
   // ═══════════════════════════════════════════════════════════════
 
-  const runSubjectExtractionAndReferences = async () => {
-    if (generateStoryboard && scenes.length > 0) {
+  const runSubjectExtractionAndReferences = async (parsedScenes: any[] = scenes, projectTitle: string = title) => {
+    if (generateStoryboard && parsedScenes.length > 0) {
       setStep("extracting-subjects");
 
       const extractRes = await fetch("/api/services/pipeline/reference-images/extract-subjects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenes, artStyle }),
+        body: JSON.stringify({ scenes: parsedScenes, artStyle }),
       });
 
       if (extractRes.ok) {
@@ -519,6 +628,7 @@ export function useExportPipeline(
               subjects: subjectsToGenerate,
               artStyle,
               sourceScriptId: scriptId,
+              brandId: sourceBrandId || undefined,
               modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
             }),
           });
@@ -527,7 +637,21 @@ export function useExportPipeline(
             const genData = await genRes.json().catch(() => ({}));
             const sbRefSetId = genData.refSetId || "";
             setRefSetId(sbRefSetId);
-            setSubjects((genData.subjects || []).map((s: any) => ({ ...s, priority: "hero" })));
+            let latestSubjects: SubjectRef[] = (genData.subjects || []).map((s: any) => ({ ...s, priority: "hero" }));
+            const mergeReferenceSubjects = (base: SubjectRef[], updates: any[]): SubjectRef[] => {
+              const nextById = new Map(base.map((subject) => [subject.subjectId, subject]));
+              for (const update of updates || []) {
+                if (!update?.subjectId) continue;
+                const previous = nextById.get(update.subjectId);
+                nextById.set(update.subjectId, {
+                  ...(previous || {}),
+                  ...update,
+                  priority: previous?.priority || "hero",
+                } as SubjectRef);
+              }
+              return Array.from(nextById.values());
+            };
+            setSubjects(latestSubjects);
 
             // Async polling for reference image generation
             if (genData.async && genData.batchId && sbRefSetId) {
@@ -535,7 +659,7 @@ export function useExportPipeline(
               const MAX_POLL_ATTEMPTS = 60;
               const POLL_INTERVAL_MS = 5000;
               let refsCompleted = false;
-              let finalSubjects: any[] = [];
+              let finalSubjects: SubjectRef[] = latestSubjects;
 
               for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
                 await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -548,14 +672,10 @@ export function useExportPipeline(
                     console.log(
                       `[ExportToEditron] Ref poll #${poll + 1}: ${statusData.completed}/${statusData.totalSubjects} done, failed=${statusData.failed}, status=${statusData.status}`,
                     );
-                    setSubjects(
-                      (statusData.subjects || []).map((s: any) => ({
-                        ...s,
-                        priority: "hero",
-                      })),
-                    );
+                    latestSubjects = mergeReferenceSubjects(latestSubjects, statusData.subjects || []);
+                    setSubjects(latestSubjects);
                     if (statusData.isComplete) {
-                      finalSubjects = statusData.subjects || [];
+                      finalSubjects = latestSubjects;
                       refsCompleted = true;
                       break;
                     }
@@ -585,7 +705,7 @@ export function useExportPipeline(
             } else {
               // Legacy synchronous response
               const allIds = new Set<string>(
-                (genData.subjects || []).map((s: SubjectRef) => s.subjectId),
+                (genData.subjects || []).filter((s: SubjectRef) => s.imageUrl).map((s: SubjectRef) => s.subjectId),
               );
               setApprovedSubjectIds(allIds);
               const generatedIds = new Set(subjectsToGenerate.map((s: any) => s.id));
@@ -614,19 +734,20 @@ export function useExportPipeline(
     }
 
     // If no storyboard or reference image extraction failed, go straight to phase 2
-    await handlePhase2(scenes, title);
+    await handlePhase2(parsedScenes, projectTitle);
   };
 
   const handleExport = async () => {
     setStep("exporting");
     setError("");
+    setScriptImportPreflight(null);
 
     try {
       // Step 1: Parse script into scenes
       const exportRes = await fetch("/api/services/thinkforge/script/export-for-editron", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle }),
+        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle, brandId: sourceBrandId }),
       });
 
       if (!exportRes.ok) {
@@ -637,6 +758,7 @@ export function useExportPipeline(
       const exportData = await exportRes.json().catch(() => null);
       if (!exportData) throw new Error("Invalid response from export service");
       setScenes(exportData.scenes);
+      setProductionManifest(exportData.productionManifest || null);
       setOverallMusicPrompt(exportData.overallMusicPrompt || "");
       setColorPalette(exportData.colorPalette || []);
       setCharacterDescriptions(exportData.characterDescriptions || undefined);
@@ -672,7 +794,7 @@ export function useExportPipeline(
         return;
       }
 
-      await runSubjectExtractionAndReferences();
+      await runSubjectExtractionAndReferences(exportData.scenes || [], projectTitle);
     } catch (err: any) {
       setError(err.message || "Something went wrong");
       setStep("configure");
@@ -770,6 +892,14 @@ export function useExportPipeline(
       return;
     }
 
+    if (generateStoryboard && referenceContinueBlocked) {
+      const message = referenceContinueMessage || "Brand evidence required before storyboard generation.";
+      setError(message);
+      sendNotification("Brand Evidence Required", message);
+      setStep("reviewing-references");
+      return;
+    }
+
     try {
       const approved = subjects
         .filter((s) => approvedSubjectIds.has(s.subjectId) && s.imageUrl)
@@ -799,7 +929,9 @@ export function useExportPipeline(
           body: JSON.stringify({
             scenes: currentScenes,
             title: currentTitle,
+            sourceSessionId,
             sourceScriptId: scriptId,
+            brandId: sourceBrandId || undefined,
             aspectRatio,
             modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
             overallMusicPrompt,
@@ -813,6 +945,7 @@ export function useExportPipeline(
             approvedReferences: approved.length > 0 ? approved : undefined,
             globalEditDirections: globalEditDirections || undefined,
             suggestedProfileCategory: suggestedProfileCategory || undefined,
+            productionManifest: productionManifest || undefined,
           }),
         });
 
@@ -858,12 +991,27 @@ export function useExportPipeline(
 
             if (!sbCompleted) {
               console.warn("[ExportToEditron] Storyboard generation polling timed out after 9 minutes");
-              setError("Storyboard generation timed out. Continuing with what was generated.");
+              const message = "Storyboard generation timed out before production coverage was complete. Review or retry storyboard generation before continuing.";
+              setError(message);
+              if (requiresProductionCoverage && generateVideos) {
+                sendNotification("Storyboard Incomplete", message);
+                setStep("reviewing-storyboard");
+                return;
+              }
             }
           }
 
           const generatedCount = sbScenes.filter((s: any) => s.imageUrl).length;
+          const expectedStoryboardImages = getExpectedStoryboardImages(currentScenes);
           sendNotification("Storyboard Ready", `${generatedCount}/${sbScenes.length} scene images generated. Review them now.`);
+
+          if (requiresProductionCoverage && generateVideos && generatedCount < expectedStoryboardImages) {
+            const message = buildProductionCoverageError("storyboard", generatedCount, expectedStoryboardImages);
+            setError(message);
+            sendNotification("Storyboard Incomplete", message);
+            setStep("reviewing-storyboard");
+            return;
+          }
 
           if (generatedCount > 0) {
             setStep("reviewing-storyboard");
@@ -871,13 +1019,14 @@ export function useExportPipeline(
           }
         } else {
           const errData = await sbRes.json().catch(() => ({}));
-          const errorMsg = errData.error || "Storyboard generation failed";
+          const errorMsg = errData.error || `Storyboard generation failed (${sbRes.status})`;
           console.error("[ExportToEditron] Storyboard generation failed:", errorMsg);
           setError(errorMsg);
+          throw new Error(errorMsg);
         }
       }
 
-      await handlePhase3();
+      await handlePhase3(currentScenes, currentTitle);
     } catch (err: any) {
       setError(err.message || "Something went wrong");
       setStep("configure");
@@ -889,8 +1038,10 @@ export function useExportPipeline(
   // Phase 3: Videos -> Voiceover -> Finalize -> Director
   // ═══════════════════════════════════════════════════════════════
 
-  const handlePhase3 = async () => {
+  const handlePhase3 = async (parsedScenes?: any[], projectTitle?: string) => {
     setError("");
+    const currentScenes = parsedScenes ?? scenes;
+    const currentTitle = projectTitle || title || "Untitled Script";
     const sbId = storyboardId;
     const sbImages = storyboardScenes.filter((s: any) => s.imageUrl);
     let createdProjectId = "";
@@ -898,16 +1049,26 @@ export function useExportPipeline(
     let videoGenFailed = false;
 
     // Phase A3.3 — Detect zero-narration scripts
-    const scriptHasNarration = (scenes || []).some(
+    const scriptHasNarration = (currentScenes || []).some(
       (s: any) => typeof s.narration === "string" && s.narration.trim().length > 0,
     );
-    if (!scriptHasNarration && (scenes || []).length > 0) {
+    if (!scriptHasNarration && (currentScenes || []).length > 0) {
       console.log(
-        `[ExportToEditron] handlePhase3: zero narration detected across ${scenes.length} scenes — voiceover step will be skipped, caption fallback will run in finalize`,
+        `[ExportToEditron] handlePhase3: zero narration detected across ${currentScenes.length} scenes — voiceover step will be skipped, caption fallback will run in finalize`,
       );
     }
 
     try {
+      if (requiresProductionCoverage && generateVideos && sbId) {
+        const expectedStoryboardImages = getExpectedStoryboardImages(currentScenes);
+        if (sbImages.length < expectedStoryboardImages) {
+          const message = buildProductionCoverageError("storyboard", sbImages.length, expectedStoryboardImages);
+          setError(message);
+          setStep("reviewing-storyboard");
+          return;
+        }
+      }
+
       // Step 5: Generate AI video clips (optional)
       if (generateVideos && sbId && sbImages.length > 0) {
         setStep("generating-videos");
@@ -924,6 +1085,7 @@ export function useExportPipeline(
               aspectRatio,
               sceneIndices: allSceneIndices,
               videoModel,
+              brandId: sourceBrandId || undefined,
               enableChaining,
             }),
           });
@@ -965,10 +1127,14 @@ export function useExportPipeline(
             console.log(
               `[ExportToEditron] Videos generated directly (fallback): ${completed} done, ${failed} failed`,
             );
+            const expectedVideos = getExpectedVideoClips(enqueueData.totalScenes || allSceneIndices.length);
             setVideoProgress({ done: completed + failed, total: enqueueData.totalScenes || allSceneIndices.length });
-            setVideosGenerated(completed > 0);
-            if (failed > 0 && completed > 0) {
-              setError(`${failed} of ${enqueueData.totalScenes} video clips failed. Continuing with available clips.`);
+            setVideosGenerated(completed >= expectedVideos);
+            if (requiresProductionCoverage && (failed > 0 || completed < expectedVideos)) {
+              setError(buildProductionCoverageError("video", completed, expectedVideos));
+              videoGenFailed = true;
+            } else if (failed > 0 && completed > 0) {
+              setError(`${failed} of ${enqueueData.totalScenes} video clips failed.`);
             } else if (completed === 0) {
               const sceneErrors =
                 enqueueData.scenes
@@ -1005,10 +1171,14 @@ export function useExportPipeline(
                   );
 
                   if (statusData.isComplete) {
-                    setVideosGenerated(completed > 0);
+                    const expectedVideos = getExpectedVideoClips(statusData.totalScenes || sbImages.length);
+                    setVideosGenerated(completed >= expectedVideos);
                     sendNotification("Video Clips Generated", `${completed} of ${statusData.totalScenes} video clips ready.`);
 
-                    if (completed === 0 && failed > 0) {
+                    if (requiresProductionCoverage && (failed > 0 || completed < expectedVideos)) {
+                      setError(buildProductionCoverageError("video", completed, expectedVideos));
+                      videoGenFailed = true;
+                    } else if (completed === 0 && failed > 0) {
                       const sceneErrors =
                         statusData.scenes
                           ?.filter((s: any) => s.error)
@@ -1018,7 +1188,7 @@ export function useExportPipeline(
                         `Video generation failed for all ${failed} scenes. ${sceneErrors.substring(0, 200) || "The AI video model may be temporarily unavailable."}`,
                       );
                     } else if (failed > 0) {
-                      setError(`${failed} of ${statusData.totalScenes} video clips failed. Continuing with available clips.`);
+                      setError(`${failed} of ${statusData.totalScenes} video clips failed.`);
                     }
                     videosCompleted = true;
                     break;
@@ -1072,7 +1242,7 @@ export function useExportPipeline(
 
       // Step 7: Create Editron project
       if (videoGenFailed && generateVideos) {
-        setStep("done" as any);
+        setStep(sbId ? "reviewing-storyboard" : "configure");
         return;
       }
 
@@ -1086,7 +1256,8 @@ export function useExportPipeline(
             aspectRatio,
             includeVoiceover: scriptHasNarration,
             includeCaptions: true,
-            brandId: getActiveBrandIdFromStorage(),
+            brandId: sourceBrandId,
+            requireVideoCoverage: generateVideos,
           }),
         });
 
@@ -1104,16 +1275,57 @@ export function useExportPipeline(
           setError(finalizeData.warnings.join(" | "));
         }
       } else {
-        // No storyboard — import scenes directly
+        // No storyboard — preflight before spending credits or writing project state.
+        if (!sourceSessionId) {
+          throw new Error("Cannot preflight Editron import: ThinkForge session id is missing.");
+        }
+
+        const preflightRes = await fetch("/api/services/editron/projects/import-from-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scenes: currentScenes,
+            title: currentTitle,
+            sourceSessionId,
+            aspectRatio,
+            sourceScriptId: scriptId,
+            brandId: sourceBrandId,
+            importMode: "draft-script-import",
+            dryRun: true,
+          }),
+        });
+
+        if (!preflightRes.ok) {
+          const data = await preflightRes.json().catch(() => ({}));
+          throw new Error(data.error || `Failed to preflight Editron import (${preflightRes.status})`);
+        }
+
+        const preflightData = await preflightRes.json().catch(() => null);
+        if (!preflightData?.success || preflightData.dryRun !== true) {
+          throw new Error("Editron import preflight returned an invalid response.");
+        }
+        if (preflightData.creditsDeducted !== 0 || preflightData.writeOperationsSkipped !== true) {
+          throw new Error("Editron import preflight did not prove zero-credit, no-write behavior.");
+        }
+        if (!Number.isFinite(preflightData.overlayCount) || preflightData.overlayCount <= 0) {
+          throw new Error("Editron import preflight produced no timeline overlays.");
+        }
+        if (!Number.isFinite(preflightData.totalDurationSeconds) || preflightData.totalDurationSeconds <= 0) {
+          throw new Error("Editron import preflight produced an invalid duration.");
+        }
+        setScriptImportPreflight(preflightData as EditronImportPreflightResult);
+
         const importRes = await fetch("/api/services/editron/projects/import-from-script", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            scenes,
-            title: title || "Untitled Script",
+            scenes: currentScenes,
+            title: currentTitle,
+            sourceSessionId,
             aspectRatio,
             sourceScriptId: scriptId,
-            brandId: getActiveBrandIdFromStorage(),
+            brandId: sourceBrandId,
+            importMode: "draft-script-import",
           }),
         });
 
@@ -1186,6 +1398,14 @@ export function useExportPipeline(
 
   const handleRegenerateSubject = async (subjectId: string, feedback?: string) => {
     if (!refSetId || regeneratingSubjectIds.has(subjectId)) return;
+    const subject = subjects.find((s) => s.subjectId === subjectId);
+    if (subject?.requiresBrandEvidence) {
+      const message = "Brand-owned references require uploaded or Brand Vault evidence, not AI regeneration.";
+      setError(message);
+      sendNotification("Brand Evidence Required", message);
+      return;
+    }
+
     setRegeneratingSubjectIds((prev) => new Set(prev).add(subjectId));
     setFeedbackSubjectId(null);
     setFeedbackText("");
@@ -1288,7 +1508,18 @@ export function useExportPipeline(
         setSubjects((prev) =>
           prev.map((s) =>
             s.subjectId === subjectId
-              ? { ...s, imageUrl: data.imageUrl, visualDescription: data.visualDescription || s.visualDescription, status: "generated" }
+              ? {
+                  ...s,
+                  imageUrl: data.imageUrl,
+                  visualDescription: data.visualDescription || s.visualDescription,
+                  status: "generated",
+                  referenceProvenance: data.referenceProvenance || "uploaded",
+                  referenceProvenanceLabel: data.referenceProvenanceLabel || "Uploaded",
+                  requiresBrandEvidence:
+                    typeof data.requiresBrandEvidence === "boolean" ? data.requiresBrandEvidence : s.requiresBrandEvidence,
+                  brandEvidenceStatus: data.brandEvidenceStatus || (s.requiresBrandEvidence ? "resolved" : s.brandEvidenceStatus),
+                  evidenceRequiredReason: data.brandEvidenceStatus === "resolved" ? undefined : s.evidenceRequiredReason,
+                }
               : s,
           ),
         );
@@ -1402,6 +1633,7 @@ export function useExportPipeline(
           scenesAppearingIn: suggested.scenesAppearingIn,
           artStyle,
           modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
+          brandId: sourceBrandId || undefined,
         }),
       });
 
@@ -1413,16 +1645,7 @@ export function useExportPipeline(
       const data = await res.json().catch(() => ({}));
       if (!data.subject) throw new Error("Invalid response");
 
-      const newSubject: SubjectRef = {
-        subjectId: data.subject.subjectId,
-        name: data.subject.name,
-        category: data.subject.category,
-        imageUrl: data.subject.imageUrl || undefined,
-        status: data.subject.imageUrl ? "generated" : "pending",
-        scenesAppearingIn: data.subject.scenesAppearingIn,
-        visualDescription: data.subject.visualDescription,
-        priority: "suggested",
-      };
+      const newSubject = buildSubjectRefFromResponse(data.subject, "suggested");
       setSubjects((prev) => [...prev, newSubject]);
       setSuggestedSubjects((prev) => prev.filter((s) => s.id !== suggested.id));
 
@@ -1458,12 +1681,17 @@ export function useExportPipeline(
         }
       }
 
-      setApprovedSubjectIds((prev) => {
-        const next = new Set(prev);
-        next.add(newSubject.subjectId);
-        return next;
-      });
-      sendNotification("Reference Added", `"${suggested.name}" reference image generated.`);
+      if (data.async || shouldAutoApproveReferenceSubject(newSubject)) {
+        setApprovedSubjectIds((prev) => {
+          const next = new Set(prev);
+          next.add(newSubject.subjectId);
+          return next;
+        });
+      }
+      applyBrandReferenceWarnings(data.brandReferenceWarnings);
+      if (newSubject.brandEvidenceStatus !== "missing") {
+        sendNotification("Reference Added", `"${suggested.name}" reference ${newSubject.imageUrl ? "ready" : "queued"}.`);
+      }
     } catch (err: any) {
       setError(`Generate "${suggested.name}" failed: ${err.message}`);
     } finally {
@@ -1497,6 +1725,7 @@ export function useExportPipeline(
           scenesAppearingIn: sceneNums.length > 0 ? sceneNums : scenes.map((_: any, i: number) => i),
           artStyle,
           modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
+          brandId: sourceBrandId || undefined,
         }),
       });
 
@@ -1508,15 +1737,7 @@ export function useExportPipeline(
       const data = await res.json().catch(() => ({}));
       if (!data.subject) throw new Error("Invalid response from add-subject");
 
-      const newSubject: SubjectRef = {
-        subjectId: data.subject.subjectId,
-        name: data.subject.name,
-        category: data.subject.category,
-        imageUrl: data.subject.imageUrl || undefined,
-        status: data.subject.imageUrl ? "generated" : "pending",
-        scenesAppearingIn: data.subject.scenesAppearingIn,
-        visualDescription: data.subject.visualDescription,
-      };
+      const newSubject = buildSubjectRefFromResponse(data.subject);
       setSubjects((prev) => [...prev, newSubject]);
 
       // Async polling
@@ -1551,11 +1772,14 @@ export function useExportPipeline(
         }
       }
 
-      setApprovedSubjectIds((prev) => {
-        const next = new Set(prev);
-        next.add(newSubject.subjectId);
-        return next;
-      });
+      if (data.async || shouldAutoApproveReferenceSubject(newSubject)) {
+        setApprovedSubjectIds((prev) => {
+          const next = new Set(prev);
+          next.add(newSubject.subjectId);
+          return next;
+        });
+      }
+      applyBrandReferenceWarnings(data.brandReferenceWarnings);
 
       // Reset form
       setNewSubjectName("");
@@ -1726,6 +1950,7 @@ export function useExportPipeline(
     audioGenerating,
     storyboardId,
     storyboardScenes,
+    scriptImportPreflight,
     videoProgress,
     videosGenerated,
     clickatronCreating,
@@ -1738,6 +1963,10 @@ export function useExportPipeline(
     subjects,
     approvedSubjectIds,
     setApprovedSubjectIds,
+    missingBrandEvidenceSubjects,
+    generatedBrandOwnedSubjects,
+    referenceContinueBlocked,
+    referenceContinueMessage,
     regeneratingSubjectIds,
     feedbackSubjectId,
     setFeedbackSubjectId,

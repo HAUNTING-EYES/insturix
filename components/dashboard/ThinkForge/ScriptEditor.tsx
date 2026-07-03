@@ -393,12 +393,6 @@ export default function ScriptEditor({
       }
       // Reset streaming state to prevent further token processing
       streamingTiptap.reset();
-      
-      // Force autosave after generation finishes
-      setHasUnsavedChanges(true);
-      if (handleContentChangeRef.current) {
-        handleContentChangeRef.current();
-      }
     }
   }, [generatingScript, streamingTiptap]);
 
@@ -610,7 +604,7 @@ export default function ScriptEditor({
         duration: script?.duration,
         targetAudience: script?.targetAudience,
         tone: script?.tone,
-        metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
+        metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap' as any }
       } as any);
     } catch (error) {
       console.error('ScriptEditor: Failed to sync hydrated script', error);
@@ -696,10 +690,12 @@ export default function ScriptEditor({
 
           if (forceHydration || (!hasUnsavedChanges && !userRecentlyTyped)) {
             let tiptapContent: TiptapJSON | string;
-            if (script.content) {
-              tiptapContent = await marked.parse(script.content);
-            } else {
+            if (script.richText && isTiptapJSON(script.richText)) {
+              tiptapContent = script.richText;
+            } else if (script.blocks) {
               tiptapContent = toTiptapJSON(script.blocks);
+            } else {
+              tiptapContent = await marked.parse(script.content || '');
             }
             const hasContent = !!(typeof tiptapContent === 'string' ? tiptapContent.length > 0 : tiptapContent?.content && tiptapContent.content.length > 0);
             if (hasContent || forceHydration) {
@@ -846,12 +842,6 @@ export default function ScriptEditor({
       }
       return;
     }
-
-    const metadataSource = (script?.metadata as any)?.source;
-    if (metadataSource === 'editor') {
-      console.log('[Script] Skipping hydration — source is editor (already synced)');
-      return;
-    }
     // Check if this is a script update from AI
     // CRITICAL: Include ALL workflow types that AI generation can produce
     const isAIGenerated = script?.metadata?.workflow === 'create' ||
@@ -859,6 +849,12 @@ export default function ScriptEditor({
       script?.metadata?.workflow === 'draft' ||
       script?.metadata?.workflow === 'refine' ||  // <-- ADDED: surgical refinements
       script?.metadata?.workflow === 'hybrid';    // <-- ADDED: hybrid edits
+
+    const metadataSource = (script?.metadata as any)?.source;
+    if (metadataSource === 'editor' && !isAIGenerated) {
+      console.log('[Script] Skipping hydration - source is editor (already synced)');
+      return;
+    }
 
     if (!isAIGenerated) {
       console.log('[Script] Skipping hydration — not AI workflow:', script?.metadata?.workflow);
@@ -899,10 +895,12 @@ export default function ScriptEditor({
         }
         console.log('[Script] Hydrating editor with', Array.isArray(script.blocks) ? script.blocks.length : 0, 'blocks');
         let tiptapPromise: Promise<TiptapJSON | string>;
-        if (script.content) {
-          tiptapPromise = Promise.resolve(marked.parse(script.content));
-        } else {
+        if (script.richText && isTiptapJSON(script.richText)) {
+          tiptapPromise = Promise.resolve(script.richText);
+        } else if (script.blocks) {
           tiptapPromise = Promise.resolve(toTiptapJSON(script.blocks));
+        } else {
+          tiptapPromise = Promise.resolve(marked.parse(script.content || ''));
         }
 
         tiptapPromise.then((tiptapContent) => {

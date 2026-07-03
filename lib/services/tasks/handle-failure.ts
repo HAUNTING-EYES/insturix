@@ -63,12 +63,18 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
     try {
       // Clickatron bills every generation under the single 'variation' action
       // (see CREDIT_COSTS.clickatron in lib/config/creditCosts.ts — baseCost 3).
-      // The previous keys 'generate_variation' / 'generate_ad' do not exist in the
-      // config, so getCreditCost returned 0 and failed tasks refunded nothing.
+      // Legacy action keys were removed; only 'variation' exists in the config.
+      // Refund must be model-aware so it matches what the generation originally charged.
+      const metadata = task?.metadata as Record<string, unknown> | undefined;
+      const model = typeof task?.modelId === 'string'
+        ? task.modelId
+        : typeof metadata?.modelId === 'string'
+          ? metadata.modelId
+          : undefined;
       const action = 'variation';
 
-      // Calculate credits to refund (base cost for the action)
-      const creditsToRefund = getCreditCost('clickatron', action, {});
+      // Calculate credits to refund (base cost for the action, model-aware)
+      const creditsToRefund = getCreditCost('clickatron', action, { model });
 
       if (creditsToRefund <= 0) {
         // Fail loud rather than issue a silent no-op refund: a zero here means the

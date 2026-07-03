@@ -148,7 +148,7 @@ export async function oauth1aRequest(
     if (body) {
         (fetchOptions.headers as Record<string, string>)["Content-Type"] = "application/octet-stream";
         (fetchOptions.headers as Record<string, string>)["Content-Length"] = body.length.toString();
-        fetchOptions.body = body;
+        fetchOptions.body = body as unknown as BodyInit;
     }
 
     console.log(`🔐 OAuth 1.0a Request: ${method} ${urlObj.toString().substring(0, 100)}...`);

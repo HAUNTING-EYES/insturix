@@ -9,10 +9,11 @@ export const PHASE0_RENDER_ARTIFACT_PACK_VERSION = 'editron-phase0-render-artifa
 type JsonRecord = Record<string, unknown>;
 
 type AuditedEvidenceKind = 'visual' | 'motion' | 'audio';
+type AuditedFamily = 'motion-graphic' | 'caption' | 'transition' | 'zoom' | 'sfx' | 'voiceover' | 'media' | 'shape' | 'text';
 
 interface AuditedOverlayType {
   type: string;
-  family: 'motion-graphic' | 'caption' | 'transition' | 'zoom' | 'sfx' | 'media' | 'shape' | 'text';
+  family: AuditedFamily;
   evidenceKind: AuditedEvidenceKind;
 }
 
@@ -25,6 +26,7 @@ interface VideoAttachedZoomEvidence {
 }
 
 const AUDITED_OVERLAY_TYPES: AuditedOverlayType[] = [
+  { type: 'generated-scene', family: 'motion-graphic', evidenceKind: 'visual' },
   { type: 'motion-graphic', family: 'motion-graphic', evidenceKind: 'visual' },
   { type: 'text', family: 'text', evidenceKind: 'visual' },
   { type: 'caption', family: 'caption', evidenceKind: 'visual' },
@@ -198,7 +200,7 @@ function planPhase0RenderSamples(
   const boundedMaxSamples = Math.max(1, Math.floor(maxSamples));
 
   for (const overlay of overlays) {
-    const spec = specsByType.get(String(overlay.type ?? 'unknown'));
+    const spec = auditedOverlaySpec(overlay, specsByType);
     if (!spec) continue;
     const from = readFrame(overlay.from);
     const duration = Math.max(1, firstPositiveNumber(overlay.durationInFrames));
@@ -275,7 +277,7 @@ function selectEvenlySpacedSamples(samples: Phase0RenderSample[], maxSamples: nu
 function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
   const specsByType = new Map(AUDITED_OVERLAY_TYPES.map((spec) => [spec.type, spec]));
   const videoAttachedZooms = collectVideoAttachedZoomEvidence(overlays);
-  const auditedOverlays = overlays.filter((overlay) => specsByType.has(String(overlay.type ?? 'unknown')));
+  const auditedOverlays = overlays.filter((overlay) => Boolean(auditedOverlaySpec(overlay, specsByType)));
   const counts = overlays.reduce<Record<string, number>>((result, overlay) => {
     const type = String(overlay.type ?? 'unknown');
     if (!specsByType.has(type)) return result;
@@ -285,12 +287,15 @@ function summarizeFamilyCoverage(overlays: Phase0OverlayLike[]) {
   if (videoAttachedZooms.length > 0) {
     counts.zoom = (counts.zoom ?? 0) + videoAttachedZooms.length;
   }
-  const countsByFamily = Object.entries(counts).reduce<Record<string, number>>((result, [type, count]) => {
-    const family = specsByType.get(type)?.family;
+  const countsByFamily = auditedOverlays.reduce<Record<string, number>>((result, overlay) => {
+    const family = auditedOverlaySpec(overlay, specsByType)?.family;
     if (!family) return result;
-    result[family] = (result[family] ?? 0) + count;
+    result[family] = (result[family] ?? 0) + 1;
     return result;
   }, {});
+  if (videoAttachedZooms.length > 0) {
+    countsByFamily.zoom = (countsByFamily.zoom ?? 0) + videoAttachedZooms.length;
+  }
   const auditedOverlayTypes = sortedTypes(AUDITED_OVERLAY_TYPES);
   const auditedVisualTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'visual'));
   const auditedMotionTypes = sortedTypes(AUDITED_OVERLAY_TYPES.filter((spec) => spec.evidenceKind === 'motion'));
@@ -336,7 +341,7 @@ function summarizeEvidenceCompleteness(
 
   for (const overlay of overlays) {
     const type = String(overlay.type ?? 'unknown');
-    const family = specsByType.get(type)?.family;
+    const family = auditedOverlaySpec(overlay, specsByType)?.family;
     if (!family || !(family in result)) continue;
 
     const summary = result[family];
@@ -457,6 +462,28 @@ function overlayEvidenceIssues(overlay: Phase0OverlayLike, family: string): stri
   }
 
   return issues;
+}
+
+function auditedOverlaySpec(
+  overlay: Phase0OverlayLike,
+  specsByType: Map<string, AuditedOverlayType>,
+): AuditedOverlayType | null {
+  const type = String(overlay.type ?? 'unknown');
+  const spec = specsByType.get(type);
+  if (!spec) return null;
+  if ((type === 'sound' || type === 'audio') && isVoiceoverOverlay(overlay)) {
+    return { ...spec, family: 'voiceover' };
+  }
+  return spec;
+}
+
+function isVoiceoverOverlay(overlay: Phase0OverlayLike): boolean {
+  const metadata = asRecord(overlay.metadata);
+  return metadata.isVoiceover === true
+    || hasText(metadata.narrationText)
+    || String(overlay.assetId ?? '').startsWith('voiceover_')
+    || String(overlay.content ?? '').startsWith('VO ready:')
+    || String(overlay.content ?? '').startsWith('VO pending:');
 }
 
 function readFrame(value: unknown): number {

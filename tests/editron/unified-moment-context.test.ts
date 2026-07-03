@@ -34,6 +34,9 @@ function timeline(): SignalTimeline {
     globalSignals: {
       'content.formality': 0.4,
       'personality.pacing_velocity': 0.7,
+      'visual.perception.primary_mode': 'screen-text',
+      'visual.perception.placement_trust': 'trusted',
+      'visual.perception.avg_viewer_value': 0.74,
     },
     gridSignals,
     eventSignals: [
@@ -98,6 +101,9 @@ describe('unified moment context', () => {
       main_subject_x: 0.22,
       motion_vector_x: -0.35,
       visual_significance: 0.9,
+      'visual.perception.primary_mode': 'screen-text',
+      'visual.perception.placement_trust': 'trusted',
+      'visual.perception.avg_viewer_value': 0.74,
     }));
     expect(context.eventAtoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: 'speech.emphasis_word', channel: 'speech', level: 'primitive', source: 'event' }),

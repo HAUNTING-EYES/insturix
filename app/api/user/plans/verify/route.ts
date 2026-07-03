@@ -8,13 +8,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
-import connectToDatabase from "@/schemas/ConnectToDatabase";
-import { User } from "@/schemas/user";
-import Plan from "@/schemas/plans";
-import { SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
-import { UserType } from "@/types/userTypes";
-import { addMonths } from "date-fns";
-import { CreditsService } from "@/lib/services/creditsService";
 
 if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
   console.error("Razorpay credentials not configured for plan verify");
@@ -41,16 +34,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify signature
-    // For subscriptions, Razorpay uses subscription_id | payment_id
-    // For orders, it uses order_id | payment_id
+    // Verify signature (fail-closed). Official Razorpay concatenation order:
+    //   subscription: hmac_sha256(razorpay_payment_id + "|" + subscription_id, secret)
+    //   order:        hmac_sha256(order_id + "|" + razorpay_payment_id, secret)
     const secret = process.env.RAZORPAY_SECRET_KEY_ID!;
     let generated_signature = "";
-    
+
     if (razorpay_subscription_id) {
         generated_signature = crypto
             .createHmac("sha256", secret)
-            .update(razorpay_subscription_id + "|" + razorpay_payment_id)
+            .update(razorpay_payment_id + "|" + razorpay_subscription_id)
             .digest("hex");
     } else if (razorpay_order_id) {
         generated_signature = crypto
@@ -63,11 +56,9 @@ export async function POST(request: NextRequest) {
 
     if (generated_signature !== razorpay_signature) {
         console.error("[Plan Verify] Signature mismatch", {
-            expected: generated_signature,
-            received: razorpay_signature,
             subId: razorpay_subscription_id,
             orderId: razorpay_order_id,
-            paymentId: razorpay_payment_id
+            paymentId: razorpay_payment_id,
         });
         return NextResponse.json(
             { error: "Invalid payment signature" },
@@ -75,67 +66,17 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    await connectToDatabase();
-
-    // 1. Find the plan definition
-    const planDef = SUBSCRIPTION_PLANS.find(p => p.id === packageId);
-    if (!planDef) {
-       return NextResponse.json(
-        { error: "Invalid plan ID" },
-        { status: 400 }
-      );
-    }
-
-    // 2. Find the Plan document in DB by type field (indexed, matches plan schema)
-    // packageId is 'plus', 'pro', or 'premium' — matches Plan.type enum
-    const dbPlan = await Plan.findOne({ type: packageId, isActive: true });
-
-    // 3. Update User Plan
-    const user = await User.findOne({ clerkUserId: userId });
-    if (!user) {
-         return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
-
-    const startDate = new Date();
-    const endDate = addMonths(startDate, 1);
-
-    const newPlan = {
-        planId: dbPlan?._id?.toString() || `manual_${planDef.id}`,
-        name: planDef.id as UserType,
-        price: planDef.price,
-        currency: 'USD',
-        status: 'active' as const,
-        startDate: startDate,
-        endDate: endDate,
-        provider: 'razorpay',
-        subscriptionId: razorpay_subscription_id || `sub_manual_${razorpay_payment_id}`,
-    };
-
-    // Add to history and set as current
-    if (!user.planHistory) user.planHistory = [];
-    user.planHistory.push(newPlan);
-    
-    // Set current plan type for convenience if used elsewhere
-    user.userType = planDef.id as any; 
-
-    await user.save();
-
-    // 4. Grant Credits
-    await CreditsService.addCredits(
-        userId, 
-        planDef.credits, 
-        'subscription_grant', 
-        `Monthly Plan Grant: ${planDef.name}`, 
-        razorpay_subscription_id || razorpay_payment_id
-    );
-
-    return NextResponse.json({ 
-        success: true, 
-        creditsAdded: planDef.credits,
-        plan: newPlan 
+    // DEPRECATED activation path removed (2026-07-01).
+    // This route used to client-activate the plan (push an 'active' planHistory entry +
+    // grant credits), which competed with the Razorpay webhook and left `currentPlan`
+    // stale (split-brain). Subscription activation + credit grants are now owned SOLELY by
+    // the webhook (app/api/webhooks/razorpay). The client checkout uses
+    // /api/verify-subscription (pending-only). This route is retained so any in-flight or
+    // cached client fails SAFE: it confirms the signature but never mutates plan/credits.
+    return NextResponse.json({
+        success: true,
+        pending: true,
+        message: "Payment verified. Your plan is being activated by our payment webhook and will be ready shortly.",
     });
 
   } catch (error) {

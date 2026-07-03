@@ -2,11 +2,42 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/pipeline/sfx-library-service', () => ({
   isSFXLibraryAvailable: vi.fn(() => true),
-  searchAndDownloadSFX: vi.fn(async () => ({
-    audioUrl: 'https://cdn.example.com/whoosh.mp3',
-    audioAssetId: 'sfx-whoosh-1',
-    durationMs: 420,
-  })),
+  searchAndDownloadSFX: vi.fn(async (
+    query: string,
+    _userId: string,
+    maxDurationSec: number,
+    atomicForm: unknown,
+    reportSearch?: (report: any) => void,
+  ) => {
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      atomicGate: Boolean(atomicForm),
+      providerCandidateCount: 1,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: 0,
+      selectedCandidate: {
+        title: 'Mock provider whoosh',
+        durationSec: 0.42,
+        score: 0.91,
+        accepted: true,
+        decision: 'accept',
+      },
+      candidates: [{
+        title: 'Mock provider whoosh',
+        durationSec: 0.42,
+        score: 0.91,
+        accepted: true,
+        decision: 'accept',
+      }],
+    });
+    return {
+      audioUrl: 'https://cdn.example.com/whoosh.mp3',
+      audioAssetId: 'sfx-whoosh-1',
+      durationMs: 420,
+    };
+  }),
 }));
 
 import { scenesToOverlays } from '../../lib/pipeline/scene-to-editron';
@@ -97,6 +128,7 @@ describe('non-MG atomic overlay receipts', () => {
 
     const result = await placeTransitionSFX(overlays, 'user-1', null);
     const sound = overlays.find((overlay) => overlay.type === 'sound');
+    const transition = overlays.find((overlay) => overlay.type === 'transition');
     const receipt = sound?.metadata.atomicOverlayReceipt;
 
     expect(result.placed).toBe(1);
@@ -109,7 +141,14 @@ describe('non-MG atomic overlay receipts', () => {
         compatibilityToken: 'whoosh',
         asset: expect.objectContaining({ primarySearchToken: 'whoosh' }),
       }),
+      expect.any(Function),
     );
+    expect(transition?.metadata.transitionSfxPlacement.providerSearchReport).toEqual(expect.objectContaining({
+      version: 'sfx-library-search-report-v1',
+      providerCandidateCount: 1,
+      acceptedCandidateCount: 1,
+      selectedCandidate: expect.objectContaining({ decision: 'accept' }),
+    }));
     expect(sound.from).toBeLessThan(60);
     expect(sound.durationInFrames).toBe(sound.metadata.atomicSfxForm.timing.durationFrames);
     expect(sound.styles.volume).toBeCloseTo(sound.metadata.atomicSfxForm.mix.volume, 5);

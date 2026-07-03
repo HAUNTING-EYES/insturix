@@ -18,7 +18,7 @@
 import { searchStockVideos, isPixabayAvailable } from './pixabay-service';
 import { nanoid } from 'nanoid';
 
-const PEXELS_API_KEY = process.env.NEXT_PUBLIC_PEXELS_API_KEY || process.env.PEXELS_API_KEY;
+const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
 
 export interface StockVideoResult {
   videoUrl: string;

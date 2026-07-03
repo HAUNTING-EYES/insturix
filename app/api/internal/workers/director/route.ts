@@ -20,7 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
-import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import { resolveDirectorCompletionHealth } from '@/lib/editron/services/editron-learning-gate';
 
 export const runtime = 'nodejs';
 // 800 (not 300): a 20-min+ video's Director (load + Creative Brief + Path D + EDL execute + save) runs right
@@ -41,47 +41,6 @@ interface DirectorWorkerPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
-}
-
-interface DirectorQualityReviewSnapshot {
-  overallScore?: unknown;
-  criticalCount?: unknown;
-}
-
-interface DirectorCompletionHealth {
-  hasQualityReview: boolean;
-  qualityScore: number;
-  criticalCount: number;
-  needsQualityAttention: boolean;
-  autoEditStatus: 'complete' | 'needs_review';
-  warning?: string;
-}
-
-export function resolveDirectorCompletionHealth(
-  qualityReview: DirectorQualityReviewSnapshot | null | undefined,
-): DirectorCompletionHealth {
-  const hasQualityReview = !!qualityReview;
-  const qualityScore = readFiniteNumber(qualityReview?.overallScore, 0);
-  const criticalCount = Math.max(0, Math.round(readFiniteNumber(qualityReview?.criticalCount, 0)));
-  const learningDecision = resolveEditronLearningOutcome({
-    hasQualityReview,
-    qualityScore,
-    criticalCount,
-  });
-  const needsQualityAttention = !learningDecision.shouldRecord;
-
-  return {
-    hasQualityReview,
-    qualityScore,
-    criticalCount,
-    needsQualityAttention,
-    autoEditStatus: needsQualityAttention ? 'needs_review' : 'complete',
-    ...(needsQualityAttention && {
-      warning: !hasQualityReview
-        ? 'Director completed without a persisted quality review.'
-        : `Director completed with quality score ${qualityScore} and ${criticalCount} critical issue(s).`,
-    }),
-  };
 }
 
 async function handler(request: NextRequest) {
@@ -179,9 +138,12 @@ async function handler(request: NextRequest) {
     const directorDecisionAuthority = directorResult.decisionAuthority;
     const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
-      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
     );
-    const completionHealth = resolveDirectorCompletionHealth(projectAfterDirector?.qualityReview);
+    const completionHealth = resolveDirectorCompletionHealth(
+      projectAfterDirector?.qualityReview,
+      projectAfterDirector?.intelligence?.renderedQualityEvidence,
+    );
     const completionSet: Record<string, unknown> = {
       autoEditStatus: completionHealth.autoEditStatus,
       autoEditCompletedAt: new Date(),
@@ -260,7 +222,3 @@ async function handler(request: NextRequest) {
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;
-
-function readFiniteNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}

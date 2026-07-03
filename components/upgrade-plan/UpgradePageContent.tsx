@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 import { CREDIT_PACKAGES, CreditPackage, SUBSCRIPTION_PLANS, SubscriptionPlan } from "@/lib/config/creditCosts";
+import { normalizePlanKey } from "@/lib/config/plan-limits";
 import { useUser, SignInButton } from "@clerk/nextjs";
 import { ScannerDivider } from "@/components/ui/ScannerDivider";
 
@@ -32,6 +33,9 @@ export function UpgradePageContent({
   // Need to fetch plans from API since we're using dynamic DB-seeded plans now
   const [plans, setPlans] = useState<any[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
+  // The user's current plan key (normalized, e.g. "agency_scale"). currentPlan.name
+  // holds the UserType value; normalize so it matches SUBSCRIPTION_PLANS ids.
+  const [currentPlanKey, setCurrentPlanKey] = useState<string | null>(null);
 
   React.useEffect(() => {
     async function fetchPlans() {
@@ -39,6 +43,7 @@ export function UpgradePageContent({
         const res = await fetch('/api/user/plans');
         const data = await res.json();
         if (data.plans) setPlans(data.plans);
+        if (data.currentPlan?.name) setCurrentPlanKey(normalizePlanKey(data.currentPlan.name));
       } catch (e) {
         console.error("Failed to fetch plans", e);
       } finally {
@@ -136,7 +141,9 @@ export function UpgradePageContent({
           {viewMode === 'plans' ? (
             <>
               {/* PLANS VIEW — Staggered and monochrome */}
-              {SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan, i: number) => (
+              {SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan, i: number) => {
+              const isCurrent = !!currentPlanKey && normalizePlanKey(plan.id) === currentPlanKey;
+              return (
              <motion.div
               key={plan.id}
               initial={{ opacity: 0, y: 30 }}
@@ -161,7 +168,13 @@ export function UpgradePageContent({
                     Recommended Choice
                   </motion.div>
                 )}
-                
+
+                {isCurrent && (
+                  <div className="absolute top-4 right-4 bg-emerald-500/15 text-emerald-400 text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded-full">
+                    Current
+                  </div>
+                )}
+
                 <div className="mb-6">
                   <h3 className="text-[18px] font-bold text-white mb-2 font-space-grotesk">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mt-4">
@@ -197,7 +210,16 @@ export function UpgradePageContent({
                   ))}
                 </ul>
 
-                 {isSignedIn ? (
+                 {isCurrent ? (
+                    <button
+                      disabled
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full py-4 text-sm font-bold rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-2 cursor-default"
+                    >
+                      <Check className="w-4 h-4" />
+                      Current Plan
+                    </button>
+                 ) : isSignedIn ? (
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -208,7 +230,7 @@ export function UpgradePageContent({
                       className={cn(
                         "w-full py-4 text-sm font-bold rounded-xl transition-all duration-300 flex items-center justify-center gap-2",
                          plan.popular
-                          ? "bg-white text-zinc-950 hover:bg-zinc-100" 
+                          ? "bg-white text-zinc-950 hover:bg-zinc-100"
                           : "bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700"
                       )}
                     >
@@ -228,7 +250,8 @@ export function UpgradePageContent({
                     </SignInButton>
                  )}
               </motion.div>
-            ))}
+              );
+              })}
 
             {/* Enterprise Card */}
             <motion.div

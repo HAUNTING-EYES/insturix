@@ -11,6 +11,7 @@ export enum OverlayType {
   TEMPLATE = "template",
   AI_CHAT = "ai-chat", // AI Chat panel
   HTML_SCENE = "html-scene", // HTML generated content (backgrounds, diagrams)
+  GENERATED_SCENE = "generated-scene", // Typed SaaS/product scene rendered by React
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
   QUALITY_REVIEW = "quality-review", // Quality Review panel
@@ -18,9 +19,9 @@ export enum OverlayType {
   SFX_LIBRARY = "sfx-library",       // SFX library browse panel (sidebar)
   LOTTIE = "lottie",                 // LottieFiles motion graphics panel (sidebar)
   TRANSITION = "transition",         // Actual transition overlay between clips (timeline item)
-  MOTION_GRAPHIC = "motion-graphic", // React-rendered motion graphics (Structure × Theme system)
+  MOTION_GRAPHIC = "motion-graphic", // React-rendered motion graphics (Structure � Theme system)
 }
-// ─── Keyframe Animation System ───────────────────────────────────
+// --- Keyframe Animation System -----------------------------------
 // Enables per-property animation curves on any overlay.
 // Used by: dissolves, zoom effects, position animation, speed ramping.
 
@@ -135,7 +136,7 @@ export type ClipOverlay = BaseOverlay & {
    *  SFX generation is skipped for this scene. Audio ducking should duck
    *  native video audio under voiceover (same as BGM ducking). */
   hasNativeAudio?: boolean;
-  /** Variable speed curve — overrides constant `speed` when present.
+  /** Variable speed curve � overrides constant `speed` when present.
    *  Each keyframe specifies a playback rate at a local frame offset.
    *  Video is split into segments, each with its own constant rate. */
   speedCurve?: Keyframe[];
@@ -161,9 +162,9 @@ export type SoundOverlay = BaseOverlay & {
   assetId?: string; // Reference to mediaAsset
   /** @deprecated Use audioStartFrame instead. Kept for backward compatibility. */
   startFromSound?: number;
-  /** J-cut: audioStartFrame < overlay.from — audio begins before the video */
+  /** J-cut: audioStartFrame < overlay.from � audio begins before the video */
   audioStartFrame?: number;
-  /** L-cut: audioEndFrame > overlay.from + durationInFrames — audio continues after video */
+  /** L-cut: audioEndFrame > overlay.from + durationInFrames � audio continues after video */
   audioEndFrame?: number;
   styles: BaseStyles & {
     volume?: number;
@@ -210,9 +211,9 @@ export interface CaptionDisplayConfig {
   fadeOutPreviousWords: boolean;
   /** Use spring physics for active word scale (Remotion spring()) */
   useSpringScale?: boolean;
-  /** Spring damping — lower = bouncier. Default 10. */
+  /** Spring damping � lower = bouncier. Default 10. */
   springDamping?: number;
-  /** Spring mass — higher = heavier/slower. Default 0.5. */
+  /** Spring mass � higher = heavier/slower. Default 0.5. */
   springMass?: number;
 }
 
@@ -253,8 +254,8 @@ export const DEFAULT_DISPLAY_CONFIGS: Record<CaptionDisplayMode, CaptionDisplayC
     showPreviousWords: false,
     fadeOutPreviousWords: false,
     useSpringScale: true,
-    springDamping: 10,          // ← research: "snappy but not overly bouncy" (TikTok native feel)
-    springMass: 0.5,            // ← research: CrePal blog, confirmed working
+    springDamping: 10,          // ? research: "snappy but not overly bouncy" (TikTok native feel)
+    springMass: 0.5,            // ? research: CrePal blog, confirmed working
   },
   "hormozi": {
     mode: "hormozi",
@@ -263,8 +264,8 @@ export const DEFAULT_DISPLAY_CONFIGS: Record<CaptionDisplayMode, CaptionDisplayC
     showPreviousWords: false,
     fadeOutPreviousWords: false,
     useSpringScale: true,
-    springDamping: 8,           // ← research: "fast pop, minimal bounce" (Hormozi punch)
-    springMass: 0.3,            // ← research: spring parameter table from investigation
+    springDamping: 8,           // ? research: "fast pop, minimal bounce" (Hormozi punch)
+    springMass: 0.3,            // ? research: spring parameter table from investigation
   },
 };
 
@@ -308,12 +309,12 @@ export interface CaptionStyles {
   // Legacy compat (deprecated, use highlight)
   highlightStyle?: CaptionHighlightStyle;
 
-  // ── Registry-driven atoms (optional; applied by caption-layer-content). See caption-preset-registry.ts. ──
+  // -- Registry-driven atoms (optional; applied by caption-layer-content). See caption-preset-registry.ts. --
   /** Letter casing for the whole caption (CSS text-transform). */
   textTransform?: "uppercase" | "lowercase" | "capitalize" | "none";
-  /** Text outline (CSS -webkit-text-stroke) — the MrBeast look. */
+  /** Text outline (CSS -webkit-text-stroke) � the MrBeast look. */
   stroke?: { widthPx: number; color: string };
-  /** Per-emphasis-role overrides (keyword/statistic/cta/entity) — coloured-bold per word. */
+  /** Per-emphasis-role overrides (keyword/statistic/cta/entity) � coloured-bold per word. */
   roles?: Partial<Record<"keyword" | "statistic" | "cta" | "entity", { color?: string; fontWeight?: number; scale?: number }>>;
 }
 
@@ -412,7 +413,149 @@ export type HtmlSceneOverlay = BaseOverlay & {
   };
 };
 
-// ─── Motion Graphic Overlay (Structure × Theme system) ─────────────
+export type GeneratedSceneFamily =
+  | "hook"
+  | "problem"
+  | "promise"
+  | "workflow_demo"
+  | "feature_demo"
+  | "ui_proof"
+  | "proof_metric"
+  | "comparison"
+  | "social_proof"
+  | "objection_handling"
+  | "cta"
+  | "logo_outro"
+  | "section_header";
+
+export type GeneratedSceneVisualArchetype =
+  | "TYPE_ONLY"
+  | "TYPE_OVER_MEDIA"
+  | "UI_FULL_BLEED"
+  | "UI_FRAMED"
+  | "UI_CROP_ZOOM"
+  | "CURSOR_HERO"
+  | "UI_FLOAT_STACK"
+  | "DEVICE_CONTEXT"
+  | "HUMAN_FRAME"
+  | "BENTO_GRID"
+  | "DIAGRAM_SCHEMATIC"
+  | "DATA_VIZ"
+  | "SPLIT_COMPARE"
+  | "ICON_CONSTELLATION"
+  | "LOGO_FIELD";
+
+export type GeneratedSceneFamilyPlan = {
+  family: GeneratedSceneFamily;
+  evidenceSource: "brand_vault" | "script" | "product_url" | "reference_video" | "default_reference_video" | "structure_doctrine" | "scene_descriptor" | "director_contract";
+  sourcePaths: string[];
+  visualGoal: string;
+  productUiState: string;
+  motionIntent: string;
+  copyRole: string;
+  claimMode: "evidence_backed" | "claim_locked" | "synthetic_demo_only";
+  visualArchetype?: GeneratedSceneVisualArchetype;
+  evidenceStatus?: "satisfied" | "substituted" | "degraded" | "disabled";
+  evidenceDuty?: string[];
+  admissibleClaimIds?: string[];
+  productAssetUse?: {
+    logo: boolean;
+    productImage: boolean;
+    productUrl: boolean;
+  };
+  directorStructureId?: string;
+  directorBeatIndex?: number;
+  sourceFamilyExpression?: string;
+};
+export type GeneratedSceneElement = {
+  id: string;
+  role: "headline" | "app-shell" | "panel" | "metric" | "caption" | "cta" | "logo-mark";
+  text?: string;
+  label?: string;
+  value?: string;
+  items?: string[];
+  emphasis?: "primary" | "accent" | "muted";
+};
+
+export type GeneratedSceneAsset = {
+  kind: string;
+  label: string;
+  url: string;
+  stored: boolean;
+  signalPath?: string;
+  sourceType?: string;
+};
+
+export type GeneratedSceneOverlay = BaseOverlay & {
+  type: OverlayType.GENERATED_SCENE;
+  content: string;
+  sceneModel: {
+    schemaVersion: "saas-generated-scene/v1";
+    sceneId: string;
+    sceneIndex: number;
+    title: string;
+    productName: string;
+    brand: {
+      name: string;
+      primaryColor: string;
+      accentColor: string;
+      backgroundColor: string;
+      surfaceColor: string;
+      textColor: string;
+      mutedTextColor: string;
+      fontFamily: string;
+    };
+    style: {
+      category: "saas_product_demo";
+      pacing: string;
+      uiTreatment: string;
+      motion: string;
+    };
+    familyPlan?: GeneratedSceneFamilyPlan;
+    assets?: {
+      logos: GeneratedSceneAsset[];
+      productImages: GeneratedSceneAsset[];
+      productUrl?: string;
+      sourcePaths: string[];
+    };
+    voiceover: {
+      script: string;
+      status: "pending_tts" | "ready";
+      audioUrl?: string;
+      assetId?: string;
+    } | null;
+    elements: GeneratedSceneElement[];
+    captionTracks: Array<{
+      id: string;
+      text: string;
+      startMs: number;
+      endMs: number;
+    }>;
+    qualityGates: {
+      promptLeakChecked: true;
+      brandTokensApplied: boolean;
+      readableUiProof: true;
+      productSpecificVisualProof?: boolean;
+      motionChoreographyPlanned?: boolean;
+      finalVisualProof?: boolean;
+    };
+  };
+  sourceMap: Record<string, unknown>;
+  styles: BaseStyles;
+  metadata?: {
+    sourceType: string;
+    sceneIndex: number;
+    generatedSceneId: string;
+    schemaVersion: string;
+    directorStructureId?: string;
+    directorBeatIndex?: number;
+    validation?: { ok: boolean; issues: string[] };
+  };
+};
+
+// Generated Scene Overlay (SaaS/product renderer contract)
+
+// --- Motion Graphic Overlay (Structure � Theme system) -------------
 // React-rendered overlay driven by resolved visual tokens from the
 // signal-based Visual Identity Engine. Coexists with HTML_SCENE
 // (Shadow DOM) for backward compatibility with existing templates.
@@ -442,12 +585,12 @@ export type MotionGraphicOverlay = BaseOverlay & {
   };
 };
 
-// ─── Transition Overlay ────────────────────────────────────────────
+// --- Transition Overlay --------------------------------------------
 // A visible tile on the timeline between two clips.
-// The tile IS the visual effect (DaVinci model) — it renders both adjacent
+// The tile IS the visual effect (DaVinci model) � it renders both adjacent
 // clips internally and composites them using CSS.
 //
-// CANONICAL TYPE LIST — all other systems (continuity-service, director,
+// CANONICAL TYPE LIST � all other systems (continuity-service, director,
 // tools.ts, SFX placer, EDL executor) should reference this type.
 // Updated 2026-05-15: consolidated from 3 inconsistent type systems.
 
@@ -462,7 +605,7 @@ export type TransitionStyle =
   | 'zoom-punch' | 'whip-pan' | 'slide-up' | 'slide-down'
   // Stylistic transitions (special effects)
   | 'glitch' | 'film-burn'
-  // Editorial cuts (no visual overlay — the cut IS the transition)
+  // Editorial cuts (no visual overlay � the cut IS the transition)
   | 'hard-cut' | 'smash-cut' | 'match-cut' | 'jump-cut' | 'cut-on-action';
 
 export type TransitionOverlay = BaseOverlay & {
@@ -521,6 +664,7 @@ export type Overlay =
   | CaptionOverlay
   | StickerOverlay
   | HtmlSceneOverlay
+  | GeneratedSceneOverlay
   | HtmlStickerOverlay
   | TransitionOverlay
   | MotionGraphicOverlay;

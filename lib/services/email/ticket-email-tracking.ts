@@ -5,14 +5,31 @@
  * have been sent to attendees.
  */
 
-import type { Ics25AttendeeDocument } from '@/schemas/ics25/Attendee';
-
 export type EmailType = 'confirmation' | 'reminder7Days' | 'reminder1Day' | 'reminder30Min';
+
+interface EmailSentState {
+  confirmationSent?: boolean;
+  confirmationSentAt?: Date;
+  reminder7DaysSent?: boolean;
+  reminder7DaysSentAt?: Date;
+  reminder1DaySent?: boolean;
+  reminder1DaySentAt?: Date;
+  reminder30MinSent?: boolean;
+  reminder30MinSentAt?: Date;
+}
+
+interface TrackableAttendeeDocument {
+  emailSent?: EmailSentState;
+  payment?: { status?: string };
+  attendeePassTier?: string;
+  markModified(path: string): void;
+  save(): Promise<unknown>;
+}
 
 /**
  * Check if a specific email type has already been sent to an attendee
  */
-export function hasEmailBeenSent(attendee: Ics25AttendeeDocument, emailType: EmailType): boolean {
+export function hasEmailBeenSent(attendee: TrackableAttendeeDocument, emailType: EmailType): boolean {
   if (!attendee.emailSent) {
     return false;
   }
@@ -34,14 +51,14 @@ export function hasEmailBeenSent(attendee: Ics25AttendeeDocument, emailType: Ema
 /**
  * Mark a specific email type as sent for an attendee
  */
-export async function markEmailSent(attendee: Ics25AttendeeDocument, emailType: EmailType): Promise<void> {
+export async function markEmailSent(attendee: TrackableAttendeeDocument, emailType: EmailType): Promise<void> {
   if (!attendee.emailSent) {
     attendee.emailSent = {
       confirmationSent: false,
       reminder7DaysSent: false,
       reminder1DaySent: false,
       reminder30MinSent: false,
-    } as any;
+    };
   }
 
   const now = new Date();
@@ -73,7 +90,7 @@ export async function markEmailSent(attendee: Ics25AttendeeDocument, emailType: 
  * Check if a reminder should be sent based on the current time and event date
  */
 export function shouldSendReminder(
-  attendee: Ics25AttendeeDocument,
+  attendee: TrackableAttendeeDocument,
   reminderType: 'reminder7Days' | 'reminder1Day' | 'reminder30Min',
   eventDate: Date,
   currentTime: Date = new Date()

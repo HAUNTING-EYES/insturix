@@ -1,8 +1,9 @@
 // Untracked helper — dump ALL overlays for a project (default proj_XbI_NCq181A2) to confirm
 // the log finding (graphics failing) against persisted DB state. Read-only.
 import { MongoClient } from 'mongodb';
+import { requireMongoUri } from './utils/mongo-uri';
 
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = requireMongoUri('scripts/check-proj-overlays.ts');
 const PID = process.argv[2] || 'proj_XbI_NCq181A2';
 
 async function main() {

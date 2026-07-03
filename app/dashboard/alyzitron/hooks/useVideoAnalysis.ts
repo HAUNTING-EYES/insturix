@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
+import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 import {
   multipartUpload,
   type MultipartProgress,
@@ -323,6 +324,7 @@ export function useVideoAnalysis() {
         storage?: "gcs" | "r2";
         gcsPath?: string;
         publicUrl?: string;
+        brandId?: string;
       },
       storage?: "gcs" | "r2"
     ) => {
@@ -331,10 +333,22 @@ export function useVideoAnalysis() {
           analysisState: { status: "analyzing", progress: 0 },
         }));
 
+        const activeBrandId = getActiveBrandIdFromStorage();
+        const requestBrandId = activeBrandId?.trim() || undefined;
+        const requestContext =
+          requestBrandId && !context.brandId
+            ? { ...context, brandId: requestBrandId }
+            : context;
+        const requestMetadata =
+          metadata && requestBrandId && !metadata.brandId
+            ? { ...metadata, brandId: requestBrandId }
+            : metadata;
+
         const requestData = {
           video_url: videoUrl,
-          context,
-          ...(metadata && { metadata }),
+          context: requestContext,
+          ...(requestBrandId && { brandId: requestBrandId }),
+          ...(requestMetadata && { metadata: requestMetadata }),
           ...(storage && { storage }),
         };
 

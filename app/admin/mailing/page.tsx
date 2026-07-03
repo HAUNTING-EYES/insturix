@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 interface CooldownStatus {
   lastSent: string | null;
   totalUsers: number;
+  cooldownDays?: number;
 }
 
 interface SendResult {

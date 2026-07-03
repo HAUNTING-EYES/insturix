@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
+            pinned: asset.pinned === true, // reference/protected from eviction
           };
         } catch (error) {
           console.error(`Error resolving asset ${asset.assetId}:`, error);

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { randomBytes } from "crypto";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
@@ -7,6 +7,7 @@ import { getLinkedInDashboardUrl } from "@/lib/uploaderx/linkedinUrl";
 import { getCalosLinkedInRedirectUri } from "@/lib/calos/publish/linkedin-oauth";
 import { verifyCalosConnectState } from "@/lib/calos/publish/connect-state";
 import { encryptToken } from "@/lib/calos/publish/token-crypto";
+import { createOAuthPopupResponse } from "@/lib/oauth/popup-response";
 
 /**
  * GET /api/services/calos/connect/linkedin/oauth/callback
@@ -16,7 +17,7 @@ import { encryptToken } from "@/lib/calos/publish/token-crypto";
  * the token, and stores a short-lived pending connect. Returns a popup that posts the pendingId +
  * available accounts back to the opener so the user can pick which account binds to the brand.
  *
- * It NEVER writes User.<platform>Tokens (that is the per-user connect's job) and NEVER auto-binds —
+ * It NEVER writes User.<platform>Tokens (that is the per-user connect job) and NEVER auto-binds;
  * binding happens explicitly at /select against an account the token actually has.
  */
 interface PendingAccount {
@@ -26,28 +27,14 @@ interface PendingAccount {
 }
 
 function popupResponse(request: NextRequest, payload: Record<string, unknown>) {
-  const origin = new URL(request.url).origin;
-  const serialized = JSON.stringify(payload);
-  const fallback = getLinkedInDashboardUrl("/dashboard/calos", request);
-  const html = `<!doctype html>
-<html><head><meta charset="utf-8" /><title>LinkedIn Connection</title></head>
-<body>
-  <script>
-    (function () {
-      var payload = ${serialized};
-      try {
-        if (window.opener && !window.opener.closed) {
-          window.opener.postMessage({ source: "calos-linkedin-connect", payload: payload }, ${JSON.stringify(origin)});
-          window.close();
-          return;
-        }
-      } catch (e) {}
-      window.location.replace(${JSON.stringify(fallback)});
-    })();
-  </script>
-  <p>Completing LinkedIn connection…</p>
-</body></html>`;
-  return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  return createOAuthPopupResponse({
+    request,
+    source: "calos-linkedin-connect",
+    payload,
+    fallbackUrl: getLinkedInDashboardUrl("/dashboard/calos", request),
+    title: "LinkedIn Connection",
+    message: "Completing LinkedIn connection...",
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -70,7 +57,7 @@ export async function GET(request: NextRequest) {
       return popupResponse(request, { success: false, error: "invalid_or_expired_state" });
     }
 
-    // The callback rides the user's browser session — confirm it's the same user who initiated.
+    // The callback rides the user browser session; confirm it is the same user who initiated.
     const session = await auth();
     if (!session.userId || session.userId !== state.ownerUserId) {
       return popupResponse(request, { success: false, error: "session_mismatch" });

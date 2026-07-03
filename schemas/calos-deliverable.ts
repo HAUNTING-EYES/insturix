@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, models } from "mongoose";
+import mongoose, { Schema, type Document } from "mongoose";
 import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 
 export type CalosEditorialStatus =
@@ -116,7 +116,7 @@ CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, editorialStatus: 1 })
 CalosDeliverableSchema.index({ campaignId: 1 });
 
 const CalosDeliverable =
-  models.CalosDeliverable ||
+  mongoose.models.CalosDeliverable ||
   mongoose.model<ICalosDeliverable>(
     "CalosDeliverable",
     CalosDeliverableSchema,

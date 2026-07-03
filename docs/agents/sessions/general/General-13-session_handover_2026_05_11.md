@@ -63,13 +63,13 @@ The stable pipeline handles #1. Nobody handles #2 without fine-tuning.
 ## IMMEDIATE NEXT STEPS
 
 ### Priority 1: Test Gemini 3.1 Pro
-- Set new API key `AIzaSyAcc1pa4WuVp_9OuQQ2pCD-mkyxbMBsHH4` on Vercel (Preview + Production)
+- Set the new API key directly on Vercel (Preview + Production); do not paste key values into repo docs or chat.
 - Run test on Hank Green video
 - Pro may be consistent enough to ship without fine-tuning
 - If not consistent → fine-tune Qwen 2.5 3B (infrastructure ready)
 
 ### Priority 2: Fix leaked API key
-- Old key `AIzaSyCcmEc6S0UEyG6wQ1Ou00OFwcRlmjSzJi8` in `.env.production` is REVOKED
+- Old Gemini key in `.env.production` is REVOKED; literal value redacted from this handoff.
 - Remove from repo: `git rm .env.production` or remove the key from it
 - New key should ONLY be in Vercel dashboard, never in repo files
 

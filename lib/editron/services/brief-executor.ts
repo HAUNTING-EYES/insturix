@@ -38,12 +38,15 @@ export interface BriefExecutorOutput {
     resolvedToFrame: number;
     skippedOutOfRange: number;
     snappedToEnergy: number;
+    recoveredSemanticAnchor: number;
   };
 }
 
 // ─── Type Mapping (from Decision Registry — single source of truth) ─────────
 
 const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
+
+type BriefCoordinateSource = 'timestamp' | 'beat' | 'word' | 'semantic-anchor';
 
 type BriefSemanticFamily = 'camera' | 'transition' | 'graphic' | 'caption' | 'audio' | 'pacing' | 'unknown';
 type BriefSemanticFactKind =
@@ -74,7 +77,7 @@ interface BriefSemanticFact {
 
 interface BriefDecisionParamContext {
   reason: string;
-  coordinateSource: 'timestamp' | 'beat' | 'word';
+  coordinateSource: BriefCoordinateSource;
   targetWordIdx?: number;
   targetTimestampMs?: number;
   targetBeatIdx?: number;
@@ -88,7 +91,7 @@ interface BriefSemanticCandidate {
   family: BriefSemanticFamily;
   reason: string;
   timing: {
-    source: 'timestamp' | 'beat' | 'word';
+    source: BriefCoordinateSource;
     targetWordIdx?: number;
     resolvedWordIdx?: number;
     targetTimestampMs?: number;
@@ -117,6 +120,7 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
     resolvedToFrame: 0,
     skippedOutOfRange: 0,
     snappedToEnergy: 0,
+    recoveredSemanticAnchor: 0,
     mappedToCutTimeline: 0,
     snappedFromGap: 0,
   };
@@ -154,6 +158,9 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
     if (resolved.snappedToEnergy) {
       stats.snappedToEnergy++;
     }
+    if (resolved.recoveredSemanticAnchor) {
+      stats.recoveredSemanticAnchor++;
+    }
 
     decisions.push(resolved.editDecision);
     stats.resolvedToFrame++;
@@ -177,7 +184,8 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
     `[BriefExecutor] ${stats.resolvedToFrame}/${stats.totalDecisions} resolved to frames ` +
     `(${stats.snappedToEnergy} snapped to energy peak, ${stats.skippedOutOfRange} out of range` +
     `${stats.mappedToCutTimeline > 0 ? `, ${stats.mappedToCutTimeline} mapped to cut timeline` : ''}` +
-    `${stats.snappedFromGap > 0 ? `, ${stats.snappedFromGap} snapped from gap` : ''})`
+    `${stats.snappedFromGap > 0 ? `, ${stats.snappedFromGap} snapped from gap` : ''}` +
+    `${stats.recoveredSemanticAnchor > 0 ? `, ${stats.recoveredSemanticAnchor} semantic anchors recovered` : ''})`
   );
 
   return { edl, stats };
@@ -188,6 +196,7 @@ export function executeBrief(input: BriefExecutorInput): BriefExecutorOutput {
 interface ResolvedDecision {
   editDecision: EditDecision;
   snappedToEnergy: boolean;
+  recoveredSemanticAnchor: boolean;
 }
 
 function resolveDecisionToFrame(
@@ -203,7 +212,8 @@ function resolveDecisionToFrame(
 
   let targetMs: number | null = null;
   let snappedToEnergy = false;
-  let coordinateSource: 'timestamp' | 'beat' | 'word' = 'word';
+  let coordinateSource: BriefCoordinateSource = 'word';
+  let recoveredSemanticAnchor = false;
   let targetWordIdxForContext: number | null = null;
 
   // Priority 1: Direct timestamp (music/visual mode)
@@ -239,20 +249,32 @@ function resolveDecisionToFrame(
     }
   }
 
-  // Priority 3: Word index (speech mode — existing path)
+  // Priority 3: Word index (speech mode)
   if (targetMs === null) {
     const rawIdx = decision.targetWordIdx;
-    if (transcription.length === 0 || rawIdx < 0) return null;
+    if (transcription.length === 0) return null;
 
+    const semanticAnchor = resolveSemanticAnchorWordIndex(params, transcription);
     const MAX_OVERSHOOT_RATIO = 0.1;
     const maxAllowedOvershoot = Math.max(3, Math.ceil(transcription.length * MAX_OVERSHOOT_RATIO));
     let targetWordIdx = rawIdx;
 
-    if (rawIdx >= transcription.length) {
+    if (rawIdx < 0) {
+      if (!semanticAnchor) return null;
+      targetWordIdx = semanticAnchor.index;
+      coordinateSource = 'semantic-anchor';
+      recoveredSemanticAnchor = true;
+      console.warn(`[BriefExecutor] Missing word index recovered from semantic anchor "${semanticAnchor.phrase}" (${semanticAnchor.source}, decision: ${type})`);
+    } else if (rawIdx >= transcription.length) {
       const overshoot = rawIdx - (transcription.length - 1);
       if (overshoot <= maxAllowedOvershoot) {
         targetWordIdx = transcription.length - 1;
         console.warn(`[BriefExecutor] Word index ${rawIdx} >= transcript length ${transcription.length} — clamped to last word (decision: ${type})`);
+      } else if (semanticAnchor) {
+        targetWordIdx = semanticAnchor.index;
+        coordinateSource = 'semantic-anchor';
+        recoveredSemanticAnchor = true;
+        console.warn(`[BriefExecutor] Word index ${rawIdx} >> transcript length ${transcription.length} — recovered from semantic anchor "${semanticAnchor.phrase}" (${semanticAnchor.source}, decision: ${type})`);
       } else {
         console.warn(`[BriefExecutor] Word index ${rawIdx} >> transcript length ${transcription.length} — DISCARDED (decision: ${type})`);
         return null;
@@ -302,7 +324,7 @@ function resolveDecisionToFrame(
     reason: reason,
   };
 
-  return { editDecision, snappedToEnergy };
+  return { editDecision, snappedToEnergy, recoveredSemanticAnchor };
 }
 
 // ─── Energy Snap ────────────────────────────────────────────────────────────
@@ -349,6 +371,24 @@ function isTransitionType(type: BriefDecisionType): boolean {
   return type.startsWith('transition_');
 }
 
+const BRIEF_RENDER_AUTHORITY_PARAM_KEYS = new Set([
+  'zoomType', 'graphicType', 'transitionType', 'transitionCompatibilityHint',
+  'scale', 'scaleFrom', 'scaleTo', 'x', 'y', 'width', 'height',
+  'position', 'placement', 'anchor', 'region', 'direction',
+  'durationFrames', 'durationMs', 'keyframes', 'easing', 'animation', 'animationType',
+  'style', 'styleId', 'template', 'templateId', 'preset', 'presetId',
+  'component', 'componentName', 'rendererKey', 'layout', 'layoutPreset',
+  'fontSize', 'fontFamily', 'color', 'backgroundColor',
+  'volume', 'assetId', 'sfxAssetId', 'assetQuery', 'sfxSearchQuery',
+  'sfxType', 'sfxCue', 'soundEffectType', 'audioDescription', 'soundDescription',
+]);
+
+function stripBriefRenderAuthorityParams(params: Record<string, unknown>): void {
+  for (const key of BRIEF_RENDER_AUTHORITY_PARAM_KEYS) {
+    delete params[key];
+  }
+}
+
 function normalizeBriefDecisionParams(
   type: BriefDecisionType,
   params: Record<string, unknown>,
@@ -359,24 +399,9 @@ function normalizeBriefDecisionParams(
   const rawParams: Record<string, unknown> = { ...(params ?? {}) };
   const normalized: Record<string, unknown> = { ...rawParams };
 
-  // Path E owns intent and timing hints only. Concrete legacy form labels are
-  // resolved later by atomic/utility resolvers in executeEDL.
-  delete normalized.zoomType;
-  delete normalized.graphicType;
-  delete normalized.transitionType;
-  delete normalized.transitionCompatibilityHint;
-  delete normalized.scaleFrom;
-  delete normalized.scaleTo;
-  delete normalized.durationFrames;
-  delete normalized.durationMs;
-  delete normalized.direction;
-  if (type.startsWith('sfx_')) {
-    delete normalized.sfxType;
-    delete normalized.sfxCue;
-    delete normalized.soundEffectType;
-    delete normalized.audioDescription;
-    delete normalized.soundDescription;
-  }
+  // Path E owns intent and timing hints only. Concrete render authority stays
+  // inside compatibilityHints/facts and is resolved later by native planners.
+  stripBriefRenderAuthorityParams(normalized);
 
   normalized.creativeDecisionType = type;
   normalized.creativeDecisionAuthority = 'semantic-context';
@@ -776,6 +801,88 @@ function transitionAtomsFromBriefType(type: BriefDecisionType): {
   }
 }
 
+interface SemanticAnchorMatch {
+  index: number;
+  phrase: string;
+  source: string;
+}
+
+function resolveSemanticAnchorWordIndex(
+  params: Record<string, unknown>,
+  transcription: { word: string; startMs: number; endMs: number }[],
+): SemanticAnchorMatch | null {
+  const transcriptTokens = transcription.map((word, index) => ({
+    index,
+    token: normalizeAnchorToken(word.word),
+  }));
+  const candidates = semanticAnchorCandidates(params);
+
+  for (const candidate of candidates) {
+    const phraseTokens = normalizeAnchorPhrase(candidate.text);
+    if (phraseTokens.length === 0) continue;
+    if (phraseTokens.length === 1 && phraseTokens[0].length < 4) continue;
+
+    for (let start = 0; start <= transcriptTokens.length - phraseTokens.length; start += 1) {
+      let matches = true;
+      for (let offset = 0; offset < phraseTokens.length; offset += 1) {
+        if (transcriptTokens[start + offset]?.token !== phraseTokens[offset]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        return {
+          index: transcriptTokens[start].index,
+          phrase: phraseTokens.join(' '),
+          source: candidate.source,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function semanticAnchorCandidates(params: Record<string, unknown>): { text: string; source: string }[] {
+  const candidates: { text: string; source: string }[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown, source: string) => {
+    const text = stringParam(value);
+    if (!text) return;
+    const key = normalizeAnchorPhrase(text).join(' ');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ text, source });
+  };
+
+  const atoms = objectParam(params.semanticAtoms);
+  const atomText = objectParam(atoms?.text);
+  const atomQuote = objectParam(atoms?.quote);
+
+  add(atoms?.evidencePhrase, 'semanticAtoms.evidencePhrase');
+  add(atomText?.phrase, 'semanticAtoms.text.phrase');
+  add(atomQuote?.text, 'semanticAtoms.quote.text');
+  add(params.quote, 'params.quote');
+  add(params.text, 'params.text');
+  add(params.body, 'params.body');
+  add(params.title, 'params.title');
+  add(params.keyword, 'params.keyword');
+
+  return candidates;
+}
+
+function normalizeAnchorPhrase(value: string): string[] {
+  const normalized = normalizeAnchorToken(value);
+  return normalized ? normalized.split(' ') : [];
+}
+
+function normalizeAnchorToken(value: unknown): string {
+  return cleanTranscriptToken(String(value ?? ''))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 function nearestTranscriptWordIndex(
   transcription: { word: string; startMs: number; endMs: number }[],
   targetMs: number,

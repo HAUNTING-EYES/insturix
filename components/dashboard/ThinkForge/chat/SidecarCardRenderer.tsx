@@ -27,6 +27,7 @@ const CARD_STYLES: Record<string, { icon: React.ComponentType<any>; iconColor: s
 export function SidecarCardRenderer({ card, onAction, onDismiss }: SidecarCardRendererProps) {
   const style = CARD_STYLES[card.type] || CARD_STYLES.action;
   const Icon = style.icon;
+  const artifacts = Array.isArray(card.data?.artifacts) ? card.data.artifacts : [];
 
   return (
     <div className="rounded-xl border border-white/8 bg-[#0B0B0A]/80 backdrop-blur-sm p-3 space-y-2.5 transition-all hover:border-white/12">
@@ -65,11 +66,11 @@ export function SidecarCardRenderer({ card, onAction, onDismiss }: SidecarCardRe
               <button
                 onClick={() => {
                   const enriched = { ...action };
-                  if (action.id === 'initialize_blueprint' && card.data?.artifacts) {
-                    enriched.payload = { ...enriched.payload, artifacts: card.data.artifacts };
+                  if (action.id === 'initialize_blueprint' && artifacts.length > 0) {
+                    enriched.payload = { ...enriched.payload, artifacts };
                   }
                   if (action.id === 'customize_blueprint') {
-                    enriched.payload = { ...enriched.payload, artifacts: card.data?.artifacts, cardId: card.id };
+                    enriched.payload = { ...enriched.payload, artifacts, cardId: card.id };
                   }
                   onAction?.(enriched);
                 }}
@@ -84,9 +85,9 @@ export function SidecarCardRenderer({ card, onAction, onDismiss }: SidecarCardRe
               >
                 {action.label}
               </button>
-              {action.id === 'initialize_blueprint' && card.data?.artifacts?.length > 0 && (
+              {action.id === 'initialize_blueprint' && artifacts.length > 0 && (
                 <span className="text-[10px] text-[#5F5E5A] font-medium px-1.5 py-0.5 rounded bg-white/4 border border-[#1C1B19]">
-                  {card.data.artifacts.length * 5} credits
+                  {artifacts.length * 5} credits
                 </span>
               )}
             </React.Fragment>

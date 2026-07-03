@@ -320,7 +320,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       chat.sendMessage(autoPrompt, {
         script: scriptPayload,
         project: sessionPayload,
-        onScriptUpdate: handleScriptUpdate,
         onTokenStream: onTokenStream,
         onScriptCreated: onScriptCreated,
         scriptId: currentScriptId,
@@ -467,7 +466,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     chat.sendMessage(originalPrompt, {
       script: scriptPayload,
       project: sessionPayload,
-      onScriptUpdate: handleScriptUpdate,
       onTokenStream: onTokenStream,
       onScriptCreated: onScriptCreated,
       selection: editingSelection?.text,

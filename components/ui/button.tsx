@@ -23,6 +23,15 @@ const buttonVariants = cva(
         premium: "bg-zinc-50 text-zinc-950 hover:bg-zinc-100 shadow-premium font-medium",
         elevated: "bg-zinc-800 text-zinc-50 hover:bg-zinc-700 shadow-elevated border border-zinc-700",
         player: "bg-zinc-900 border border-zinc-800 text-zinc-50 hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-200",
+        // ─── Insturix dashboard brand variants (gold-only accent system) ───
+        // Primary action. Gold #D4A652 is the single brand accent (teal dropped 2026-06-27).
+        gold: "bg-[#D4A652] text-[#11100e] font-semibold hover:bg-[#E0B86A] focus-visible:ring-[#D4A652]/70",
+        // Positive/approve/done. Green (Editron --ef-green) — reads as "approved", not teal.
+        success: "bg-[#5EC97E] text-[#08130c] font-semibold hover:bg-[#74D28E] focus-visible:ring-[#5EC97E]/70",
+        // Destructive. Outline coral (matches existing delete/reject pattern).
+        danger: "border border-[#D46A5C]/50 bg-transparent text-[#E7A79D] hover:bg-[#D46A5C]/12 focus-visible:ring-[#D46A5C]/70",
+        // Secondary/neutral dashboard action on the warm-dark surface.
+        neutral: "border border-[#1C1B19] bg-[#12110F] text-[#ECE9E1] hover:bg-[#1C1B19]/70 focus-visible:ring-[#D4A652]/40",
       },
       size: {
         default: "h-9 px-4 py-2",

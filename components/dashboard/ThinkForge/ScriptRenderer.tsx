@@ -43,7 +43,8 @@ function renderMarks(text: string, marks?: TiptapMark[]): React.ReactNode {
         element = <mark className="bg-yellow-500/40 px-0.5 rounded">{element}</mark>;
         break;
       case 'link':
-        const href = 'attrs' in mark ? mark.attrs?.href : '#';
+        const rawHref = 'attrs' in mark ? mark.attrs?.href : undefined;
+        const href = typeof rawHref === 'string' ? rawHref : '#';
         element = (
           <a href={href} className="text-[#D4A652] hover:text-[#D4A652] underline" target="_blank" rel="noopener noreferrer">
             {element}

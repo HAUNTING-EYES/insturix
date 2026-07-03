@@ -2,6 +2,7 @@ import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import { NextResponse, NextRequest } from "next/server";
 import { getCollections } from "../utils/mongodb";
 import { CreditsService } from "@/lib/services/creditsService";
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
@@ -12,6 +13,12 @@ import {
   buildAlyzitronAnalysisContext,
   resolveAlyzitronBrandContext,
 } from "@/lib/alyzitron/services/brand-vault-context";
+import { normalizeAlyzitronAnalysisResults } from "@/lib/alyzitron/analysis-results";
+import {
+  inferAlyzitronMediaSourceKind,
+  resolveAlyzitronContentIntent,
+} from "@/lib/alyzitron/analysis-intent";
+import type { AlyzitronIntentResolution, AlyzitronMediaSourceKind } from "../types";
 
 function cleanString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -25,23 +32,65 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+
+function storageBackendToMediaSourceKind(value: unknown): AlyzitronMediaSourceKind | undefined {
+  const backend = cleanString(value);
+  if (backend === "youtube") return "youtube_url";
+  if (backend === "external") return "external_url";
+  if (backend === "gcs" || backend === "r2") return backend;
+  return undefined;
+}
+
+function buildIntentMetadata(
+  intentResolution: AlyzitronIntentResolution,
+  mediaSourceKind?: AlyzitronMediaSourceKind,
+): Record<string, unknown> {
+  return {
+    ...(mediaSourceKind ? { mediaSourceKind } : {}),
+    contentIntent: intentResolution.contentIntent,
+    intentSource: intentResolution.source,
+    intentConfidence: intentResolution.confidence,
+    intentRationale: intentResolution.rationale,
+    userConfirmedIntent: intentResolution.userConfirmed,
+    intentResolution,
+  };
+}
+
+function buildIntentCompletionFields(
+  intentResolution: AlyzitronIntentResolution,
+  mediaSourceKind?: AlyzitronMediaSourceKind,
+): Record<string, unknown> {
+  return {
+    ...(mediaSourceKind ? { mediaSourceKind, "metadata.mediaSourceKind": mediaSourceKind } : {}),
+    contentIntent: intentResolution.contentIntent,
+    intentResolution,
+    "metadata.contentIntent": intentResolution.contentIntent,
+    "metadata.intentSource": intentResolution.source,
+    "metadata.intentConfidence": intentResolution.confidence,
+    "metadata.intentRationale": intentResolution.rationale,
+    "metadata.userConfirmedIntent": intentResolution.userConfirmed,
+    "metadata.intentResolution": intentResolution,
+  };
+}
 async function handler(request: NextRequest) {
   let currentTaskId: string | null = null;
   let currentUserId: string | null = null;
 
   try {
     const body = await request.json();
-    const { taskId, userId, editronProjectId } = body;
+    const { taskId, editronProjectId } = body;
     currentTaskId = taskId;
-    currentUserId = userId;
 
-    if (!taskId || !userId) return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    if (!taskId) return NextResponse.json({ error: "Missing data" }, { status: 400 });
 
     const { analyses } = await getCollections();
     if (!ObjectId.isValid(taskId)) return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
 
-    const task = await analyses.findOne({ _id: ObjectId.createFromHexString(taskId), clerkUserId: userId });
+    const task = await analyses.findOne({ _id: ObjectId.createFromHexString(taskId) });
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    const userId = cleanString(task.clerkUserId);
+    if (!userId) return NextResponse.json({ error: "Task owner missing" }, { status: 400 });
+    currentUserId = userId;
     if (task.status === "completed" || task.status === "failed") return NextResponse.json({ success: true, message: "Already processed" });
 
     const taskBrandId =
@@ -49,12 +98,44 @@ async function handler(request: NextRequest) {
       cleanString(task.brandId) ??
       cleanString(asRecord(task.context)?.brandId) ??
       cleanString(asRecord(task.metadata)?.brandId);
+    const taskContext = asRecord(task.context);
+    const taskMetadata = asRecord(task.metadata);
+    const mediaSourceKind = inferAlyzitronMediaSourceKind({
+      mediaSourceKind:
+        body.mediaSourceKind ??
+        task.mediaSourceKind ??
+        taskMetadata?.mediaSourceKind ??
+        storageBackendToMediaSourceKind(taskMetadata?.storageBackend ?? taskMetadata?.storage),
+      videoUrl: task.videoUrl,
+      metadata: task.metadata,
+    });
+    const intentResolution = resolveAlyzitronContentIntent({
+      userSelectedIntent: body.userSelectedIntent,
+      contentIntent:
+        body.contentIntent ??
+        body.content_intent ??
+        task.contentIntent ??
+        taskMetadata?.contentIntent ??
+        taskContext?.contentIntent,
+      intentSource: body.intentSource ?? taskMetadata?.intentSource ?? taskContext?.intentSource,
+      userConfirmedIntent: body.userConfirmedIntent ?? taskMetadata?.userConfirmedIntent ?? taskContext?.userConfirmedIntent,
+      intentResolution: body.intentResolution ?? task.intentResolution ?? taskMetadata?.intentResolution ?? taskContext?.intentResolution,
+      mediaSourceKind,
+      videoUrl: task.videoUrl,
+      brandId: taskBrandId,
+      editronProjectId: editronProjectId ?? task.editronProjectId,
+      metadata: task.metadata,
+      context: task.context,
+    });
+    const intentMetadata = buildIntentMetadata(intentResolution, mediaSourceKind);
+    const intentCompletionFields = buildIntentCompletionFields(intentResolution, mediaSourceKind);
     const brandContext = await resolveAlyzitronBrandContext({ userId, brandId: taskBrandId });
-    const analysisContext = buildAlyzitronAnalysisContext(task.context || {}, brandContext);
+    const analysisContext = buildAlyzitronAnalysisContext(task.context || {}, brandContext, intentResolution);
     const analysisMetadata = {
       ...(task.metadata || {}),
       ...(taskBrandId ? { brandId: taskBrandId } : {}),
       ...(brandContext.source !== "none" ? { brandContextSource: brandContext.source } : {}),
+      ...intentMetadata,
     };
     const brandCompletionFields = {
       ...(taskBrandId ? { brandId: taskBrandId, "metadata.brandId": taskBrandId } : {}),
@@ -211,6 +292,16 @@ async function handler(request: NextRequest) {
         }).catch(() => { });
       }
 
+      if (analysisResults?.parseError) {
+        throw new Error("Alyzitron analysis returned invalid JSON. Please retry the analysis.");
+      }
+
+      const normalizedResults = normalizeAlyzitronAnalysisResults(analysisResults);
+      if (!normalizedResults) {
+        throw new Error("Alyzitron analysis returned no usable results.");
+      }
+      analysisResults = normalizedResults;
+
       await analyses.updateOne(
         { _id: task._id },
         {
@@ -222,6 +313,7 @@ async function handler(request: NextRequest) {
             originalSourceUrl,
             "metadata.mimeType": updatedMimeType,
             ...brandCompletionFields,
+            ...intentCompletionFields,
             completedAt: new Date(),
             updatedAt: new Date()
           }
@@ -234,7 +326,7 @@ async function handler(request: NextRequest) {
           const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
           const editronDb = await getDatabase();
           await editronDb.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: editronProjectId },
+            { projectId: editronProjectId, userId },
             {
               $set: {
                 alyzitronAnalysis: {
@@ -243,6 +335,7 @@ async function handler(request: NextRequest) {
                   category: analysisResults.category ?? null,
                   strengths: analysisResults.strengths ?? [],
                   weaknesses: analysisResults.weaknesses ?? [],
+                  contentIntent: intentResolution.contentIntent,
                   completedAt: new Date(),
                 },
                 qualityScore: analysisResults.overall_score ?? null,
@@ -267,6 +360,7 @@ async function handler(request: NextRequest) {
             editronProjectId: editronProjectId || undefined,
             hasTranscription: !!transcriptResult,
             wordCount: transcriptResult?.wordCount ?? 0,
+            contentIntent: intentResolution.contentIntent,
           },
         }).catch((e: unknown) => logger.warn('[Alyzitron] Brand event failed', { data: { error: String(e) } }));
       } catch {
@@ -282,7 +376,7 @@ async function handler(request: NextRequest) {
         { _id: ObjectId.createFromHexString(taskId) },
         { $set: { status: "failed", error: { message: err.message, code: err.code || "PIPELINE_ERROR" }, refunded: true } }
       );
-      try { await CreditsService.refundCredits(userId, (task.usageMinutes || 1) * 2, `Failed: ${err.message}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
+      try { await CreditsService.refundCredits(userId, getCreditCost("alyzitron", "video_analysis", { durationMinutes: task.usageMinutes || 1 }), `Failed: ${err.message}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
       return NextResponse.json({ success: false, error: err.message }, { status: 500 });
     }
   } catch (globalErr: any) {
@@ -293,7 +387,11 @@ async function handler(request: NextRequest) {
 
 export const POST = async (req: NextRequest) => {
   const bypass = req.headers.get("x-development-bypass");
-  if (bypass === "true") return handler(req);
+  const isDevelopment = process.env.NODE_ENV === "development" || process.env.APP_ENV === "development";
+  if (bypass === "true" && isDevelopment) return handler(req);
+  if (!process.env.QSTASH_CURRENT_SIGNING_KEY) {
+    return NextResponse.json({ error: "Worker signing is not configured" }, { status: 503 });
+  }
   return verifySignatureAppRouter(handler)(req);
 };
 

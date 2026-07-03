@@ -60,7 +60,6 @@ describe('unified decision bundle merge', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
-        decision({ type: 'zoom', frame: 30, source: 'creative-brief:test' }),
         decision({
           type: 'graphic',
           frame: 90,
@@ -76,11 +75,11 @@ describe('unified decision bundle merge', () => {
       ]),
     });
 
-    expect(bundle.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
-    expect(bundle.expectedExecuted).toBe(1);
+    expect(bundle.edl.decisions.map((d) => d.type)).toEqual([]);
+    expect(bundle.expectedExecuted).toBe(0);
     expect(bundle.expectedSkipped).toBe(1);
     expect(bundle.evidence).toEqual(expect.objectContaining({
-      primaryDecisionCount: 1,
+      primaryDecisionCount: 0,
       evidenceOnlySignalDecisionCount: 1,
     }));
     expect(bundle.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
@@ -95,6 +94,37 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('keeps Creative Brief family labels out of the primary executable EDL until atoms license them', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'zoom', frame: 30, source: 'creative-brief:zoom-label', confidence: 0.91, params: { creativeDecisionAuthority: 'semantic-context', scale: 1.08 } }),
+        decision({ type: 'transition', frame: 90, source: 'creative-brief:transition-label', confidence: 0.91, params: { creativeDecisionAuthority: 'semantic-context', transitionType: 'dissolve' } }),
+        decision({ type: 'sfx-trigger', frame: 120, source: 'creative-brief:sfx-label', confidence: 0.9, params: { creativeDecisionAuthority: 'semantic-context', sfxType: 'impact' } }),
+        decision({ type: 'caption-emphasis', frame: 150, source: 'creative-brief:caption-label', confidence: 0.9, params: { creativeDecisionAuthority: 'semantic-context' } }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toEqual([]);
+    expect(bundle.expectedExecuted).toBe(0);
+    expect(bundle.expectedSkipped).toBe(4);
+    expect(bundle.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 4,
+    }));
+    expect(bundle.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'primary-family-unlicensed:missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-transition-boundary-atoms': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-audio-beat-atoms': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-caption-moment-atoms': expect.objectContaining({ count: 1 }),
+    }));
+    expect(bundle.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'zoom', reason: 'primary-family-unlicensed:missing-camera-motion-atoms' }),
+      expect.objectContaining({ type: 'transition', reason: 'primary-family-unlicensed:missing-transition-boundary-atoms' }),
+      expect.objectContaining({ type: 'sfx-trigger', reason: 'primary-family-unlicensed:missing-audio-beat-atoms' }),
+      expect.objectContaining({ type: 'caption-emphasis', reason: 'primary-family-unlicensed:missing-caption-moment-atoms' }),
+    ]));
+  });
   it('keeps licensed Creative Brief semantic MGs executable in the primary EDL', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -958,6 +988,127 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('uses visual perception facts as family planner evidence without turning them into executable labels', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'transition',
+        frame: 180,
+        source: 'signal-executor:perception-transition',
+        confidence: 0.9,
+        params: {
+          transitionType: 'whip-pan',
+          boundaryFrame: 180,
+          topicDelta: 0.74,
+          signals: {
+            'visual.perception.text_presence_ratio': 0.92,
+            'visual.perception.screen_clutter_ratio': 0.88,
+            'visual.perception.avg_text_coverage': 0.42,
+            'visual.perception.avg_coverage_trust': 0.84,
+          },
+        },
+      }),
+      decision({
+        type: 'zoom',
+        frame: 300,
+        source: 'signal-executor:perception-zoom',
+        confidence: 0.9,
+        params: {
+          signals: {
+            speech_energy: 0.84,
+            word_importance: 0.76,
+            'visual.perception.text_presence_ratio': 0.94,
+            'visual.perception.screen_clutter_ratio': 0.93,
+          },
+        },
+      }),
+      decision({
+        type: 'caption-emphasis',
+        frame: 520,
+        source: 'signal-executor:perception-caption',
+        confidence: 0.92,
+        params: {
+          keyword: 'everything',
+          phrase: 'everything changed right here',
+          signals: {
+            speaking_rate_wpm: 224,
+            speech_energy: 0.88,
+            word_importance: 0.9,
+            visceral_impact: 0.84,
+            'visual.perception.text_presence_ratio': 0.9,
+            'visual.perception.screen_clutter_ratio': 0.91,
+            'visual.perception.negative_space.bottom': 0.08,
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 3,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 3,
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'transition',
+        source: 'signal-executor:perception-transition',
+        reason: 'transition-family-plan-kept-clean-cut',
+        candidate: expect.objectContaining({
+          projectedAtoms: expect.objectContaining({
+            textOnScreen: 0.92,
+            clutterDelta: 0.88,
+            textCoverage: 0.42,
+            vjepaCoverageQuality: 0.84,
+          }),
+          sourcePacket: expect.objectContaining({
+            hasVisualSetupSignals: true,
+            visualSetupSignalKeys: expect.arrayContaining(['visual.perception.text_presence_ratio']),
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'zoom',
+        source: 'signal-executor:perception-zoom',
+        reason: 'zoom-family-plan-kept-clean-camera',
+        candidate: expect.objectContaining({
+          projectedAtoms: expect.objectContaining({
+            speechPeak: 0.84,
+            wordImportance: 0.76,
+            textOnScreen: 0.94,
+            visualComplexity: 0.93,
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'caption-emphasis',
+        source: 'signal-executor:perception-caption',
+        reason: 'caption-family-plan-kept-readable',
+        candidate: expect.objectContaining({
+          projectedAtoms: expect.objectContaining({
+            speechRate: 224,
+            speechPeak: 0.88,
+            wordImportance: 0.9,
+            phraseImpact: 0.84,
+            textOnScreen: 0.9,
+            visualComplexity: 0.91,
+            negativeSpaceBottom: 0.08,
+          }),
+        }),
+      }),
+    ]));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'transition-family-plan-kept-clean-cut': expect.objectContaining({ count: 1 }),
+      'zoom-family-plan-kept-clean-camera': expect.objectContaining({ count: 1 }),
+      'caption-family-plan-kept-readable': expect.objectContaining({ count: 1 }),
+    }));
+  });
   it('normalizes Path E brief-executor EDL shape before merge/execution', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -1990,6 +2141,9 @@ describe('unified decision bundle merge', () => {
             narrative_pressure: 0.82,
             motionVectorX: 0.64,
             silence_duration_ms: 320,
+            'enrichment.visual_setup_source': 'gemini-visual-understanding',
+            'visual.environment': 'studio',
+            'visual.shot_scale': 'medium-close',
           },
         },
       }),
@@ -2032,7 +2186,20 @@ describe('unified decision bundle merge', () => {
       }),
       sourcePacket: expect.objectContaining({
         hasSignals: true,
-        signalKeys: ['motionVectorX', 'narrative_pressure', 'silence_duration_ms'],
+        signalKeys: [
+          'enrichment.visual_setup_source',
+          'motionVectorX',
+          'narrative_pressure',
+          'silence_duration_ms',
+          'visual.environment',
+          'visual.shot_scale',
+        ],
+        hasVisualSetupSignals: true,
+        visualSetupSignalKeys: [
+          'enrichment.visual_setup_source',
+          'visual.environment',
+          'visual.shot_scale',
+        ],
       }),
     }));
     const transitionDecision = merged.edl.decisions.find(
@@ -2326,6 +2493,86 @@ describe('unified decision bundle merge', () => {
         source: 'signal-executor:sfx',
       },
     ]));
+  });
+  it('runs cross-overlay choreography before final planner-owned EDL output', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'creative-brief',
+        edl: edl([
+          decision({
+            type: 'graphic',
+            frame: 180,
+            durationFrames: 70,
+            source: 'creative-brief:semantic-mg',
+            confidence: 0.94,
+            params: {
+              creativeDecisionAuthority: 'semantic-context',
+              creativeDecisionType: 'graphic_stat_counter',
+              value: '42%',
+              label: 'retention lift',
+              sourceSpan: { text: '42% retention lift', startMs: 6000, endMs: 7200 },
+              semanticAtoms: {
+                quantity: {
+                  displayText: '42%',
+                  kind: 'percentage',
+                },
+              },
+            },
+          }),
+        ]),
+      },
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({
+            type: 'caption-emphasis',
+            frame: 188,
+            durationFrames: 36,
+            source: 'signal-executor:caption-emphasis',
+            signal: 'caption.phrase_impact',
+            confidence: 0.88,
+            params: {
+              text: 'retention lift',
+              speechRate: 150,
+              wordImportance: 0.92,
+              phraseImpact: 0.85,
+              speechPeak: 0.78,
+              negativeSpaceBottom: 0.74,
+              captionDurationMs: 1400,
+              phraseWordCount: 2,
+            },
+          }),
+        ]),
+      },
+    ]);
+
+    expect(bundle?.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(bundle?.edl.decisions[0].params.crossOverlayChoreography).toEqual(expect.objectContaining({
+      family: 'mg',
+      calibrationStatus: 'invented-needs-calibration',
+    }));
+    expect(bundle?.evidence).toEqual(expect.objectContaining({
+      primaryDecisionCount: 1,
+      signalDecisionCount: 1,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
+      crossOverlayChoreography: expect.objectContaining({
+        inputDecisionCount: 2,
+        outputDecisionCount: 1,
+        suppressedDecisionCount: 1,
+      }),
+    }));
+    expect(bundle?.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'caption-emphasis',
+        outcome: 'evidence-only',
+        source: 'signal-executor:caption-emphasis',
+        reason: 'cross-overlay-choreography:text-lane-stack',
+      }),
+    ]));
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'cross-overlay-choreography:text-lane-stack': expect.objectContaining({ count: 1 }),
+    }));
   });
   it('normalizes legacy slow-motion decisions to speed-change at the bundle boundary', () => {
     const bundle = createUnifiedDecisionBundle({

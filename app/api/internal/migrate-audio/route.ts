@@ -14,12 +14,18 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
+type AudioMigrationProject = {
+  projectId?: string;
+  overlays?: any[];
+  state?: { overlays?: any[] };
+};
+
 export async function POST(request: NextRequest) {
   try {
     const db = await getDatabase();
 
     // Find all projects that have sound overlays in state.overlays
-    const projects = await db.collection(COLLECTIONS.PROJECTS).find({
+    const projects = await db.collection<AudioMigrationProject>(COLLECTIONS.PROJECTS).find({
       'state.overlays': { $elemMatch: { type: 'sound', row: { $in: [5, 6] } } },
     }).toArray();
 
@@ -29,8 +35,8 @@ export async function POST(request: NextRequest) {
     let skipped = 0;
 
     for (const project of projects) {
-      const stateOverlays = (project as any).state?.overlays || [];
-      const topOverlays = (project as any).overlays || [];
+      const stateOverlays = project.state?.overlays || [];
+      const topOverlays = project.overlays || [];
 
       // Find audio overlays in state.overlays (BGM=row5, SFX=row6)
       const audioInState = stateOverlays.filter(
@@ -56,15 +62,15 @@ export async function POST(request: NextRequest) {
       }
 
       // Push missing audio overlays to top-level overlays
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: (project as any).projectId },
+      await db.collection<AudioMigrationProject>(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: project.projectId },
         {
           $push: { overlays: { $each: toMigrate } },
           $set: { updatedAt: new Date() },
         },
       );
 
-      console.log(`[migrate-audio] ${(project as any).projectId}: migrated ${toMigrate.length} audio overlays`);
+      console.log(`[migrate-audio] ${project.projectId}: migrated ${toMigrate.length} audio overlays`);
       migrated++;
     }
 

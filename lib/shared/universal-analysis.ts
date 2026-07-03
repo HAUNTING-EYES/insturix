@@ -24,6 +24,7 @@ export interface ContentInput {
   type: ContentType;
   url?: string;        // For media content
   content?: string;    // For text content
+  contentRef?: string; // Asset ID, URL, or stable content reference
   metadata?: Record<string, any>;
   userId: string;
   projectId?: string;

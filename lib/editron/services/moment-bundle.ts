@@ -146,6 +146,34 @@ export const MOMENT_SIGNAL_KEYS: MomentSignalKeySpec[] = [
   { key: 'visual.negative_space.left', channel: 'screen', level: 'primitive' },
   { key: 'visual.text_on_screen', channel: 'screen', level: 'primitive' },
   { key: 'visual.complexity', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.status', channel: 'system', level: 'primitive' },
+  { key: 'visual.perception.primary_mode', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.dominant_action_type', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.dominant_motion_type', channel: 'motion', level: 'primitive' },
+  { key: 'visual.perception.preferred_overlay_region', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.placement_trust', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.visual_explainability', channel: 'structure', level: 'primitive' },
+  { key: 'visual.perception.subject_presence_ratio', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.face_presence_ratio', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.text_presence_ratio', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.motion_presence_ratio', channel: 'motion', level: 'primitive' },
+  { key: 'visual.perception.screen_clutter_ratio', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.avg_viewer_value', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.avg_cut_eligibility', channel: 'structure', level: 'primitive' },
+  { key: 'visual.perception.avg_coverage_trust', channel: 'system', level: 'primitive' },
+  { key: 'visual.perception.avg_text_coverage', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.avg_object_count', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.avg_face_count', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.visible_explanation_ratio', channel: 'structure', level: 'primitive' },
+  { key: 'visual.perception.state_change_count', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.state_change_rate_per_minute', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.valuable_silent_ratio', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.broll_usefulness_ratio', channel: 'visual', level: 'primitive' },
+  { key: 'visual.perception.dead_air_ratio', channel: 'structure', level: 'primitive' },
+  { key: 'visual.perception.negative_space.top', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.negative_space.right', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.negative_space.bottom', channel: 'screen', level: 'primitive' },
+  { key: 'visual.perception.negative_space.left', channel: 'screen', level: 'primitive' },
   { key: 'composite.cinematic_moment', channel: 'structure', level: 'derived' },
   { key: 'composite.narrative_pressure', channel: 'structure', level: 'derived' },
   { key: 'composite.montage_mode', channel: 'structure', level: 'derived' },
@@ -281,6 +309,7 @@ export function momentBundleToSignalMap(bundle: AtomicMomentBundle): Record<stri
   setBundleSignal(signals, 'motion_vector_y', bundle.screen.motionVector.y);
   setBundleSignal(signals, 'word_importance', Math.max(bundle.familyIntents.captionEmphasis, bundle.familyIntents.motionGraphic));
   setBundleSignal(signals, 'topic_shift', bundle.familyIntents.transition);
+  setNegativeSpaceSignals(signals, bundle.screen.negativeSpace);
 
   if (bundle.screen.subject) {
     setBundleSignal(signals, 'main_subject_x', bundle.screen.subject.x);
@@ -290,6 +319,17 @@ export function momentBundleToSignalMap(bundle: AtomicMomentBundle): Record<stri
   }
 
   return signals;
+}
+
+function setNegativeSpaceSignals(
+  target: Record<string, unknown>,
+  negativeSpace: MomentScreenContext['negativeSpace'],
+): void {
+  if (negativeSpace.region === 'none' || negativeSpace.strength <= 0) return;
+  setBundleSignal(target, 'negative_space', negativeSpace.strength);
+  setBundleSignal(target, 'visual.negative_space', negativeSpace.strength);
+  setBundleSignal(target, `negative_space_${negativeSpace.region}`, negativeSpace.strength);
+  setBundleSignal(target, `visual.negative_space.${negativeSpace.region}`, negativeSpace.strength);
 }
 
 function setBundleSignal(target: Record<string, unknown>, key: string, value: unknown): void {
@@ -353,22 +393,39 @@ function buildMomentRhythm(
 }
 
 function buildMomentScreenContext(signal: ReturnType<typeof signalReader>): MomentScreenContext {
-  const textCoverage = signal.number('visual.text_coverage');
+  const perceptionAvailable = signal.string('visual.perception.status') === 'available';
+  const perceptionTextPressure = perceptionAvailable
+    ? Math.max(signal.number('visual.perception.avg_text_coverage'), signal.number('visual.perception.text_presence_ratio'))
+    : 0;
+  const textCoverage = perceptionFallback(signal.number('visual.text_coverage'), perceptionTextPressure, 0.75);
   const textBoxPressure = clamp01(signal.number('visual.text_box_count') / 4);
-  const objectPressure = clamp01(signal.number('visual.object_count') / 8);
+  const objectPressure = perceptionFallback(
+    clamp01(signal.number('visual.object_count') / 8),
+    perceptionAvailable ? clamp01(signal.number('visual.perception.avg_object_count') / 8) : 0,
+    0.65,
+  );
   const complexity = signal.number('visual.complexity');
-  const faceCount = clamp01(signal.number('visual.face_count') / 3);
+  const perceptionClutter = perceptionAvailable ? signal.number('visual.perception.screen_clutter_ratio') : 0;
+  const faceCount = perceptionFallback(
+    clamp01(signal.number('visual.face_count') / 3),
+    perceptionAvailable ? Math.max(signal.number('visual.perception.face_presence_ratio'), clamp01(signal.number('visual.perception.avg_face_count') / 3)) : 0,
+    0.75,
+  );
   const facePresent = Math.max(signal.number('visual.face_present'), faceCount);
   const eyeContact = signal.number('visual.eye_contact');
-  const visualSalience = Math.max(signal.number('visual.significance'), signal.number('composite.cinematic_moment') * 0.8);
+  const perceptionViewerValue = perceptionAvailable ? signal.number('visual.perception.avg_viewer_value') : 0;
+  const visualSalience = Math.max(signal.number('visual.significance'), signal.number('composite.cinematic_moment') * 0.8, perceptionViewerValue * 0.75);
   const motionX = signal.signedNumber('visual.motion_vector.x');
   const motionY = signal.signedNumber('visual.motion_vector.y');
   const motionMagnitude = clamp01(Math.hypot(motionX, motionY));
-  const motionPressure = Math.max(signal.number('visual.motion_intensity'), motionMagnitude);
+  const motionPressure = Math.max(
+    perceptionFallback(signal.number('visual.motion_intensity'), perceptionAvailable ? signal.number('visual.perception.motion_presence_ratio') : 0, 0.7),
+    motionMagnitude,
+  );
   const negativeSpace = strongestNegativeSpace(signal);
 
   return {
-    busyness: clamp01(Math.max(textCoverage, textBoxPressure, objectPressure, complexity)),
+    busyness: clamp01(Math.max(textCoverage, textBoxPressure, objectPressure, complexity, perceptionClutter * 0.8)),
     legibilityRisk: clamp01(Math.max(textCoverage, textBoxPressure, complexity * 0.75)),
     humanAttention: clamp01(Math.max(facePresent, eyeContact)),
     visualSalience,
@@ -444,6 +501,13 @@ function signalReader(snapshot: SignalSnapshot | Record<string, unknown> | undef
       }
       return 0;
     },
+    string: (...keys: string[]) => {
+      for (const key of keys) {
+        const value = source[key];
+        if (typeof value === 'string' && value.trim().length > 0) return value;
+      }
+      return '';
+    },
   };
 }
 
@@ -455,7 +519,28 @@ function strongestNegativeSpace(signal: ReturnType<typeof signalReader>): Moment
     ['left', signal.number('visual.negative_space.left')],
   ] as const;
   const [region, strength] = regions.reduce((best, candidate) => candidate[1] > best[1] ? candidate : best);
+  if (strength > 0) return { region, strength };
+
+  return strongestTrustedPerceptionNegativeSpace(signal);
+}
+
+function strongestTrustedPerceptionNegativeSpace(signal: ReturnType<typeof signalReader>): MomentScreenContext['negativeSpace'] {
+  if (signal.string('visual.perception.placement_trust') !== 'trusted') {
+    return { region: 'none', strength: 0 };
+  }
+  const regions = [
+    ['top', signal.number('visual.perception.negative_space.top')],
+    ['right', signal.number('visual.perception.negative_space.right')],
+    ['bottom', signal.number('visual.perception.negative_space.bottom')],
+    ['left', signal.number('visual.perception.negative_space.left')],
+  ] as const;
+  const [region, strength] = regions.reduce((best, candidate) => candidate[1] > best[1] ? candidate : best);
   return strength > 0 ? { region, strength } : { region: 'none', strength: 0 };
+}
+
+function perceptionFallback(primary: number, fallback: number, confidence: number): number {
+  if (primary > 0) return primary;
+  return clamp01(fallback * confidence);
 }
 
 function subjectFromSignal(signal: ReturnType<typeof signalReader>): MomentScreenContext['subject'] {

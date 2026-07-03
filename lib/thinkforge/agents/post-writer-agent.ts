@@ -34,8 +34,22 @@ export const PostWriterResultSchema = z.object({
 
 export type PostWriterResult = z.infer<typeof PostWriterResultSchema>;
 
+/**
+ * Edit framing for the revise-existing-content path (P5). When present, the writer REVISES
+ * `existingContent` per `instruction` and returns the COMPLETE revised post in the same
+ * PostWriterResult shape. Opt-in: absent editContext = unchanged from-scratch behavior.
+ */
+export interface PostWriterEditContext {
+  existingContent: string;
+  instruction: string;
+  selection?: string;
+  focusHint?: string;
+}
+
 export interface PostWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
+  /** When set, switches the writer into edit/revise mode (see PostWriterEditContext). */
+  editContext?: PostWriterEditContext;
 }
 
 const POST_CTA_PATTERN =
@@ -101,7 +115,7 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   }
 
   buildPrompt(input: PostWriterInput): string {
-    const { context, userPrompt, retrievedContext } = input;
+    const { context, userPrompt, retrievedContext, editContext } = input;
     const platform = detectPlatform(userPrompt, undefined, context.projectSummary);
     const outputFormat = buildPostOutputFormat(platform);
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
@@ -124,7 +138,9 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
     );
 
     return `<role>You are an elite ${platform} copywriter and content strategist.</role>
-<task>Write ONE final, publishable post for the detected platform. Return JSON that matches the schema exactly.</task>
+<task>${editContext
+      ? 'REVISE the existing post per the requested change and return the COMPLETE revised post'
+      : 'Write ONE final, publishable post for the detected platform'}. Return JSON that matches the schema exactly.</task>
 
 <rules>
 SOURCE-LEDGER
@@ -152,7 +168,15 @@ VISUAL HANDOFF
 - Image prompts must carry the same source facts as the post and include editable overlay text when text appears.
 </rules>
 
-${writingBlock ? `${writingBlock}\n\n` : ''}${outputFormat}
+${editContext ? `<current_post>
+${editContext.existingContent || '(the current post is empty)'}
+</current_post>
+<edit_task>
+Requested change: ${editContext.instruction}${editContext.selection ? `\nTargeted selection: "${editContext.selection}"` : ''}${editContext.focusHint ? `\nFocus: ${editContext.focusHint}` : ''}
+Return the ENTIRE revised post in the content field (not a diff). Keep everything the change does not touch, preserve all supplied facts verbatim, and keep the platform format, hook, CTA, and hashtags.
+</edit_task>
+
+` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${outputFormat}
 
 <input_data>
 Project Summary:

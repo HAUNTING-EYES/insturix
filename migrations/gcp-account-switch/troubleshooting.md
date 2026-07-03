@@ -114,7 +114,7 @@ Commit the new `package-lock.json` and redeploy.
 **Cause:** `MONGODB_URI` env var not set or wrong password.
 **Fix:**
 ```bash
-export MONGODB_URI="mongodb+srv://admin:PASSWORD@main-cluster..."
+export MONGODB_URI="mongodb+srv://<user>:<password>@main-cluster..."
 node phase-6-mongodb-url-rewrite.mjs
 ```
 

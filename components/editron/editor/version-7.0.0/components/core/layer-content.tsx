@@ -10,6 +10,7 @@ import { StickerLayerContent } from "../overlays/stickers/sticker-layer-content"
 import { HtmlSceneLayerContent } from "../overlays/html/html-scene-layer-content";
 import { TransitionLayerContent } from "../overlays/transitions/transition-layer-content";
 import { MotionGraphicLayerContent } from "../overlays/motion-graphic/motion-graphic-layer-content";
+import { GeneratedSceneLayerContent } from "./generated-scene-layer-content";
 
 /**
  * Props for the LayerContent component
@@ -114,6 +115,13 @@ export const LayerContent: React.FC<LayerContentProps> = ({
         </div>
       );
 
+
+    case OverlayType.GENERATED_SCENE:
+      return (
+        <div style={{ ...commonStyle }}>
+          <GeneratedSceneLayerContent overlay={overlay as any} />
+        </div>
+      );
     case OverlayType.SOUND:
       return <SoundLayerContent overlay={overlay} baseUrl={baseUrl} />;
 

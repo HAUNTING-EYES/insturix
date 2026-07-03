@@ -24,6 +24,55 @@ import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // gemini-3.1-pro-preview needs more time for complex multi-scene scripts
+const EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS = 24_000;
+const SCRIPT_TRUNCATED_SENTINEL = 'SCRIPT_TRUNCATED';
+const MAX_TARGET_DURATION_SECONDS = 60 * 60;
+
+type TargetDurationSource = 'request' | 'script-explicit' | 'unknown';
+
+function isParserSentinelScene(scene: Pick<SceneDescriptor, 'title'>): boolean {
+  return scene.title?.trim().toUpperCase() === SCRIPT_TRUNCATED_SENTINEL;
+}
+
+function durationUnitToSeconds(value: number, unit: string): number {
+  const normalized = unit.toLowerCase();
+  if (/^h|hours?|hrs?$/.test(normalized)) return value * 3600;
+  if (/^m|minutes?|mins?$/.test(normalized)) return value * 60;
+  return value;
+}
+
+function normalizeDurationSeconds(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  return Math.min(MAX_TARGET_DURATION_SECONDS, Math.max(1, Math.round(numeric)));
+}
+
+function inferTargetDurationFromScript(scriptText: string): { seconds?: number; source: TargetDurationSource } {
+  const cueMatch = scriptText.match(
+    /\b(?:target\s*)?(?:duration|runtime|run time|length|video length|total duration)\s*[:=-]?\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)\b/i,
+  );
+  const trailingMatch = scriptText.match(
+    /\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)\s+(?:video|film|edit|piece|script)\b/i,
+  );
+  const match = cueMatch || trailingMatch;
+  if (!match) return { source: 'unknown' };
+
+  const amount = Number(match[1]);
+  const unit = match[2];
+  const seconds = normalizeDurationSeconds(durationUnitToSeconds(amount, unit));
+  return seconds ? { seconds, source: 'script-explicit' } : { source: 'unknown' };
+}
+
+function countExpectedVideoClips(scenes: SceneDescriptor[]): number {
+  return scenes.reduce((count, scene) => {
+    const assetRecommendation = (scene as any).assetRecommendation;
+    if (assetRecommendation && assetRecommendation !== 'ai-video') return count;
+
+    const subShots = Array.isArray((scene as any).subShots) ? (scene as any).subShots : [];
+    const independentSubShots = subShots.filter((subShot: any) => subShot?.independentGeneration === true);
+    return count + Math.max(1, independentSubShots.length);
+  }, 0);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +82,18 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { sessionId, scriptId, blocks, plainText, cir, aspectRatio, artStyle, brandId } = body;
+    const {
+      sessionId,
+      scriptId,
+      blocks,
+      plainText,
+      cir,
+      aspectRatio,
+      artStyle,
+      brandId,
+      targetDurationSeconds: requestedTargetDurationSeconds,
+      targetDuration,
+    } = body;
 
     let scenes: SceneDescriptor[] | undefined;
     let title = 'Untitled Script';
@@ -89,8 +149,8 @@ export async function POST(request: NextRequest) {
       title = cir.title || 'Untitled Script';
     } else if (plainText && typeof plainText === 'string') {
       rawContent = plainText;
-      const firstLine = plainText.split('\n')[0]?.replace(/^#+\s*/, '').trim();
-      if (firstLine) title = firstLine.substring(0, 100);
+      const headingTitle = plainText.split('\n')[0]?.match(/^#{1,3}\s+(.+)$/)?.[1]?.trim();
+      if (headingTitle) title = headingTitle.substring(0, 100);
     } else {
       return NextResponse.json(
         {
@@ -101,6 +161,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const requestTargetDurationSeconds =
+      normalizeDurationSeconds(requestedTargetDurationSeconds) ?? normalizeDurationSeconds(targetDuration);
+    const scriptTargetDuration = requestTargetDurationSeconds
+      ? { seconds: requestTargetDurationSeconds, source: 'request' as TargetDurationSource }
+      : inferTargetDurationFromScript(rawContent);
+    const targetDurationSeconds = scriptTargetDuration.seconds;
+    const targetDurationSource = scriptTargetDuration.source;
+
+    if (rawContent.length > EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS) {
+      const diagnostic = {
+        rawContentLength: rawContent.length,
+        maxParserInputChars: EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS,
+        hasBlocks: Array.isArray(blocks) && blocks.length > 0,
+        hasPlainText: !!plainText,
+        hasCir: !!cir,
+      };
+      console.error('[export-for-editron] 422: Script exceeds LLM parser input limit. Diagnostic:', JSON.stringify(diagnostic));
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Script is too long to parse safely for Editron export. Split it into shorter sections and export again.',
+          reason: 'script-too-long-for-parser',
+          retryable: false,
+          diagnostic,
+        },
+        { status: 422 },
+      );
+    }
     // ─── Try LLM parser first (Gemini Flash) ───────────────────
     const llmAvailable = isLLMParserAvailable();
     const rawContentLength = rawContent.length;
@@ -112,12 +200,13 @@ export async function POST(request: NextRequest) {
         const llmResult = await parseScriptWithLLM(rawContent, {
           aspectRatio,
           artStyle,
+          ...(targetDurationSeconds ? { targetDuration: targetDurationSeconds } : {}),
           brandId,
           userId,
         });
 
         // Map LLM output to SceneDescriptor format (pass through all LLM-generated fields)
-        scenes = llmResult.scenes.map((s, i) => ({
+        const parsedScenes: SceneDescriptor[] = llmResult.scenes.map((s: any, i: number) => ({
           sceneIndex: i,
           title: s.title,
           narration: s.narration,
@@ -143,6 +232,7 @@ export async function POST(request: NextRequest) {
           ...((s as any).primaryVisualForUnit !== undefined && { primaryVisualForUnit: (s as any).primaryVisualForUnit }),
           ...((s as any).assetRecommendation && { assetRecommendation: (s as any).assetRecommendation }),
         }));
+        scenes = parsedScenes;
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
         characterDescriptions = llmResult.characterDescriptions || {};
         colorPalette = llmResult.colorPalette || [];
@@ -151,7 +241,7 @@ export async function POST(request: NextRequest) {
         // LLM-suggested profile category for detection filtering (2026-04-17)
         suggestedProfileCategory = (llmResult as any).suggestedProfileCategory || '';
 
-        console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
+        console.log(`[export-for-editron] LLM parsed ${parsedScenes.length} scenes`);
       } catch (llmError: any) {
         // Log the FULL error (not just message) so we can see 401s, model-not-found, rate limits, etc.
         console.error('[export-for-editron] LLM parsing FAILED:', {
@@ -195,7 +285,7 @@ export async function POST(request: NextRequest) {
         hasCir: !!cir,
         parserFallback,
         parserFallbackReason: parserFallbackReason || undefined,
-        rawContentPreview: rawContent.substring(0, 200) || '(empty)',
+        rawContentEmpty: rawContent.length === 0,
       };
       console.error('[export-for-editron] 422: No scenes extracted. Diagnostic:', JSON.stringify(diagnostic));
       return NextResponse.json(
@@ -208,6 +298,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const sentinelScenes = scenes.filter(isParserSentinelScene);
+    if (sentinelScenes.length > 0) {
+      const diagnostic = {
+        reason: 'parser-returned-sentinel-scene',
+        sentinelSceneIndexes: sentinelScenes.map((scene) => scene.sceneIndex ?? 0),
+        totalScenes: scenes.length,
+      };
+      console.error('[export-for-editron] 422: Parser returned sentinel scene. Diagnostic:', JSON.stringify(diagnostic));
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Script parsing produced an internal truncation marker instead of a real scene. Split the script into shorter sections and retry.',
+          reason: 'parser-sentinel-scene',
+          retryable: false,
+          diagnostic,
+        },
+        { status: 422 },
+      );
+    }
     // ─── Parser output quality validation (Rule 2N: No Fallbacks as Solutions) ─────
     //
     // When the LLM parser fails (timeout, API error), the regex fallback runs.
@@ -296,19 +405,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const totalDurationSeconds = scenes.reduce((sum, s) => sum + (Number(s.durationSeconds) || 0), 0);
+    const productionManifest = {
+      version: 1,
+      sourceService: 'thinkforge',
+      sourceSessionId: typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : undefined,
+      sourceScriptId: typeof scriptId === 'string' && scriptId.trim() ? scriptId.trim() : undefined,
+      targetDurationSeconds: targetDurationSeconds ?? null,
+      targetDurationSource,
+      parsedDurationSeconds: Math.round(totalDurationSeconds),
+      expectedSceneCount: scenes.length,
+      expectedStoryboardImages: scenes.length,
+      expectedVideoClips: countExpectedVideoClips(scenes),
+      coveragePolicy: 'production-require-all-scenes',
+      parser: {
+        llmAvailable,
+        fallbackUsed: parserFallback,
+        fallbackReason: parserFallbackReason || undefined,
+        inputLength: rawContentLength,
+        maxInputChars: EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS,
+      },
+      warnings: targetDurationSeconds
+        ? []
+        : ['target-duration-missing-parser-used-short-form-defaults'],
+    };
+
     return NextResponse.json({
       success: true,
       title,
       scenes,
       sceneCount: scenes.length,
-      totalDurationSeconds: scenes.reduce((sum, s) => sum + s.durationSeconds, 0),
+      totalDurationSeconds,
+      productionManifest,
       overallMusicPrompt,
       characterDescriptions,
       colorPalette,
       environmentNotes,
       globalEditDirections,
       suggestedProfileCategory,
-      rawContent: rawContent.substring(0, 5000),
       // H1 FIX: Notify frontend when LLM parser failed and regex fallback was used
       ...(parserFallback && { parserFallback: true, parserFallbackReason }),
     });

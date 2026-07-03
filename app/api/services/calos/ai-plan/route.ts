@@ -15,12 +15,13 @@ import type { Trend } from "@/lib/calos/trends/types";
 import { proposePlan } from "@/lib/calos/planner";
 import { DEFAULT_OBJECTIVE, type CalosObjective } from "@/lib/calos/campaign-intent";
 import { calosScope } from "@/lib/calos/scope";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // LLM call — needs headroom beyond the default route timeout.
 
 /**
- * POST /api/services/calos/ai-plan  { brandId, campaignId?, from, to }
+ * POST /api/services/calos/ai-plan  { brandId, campaignId?, from, to, trendLocation? }
  *
  * AI-proposed plan: build the cadence skeleton, fetch brand-niche trends, ask the planner to draft
  * one on-brand idea per slot (repurposing trends where they fit), and persist them as DRAFT
@@ -32,12 +33,26 @@ export const maxDuration = 60; // LLM call — needs headroom beyond the default
  * created-vs-slots in the response, not hidden).
  */
 export async function POST(req: NextRequest) {
+  let creditCheck: CreditCheckResult | null = null;
+  let creditsDeducted = false;
+  const refundAiPlanCredits = async (reason: string) => {
+    if (!creditCheck || !creditsDeducted) return;
+    try {
+      await creditCheck.refund(reason);
+    } catch (refundError) {
+      console.error("[CalOS] ai-plan credit refund failed:", refundError);
+    } finally {
+      creditsDeducted = false;
+    }
+  };
+
   try {
     const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { brandId, campaignId, from, to } = body;
+    const { brandId, campaignId, from, to, trendLocation: rawTrendLocation, location } = body;
+    const trendLocation = sanitizeTrendLocation(rawTrendLocation ?? location);
     if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
 
     const fromDate = typeof from === "string" ? parseISO(from) : null;
@@ -89,6 +104,11 @@ export async function POST(req: NextRequest) {
     }
     const slots = proposals.map((p) => ({ date: p.date, platform: p.platform }));
 
+    creditCheck = await checkCredits(userId, "calos", "ai_plan");
+    if (!creditCheck.allowed) return creditCheck.errorResponse!;
+    await creditCheck.deduct();
+    creditsDeducted = true;
+
     // Avoid repeating ideas already planned for this brand (across months + re-runs). Org-scoped so
     // the planner dedupes against the whole team's calendar, not just the acting user's cards.
     const existingDocs = await CalosDeliverable.find({
@@ -128,7 +148,7 @@ export async function POST(req: NextRequest) {
     let trends: Trend[] = [];
     try {
       if (provider.available()) {
-        trends = await provider.getTrends({ niche, brandId, limit: 12 });
+        trends = await provider.getTrends({ niche, brandId, limit: 12, location: trendLocation });
       }
     } catch (e) {
       console.warn("[CalOS] ai-plan trends fetch failed, continuing without trends:", e);
@@ -149,6 +169,7 @@ export async function POST(req: NextRequest) {
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI planner unavailable";
+      await refundAiPlanCredits(`CalOS AI plan failed: ${msg}`);
       return NextResponse.json(
         { error: msg, hint: "Use Auto-fill for a cadence-only plan, or set GEMINI_API_KEY." },
         { status: 422 },
@@ -197,11 +218,18 @@ export async function POST(req: NextRequest) {
         slots: slots.length,
         trendsUsed: trends.length,
         provider: provider.name,
+        trendLocation: trendLocation ?? null,
       },
       { status: 201 },
     );
   } catch (error) {
+    await refundAiPlanCredits(error instanceof Error ? error.message : "CalOS AI plan failed");
     console.error("[CalOS] ai-plan error:", error);
     return NextResponse.json({ error: "Failed to generate AI plan" }, { status: 500 });
   }
+}
+function sanitizeTrendLocation(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
 }

@@ -4,7 +4,7 @@ import { Types } from "mongoose";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign from "@/schemas/calos-campaign";
 import { isCalosObjective } from "@/lib/calos/campaign-intent";
-import { calosScope } from "@/lib/calos/scope";
+import { parseCampaignCadenceRules } from "@/lib/calos/campaign-cadence";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ type RouteParams = { params: Promise<{ id: string }> };
  */
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const { userId, orgId } = await auth();
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -28,17 +28,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!brandId) {
       return NextResponse.json({ error: "brandId is required" }, { status: 400 });
     }
-    if (!updates || typeof updates !== "object") {
+    if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
       return NextResponse.json({ error: "updates are required" }, { status: 400 });
     }
     if (!Types.ObjectId.isValid(id)) {
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
 
+    const updatePayload = updates as Record<string, unknown>;
+    const parsedCadence = Object.prototype.hasOwnProperty.call(updatePayload, "cadenceRules")
+      ? parseCampaignCadenceRules(updatePayload.cadenceRules)
+      : null;
+    if (parsedCadence && !parsedCadence.ok) {
+      return NextResponse.json({ error: parsedCadence.error }, { status: 400 });
+    }
+
     await connectToDatabase();
     const campaign = await CalosCampaign.findOne({
       _id: id,
-      ...calosScope({ userId, orgId }, brandId),
+      ownerUserId: userId,
+      brandId,
       deletedAt: null,
     });
     if (!campaign) {
@@ -53,7 +62,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (updates.status === "draft" || updates.status === "active" || updates.status === "archived") {
       campaign.status = updates.status;
     }
-    if (Array.isArray(updates.cadenceRules)) campaign.cadenceRules = updates.cadenceRules;
+    if (parsedCadence) campaign.cadenceRules = parsedCadence.rules;
     if (updates.startDate !== undefined) campaign.startDate = updates.startDate ?? null;
     if (updates.endDate !== undefined) campaign.endDate = updates.endDate ?? null;
     await campaign.save();
@@ -71,7 +80,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
  */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const { userId, orgId } = await auth();
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -89,7 +98,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     await connectToDatabase();
     const campaign = await CalosCampaign.findOne({
       _id: id,
-      ...calosScope({ userId, orgId }, brandId),
+      ownerUserId: userId,
+      brandId,
       deletedAt: null,
     });
     if (!campaign) {

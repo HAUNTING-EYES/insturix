@@ -67,8 +67,11 @@ function marksToStyles(marks: TiptapMark[] | undefined): Record<string, boolean>
 function extractLinkHref(marks: TiptapMark[] | undefined): string | null {
   if (!marks) return null;
   const linkMark = marks.find(m => m.type === 'link');
-  if (linkMark && 'attrs' in linkMark && linkMark.attrs?.href) {
-    return linkMark.attrs.href;
+  const attrs = linkMark && 'attrs' in linkMark && linkMark.attrs && typeof linkMark.attrs === 'object'
+    ? linkMark.attrs as Record<string, unknown>
+    : null;
+  if (typeof attrs?.href === 'string') {
+    return attrs.href;
   }
   return null;
 }
@@ -255,11 +258,14 @@ function tiptapNodeToBlock(node: TiptapBlockContent, index: number): ThinkForgeB
     case 'bulletList':
     case 'orderedList': {
       // Flatten list items into paragraphs
-      const listItems = 'content' in node && Array.isArray(node.content) ? node.content : [];
+      const listItems: Array<{ content?: unknown }> =
+        'content' in node && Array.isArray(node.content)
+          ? node.content as Array<{ content?: unknown }>
+          : [];
       const allContent: RichTextNode[] = [];
       
       for (const item of listItems) {
-        if ('content' in item && Array.isArray(item.content)) {
+        if (item && typeof item === 'object' && Array.isArray(item.content)) {
           const itemContent = extractTextFromBlockContent(item.content as TiptapBlockContent[]);
           allContent.push(...itemContent);
           // Add newline between items

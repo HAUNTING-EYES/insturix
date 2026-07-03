@@ -34,7 +34,17 @@ const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'editron-cdn';
-const CDN_WORKER_URL = process.env.CDN_WORKER_URL;
+const CDN_WORKER_URL = normalizeCdnWorkerUrl(process.env.CDN_WORKER_URL);
+
+function normalizeCdnWorkerUrl(value: string | undefined): string | undefined {
+  const normalized = value
+    ?.trim()
+    .replace(/\\r|\\n/g, '')
+    .replace(/[\r\n\t]/g, '')
+    .replace(/\/+$/, '');
+
+  return normalized || undefined;
+}
 
 /**
  * Check if R2 is configured. If not, callers should fall back to GCS.
@@ -167,6 +177,25 @@ export async function r2FileExists(r2Key: string): Promise<boolean> {
     }));
     return true;
   } catch (err: unknown) { console.warn('[R2] r2FileExists check failed:', err instanceof Error ? err.message : err); return false; }
+}
+
+/**
+ * Get the actual byte size of an R2 object via an authoritative HeadObject (direct to storage,
+ * NOT the CDN Worker proxy which the register route notes is unreliable for HEAD).
+ * Returns null if the object is missing or the size can't be read — callers fail open on null.
+ */
+export async function getR2ObjectSize(r2Key: string): Promise<number | null> {
+  try {
+    const client = getS3Client();
+    const res = await client.send(new HeadObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: r2Key,
+    }));
+    return typeof res.ContentLength === 'number' ? res.ContentLength : null;
+  } catch (err: unknown) {
+    console.warn('[R2] getR2ObjectSize failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 // ─── URL Helpers ──────────────────────────────────────────────────

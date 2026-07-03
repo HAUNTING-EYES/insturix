@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,9 @@ import {
   buildFrameAwareOverlayReceipt,
   buildOverlayOnlyRenderOverlays,
   changedPixelBounds,
+  evaluateSaasMotionVarietyGate,
   hydratePhase0RenderArtifactPackForTaxonomy,
+  imageMotionDelta,
   normalizeRenderedAestheticSamplePlan,
   overlayOnlyBlankImageJustification,
   pickRenderedAestheticSampleFrames,
@@ -92,6 +94,73 @@ describe('rendered aesthetic harness helpers', () => {
     ], 1080, 1920);
 
     expect(overlays.map((overlay) => overlay.id)).toEqual([3, 4, 5]);
+  });
+
+  it('samples generated scenes as auditable visual overlays', () => {
+    const generatedScene = generatedSceneOverlay({ id: 21, from: 0, durationInFrames: 90 });
+    const samples = planRenderedAestheticSamples([
+      generatedScene,
+      soundOverlay({ id: 22, from: 0, durationInFrames: 90 }),
+    ], 120, 12);
+    const renderOverlays = buildOverlayOnlyRenderOverlays([
+      generatedScene,
+      soundOverlay({ id: 22, from: 0, durationInFrames: 90 }),
+    ], 1920, 1080);
+
+    expect(samples.some((sample) => sample.sourceOverlayTypes.includes('generated-scene'))).toBe(true);
+    expect(renderOverlays.map((overlay) => overlay.id)).toEqual([21]);
+  });
+
+  it('fails SaaS motion variety when SaaS generated scenes repeat or dominate the sequence', () => {
+    const issues = evaluateSaasMotionVarietyGate([
+      generatedSceneOverlay({ id: 31, from: 0, sceneFamily: 'hook' }),
+      generatedSceneOverlay({ id: 32, from: 60, sceneFamily: 'feature_demo' }),
+      generatedSceneOverlay({ id: 33, from: 120, sceneFamily: 'feature_demo' }),
+    ]);
+
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        gateId: 'G8_motion_variety',
+        dimension: 'motion',
+        severity: 'fail',
+        overlayId: 33,
+        relatedOverlayId: 32,
+        message: 'SaaS scene variety repeats feature_demo consecutively',
+        evidence: 'sequence=hook > feature_demo > feature_demo',
+      }),
+      expect.objectContaining({
+        gateId: 'G8_motion_variety',
+        dimension: 'motion',
+        severity: 'fail',
+        message: 'SaaS scene variety overuses feature_demo',
+        evidence: 'count=2/3; share=0.667; sequence=hook > feature_demo > feature_demo',
+      }),
+    ]));
+  });
+
+  it('passes SaaS motion variety for varied generated scene forms', () => {
+    const issues = evaluateSaasMotionVarietyGate([
+      generatedSceneOverlay({ id: 41, from: 0, visualArchetype: 'TYPE_ONLY', sceneFamily: 'hook' }),
+      generatedSceneOverlay({ id: 42, from: 60, visualArchetype: 'UI_FRAMED', sceneFamily: 'feature_demo' }),
+      generatedSceneOverlay({ id: 43, from: 120, visualArchetype: 'DATA_VIZ', sceneFamily: 'proof_metric' }),
+    ]);
+
+    expect(issues).toEqual([]);
+  });
+  it('merges manual benchmark frames with animation-state samples', () => {
+    const samples = resolveRenderedAestheticSamplePlan({
+      durationInFrames: 240,
+      sampleFrames: [0, 90, 150],
+    }, [generatedSceneOverlay({ id: 21, from: 0, durationInFrames: 180 })], { maxSamples: 5 });
+
+    expect(samples.map((sample) => [sample.frame, sample.roles])).toEqual([
+      [0, ['manual']],
+      [8, ['entry-settle']],
+      [90, ['manual']],
+      [150, ['manual']],
+      [172, ['exit-prep']],
+    ]);
+    expect(samples.filter((sample) => sample.roles.some((role) => role !== 'manual' && role !== 'hold'))).toHaveLength(2);
   });
 
   it('keeps zoom and SFX in the sample plan without adding them to overlay-only still renders', () => {
@@ -325,6 +394,27 @@ describe('rendered aesthetic harness helpers', () => {
     });
   });
 
+  it('measures frame-to-frame motion delta from actual pixels', () => {
+    const first = rawImage(10, 10);
+    const same = rawImage(10, 10);
+    const moved = rawImage(10, 10);
+    paintPixel(moved, 4, 3, [255, 255, 255, 255]);
+    paintPixel(moved, 5, 4, [255, 255, 255, 255]);
+
+    expect(imageMotionDelta(first, same, 8, 14)).toEqual({
+      fromFrame: 8,
+      toFrame: 14,
+      changedPixelRatio: 0,
+      meanAbsoluteLumaDelta: 0,
+      sampledPixels: 100,
+    });
+
+    const delta = imageMotionDelta(first, moved, 8, 14);
+    expect(delta.changedPixelRatio).toBeGreaterThan(0);
+    expect(delta.meanAbsoluteLumaDelta).toBeGreaterThan(0);
+    expect(delta.sampledPixels).toBe(100);
+  });
+
   it('scores captions from the active frame words instead of the whole-video caption file', () => {
     const overlay = captionOverlay({
       id: 8,
@@ -447,6 +537,64 @@ describe('rendered aesthetic harness helpers', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('hydrates Phase 0 artifact packs whose render input path is cwd-relative', () => {
+    const root = path.join(process.cwd(), '.calibration-temp', 'phase0-live-path-test');
+    mkdirSync(root, { recursive: true });
+    const tempDir = mkdtempSync(path.join(root, 'run-'));
+    try {
+      const renderInputPath = path.join(tempDir, 'render-input.json');
+      writeFileSync(renderInputPath, JSON.stringify({
+        projectId: 'proj_phase0_live',
+        tag: 'proj-phase0-live',
+        width: 1080,
+        height: 1920,
+        fps: 30,
+        durationInFrames: 90,
+        overlays: [textOverlay({ id: 45 })],
+      }), 'utf8');
+
+      const cwdRelativeRenderInputPath = path.relative(process.cwd(), renderInputPath);
+      const hydrated = hydratePhase0RenderArtifactPackForTaxonomy({
+        version: 'editron-phase0-render-artifact-pack-v1',
+        projectId: 'proj_phase0_live',
+        status: 'ready',
+        issues: [],
+        artifactDir: tempDir,
+        paths: {
+          renderInput: cwdRelativeRenderInputPath,
+          renderedAestheticDir: path.join(tempDir, 'rendered-aesthetic'),
+          renderedAestheticJson: path.join(tempDir, 'rendered-aesthetic', 'rendered-aesthetic.json'),
+          renderedAestheticHtml: path.join(tempDir, 'rendered-aesthetic', 'report.html'),
+        },
+        renderCommand: '',
+        familyCoverage: {
+          auditedOverlayTypes: ['text'],
+          auditedVisualTypes: ['text'],
+          auditedMotionTypes: [],
+          auditedAudioTypes: [],
+          requiredFamilies: [],
+          auditedVisualCount: 1,
+          auditedMotionCount: 0,
+          auditedAudioCount: 0,
+          auditedOverlayCount: 1,
+          counts: { text: 1 },
+          countsByFamily: { text: 1 },
+          presentAuditedFamilies: ['text'],
+          missingAuditedFamilies: [],
+          presentRequiredFamilies: [],
+          missingRequiredFamilies: [],
+          evidenceCompleteness: {},
+          incompleteFamilies: [],
+        },
+      } as any, tempDir);
+
+      expect(hydrated.renderInput.overlays).toHaveLength(1);
+      expect(hydrated.renderInput.overlays[0]?.id).toBe(45);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 interface OverlayFixtureInput {
@@ -463,6 +611,8 @@ interface OverlayFixtureInput {
   keyframeTracks?: KeyframeTrack[];
   clipAId?: number | string;
   clipBId?: number | string;
+  sceneFamily?: string;
+  visualArchetype?: string;
 }
 
 function baseOverlay(input: OverlayFixtureInput & { type: OverlayType }): Overlay {
@@ -590,6 +740,28 @@ function motionGraphicOverlay(input: OverlayFixtureInput & { id: number }): Over
   } as unknown as Overlay;
 }
 
+function generatedSceneOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
+  return {
+    ...baseOverlay({
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      ...input,
+      type: OverlayType.GENERATED_SCENE,
+    }),
+    content: 'Generated SaaS scene',
+    sceneModel: {
+      schemaVersion: 'saas-generated-scene/v1',
+      familyPlan: {
+        family: input.sceneFamily ?? 'hook',
+        ...(input.visualArchetype ? { visualArchetype: input.visualArchetype } : {}),
+      },
+    },
+    metadata: { sourceType: 'saas-explainer-generated-scene' },
+  } as unknown as Overlay;
+}
+
 function captionText(text: string, startMs: number, endMs: number) {
   const parts = text.split(/\s+/).filter(Boolean);
   const step = Math.max(1, (endMs - startMs) / Math.max(1, parts.length));
@@ -684,7 +856,9 @@ function fakeHarnessReport(): RenderedAestheticHarnessReport {
       failFrames: 1,
       sampledFrames: 1,
       animationSampleFrames: 1,
+      projectIssueCount: 0,
     },
+    projectIssues: [],
     frames: [{
       frame: 18,
       sample: {
@@ -735,6 +909,7 @@ function fakeHarnessReport(): RenderedAestheticHarnessReport {
           overlap: 1,
           text: 1,
           contrast: 0.82,
+          motion: 1,
           clutter: 1,
           'motion-graphic': 1,
         },

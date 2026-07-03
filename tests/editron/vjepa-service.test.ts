@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { analyzeVideoWithVjepa, buildVjepaCoverageSegments } from '../../lib/editron/services/vjepa-service';
+import { analyzeVideoWithVjepa, buildVjepaCoverageSegments, chooseVjepaFrameSampleCount } from '../../lib/editron/services/vjepa-service';
 
 const originalFetch = globalThis.fetch;
 const originalTokenId = process.env.MODAL_TOKEN_ID;
@@ -53,6 +53,41 @@ describe('V-JEPA service segment coverage', () => {
     expect(buildVjepaCoverageSegments(undefined, [])).toEqual([]);
   });
 
+  it('chooses adaptive frame samples for long V-JEPA segment sets', () => {
+    expect(chooseVjepaFrameSampleCount(20)).toBe(64);
+    expect(chooseVjepaFrameSampleCount(80)).toBe(48);
+    expect(chooseVjepaFrameSampleCount(160)).toBe(32);
+    expect(chooseVjepaFrameSampleCount(220)).toBe(24);
+  });
+
+  it('sends the adaptive frame sample cap to Modal requests', async () => {
+    process.env.MODAL_TOKEN_ID = 'test-token-id';
+    process.env.MODAL_TOKEN_SECRET = 'test-token-secret';
+    const requestSegments = Array.from({ length: 220 }, (_, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+    }));
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        segments?: Array<{ start_ms: number; end_ms: number }>;
+        max_frames_per_segment?: number;
+      };
+      return successfulVjepaResponse(body.segments ?? []);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await analyzeVideoWithVjepa('https://example.com/video.mp4', requestSegments);
+
+    expect(result?.frameSampleCount).toBe(24);
+    expect(result?.segments).toHaveLength(220);
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}')) as {
+        max_frames_per_segment?: number;
+      };
+      expect(body.max_frames_per_segment).toBe(24);
+    }
+  });
   it('retries a failed large Modal request as smaller batches before dropping V-JEPA', async () => {
     process.env.MODAL_TOKEN_ID = 'test-token-id';
     process.env.MODAL_TOKEN_SECRET = 'test-token-secret';

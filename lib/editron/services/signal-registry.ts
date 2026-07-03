@@ -26,6 +26,7 @@
  */
 
 import type { SignalValues } from './graph-query';
+import type { VisualCutIntelligenceReport, VisualPerceptionSummary } from './visual-cut-intelligence';
 import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
 import type { Wav2VecAnalysisResult, Wav2VecSegmentResult } from './wav2vec-service';
 
@@ -107,6 +108,8 @@ export interface RawFootageAnalysis {
   };
   estimatedCleanDurationMs?: number;
   originalDurationMs?: number;
+  /** Visual perception/cut-intelligence report produced before silence removal. */
+  visualCutIntelligence?: VisualCutIntelligenceReport;
 }
 
 /** From overlay types */
@@ -214,6 +217,61 @@ function setOptionalNumber(snapshot: SignalSnapshot, key: string, value: unknown
   if (typeof value === 'number' && Number.isFinite(value)) {
     snapshot[key] = value;
   }
+}
+
+function setOptionalGlobalNumber(globalSignals: SignalValues, key: string, value: unknown): void {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    globalSignals[key] = value;
+  }
+}
+
+function applyVisualPerceptionGlobalSignals(
+  timeline: SignalTimeline,
+  rawFootage: RawFootageAnalysis | null,
+): void {
+  const perception = rawFootage?.visualCutIntelligence?.perception;
+  if (!perception) return;
+
+  const globalSignals = timeline.globalSignals;
+  globalSignals['enrichment.visual_perception_source'] = rawFootage?.visualCutIntelligence?.source ?? perception.source;
+  globalSignals['visual.perception.status'] = perception.status;
+  globalSignals['visual.perception.primary_mode'] = perception.primaryVisualMode;
+  globalSignals['visual.perception.dominant_action_type'] = perception.dominantActionType ?? null;
+  globalSignals['visual.perception.dominant_motion_type'] = perception.dominantMotionType ?? null;
+  globalSignals['visual.perception.preferred_overlay_region'] = perception.preferredOverlayRegion;
+  globalSignals['visual.perception.placement_trust'] = perception.screenAwarePlacementTrust;
+  globalSignals['visual.perception.visual_explainability'] = perception.visualExplainability;
+  globalSignals['visual.perception.missing_evidence_count'] = perception.missingEvidence.length;
+  globalSignals['visual.perception.reason_count'] = perception.reasons.length;
+
+  setVisualPerceptionNumbers(globalSignals, perception);
+}
+
+function setVisualPerceptionNumbers(globalSignals: SignalValues, perception: VisualPerceptionSummary): void {
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.segment_count', perception.segmentCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.duration_ms', perception.durationMs);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.speech_coverage', perception.speechCoverage);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.subject_presence_ratio', perception.subjectPresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.face_presence_ratio', perception.facePresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.text_presence_ratio', perception.textPresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.motion_presence_ratio', perception.motionPresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.screen_clutter_ratio', perception.screenClutterRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_viewer_value', perception.avgViewerValue);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_cut_eligibility', perception.avgCutEligibility);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_coverage_trust', perception.avgCoverageTrust);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_text_coverage', perception.avgTextCoverage);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_object_count', perception.avgObjectCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_face_count', perception.avgFaceCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.visible_explanation_ratio', perception.visibleExplanationRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.state_change_count', perception.visualStateChangeCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.state_change_rate_per_minute', perception.visualStateChangeRatePerMinute);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.valuable_silent_ratio', perception.visuallyValuableSilentRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.broll_usefulness_ratio', perception.brollUsefulnessRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.dead_air_ratio', perception.visualDeadAirRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.top', perception.avgNegativeSpace.top);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.right', perception.avgNegativeSpace.right);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.bottom', perception.avgNegativeSpace.bottom);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.left', perception.avgNegativeSpace.left);
 }
 
 export function buildSignalTimeline(
@@ -660,6 +718,7 @@ export function buildSignalTimeline(
   timeline.globalSignals['enrichment.vjepa_segments'] = vjepaSegments?.length ?? 0;
   timeline.globalSignals['enrichment.wav2vec_segments'] = wav2vecSegments?.length ?? 0;
   timeline.globalSignals['enrichment.diarization'] = speakerIds.size > 1 ? 'grok' : 'none';
+  applyVisualPerceptionGlobalSignals(timeline, rawFootage);
 
   // ── PERSONALITY SIGNALS (global, derived from Wav2Vec + V-JEPA + structural) ──
   // Used by MG composition planner, theme resolver, and overlay definitions.
@@ -1267,7 +1326,7 @@ export function buildSignalTimelineFromAnalysis(
     }
   }
 
-  return buildSignalTimeline(
+  const timeline = buildSignalTimeline(
     analyses,
     rawFootage,
     overlays,
@@ -1276,6 +1335,44 @@ export function buildSignalTimelineFromAnalysis(
     wav2vecSegments.length > 0 ? { segments: wav2vecSegments, modelVersion: 'from-segment-analysis', processingTimeMs: 0 } : null,
     essentiaAnalysis,
   );
+
+  applyVisualSetupGlobalSignals(timeline, segmentAnalysis.globalContext.visualSetup);
+  return timeline;
+}
+
+function applyVisualSetupGlobalSignals(
+  timeline: SignalTimeline,
+  visualSetup: SegmentAnalysis['globalContext']['visualSetup'] | null | undefined,
+): void {
+  if (!visualSetup) return;
+
+  timeline.globalSignals['enrichment.visual_setup_source'] = 'gemini-visual-understanding';
+  timeline.globalSignals['visual.environment'] = visualSetup.environment;
+  timeline.globalSignals['visual.scene_type'] = visualSetup.environment;
+  timeline.globalSignals['visual.shot_scale'] = visualSetup.dominantShotScale;
+  timeline.globalSignals['visual.dominant_shot_scale'] = visualSetup.dominantShotScale;
+  timeline.globalSignals['visual.has_face'] = visualSetup.hasFace ? 1 : 0;
+  timeline.globalSignals['visual.subject_count'] = Math.max(0, visualSetup.subjectCount);
+  timeline.globalSignals['visual.has_b_roll'] = visualSetup.hasBRoll ? 1 : 0;
+  timeline.globalSignals['visual.camera_movement'] = visualSetup.cameraMovement;
+  timeline.globalSignals['visual.lighting_quality'] = visualSetup.lightingQuality;
+  timeline.globalSignals['visual.production_quality_label'] = visualSetup.productionQuality;
+  timeline.globalSignals['visual.production_quality'] = productionQualityScore(visualSetup.productionQuality);
+  timeline.globalSignals['visual.color_temperature'] = visualSetup.colorTemperature;
+  timeline.globalSignals['visual.visual_complexity'] = clamp01(visualSetup.visualComplexity);
+  timeline.globalSignals['visual_complexity'] = clamp01(visualSetup.visualComplexity);
+}
+
+function productionQualityScore(value: NonNullable<SegmentAnalysis['globalContext']['visualSetup']>['productionQuality']): number {
+  if (value === 'professional') return 1;
+  if (value === 'prosumer') return 0.72;
+  if (value === 'casual') return 0.42;
+  return 0.18;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }
 
 /**

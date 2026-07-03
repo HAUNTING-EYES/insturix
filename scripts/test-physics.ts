@@ -19,22 +19,10 @@ import {
   resolveSize,
   resolveCoordinates,
   getDefaultSize,
-  OverlayType
+  OverlayType,
+  type CanvasDimensions,
+  type ExistingOverlay,
 } from '../lib/editron/core/physics.ts';
-
-// Define types inline (TypeScript interfaces can't be imported in ESM strip mode)
-interface ExistingOverlay {
-  id: number;
-  row: number;
-  from: number;
-  durationInFrames: number;
-  type: string;
-}
-
-interface CanvasDimensions {
-  width: number;
-  height: number;
-}
 
 // Test helpers
 let passed = 0;
@@ -107,7 +95,7 @@ console.log('\n📊 Row Collision Tests\n');
 
 test('Should detect collision on same row', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO }
   ];
   const result = hasCollisionOnRow(0, { from: 50, duration: 30 }, overlays);
   expect(result).toBe(true);
@@ -115,7 +103,7 @@ test('Should detect collision on same row', () => {
 
 test('Should NOT detect collision on different row', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO }
   ];
   const result = hasCollisionOnRow(1, { from: 50, duration: 30 }, overlays);
   expect(result).toBe(false);
@@ -123,7 +111,7 @@ test('Should NOT detect collision on different row', () => {
 
 test('Should NOT detect collision when time does not overlap', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO }
   ];
   const result = hasCollisionOnRow(0, { from: 150, duration: 30 }, overlays);
   expect(result).toBe(false);
@@ -133,45 +121,45 @@ test('Should NOT detect collision when time does not overlap', () => {
 console.log('\n🎯 Smart Row Packing Tests\n');
 
 test('VIDEO on empty timeline should go to Row 0', () => {
-  const row = findBestRow(OverlayType.VIDEO as any, { from: 0, duration: 100 }, []);
+  const row = findBestRow(OverlayType.VIDEO, { from: 0, duration: 100 }, []);
   expect(row).toBe(0);
 });
 
 test('TEXT on empty timeline should go to Row 0', () => {
-  const row = findBestRow(OverlayType.TEXT as any, { from: 0, duration: 100 }, []);
+  const row = findBestRow(OverlayType.TEXT, { from: 0, duration: 100 }, []);
   expect(row).toBe(0);
 });
 
 test('TEXT should stack ABOVE existing VIDEO', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 300, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 300, type: OverlayType.VIDEO }
   ];
-  const row = findBestRow(OverlayType.TEXT as any, { from: 0, duration: 100 }, overlays);
+  const row = findBestRow(OverlayType.TEXT, { from: 0, duration: 100 }, overlays);
   expect(row).toBe(1); // Should be on Row 1 (above Video on Row 0)
 });
 
 test('forceRow should override smart placement', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 300, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 300, type: OverlayType.VIDEO }
   ];
-  const row = findBestRow(OverlayType.TEXT as any, { from: 0, duration: 100 }, overlays, 5);
+  const row = findBestRow(OverlayType.TEXT, { from: 0, duration: 100 }, overlays, 5);
   expect(row).toBe(5); // Should respect forceRow
 });
 
 test('VIDEO should pack in gap on Row 0 if available', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 100, type: OverlayType.VIDEO }
     // Gap from 100 onwards
   ];
-  const row = findBestRow(OverlayType.VIDEO as any, { from: 150, duration: 100 }, overlays);
+  const row = findBestRow(OverlayType.VIDEO, { from: 150, duration: 100 }, overlays);
   expect(row).toBe(0); // Should fit in gap on Row 0
 });
 
 test('VIDEO should go to Row 1 if Row 0 has collision', () => {
   const overlays: ExistingOverlay[] = [
-    { id: 1, row: 0, from: 0, durationInFrames: 300, type: OverlayType.VIDEO as any }
+    { id: 1, row: 0, from: 0, durationInFrames: 300, type: OverlayType.VIDEO }
   ];
-  const row = findBestRow(OverlayType.VIDEO as any, { from: 0, duration: 100 }, overlays);
+  const row = findBestRow(OverlayType.VIDEO, { from: 0, duration: 100 }, overlays);
   expect(row).toBe(1); // Collision on Row 0, go to Row 1
 });
 
@@ -221,13 +209,13 @@ test('resolveCoordinates should center by default', () => {
 console.log('\n📦 Default Size Tests\n');
 
 test('TEXT should have correct default size', () => {
-  const size = getDefaultSize(OverlayType.TEXT as any);
+  const size = getDefaultSize(OverlayType.TEXT);
   expect(size.width).toBe(600);
   expect(size.height).toBe(100);
 });
 
 test('VIDEO should have 1080p default size', () => {
-  const size = getDefaultSize(OverlayType.VIDEO as any);
+  const size = getDefaultSize(OverlayType.VIDEO);
   expect(size.width).toBe(1920);
   expect(size.height).toBe(1080);
 });

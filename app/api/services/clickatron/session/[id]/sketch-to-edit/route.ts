@@ -18,11 +18,12 @@ export async function POST(
   console.log('[SketchToEdit Route] === REQUEST RECEIVED ===');
   console.log('[SketchToEdit Route] URL:', request.url);
   console.log('[SketchToEdit Route] Method:', request.method);
-  
+
+  let creditCheck: Awaited<ReturnType<typeof checkCredits>> | null = null;
   try {
     const { userId } = await auth();
     console.log('[SketchToEdit Route] User ID:', userId);
-    
+
     if (!userId) {
       console.error('[SketchToEdit Route] Unauthorized - no user ID');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -30,17 +31,12 @@ export async function POST(
 
     const { id } = await params;
     console.log('[SketchToEdit Route] Session ID:', id);
-    
+
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       console.error('[SketchToEdit Route] Invalid Session ID:', id);
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
     }
 
-    // Check credits (3 credits for a variation)
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
-    if (!creditCheck.allowed) {
-      return creditCheck.errorResponse;
-    }
 
     // Parse multipart/form-data
     const formData = await request.formData();
@@ -57,51 +53,18 @@ export async function POST(
       return NextResponse.json({ error: 'Missing original variation ID' }, { status: 400 });
     }
 
-    // Deduct credits before enqueuing
-    await creditCheck.deduct();
-
     await getClickatronDb();
     const objectId = new Types.ObjectId(id);
 
     // Find the task
     const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
     if (!task) {
-      await creditCheck.refund('Session not found');
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
-
-    console.log('[SketchToEdit] Starting R2 upload, file size:', img2File.size, 'type:', img2File.type);
-
-    // Upload img2 to R2
-    const arrayBuffer = await img2File.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    console.log('[SketchToEdit] Buffer created, size:', buffer.length);
-    
-    let r2Url: string;
-    try {
-      // Use parentVariationId as the variationId for consistent path structure
-      r2Url = await ClickatronR2Manager.uploadImageBuffer(
-        userId,
-        id,
-        parentVariationId,
-        buffer,
-        img2File.type
-      );
-      console.log('[SketchToEdit] R2 upload successful:', r2Url);
-    } catch (uploadError) {
-      console.error('[SketchToEdit] R2 upload failed:', uploadError);
-      await creditCheck.refund('R2 upload failed');
-      throw uploadError;
-    }
-    
-    const rawImg2Ref = r2Url.split('?')[0];
-    console.log('[SketchToEdit] Raw img2 ref:', rawImg2Ref);
 
     // Get original variation to inherit aspect ratio and other data
     const parentVariation = task.details.canvas?.variations.find((v: any) => v.id === parentVariationId);
     if (!parentVariation) {
-       // Refund credits if parent not found
-       await creditCheck.refund('Original variation not found');
        return NextResponse.json({ error: 'Original variation not found' }, { status: 404 });
     }
 
@@ -123,18 +86,56 @@ export async function POST(
     // Use a model that supports multiple images for sketch-to-edit
     // Default to nano-banana-pro/edit which handles image_urls array
     let selectedModelId = modelId || 'fal-ai/nano-banana-pro/edit';
-    
+
     // Validate that the selected model supports multiple images for sketch-to-edit
     const modelConfig = getAvailableModels('sketchToEdit', 0).find(m => m.id === selectedModelId);
     if (!modelConfig) {
       console.error('[SketchToEdit] Invalid model selected:', selectedModelId);
-      await creditCheck.refund('Invalid model selected');
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Invalid model selected. Please use a sketch-to-edit compatible model.',
         validModels: getAvailableModels('sketchToEdit', 0).map(m => m.id)
       }, { status: 400 });
     }
-    
+
+    creditCheck = await checkCredits(userId, 'clickatron', 'variation', {
+      model: selectedModelId,
+      requestType: 'sketch-to-edit',
+    });
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
+    }
+
+    await creditCheck.deduct();
+
+    console.log('[SketchToEdit] Starting R2 upload, file size:', img2File.size, 'type:', img2File.type);
+
+    // Upload img2 to R2
+    const arrayBuffer = await img2File.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    console.log('[SketchToEdit] Buffer created, size:', buffer.length);
+
+    let r2Url: string;
+    try {
+      // Use parentVariationId as the variationId for consistent path structure
+      r2Url = await ClickatronR2Manager.uploadImageBuffer(
+        userId,
+        id,
+        parentVariationId,
+        buffer,
+        img2File.type
+      );
+      console.log('[SketchToEdit] R2 upload successful:', r2Url);
+    } catch (uploadError) {
+      console.error('[SketchToEdit] R2 upload failed:', uploadError);
+      await creditCheck?.refund('R2 upload failed');
+      creditCheck = null;
+      throw uploadError;
+    }
+
+    const rawImg2Ref = r2Url.split('?')[0];
+    console.log('[SketchToEdit] Raw img2 ref:', rawImg2Ref);
+
+
     console.log('[SketchToEdit] Using model:', selectedModelId);
 
     const newVariation = {
@@ -153,7 +154,7 @@ export async function POST(
       updatedAt: now,
       parentVariationId: parentVariationId,
       referenceImageRefs: [rawImg2Ref],
-      metadata: { 
+      metadata: {
         inputMode: 'sketchToEdit',
         originalPrompt: prompt
       },
@@ -199,7 +200,8 @@ export async function POST(
       });
     } catch (e) {
       console.error('Failed to enqueue job:', e);
-      await creditCheck.refund('Failed to enqueue generation job');
+      await creditCheck?.refund('Failed to enqueue generation job');
+      creditCheck = null;
       throw e;
     }
 
@@ -215,6 +217,14 @@ export async function POST(
     console.error('Error in sketch-to-edit:', error);
     console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
     console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    if (creditCheck) {
+      try {
+        await creditCheck.refund(error instanceof Error ? error.message : 'Sketch-to-edit failed');
+      } catch (refundError) {
+        console.error('Failed to refund sketch-to-edit credits:', refundError);
+      }
+    }
+
     return NextResponse.json(
       { error: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }

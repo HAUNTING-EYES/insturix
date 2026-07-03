@@ -4,6 +4,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 export const maxDuration = 300;
 
@@ -104,6 +105,13 @@ export async function POST(req: Request) {
         updated: false,
         note: "Instagram doesn't support updating published media captions. Returning existing media.",
       });
+    }
+
+    const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+      requestType: "instagram",
+    });
+    if (!publishCreditCheck.allowed) {
+      return publishCreditCheck.errorResponse!;
     }
 
     const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid, gcsPath });
@@ -230,6 +238,8 @@ export async function POST(req: Request) {
         );
       }
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         instagramUrl,
@@ -355,6 +365,8 @@ export async function POST(req: Request) {
       );
     }
 
+    await deductPublishCredits(publishCreditCheck);
+
     return NextResponse.json({
       success: true,
       instagramUrl,
@@ -369,5 +381,13 @@ export async function POST(req: Request) {
       { success: false, error: error.message || "Instagram publish failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:Instagram] publish credit deduction failed:", error);
   }
 }

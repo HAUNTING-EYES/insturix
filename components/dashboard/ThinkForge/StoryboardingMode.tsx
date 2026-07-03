@@ -9,6 +9,7 @@ import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel
 import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/ExportToEditronDialog";
 import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/export/ClickatronHandoffDialog";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
+import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
 import { AnimatePresence, motion } from "framer-motion";
@@ -110,6 +111,27 @@ export default function StoryboardingMode({
       </div>
     );
   }
+
+  const selectedIdeaMeta = selectedIdea as IdeaCardData & Partial<ProjectMeta>;
+  const exportProjectMeta: ProjectMeta = {
+    idea: selectedIdea.idea,
+    title: script?.title || selectedIdea.idea,
+    purpose: selectedIdea.purpose,
+    style: selectedIdea.style,
+    format: selectedIdea.format,
+    platform: selectedIdea.platform,
+    tone: selectedIdea.tone,
+    sessionName: selectedIdea.sessionName,
+    brandBrief: selectedIdea.brandBrief,
+    brandId: selectedIdeaMeta.brandId,
+    clientId: selectedIdeaMeta.clientId,
+    clientName: selectedIdeaMeta.clientName,
+    campaignId: selectedIdeaMeta.campaignId,
+    campaignName: selectedIdeaMeta.campaignName,
+    seriesId: selectedIdeaMeta.seriesId,
+    calendarItemId: selectedIdeaMeta.calendarItemId,
+    contentCardId: selectedIdeaMeta.contentCardId,
+  };
 
   return (
     <div className={clsx("control-view enter", isVisible ? "visible" : "")} id="s3" style={{ display: isVisible ? 'flex' : 'none', flex: 1, height: '100%' }}>
@@ -225,6 +247,7 @@ export default function StoryboardingMode({
         plainText={scriptText}
         sessionId={sessionId || undefined}
         scriptId={scriptId || undefined}
+        projectMeta={exportProjectMeta}
       />
 
       <ClickatronHandoffDialog

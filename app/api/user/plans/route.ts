@@ -57,6 +57,7 @@ export async function GET() {
       plans: formattedPlans,
       userType: user.currentPlan?.name || "free",
       signUpDate: user.signUpDate,
+      pendingPlanChange: user.pendingPlanChange ?? null,
     });
   } catch (error) {
     console.error("Error fetching user plans:", error);

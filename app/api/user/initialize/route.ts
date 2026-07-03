@@ -42,7 +42,7 @@ export async function POST() {
     // Sync any updated data from Clerk
     await UserInitializationService.syncUserFromClerk(userId, {
       email: clerkUser.emailAddresses[0]?.emailAddress,
-      username: clerkUser.username,
+      username: clerkUser.username ?? undefined,
       imageUrl: clerkUser.imageUrl,
       emailAddresses: clerkUser.emailAddresses
     });

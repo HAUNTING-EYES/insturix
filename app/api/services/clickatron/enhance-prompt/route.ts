@@ -168,7 +168,7 @@ RULE 4 — Output only the enhanced prompt as a single string. No code blocks, n
     // Handle Zod validation errors
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Validation failed", details: error.errors },
+        { error: "Validation failed", details: error.issues },
         { status: 400 }
       );
     }

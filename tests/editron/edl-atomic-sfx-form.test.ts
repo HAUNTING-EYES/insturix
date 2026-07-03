@@ -2,14 +2,51 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/pipeline/sfx-library-service', () => ({
   isSFXLibraryAvailable: vi.fn(() => true),
-  searchAndDownloadSFX: vi.fn(async () => ({
-    audioUrl: 'https://cdn.example.com/atomic-whoosh.mp3',
-    gcsPath: 'gs://insturix-test/sfx/atomic-whoosh.mp3',
-    audioAssetId: 'sfx-atomic-whoosh-1',
-    durationMs: 900,
-    source: 'freesound',
-    originalTitle: 'Cinematic whoosh sweep transition',
-  })),
+  searchAndDownloadSFX: vi.fn(async (
+    query: string,
+    _userId: string,
+    maxDurationSec: number,
+    _form: unknown,
+    reportSearch?: (report: any) => void,
+  ) => {
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      providerAvailable: true,
+      providerCandidateCount: 1,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: 0,
+      selectedCandidate: {
+        index: 0,
+        title: 'Cinematic whoosh sweep transition',
+        source: 'freesound',
+        durationMs: 900,
+        score: 0.93,
+        qualityFloor: 0.55,
+        decision: 'accept',
+        reasons: ['mock-accepted'],
+      },
+      candidates: [{
+        index: 0,
+        title: 'Cinematic whoosh sweep transition',
+        source: 'freesound',
+        durationMs: 900,
+        score: 0.93,
+        qualityFloor: 0.55,
+        decision: 'accept',
+        reasons: ['mock-accepted'],
+      }],
+    });
+    return {
+      audioUrl: 'https://cdn.example.com/atomic-whoosh.mp3',
+      gcsPath: 'gs://insturix-test/sfx/atomic-whoosh.mp3',
+      audioAssetId: 'sfx-atomic-whoosh-1',
+      durationMs: 900,
+      source: 'freesound',
+      originalTitle: 'Cinematic whoosh sweep transition',
+    };
+  }),
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -77,6 +114,46 @@ describe('EDL atomic SFX form wiring', () => {
             text_on_screen: 0.1,
             restraint: 0.15,
           },
+          sfxSyncPlan: {
+            placementAllowed: true,
+            reasonKeys: ['motion-peak', 'beat-anchor'],
+            syncWindow: {
+              anchorFrame: 90,
+              distanceFrames: 2,
+              driftRisk: 0.08,
+              toleranceFrames: 6,
+            },
+            mixSafety: {
+              overmixRisk: 0.12,
+              nearestSoundDistanceFrames: 72,
+              recentSfxCount: 0,
+            },
+            providerGate: {
+              providerRisk: 0.2,
+              qualityFloor: 0.55,
+              expectedQueryStrength: 0.76,
+            },
+            crossFamily: {
+              zoomAnchored: true,
+              mgAnchored: false,
+              transitionAnchored: false,
+              captionConflict: false,
+              syncSource: 'motion_peak',
+            },
+          },
+          unifiedDecisionMerge: {
+            familyPlanner: {
+              version: 'sfx-family-planner-v1',
+              family: 'audio',
+              placementAllowed: true,
+              executionLicense: 'licensed-by-sfx-family-plan',
+              reasonKeys: ['motion-peak', 'provider-ok'],
+              crossFamily: {
+                zoomAnchored: true,
+                syncSource: 'motion_peak',
+              },
+            },
+          },
         },
       }],
       stats: {
@@ -109,6 +186,7 @@ describe('EDL atomic SFX form wiring', () => {
         compatibilityToken: 'whoosh',
         asset: expect.objectContaining({ primarySearchToken: 'whoosh' }),
       }),
+      expect.any(Function),
     );
     expect(sound.from).toBe(form.timing.startFrame);
     expect(sound.from).toBeLessThan(90);
@@ -123,6 +201,37 @@ describe('EDL atomic SFX form wiring', () => {
       candidateSource: 'library',
       candidateTitle: 'Cinematic whoosh sweep transition',
     }));
+    expect(sound.metadata.sfxProviderSearchReport).toEqual(expect.objectContaining({
+      version: 'sfx-library-search-report-v1',
+      query: sound.metadata.sfxQuery,
+      providerCandidateCount: 1,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: 0,
+      selectedCandidate: expect.objectContaining({
+        title: 'Cinematic whoosh sweep transition',
+        decision: 'accept',
+      }),
+    }));
+    expect(sound.metadata.sfxPlannerEvidence).toEqual(expect.objectContaining({
+      version: 'sfx-planner-evidence-v1',
+      placementAllowed: true,
+      executionLicense: 'licensed-by-sfx-family-plan',
+      reasonKeys: expect.arrayContaining(['motion-peak', 'beat-anchor', 'provider-ok']),
+      syncWindow: expect.objectContaining({
+        distanceFrames: 2,
+        driftRisk: 0.08,
+      }),
+      mixSafety: expect.objectContaining({
+        overmixRisk: 0.12,
+      }),
+      providerGate: expect.objectContaining({
+        providerRisk: 0.2,
+      }),
+      crossFamily: expect.objectContaining({
+        zoomAnchored: true,
+        syncSource: 'motion_peak',
+      }),
+    }));
     expect(receipt.payload).toEqual(expect.objectContaining({
       formVersion: 'atomic-sfx-form-v1',
       sfxType: 'whoosh',
@@ -131,6 +240,13 @@ describe('EDL atomic SFX form wiring', () => {
       searchQuery: sound.metadata.sfxQuery,
       assetQualityDecision: 'accept',
       assetTitle: 'Cinematic whoosh sweep transition',
+      sfxPlannerPlacementAllowed: true,
+      sfxPlannerReasonKeys: expect.stringContaining('motion-peak'),
+      sfxPlannerSyncDistanceFrames: 2,
+      sfxPlannerDriftRisk: 0.08,
+      sfxPlannerOvermixRisk: 0.12,
+      sfxPlannerProviderRisk: 0.2,
+      sfxPlannerExecutionLicense: 'licensed-by-sfx-family-plan'
     }));
     expect(receipt.atoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'audio-hit', key: 'sfx.token', value: 'whoosh' }),
@@ -227,6 +343,7 @@ describe('EDL atomic SFX form wiring', () => {
       expect.objectContaining({
         timing: expect.objectContaining({ anchor: 'transition', syncFrame: 120 }),
       }),
+      expect.any(Function),
     );
   });
 

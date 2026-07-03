@@ -15,6 +15,7 @@ import {
 } from '@/lib/pipeline/video-generation-service';
 import { updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 import { getDatabase } from '@/lib/editron/db/mongodb';
+import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -33,6 +34,8 @@ interface VideoWorkerPayload {
   durationSeconds: number;
   aspectRatio?: string;
   videoModel: string;
+  creditTransactionId?: string;
+  chargedCredits?: number;
   nextSceneImageUrl?: string;
   /** Sub-shot index within a montage scene (undefined for continuous scenes) */
   subShotIndex?: number;
@@ -57,8 +60,11 @@ interface VideoWorkerPayload {
 
 async function handler(request: NextRequest) {
   console.log(`[VideoWorker] Received request from ${request.headers.get('user-agent')?.substring(0, 50) || 'unknown'}`);
+  let payloadForFailure: Partial<VideoWorkerPayload> = {};
+  let providerCostRecorded = false;
   try {
     const payload: VideoWorkerPayload = await request.json();
+    payloadForFailure = payload;
     const {
       jobId,
       batchId,
@@ -70,6 +76,8 @@ async function handler(request: NextRequest) {
       durationSeconds,
       aspectRatio,
       videoModel,
+      creditTransactionId,
+      chargedCredits,
       nextSceneImageUrl,
       subShotIndex,
     } = payload;
@@ -161,6 +169,15 @@ async function handler(request: NextRequest) {
       },
       userId,
     );
+
+    await recordPipelineVideoProviderCost({
+      payload,
+      status: 'success',
+      result,
+      creditTransactionId,
+      chargedCredits,
+    });
+    providerCostRecorded = true;
 
     // Update storyboard scene — include videoDurationMs so finalize
     // uses the actual clip length (not the script's word-count estimate)
@@ -495,8 +512,18 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
 
     // Try to mark job as failed
     try {
-      const payload: VideoWorkerPayload = await request.clone().json().catch(() => ({} as any));
+      const payload = payloadForFailure;
       if (payload.jobId) {
+        if (!providerCostRecorded) {
+          await recordPipelineVideoProviderCost({
+            payload,
+            status: 'failed',
+            error,
+            creditTransactionId: payload.creditTransactionId,
+            chargedCredits: payload.chargedCredits,
+          });
+        }
+
         const db = await getDatabase();
         await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
           { _id: payload.jobId } as any,
@@ -516,6 +543,63 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
   }
 }
 
+async function recordPipelineVideoProviderCost({
+  payload,
+  status,
+  result,
+  error,
+  creditTransactionId,
+  chargedCredits,
+}: {
+  payload: Partial<VideoWorkerPayload>;
+  status: 'success' | 'failed';
+  result?: Awaited<ReturnType<typeof generateVideoClip>>;
+  error?: unknown;
+  creditTransactionId?: string;
+  chargedCredits?: number;
+}): Promise<void> {
+  if (!payload.jobId) return;
+
+  const requestedMediaSeconds =
+    typeof payload.durationSeconds === 'number' && Number.isFinite(payload.durationSeconds)
+      ? payload.durationSeconds
+      : undefined;
+  const actualMediaSeconds =
+    typeof result?.durationMs === 'number' && Number.isFinite(result.durationMs)
+      ? Math.round((result.durationMs / 1000) * 100) / 100
+      : undefined;
+
+  await recordProviderCostEvent({
+    eventId: `pce_pipeline_video_${payload.jobId}_${status}`,
+    idempotencyKey: `pipeline:video:${payload.jobId}:${status}`,
+    status,
+    userId: payload.userId,
+    taskId: payload.jobId,
+    assetId: result?.assetId,
+    creditTransactionId,
+    service: 'pipeline',
+    action: 'video_generation',
+    route: '/api/internal/workers/pipeline/video',
+    provider: result?.provider ?? 'fal-ai',
+    model: result?.modelUsed ?? payload.videoModel,
+    operation: 'video_generation',
+    chargedCredits,
+    providerJobId: result?.providerJobId,
+    units: {
+      mediaSeconds: actualMediaSeconds ?? requestedMediaSeconds,
+      requestCount: 1,
+    },
+    metadata: {
+      batchId: payload.batchId,
+      storyboardId: payload.storyboardId,
+      sceneIndex: payload.sceneIndex,
+      subShotIndex: payload.subShotIndex,
+      requestedDurationSeconds: requestedMediaSeconds,
+      actualDurationMs: result?.durationMs,
+      errorClass: error instanceof Error ? error.name : undefined,
+    },
+  });
+}
 async function updateBatchStatus(batchId: string): Promise<void> {
   const db = await getDatabase();
   const batch = await db.collection('pipeline_video_batches').findOne({ _id: batchId } as any) as any;

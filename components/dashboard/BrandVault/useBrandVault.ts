@@ -21,6 +21,8 @@ import type {
   BrandVaultAcceptedBrandSummary,
   BrandVaultApiResult,
   BrandVaultApiSuccess,
+  BrandVaultBrandScanSummary,
+  BrandVaultBrandScansApiResult,
   CreateBrandVaultDraftInput,
 } from './brand-vault-types';
 
@@ -37,6 +39,8 @@ export const BRAND_VAULT_KEYS = {
     [...BRAND_VAULT_KEYS.latestAcceptedRoot(), brandId ?? 'none'] as const,
   acceptedBrandsRoot: () => [...BRAND_VAULT_KEYS.all, 'accepted-brands'] as const,
   acceptedBrands: () => BRAND_VAULT_KEYS.acceptedBrandsRoot(),
+  scansRoot: () => [...BRAND_VAULT_KEYS.all, 'scans'] as const,
+  scans: (brandId: string | null | undefined) => [...BRAND_VAULT_KEYS.scansRoot(), brandId ?? 'none'] as const,
 };
 
 /* ------------------------------------------------------------------ */
@@ -110,6 +114,23 @@ async function fetchAcceptedBrands(): Promise<BrandVaultAcceptedBrandSummary[]> 
   return payload.brands;
 }
 
+/** Bounded scan-history summaries for one brand (newest first). No raw candidates. */
+async function fetchBrandScans(brandId: string): Promise<BrandVaultBrandScanSummary[]> {
+  const response = await fetch(`/api/brand-vault/brands/${encodeURIComponent(brandId)}/scans`, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  const payload = (await response.json().catch(() => null)) as BrandVaultBrandScansApiResult | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload && 'error' in payload
+        ? payload.error?.message ?? 'Could not load scan history for this brand.'
+        : 'Could not load scan history for this brand.',
+    );
+  }
+  return Array.isArray(payload.scans) ? payload.scans : [];
+}
+
 async function reviewDraftRequest(
   recordId: string,
   action: 'accept' | 'reject',
@@ -131,6 +152,9 @@ function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, 
 
   queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.latestAcceptedRoot() });
   queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.acceptedBrandsRoot() });
+  // Scan history reflects this record's new status (ready -> accepted/rejected), so refresh every brand's
+  // history rather than guessing the brand key.
+  queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.scansRoot() });
   // The global brand switcher (ActiveBrandProvider) keeps its own brand list under this key. Without this
   // it stays stale after accept — the just-accepted brand never appears and the pill reads "No brand".
   queryClient.invalidateQueries({ queryKey: ['active-brand', 'brands'] });
@@ -193,16 +217,29 @@ export function useAcceptedBrandVaultBrands() {
   });
 }
 
+/** Recent scan history (bounded summaries) for one brand, for the manager / rescan view. */
+export function useBrandVaultScans(brandId: string | null | undefined) {
+  const { isSignedIn } = useAuth();
+  return useQuery({
+    queryKey: BRAND_VAULT_KEYS.scans(brandId),
+    queryFn: () => fetchBrandScans(brandId as string),
+    enabled: Boolean(isSignedIn && brandId),
+    staleTime: 30 * 1000,
+  });
+}
+
 /** Create-draft, accept, and reject mutations with cache invalidation. */
 export function useBrandVaultMutations() {
   const queryClient = useQueryClient();
 
   const createDraft = useMutation({
     mutationFn: (input: CreateBrandVaultDraftInput) => createDraftRequest(input),
-    onSuccess: (data) => {
+    onSuccess: (data, input) => {
       if (data.job?.id) {
         queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.job(data.job.id) });
       }
+      // A fresh scan is a new entry in this brand's history — refresh so the manager list shows it.
+      queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.scans(input.brandId) });
     },
   });
 

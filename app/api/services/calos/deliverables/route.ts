@@ -12,6 +12,8 @@ import { calosScope } from "@/lib/calos/scope";
 
 export const dynamic = "force-dynamic";
 
+const MAX_BULK_IDS = 500;
+
 /**
  * GET /api/services/calos/deliverables?brandId=
  * List deliverables for a client/brand. Scoped via calosScope: org-shared when the caller is in a
@@ -46,6 +48,60 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * DELETE /api/services/calos/deliverables?brandId=&scope=all
+ * DELETE /api/services/calos/deliverables?brandId=  { ids: string[] }
+ *
+ * Bulk soft-delete for calendar clean-up flows. The route never hard-deletes data and always
+ * intersects the request with the caller's trusted CalOS scope.
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const { userId, orgId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const brandId = searchParams.get("brandId");
+    const scope = searchParams.get("scope");
+    if (!brandId) {
+      return NextResponse.json({ error: "brandId is required" }, { status: 400 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const ids = Array.isArray(body?.ids)
+      ? body.ids
+          .filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+          .map((id: string) => id.trim())
+          .slice(0, MAX_BULK_IDS)
+      : [];
+    if (scope !== "all" && ids.length === 0) {
+      return NextResponse.json({ error: "scope=all or ids[] is required" }, { status: 400 });
+    }
+
+    await connectToDatabase();
+    const filter: Record<string, unknown> = {
+      ...calosScope({ userId, orgId }, brandId),
+      deletedAt: null,
+    };
+    if (scope !== "all") {
+      filter["card.id"] = { $in: ids };
+    }
+
+    const result = await CalosDeliverable.updateMany(filter, {
+      $set: { deletedAt: new Date() },
+    });
+
+    return NextResponse.json({
+      success: true,
+      deleted: result.modifiedCount ?? 0,
+    });
+  } catch (error) {
+    console.error("[CalOS] bulk delete deliverables error:", error);
+    return NextResponse.json({ error: "Failed to delete deliverables" }, { status: 500 });
+  }
+}
 /**
  * POST /api/services/calos/deliverables  { brandId, card }
  * Create a deliverable for a client/brand. The card payload is validated by the shared

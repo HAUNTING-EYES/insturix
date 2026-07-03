@@ -1,6 +1,5 @@
 "use client";
 import React, { useState } from "react";
-import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 
 interface IdeaGridProps {
   ideas: IdeaCardData[];

@@ -13,7 +13,10 @@ function computeFitted(role: string, txt: string, desiredRaw: number, boxW: numb
   return Math.round(fitFontSize(txt, boxW, desired, minReadable, { uppercase: caps }));
 }
 
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = process.env.MONGODB_URI ?? '';
+if (!uri) {
+  throw new Error('MONGODB_URI is required to run scripts/check-mg-recipe.ts');
+}
 const PID = process.argv[2] || 'proj_OzG2qgoYudFa';
 
 // layout position -> container maxWidth fraction (from composition-renderer.tsx resolveLayout)

@@ -27,27 +27,37 @@ const PLANS_CONFIG: PlanTemplate[] = [
     sortOrder: 1,
   },
   {
-    name: "Plus Plan",
-    type: "plus",
-    description: "Enhanced features for growing creators",
+    name: "Agency Starter Plan",
+    type: "agency_starter",
+    description: "Core AI workspace for agencies starting at $100/month",
     isActive: true,
     sortOrder: 2,
   },
   {
-    name: "Pro Plan",
-    type: "pro",
-    description: "Professional tools for serious creators",
+    name: "Agency Growth Plan",
+    type: "agency_growth",
+    description: "Expanded AI workspace for growing agencies at $500/month",
     isActive: true,
     sortOrder: 3,
   },
   {
-    name: "Premium Plan",
-    type: "premium",
-    description: "All-access for power users and teams",
+    name: "Agency Scale Plan",
+    type: "agency_scale",
+    description: "High-volume AI workspace for scaled agencies at $1000/month",
     isActive: true,
     sortOrder: 4,
   },
 ];
+
+const SERVICE_LIMIT_PLAN_TYPE: Record<string, "free" | "plus" | "pro" | "premium"> = {
+  free: "free",
+  plus: "plus",
+  pro: "pro",
+  premium: "premium",
+  agency_starter: "plus",
+  agency_growth: "pro",
+  agency_scale: "premium",
+};
 
 async function handler() {
   await connectToDatabase();
@@ -61,7 +71,7 @@ async function handler() {
 
     // Dynamically get all services from UNIFIED_SERVICE_LIMITS
     Object.keys(UNIFIED_SERVICE_LIMITS).forEach(serviceName => {
-      const serviceLimits = getPlanLimits(serviceName, planConfig.type as "free" | "plus" | "pro" | "premium", false);
+      const serviceLimits = getPlanLimits(serviceName, SERVICE_LIMIT_PLAN_TYPE[planConfig.type], false);
       allServiceLimits[serviceName] = serviceLimits;
     });
 
@@ -92,7 +102,7 @@ async function handler() {
       }
     } else {
       // Free plan has zero pricing for all currencies
-      const samplePlan = SERVICE_PRICING_CONFIGS.plus; // Use plus plan as template for currencies
+      const samplePlan = SERVICE_PRICING_CONFIGS.agency_starter; // Use starter plan as template for currencies
       for (const currency of Object.keys(samplePlan)) {
         const currencyInfo = samplePlan[currency];
         pricing[currency] = {
@@ -110,7 +120,28 @@ async function handler() {
       }
     }
 
-    // For non-free plans, create plans in Razorpay for each currency
+    // Idempotency anchor: look up the existing local plan BEFORE any remote Razorpay
+    // plan creation, so re-running the seed reuses stored provider plan IDs instead of
+    // minting duplicate Razorpay plans on every deploy/retry.
+    const existingPlan = await Plan.findOne({ type: planConfig.type });
+
+    const readExistingProviderId = (currency: string, cycle: 'monthly' | 'yearly'): string | undefined => {
+      const ids = (existingPlan as any)?.pricing?.[currency]?.[cycle]?.providerPlanIds;
+      if (!ids) return undefined;
+      if (ids instanceof Map) return ids.get('razorpay');
+      if (typeof ids.get === 'function') return ids.get('razorpay');
+      return ids.razorpay;
+    };
+
+    const setProviderId = (currency: string, cycle: 'monthly' | 'yearly', id: string) => {
+      if (!pricing[currency][cycle].providerPlanIds) {
+        pricing[currency][cycle].providerPlanIds = new Map();
+      }
+      pricing[currency][cycle].providerPlanIds.set('razorpay', id);
+    };
+
+    // For non-free plans, ensure a Razorpay plan exists per currency+cycle.
+    // Reuse the stored provider ID when present; only create a remote plan the first time.
     if (planConfig.type !== 'free') {
       const planPricing = SERVICE_PRICING_CONFIGS[planConfig.type as keyof typeof SERVICE_PRICING_CONFIGS];
       if (planPricing) {
@@ -121,52 +152,35 @@ async function handler() {
           }
 
           try {
-            if (currencyPricing.monthly.amount > 0) {
-              console.log(`[PlanSeeder] Creating monthly plan for ${planConfig.type} in ${currency}...`);
-              const monthlyPlan = await createPlan({
-                name: planConfig.name,
-                amount: currencyPricing.monthly.amount,
-                currency: currency,
-                period: 'monthly',
-                type: planConfig.type,
-              });
+            for (const cycle of ['monthly', 'yearly'] as const) {
+              if (currencyPricing[cycle].amount <= 0) continue;
 
-              if (monthlyPlan && monthlyPlan.id) {
-                if (!pricing[currency].monthly.providerPlanIds) {
-                  pricing[currency].monthly.providerPlanIds = new Map();
-                }
-                pricing[currency].monthly.providerPlanIds.set('razorpay', monthlyPlan.id);
-                console.log(`[PlanSeeder] -> Razorpay monthly plan created with ID: ${monthlyPlan.id}`);
+              const existingId = readExistingProviderId(currency, cycle);
+              if (existingId) {
+                setProviderId(currency, cycle, existingId);
+                console.log(`[PlanSeeder] Reusing Razorpay ${cycle} plan for ${planConfig.type} ${currency}: ${existingId}`);
+                continue;
               }
-            }
 
-            if (currencyPricing.yearly.amount > 0) {
-              console.log(`[PlanSeeder] Creating yearly plan for ${planConfig.type} in ${currency}...`);
-              const yearlyPlan = await createPlan({
+              console.log(`[PlanSeeder] Creating ${cycle} plan for ${planConfig.type} in ${currency}...`);
+              const created = await createPlan({
                 name: planConfig.name,
-                amount: currencyPricing.yearly.amount,
+                amount: currencyPricing[cycle].amount,
                 currency: currency,
-                period: 'yearly',
+                period: cycle,
                 type: planConfig.type,
               });
-
-              if (yearlyPlan && yearlyPlan.id) {
-                if (!pricing[currency].yearly.providerPlanIds) {
-                  pricing[currency].yearly.providerPlanIds = new Map();
-                }
-                pricing[currency].yearly.providerPlanIds.set('razorpay', yearlyPlan.id);
-                console.log(`[PlanSeeder] -> Razorpay yearly plan created with ID: ${yearlyPlan.id}`);
+              if (created && created.id) {
+                setProviderId(currency, cycle, created.id);
+                console.log(`[PlanSeeder] -> Razorpay ${cycle} plan created with ID: ${created.id}`);
               }
             }
           } catch (error: any) {
-            console.error(`[PlanSeeder] Failed to create Razorpay plans for ${planConfig.type} (${currency}):`, error);
+            console.error(`[PlanSeeder] Failed to ensure Razorpay plans for ${planConfig.type} (${currency}):`, error);
           }
         }
       }
     }
-
-    // Check if a plan with this type already exists (active or inactive)
-    const existingPlan = await Plan.findOne({ type: planConfig.type });
 
     if (existingPlan) {
       console.log(`[PlanSeeder] Plan already exists, updating: ${planConfig.type}`);
@@ -199,11 +213,23 @@ async function handler() {
     createdCount++;
   }
 
+  // Step 6: retire legacy public plans so /api/plans never exposes plus/pro/premium.
+  // Legacy plan docs are kept for historical user records but must not stay publicly active.
+  const legacyDeactivation = await Plan.updateMany(
+    { type: { $in: ['plus', 'pro', 'premium'] }, isActive: true },
+    { $set: { isActive: false } }
+  );
+  const deactivatedLegacy = legacyDeactivation.modifiedCount ?? 0;
+  if (deactivatedLegacy > 0) {
+    console.log(`[PlanSeeder] Deactivated ${deactivatedLegacy} legacy plan(s) (plus/pro/premium).`);
+  }
+
   return NextResponse.json({
     message: 'Plan seeding completed.',
     created: createdCount,
     updated: updatedCount,
     skipped: skippedCount,
+    deactivatedLegacy,
   }, { status: 201 }); // 201 Created
 
 }

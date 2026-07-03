@@ -14,6 +14,19 @@ import { z } from 'zod';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { FILTER_PRESET_IDS } from '@/lib/editron/data/filter-presets';
 
+export const LLM_SCENE_PARSER_MAX_INPUT_CHARS = 24_000;
+
+export class ScriptParserInputTooLongError extends Error {
+  readonly inputLength: number;
+  readonly maxLength: number;
+
+  constructor(inputLength: number, maxLength: number = LLM_SCENE_PARSER_MAX_INPUT_CHARS) {
+    super(`Script is ${inputLength} characters, above the ${maxLength} character parser limit.`);
+    this.name = 'ScriptParserInputTooLongError';
+    this.inputLength = inputLength;
+    this.maxLength = maxLength;
+  }
+}
 // ─── Schema ──────────────────────────────────────────────────────
 
 const SceneEditDirectionsSchema = z.object({
@@ -181,6 +194,10 @@ export async function parseScriptWithLLM(
     userId?: string;  // User ID for brand lookup
   } = {},
 ): Promise<LLMParseResult> {
+  if (scriptText.length > LLM_SCENE_PARSER_MAX_INPUT_CHARS) {
+    throw new ScriptParserInputTooLongError(scriptText.length);
+  }
+
   const google = getGeminiProvider();
   // OLD: hardcoded 'gemini-2.5-flash'. NEW: configurable via env var LLM_PARSER_MODEL.
   const model = (google as any)(DEFAULT_CONFIG.aiModels.sceneParserModel, { structuredOutputs: true });
@@ -247,7 +264,7 @@ You are a senior video production director. You decompose client scripts into di
 <task>
 Parse the script provided in the <script> section below into structured scene objects conforming to the output schema. Each field's schema description specifies its extraction rules.
 
-The script may be in ANY format (screenplay, voiceover, bullets, two-column A/V, timestamped, casual notes, storyboard, ThinkForge output, or any mix) and any language. If truncated, process only available content and add a final scene with title "SCRIPT_TRUNCATED".
+The script may be in ANY format (screenplay, voiceover, bullets, two-column A/V, timestamped, casual notes, storyboard, ThinkForge output, or any mix) and any language. Never create sentinel, placeholder, diagnostic, or fake scenes. If the input appears incomplete, parse only coherent available scenes and do not invent a terminal marker.
 </task>
 
 ${brandBlock}
@@ -352,8 +369,7 @@ Always "ai-video". Only exception: "graphics-only" for purely data/chart/infogra
 </rules>
 
 <script>
-${scriptText.substring(0, 24000)}
-${scriptText.length > 24000 ? '\n[NOTICE: Script truncated at 24,000 characters. Process only content above. Add final scene with title "SCRIPT_TRUNCATED".]' : ''}
+${scriptText}
 </script>`,
   }), { label: 'llm-scene-parser main', maxRetries: 2 });
 

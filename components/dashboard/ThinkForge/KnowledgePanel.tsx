@@ -367,7 +367,7 @@ function BrandDNAEditor() {
         body: JSON.stringify(dna),
       });
       if (!res.ok) throw new Error();
-      toast({ title: "Brand Vault saved" });
+      toast({ title: "Voice memory saved" });
     } catch {
       toast({ title: "Failed to save", variant: "destructive" });
     } finally {
@@ -393,7 +393,7 @@ function BrandDNAEditor() {
           <span className="text-[11px] font-semibold text-[#D4A652]">How it works</span>
         </div>
         <p className="text-[11px] text-[#7A776E] leading-relaxed">
-          Fill in your brand identity below. The AI will use this to match your voice, avoid things you hate, and generate content that sounds like <em>you</em>.
+          Tune ThinkForge's writing voice below. These preferences sync as brand evidence without replacing the platform Brand Vault.
         </p>
       </div>
 
@@ -490,8 +490,8 @@ export function KnowledgePanel({
                   <Brain size={16} className="text-[#D4A652]" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-[#ECE9E1]">Brand Vault</h2>
-                  <p className="text-[11px] text-[#5F5E5A]">Your brand identity & preferences</p>
+                  <h2 className="text-sm font-semibold text-[#ECE9E1]">Voice Memory</h2>
+                  <p className="text-[11px] text-[#5F5E5A]">ThinkForge writing voice and examples</p>
                 </div>
               </div>
               <button

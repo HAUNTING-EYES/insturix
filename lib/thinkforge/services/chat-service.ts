@@ -30,6 +30,7 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { detectContentPath } from '../agents/prompt-utils';
+import { resolveThinkForgeTrendContext } from './trend-context';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
@@ -601,6 +602,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const isGenerateIntent = intentResult.intent === 'draft';
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
       const shouldRunEdit = intentResult.intent === 'edit' || intentResult.intent === 'hybrid';
+      const requestedContentPath = shouldRunGeneration
+        ? detectContentPath(effectivePrompt, sessionState.metadata.format)
+        : null;
+      const requestedDocumentType = requestedContentPath === 'post' ? 'post' : 'screenplay';
+      const requestedDocumentLabel = requestedContentPath === 'post' ? 'post' : 'script';
 
       const isCanvasEmpty = (() => {
         if (!script) return true;
@@ -618,12 +624,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           return;
         }
 
-        // If current canvas is empty, draft into it. Otherwise create a new script.
+        // If current canvas is empty, draft into it. Otherwise create a new document.
         if (isCanvasEmpty && effectiveScriptId) {
           // Use the current scriptId as-is.
         } else {
           const newScriptId = crypto.randomUUID();
-          const initialTitle = 'New Script';
+          const initialTitle = requestedContentPath === 'post' ? 'New Post' : 'New Script';
           const createResult = await applyCommand({
             type: 'ReplaceDocument',
             sessionId: sessionId || session._id,
@@ -634,23 +640,24 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               title: initialTitle,
               content: '',
               blocks: [],
+              documentType: requestedDocumentType,
             }
           }, userId);
 
           if (!createResult.ok) {
-            finalResponse = createResult.error || 'Failed to create new script.';
+            finalResponse = createResult.error || `Failed to create new ${requestedDocumentLabel}.`;
             if (!(await emitEvent('token', { content: finalResponse }))) return;
             if (!(await emitEvent('done', { sessionId: session?._id }))) return;
             return;
           }
 
           effectiveScriptId = newScriptId;
-          await emitEvent('script_created', { scriptId: newScriptId, title: initialTitle, documentType: 'screenplay' });
+          await emitEvent('script_created', { scriptId: newScriptId, title: initialTitle, documentType: requestedDocumentType });
         }
       }
 
       if ((shouldRunGeneration || shouldRunEdit) && !effectiveScriptId) {
-        finalResponse = 'No active script. Create a new script first, then generate.';
+        finalResponse = `No active ${requestedDocumentLabel}. Create a new ${requestedDocumentLabel} first, then generate.`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
         if (!(await emitEvent('done', { sessionId: session?._id }))) return;
         return;
@@ -792,13 +799,15 @@ CRITICAL: You are editing a SELECTION from a larger document.
           await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
         }
       } else if (shouldRunGeneration) {
-        // Generate NEW script from scratch
+        // Generate a new document from scratch
         // Stream a "working" message first
-        const workingMsg = 'Creating your script...';
+        const workingMsg = `Creating your ${requestedDocumentLabel}...`;
         if (!(await emitEvent('token', { content: workingMsg }))) return;
 
         // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
-        const contentPath = detectContentPath(effectivePrompt, sessionState.metadata.format);
+        const contentPath = requestedContentPath || detectContentPath(effectivePrompt, sessionState.metadata.format);
+        const generatedDocumentType = contentPath === 'post' ? 'post' : 'screenplay';
+        const generatedDocumentLabel = contentPath === 'post' ? 'post' : 'script';
         
         // FEATURE FLAG: Only run Thinking Agent for scripts, skip for posts to reduce latency
         if (contentPath !== 'post') {
@@ -834,7 +843,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         }
         if (!(await emitEvent('progress', { progress: 0.01, message: 'Starting content generation' }))) return;
 
-        let finalTitle = 'New Script';
+        let finalTitle = contentPath === 'post' ? 'New Post' : 'New Script';
         let finalContent = '';
         let finalBlocks: ThinkForgeBlock[] = [];
         let finalRichText: TiptapJSON = { type: 'doc', content: [] } as any;
@@ -850,6 +859,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // flat Post/Script writers can drive writing-graph technique selection from the structured
         // signals, not just the folded brief. Fails soft to the un-grounded brief.
         let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
+        let trendContextMetadata: Record<string, any> | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
@@ -865,6 +875,25 @@ CRITICAL: You are editing a SELECTION from a larger document.
           signalTrace = buildThinkForgeSignalTrace(contentSignalProfile);
         } catch (profileErr) {
           console.warn('[chat-service] content signal profile resolution failed; generating without it:', profileErr);
+        }
+
+        try {
+          const trendContext = await resolveThinkForgeTrendContext({
+            userPrompt: effectivePrompt,
+            project: sessionState.metadata,
+            brandId: sessionState.metadata.brandId,
+            contentPath,
+          });
+          if (trendContext?.promptBlock) {
+            groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
+              .filter(Boolean)
+              .join('\n\n');
+          }
+          if (trendContext?.metadata) {
+            trendContextMetadata = trendContext.metadata;
+          }
+        } catch (trendErr) {
+          console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
         }
 
         try {
@@ -895,6 +924,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               contentAnalysis: result.contentAnalysis,
               visualPrompts: result.clickatron,
               writerMetadata: result.metadata,
+              ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };
             
             // Build simple paragraph block for post content
@@ -925,6 +955,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               contentAnalysis: result.contentAnalysis,
               visualPrompts: result.visualMetadata,
               writerMetadata: result.metadata,
+              ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };
 
             // Build structural blocks for script
@@ -988,6 +1019,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               content: finalContent,
               blocks: finalBlocks,
               richText: finalRichText as any,
+              documentType: generatedDocumentType,
               ...((signalTrace || writerOutputMetadata) ? {
                 metadata: {
                   ...(signalTrace ? { signalTrace } : {}),
@@ -1014,13 +1046,14 @@ CRITICAL: You are editing a SELECTION from a larger document.
             richText: finalRichText,
             content: finalContent,
             version: savedVersion,
+            documentType: generatedDocumentType,
             // signalTrace/writerOutput intentionally NOT emitted to the client: internal
             // reasoning the browser never reads. Still persisted server-side (ReplaceDocument
             // above) and fed to the Clickatron handoff from the DB, not over the wire.
           },
           metadata: {
             workflow: 'create',
-            thoughts: 'Script created directly via Writer API',
+            thoughts: `${contentPath === 'post' ? 'Post' : 'Script'} created directly via Writer API`,
             duration_ms: 0,
             agent_steps: []
           }
@@ -1037,12 +1070,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
         }
 
         // Send completion response
-        finalResponse = `\n\nScript "${finalTitle}" created successfully!`;
+        const completionLabel = contentPath === 'post' ? 'Post' : 'Script';
+        finalResponse = `\n\n${completionLabel} "${finalTitle}" created successfully!`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         // Persist assistant message
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your content...\n\nDocument "${finalTitle}" created successfully!`, threadId);
+          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your ${generatedDocumentLabel}...\n\n${completionLabel} "${finalTitle}" created successfully!`, threadId);
       }
       } else if (intentResult.intent === 'research') {
         // Research intent - use search-grounded agent (non-streaming for metadata access)

@@ -30,6 +30,7 @@ import { ConflictCard } from './ConflictCard';
 import { SignalTable } from './SignalTable';
 import { BrandVisualBoard } from './BrandVisualBoard';
 import { BrandScanReveal } from './BrandScanReveal';
+import { BrandManagerPanel } from './BrandManagerPanel';
 import {
   buildIntakeGuidance,
   buildSourceLanes,
@@ -59,6 +60,7 @@ import {
   useBrandVaultJob,
   useBrandVaultMutations,
   useBrandVaultProfile,
+  useBrandVaultScans,
   useLatestAcceptedBrandVaultRecordId,
 } from './useBrandVault';
 
@@ -199,6 +201,7 @@ export function BrandVaultReview() {
   const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
   const latestAccepted = useLatestAcceptedBrandVaultRecordId(activeBrandId);
   const acceptedBrands = useAcceptedBrandVaultBrands();
+  const brandScans = useBrandVaultScans(activeBrandId);
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
@@ -277,6 +280,15 @@ export function BrandVaultReview() {
     const recordId = latestAccepted.data;
     if (recordId && !jobId && !profileId) setProfileId(recordId);
   }, [latestAccepted.data, jobId, profileId]);
+
+  // After switching brands the website field is empty, so "Rescan" has nothing to scan. Seed it from the
+  // brand's most recent scan so rescan works without retyping. Only fills an empty field — never clobbers
+  // what the user typed (guard on websiteUrl), and the guard also stops any set/re-run loop.
+  useEffect(() => {
+    if (websiteUrl.trim()) return;
+    const latestScanUrl = brandScans.data?.find((scan) => scan.websiteUrl)?.websiteUrl;
+    if (latestScanUrl) setWebsiteUrl(latestScanUrl);
+  }, [brandScans.data, websiteUrl]);
 
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
@@ -584,11 +596,8 @@ export function BrandVaultReview() {
     setToast({ message, tone });
   }
 
-  function selectActiveBrand(nextBrandId: string) {
-    const cleanBrandId = nextBrandId.trim();
-    if (!cleanBrandId || cleanBrandId === activeBrandId) return;
-    persistSelectedBrandId(cleanBrandId);
-    setActiveBrandId(cleanBrandId);
+  // Clear the whole review workspace back to a fresh scan/create state (shared by brand switch + new client).
+  function resetWorkspaceState() {
     setSnapshot(EMPTY_SNAPSHOT);
     setWebsiteUrl('');
     setCompanyName('');
@@ -608,6 +617,44 @@ export function BrandVaultReview() {
     setShowSignals(false);
     setLocalError(null);
     setBrandOptionsError(null);
+  }
+
+  function selectActiveBrand(nextBrandId: string) {
+    const cleanBrandId = nextBrandId.trim();
+    if (!cleanBrandId || cleanBrandId === activeBrandId) return;
+    persistSelectedBrandId(cleanBrandId);
+    setActiveBrandId(cleanBrandId);
+    resetWorkspaceState();
+  }
+
+  // Scan a brand-new client without touching any existing brand. Point the workspace at a fresh, unsaved
+  // brand id so the create screen shows and the next scan mints/creates it. (Nulling the active brand
+  // instead would auto-reload the user's latest accepted vault and hide the create screen.)
+  function scanNewClient() {
+    const newBrandId = `brand_${crypto.randomUUID()}`;
+    persistSelectedBrandId(newBrandId);
+    setActiveBrandId(newBrandId);
+    resetWorkspaceState();
+    showToast('New client started. Add a website and scan.', 'good');
+  }
+
+  // Reload a scan from the brand's history by its job id (never shown to the user) into the review pane.
+  function openScan(scanJobId: string) {
+    const id = scanJobId.trim();
+    if (!id) return;
+    setLocalError(null);
+    setProfileId(null);
+    setResolvedConflicts(new Set());
+    setResolvingConflictPath(null);
+    setSignalEdits({});
+    setLookupId(id);
+    if (id === jobId) {
+      void jobQuery.refetch();
+      showToast('Reloaded scan.', 'good');
+      return;
+    }
+    setJobId(id);
+    showToast('Opening scan.', 'warn');
   }
 
   // Avoid the build-screen flash on open: hold a loader while we resolve whether the user has a saved
@@ -725,6 +772,21 @@ export function BrandVaultReview() {
             onClearWorkflow={() => setActiveGuidanceWorkflow(null)}
           />
           <BrandVaultStats summary={summary} />
+
+          <BrandManagerPanel
+            brands={brandOptions}
+            acceptedSummaries={acceptedBrands.data ?? []}
+            activeBrandId={activeBrandId}
+            scans={brandScans.data ?? []}
+            scansLoading={brandScans.isLoading}
+            scansError={errorMessage(brandScans.error)}
+            busy={busy}
+            canRescan={canRescanWithEvidence}
+            onSelectBrand={selectActiveBrand}
+            onRescan={() => void createDraftFromCurrentInputs()}
+            onScanNew={scanNewClient}
+            onOpenScan={openScan}
+          />
 
           {!snapshot.record && (
             <FastSetupPanel
@@ -1866,6 +1928,159 @@ const baseStyles = `
   border-radius: 8px;
   color: #7A776E;
   font-size: 12px;
+}
+.bv-c1-manager {
+  display: grid;
+  gap: 10px;
+  padding: 18px 0 22px;
+  border-bottom: 1px solid #1C1B19;
+}
+.bv-c1-manager-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #5F5E5A;
+  font-size: 11px;
+}
+.bv-c1-manager-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: #7A776E;
+}
+.bv-c1-brand-list {
+  display: grid;
+  gap: 8px;
+}
+.bv-c1-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid #1C1B19;
+  border-left: 4px solid #282724;
+  border-radius: 8px;
+  background: #131312;
+}
+.bv-c1-brand-row.is-active {
+  border-left-color: #D4A652;
+  background: rgba(212, 166, 82, 0.05);
+}
+.bv-c1-brand-open {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+}
+.bv-c1-brand-open:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.bv-c1-brand-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ECE9E1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bv-c1-brand-meta {
+  font-size: 11px;
+  color: #7A776E;
+}
+.bv-c1-brand-switch {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7A776E;
+}
+.bv-c1-manager-empty {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px dashed #282724;
+  border-radius: 8px;
+  color: #7A776E;
+  font-size: 12px;
+}
+.bv-c1-scan-list {
+  display: grid;
+  gap: 8px;
+}
+.bv-c1-scan-row {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid #1C1B19;
+  border-radius: 8px;
+  background: #0F0F0E;
+}
+.bv-c1-scan-status {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(212, 166, 82, 0.25);
+  background: rgba(212, 166, 82, 0.08);
+  color: #D4A652;
+  white-space: nowrap;
+  text-align: center;
+}
+.bv-c1-scan-status.good {
+  border-color: rgba(94, 201, 126, 0.3);
+  background: rgba(94, 201, 126, 0.08);
+  color: #5EC97E;
+}
+.bv-c1-scan-status.muted {
+  border-color: #282724;
+  background: #1B1A18;
+  color: #7A776E;
+}
+.bv-c1-scan-status.risk {
+  border-color: rgba(212, 106, 92, 0.3);
+  background: rgba(212, 106, 92, 0.06);
+  color: #D46A5C;
+}
+.bv-c1-scan-site {
+  font-size: 12px;
+  color: #ECE9E1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bv-c1-scan-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: #7A776E;
+  white-space: nowrap;
+}
+.bv-c1-scan-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #D4A652;
+}
+.bv-c1-scan-time {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: #5F5E5A;
+  white-space: nowrap;
 }
 .bv-c1-intake-panel {
   display: grid;

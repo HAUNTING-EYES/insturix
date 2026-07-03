@@ -44,18 +44,27 @@ for (const line of envContent.split('\n')) {
   if (match) env[match[1]] = match[2];
 }
 
-// Override with preview-specific values
-const MONGODB_URI = process.env.MONGODB_URI || env.MONGODB_URI;
-const CDN_WORKER_URL = 'https://editron-asset-proxy.aged-shape-8752.workers.dev';
+function requiredEnv(name) {
+  const value = process.env[name] || env[name];
+  if (!value) {
+    throw new Error(`Missing required env var: ${name}`);
+  }
+  return value;
+}
+
+// Environment-backed configuration
+const MONGODB_URI = requiredEnv('MONGODB_URI');
+const CDN_WORKER_URL = requiredEnv('CDN_WORKER_URL');
 
 // R2 credentials
-const R2_ACCESS_KEY_ID = '5add08e9787fdca437efc9158dcf5591';
-const R2_SECRET_ACCESS_KEY = '3299e1fb8030bff20689927eb136914f5f9f0e8ef93b5de55c99d9603441bcdc';
-const R2_ACCOUNT_ID = 'e83cf1c496f7b4bd606956e7e0dfa760';
-const R2_BUCKET_NAME = 'editron-cdn';
+const R2_ACCESS_KEY_ID = requiredEnv('R2_ACCESS_KEY_ID');
+const R2_SECRET_ACCESS_KEY = requiredEnv('R2_SECRET_ACCESS_KEY');
+const R2_ACCOUNT_ID = requiredEnv('R2_ACCOUNT_ID');
+const R2_BUCKET_NAME = requiredEnv('R2_BUCKET_NAME');
 
 // GCS credentials
-const gcsCredsJson = Buffer.from(env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString('utf-8');
+const googleCloudCredentials = requiredEnv('GOOGLE_CLOUD_CREDENTIALS');
+const gcsCredsJson = Buffer.from(googleCloudCredentials, 'base64').toString('utf-8');
 const gcsCreds = JSON.parse(gcsCredsJson);
 
 // GCS bucket from env file

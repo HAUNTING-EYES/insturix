@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
@@ -6,6 +6,11 @@ import axios from "axios";
 import FormData from "form-data";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import {
+  requireAllowedUploaderXUploadUrl,
+  UploaderXUploadUrlError,
+} from "../../utils/platform-upload-url";
+import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 const FACEBOOK_MIN_SCHEDULE_DELAY_MS = 10 * 60 * 1000;
 const FACEBOOK_PAGE_VIDEO_MAX_SCHEDULE_DELAY_MS = 75 * 24 * 60 * 60 * 1000;
@@ -149,8 +154,15 @@ export async function POST(req: Request) {
 
     const isReel = postType === "reel";
 
-    // ─── PHASE: START ───
+    // â”€â”€â”€ PHASE: START â”€â”€â”€
     if (phase === "start") {
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
+      }
+
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
 
@@ -172,10 +184,26 @@ export async function POST(req: Request) {
           );
         }
 
+        const safeUploadUrl = requireAllowedUploaderXUploadUrl(initData.upload_url, "facebook");
+        await UploaderXVideo.updateOne(
+          { userId: session.userId, videoUuid },
+          {
+            $set: {
+              "metadata.facebook.activeUpload": {
+                uploadUrl: safeUploadUrl,
+                uploadSessionId: initData.video_id,
+                videoId: initData.video_id,
+                postType: "reel",
+                createdAt: new Date(),
+              },
+            },
+          }
+        );
+
         return NextResponse.json({
           success: true,
           videoId: initData.video_id,
-          uploadUrl: initData.upload_url,
+          uploadUrl: safeUploadUrl,
           uploadSessionId: initData.video_id,
           fileSize,
         });
@@ -207,10 +235,17 @@ export async function POST(req: Request) {
       }
     }
 
-    // ─── PHASE: TRANSFER ───
+    // â”€â”€â”€ PHASE: TRANSFER â”€â”€â”€
     if (phase === "transfer") {
       if (startOffset === undefined || !chunkSize) {
         return NextResponse.json({ success: false, error: "Missing transfer parameters" }, { status: 400 });
+      }
+
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
       }
 
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
@@ -222,7 +257,18 @@ export async function POST(req: Request) {
       const contentType = videoAsset.contentType || "video/mp4";
 
       if (isReel && uploadUrl) {
-        await axios.post(uploadUrl, chunkBuffer, {
+        const safeUploadUrl = requireAllowedUploaderXUploadUrl(uploadUrl, "facebook");
+        const videoDoc = (await UploaderXVideo.findOne({ userId: session.userId, videoUuid }).lean()) as any;
+        const activeUpload = (videoDoc?.metadata as any)?.facebook?.activeUpload;
+        if (
+          !activeUpload?.uploadUrl ||
+          activeUpload.uploadUrl !== safeUploadUrl ||
+          (uploadSessionId && String(activeUpload.uploadSessionId) !== String(uploadSessionId))
+        ) {
+          return NextResponse.json({ success: false, error: "Invalid or expired Facebook upload URL" }, { status: 400 });
+        }
+
+        await axios.post(safeUploadUrl, chunkBuffer, {
           headers: {
             "Authorization": `OAuth ${targetPage.pageAccessToken}`,
             "offset": String(startOffset),
@@ -232,6 +278,7 @@ export async function POST(req: Request) {
           timeout: 120000,
           maxContentLength: Infinity,
           maxBodyLength: Infinity,
+          maxRedirects: 0,
         });
 
         return NextResponse.json({
@@ -275,7 +322,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // ─── PHASE: FINISH ───
+    // â”€â”€â”€ PHASE: FINISH â”€â”€â”€
     if (phase === "finish") {
       if (!videoId) {
         return NextResponse.json({ success: false, error: "Missing videoId" }, { status: 400 });
@@ -318,6 +365,13 @@ export async function POST(req: Request) {
         if (scheduleError) {
           return NextResponse.json({ success: false, error: scheduleError }, { status: 400 });
         }
+      }
+
+      const publishCreditCheck = await checkCredits(session.userId, "uploaderx", "platform_publish", {
+        requestType: "facebook",
+      });
+      if (!publishCreditCheck.allowed) {
+        return publishCreditCheck.errorResponse!;
       }
 
       if (isReel) {
@@ -385,6 +439,9 @@ export async function POST(req: Request) {
             "metadata.facebook.publishState": scheduledPublishAt ? "scheduled" : "published",
             ...(scheduledPublishAt ? { "metadata.facebook.scheduledTime": scheduledPublishAt.toISOString() } : {}),
           },
+          $unset: {
+            "metadata.facebook.activeUpload": "",
+          },
         }
       );
 
@@ -403,6 +460,8 @@ export async function POST(req: Request) {
         );
       }
 
+      await deductPublishCredits(publishCreditCheck);
+
       return NextResponse.json({
         success: true,
         facebookUrl,
@@ -416,10 +475,22 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: false, error: "Invalid phase" }, { status: 400 });
   } catch (error: any) {
+    if (error instanceof UploaderXUploadUrlError) {
+      return NextResponse.json({ success: false, error: "Invalid Facebook upload URL" }, { status: 400 });
+    }
+
     console.error("Facebook chunked upload failed:", error);
     return NextResponse.json(
       { success: false, error: error.message || "Facebook upload failed" },
       { status: 500 }
     );
+  }
+}
+
+async function deductPublishCredits(creditCheck: CreditCheckResult) {
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error("[UploaderX:Facebook] chunk publish credit deduction failed:", error);
   }
 }

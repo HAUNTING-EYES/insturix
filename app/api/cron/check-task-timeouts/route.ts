@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   // 2. Handle Clickatron Timeouts
   //
   // Clickatron stuck-ness lives at the VARIATION level, not the task level. The
-  // ClickatronTask schema has no top-level `status` field — only each variation in
+  // ClickatronTask schema has no top-level `status` field - only each variation in
   // details.canvas.variations carries status ('generating'|'completed'|'failed'|
   // 'blank'). The worker flips 'generating'->'completed'/'failed' and refunds on
   // failure, but if the worker is killed (Vercel maxDuration=300s) or QStash never
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
       for (const variation of stuckVariations) {
         // Atomically flip THIS variation 'generating' -> 'failed'. The filter
         // requires it to still be 'generating', so if the worker terminal'd it
-        // first this matches zero docs (modifiedCount 0) and we skip the refund —
+        // first this matches zero docs (modifiedCount 0) and we skip the refund -
         // this is the per-slide guard that prevents double-refunds.
         const flip = await ClickatronTask.updateOne(
           {
@@ -106,7 +106,7 @@ export async function GET(request: Request) {
             );
           } catch (refundError) {
             results.errors++;
-            // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+            // LOUDFAIL: temporary loud logging for testing - remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
             console.error('[LOUDFAIL][Cron][Clickatron][REFUND-FAILED][MONEY-LOSS] stuck-slide refund threw (slide already failed; no further recovery):', { userId: task.clerkUserId, taskId, variationId: variation.id, amount: refundPerVariation, refundError });
             results.details.push(
               `Failed to refund stuck Clickatron variation ${variation.id} (task ${taskId}): ${refundError instanceof Error ? refundError.message : String(refundError)}`,
@@ -116,7 +116,7 @@ export async function GET(request: Request) {
           // Fail loud: a zero cost means the credit-cost config lost the 'variation'
           // action (regression). The variation is still correctly failed above.
           results.errors++;
-          // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+          // LOUDFAIL: temporary loud logging for testing - remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
           console.error('[LOUDFAIL][Cron][Clickatron][CONFIG-REGRESSION][MONEY] getCreditCost returned 0 -> stuck slide failed but NOT refunded:', { userId: task.clerkUserId, taskId, variationId: variation.id });
           results.details.push(
             `Clickatron variation ${variation.id} failed but refund skipped: getCreditCost returned ${refundPerVariation}`,
@@ -125,8 +125,8 @@ export async function GET(request: Request) {
       }
     }
   } catch (e) {
-    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
-    // NOTE: the cron still returns 200 even when this fires — the whole Clickatron stuck-slide sweep was skipped this run (no refunds).
+    // LOUDFAIL: temporary loud logging for testing - remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
+    // NOTE: the cron still returns 200 even when this fires - the whole Clickatron stuck-slide sweep was skipped this run (no refunds).
     logger.error('[LOUDFAIL][Cron][Clickatron][WATCHDOG-DIED][MONEY] entire stuck-slide sweep failed; no stuck slides refunded this run:', { error: e });
     results.errors++;
     results.details.push(`Error in Clickatron cron: ${e instanceof Error ? e.message : String(e)}`);
@@ -181,8 +181,32 @@ export async function GET(request: Request) {
   // 4. Handle Editron Video Pipeline Timeouts
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const { reconcileVideoBatchStatus } = await import('@/lib/pipeline/video-queue-service');
     const editronDb = await getDatabase();
     const videoTimeout = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes
+    const reconciledBatchCache = new Map<string, { batch: any | null; jobs: any[] }>();
+
+    const hasCompletedVideo = (job: any): boolean =>
+      job?.status === 'completed' && typeof job.videoUrl === 'string' && job.videoUrl.trim().length > 0;
+
+    const reconcileBatch = async (
+      batchId: unknown,
+      userId: unknown,
+      force = false,
+    ): Promise<{ batch: any | null; jobs: any[] } | null> => {
+      const safeBatchId = typeof batchId === 'string' ? batchId.trim() : '';
+      const safeUserId = typeof userId === 'string' ? userId.trim() : '';
+      if (!safeBatchId || !safeUserId) return null;
+
+      const cacheKey = `${safeUserId}:${safeBatchId}`;
+      if (!force && reconciledBatchCache.has(cacheKey)) {
+        return reconciledBatchCache.get(cacheKey) ?? null;
+      }
+
+      const reconciled = await reconcileVideoBatchStatus(safeBatchId, safeUserId, editronDb);
+      reconciledBatchCache.set(cacheKey, reconciled);
+      return reconciled;
+    };
 
     // Find stuck video jobs
     const stuckVideoJobs = await editronDb.collection('pipeline_video_jobs').find({
@@ -191,19 +215,33 @@ export async function GET(request: Request) {
     }).toArray();
 
     for (const job of stuckVideoJobs) {
-      await editronDb.collection('pipeline_video_jobs').updateOne(
-        { _id: job._id },
+      const reconciled = await reconcileBatch(job.batchId, job.userId);
+      const reconciledJob = reconciled?.jobs.find((candidate: any) => String(candidate?._id) === String(job._id));
+
+      if (hasCompletedVideo(reconciledJob)) {
+        results.processed++;
+        results.details.push(`Editron video job ${job._id} reconciled from storyboard evidence; timeout failure skipped`);
+        continue;
+      }
+
+      const failFilter: Record<string, unknown> = {
+        _id: job._id,
+        status: { $in: ['processing', 'queued'] },
+      };
+      if (job.userId) failFilter.userId = job.userId;
+      if (job.batchId) failFilter.batchId = job.batchId;
+
+      const failResult = await editronDb.collection('pipeline_video_jobs').updateOne(
+        failFilter,
         { $set: { status: 'failed', error: 'Timed out after 15 minutes (watchdog)', completedAt: new Date() } },
       );
 
-      // Update batch counters
-      if (job.batchId) {
-        await editronDb.collection('pipeline_video_batches').updateOne(
-          { _id: job.batchId },
-          { $inc: { failed: 1 }, $set: { updatedAt: new Date() } },
-        );
+      if (failResult.modifiedCount !== 1) {
+        await reconcileBatch(job.batchId, job.userId, true);
+        continue;
       }
 
+      await reconcileBatch(job.batchId, job.userId, true);
       results.processed++;
       results.details.push(`Editron video job ${job._id} timed out (stuck ${Math.round((Date.now() - new Date(job.createdAt).getTime()) / 60000)}min)`);
     }
@@ -215,15 +253,12 @@ export async function GET(request: Request) {
     }).toArray();
 
     for (const batch of stuckBatches as any[]) {
-      const done = (batch.completed || 0) + (batch.failed || 0);
-      if (done >= (batch.totalScenes || 0)) {
-        const newStatus = batch.failed === 0 ? 'completed' : batch.completed === 0 ? 'failed' : 'partial';
-        await editronDb.collection('pipeline_video_batches').updateOne(
-          { _id: batch._id },
-          { $set: { status: newStatus, updatedAt: new Date() } },
-        );
+      const reconciled = await reconcileBatch(batch._id, batch.userId, true);
+      if (!reconciled?.batch) continue;
+
+      if (reconciled.batch.status !== 'processing') {
         results.processed++;
-        results.details.push(`Editron video batch ${batch._id} stuck at "processing" → ${newStatus}`);
+        results.details.push(`Editron video batch ${batch._id} reconciled from storyboard/job evidence -> ${reconciled.batch.status}`);
       }
     }
 

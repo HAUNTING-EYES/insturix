@@ -68,6 +68,7 @@ export interface BrandVaultMongoJobDocument {
   snapshot: BrandVaultRefineryJobSnapshot;
   recordId?: string;
   userId: string;
+  orgId?: string | null;
   brandId?: string;
   status: BrandRefineryJob['status'];
   createdAt: string;
@@ -251,12 +252,16 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
   async listJobSnapshots(filter: BrandVaultRefineryJobListFilter = {}): Promise<BrandVaultRefineryJobSnapshot[]> {
     const collections = await this.getCollections();
     const query: Record<string, unknown> = {};
+    if (filter.brandId) query.brandId = filter.brandId;
+    if (filter.userId) query.userId = filter.userId;
+    if (filter.orgId !== undefined) query.orgId = filter.orgId;
     if (filter.statuses?.length) query.status = { $in: filter.statuses };
     if (filter.updatedBefore) query.updatedAt = { $lt: filter.updatedBefore };
     const limit = Math.max(1, Math.min(filter.limit ?? 25, 100));
+    const sortDirection = filter.sort === 'updatedAtDesc' ? -1 : 1;
     const docs = await collections.jobs
       .find(query as Filter<BrandVaultMongoJobDocument>)
-      .sort({ updatedAt: 1 })
+      .sort({ updatedAt: sortDirection })
       .limit(limit)
       .toArray();
     return docs.map((doc) => clone(doc.snapshot));
@@ -380,6 +385,7 @@ async function ensureIndexes(collections: BrandVaultMongoCollections): Promise<v
   ]);
   await collections.jobs.createIndexes?.([
     { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'user_status_updatedAt' },
+    { key: { orgId: 1, brandId: 1, userId: 1, updatedAt: -1 }, name: 'org_brand_user_updatedAt' },
     { key: { recordId: 1 }, name: 'recordId', sparse: true },
   ]);
   await collections.events.createIndexes?.([
@@ -470,6 +476,7 @@ function jobDocument(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultMongoJo
     snapshot: clone(snapshot),
     recordId: snapshot.recordId,
     userId: snapshot.job.userId,
+    orgId: snapshot.job.orgId ?? null,
     brandId: snapshot.job.brandId,
     status: snapshot.job.status,
     createdAt: snapshot.job.createdAt,

@@ -19,20 +19,86 @@ Shipped 2026-06-27 (done -- context in the handoff Section 1): gemini flash-lite
 atoms (`906a2727`/`705cda69`/`c60b2836`/`803d4c28`), auto-BGM dispatch + shared audio-worker dispatcher
 (`45925eb3`, L2 only -- needs L3 verify).
 
-Open tasks (priority order -- full detail in the handoff):
-1. **P1 Quality score saturates at 0** (`quality-review-service.ts:1484-1491`): flat, uncapped -5/warning floors the
-   score at 0 after just 20 warnings; the persisted 0 **poisons the genre-parameter bandit reward**
-   (`genre-parameter-bandit.ts:227`). Fix = per-type cap + advisory/blocking split.
-2. **P1 `text-embedding-004` 404 -> silent search degradation** (5 call sites): swap to `text-embedding-005`
-   (768-dim, legacy-SDK-safe; do NOT use `gemini-embedding-001` = 3072-dim, which silently corrupts the 768 index)
-   + backfill old vectors.
-3. **P1 Auto-BGM L3 verify**: confirm `45925eb3` actually lands a BGM overlay on a real raw-footage auto-edit
-   (needs `FAL_AI_API_KEY` + `QSTASH_TOKEN`).
-4. **P2 Transition produce-then-suppress** (`signal-executor.ts`): pre-gate transitions at the producer
-   (boundary/pair/direction) instead of letting 3 downstream layers discard them.
-5. **P2 Chapter-concat for >15-min renders is BUILT (`455ddf5b`), only NOT DEPLOYED** -- Modal deploy + 2 Vercel
-   env vars + secret + smoke test. (The earlier "unbuilt P0 / fails at >3min" claim is STALE -- corrected.)
-6. **P3 TRIBE perf** (V-JEPA frame sampling is the lever) and **MEMORY.md compaction** (Claude memory, not repo).
+Current status of those handoff tasks (code-verified 2026-06-30):
+1. **P1 Quality score saturation -- DONE IN CODE.** `quality-review-service.ts` now uses per-type caps and
+   advisory/blocking separation; focused quality/bandit tests pass. Do not redo unless a fresh real project proves
+   the new score still misrepresents visible output.
+2. **P1 Embedding 404 -- DONE IN CODE.** Live code no longer calls `text-embedding-004`; the shared Gemini embedding
+   helper uses `gemini-embedding-001` with `outputDimensionality=768`, and the Python Graphiti path uses the same
+   768-dimensional contract. Remaining work is only data backfill/ops if old assets still have null vectors.
+3. **P1/P7 Auto-BGM source-music contract -- DONE IN CODE, L3 VERIFY STILL NEEDED.** Source music detection
+   no longer treats speech-derived BPM as music by itself and now consumes project-level Essentia `musicAnalysis`
+   when per-asset `musicStructure` is absent; regressions cover speech-only false positives and project-level music
+   analysis. A fresh run with `FAL_AI_API_KEY` + `QSTASH_TOKEN` must still prove a real BGM overlay lands when the
+   recommendation says yes.
+4. **P2 Transition produce-then-suppress -- DONE IN CODE.** `signal-executor.ts` pre-gates signal transitions against
+   clip boundaries/pairs and annotates `transitionProducerGate`; focused signal/unified-bundle tests pass.
+5. **P2 Chapter-concat for >15-min renders -- BUILT AND PLAN-MARKED LIVE, OPS VERIFY ONLY.** The Modal concat path,
+   env names, and smoke docs exist. Remaining proof is a real >15-minute render stitched through the deployed worker.
+6. **P3 TRIBE perf -- PARTIAL/DONE FOR CLIENT SAMPLING.** `vjepa-service.ts` sends adaptive `max_frames_per_segment`
+   to Modal (64/48/32/24 by segment count) and tests verify long-video requests send 24. Remaining perf work is live
+   telemetry/deploy tuning, not rebuilding the V-JEPA client wrapper.
+7. **MEMORY.md compaction -- OUT OF REPO.** Claude memory housekeeping only; do not spend Editron code time on it.
+
+## START HERE -- 2026-06-29 Code-Verified Phase Status
+
+This section supersedes stale phase-status language below, especially the 2026-06-25 line that called Phase 0
+"zero live callers" and Phase 13 / Phase 16 "not built". Verification was done from live code on
+`infrastructure-improvs-+Editron` before editing this plan. Do not re-label a phase as done unless the producer,
+authority, source-of-truth timeline, and final consumer are all verified again.
+
+### Corrected status map
+
+| Phase | Status | Code-verified finding | Remaining production work |
+| --- | --- | --- | --- |
+| P0 Rendered truth fixture | **PARTIAL, live metadata + async Lambda stills + scored reports wired** | Live Director calls `persistFinalPhase0LiveTruth` after final overlay save, persists `qualityReview`, `intelligence.phase0LiveTruth`, and planned artifact evidence, then dispatches `/api/internal/workers/phase0-rendered-evidence` to render sampled full/baseline stills through Remotion Lambda. The worker now builds rendered aesthetic reports, persists `intelligence.phase0RenderedStillEvidence`, `intelligence.phase0RenderedAestheticReport`, `intelligence.renderedQualityEvidence`, and a rendered quality gate; partial/completed still evidence without rendered-aesthetic quality evidence remains claimable for retry. | Code-level scoring is wired; remaining work is live env proof on real projects, broader gate-policy hardening, and enough real rendered evidence before P0 becomes the hard calibration source. |
+| P1 Decision authority | **DONE for the live unified-candidate path, with compatibility caveat** | `director-agent.ts` pushes Creative Brief and signal candidates into `planUnifiedDecisionBundleFromCandidates`; `unified-decision-bundle.ts` ranks both producer candidates and stamps selected decisions with `owner: unified-planner`, `creativeBriefRole: semantic-context`, `signalRole: candidate-source`. | Keep legacy/single-producer helper paths honest in telemetry. Do not claim all historical helpers are removed. |
+| P2 Candidate normalizer | **PARTIAL** | `signal-executor.ts` now emits `momentImportance`, `candidateConfidence`, `executionConfidence`, `evidenceStrength`, and `signalNormalization`; `unified-decision-bundle.ts` normalizes family/job/timing/evidence/risk. | Upstream still starts from `momentWeight` and blends it into confidence; formulas are invented and need calibration. |
+| P3 Caption planner | **PARTIAL** | Canonical final-timeline caption track exists, creates one caption overlay with multiple readable caption groups, and caption moment planning reads speech/readability/screen-pressure atoms. | Still one track container rather than a true moment-scoped caption planner/renderer ownership model. |
+| P4 Visual perception / VLM cut intelligence | **PARTIAL, V-JEPA cut intelligence built + wired; perception facts reach unified context, atoms, and shared screen context** | `video-analysis/route.ts` runs Step 1.58 before silence removal, calls V-JEPA, refines `rawFootageAnalysis.silenceRemovalPlan` through `visual-cut-intelligence.ts`, then `executeSilenceRemoval` consumes the refined plan. Focused tests prove visual dead-air removal and visual-boundary splits become real timeline video-overlay changes. `signal-registry.ts` now projects `visualCutIntelligence.perception` into global visual perception signals, `UnifiedMomentContext` carries those facts into planner context, and `moment-bundle.ts` preserves them as primitive atoms. Trusted perception also feeds shared screen context as fallback evidence for negative space, busyness, salience, and motion when direct per-frame primitives are absent, and the selected negative-space region is exported into the existing `negative_space_*` signal-map keys that placement/readability consumers already read; direct primitives remain authoritative. | Finish the production layer: full VLM semantic perception, calibrated thresholds, real-project rendered proof, visual-heavy/visual-only fixture coverage, and family-specific rendered placement proof of the same perception facts. |
+| P5 Zoom / visual-motion planner | **DONE as planner infrastructure** | Zoom planner reads subject bbox, face/eye contact, shot scale, motion vectors, speech/beat/emotion, and overlay memory; it attaches `zoomMotionPlan` and anti-repeat inputs. | Rendered proof and calibration still belong to P12/P15. |
+| P6 Transition planner | **DONE as planner infrastructure** | Producer pre-gates transition decisions at clip boundaries/pairs; transition boundary planner reads topic, pause, beat, motion, visual change, shot/subject jumps, semantic contrast, audio tail, and repetition pressure. | Rendered timing/choreography proof still belongs to P13/P12. |
+| P7 SFX / BGM | **PARTIAL** | Atomic SFX form, sync anchors, provider candidate gate, R2/cache behavior, and strict timing validation exist; provider path is still Freesound-first and asset quality is provider-dependent. Auto-BGM dispatch exists, source-music detection now consumes project-level Essentia evidence, and `auto-bgm-decision.ts` persists why BGM was added/skipped into `intelligence.autoBgmDecision` + `intelligence.audio.autoBgmDecision`. | Full SFX system remains: multi-provider/provider abstraction, better rejection telemetry, richer non-transition roles, and calibration of skip/place decisions. BGM still needs L3 live proof that the async worker creates the overlay when the persisted recommendation says yes. |
+| P8 MG semantic + fact enrichment | **DONE** | Creative Brief prompt asks for semantic atoms/facts; brief wrapper emits semantic candidates; semantic MG candidate ledger/gates feed EDL/MG content normalization. | Downstream MG form generation remains P9/P11/Rule-11. |
+| P9 MG expression authority | **PARTIAL** | MG expression authority, semantic obligations, draw support, choreography helpers, and brand/MG dials exist. The "no draw-on exists" claim is stale. | Visible expression is not fully signal-owned yet: enter order, beat sync, shimmer/draw usage, and form breadth still need rendered proof and calibration. |
+| P10 Stage-aware composition | **PARTIAL** | Full-frame/split/device/overlay stage modes exist and negotiate caption/screen context. | Many thresholds are explicitly invented; no hard rendered gate validates stage choices live. |
+| P11 MG family hardening | **PARTIAL** | Numeric, identity, quote, process, comparison, data-series/structured/emphasis/brand paths exist. Social-proof is not yet a first-class composer, and license strictness is uneven. | Finish missing families and even out license rules with rendered evidence. |
+| P12 Gate teeth | **PARTIAL** | Structural MG gate is now enforcing by default with `MG_STRUCTURAL_GATE=observe` as escape hatch; metadata quality evidence persists. Phase0 rendered still scoring can mark projects `needs_review` when sampled full/baseline stills fail. | Do not promote this to a hard universal pass/fail yet: live render coverage, issue taxonomy, family-specific thresholds, and calibration are still incomplete. |
+| P13 Cross-overlay choreography | **PARTIAL, scheduler infrastructure wired + Phase 0 suppression evidence summarized** | `overlay-timeline-memory.ts` feeds shared pressure atoms and `cross-overlay-choreography.ts` runs in the live unified-candidate path before final EDL stamping. It suppresses same-lane stacks, unlinked audio on crowded moments, and unlicensed text-motion clashes; kept decisions carry sync-group metadata; Phase 0 manifest/taxonomy now surfaces scheduler suppression counts, reasons, families, sync groups, and samples from `unifiedDecisionBundle.evidence.crossOverlayChoreography`. | Remaining work is rendered proof on real projects, calibration of scheduler windows/thresholds, and broader pixel/audio-level event scoring in Phase 0/12 evidence. |
+| P14 Learning quarantine | **DONE** | Learning gate and genre bandit block failed/missing rendered evidence; inline workers and brand-learning route use the shared learning gate. | Keep Phase 0 rendered evidence reliable before enabling broader learning writes. |
+| P15 Calibration | **PARTIAL scaffold only** | Threshold/bandit/write-gate scaffolds exist and many fields are marked `invented-needs-calibration`. | Make rendered evidence source-of-truth, add human-labeled holdout, then tune curves/weights. |
+| P16 Per-brand taste priors | **PARTIAL, not an island anymore** | BrandSignalProfile now includes narrative/motion/composition signals and `brand-vault-to-motion.ts` maps them into MG motion inputs; tests cover the socket. | Real edit-feedback loop into per-brand taste priors is not proven complete. |
+| Rule-11 generative MG form | **NOT STARTED as true generative form** | MGs are no longer text-only, but form is still bounded by detected shapes and composer families (`numeric`, `identity`, `quote`, `process`, `comparison`, etc.). | Replace shape/composer menu authority with primitive/fact/wire-driven generative assembly after rendered truth exists. |
+
+### Immediate next work order
+
+1. **Do not rebuild P1.** It is done for the live candidate path; only telemetry/fallback cleanup is allowed.
+2. **Prove and harden P0 rendered truth scoring on real projects**: code-level full/baseline scoring is wired, so the next work is live env proof, false-positive control, and gate-policy hardening.
+3. **Harden P4 visual perception / VLM cut intelligence** beyond the built V-JEPA cut-refinement slice: add semantic VLM perception, real fixture proof, calibration, and overlay consumption.
+4. **Prove and harden P13 shared choreography scheduler** on real rendered projects: scheduler code is wired, but thresholds/windows and visual outcomes still need Phase 0/12 evidence.
+5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.
+6. **Run P15 calibration only after P0/P12 rendered gates are trustworthy.**
+
+### 2026-07-03 real-run defects to carry forward
+
+Source run: `proj_evz_c18y-cd5` / `front-end-log-export-2026-07-03T06-55-08.csv`.
+These are plan amendments, not a new roadmap.
+
+1. **P7 Auto-BGM music-analysis contract mismatch - FIXED IN CODE, L3 VERIFY STILL NEEDED.** TRIBE/Essentia produced project-level
+   `musicAnalysis` (`musicPresence`, BPM, beats, sections), but Auto-BGM reason still reported
+   `sourceMusicConfidence=0.00; no music-structure analysis` in the 2026-07-03 run. Current code now passes
+   `projectDoc.musicAnalysis` from both Path E and Path D into `computeGenreParameters`, and
+   `genre-parameter-computer.test.ts` proves project-level Essentia analysis is consumed when asset-level
+   `musicStructure` is absent. Remaining work is live proof that the async BGM worker actually creates the overlay.
+2. **P0 rendered-evidence signal propagation mismatch - FIXED IN CODE 2026-07-03.** Persisted MG overlays contain
+   `cinematic_moment` / `narrative_pressure`, but the Phase0 rendered-evidence path logged them
+   missing while scoring samples. Root contract: render/judge code must evaluate the same MG
+   signal payload that Director persisted. `overlay-atomic-receipts.ts` now treats top-level
+   `contentSignals` as receipt evidence and invalidates stale receipts when those signals change.
+3. **Worker reliability side defect: asset-analysis timeout loop - PARTIAL FIX IN CODE 2026-07-04.** `asset-analysis` timed out
+   repeatedly on the long upload. Unknown-duration videos now defer full ingest-time 5-Track analysis instead of assuming
+   they fit the 300s worker budget; known long videos were already deferred. Remaining proof is live telemetry that
+   retries stop leaving stale analyzing jobs.
 
 ---
 
@@ -251,13 +317,14 @@ This status uses live audit documents and code-backed evidence:
 | Raw signals | Rich signals exist and are attached | **Partially used (too narrowly in several families)** |
 | MG form origin | Content-shape controls base composer; signals fine-tune within current candidate set | **Partially true (this is why outputs feel repetitive)** |
 | Rendered truth gate | Some artifact capture exists, but no full hard blocker for bad visuals | **P0 blocker** |
-| Visual cut intelligence | V-JEPA primitives exist, but visual perception is not yet a first-class cut-planning input | **Required next layer** |
+| Visual cut intelligence | V-JEPA primitives now refine the cut plan before silence removal; full semantic VLM perception and rendered proof are still missing | **Partial / needs hardening** |
 | Calibration | Live bandit writes are now quarantined behind rendered/pass or explicit publish evidence (`4b48c8c3`); full rendered truth-loop calibration is still blocked | **Partially fixed / not production-ready** |
 
 ### Confirmed P0/P1/P2 findings (short)
 
 - **P0:** No rendered-pixel hard truth loop; bad 0/100 edits can still pass flow.
 - **P1:** MG candidate breadth is shallow (shape-bound), signal candidates are often suppressed at merge/cut floors, and gate checks are often observe-only.
+- **P1:** Auto-BGM can be falsely suppressed on speech-only talking-head uploads because speech-derived BPM/musicPresence is treated as source music.
 - **P1:** Invented constants without calibration are active in multiple places; cannot be tuned safely yet.
 - **P2:** Signal normalizer contract is incomplete (family atom + signal anchor fields not consistently projected into executable layer).
 - **P2:** `graphic_density Ã— duration` cap and 4.5s spacing budget are separate levers; can disagree unless aligned.
@@ -307,6 +374,8 @@ From whole-track to moment-scoped groups:
 
 ### Phase 4 - Visual perception and visual cut intelligence
 Add a VLM/perception layer after V-JEPA + transcript/audio analysis and before the Director/planner. This is perception, not decision authority.
+
+Current implementation note (code-verified 2026-07-03): the first P4 slice exists. video-analysis/route.ts runs a pre-cut V-JEPA pass, calls refineCutPlanWithVisualIntelligence, replaces the raw silenceRemovalPlan, persists intelligence.visualCutIntelligence, and then the existing silence-removal executor applies that refined plan. This covers V-JEPA-based visual protection, visual dead-air removal, visual-boundary split actions, and a persisted visualCutIntelligence.perception summary for downstream planners (primary visual mode, subject/text/motion ratios, negative-space preference, placement trust, explainability, and missing evidence). Later 2026-07-03 slices project that perception summary through SignalTimeline global signals, prove UnifiedMomentContext carries those keys into planner context, preserve them as primitive AtomicMomentBundle atoms, let trusted perception provide shared screen-context fallback evidence when direct per-frame primitives are missing, and export the selected negative-space region into the existing `negative_space_*` signal-map keys. Direct primitives remain authoritative, and degraded perception trust does not invent placement. It does not complete the full semantic VLM layer, calibration, real rendered proof, or family-specific rendered placement proof of those perception facts.
 
 Inputs:
 - V-JEPA dense primitives and coverage/degraded-mode policy
@@ -432,6 +501,7 @@ Move key issue checks from observe to enforce for production:
 - overlay overlap / blank / unreadable / collision / drift / excessive repetition / timing miss.
 - rendered evidence required for â€œgood enoughâ€.
 - failure taxonomy must keep overlay IDs + frame ranges + artifact links.
+- Current implementation note (2026-07-04): rendered aesthetic issue groups now preserve sampled still artifact paths and active overlay types next to frame/overlay evidence; remaining work is live proof and policy hardening.
 
 ### Phase 13 - Cross-overlay choreography
 One timeline memory for all families:
@@ -439,6 +509,7 @@ One timeline memory for all families:
 - MG, caption, zoom, transition, SFX, and motion density.
 - Avoid repeated pattern fatigue.
 - Avoid unsafe stacking.
+- Phase 0 must expose scheduler suppressions/sync groups from `crossOverlayChoreography` so bad renders explain whether the conflict was text-lane, motion-lane, audio-link, or overfull-moment pressure.
 
 ### Phase 14 - Bandit / learning quarantine and failure routing
 Keep learning off weak quality paths:
@@ -484,13 +555,14 @@ If any prior doc says â€œfully doneâ€, it should be treated as *histori
 4. Merge still under-advances Path D candidates.
 5. Live reward/learning weak-score writes are gated at `recordProjectOutcome`; remaining risk is calibration quality because rendered evidence is not yet the hard truth loop.
 6. Creative Brief-only upload-to-edit bundles can still bypass strict family atom licensing when no signal producer is present.
+7. Auto-BGM source-music detection is too weak: `musicBpm > 0` can classify speech rhythm as existing BGM, blocking BGM dispatch and suppressing `missing_bgm`.
 
 ### P2/P3 (stability and polish)
 6. Full-frame contract can downgrade into corner treatment via caption coordination.
 7. Render curves can synthesize BPM-derived beats when `bpm` reaches the overlay, but beat data
    and `syncData` are not yet threaded reliably into MG render/choreography, and audio-reactive
    modulation is hold-phase only.
-9. Visual perception is not yet part of cut planning; transcript/silence can still dominate keep/remove/shorten decisions.
+9. Visual cut intelligence is now part of pre-cut planning through V-JEPA refinement, but it is not yet the full semantic VLM perception layer and still needs calibration, real-project proof, and downstream overlay use.
 
 ---
 
@@ -550,8 +622,11 @@ For each phase, this is what â€œdoneâ€ means (strictly):
   - `lib/editron/services/edited-timeline-context.ts`
 - Visual perception and cut intelligence:
   - `lib/editron/services/vjepa-coverage-audit.ts`
-  - planned VLM/per-shot perception service
-  - transcript/audio/visual cut planning integration point in Director/edited timeline flow
+  - `lib/editron/services/visual-evidence-scorer.ts`
+  - `lib/editron/services/visual-cut-intelligence.ts`
+  - `app/api/internal/workers/video-analysis/route.ts` Step 1.58 pre-cut V-JEPA refinement
+  - planned semantic VLM/per-shot perception service
+  - transcript/audio/visual cut planning integration before Director/edited timeline flow
 - Bundle + authority:
   - `lib/editron/services/unified-decision-bundle.ts`
   - `lib/editron/services/signal-executor.ts`

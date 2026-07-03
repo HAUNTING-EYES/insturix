@@ -26,6 +26,22 @@ function transitionSfxReceipt(transitionId = 'tr-1') {
   };
 }
 
+function crossOverlayChoreographyReport(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 'cross-overlay-choreography-v1',
+    inputDecisionCount: 1,
+    outputDecisionCount: 1,
+    suppressedDecisionCount: 0,
+    annotatedDecisionCount: 1,
+    calibrationStatus: 'invented-needs-calibration',
+    laneLoad: { text: 1, motion: 0, audio: 0, timeline: 0, other: 0 },
+    syncGroups: [],
+    suppressed: [],
+    suppressedByReason: {},
+    suppressedByFamily: {},
+    ...overrides,
+  };
+}
 function signalAudit(overrides: Record<string, unknown> = {}) {
   const candidate = {
     version: 'signal-execution-candidate-v1',
@@ -110,6 +126,72 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('does not false-fail generated SaaS scene timelines with voiceover audio', () => {
+    const project = cleanProject();
+    project.projectId = 'proj_generated_saas';
+    project.durationInFrames = 90;
+    project.rawFootageAnalysis = undefined;
+    project.overlays = [
+      {
+        id: 'gs-1',
+        type: 'generated-scene',
+        from: 0,
+        durationInFrames: 90,
+        content: 'Product workflow scene',
+      },
+      {
+        id: 'vo-1',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 90,
+        assetId: 'voiceover_ready_1',
+        content: 'VO ready: Launch faster with a clear workflow.',
+        metadata: {
+          isVoiceover: true,
+          narrationText: 'Launch faster with a clear workflow.',
+        },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_generated_saas',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_generated_saas',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack, {
+      summary: {
+        status: 'pass',
+        score: 1,
+        passFrames: 3,
+        warnFrames: 0,
+        failFrames: 0,
+        sampledFrames: 3,
+        animationSampleFrames: 3,
+      },
+      frames: [],
+    });
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(manifest.overlayCounts).toMatchObject({ 'generated-scene': 1, sound: 1 });
+    expect(manifest.overlayFamilies.sfx).toMatchObject({
+      count: 0,
+      roles: [],
+      withAtomicForm: 0,
+      withTransitionAnchor: 0,
+      withTransitionEvidence: 0,
+      transitionEvidenceMissing: [],
+    });
+    expect(artifactPack.status).toBe('ready');
+    expect(taxonomy.summary.fail).toBe(0);
+    expect(classIds).not.toEqual(expect.arrayContaining([
+      'cut.no_video_clips',
+      'cut.tail_gap',
+      'timeline.canonical_context_not_safe',
+      'overlay.sfx_form_missing',
+      'timeline.sfx_orphan',
+    ]));
+  });
   it('classifies broken fixture evidence with stable failure ids', () => {
     const project: Phase0FixtureProject = {
       projectId: 'proj_broken',
@@ -199,6 +281,38 @@ describe('phase0 failure taxonomy', () => {
     ]));
     expect(taxonomy.summary.fail).toBeGreaterThan(0);
     expect(taxonomy.summary.warn).toBeGreaterThan(0);
+  });
+
+  it('does not flag MG atomic spine incomplete when semantic atoms use persisted metadata/content object shape', () => {
+    const project = cleanProject();
+    const mg = project.overlays?.find((overlay) => overlay.type === 'motion-graphic');
+    expect(mg).toBeTruthy();
+    if (!mg) return;
+
+    mg.content = {
+      semanticAtoms: { identity: { name: 'Hank Green' }, evidencePhrase: { text: 'creator context' } },
+      relations: { introduces: { from: 'identity', to: 'evidencePhrase' } },
+    };
+    mg.metadata = {
+      atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+      atomicOverlayReceipt: { family: 'motion-graphic' },
+      semanticAtoms: { identity: { name: 'Hank Green' }, evidencePhrase: { text: 'creator context' } },
+      relations: { introduces: { from: 'identity', to: 'evidencePhrase' } },
+    };
+
+    const manifest = buildPhase0FixtureManifest(project);
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_mg_persisted_shape',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(manifest.overlayFamilies.motionGraphics[0]).toMatchObject({
+      hasAtomicPlan: true,
+      hasAtomicReceipt: true,
+      semanticAtomCount: 2,
+      relationCount: 1,
+    });
+    expect(taxonomy.classes.map((item) => item.id)).not.toContain('overlay.mg_atomic_spine_incomplete');
   });
 
   it('fails when the render artifact pack is missing or not renderable', () => {
@@ -341,6 +455,78 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('surfaces cross-overlay choreography suppressions as Phase 0 decision evidence', () => {
+    const project = cleanProject();
+    project.intelligence!.unifiedDecisionBundle!.evidence = {
+      signalDecisionAudit: signalAudit(),
+      crossOverlayChoreography: crossOverlayChoreographyReport({
+        inputDecisionCount: 4,
+        outputDecisionCount: 2,
+        suppressedDecisionCount: 2,
+        laneLoad: { text: 2, motion: 1, audio: 1, timeline: 0, other: 0 },
+        syncGroups: [{
+          id: 'sync:120',
+          lane: 'text',
+          lanes: ['text', 'motion'],
+          frame: 120,
+          families: ['mg', 'camera'],
+          decisionTypes: ['graphic', 'zoom'],
+          count: 2,
+        }],
+        suppressedByReason: { 'text-motion-stack': 1, 'unlinked-audio-on-crowded-moment': 1 },
+        suppressedByFamily: { transition: 1, audio: 1 },
+        suppressed: [{
+          reason: 'text-motion-stack',
+          family: 'transition',
+          frame: 124,
+          conflictingWith: {
+            type: 'graphic',
+            frame: 120,
+            family: 'mg',
+            source: 'signal-driven',
+          },
+          calibrationStatus: 'invented-needs-calibration',
+        }],
+      }),
+    };
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_choreography_suppression',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_choreography_suppression',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(manifest.unifiedDecisionBundle.crossOverlayChoreography).toMatchObject({
+      status: 'present',
+      inputDecisionCount: 4,
+      outputDecisionCount: 2,
+      suppressedDecisionCount: 2,
+      suppressionRate: 0.5,
+      suppressedByReason: {
+        'text-motion-stack': 1,
+        'unlinked-audio-on-crowded-moment': 1,
+      },
+      syncGroups: [expect.objectContaining({ id: 'sync:120', lanes: ['text', 'motion'] })],
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'decision.cross_overlay_choreography_suppression')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        inputDecisionCount: 4,
+        outputDecisionCount: 2,
+        suppressedDecisionCount: 2,
+        suppressionRate: 0.5,
+        suppressedByFamily: { audio: 1, transition: 1 },
+        topSuppressions: [expect.objectContaining({
+          reason: 'text-motion-stack',
+          family: 'transition',
+          frame: 124,
+          conflictingWith: expect.objectContaining({ type: 'graphic', frame: 120, family: 'mg' }),
+        })],
+      },
+    });
+  });
   it('classifies rendered aesthetic failures with stable ids and grouped evidence', () => {
     const project = cleanProject();
     const manifest = buildPhase0FixtureManifest(project, {
@@ -362,6 +548,9 @@ describe('phase0 failure taxonomy', () => {
       },
       frames: [{
         frame: 12,
+        activeOverlayTypes: ['caption'],
+        fullStill: 's3://phase0/full-12.png',
+        baselineStill: 's3://phase0/base-12.png',
         report: {
           issues: [{
             dimension: 'contrast',
@@ -379,6 +568,9 @@ describe('phase0 failure taxonomy', () => {
         },
       }, {
         frame: 48,
+        activeOverlayTypes: ['motion-graphic'],
+        fullStill: 's3://phase0/full-48.png',
+        baselineStill: 's3://phase0/base-48.png',
         report: {
           issues: [{
             dimension: 'occlusion',
@@ -432,6 +624,9 @@ describe('phase0 failure taxonomy', () => {
           overlayId: 'caption-1',
           message: 'rendered text contrast is below accessibility floor',
           evidence: 'contrast=1.37; required=4.5',
+          fullStill: 's3://phase0/full-12.png',
+          baselineStill: 's3://phase0/base-12.png',
+          activeOverlayTypes: ['caption'],
         }],
       },
     });
@@ -1209,7 +1404,7 @@ function cleanProject(): Phase0FixtureProject {
             afterOverlayCount: 4,
           }],
         },
-        evidence: { signalDecisionAudit: signalAudit() },
+        evidence: { signalDecisionAudit: signalAudit(), crossOverlayChoreography: crossOverlayChoreographyReport() },
       },
       postBundleProfileActionPolicy: {
         version: 'post-bundle-profile-action-policy-v1',

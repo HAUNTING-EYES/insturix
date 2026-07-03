@@ -1,5 +1,6 @@
 import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
 import type { CIRDocument, CIRSection } from "@/lib/thinkforge/schemas/cir";
+import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 import type { DocumentType, SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
 
@@ -42,6 +43,8 @@ export interface Script {
   tone?: ThinkingHat;
   // Rich text HTML body for the new editor
   body?: string;
+  // Canonical TipTap document from the backend/editor runtime
+  richText?: TiptapJSON;
   // Canonical block tree (new canonical format)
   blocks?: BlockTree | CIRDocument | CIRSection[];
   // Legacy BlockNote document structure (kept for migration)

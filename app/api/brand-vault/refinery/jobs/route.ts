@@ -6,11 +6,13 @@ import {
   processNextQueuedBrandVaultRefineryJob,
   startQueuedBrandVaultRefineryJobFromWebsite,
   type BrandVaultRefineryStore,
+  type QueuedBrandVaultRefineryJobStart,
 } from '@/lib/shared/brand-vault-refinery-api';
 import type { BrandRefineryJob } from '@/lib/shared/brand-website-refinery-types';
 import { createBrandVaultBrowserFallbackFetchFromEnvironment } from '@/lib/shared/brand-vault-browser-fallback';
 import { loadBrandVaultConnectedSocialEvidence } from '@/lib/shared/brand-vault-connected-social-loader';
 import { createBrandVaultTextEvidenceCompilerFromEnvironment } from '@/lib/shared/brand-vault-text-evidence-compiler';
+import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,22 +34,51 @@ export async function POST(req: Request) {
     );
   }
 
-  const store = getDefaultBrandVaultRefineryStore();
-  const start = await startQueuedBrandVaultRefineryJobFromWebsite(
-    { userId, orgId: orgId ?? undefined, actorId: userId, body },
-    {
-      store,
-      fetchOptions: {
-        browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
-      },
-      sourceEvidenceProvider: ({ userId: sourceUserId, socialLinks }) =>
-        loadBrandVaultConnectedSocialEvidence(sourceUserId, socialLinks),
-      textEvidenceCompiler: createBrandVaultTextEvidenceCompilerFromEnvironment(),
-    },
-  );
-  if (start.run) {
-    scheduleQueueRun(() => start.run?.() ?? Promise.resolve(), 'queued refinery job failed');
+  const scanRequestType = getBrandVaultScanRequestType(body);
+  const creditCheck = await checkCredits(userId, 'brand_vault', 'brand_scan', {
+    requestType: scanRequestType,
+  });
+  if (!creditCheck.allowed) {
+    return creditCheck.errorResponse!;
   }
+
+  try {
+    await creditCheck.deduct();
+  } catch (error) {
+    console.error('[BrandVault] brand scan credit deduction failed:', error);
+    return NextResponse.json(
+      { ok: false, error: { code: 'credit_deduction_failed', message: 'Unable to deduct credits for Brand Vault scan.' } },
+      { status: 402 },
+    );
+  }
+
+  const store = getDefaultBrandVaultRefineryStore();
+  let start: QueuedBrandVaultRefineryJobStart;
+  try {
+    start = await startQueuedBrandVaultRefineryJobFromWebsite(
+      { userId, orgId: orgId ?? undefined, actorId: userId, body },
+      {
+        store,
+        fetchOptions: {
+          browserFallbackFetchFn: createBrandVaultBrowserFallbackFetchFromEnvironment(),
+        },
+        sourceEvidenceProvider: ({ userId: sourceUserId, socialLinks }) =>
+          loadBrandVaultConnectedSocialEvidence(sourceUserId, socialLinks),
+        textEvidenceCompiler: createBrandVaultTextEvidenceCompilerFromEnvironment(),
+      },
+    );
+  } catch (error) {
+    await refundBrandScanCredits(creditCheck, 'Brand Vault scan failed before queue start');
+    throw error;
+  }
+
+  if (start.response.status !== 202 || !start.run) {
+    await refundBrandScanCredits(creditCheck, 'Brand Vault scan was not queued');
+    return NextResponse.json(start.response.body, { status: start.response.status });
+  }
+
+  const runQueuedScan = start.run;
+  scheduleQueueRun(() => runQueuedScan(), 'queued refinery job failed');
   return NextResponse.json(start.response.body, { status: start.response.status });
 }
 
@@ -95,4 +126,20 @@ function queueProcessorDependencies(store: BrandVaultRefineryStore) {
 
 function isActiveRefineryJobStatus(status: BrandRefineryJob['status']): boolean {
   return status === 'queued' || status === 'running';
+}
+
+function getBrandVaultScanRequestType(body: unknown): 'base' | 'deep' {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'base';
+  const input = body as Record<string, unknown>;
+  const socialLinks = Array.isArray(input.socialLinks) ? input.socialLinks : [];
+  const sourceEvidence = Array.isArray(input.sourceEvidence) ? input.sourceEvidence : [];
+  return socialLinks.length > 0 || sourceEvidence.length > 0 ? 'deep' : 'base';
+}
+
+async function refundBrandScanCredits(creditCheck: CreditCheckResult, reason: string): Promise<void> {
+  try {
+    await creditCheck.refund(reason);
+  } catch (error) {
+    console.error('[BrandVault] brand scan credit refund failed:', error);
+  }
 }

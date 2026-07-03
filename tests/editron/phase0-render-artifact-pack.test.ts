@@ -267,6 +267,63 @@ describe('phase0 render artifact pack', () => {
     ]);
   });
 
+  it('treats generated SaaS scenes as visual evidence and voiceover audio as non-SFX', () => {
+    const project: Phase0FixtureProject = {
+      projectId: 'proj_saas_generated_scene',
+      fps: 30,
+      durationInFrames: 90,
+      playerDimensions: { width: 1920, height: 1080 },
+      overlays: [
+        {
+          id: 'gs-1',
+          type: 'generated-scene',
+          from: 0,
+          durationInFrames: 90,
+          sceneModel: { elements: [{ id: 'headline', text: 'Launch faster.' }] },
+          sourceMap: { elements: { headline: { modelPath: ['elements', 0, 'text'] } } },
+        },
+        {
+          id: 'vo-1',
+          type: 'sound',
+          from: 0,
+          durationInFrames: 90,
+          assetId: 'voiceover_ready_1',
+          metadata: { isVoiceover: true, narrationText: 'Launch faster with a clear workflow.' },
+        },
+      ],
+    };
+    const manifest = buildPhase0FixtureManifest(project);
+
+    const pack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_saas_generated_scene',
+    });
+
+    expect(pack.status).toBe('ready');
+    expect(pack.issues).toEqual([]);
+    expect(pack.familyCoverage.auditedVisualTypes).toContain('generated-scene');
+    expect(pack.familyCoverage.auditedVisualCount).toBe(1);
+    expect(pack.familyCoverage.auditedAudioCount).toBe(1);
+    expect(pack.familyCoverage.counts).toMatchObject({ 'generated-scene': 1, sound: 1 });
+    expect(pack.familyCoverage.countsByFamily).toEqual({ 'motion-graphic': 1, voiceover: 1 });
+    expect(pack.familyCoverage.incompleteFamilies).toEqual([]);
+    expect(pack.familyCoverage.evidenceCompleteness.sfx).toEqual({
+      count: 0,
+      auditableCount: 0,
+      issues: [],
+      sampleOverlayIds: [],
+    });
+    expect(pack.samplePlan.sampledFrames).toEqual([8, 49, 82]);
+    expect(pack.samplePlan.samples).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        frame: 8,
+        roles: ['entry-settle'],
+        sourceOverlayIds: ['gs-1', 'vo-1'],
+        sourceOverlayTypes: ['generated-scene', 'sound'],
+        sourceFamilies: ['motion-graphic', 'voiceover'],
+        evidenceKinds: ['visual', 'audio'],
+      }),
+    ]));
+  });
   it('does not count non-MG families as auditable when required evidence is missing', () => {
     const project: Phase0FixtureProject = {
       projectId: 'proj_weak_families',

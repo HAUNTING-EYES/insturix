@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { generateScriptDraft } from '@/lib/thinkforge/agents/script-draft-agent';
+import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writer-edit';
 import type { SessionState } from '@/lib/thinkforge/state/types';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
@@ -61,19 +62,44 @@ export async function POST(req: Request) {
       }
     }
 
+    const existingContent = typeof existingScript?.content === 'string' ? existingScript.content : '';
+    const existingBlocks = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
+
+    // P5 PRIMARY: revise the whole document via the flat writer (eval-validated 4.89/5,
+    // scripts/prompt-optimization/eval-thinkforge-edit.ts). Only for a real edit of an existing
+    // doc; ANY failure falls through to the legacy generateScriptDraft path below (unchanged).
+    if (sessionId && existingContent.trim().length > 0 && existingBlocks.length > 0) {
+      try {
+        const revised = await reviseDocumentViaFlatWriter({
+          userId, sessionId, scriptId, existingScript, existingContent, instruction, baseVersion,
+        });
+        return NextResponse.json({
+          title: revised.title,
+          content: revised.content,
+          blocks: revised.blocks,
+          metadata: { editMode: 'flat-writer' },
+        });
+      } catch (flatErr) {
+        console.error('[ThinkForge:script/edit] flat-writer path failed; falling back to generateScriptDraft:', flatErr);
+      }
+    }
+
+    const currentScript = existingScript ? {
+      title: existingScript.title || 'Untitled Script',
+      blocks: existingScript.blocks || [],
+      content: existingScript.content || '',
+      draft: false,
+      version: 1
+    } : null;
+
     // Build minimal session state
     const sessionState: SessionState = {
       sessionId: sessionId || `temp_${Date.now()}`,
       userId: userId,
       metadata: {},
       chat: [],
-      script: existingScript ? {
-        title: existingScript.title || 'Untitled Script',
-        blocks: existingScript.blocks || [],
-        content: existingScript.content || '',
-        draft: false,
-        version: 1
-      } : null,
+      script: currentScript,
+      documents: currentScript ? [currentScript] : [],
       ideas: [],
       version: 1,
       lastUpdated: new Date()

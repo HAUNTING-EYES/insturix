@@ -37,6 +37,87 @@ function brandContextForPrompt(context: any): string {
   return `${brandContextBlock.slice(0, MAX_BRAND_CONTEXT_CHARS)}\n[brand context truncated]`;
 }
 
+const CONTENT_INTENT_GUIDANCE: Record<string, string> = {
+  own_content: "Treat the media as the user's owned content. Use Brand Vault as the quality and fit lens, then give direct improvements the user can make.",
+  competitor_content: "Treat the media as competitor or benchmark content. Use Brand Vault as the user's lens: identify transferable tactics, non-transferable risks, and adaptation ideas without copying the competitor.",
+  reference_content: "Treat the media as reference or inspiration content. Extract reusable principles and show how they could be adapted to the user's brand context.",
+  unknown: "Ownership is uncertain. Separate observed facts from brand-fit recommendations and do not assume whether the media belongs to the user.",
+};
+
+function contentIntentFromContext(context: any): string {
+  const resolution = context?.intentResolution && typeof context.intentResolution === "object"
+    ? context.intentResolution
+    : null;
+  return cleanPromptText(resolution?.contentIntent)
+    || cleanPromptText(context?.contentIntent)
+    || "unknown";
+}
+
+function contentIntentForPrompt(context: any): string {
+  const resolution = context?.intentResolution && typeof context.intentResolution === "object"
+    ? context.intentResolution
+    : null;
+  const contentIntent = contentIntentFromContext(context);
+  const source = cleanPromptText(resolution?.source) || cleanPromptText(context?.intentSource) || "unknown";
+  const confidence = typeof resolution?.confidence === "number"
+    ? `${Math.round(Math.max(0, Math.min(1, resolution.confidence)) * 100)}%`
+    : "unknown";
+  const rationale = Array.isArray(resolution?.rationale) && resolution.rationale.length
+    ? resolution.rationale.join(" ")
+    : "No rationale supplied.";
+
+  return [
+    "CONTENT INTENT LENS:",
+    `- Intent: ${contentIntent}`,
+    `- Source: ${source}`,
+    `- Confidence: ${confidence}`,
+    `- Rationale: ${rationale}`,
+    `- Instruction: ${CONTENT_INTENT_GUIDANCE[contentIntent] ?? CONTENT_INTENT_GUIDANCE.unknown}`,
+  ].join("\n");
+}
+
+/**
+ * Best-effort repair of a truncated JSON object (e.g. the model hit the output
+ * token limit mid-response). Closes a dangling string and appends the missing
+ * closing brackets/braces so the completed prefix can still be parsed.
+ *
+ * Add-only by design: it never rewrites existing content, so it can only turn an
+ * unparseable truncation into a partial parse or leave it unparseable — it can
+ * never corrupt already-complete fields. Returns null when no object is present.
+ */
+function repairTruncatedJson(raw: string): string | null {
+  let s = raw.trim();
+  if (s.startsWith("```")) {
+    s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  }
+  const start = s.indexOf("{");
+  if (start === -1) return null;
+  s = s.slice(start);
+
+  const closers: string[] = [];
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") closers.push("}");
+    else if (ch === "[") closers.push("]");
+    else if (ch === "}" || ch === "]") closers.pop();
+  }
+
+  let out = s;
+  if (inStr) out += '"'; // close a dangling string value
+  out = out.replace(/[\s,:]+$/, ""); // drop a trailing comma/colon (an incomplete pair)
+  for (let i = closers.length - 1; i >= 0; i--) out += closers[i];
+  return out;
+}
+
 export async function analyzeVideoWithGemini(
   videoUrl: string, // This will now usually be the Gemini fileUri, e.g. "https://generativelanguage.googleapis.com/... or "gemini://... " Wait, actually it just takes fileUri so we keep it named videoUrl or just pass the uri as videoUrl.
   context: any,
@@ -63,35 +144,35 @@ export async function analyzeVideoWithGemini(
         },
         overview: {
           type: SchemaType.STRING,
-          description: "2-3 sentence summary",
+          description: "Detailed 2-3 sentence summary of what happens in the media.",
         },
         remarks: {
           type: SchemaType.STRING,
-          description: "Brief professional assessment, specifically considering the chosen location's context and norms",
+          description: "Brief professional assessment considering platform, location, brand lens, and content intent.",
         },
         target_audience: {
           type: SchemaType.STRING,
-          description: "Who this video appeals to",
+          description: "Who this media appeals to.",
         },
         titles: {
           type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "3 suggested titles",
+          description: "3 suggested titles.",
         },
         descriptions: {
           type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "2 suggested descriptions",
+          description: "2 suggested descriptions.",
         },
         strengths: {
           type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "Video strengths",
+          description: "Observed media strengths.",
         },
         weaknesses: {
           type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "Areas for improvement",
+          description: "Areas for improvement or adaptation.",
         },
         analysis: {
           type: SchemaType.ARRAY,
@@ -107,7 +188,7 @@ export async function analyzeVideoWithGemini(
                     name: { type: SchemaType.STRING },
                     score: {
                       type: SchemaType.INTEGER,
-                      description: "Metric score (1-100). For quality metrics, higher is better. For risk/issue metrics, lower is better."
+                      description: "Metric score (1-100). For quality metrics, higher is better. For risk/issue metrics, lower is better.",
                     },
                     description: { type: SchemaType.STRING },
                   },
@@ -126,7 +207,7 @@ export async function analyzeVideoWithGemini(
               name: { type: SchemaType.STRING },
               score: {
                 type: SchemaType.INTEGER,
-                description: "Risk score (1-100). A higher score indicates higher risk. Lower is better for compliance."
+                description: "Risk score (1-100). A higher score indicates higher risk. Lower is better for compliance.",
               },
               description: { type: SchemaType.STRING },
             },
@@ -144,11 +225,24 @@ export async function analyzeVideoWithGemini(
             properties: {
               speaker: { type: SchemaType.STRING, description: "Speaker identifier (e.g., Speaker A)" },
               text: { type: SchemaType.STRING, description: "The exact words spoken by the speaker" },
-              start_time: { type: SchemaType.STRING, description: "Start time in HH:MM:SS format" }
+              start_time: { type: SchemaType.STRING, description: "Start time in HH:MM:SS format" },
             },
-            required: ["speaker", "text", "start_time"]
+            required: ["speaker", "text", "start_time"],
           },
           description: "A word-for-word transcript divided by speaker. Strictly do not summarize, provide everything spoken.",
+        },
+        content_intent: {
+          type: SchemaType.STRING,
+          description: "Resolved analysis intent: own_content, competitor_content, reference_content, or unknown.",
+        },
+        brand_fit_summary: {
+          type: SchemaType.STRING,
+          description: "How the media fits or can be adapted to the supplied Brand Vault context. Keep observed facts separate from brand-fit judgment.",
+        },
+        applicable_takeaways: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "Concrete actions the user can apply. For competitor/reference media, focus on adaptable tactics, not copying.",
         },
       },
       required: [
@@ -162,19 +256,20 @@ export async function analyzeVideoWithGemini(
         "speaker_segments",
       ],
     };
-
-    // --- Ye block insert karo ---
     let extraParams: any = {};
     if (model.includes("3.1")) {
       extraParams.thinkingConfig = { thinkingLevel: "high" };
     } else if (model.includes("2.5")) {
       extraParams.thinkingConfig = { thinkingBudget: 4000 };
     }
-    // ----------------------------
     const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
-        maxOutputTokens: 8192,
+        // gemini-2.5-flash supports up to 65536 output tokens. 8192 was far too
+        // small for long videos: a 20+ min analysis (transcript + speaker
+        // segments + per-scene fields) overran the budget, so the JSON was
+        // truncated mid-object and failed to parse -> analysis failed + refunded.
+        maxOutputTokens: 65536,
         temperature: 0.4,
         topP: 0.95,
         topK: 40,
@@ -203,11 +298,12 @@ export async function analyzeVideoWithGemini(
     });
 
     const brandContextBlock = brandContextForPrompt(context);
+    const contentIntentBlock = contentIntentForPrompt(context);
 
     // analysis prompt with explicit JSON formatting instructions
     const prompt = `<role>You are a professional video content analyst specializing in compliance, quality assessment, and transcription.</role>
 
-<task>Analyze the provided video and return a structured JSON response covering quality, compliance, transcription, and actionable recommendations.</task>
+<task>Analyze the provided media and return the structured JSON fields defined in the response schema: quality, compliance, transcript, brand-fit judgment, and actionable takeaways.</task>
 
 <rules>
 ${context.familyFriendly
@@ -239,6 +335,8 @@ BRAND ALIGNMENT:
 - Do not invent missing brand facts, product claims, or audience claims beyond the supplied brand context.
 ` : ""}
 
+${contentIntentBlock}
+
 PERSON / FACE RECOGNITION:
 - If the video contains a WELL-KNOWN PUBLIC FIGURE (e.g., widely recognized celebrity, politician, influencer), you MAY mention their name ONLY if you are highly confident.
 - If confidence is LOW, DO NOT guess or hallucinate names. Instead describe generically (e.g., "a male presenter", "a female host", "a public speaker").
@@ -257,14 +355,14 @@ TIMESTAMP RULES:
 
 ANALYSIS REQUIREMENTS:
 1. Provide a detailed summary of what happens in the video.
-2. Identify key moments with timestamps (format: "HH:MM:SS") and descriptions.
+2. Identify key moments inside analysis, strengths, weaknesses, or compliance_risks descriptions using [HH:MM:SS] timestamps; do not create a separate keyMoments field.
 3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better).
 4. For all analysis metrics and compliance risks, use a scale of 1-100.
    - Quality/Performance metrics: Higher score = better performance.
    - Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
 5. Include timestamps [HH:MM:SS] naturally in descriptions ONLY when referring to specific moments.
-6. Give specific suggestions for improvement strategically aligned with the user's context (${context.platform}, ${context.location}).
-7. List any content warnings if applicable.
+6. Put specific suggestions in weaknesses and applicable_takeaways, strategically aligned with the user's context (${context.platform}, ${context.location}) and the content intent lens.
+7. Put any content warnings in compliance_risks; do not create a separate contentWarnings field.
 8. Provide a word-for-word full transcript and speaker segments. Strictly do not summarize the dialogue, provide EVERYTHING spoken verbatim.
 ${audioUri ? `
 SCORING LOGIC:
@@ -286,30 +384,23 @@ Return ONLY raw JSON without any markdown formatting, backticks, or explanatory 
 
 JSON STRUCTURE:
 {
-  "full_transcript": "Wait, let's keep going. Yes, I think so...",
-  "speaker_segments": [
-    {"speaker": "Speaker A", "text": "Wait, let's keep going.", "start_time": "00:00:00"},
-    {"speaker": "Speaker B", "text": "Yes, I think so...", "start_time": "00:00:03"}
-  ],
-  "summary": "Detailed summary here",
-  "keyMoments": [
-    {"timestamp": "00:00:00", "description": "Video starts with intro"},
-    {"timestamp": "00:00:30", "description": "Main content begins"}
-  ],
-  "qualityAssessment": {
-    "score": 85,
-    "notes": "Assessment notes here. Note: score is 1-100 where higher is better."
-  },
-  "recommendations": ["Recommendation 1", "Recommendation 2"],
-  "contentWarnings": ["Warning 1", "Warning 2"],
+  "category": "Video category or media category",
+  "overall_score": 85,
+  "overview": "Detailed summary of what happens in the media.",
+  "remarks": "Professional assessment grounded in the selected platform, location, brand context, and content intent.",
+  "target_audience": "Who this media appeals to",
+  "titles": ["Suggested title 1", "Suggested title 2", "Suggested title 3"],
+  "descriptions": ["Suggested description 1", "Suggested description 2"],
+  "strengths": ["Observed strength with optional [HH:MM:SS] timestamp"],
+  "weaknesses": ["Improvement opportunity with optional [HH:MM:SS] timestamp"],
   "analysis": [
     {
       "category_name": "Visuals",
       "metrics": [
         {
-          "name": "Map Animation & Clarity",
+          "name": "Framing and clarity",
           "score": 90,
-          "description": "Clear satellite imagery with effective highlighting"
+          "description": "Evidence-backed metric description with timestamp only when tied to a specific moment."
         }
       ]
     }
@@ -318,10 +409,16 @@ JSON STRUCTURE:
     {
       "name": "Misinformation Risk",
       "score": 10,
-      "description": "Content is factual"
+      "description": "Risk assessment. Higher score means higher risk."
     }
   ],
-  "analysisTime": "${new Date().toISOString()}"
+  "full_transcript": "Wait, let's keep going. Yes, I think so...",
+  "speaker_segments": [
+    {"speaker": "Speaker A", "text": "Wait, let's keep going.", "start_time": "00:00:00"}
+  ],
+  "content_intent": "${contentIntentFromContext(context)}",
+  "brand_fit_summary": "How this media fits or can be adapted to the supplied brand lens.",
+  "applicable_takeaways": ["Concrete action the user can apply from this analysis"]
 }
 </output_format>
 
@@ -335,6 +432,7 @@ USER CONTEXT:
 - Family-Friendly Handling: ${context.familyFriendly ? "Enabled (Strict)" : "Disabled (Standard Safety)"}
 - Platform: ${context.platform}
 - Location/Legal Context: ${context.location}
+- Content Intent: ${contentIntentFromContext(context)}
 - Additional Details: ${context.additionalDetails || "None"}
 ${brandContextBlock ? `
 BRAND CONTEXT:
@@ -345,11 +443,8 @@ ${brandContextBlock}
 Be specific and reference actual content from the video with precise timestamps.
 `;
 
-    // Prepare request parts
-    // --- FIXED BLOCK ---
     const parts: any[] = [];
 
-    // 1. Video file add karna compulsory hai (Iske bina Gemini video nahi dekh payega)
     if (videoUrl) {
       parts.push({
         fileData: {
@@ -359,7 +454,6 @@ Be specific and reference actual content from the video with precise timestamps.
       });
     }
 
-    // 2. Audio file sirf tabhi add hogi jab audioUri valid ho (Ye 400 error fix karega)
     if (audioUri && audioUri.trim() !== "") {
       parts.push({
         fileData: {
@@ -369,9 +463,7 @@ Be specific and reference actual content from the video with precise timestamps.
       });
     }
 
-    // 3. Prompt text
     parts.push({ text: prompt });
-    // -------------------
 
 
     const request = {
@@ -387,14 +479,12 @@ Be specific and reference actual content from the video with precise timestamps.
     const responseText =
       result.response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
-    console.log("RAW_VERTEX_RESPONSE:", responseText);
 
     // Clean and parse the JSON response
     try {
       // Clean the response text - remove markdown code blocks
       let cleanResponseText = responseText.trim();
 
-      console.log("cleanResponseText : ", cleanResponseText);
       // Remove ```json and ``` markers if present
       if (cleanResponseText.startsWith("```")) {
         cleanResponseText = cleanResponseText
@@ -404,7 +494,6 @@ Be specific and reference actual content from the video with precise timestamps.
 
       const parsed = JSON.parse(cleanResponseText);
 
-      console.log("parsed : ", parsed);
       // Check for explicit error from model
       if (parsed.error === "CANNOT_ACCESS_VIDEO") {
         throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
@@ -424,6 +513,9 @@ Be specific and reference actual content from the video with precise timestamps.
         recommendations: Array.isArray(parsed.recommendations)
           ? parsed.recommendations
           : (parsed.weaknesses || []),
+        content_intent: parsed.content_intent || contentIntentFromContext(context),
+        brand_fit_summary: parsed.brand_fit_summary || "",
+        applicable_takeaways: Array.isArray(parsed.applicable_takeaways) ? parsed.applicable_takeaways : [],
         contentWarnings: Array.isArray(parsed.contentWarnings)
           ? parsed.contentWarnings
           : (Array.isArray(parsed.compliance_risks)
@@ -439,7 +531,6 @@ Be specific and reference actual content from the video with precise timestamps.
         finalResult.compliance_risks = finalResult.compliance_risks.filter((risk: any) => risk.score > 0);
       }
 
-      console.log(finalResult);
       return finalResult;
     } catch (parseError) {
       // If it was our custom error, rethrow it
@@ -476,6 +567,9 @@ Be specific and reference actual content from the video with precise timestamps.
             contentWarnings: Array.isArray(parsed.contentWarnings)
               ? parsed.contentWarnings
               : [],
+            content_intent: parsed.content_intent || contentIntentFromContext(context),
+            brand_fit_summary: parsed.brand_fit_summary || "",
+            applicable_takeaways: Array.isArray(parsed.applicable_takeaways) ? parsed.applicable_takeaways : [],
             analysisTime: parsed.analysisTime || new Date().toISOString(),
             videoUrl,
             modelUsed: model,
@@ -485,6 +579,42 @@ Be specific and reference actual content from the video with precise timestamps.
       } catch (extractError) {
         if (extractError instanceof Error && extractError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
           throw extractError;
+        }
+      }
+
+      // Last resort: repair a truncated JSON object (model hit the token limit
+      // mid-response) and salvage the completed prefix. Partial results are far
+      // better than failing the whole analysis and refunding the user.
+      try {
+        const repaired = repairTruncatedJson(responseText);
+        if (repaired) {
+          const parsed = JSON.parse(repaired);
+          if (parsed.error === "CANNOT_ACCESS_VIDEO") {
+            throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
+          }
+          console.warn(`[vertexAi] Recovered partial analysis from truncated JSON (${responseText.length} chars) — consider raising maxOutputTokens or shortening the analysis.`);
+          return {
+            ...parsed,
+            full_transcript: parsed.full_transcript || "",
+            speaker_segments: Array.isArray(parsed.speaker_segments) ? parsed.speaker_segments : [],
+            summary: parsed.summary || parsed.overview || `Partial analysis of "${metadata.originalFilename}"`,
+            keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
+            qualityAssessment: parsed.qualityAssessment || { score: 7, notes: "Partial analysis (recovered from a truncated response)" },
+            recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+            contentWarnings: Array.isArray(parsed.contentWarnings) ? parsed.contentWarnings : [],
+            content_intent: parsed.content_intent || contentIntentFromContext(context),
+            brand_fit_summary: parsed.brand_fit_summary || "",
+            applicable_takeaways: Array.isArray(parsed.applicable_takeaways) ? parsed.applicable_takeaways : [],
+            analysisTime: parsed.analysisTime || new Date().toISOString(),
+            videoUrl,
+            modelUsed: model,
+            extractedFromText: true,
+            truncated: true,
+          };
+        }
+      } catch (repairError) {
+        if (repairError instanceof Error && repairError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
+          throw repairError;
         }
       }
 
@@ -498,6 +628,9 @@ Be specific and reference actual content from the video with precise timestamps.
         },
         recommendations: ["Fix JSON response formatting"],
         contentWarnings: [],
+        content_intent: contentIntentFromContext(context),
+        brand_fit_summary: "",
+        applicable_takeaways: [],
         analysisTime: new Date().toISOString(),
         parseError: true,
         rawResponse: responseText.substring(0, 2000),

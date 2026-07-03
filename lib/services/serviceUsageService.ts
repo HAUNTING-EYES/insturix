@@ -515,17 +515,31 @@ export class ServiceUsageService {
       'plus': 'plus',
       'pro': 'pro',
       'premium': 'premium',
+      'agency_starter': 'plus',
+      'agency_growth': 'pro',
+      'agency_scale': 'premium',
       'Free Plan': 'free',
       'Plus Plan': 'plus',
       'Pro Plan': 'pro',
-      'Premium Plan': 'premium'
+      'Premium Plan': 'premium',
+      'Agency Starter': 'plus',
+      'Agency Starter Plan': 'plus',
+      'Agency Growth': 'pro',
+      'Agency Growth Plan': 'pro',
+      'Agency Scale': 'premium',
+      'Agency Scale Plan': 'premium'
     };
     
     if (!planName) {
       console.warn(`[ServiceUsageService] Plan name is undefined or null, defaulting to 'free'`);
       return 'free';
     }
-    return planTypeMap[planName] || planTypeMap[planName.toLowerCase()] || 'free';
+    const normalizedPlanName = planName
+      .toLowerCase()
+      .replace(/\s+plan$/, '')
+      .replace(/[\s-]+/g, '_');
+
+    return planTypeMap[planName] || planTypeMap[planName.toLowerCase()] || planTypeMap[normalizedPlanName] || 'free';
   }
 
   private static cleanupObsoleteLimits(user: any, serviceName: keyof IServiceLimits, planLimits: any[]): boolean {

@@ -269,6 +269,7 @@ export function ExportConfigPanel({ pipeline, blocksCount }: ExportConfigPanelPr
                   <SelectContent className="bg-[#1B1A18] border-[#282724]">
                     <SelectItem value="auto">Auto (best per scene)</SelectItem>
                     <SelectItem value="seedance-2.0">Seedance 2.0 (Best Audio)</SelectItem>
+                    <SelectItem value="happy-horse-v1.1">HappyHorse 1.1 (Native Audio)</SelectItem>
                     <SelectItem value="seedance-1.5">Seedance 1.5 Pro</SelectItem>
                     <SelectItem value="kling-2.1">Kling 2.1 Pro</SelectItem>
                     <SelectItem value="kling-2.6">Kling 2.6 Pro (High Motion)</SelectItem>

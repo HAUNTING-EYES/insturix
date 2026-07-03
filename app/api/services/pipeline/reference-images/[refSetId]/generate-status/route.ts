@@ -14,6 +14,29 @@ import { getReferenceImageSet } from '@/lib/pipeline/reference-image-db';
 
 export const runtime = 'nodejs';
 
+function serializeReferenceStatusSubject(subject: any, job?: any) {
+  const hasStoredImage = Boolean(subject?.imageUrl);
+  return {
+    subjectId: subject?.subjectId || job?.subjectId,
+    name: job?.subjectName || subject?.name,
+    status: hasStoredImage ? subject?.status || job?.status : job?.status || subject?.status,
+    imageUrl: subject?.imageUrl || job?.imageUrl,
+    imageAssetId: subject?.imageAssetId || job?.imageAssetId,
+    imageGcsPath: subject?.imageGcsPath,
+    source: subject?.source,
+    error: job?.error,
+    intent: job?.intent,
+    category: subject?.category,
+    visualDescription: subject?.visualDescription,
+    scenesAppearingIn: subject?.scenesAppearingIn,
+    referenceProvenance: subject?.referenceProvenance,
+    referenceProvenanceLabel: subject?.referenceProvenanceLabel,
+    requiresBrandEvidence: subject?.requiresBrandEvidence,
+    brandEvidenceStatus: subject?.brandEvidenceStatus,
+    evidenceRequiredReason: subject?.evidenceRequiredReason,
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ refSetId: string }> },
@@ -40,6 +63,10 @@ export async function GET(
 
     // Pull the full ref set so frontend gets visualDescription etc.
     const refSet = await getReferenceImageSet(refSetId, userId);
+    const jobsBySubjectId = new Map((jobs || []).map((job: any) => [job.subjectId, job]));
+    const subjects = refSet?.subjects?.length
+      ? refSet.subjects.map((subject: any) => serializeReferenceStatusSubject(subject, jobsBySubjectId.get(subject.subjectId)))
+      : jobs.map((job: any) => serializeReferenceStatusSubject(undefined, job));
 
     return NextResponse.json({
       success: true,
@@ -51,21 +78,7 @@ export async function GET(
       completed: batch.completed,
       failed: batch.failed,
       isComplete: batch.status !== 'processing',
-      subjects: jobs.map((j: any) => {
-        const subj = refSet?.subjects.find((s: any) => s.subjectId === j.subjectId);
-        return {
-          subjectId: j.subjectId,
-          name: j.subjectName || subj?.name,
-          status: j.status,
-          imageUrl: subj?.imageUrl || j.imageUrl,
-          imageAssetId: subj?.imageAssetId || j.imageAssetId,
-          error: j.error,
-          intent: j.intent,
-          category: subj?.category,
-          visualDescription: subj?.visualDescription,
-          scenesAppearingIn: subj?.scenesAppearingIn,
-        };
-      }),
+      subjects,
     });
   } catch (error: any) {
     console.error('[reference-images-generate-status]', error);

@@ -5,6 +5,7 @@ import type {
 import { enrichDecisionsWithOverlayTimelineMemory } from './overlay-timeline-memory';
 import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { normalizeMotionGraphicContent } from './mg-content-atoms';
+import { applyCrossOverlayChoreography, type CrossOverlayChoreographyReport } from './cross-overlay-choreography';
 
 type LegacyCompatibleDecisionType = ReactiveEditDecision['type'] | 'slow-motion' | 'filter';
 
@@ -115,6 +116,8 @@ export interface UnifiedSignalExecutionCandidate {
   sourcePacket: {
     hasSignals: boolean;
     signalKeys: string[];
+    hasVisualSetupSignals: boolean;
+    visualSetupSignalKeys: string[];
     hasAtomicMomentBundle: boolean;
     hasUnifiedMomentEvidence: boolean;
   };
@@ -429,6 +432,7 @@ export interface UnifiedDecisionBundleEvidence {
   evidenceOnlySignalDecisionCount: number;
   evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[];
   signalDecisionAudit: UnifiedSignalDecisionAuditReport;
+  crossOverlayChoreography?: CrossOverlayChoreographyReport;
 }
 
 export interface UnifiedDecisionBundle {
@@ -564,6 +568,11 @@ function resolveUnifiedPlannerCandidateLicense(
   };
 }
 
+function isPrimarySemanticContextDecision(decision: ReactiveEditDecision): boolean {
+  return normalizeParamString(decision.params.creativeDecisionAuthority) === 'semantic-context'
+    || hasAnyDirectParam(decision, ['creativeBriefSemanticCandidate', 'creativeBriefFactContract']);
+}
+
 function sourceAuthorityForPlannerCandidate(
   source: UnifiedDecisionCandidateProducer,
   decision: ReactiveEditDecision,
@@ -600,13 +609,18 @@ function licensePrimaryProducerDecisions(
   const evidenceOnlyDecisions: UnifiedSignalDecisionEvidence[] = [];
 
   for (const decision of decisions) {
-    const license = resolvePrimaryCreativeDecisionLicense(decision);
+    const license = resolvePrimaryCreativeDecisionLicense(decision, {
+      requireFamilyAtoms: isPrimarySemanticContextDecision(decision),
+    });
     if (license.executable) {
       accepted.push(decision);
       continue;
     }
 
-    const reason = `primary-graphic-unlicensed:${license.reason}`;
+    const reasonPrefix = decision.type === 'graphic'
+      ? 'primary-graphic-unlicensed'
+      : 'primary-family-unlicensed';
+    const reason = `${reasonPrefix}:${license.reason}`;
     recordSignalDecisionAudit(audit, decision, 'evidence-only', reason);
     if (evidenceOnlyDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
       evidenceOnlyDecisions.push(summarizeSignalDecisionEvidence(
@@ -776,21 +790,53 @@ function planUnifiedDecisionBundleFromRankedCandidates(
         ? markPlannerSelectedSignal(entry.decision, license.reason)
         : markPlannerSelectedPrimary(entry.decision, license.reason),
     });
-    if (entry.source === 'signal-driven') {
-      recordSignalDecisionAudit(signalDecisionAudit, entry.decision, 'added-executable', license.reason);
-    }
   }
 
   const authority = authorityForUnifiedCandidatePlanner();
+  const selectedEntrySourceByKey = new Map(
+    selectedEntries.map((entry) => [decisionSelectionKey(entry.decision), entry.source]),
+  );
+  const selectedProducerForDecision = (decision: ReactiveEditDecision): UnifiedDecisionCandidateProducer => (
+    selectedEntrySourceByKey.get(decisionSelectionKey(decision))
+      ?? (isSignalSourceDecision(decision) ? 'signal-driven' : 'creative-brief')
+  );
+  const choreographyResult = applyCrossOverlayChoreography(selectedEntries.map((entry) => entry.decision));
+
+  for (const suppression of choreographyResult.suppressed) {
+    const suppressedProducer = selectedProducerForDecision(suppression.decision);
+    const outcome: UnifiedSignalDecisionOutcome = suppressedProducer === 'signal-driven'
+      ? 'evidence-only'
+      : 'signal-primary';
+    const reason = `cross-overlay-choreography:${suppression.reason}`;
+    evidenceOnlySignalDecisionCount++;
+    recordSignalDecisionAudit(signalDecisionAudit, suppression.decision, outcome, reason);
+    if (evidenceOnlySignalDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
+      evidenceOnlySignalDecisions.push(summarizeSignalDecisionEvidence(
+        suppression.decision,
+        normalizeSignalExecutionCandidate(suppression.decision),
+        outcome,
+        reason,
+      ));
+    }
+  }
+
+  for (const decision of choreographyResult.decisions) {
+    if (selectedProducerForDecision(decision) !== 'signal-driven') continue;
+    recordSignalDecisionAudit(signalDecisionAudit, decision, 'added-executable', executionLicenseReason(decision));
+  }
+
   const decisions = stampUnifiedPlannerOwnership(
-    selectedEntries
-      .map((entry) => entry.decision)
+    choreographyResult.decisions
       .sort((a, b) => a.frame - b.frame || a.priority - b.priority),
     authority,
   );
   const edl = normalizeEdl({ decisions });
-  const selectedSignalCount = selectedEntries.filter((entry) => entry.source === 'signal-driven').length;
-  const selectedCreativeCount = selectedEntries.filter((entry) => entry.source === 'creative-brief').length;
+  const selectedSignalCount = choreographyResult.decisions
+    .filter((decision) => selectedProducerForDecision(decision) === 'signal-driven')
+    .length;
+  const selectedCreativeCount = choreographyResult.decisions
+    .filter((decision) => selectedProducerForDecision(decision) === 'creative-brief')
+    .length;
 
   const source: UnifiedDecisionBundleSource = selectedCreativeCount > 0
     ? 'creative-brief+signal-driven'
@@ -811,6 +857,7 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       evidenceOnlySignalDecisionCount,
       evidenceOnlySignalDecisions,
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
+      crossOverlayChoreography: choreographyResult.report,
     },
   };
 }
@@ -1358,8 +1405,8 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('visualChange', ['visualChange', 'visual_change', 'visual_change_rate', 'visual.significance']);
     setAtom('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
     setAtom('emotionJump', ['emotionJump', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
-    setAtom('textCoverage', ['textCoverage', 'text_coverage', 'visual.text_coverage']);
-    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+    setAtom('textCoverage', ['textCoverage', 'text_coverage', 'visual.text_coverage', 'visual.perception.avg_text_coverage']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen', 'visual.perception.text_presence_ratio']);
     setAtom('subjectPositionJump', ['subjectPositionJump', 'subject_position_jump', 'eye_trace_jump', 'subjectJump']);
     setAtom('subjectSizeJump', ['subjectSizeJump', 'subject_size_jump', 'scale_jump', 'subjectScaleJump']);
     setAtom('shotScaleDelta', ['shotScaleDelta', 'shot_scale_delta', 'shotScaleChange']);
@@ -1372,12 +1419,12 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('audioTailMs', ['audioTailMs', 'audio_tail_ms', 'incoming_audio_lead_ms', 'outgoing_audio_tail_ms']);
     setAtom('colorDelta', ['colorDelta', 'color_delta', 'color_temperature_delta']);
     setAtom('brightnessDelta', ['brightnessDelta', 'brightness_delta', 'luma_delta']);
-    setAtom('clutterDelta', ['clutterDelta', 'clutter_delta', 'visual_clutter_delta']);
+    setAtom('clutterDelta', ['clutterDelta', 'clutter_delta', 'visual_clutter_delta', 'visual.perception.screen_clutter_ratio']);
     setAtom('tensionRelease', ['tensionRelease', 'tension_release', 'release_pressure']);
     setAtom('hookPayoff', ['hookPayoff', 'hook_payoff', 'setup_payoff']);
     setAtom('boundaryConfidence', ['boundaryConfidence', 'boundary_confidence']);
     setAtom('rawToCutConfidence', ['rawToCutConfidence', 'raw_to_cut_confidence', 'source_map_confidence']);
-    setAtom('vjepaCoverageQuality', ['vjepaCoverageQuality', 'vjepa_coverage_quality', 'visual_coverage_quality']);
+    setAtom('vjepaCoverageQuality', ['vjepaCoverageQuality', 'vjepa_coverage_quality', 'visual_coverage_quality', 'visual.perception.avg_coverage_trust']);
     setAtom('recentTransitionSimilarity', ['recentTransitionSimilarity', 'recent_transition_similarity', 'transition_repetition']);
     setAtom('recentDirectionSimilarity', ['recentDirectionSimilarity', 'recent_direction_similarity']);
     setAtom('recentOverlayDensity', ['recentOverlayDensity', 'recent_overlay_density', 'overlay_density']);
@@ -1419,8 +1466,8 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
     setAtom('visualSignificance', ['visualSignificance', 'visual_significance', 'visual.significance']);
     setAtom('visualMotion', ['visualMotion', 'motion_intensity', 'visual.motion_intensity']);
-    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
-    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen', 'visual.perception.text_presence_ratio']);
+    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity', 'visual.perception.screen_clutter_ratio']);
     setAtom('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
     setAtom('currentZoomScale', ['currentZoomScale', 'current_zoom_scale']);
     setAtom('timeSinceLastZoomSec', ['timeSinceLastZoomSec', 'time_since_last_zoom', 'seconds_since_last_zoom']);
@@ -1478,9 +1525,9 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('phraseImpact', ['phraseImpact', 'visceral_impact', 'claim_strength']);
     setAtom('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal']);
     setAtom('beatStrength', ['beatStrength', 'beat_strength', 'audio.music_energy']);
-    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
-    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
-    setAtom('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom', 'visual.negative_space_bottom']);
+    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity', 'visual.perception.screen_clutter_ratio']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen', 'visual.perception.text_presence_ratio']);
+    setAtom('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom', 'visual.negative_space_bottom', 'visual.perception.negative_space.bottom']);
     setAtom('phraseWordCount', ['phraseWordCount', 'word_count', 'caption_word_count']);
     setAtom('captionDurationMs', ['captionDurationMs', 'duration_ms', 'display_duration_ms']);
     setAtom('captionSpanFrames', ['captionSpanFrames', 'durationFrames']);
@@ -1491,7 +1538,7 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('brandContrast', ['brandContrast', 'brand_contrast', 'caption_contrast']);
     setAtom('brandCaptionEnergy', ['brandCaptionEnergy', 'brand_caption_energy', 'caption_energy']);
     setAtom('safeZoneBottom', ['safeZoneBottom', 'safe_zone_bottom', 'caption_safe_zone_pressure']);
-    setAtom('negativeSpaceTop', ['negativeSpaceTop', 'negative_space_top', 'visual.negative_space_top']);
+    setAtom('negativeSpaceTop', ['negativeSpaceTop', 'negative_space_top', 'visual.negative_space_top', 'visual.perception.negative_space.top']);
     setAtom('negativeSpaceCenter', ['negativeSpaceCenter', 'negative_space_center', 'visual.negative_space_center']);
     setAtom('subjectBottom', ['subjectBottom', 'subject_bottom', 'visual.subject_bottom']);
     setAtom('faceBottom', ['faceBottom', 'face_bottom', 'visual.face_bottom']);
@@ -1518,13 +1565,36 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
 
 function summarizeSignalSourcePacket(decision: ReactiveEditDecision): UnifiedSignalExecutionCandidate['sourcePacket'] {
   const signals = recordParam(decision.params.signals);
-  const signalKeys = signals ? Object.keys(signals).sort().slice(0, 40) : [];
+  const fullSignalKeys = signals ? Object.keys(signals).sort() : [];
+  const signalKeys = fullSignalKeys.slice(0, 40);
+  const visualSetupSignalKeys = fullSignalKeys.filter(isVisualSetupSignalKey).slice(0, 24);
   return {
     hasSignals: signalKeys.length > 0,
     signalKeys,
+    hasVisualSetupSignals: visualSetupSignalKeys.length > 0,
+    visualSetupSignalKeys,
     hasAtomicMomentBundle: recordParam(decision.params.atomicMomentBundle) !== null,
     hasUnifiedMomentEvidence: recordParam(decision.params.unifiedMomentEvidence) !== null,
   };
+}
+
+function isVisualSetupSignalKey(key: string): boolean {
+  return key.startsWith('visual.perception.')
+    || key === 'visual_complexity'
+    || key === 'enrichment.visual_setup_source'
+    || key === 'visual.environment'
+    || key === 'visual.scene_type'
+    || key === 'visual.shot_scale'
+    || key === 'visual.dominant_shot_scale'
+    || key === 'visual.has_face'
+    || key === 'visual.subject_count'
+    || key === 'visual.has_b_roll'
+    || key === 'visual.camera_movement'
+    || key === 'visual.lighting_quality'
+    || key === 'visual.production_quality_label'
+    || key === 'visual.production_quality'
+    || key === 'visual.color_temperature'
+    || key === 'visual.visual_complexity';
 }
 
 function lookupSourcePrimitive(decision: ReactiveEditDecision, aliases: string[]): string | number | boolean | undefined {
@@ -4041,6 +4111,23 @@ function isSignalSourceDecision(decision: ReactiveEditDecision): boolean {
   const source = String(decision.source ?? '').toLowerCase();
   if (!source) return false;
   return source.startsWith('signal') || source.includes('path-d') || source.includes('signal-driven');
+}
+
+function decisionSelectionKey(decision: ReactiveEditDecision): string {
+  return [
+    decision.type,
+    decision.frame,
+    decision.durationFrames ?? '',
+    decision.source ?? '',
+    decision.signal ?? '',
+  ].join('|');
+}
+
+function executionLicenseReason(decision: ReactiveEditDecision): string {
+  const license = readMergeMetadata(decision).executionLicense;
+  return typeof license === 'string' && license.trim().length > 0
+    ? license
+    : 'selected-by-unified-planner';
 }
 
 function normalizeParamString(value: unknown): string {

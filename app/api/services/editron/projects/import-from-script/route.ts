@@ -1,18 +1,37 @@
 /**
  * POST /api/services/editron/projects/import-from-script
  *
- * Import a script (scenes) into a new Editron project.
+ * Import a script (scenes) into a new or existing Editron project.
  * Converts SceneDescriptors into timeline overlays.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { projectService } from '@/lib/editron/services/project-service';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { addProjectToLinkBySessionId, createProjectLink, findLinkBySessionId } from '@/lib/shared/project-links';
 import { scenesToOverlays, scenesToTotalFrames, type StoryboardImage } from '@/lib/pipeline/scene-to-editron';
 import { CreditsService } from '@/lib/services/creditsService';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+type ImportMode = 'draft-script-import';
+
+function isProductionCoverageManifest(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  return (value as { coveragePolicy?: unknown }).coveragePolicy === 'production-require-all-scenes';
+}
+
+function isDraftScriptImportMode(value: unknown): value is ImportMode {
+  return value === 'draft-script-import';
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,22 +46,84 @@ export async function POST(request: NextRequest) {
       title,
       aspectRatio,
       sourceScriptId,
+      sourceSessionId,
       storyboardImages,
       brandId,
+      importMode,
+      productionManifest,
+      dryRun,
     }: {
       scenes: SceneDescriptor[];
       title?: string;
       aspectRatio?: string;
       sourceScriptId?: string;
+      sourceSessionId?: string;
       storyboardImages?: StoryboardImage[];
       brandId?: string;
+      importMode?: string;
+      productionManifest?: unknown;
+      dryRun?: boolean;
     } = body;
+
+    const normalizedBrandId = nonEmptyString(brandId);
+    const normalizedImportMode = isDraftScriptImportMode(importMode) ? importMode : undefined;
+    const normalizedSourceSessionId = nonEmptyString(sourceSessionId);
+    const normalizedSourceScriptId = nonEmptyString(sourceScriptId);
+    const shouldDryRun = dryRun === true;
+    const warnings: string[] = [];
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
       return NextResponse.json(
         { success: false, error: 'scenes array is required and must not be empty' },
         { status: 400 },
       );
+    }
+
+    if (isProductionCoverageManifest(productionManifest) && normalizedImportMode !== 'draft-script-import') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Production manifest requires storyboard finalization before creating an Editron project.',
+          reason: 'production-manifest-requires-storyboard-finalize',
+        },
+        { status: 409 },
+      );
+    }
+
+    // Determine dimensions from aspect ratio
+    const ar = aspectRatio || '16:9';
+    let width = 1920;
+    let height = 1080;
+    if (ar === '9:16') { width = 1080; height = 1920; }
+    else if (ar === '1:1') { width = 1080; height = 1080; }
+    else if (ar === '4:5') { width = 1080; height = 1350; }
+
+    const fps = 30;
+    const projectName = title || 'Imported Script';
+    const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);
+    const totalFrames = scenesToTotalFrames(scenes, fps);
+    const findExistingSourceProject = async () => normalizedSourceSessionId
+      ? projectService.findProjectBySessionId(userId, normalizedSourceSessionId)
+      : null;
+
+    if (shouldDryRun) {
+      const existingProject = await findExistingSourceProject();
+
+      return NextResponse.json({
+        success: true,
+        dryRun: true,
+        projectId: existingProject?.projectId ?? null,
+        name: projectName,
+        overlayCount: overlays.length,
+        totalDurationFrames: totalFrames,
+        totalDurationSeconds: Math.round(totalFrames / fps),
+        creditsDeducted: 0,
+        reusedProject: Boolean(existingProject),
+        wouldReuseProject: Boolean(existingProject),
+        importMode: normalizedImportMode || 'legacy-direct-import',
+        draftOnly: normalizedImportMode === 'draft-script-import',
+        writeOperationsSkipped: true,
+      });
     }
 
     // Deduct credits (1 credit for script import)
@@ -59,23 +140,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Determine dimensions from aspect ratio
-    const ar = aspectRatio || '16:9';
-    let width = 1920;
-    let height = 1080;
-    if (ar === '9:16') { width = 1080; height = 1920; }
-    else if (ar === '1:1') { width = 1080; height = 1080; }
-    else if (ar === '4:5') { width = 1080; height = 1350; }
+    // Reuse the source-session project when ThinkForge created one at script stage.
+    const existingProject = await findExistingSourceProject();
+    const project = existingProject || await projectService.createProject(userId, projectName, {
+      brandId: normalizedBrandId,
+      sourceSessionId: normalizedSourceSessionId,
+    });
 
-    const fps = 30;
-
-    // Create Editron project
-    const projectName = title || 'Imported Script';
-    const project = await projectService.createProject(userId, projectName, { brandId });
-
-    // Convert scenes to overlays (with storyboard images if available)
-    const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);
-    const totalFrames = scenesToTotalFrames(scenes, fps);
+    if (existingProject) {
+      const db = await getDatabase();
+      const update: Record<string, unknown> = {
+        name: projectName,
+        pipelineStage: 'edit',
+        updatedAt: new Date(),
+      };
+      if (normalizedBrandId) update.brandId = normalizedBrandId;
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { userId, projectId: project.projectId },
+        { $set: update },
+      );
+    }
 
     // Save overlays to the project
     await projectService.saveProject(userId, project.projectId, {
@@ -86,6 +170,24 @@ export async function POST(request: NextRequest) {
       durationInFrames: totalFrames,
     });
 
+    if (normalizedSourceSessionId) {
+      try {
+        const existingLink = await findLinkBySessionId(userId, normalizedSourceSessionId);
+        if (existingLink) {
+          await addProjectToLinkBySessionId(userId, normalizedSourceSessionId, project.projectId);
+        } else {
+          await createProjectLink(userId, {
+            sessionId: normalizedSourceSessionId,
+            sourceScriptId: normalizedSourceScriptId,
+            projectId: project.projectId,
+            brandId: normalizedBrandId,
+          });
+        }
+      } catch (linkErr: any) {
+        warnings.push(`Project link operation failed: ${linkErr.message}`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
@@ -94,6 +196,10 @@ export async function POST(request: NextRequest) {
       totalDurationFrames: totalFrames,
       totalDurationSeconds: Math.round(totalFrames / fps),
       creditsDeducted: 1,
+      reusedProject: Boolean(existingProject),
+      importMode: normalizedImportMode || 'legacy-direct-import',
+      draftOnly: normalizedImportMode === 'draft-script-import',
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error: any) {
     console.error('[import-from-script] Error:', error);

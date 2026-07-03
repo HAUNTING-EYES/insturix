@@ -122,7 +122,6 @@ export const VideoOverlayPanel: React.FC = () => {
           publicUrl: videoFile.link,
           type: 'video',
           filename: `pexels-video-${video.id}.mp4`,
-          userId: 'default-user',
           thumbnail: video.image,
           dimensions: { width: fitted.width, height: fitted.height },
         }),

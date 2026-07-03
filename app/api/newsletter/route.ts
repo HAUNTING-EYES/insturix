@@ -4,7 +4,7 @@ import Newsletter from "@/schemas/NewsLetterSchema";
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase(process.env.NEWSLETTER_DB as string);
+    await connectToDatabase();
 
     const body = await request.json();
     const { email } = body;

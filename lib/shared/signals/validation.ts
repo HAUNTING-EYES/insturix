@@ -20,6 +20,8 @@ import type {
   EnvelopeCurve,
 } from './types';
 
+type NumericSignalKey = Extract<NumericCreativeSignal, string>;
+
 // ─── Signal Range Definitions ────────────────────────────────────────────────
 
 export interface SignalRange {
@@ -34,7 +36,7 @@ export interface SignalRange {
  *
  * Source: docs/creative-content-knowledge.md Part 2, each signal's "Range" field.
  */
-export const SIGNAL_RANGES: Record<NumericCreativeSignal, SignalRange> = {
+export const SIGNAL_RANGES: Record<NumericSignalKey, SignalRange> = {
   // RHETORICAL
   logos_load:             { min: 0, max: 1, default: 0.5 },
   pathos_load:            { min: 0, max: 1, default: 0.5 },
@@ -98,6 +100,10 @@ export const SIGNAL_RANGES: Record<NumericCreativeSignal, SignalRange> = {
   multimodal_counterpoint: { min: 0, max: 1, default: 0.1 },
 };
 
+function isNumericSignalKey(key: string): key is NumericSignalKey {
+  return key in SIGNAL_RANGES;
+}
+
 // ─── Validation ──────────────────────────────────────────────────────────────
 
 export interface ValidationResult {
@@ -122,9 +128,11 @@ export function validateSignals(signals: Partial<CreativeSignals>): ValidationRe
   for (const [key, value] of Object.entries(signals)) {
     if (value === undefined || value === null) continue;
 
-    const range = SIGNAL_RANGES[key as NumericCreativeSignal];
+    if (!isNumericSignalKey(key)) continue;
 
-    if (range && typeof value === 'number') {
+    const range = SIGNAL_RANGES[key];
+
+    if (typeof value === 'number') {
       // Numeric signal — clamp to range
       if (value < range.min || value > range.max) {
         const clampedValue = Math.max(range.min, Math.min(range.max, value));
@@ -176,8 +184,7 @@ export function validatePatternBreak(pb: PatternBreakV1): ValidationResult {
     errors.push('PatternBreak requires a reason for auditability.');
   }
 
-  const range = SIGNAL_RANGES[pb.signal];
-  if (!range) {
+  if (!pb.signal || !isNumericSignalKey(pb.signal)) {
     errors.push(`Signal "${pb.signal}" is not a valid numeric signal for PatternBreak.`);
   }
 

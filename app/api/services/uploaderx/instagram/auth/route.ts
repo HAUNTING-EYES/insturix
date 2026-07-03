@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import {
+  createUploaderXOAuthStateRecord,
+  storeUploaderXOAuthState,
+} from "@/app/api/services/uploaderx/utils/oauth-state";
 
 const debugInstagramAuth = (...args: unknown[]) => {
   if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
@@ -27,6 +31,10 @@ export async function GET(req: Request) {
   }
 
   const redirectUri = `${baseUrl}/api/services/uploaderx/instagram/callback`;
+  const oauthState = createUploaderXOAuthStateRecord({
+    userId: session.userId,
+    provider: "instagram",
+  });
 
   debugInstagramAuth("[IG Auth] Redirect URI prepared");
 
@@ -41,7 +49,9 @@ export async function GET(req: Request) {
   igAuthUrl.searchParams.set("redirect_uri", redirectUri);
   igAuthUrl.searchParams.set("scope", scopes);
   igAuthUrl.searchParams.set("response_type", "code");
-  igAuthUrl.searchParams.set("state", session.userId);
+  igAuthUrl.searchParams.set("state", oauthState.state);
+
+  await storeUploaderXOAuthState(oauthState);
 
   return NextResponse.redirect(igAuthUrl.toString());
 }

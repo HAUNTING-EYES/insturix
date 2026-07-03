@@ -12,10 +12,16 @@ import { useAuth } from '@clerk/nextjs';
 export const CREDITS_QUERY_KEY = ['user', 'credits'];
 
 export interface CreditsBalance {
+  // MAIN pool (everyday workflow)
   subscriptionCredits: number;
   topupCredits: number;
   totalCredits: number;
   subscriptionCreditsExpiry: string | null;
+  // MEDIA pool (image/video/audio generation) — granted on top of the main pool
+  mediaCredits: number;
+  mediaTopupCredits: number;
+  totalMediaCredits: number;
+  mediaCreditsExpiry: string | null;
 }
 
 export interface CreditTransaction {
@@ -75,17 +81,23 @@ export function useCredits() {
   };
 }
 
-// Hook for checking if user has enough credits for an action
-export function useCreditsCheck(requiredCredits: number) {
+// Hook for checking if user has enough credits for an action.
+// Pass pool='media' for image/video/audio generation actions so the check runs
+// against the media pool; defaults to the main pool for everyday workflow.
+export function useCreditsCheck(requiredCredits: number, pool: 'main' | 'media' = 'main') {
   const { balance, isLoading } = useCredits();
-  
-  const hasEnough = balance ? balance.totalCredits >= requiredCredits : false;
-  const shortfall = balance ? Math.max(0, requiredCredits - balance.totalCredits) : requiredCredits;
-  
+
+  const available = balance
+    ? (pool === 'media' ? balance.totalMediaCredits : balance.totalCredits)
+    : 0;
+  const hasEnough = available >= requiredCredits;
+  const shortfall = Math.max(0, requiredCredits - available);
+
   return {
     hasEnough,
     shortfall,
-    available: balance?.totalCredits ?? 0,
+    available,
+    pool,
     isLoading,
   };
 }

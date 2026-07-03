@@ -11,10 +11,16 @@ import { fileExists } from '@/lib/editron/services/gcs-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
+import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
+  let analysisCreditCheck: CreditCheckResult | null = null;
+  let analysisQueued = false;
+  let analysisCreditTransactionId: string | undefined;
+  let analysisChargedCredits: number | undefined;
+
   try {
     // Hard limit at 3GB to prevent abuse (user footage can be large)
     // Files >100MB cost extra credits (handled by billing, not blocked here)
@@ -23,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File too large. Maximum size is 3GB.' }, { status: 413 });
     }
 
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
 
     if (!userId) {
       return NextResponse.json(
@@ -78,6 +84,80 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Server-side object-size enforcement (presigned uploads carry no size cap) ──
+    // The signed URL from /upload/url can PUT any size straight to storage, so the real 3GB cap
+    // is enforced HERE against the ACTUAL object — not the client-declared `size`.
+    let actualSize: number | null = null;
+    try {
+      if (gcsPath) {
+        const { getGcsObjectSize } = await import('@/lib/editron/services/gcs-service');
+        actualSize = await getGcsObjectSize(gcsPath);
+      } else {
+        const { getR2ObjectSize } = await import('@/lib/editron/services/r2-service');
+        actualSize = await getR2ObjectSize(assetId);
+      }
+    } catch (sizeErr: unknown) {
+      // Fail open: a transient storage error must not block a legitimate upload.
+      console.warn('[Upload] object-size check failed (non-fatal):', sizeErr instanceof Error ? sizeErr.message : sizeErr);
+    }
+    const { exceedsPresignedUploadCap, MAX_PRESIGNED_UPLOAD_BYTES } = await import('@/lib/editron/services/upload-size-guard');
+    if (exceedsPresignedUploadCap(actualSize)) {
+      // Delete the oversized object so the bypass can't consume storage/quota.
+      try {
+        if (gcsPath) {
+          const { deleteFromGCS } = await import('@/lib/editron/services/gcs-service');
+          await deleteFromGCS(gcsPath);
+        } else {
+          const { deleteFromR2 } = await import('@/lib/editron/services/r2-service');
+          await deleteFromR2(assetId);
+        }
+      } catch (delErr: unknown) {
+        console.error('[Upload] failed to delete oversized object:', delErr instanceof Error ? delErr.message : delErr);
+      }
+      const maxGb = Math.round(MAX_PRESIGNED_UPLOAD_BYTES / (1024 * 1024 * 1024));
+      return NextResponse.json(
+        { success: false, error: `File exceeds the ${maxGb}GB upload limit.`, code: 'file_too_large' },
+        { status: 413 }
+      );
+    }
+
+    const db = await getDatabase();
+    const completedMultipartUpload = await db.collection(COLLECTIONS.MEDIA_UPLOADS).findOne({
+      assetId,
+      userId,
+      status: 'completed',
+      storageUsageRecordedAt: { $exists: true },
+    });
+    const storageAlreadyRecorded = Boolean(completedMultipartUpload);
+    const storedSizeBytes = actualSize ?? (typeof size === 'number' ? size : Number(size) || 0);
+
+    if (!storageAlreadyRecorded) {
+      const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
+      const { formatStorageBytes } = await import('@/lib/services/storage-quota-service');
+      // Over cap → LRU-evict non-protected assets (or allow paid overage if the
+      // owner enabled it). Only blocks when everything left is protected/in-use.
+      const reservation = await reserveStorageForUpload(userId, orgId, storedSizeBytes);
+      if (!reservation.allowed) {
+        try {
+          await deleteUploadedObject(gcsPath, assetId);
+        } catch (delErr: unknown) {
+          console.error('[Upload] failed to delete over-quota object:', delErr instanceof Error ? delErr.message : delErr);
+        }
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Storage full (${formatStorageBytes(reservation.usedBytes)} of ${formatStorageBytes(reservation.limitBytes)} used) — the rest is pinned or in use. Delete/unpin assets, enable extra storage, or upgrade your plan.`,
+            code: 'storage_quota_exceeded',
+          },
+          { status: 413 },
+        );
+      }
+      if (reservation.evictedAssetIds.length) {
+        console.log(`[Upload] LRU-evicted ${reservation.evictedAssetIds.length} asset(s) to fit ${assetId}`);
+      }
+    }
+
     // Determine file type
     let fileType: 'video' | 'audio' | 'image';
     if (type) {
@@ -128,9 +208,11 @@ export async function POST(request: NextRequest) {
           }
         : undefined;
 
+    const now = new Date();
     const mediaAsset: MediaAsset = {
       assetId,
       userId,
+      orgId: orgId || undefined, // org-shared storage pool (undefined for solo users)
       projectId: projectId || undefined,
       type: fileType,
       source: 'user-upload',
@@ -138,16 +220,21 @@ export async function POST(request: NextRequest) {
       gcsPath,
       cachedUrl: readUrl,
       urlExpiresAt: new Date(readUrlExpiresAt),
-      size: size || 0,
+      size: storedSizeBytes,
       thumbnail: thumbnail || undefined,
       duration: verifiedDuration,
       dimensions: parsedDimensions,
-      uploadedAt: new Date(),
+      uploadedAt: now,
+      lastUsedAt: now, // seed the LRU signal at upload time
+      ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
     };
 
-    const db = await getDatabase();
     await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(mediaAsset);
+    if (!storageAlreadyRecorded) {
+      const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
+      await recordStorageUsage(resolveStorageOwner(userId, orgId), storedSizeBytes);
+    }
 
     // ── Trigger async asset analysis via QStash ──
     // Runs 5-Track analysis (video), Gemini Vision (image), or basic tagging (audio)
@@ -159,48 +246,139 @@ export async function POST(request: NextRequest) {
         : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
       if (qstashToken) {
-        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
+        const analysisCreditOptions = {
+          durationMinutes: getBillableAssetAnalysisMinutes(fileType, verifiedDuration),
+          requestType: getAssetAnalysisRequestType(fileType),
+        };
+        analysisCreditCheck = await checkCredits(userId, 'editron', 'asset_analysis', analysisCreditOptions);
+        if (!analysisCreditCheck.allowed) {
+          if (analysisCreditCheck.errorResponse?.status === 402) {
+            await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+              { assetId, userId },
+              {
+                $set: {
+                  analysisStatus: 'skipped_insufficient_credits',
+                  analysisSkippedAt: new Date(),
+                  analysisSkipReason: 'insufficient_credits',
+                },
+              },
+            );
+
+            return NextResponse.json({
+              success: true,
+              assetId,
+              url: readUrl,
+              type: fileType,
+              filename,
+              size: size || 0,
+              analysisQueued: false,
+              analysisSkippedReason: 'insufficient_credits',
+            });
+          }
+
+          return analysisCreditCheck.errorResponse!;
+        }
+
+        try {
+          const deductResult = await analysisCreditCheck.deduct();
+          analysisCreditTransactionId = deductResult.transactionId;
+          const { getCreditCost } = await import('@/lib/config/creditCosts');
+          analysisChargedCredits = getCreditCost('editron', 'asset_analysis', analysisCreditOptions);
+        } catch (error) {
+          console.error('[Upload] asset-analysis credit deduction failed:', error);
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId, userId },
+            {
+              $set: {
+                analysisStatus: 'skipped_credit_deduction_failed',
+                analysisSkippedAt: new Date(),
+                analysisSkipReason: 'credit_deduction_failed',
+              },
+            },
+          );
+
+          return NextResponse.json({
+            success: true,
+            assetId,
+            url: readUrl,
+            type: fileType,
+            filename,
+            size: size || 0,
+            analysisQueued: false,
+            analysisSkippedReason: 'credit_deduction_failed',
+          });
+        }
+
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId, userId },
+          { $set: { analysisStatus: 'queued', analysisQueuedAt: new Date() } },
+        );
+
+        const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,
             'Content-Type': 'application/json',
             'Upstash-Retries': '2',
-            // MUST carry a unit — QStash parses as a Go duration; bare '300' → HTTP 400
-            // "missing unit in duration" (same class of bug as the tribe dispatch, fixed 2026-05-30).
             'Upstash-Timeout': '300s',
           },
           body: JSON.stringify({
             assetId,
             userId,
+            orgId: orgId || undefined,
             type: fileType,
             url: readUrl,
             duration: verifiedDuration,
             filename,
+            creditTransactionId: analysisCreditTransactionId,
+            chargedCredits: analysisChargedCredits,
           }),
         });
-        console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
 
-        // Graph sync: create Asset node in Neo4j (async, non-blocking)
-        await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${qstashToken}`,
-            'Content-Type': 'application/json',
-            'Upstash-Retries': '3',
-          },
-          body: JSON.stringify({
-            action: 'asset_created',
-            data: {
-              assetId,
-              userId,
-              type: fileType,
-              duration: verifiedDuration,
+        if (!analysisRes.ok) {
+          const errBody = await analysisRes.text().catch(() => 'no body');
+          const errMsg = `Asset analysis dispatch failed: HTTP ${analysisRes.status} - ${errBody}`;
+          await refundAssetAnalysisCredits(analysisCreditCheck, 'Asset analysis dispatch failed before worker queueing');
+          analysisCreditCheck = null;
+          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId, userId },
+            { $set: { analysisStatus: 'dispatch_failed', analysisError: errMsg } },
+          );
+          console.warn(`[Upload] ${errMsg}`);
+        } else {
+          analysisQueued = true;
+          console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
+        }
+
+        if (analysisQueued) {
+          const graphRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${qstashToken}`,
+              'Content-Type': 'application/json',
+              'Upstash-Retries': '3',
             },
-          }),
-        });
-        console.log(`[Upload] Dispatched graph-sync for ${assetId}`);
+            body: JSON.stringify({
+              action: 'asset_created',
+              data: {
+                assetId,
+                userId,
+                type: fileType,
+                duration: verifiedDuration,
+              },
+            }),
+          });
+          if (!graphRes.ok) {
+            console.warn(`[Upload] Graph sync dispatch failed for ${assetId}: HTTP ${graphRes.status}`);
+          } else {
+            console.log(`[Upload] Dispatched graph-sync for ${assetId}`);
+          }
+        }
       }
     } catch (qErr: any) {
+      if (analysisCreditCheck && !analysisQueued) {
+        await refundAssetAnalysisCredits(analysisCreditCheck, 'Asset analysis dispatch failed before worker queueing');
+      }
       // Non-fatal — asset is uploaded even if analysis/graph dispatch fails
       console.warn(`[Upload] Worker dispatch failed: ${qErr.message}`);
     }
@@ -212,6 +390,7 @@ export async function POST(request: NextRequest) {
       type: fileType,
       filename,
       size: size || 0,
+      analysisQueued,
     });
   } catch (error: any) {
     console.error('Error registering media asset:', error);
@@ -219,5 +398,36 @@ export async function POST(request: NextRequest) {
       { success: false, error: error.message || 'Failed to register media asset' },
       { status: 500 }
     );
+  }
+}
+
+async function deleteUploadedObject(gcsPath: string | null | undefined, r2Key: string): Promise<void> {
+  if (gcsPath) {
+    const { deleteFromGCS } = await import('@/lib/editron/services/gcs-service');
+    await deleteFromGCS(gcsPath);
+    return;
+  }
+
+  const { deleteFromR2 } = await import('@/lib/editron/services/r2-service');
+  await deleteFromR2(r2Key);
+}
+
+type AssetAnalysisRequestType = 'video' | 'image' | 'audio';
+
+function getBillableAssetAnalysisMinutes(fileType: AssetAnalysisRequestType, durationSeconds?: number): number {
+  if (fileType !== 'video') return 1;
+  const sourceMinutes = durationSeconds && durationSeconds > 0 ? durationSeconds / 60 : 1;
+  return Math.max(1, Math.ceil(sourceMinutes * 100) / 100);
+}
+
+function getAssetAnalysisRequestType(fileType: AssetAnalysisRequestType): AssetAnalysisRequestType {
+  return fileType;
+}
+
+async function refundAssetAnalysisCredits(creditCheck: CreditCheckResult, reason: string): Promise<void> {
+  try {
+    await creditCheck.refund(reason);
+  } catch (error) {
+    console.error('[Upload] asset-analysis credit refund failed:', error);
   }
 }

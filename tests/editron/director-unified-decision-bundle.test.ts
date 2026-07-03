@@ -59,6 +59,24 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain("'intelligence.unifiedDecisionBundle'");
   });
 
+  it('persists final Phase-0 truth from the saved overlay set before completion events', () => {
+    const source = directorSource();
+    const saveIndex = source.indexOf('await projectService.saveProject');
+    const phase0Index = source.indexOf('await persistFinalPhase0LiveTruth');
+    const brandEventIndex = source.indexOf('Brand Intelligence: emit director_completed');
+
+    expect(saveIndex).toBeGreaterThan(0);
+    expect(phase0Index).toBeGreaterThan(saveIndex);
+    expect(brandEventIndex).toBeGreaterThan(phase0Index);
+    expect(source).toContain('overlays: persistableOverlays');
+    expect(source).toContain('buildPhase0RenderArtifactPack(truthProject, artifactManifest');
+    expect(source).toContain('artifactPack,');
+    expect(source).toContain("'intelligence.phase0LiveTruth': snapshot");
+    expect(source).toContain("'intelligence.renderedQualityEvidence': snapshot.qualityEvidence");
+    expect(source).toContain("'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack)");
+    expect(source).toContain("materialization: 'planned-not-rendered'");
+  });
+
   it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {
     const source = directorSource();
     const fallbackAuthorityStart = source.indexOf("source: 'fallback-reactive'");
@@ -68,6 +86,16 @@ describe('director unified decision bundle control flow', () => {
     expect(fallbackAuthorityBlock).toContain("decisionMode: 'signal-primary'");
     expect(fallbackAuthorityBlock).toContain("executableProducer: 'signal-driven'");
     expect(fallbackAuthorityBlock).toContain("signalDecisionRole: 'primary'");
+  });
+  it('does not bypass AI storyboard asset analysis just because Creative Brief is enabled', () => {
+    const source = directorSource();
+
+    expect(source).toContain("const hasRawFootage = projectDoc?.rawFootageAnalysis?.segments?.length > 0;");
+    expect(source).toContain("const creativeBriefPerAssetBypassActive = process.env.USE_CREATIVE_BRIEF === 'true' && hasRawFootage;");
+    expect(source).toContain('const skipPerAssetAnalysis = creativeBriefPerAssetBypassActive;');
+    expect(source).not.toContain("const skipPerAssetAnalysis = process.env.USE_CREATIVE_BRIEF === 'true';");
+    expect(source).toContain("'creative-brief-per-asset-analysis-bypassed'");
+    expect(source).toContain("'intelligence.reason': intelligenceReason");
   });
   it('does not let post-EDL utility scoring override a handled unified bundle', () => {
     expect(shouldRunPostEdlUtilityScoring({

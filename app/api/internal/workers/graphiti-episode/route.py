@@ -59,7 +59,9 @@ class handler(BaseHTTPRequestHandler):
             graphiti = Graphiti(
                 graph_driver=driver,
                 llm_client=GeminiClient(LLMConfig(api_key=api_key, model="gemini-2.5-flash")),
-                embedder=GeminiEmbedder(GeminiEmbedderConfig(api_key=api_key, embedding_model="text-embedding-005")),
+                embedder=GeminiEmbedder(
+                    GeminiEmbedderConfig(api_key=api_key, embedding_model="text-embedding-005", embedding_dim=768)
+                ),
                 cross_encoder=GeminiRerankerClient(LLMConfig(api_key=api_key, model="gemini-2.5-flash")),
             )
 
@@ -91,3 +93,4 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
+

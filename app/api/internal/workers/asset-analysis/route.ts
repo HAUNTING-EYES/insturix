@@ -17,6 +17,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { EDITRON_EMBEDDING_MODEL, generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
+import {
+  buildAssetAnalysisClaimFilter,
+  buildAssetAnalysisClaimUpdate,
+  resolveAssetVideoAnalysisPolicy,
+} from '@/lib/editron/services/asset-analysis-worker-policy';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
+import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -24,10 +35,13 @@ export const maxDuration = 300;
 interface AssetAnalysisPayload {
   assetId: string;
   userId: string;
+  orgId?: string;
   type: 'video' | 'audio' | 'image';
   url: string;
   duration?: number;
   filename: string;
+  creditTransactionId?: string;
+  chargedCredits?: number;
 }
 
 async function handler(request: NextRequest) {
@@ -44,26 +58,51 @@ async function handler(request: NextRequest) {
 
     const db = await getDatabase();
 
-    // Mark asset as analyzing
-    await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-      { assetId, userId },
-      { $set: { analysisStatus: 'analyzing', analysisStartedAt: new Date() } },
+    const claimNow = new Date();
+    const claim = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+      buildAssetAnalysisClaimFilter({ assetId, userId, now: claimNow }),
+      buildAssetAnalysisClaimUpdate(claimNow),
     );
+    if (claim.matchedCount === 0) {
+      const existing = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+        { assetId, userId },
+        { projection: { analysisStatus: 1, analysisStartedAt: 1, analysisCompletedAt: 1 } },
+      );
+      const skipped = existing?.analysisStatus === 'complete' ? 'already-complete' : 'duplicate-delivery';
+      console.log(`[AssetAnalysis] ${assetId}: ${skipped}; current status=${existing?.analysisStatus ?? 'missing'}`);
+      return NextResponse.json({
+        success: true,
+        assetId,
+        skipped,
+        analysisStatus: existing?.analysisStatus ?? null,
+      });
+    }
 
     const tags: string[] = [];
     let embedding: number[] | null = null;
 
     // ─── Video Analysis (full 5-Track) ──────────────────────────
     if (type === 'video') {
+      const videoPolicy = resolveAssetVideoAnalysisPolicy({ type, durationSeconds: duration });
       try {
-        const { runFullAnalysis } = await import('@/lib/editron/services/five-track-analysis');
-        const durationMs = (duration || 5) * 1000;
+        let analysis: any = null;
 
-        const analysis = await runFullAnalysis(assetId, userId, {
-          videoUrl: url,
-          durationMs,
-          sourceType: 'real-footage',
-        });
+        if (videoPolicy.shouldRunFullAnalysis) {
+          const { runFullAnalysis } = await import('@/lib/editron/services/five-track-analysis');
+          const durationMs = (duration || 5) * 1000;
+
+          analysis = await runFullAnalysis(assetId, userId, {
+            videoUrl: url,
+            durationMs,
+            sourceType: 'real-footage',
+          });
+        } else {
+          tags.push('video', 'metadata-only', 'full-analysis-deferred');
+          console.log(
+            `[AssetAnalysis] ${assetId}: skipping full 5-Track at ingest (${videoPolicy.reason}, ` +
+            `duration=${videoPolicy.durationSeconds ?? 'unknown'}s, max=${videoPolicy.maxDurationSeconds}s)`,
+          );
+        }
 
         if (analysis) {
           // Extract tags from analysis
@@ -82,14 +121,14 @@ async function handler(request: NextRequest) {
 
           // Layer 2 (motion): dominant motion type
           if (analysis.motionSegments?.length) {
-            const motionTypes = analysis.motionSegments.map(s => s.cameraMotion).filter(Boolean);
+            const motionTypes = analysis.motionSegments.map((s: { cameraMotion?: string }) => s.cameraMotion).filter(Boolean);
             const dominant = mostFrequent(motionTypes);
             if (dominant && !tags.includes(dominant)) tags.push(dominant);
           }
 
           // Energy level tag from motion segments
           if (analysis.motionSegments?.length) {
-            const avgIntensity = analysis.motionSegments.reduce((sum, s) => sum + (s.motionIntensity || 0), 0) / analysis.motionSegments.length;
+            const avgIntensity = analysis.motionSegments.reduce((sum: number, s: { motionIntensity?: number }) => sum + (s.motionIntensity || 0), 0) / analysis.motionSegments.length;
             tags.push(avgIntensity > 0.7 ? 'high-energy' : avgIntensity > 0.3 ? 'medium-energy' : 'calm');
           }
 
@@ -103,9 +142,39 @@ async function handler(request: NextRequest) {
 
           console.log(`[AssetAnalysis] ${assetId}: 5-Track complete, ${tags.length} tags extracted`);
         }
+
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'video_5_track',
+          status: videoPolicy.shouldRunFullAnalysis ? 'success' : 'skipped',
+          provider: 'editron-five-track',
+          model: 'five-track-analysis',
+          operation: 'video_analysis',
+          includeRevenue: true,
+          units: { mediaSeconds: duration || undefined, requestCount: 1 },
+          metadata: {
+            durationSeconds: duration || null,
+            analysisReturned: !!analysis,
+            tagsCount: tags.length,
+            fullVideoAnalysisPolicy: videoPolicy,
+          },
+        });
       } catch (analysisErr: any) {
         console.warn(`[AssetAnalysis] ${assetId}: 5-Track failed: ${analysisErr.message}`);
         tags.push('analysis-failed');
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'video_5_track',
+          status: 'failed',
+          provider: 'editron-five-track',
+          model: 'five-track-analysis',
+          operation: 'video_analysis',
+          includeRevenue: true,
+          units: { mediaSeconds: duration || undefined, requestCount: 1 },
+          metadata: {
+            durationSeconds: duration || null,
+            errorClass: analysisErr?.name || 'Error',
+            fullVideoAnalysisPolicy: videoPolicy,
+          },
+        });
       }
     }
 
@@ -115,20 +184,6 @@ async function handler(request: NextRequest) {
         const { GoogleGenerativeAI } = await import('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
-        const result = await model.generateContent([
-          {
-            inlineData: { mimeType: 'image/jpeg', data: '' }, // Will use URL
-          },
-          `Analyze this image. Return JSON only:
-{
-  "subjects": ["list of main subjects"],
-  "shotType": "wide|medium|close-up|extreme-close-up|overhead",
-  "mood": "energetic|calm|dramatic|playful|professional|dark|bright",
-  "colors": ["dominant colors"],
-  "tags": ["5-10 descriptive tags"]
-}`,
-        ]);
 
         // For images, use URL-based analysis instead
         const urlResult = await model.generateContent([
@@ -154,8 +209,28 @@ Return JSON only:
         }
 
         console.log(`[AssetAnalysis] ${assetId}: image analysis complete, ${tags.length} tags`);
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'image_gemini_vision',
+          status: 'success',
+          provider: 'google-gemini',
+          model: 'gemini-2.5-flash',
+          operation: 'image_analysis',
+          includeRevenue: true,
+          units: { requestCount: 1, imageCount: 1 },
+          metadata: { tagsCount: tags.length },
+        });
       } catch (imgErr: any) {
         console.warn(`[AssetAnalysis] ${assetId}: image analysis failed: ${imgErr.message}`);
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'image_gemini_vision',
+          status: 'failed',
+          provider: 'google-gemini',
+          model: 'gemini-2.5-flash',
+          operation: 'image_analysis',
+          includeRevenue: true,
+          units: { requestCount: 1, imageCount: 1 },
+          metadata: { errorClass: imgErr?.name || 'Error' },
+        });
       }
     }
 
@@ -166,24 +241,64 @@ Return JSON only:
       if (filename.match(/voice|narrat|speech|vo\b/i)) tags.push('voiceover');
       if (filename.match(/sfx|effect|sound/i)) tags.push('sound-effect');
       if (filename.match(/ambient|atmosphere/i)) tags.push('ambient');
+      await recordAssetAnalysisCostEvent(payload, {
+        stage: 'audio_metadata',
+        status: 'success',
+        provider: 'local',
+        model: 'filename-metadata-rules',
+        operation: 'metadata_analysis',
+        includeRevenue: true,
+        estimatedCostUsd: 0,
+        costBasis: 'provider_usage',
+        units: { requestCount: 1 },
+        metadata: { tagsCount: tags.length },
+      });
     }
 
     // ─── Generate Semantic Embedding ────────────────────────────
     try {
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-      const embModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
-
       // Build a text description from tags + filename for embedding
       const embeddingText = `${filename} ${type} ${tags.join(' ')}`;
-      const embResult = await embModel.embedContent(embeddingText);
-      embedding = embResult.embedding?.values || null;
+      embedding = await generateEditronEmbedding(embeddingText, {
+        taskType: 'RETRIEVAL_DOCUMENT',
+        title: filename,
+      });
 
       if (embedding) {
         console.log(`[AssetAnalysis] ${assetId}: embedding generated (${embedding.length} dims)`);
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'gemini_embedding',
+          status: 'success',
+          provider: 'google-gemini',
+          model: EDITRON_EMBEDDING_MODEL,
+          operation: 'embedding',
+          units: { requestCount: 1 },
+          metadata: { embeddingDimensions: embedding.length, tagsCount: tags.length },
+        });
+      } else {
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'gemini_embedding',
+          status: 'skipped',
+          provider: 'google-gemini',
+          model: EDITRON_EMBEDDING_MODEL,
+          operation: 'embedding',
+          estimatedCostUsd: 0,
+          costBasis: 'provider_usage',
+          units: { requestCount: 0 },
+          metadata: { reason: 'no_embedding_returned', tagsCount: tags.length },
+        });
       }
     } catch (embErr: any) {
       console.warn(`[AssetAnalysis] ${assetId}: embedding failed: ${embErr.message}`);
+      await recordAssetAnalysisCostEvent(payload, {
+        stage: 'gemini_embedding',
+        status: 'failed',
+        provider: 'google-gemini',
+        model: EDITRON_EMBEDDING_MODEL,
+        operation: 'embedding',
+        units: { requestCount: 1 },
+        metadata: { errorClass: embErr?.name || 'Error', tagsCount: tags.length },
+      });
     }
 
     // ─── Update MediaAsset with tags + embedding + status ───────
@@ -194,6 +309,8 @@ Return JSON only:
     };
     if (embedding) {
       updateDoc.semanticEmbedding = embedding;
+      updateDoc.semanticEmbeddingModel = EDITRON_EMBEDDING_MODEL;
+      updateDoc.semanticEmbeddingUpdatedAt = new Date();
     }
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -260,7 +377,7 @@ Return JSON only:
               .map(([c]) => c);
           }
 
-          await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
+          const graphRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/graph-sync`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${qstashToken}`,
@@ -288,10 +405,26 @@ Return JSON only:
               },
             }),
           });
+          await recordAssetAnalysisCostEvent(payload, {
+            stage: 'graph_sync_qstash',
+            status: graphRes.ok ? 'success' : 'failed',
+            provider: 'upstash-qstash',
+            operation: 'queue_message',
+            units: { queueMessages: 1, requestCount: 1 },
+            metadata: { httpStatus: graphRes.status },
+          });
           console.log(`[AssetAnalysis] ${assetId}: dispatched graph enrichment`);
         }
       } catch (graphErr: any) {
         console.warn(`[AssetAnalysis] ${assetId}: graph enrichment dispatch failed: ${graphErr.message}`);
+        await recordAssetAnalysisCostEvent(payload, {
+          stage: 'graph_sync_qstash',
+          status: 'failed',
+          provider: 'upstash-qstash',
+          operation: 'queue_message',
+          units: { queueMessages: 1, requestCount: 1 },
+          metadata: { errorClass: graphErr?.name || 'Error' },
+        });
       }
     }
 
@@ -318,6 +451,46 @@ Return JSON only:
 
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+async function recordAssetAnalysisCostEvent(
+  payload: AssetAnalysisPayload,
+  event: {
+    stage: string;
+    status: ProviderCostEventStatus;
+    provider: string;
+    operation: string;
+    model?: string;
+    includeRevenue?: boolean;
+    estimatedCostUsd?: number;
+    costBasis?: ProviderCostBasis;
+    units?: ProviderCostUnits;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await recordProviderCostEvent({
+    idempotencyKey: `editron:asset-analysis:${payload.assetId}:${event.stage}:${event.status}`,
+    status: event.status,
+    userId: payload.userId,
+    orgId: payload.orgId,
+    assetId: payload.assetId,
+    creditTransactionId: payload.creditTransactionId,
+    service: 'editron',
+    action: 'asset_analysis',
+    route: '/api/internal/workers/asset-analysis',
+    provider: event.provider,
+    model: event.model,
+    operation: event.operation,
+    chargedCredits: event.includeRevenue ? payload.chargedCredits : undefined,
+    estimatedCostUsd: event.estimatedCostUsd,
+    costBasis: event.costBasis,
+    units: event.units,
+    metadata: {
+      stage: event.stage,
+      assetType: payload.type,
+      ...event.metadata,
+    },
+  });
 }
 
 // Helper: find most frequent string in array

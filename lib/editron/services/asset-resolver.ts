@@ -13,6 +13,8 @@ export interface MediaAsset {
   _id?: any;
   assetId: string;
   userId: string;
+  /** Org that owns the asset (org-shared storage pool). Undefined for solo users. */
+  orgId?: string;
   projectId?: string;
   type: 'video' | 'audio' | 'image';
   filename: string;
@@ -29,6 +31,10 @@ export interface MediaAsset {
     height: number;
   };
   uploadedAt: Date;
+  /** Last time the asset was used/resolved — the LRU signal for storage eviction. */
+  lastUsedAt?: Date;
+  /** When true, the asset is protected from LRU eviction (brand-vault reference or user-pinned). */
+  pinned?: boolean;
   /** R2 key for CDN-cached assets */
   r2Key?: string;
   /** True when this asset is a compressed proxy — original still uploading */
@@ -37,6 +43,30 @@ export interface MediaAsset {
   originalR2Key?: string;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
+}
+
+/** Don't rewrite lastUsedAt more than once per hour per asset (avoids write amplification). */
+const LRU_TOUCH_THROTTLE_MS = 60 * 60 * 1000;
+
+/**
+ * Bump `lastUsedAt` for assets that are being used (the LRU signal for storage
+ * eviction). Throttled + best-effort: only touches assets not touched in the last
+ * hour, and never throws — an LRU miss must not affect asset resolution.
+ */
+async function touchAssetsLastUsed(db: any, assetIds: string[]): Promise<void> {
+  if (!assetIds.length) return;
+  try {
+    const cutoff = new Date(Date.now() - LRU_TOUCH_THROTTLE_MS);
+    await db.collection(COLLECTIONS.MEDIA_ASSETS).updateMany(
+      {
+        assetId: { $in: assetIds },
+        $or: [{ lastUsedAt: { $lt: cutoff } }, { lastUsedAt: { $exists: false } }],
+      },
+      { $set: { lastUsedAt: new Date() } },
+    );
+  } catch {
+    /* best-effort LRU touch — ignore */
+  }
 }
 
 export class AssetResolver {
@@ -131,6 +161,9 @@ export class AssetResolver {
       .find({ assetId: { $in: Array.from(assetIds) } })
       .toArray() as unknown as MediaAsset[];
 
+    // LRU: mark the resolved assets as recently used (fire-and-forget, throttled).
+    void touchAssetsLastUsed(db, assets.map(a => a.assetId));
+
     console.log(`[AssetResolver] Resolving ${assetIds.size} assets, found ${assets.length} in DB`);
 
     // Log unresolved assets
@@ -184,6 +217,26 @@ export class AssetResolver {
       }
     }
 
+
+    for (const overlay of overlays) {
+      if (!('assetId' in overlay) || !overlay.assetId) continue;
+      const assetId = overlay.assetId as string;
+      if (assetMap.has(assetId) || foundIds.has(assetId)) continue;
+
+      const gcsPath = this.extractOverlayGcsPath(overlay);
+      if (!gcsPath) continue;
+
+      try {
+        const { url } = await refreshSignedUrl(gcsPath);
+        if (url) {
+          assetMap.set(assetId, url);
+          console.warn(`[AssetResolver] ${assetId}: resolved missing media_assets row from overlay gcsPath`);
+        }
+      } catch (err: any) {
+        console.error(`[AssetResolver] FAILED ${assetId}: overlay gcsPath fallback failed: ${err.message}`);
+      }
+    }
+
     // Inject URLs into overlays — but NEVER replace a working URL with empty string.
     // If the resolver can't find a fresh URL, keep the existing src/content.
     // OLD: Empty resolvedUrl overwrote working proxy URLs → Lambda got src:'' → hung forever.
@@ -212,6 +265,22 @@ export class AssetResolver {
       }
       return overlay;
     });
+  }
+
+
+  private extractOverlayGcsPath(overlay: Overlay): string | null {
+    const metadata = (overlay as any).metadata || {};
+    const candidates = [
+      (overlay as any).gcsPath,
+      metadata.gcsPath,
+      metadata.voiceover?.gcsPath,
+      metadata.tts?.gcsPath,
+      metadata.media?.gcsPath,
+    ];
+    const gcsPath = candidates.find(
+      (candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0,
+    );
+    return gcsPath?.trim() || null;
   }
 
   /**

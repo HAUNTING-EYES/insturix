@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { Client } from '@upstash/qstash';
 import { nanoid } from 'nanoid';
+import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
 import { IMAGE_MODELS, type ImageModelKey } from '@/lib/pipeline/storyboard-service';
 import { saveStoryboard } from '@/lib/pipeline/storyboard-db';
@@ -36,6 +37,7 @@ import {
   type StoryboardImageWorkerPayload,
 } from '@/lib/pipeline/storyboard-image-queue';
 import type {
+  EditronProductionManifest,
   SceneDescriptor,
   StyleGuide,
   Storyboard,
@@ -70,6 +72,52 @@ async function ensureFalCdnUrl(url: string): Promise<string> {
   return await fal.storage.upload(file);
 }
 
+function positiveInteger(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  return Math.round(numeric);
+}
+
+function countExpectedAiVideoClips(scenes: SceneDescriptor[]): number {
+  return scenes.reduce((count, scene) => {
+    const assetRecommendation = (scene as any).assetRecommendation;
+    if (assetRecommendation && assetRecommendation !== 'ai-video') return count;
+
+    const subShots = Array.isArray((scene as any).subShots) ? (scene as any).subShots : [];
+    const independentCount = subShots.filter((subShot: any) => subShot?.independentGeneration === true).length;
+    return count + Math.max(1, independentCount);
+  }, 0);
+}
+
+function normalizeProductionManifest(
+  value: unknown,
+  scenes: SceneDescriptor[],
+  lineage: { sourceSessionId?: string; sourceScriptId?: string },
+): EditronProductionManifest | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const input = value as Record<string, unknown>;
+  const expectedSceneCount = Math.max(positiveInteger(input.expectedSceneCount) ?? scenes.length, scenes.length);
+  const expectedStoryboardImages = Math.max(positiveInteger(input.expectedStoryboardImages) ?? scenes.length, scenes.length);
+  const baselineVideoClips = countExpectedAiVideoClips(scenes);
+  const expectedVideoClips = Math.max(positiveInteger(input.expectedVideoClips) ?? baselineVideoClips, baselineVideoClips);
+  const coveragePolicy = input.coveragePolicy === 'draft-partial-allowed'
+    ? 'draft-partial-allowed'
+    : 'production-require-all-scenes';
+
+  return {
+    ...input,
+    version: positiveInteger(input.version) ?? 1,
+    sourceService: typeof input.sourceService === 'string' ? input.sourceService : 'thinkforge',
+    sourceSessionId: typeof input.sourceSessionId === 'string' ? input.sourceSessionId : lineage.sourceSessionId,
+    sourceScriptId: typeof input.sourceScriptId === 'string' ? input.sourceScriptId : lineage.sourceScriptId,
+    expectedSceneCount,
+    expectedStoryboardImages,
+    expectedVideoClips,
+    coveragePolicy,
+    warnings: Array.isArray(input.warnings) ? input.warnings.filter((warning): warning is string => typeof warning === 'string') : [],
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -91,6 +139,7 @@ export async function POST(request: NextRequest) {
       scenes,
       styleGuide,
       projectId,
+      sourceSessionId,
       sourceScriptId,
       modelId,
       title,
@@ -103,10 +152,12 @@ export async function POST(request: NextRequest) {
       globalEditDirections,
       suggestedProfileCategory,
       brandId,
+      productionManifest,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
       projectId?: string;
+      sourceSessionId?: string;
       sourceScriptId?: string;
       modelId?: string;
       title?: string;
@@ -126,9 +177,18 @@ export async function POST(request: NextRequest) {
       globalEditDirections?: any;
       suggestedProfileCategory?: string;
       brandId?: string;
+      productionManifest?: unknown;
     } = body;
 
     const warnings: string[] = [];
+    const normalizeString = (value: unknown): string | undefined => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    };
+    const legacySessionId = normalizeString(projectId);
+    const normalizedSourceSessionId =
+      normalizeString(sourceSessionId) || (legacySessionId && !legacySessionId.startsWith('proj_') ? legacySessionId : undefined);
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
       return NextResponse.json(
@@ -136,6 +196,11 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    const normalizedProductionManifest = normalizeProductionManifest(productionManifest, scenes, {
+      sourceSessionId: normalizedSourceSessionId,
+      sourceScriptId,
+    });
 
     // Bundle 4: raised scene cap from 40 → 60 because routes no longer hit 300s.
     // Each scene is its own worker; we're only bounded by QStash fan-out cost
@@ -148,8 +213,18 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Atomic credit deduction ───────────────────────────────────
-    const costPerScene = 2;
-    const totalCost = scenes.length * costPerScene;
+    // Validate model resolution before billing so invalid model IDs are free.
+    const resolvedModelId =
+      modelId && modelId in IMAGE_MODELS ? IMAGE_MODELS[modelId as ImageModelKey] : modelId;
+
+    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/') && !modelId.startsWith('photon')) {
+      return NextResponse.json(
+        { success: false, error: `Unknown image model "${modelId}".` },
+        { status: 400 },
+      );
+    }
+    const costPerScene = getCreditCost('pipeline', 'storyboard_image_generation', { model: resolvedModelId });
+    const totalCost = Math.round(costPerScene * scenes.length * 100) / 100;
 
     const preCheck = await CreditsService.getBalance(userId);
     if (!preCheck || preCheck.totalCredits < totalCost) {
@@ -163,7 +238,7 @@ export async function POST(request: NextRequest) {
       userId,
       'pipeline',
       'storyboard_image_generation',
-      { quantity: scenes.length },
+      { model: resolvedModelId, quantity: scenes.length },
     );
     if (!deductResult.success) {
       return NextResponse.json(
@@ -230,24 +305,14 @@ export async function POST(request: NextRequest) {
       console.log(`[storyboard/generate] Reference image map built for ${Object.keys(referenceImageMap).length} scenes from ${approvedReferences.length} subjects`);
     }
 
-    // Validate model resolution
-    const resolvedModelId =
-      modelId && modelId in IMAGE_MODELS ? IMAGE_MODELS[modelId as ImageModelKey] : modelId;
-
-    if (modelId && !(modelId in IMAGE_MODELS) && !modelId.startsWith('fal-ai/') && !modelId.startsWith('photon')) {
-      return NextResponse.json(
-        { success: false, error: `Unknown image model "${modelId}".` },
-        { status: 400 },
-      );
-    }
-
     // ─── Create storyboard shell + dispatch workers ─────────────────
     const storyboardId = `sb_${nanoid(12)}`;
     const now = new Date();
 
-    const storyboard: Storyboard = {
+    const storyboard = {
       storyboardId,
       projectId,
+      sourceSessionId: normalizedSourceSessionId,
       userId,
       sourceScriptId,
       title,
@@ -257,6 +322,7 @@ export async function POST(request: NextRequest) {
       approvedReferences,
       globalEditDirections,
       suggestedProfileCategory,
+      ...(normalizedProductionManifest ? { productionManifest: normalizedProductionManifest } : {}),
       scenes: scenes.map((s) => ({
         sceneIndex: s.sceneIndex,
         descriptor: s,
@@ -266,7 +332,7 @@ export async function POST(request: NextRequest) {
       status: 'generating',
       createdAt: now,
       updatedAt: now,
-    };
+    } as Storyboard;
     await saveStoryboard(storyboard);
 
     // ─── Project link: reuse existing (from session creation) or create new ──
@@ -274,13 +340,13 @@ export async function POST(request: NextRequest) {
     // If that link exists, add the storyboardId to it. Otherwise create fresh
     // (backward compat for direct-to-storyboard without ThinkForge session).
     try {
-      const existingLink = projectId ? await findLinkBySessionId(userId, projectId) : null;
+      const existingLink = normalizedSourceSessionId ? await findLinkBySessionId(userId, normalizedSourceSessionId) : null;
       if (existingLink) {
         await addStoryboardToLink(userId, existingLink.universalId, storyboardId);
         console.log(`[storyboard/generate] Added storyboard ${storyboardId} to existing link ${existingLink.universalId}`);
       } else {
         await createProjectLink(userId, {
-          sessionId: projectId,
+          sessionId: normalizedSourceSessionId,
           sourceScriptId,
           storyboardId,
           brandId,
@@ -421,6 +487,7 @@ export async function POST(request: NextRequest) {
       creditsDeducted: totalCost,
       async: true,
       pollUrl: `/api/services/pipeline/storyboard/${storyboardId}/generate-status?batchId=${batchId}`,
+      ...(normalizedProductionManifest ? { productionManifest: normalizedProductionManifest } : {}),
       ...(warnings.length > 0 && { warnings }),
     });
   } catch (error: any) {

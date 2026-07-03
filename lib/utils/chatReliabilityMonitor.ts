@@ -40,6 +40,12 @@ interface RecoveryRecommendation {
   estimatedFixTime?: number;
 }
 
+type ChatHealthStatus = {
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'critical';
+  score: number;
+  issues: string[];
+};
+
 class ChatReliabilityMonitor {
   private operations: Map<string, ChatOperation> = new Map();
   private metrics: ReliabilityMetrics = {
@@ -264,11 +270,7 @@ class ChatReliabilityMonitor {
   /**
    * Get health status summary
    */
-  getHealthStatus(): {
-    status: 'healthy' | 'degraded' | 'unhealthy' | 'critical';
-    score: number;
-    issues: string[];
-  } {
+  getHealthStatus(): ChatHealthStatus {
     const issues: string[] = [];
     let score = 100;
     
@@ -321,7 +323,7 @@ class ChatReliabilityMonitor {
     metrics: ReliabilityMetrics;
     recentOperations: ChatOperation[];
     recommendations: RecoveryRecommendation[];
-    healthStatus: ReturnType<typeof this.getHealthStatus>;
+    healthStatus: ChatHealthStatus;
   } {
     const recentOperations = Array.from(this.operations.values())
       .filter(op => Date.now() - op.startTime < 300000) // Last 5 minutes

@@ -225,6 +225,86 @@ describe('Brand Vault Mongo refinery store', () => {
 
     expect(queued.map((snapshot) => snapshot.job.id)).toEqual(['brand_refinery_job_old']);
   });
+  it('lists brand scan snapshots by scoped brand and org newest first', async () => {
+    const collections = createMemoryCollections();
+    const store = createBrandVaultMongoRefineryStore({ collections });
+
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_org_old',
+        userId: 'user_mongo',
+        orgId: 'org_mongo',
+        brandId: 'brand_mongo',
+        status: 'needs_review',
+        inputs: { websiteUrl: 'old.example', socialLinks: [] },
+        warnings: ['old warning'],
+        createdAt: '2026-06-10T05:00:00.000Z',
+        updatedAt: '2026-06-10T05:00:00.000Z',
+      },
+      recordId: 'record_old',
+      normalizedUrl: 'https://old.example/',
+      candidates: [],
+    });
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_org_new',
+        userId: 'other_user_same_org',
+        orgId: 'org_mongo',
+        brandId: 'brand_mongo',
+        status: 'accepted',
+        inputs: { websiteUrl: 'new.example', socialLinks: [] },
+        warnings: [],
+        createdAt: '2026-06-10T05:10:00.000Z',
+        updatedAt: '2026-06-10T05:10:00.000Z',
+      },
+      recordId: 'record_new',
+      normalizedUrl: 'https://new.example/',
+      candidates: [],
+    });
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_other_org',
+        userId: 'user_mongo',
+        orgId: 'org_other',
+        brandId: 'brand_mongo',
+        status: 'accepted',
+        inputs: { websiteUrl: 'other-org.example', socialLinks: [] },
+        warnings: [],
+        createdAt: '2026-06-10T05:20:00.000Z',
+        updatedAt: '2026-06-10T05:20:00.000Z',
+      },
+      candidates: [],
+    });
+    await store.saveJobSnapshot({
+      job: {
+        id: 'brand_refinery_job_other_brand',
+        userId: 'user_mongo',
+        orgId: 'org_mongo',
+        brandId: 'brand_other',
+        status: 'accepted',
+        inputs: { websiteUrl: 'other-brand.example', socialLinks: [] },
+        warnings: [],
+        createdAt: '2026-06-10T05:30:00.000Z',
+        updatedAt: '2026-06-10T05:30:00.000Z',
+      },
+      candidates: [],
+    });
+
+    const scans = await store.listJobSnapshots({
+      orgId: 'org_mongo',
+      brandId: 'brand_mongo',
+      limit: 10,
+      sort: 'updatedAtDesc',
+    });
+
+    expect(scans.map((snapshot) => snapshot.job.id)).toEqual([
+      'brand_refinery_job_org_new',
+      'brand_refinery_job_org_old',
+    ]);
+    expect(scans[0]?.recordId).toBe('record_new');
+    expect(collections.jobs.values().find((doc) => doc._id === 'brand_refinery_job_org_new')?.orgId).toBe('org_mongo');
+    expect(JSON.stringify(collections.jobs.indexes)).toContain('org_brand_user_updatedAt');
+  });
 });
 
 function draftRecord(input: { id: string; orgId?: string; name: string; now: string }) {

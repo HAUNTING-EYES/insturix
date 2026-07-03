@@ -5,22 +5,22 @@
  * Follows the same pattern as render-queue-service.ts but for fal.ai video generation.
  *
  * Architecture:
- * 1. Frontend calls POST /generate-videos → enqueues individual scene jobs
+ * 1. Frontend calls POST /generate-videos -> enqueues individual scene jobs
  * 2. Each scene is an independent Redis queue entry
  * 3. Cron (/api/cron/process-video-queue) pops jobs and processes them in parallel
  * 4. Frontend polls GET /generate-videos/status?batchId=xxx for progress
- * 5. Each scene completes independently — partial results are available immediately
+ * 5. Each scene completes independently - partial results are available immediately
  *
  * This replaces the old blocking sequential approach that timed out on 4+ scenes.
  */
 
 import { Redis } from '@upstash/redis';
-import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 
-// ─── Redis Queue ─────────────────────────────────────────────────
+// --- Redis Queue ---
 
-// Lazy-initialized Redis client — avoids cold-start race where env vars
+// Lazy-initialized Redis client - avoids cold-start race where env vars
 // aren't available yet at module init time on Vercel serverless.
 let _redis: Redis | null = null;
 function getRedis(): Redis {
@@ -41,7 +41,7 @@ const MAX_CONCURRENT_VIDEO_JOBS = 4;
 
 /**
  * Retry a Redis operation with exponential backoff.
- * Upstash REST API uses fetch() internally — transient DNS/network failures
+ * Upstash REST API uses fetch() internally - transient DNS/network failures
  * cause TypeError: fetch failed. Retrying 2-3 times fixes this.
  */
 async function retryRedis<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
@@ -59,7 +59,7 @@ async function retryRedis<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw new Error('retryRedis: unreachable');
 }
 
-// ─── Types ───────────────────────────────────────────────────────
+// --- Types ---
 
 export interface VideoJobScene {
   sceneIndex: number;
@@ -92,6 +92,7 @@ export interface VideoJob {
   userId: string;
   storyboardId: string;
   sceneIndex: number;
+  subShotIndex?: number;
   status: VideoJobStatus;
   videoModel: string;
   videoUrl?: string;
@@ -103,7 +104,7 @@ export interface VideoJob {
   startedAt?: Date;
   completedAt?: Date;
   createdAt: Date;
-  expiresAt: Date; // TTL — auto-delete after 24h
+  expiresAt: Date; // TTL - auto-delete after 24h
 }
 
 export interface VideoBatch {
@@ -122,8 +123,9 @@ export interface VideoBatch {
 // MongoDB collection for video generation jobs
 const VIDEO_JOBS_COLLECTION = 'pipeline_video_jobs';
 const VIDEO_BATCHES_COLLECTION = 'pipeline_video_batches';
+type PipelineDb = Awaited<ReturnType<typeof getDatabase>>;
 
-// ─── Enqueue ─────────────────────────────────────────────────────
+// --- Enqueue ---
 
 /**
  * Enqueue a batch of scenes for parallel video generation.
@@ -194,7 +196,7 @@ export async function enqueueVideoBatch(
 
   console.log(`[VideoQueue] Enqueued batch ${batchId}: ${scenes.length} scenes for storyboard ${storyboardId}`);
 
-  // Trigger immediate processing — don't wait for the next cron tick (up to 60s delay)
+  // Trigger immediate processing - don't wait for the next cron tick (up to 60s delay)
   triggerImmediateProcessing('video').catch((err) =>
     console.warn('[VideoQueue] Immediate trigger failed (cron will pick it up):', err.message),
   );
@@ -202,7 +204,7 @@ export async function enqueueVideoBatch(
   return { batchId, totalScenes: scenes.length };
 }
 
-// ─── Process Queue ───────────────────────────────────────────────
+// --- Process Queue ---
 
 /**
  * Pop and process the next job from the queue.
@@ -348,7 +350,182 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   );
 }
 
-// ─── Status Polling ──────────────────────────────────────────────
+function cleanString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function jobHasCompletedVideo(job: VideoJob): boolean {
+  return job.status === 'completed' && Boolean(cleanString(job.videoUrl));
+}
+
+function videoEvidenceForJob(storyboard: any, job: VideoJob): Partial<VideoJob> | null {
+  const scenes = Array.isArray(storyboard?.scenes) ? storyboard.scenes : [];
+  const scene = scenes.find((candidate: any) => candidate?.sceneIndex === job.sceneIndex);
+  if (!scene) return null;
+
+  if (typeof job.subShotIndex === 'number') {
+    const subShots = Array.isArray(scene?.descriptor?.subShots) ? scene.descriptor.subShots : [];
+    const subShot = subShots[job.subShotIndex];
+    if (cleanString(subShot?.videoUrl)) {
+      return {
+        videoUrl: cleanString(subShot.videoUrl),
+        videoAssetId: cleanString(subShot.videoAssetId),
+        videoGcsPath: cleanString(subShot.videoGcsPath),
+        videoDurationMs: typeof subShot.videoDurationMs === 'number' ? subShot.videoDurationMs : undefined,
+      };
+    }
+    if (job.subShotIndex !== 0) return null;
+  }
+
+  if (!cleanString(scene.videoUrl)) return null;
+  return {
+    videoUrl: cleanString(scene.videoUrl),
+    videoAssetId: cleanString(scene.videoAssetId),
+    videoGcsPath: cleanString(scene.videoGcsPath),
+    videoDurationMs: typeof scene.videoDurationMs === 'number' ? scene.videoDurationMs : undefined,
+  };
+}
+
+function summarizeVideoBatchFromJobs(batch: VideoBatch, jobs: VideoJob[], updatedAt: Date): VideoBatch {
+  const completed = jobs.filter(jobHasCompletedVideo).length;
+  const failed = jobs.filter((job) => job.status === 'failed' && !jobHasCompletedVideo(job)).length;
+  const total = Math.max(Number(batch.totalScenes) || 0, jobs.length);
+  const done = completed + failed;
+
+  let status: VideoBatch['status'] = 'processing';
+  if (total > 0 && done >= total) {
+    if (failed === 0) status = 'completed';
+    else if (completed === 0) status = 'failed';
+    else status = 'partial';
+  }
+
+  return {
+    ...batch,
+    totalScenes: total,
+    completed,
+    failed,
+    status,
+    updatedAt,
+  };
+}
+
+async function persistVideoBatchSummary(
+  db: PipelineDb,
+  batch: VideoBatch,
+  summarized: VideoBatch,
+): Promise<void> {
+  if (
+    summarized.completed === batch.completed &&
+    summarized.failed === batch.failed &&
+    summarized.status === batch.status &&
+    summarized.totalScenes === batch.totalScenes
+  ) {
+    return;
+  }
+
+  await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
+    { _id: batch._id, userId: batch.userId } as any,
+    {
+      $set: {
+        totalScenes: summarized.totalScenes,
+        completed: summarized.completed,
+        failed: summarized.failed,
+        status: summarized.status,
+        updatedAt: summarized.updatedAt,
+      },
+    },
+  );
+}
+
+async function reconcileVideoBatchFromStoryboard(
+  db: PipelineDb,
+  batch: VideoBatch,
+  jobs: VideoJob[],
+): Promise<{ batch: VideoBatch; jobs: VideoJob[] }> {
+  const needsEvidence = jobs.some((job) => !jobHasCompletedVideo(job));
+  if (!needsEvidence) {
+    const summarized = summarizeVideoBatchFromJobs(batch, jobs, new Date());
+    await persistVideoBatchSummary(db, batch, summarized);
+    return { batch: summarized, jobs };
+  }
+
+  const storyboard = await db.collection('storyboards').findOne({
+    storyboardId: batch.storyboardId,
+    userId: batch.userId,
+  } as any);
+  if (!storyboard) {
+    const summarized = summarizeVideoBatchFromJobs(batch, jobs, new Date());
+    await persistVideoBatchSummary(db, batch, summarized);
+    return { batch: summarized, jobs };
+  }
+
+  const now = new Date();
+  const reconciledJobs: VideoJob[] = [];
+  for (const job of jobs) {
+    const evidence = videoEvidenceForJob(storyboard, job);
+    if (!evidence?.videoUrl || jobHasCompletedVideo(job)) {
+      reconciledJobs.push(job);
+      continue;
+    }
+
+    const reconciledJob = {
+      ...job,
+      ...evidence,
+      status: 'completed' as const,
+      completedAt: job.completedAt ?? now,
+    };
+    reconciledJobs.push(reconciledJob);
+
+    await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
+      { _id: job._id, userId: job.userId, batchId: job.batchId } as any,
+      {
+        $set: {
+          status: 'completed',
+          videoUrl: evidence.videoUrl,
+          ...(evidence.videoAssetId ? { videoAssetId: evidence.videoAssetId } : {}),
+          ...(evidence.videoGcsPath ? { videoGcsPath: evidence.videoGcsPath } : {}),
+          ...(typeof evidence.videoDurationMs === 'number' ? { videoDurationMs: evidence.videoDurationMs } : {}),
+          completedAt: reconciledJob.completedAt,
+          reconciledFromStoryboard: true,
+          reconciledAt: now,
+        },
+        $unset: { error: '' },
+      },
+    );
+  }
+
+  const summarized = summarizeVideoBatchFromJobs(batch, reconciledJobs, now);
+  await persistVideoBatchSummary(db, batch, summarized);
+  return { batch: summarized, jobs: reconciledJobs };
+}
+// --- Status Polling ---
+
+export async function reconcileVideoBatchStatus(
+  batchId: string,
+  userId: string,
+  db?: PipelineDb,
+): Promise<{
+  batch: VideoBatch | null;
+  jobs: VideoJob[];
+}> {
+  const videoDb = db ?? await getDatabase();
+  const batch = await videoDb.collection(VIDEO_BATCHES_COLLECTION).findOne({
+    _id: batchId,
+    userId,
+  } as any) as any;
+
+  if (!batch) return { batch: null, jobs: [] };
+
+  const jobs = await videoDb
+    .collection(VIDEO_JOBS_COLLECTION)
+    .find({ batchId, userId } as any)
+    .sort({ sceneIndex: 1 })
+    .toArray() as any[];
+
+  return reconcileVideoBatchFromStoryboard(videoDb, batch as VideoBatch, jobs as VideoJob[]);
+}
 
 /**
  * Get batch status + per-scene job details for frontend polling.
@@ -360,23 +537,8 @@ export async function getVideoBatchStatus(
   batch: VideoBatch | null;
   jobs: VideoJob[];
 }> {
-  const db = await getDatabase();
-  const batch = await db.collection(VIDEO_BATCHES_COLLECTION).findOne({
-    _id: batchId,
-    userId,
-  } as any) as any;
-
-  if (!batch) return { batch: null, jobs: [] };
-
-  const jobs = await db
-    .collection(VIDEO_JOBS_COLLECTION)
-    .find({ batchId, userId } as any)
-    .sort({ sceneIndex: 1 })
-    .toArray() as any[];
-
-  return { batch, jobs };
+  return reconcileVideoBatchStatus(batchId, userId);
 }
-
 /**
  * Get the queue length (for monitoring).
  */
@@ -393,11 +555,11 @@ async function triggerImmediateProcessing(type: 'video' | 'storyboard'): Promise
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   const path = type === 'video' ? '/api/cron/process-video-queue' : '/api/cron/process-storyboard-queue';
 
-  // Fire-and-forget — don't await, don't block enqueue response
+  // Fire-and-forget - don't await, don't block enqueue response
   fetch(`${baseUrl}${path}`, {
     method: 'GET',
     headers: process.env.CRON_SECRET
       ? { 'Authorization': `Bearer ${process.env.CRON_SECRET}` }
       : {},
-  }).catch(() => {}); // Silently ignore — cron is the fallback
+  }).catch(() => {}); // Silently ignore - cron is the fallback
 }

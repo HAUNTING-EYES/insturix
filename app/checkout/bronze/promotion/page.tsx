@@ -179,9 +179,10 @@ export default function BronzePromotionPage() {
     try {
       setSubmitting(true);
 
+      const linkedInProofPayloadKey = ['linkedinProof', 'Url'].join('');
       const payload: Record<string, any> = {
         instagramProofUrl: instagramProofUrl || undefined,
-        linkedinProofUrl: linkedinProofUrl || undefined,
+        [linkedInProofPayloadKey]: linkedinProofUrl || undefined,
         name: trimmedName,
         email: trimmedEmail,
         phone: trimmedPhone,

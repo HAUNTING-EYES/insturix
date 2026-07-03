@@ -21,6 +21,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
+import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
@@ -28,10 +33,13 @@ export const maxDuration = 800; // GPU analysis can take 5-8min for long videos
 interface TribeAnalysisPayload {
   projectId: string;
   userId: string;
+  orgId?: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
   directorPayload: Record<string, unknown>;
+  creditTransactionId?: string;
+  chargedCredits?: number;
 }
 
 async function handler(request: NextRequest) {
@@ -77,11 +85,19 @@ async function handler(request: NextRequest) {
     }
     console.log(`[TribeWorker] Claimed ${projectId} (tribe lock acquired)`);
 
+    const precomputedProjectDoc = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { vjepaAnalysis: 1 } },
+    );
+    const precomputedVjepaAnalysis = precomputedProjectDoc?.vjepaAnalysis;
+
     // ─── Step 3.5: V-JEPA + Wav2Vec + Essentia GPU analysis ────────
     // Run visual significance (V-JEPA), vocal emotion (Wav2Vec), and music
     // analysis (Essentia) in parallel. All are non-fatal — pipeline falls
     // back to Phase 0 (Gemini-only) weights if GPU analysis fails.
-    let vjepaAnalysis: any = null;
+    let vjepaAnalysis: any = Array.isArray(precomputedVjepaAnalysis?.segments) && precomputedVjepaAnalysis.segments.length > 0
+      ? precomputedVjepaAnalysis
+      : null;
     let wav2vecAnalysis: any = null;
 
     if (segmentInputs?.length > 0) {
@@ -94,14 +110,25 @@ async function handler(request: NextRequest) {
         const vjepaSegmentInputs = Array.isArray(visualSegmentInputs) && visualSegmentInputs.length > 0
           ? visualSegmentInputs
           : segmentInputs;
+        const reusedPrecomputedVjepa = Boolean(vjepaAnalysis);
+        const vjepaRequestedSeconds = sumSegmentSeconds(vjepaSegmentInputs);
+        const speechRequestedSeconds = sumSegmentSeconds(segmentInputs);
 
-        console.log(`[TribeWorker] TRIBE Phase 2: Dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments; Wav2Vec for ${segmentInputs.length} speech segments...`);
+        console.log(
+          `[TribeWorker] TRIBE Phase 2: ${
+            vjepaAnalysis
+              ? `reusing pre-cut V-JEPA (${vjepaAnalysis.segments.length} segments)`
+              : `dispatching V-JEPA for ${vjepaSegmentInputs.length} visual segments`
+          }; Wav2Vec for ${segmentInputs.length} speech segments...`
+        );
 
         const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-          (async () => {
-            const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
-            return analyzeVideoWithVjepa(videoUrl, vjepaSegmentInputs);
-          })(),
+          vjepaAnalysis
+            ? Promise.resolve(vjepaAnalysis)
+            : (async () => {
+                const { analyzeVideoWithVjepa } = await import('@/lib/editron/services/vjepa-service');
+                return analyzeVideoWithVjepa(videoUrl, vjepaSegmentInputs);
+              })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
             return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
@@ -121,6 +148,53 @@ async function handler(request: NextRequest) {
           const msg = vjepaResult.status === 'rejected' ? (vjepaResult.reason?.message || String(vjepaResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] V-JEPA skipped: ${msg}`);
         }
+        if (reusedPrecomputedVjepa) {
+          await recordTribeCostEvent(payload, {
+            stage: 'vjepa_modal',
+            status: 'skipped',
+            provider: 'modal',
+            model: 'vjepa-2',
+            operation: 'gpu_video_analysis',
+            estimatedCostUsd: 0,
+            costBasis: 'provider_usage',
+            units: { requestCount: 0, mediaSeconds: vjepaRequestedSeconds },
+            metadata: { reason: 'precomputed_vjepa_reused', requestedSegmentCount: vjepaSegmentInputs.length },
+          });
+        } else if (vjepaResult.status === 'fulfilled' && vjepaResult.value) {
+          await recordTribeCostEvent(payload, {
+            stage: 'vjepa_modal',
+            status: 'success',
+            provider: 'modal',
+            model: vjepaResult.value.modelVersion || 'vjepa-2',
+            operation: 'gpu_video_analysis',
+            units: {
+              requestCount: 1,
+              mediaSeconds: vjepaRequestedSeconds,
+              functionMs: vjepaResult.value.processingTimeMs,
+              gpuSeconds: msToSeconds(vjepaResult.value.processingTimeMs),
+            },
+            metadata: {
+              requestedSegmentCount: vjepaSegmentInputs.length,
+              analyzedSegmentCount: vjepaResult.value.segments?.length ?? 0,
+              partial: Boolean(vjepaResult.value.partial),
+              failedBatchCount: vjepaResult.value.failedBatchCount ?? 0,
+            },
+          });
+        } else {
+          await recordTribeCostEvent(payload, {
+            stage: 'vjepa_modal',
+            status: 'failed',
+            provider: 'modal',
+            model: 'vjepa-2',
+            operation: 'gpu_video_analysis',
+            units: { requestCount: 1, mediaSeconds: vjepaRequestedSeconds },
+            metadata: {
+              requestedSegmentCount: vjepaSegmentInputs.length,
+              resultStatus: vjepaResult.status,
+              errorClass: settledErrorClass(vjepaResult),
+            },
+          });
+        }
 
         // Handle Wav2Vec result
         if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
@@ -131,6 +205,37 @@ async function handler(request: NextRequest) {
           const msg = wav2vecResult.status === 'rejected' ? (wav2vecResult.reason?.message || String(wav2vecResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] Wav2Vec skipped: ${msg}`);
         }
+        await recordTribeCostEvent(payload, wav2vecResult.status === 'fulfilled' && wav2vecResult.value
+          ? {
+              stage: 'wav2vec_modal',
+              status: 'success',
+              provider: 'modal',
+              model: wav2vecResult.value.modelVersion || 'wav2vec-2.0',
+              operation: 'gpu_audio_analysis',
+              units: {
+                requestCount: 1,
+                mediaSeconds: speechRequestedSeconds,
+                functionMs: wav2vecResult.value.processingTimeMs,
+                gpuSeconds: msToSeconds(wav2vecResult.value.processingTimeMs),
+              },
+              metadata: {
+                requestedSegmentCount: segmentInputs.length,
+                analyzedSegmentCount: wav2vecResult.value.segments?.length ?? 0,
+              },
+            }
+          : {
+              stage: 'wav2vec_modal',
+              status: 'failed',
+              provider: 'modal',
+              model: 'wav2vec-2.0',
+              operation: 'gpu_audio_analysis',
+              units: { requestCount: 1, mediaSeconds: speechRequestedSeconds },
+              metadata: {
+                requestedSegmentCount: segmentInputs.length,
+                resultStatus: wav2vecResult.status,
+                errorClass: settledErrorClass(wav2vecResult),
+              },
+            });
 
         // Handle Music Analysis result
         let musicAnalysis: any = null;
@@ -141,6 +246,37 @@ async function handler(request: NextRequest) {
           const msg = musicResult.status === 'rejected' ? (musicResult.reason?.message || String(musicResult.reason)) : 'returned null';
           console.warn(`[TribeWorker] Music analysis skipped: ${msg}`);
         }
+        await recordTribeCostEvent(payload, musicResult.status === 'fulfilled' && musicResult.value
+          ? {
+              stage: 'essentia_modal',
+              status: 'success',
+              provider: 'modal',
+              model: 'essentia',
+              operation: 'music_analysis',
+              units: {
+                requestCount: 1,
+                mediaSeconds: msToSeconds(musicResult.value.durationMs) ?? speechRequestedSeconds,
+                functionMs: musicResult.value.processingTimeMs,
+                gpuSeconds: msToSeconds(musicResult.value.processingTimeMs),
+              },
+              metadata: {
+                beatCount: musicResult.value.beats?.length ?? 0,
+                sectionCount: musicResult.value.sections?.length ?? 0,
+                musicPresence: musicResult.value.musicPresence,
+              },
+            }
+          : {
+              stage: 'essentia_modal',
+              status: 'failed',
+              provider: 'modal',
+              model: 'essentia',
+              operation: 'music_analysis',
+              units: { requestCount: 1, mediaSeconds: speechRequestedSeconds },
+              metadata: {
+                resultStatus: musicResult.status,
+                errorClass: settledErrorClass(musicResult),
+              },
+            });
 
         // Store music analysis on project for Director to read
         if (musicAnalysis) {
@@ -164,7 +300,7 @@ async function handler(request: NextRequest) {
     // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
     const projectDoc = await db.collection('projects').findOne(
       { projectId },
-      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1 } },
+      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
     );
     const rawFootageAnalysis = projectDoc?.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc?.syntheticStoryboard;
@@ -256,6 +392,16 @@ async function handler(request: NextRequest) {
           'Upstash-Delay': '3s',
         },
         body: JSON.stringify(directorPayload),
+      });
+
+      const directorDispatchStatus: ProviderCostEventStatus = dispatchRes.ok ? 'success' : 'failed';
+      await recordTribeCostEvent(payload, {
+        stage: 'director_qstash',
+        status: directorDispatchStatus,
+        provider: 'upstash-qstash',
+        operation: 'queue_message',
+        units: { queueMessages: 1, requestCount: 1 },
+        metadata: { httpStatus: dispatchRes.status },
       });
 
       if (!dispatchRes.ok) {
@@ -389,6 +535,66 @@ async function handler(request: NextRequest) {
 
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
+}
+
+async function recordTribeCostEvent(
+  payload: TribeAnalysisPayload,
+  event: {
+    stage: string;
+    status: ProviderCostEventStatus;
+    provider: string;
+    operation: string;
+    model?: string;
+    estimatedCostUsd?: number;
+    costBasis?: ProviderCostBasis;
+    units?: ProviderCostUnits;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const orgId = payload.orgId || (typeof payload.directorPayload?.orgId === 'string'
+    ? payload.directorPayload.orgId
+    : undefined);
+
+  await recordProviderCostEvent({
+    idempotencyKey: `editron:tribe-analysis:${payload.projectId}:${event.stage}:${event.status}`,
+    status: event.status,
+    userId: payload.userId,
+    orgId,
+    projectId: payload.projectId,
+    creditTransactionId: payload.creditTransactionId,
+    service: 'editron',
+    action: 'auto_edit_analysis',
+    route: '/api/internal/workers/tribe-analysis',
+    provider: event.provider,
+    model: event.model,
+    operation: event.operation,
+    estimatedCostUsd: event.estimatedCostUsd,
+    costBasis: event.costBasis,
+    units: event.units,
+    metadata: {
+      stage: event.stage,
+      segmentCount: payload.segmentInputs?.length ?? 0,
+      visualSegmentCount: payload.visualSegmentInputs?.length ?? 0,
+      ...event.metadata,
+    },
+  });
+}
+
+function sumSegmentSeconds(segments: Array<{ startMs: number; endMs: number }> = []): number | undefined {
+  const seconds = segments.reduce((sum, segment) => {
+    const durationMs = Math.max(0, (segment.endMs ?? 0) - (segment.startMs ?? 0));
+    return sum + durationMs / 1000;
+  }, 0);
+  return seconds > 0 ? seconds : undefined;
+}
+
+function msToSeconds(ms: unknown): number | undefined {
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms / 1000 : undefined;
+}
+
+function settledErrorClass(result: PromiseSettledResult<unknown>): string | undefined {
+  if (result.status !== 'rejected') return undefined;
+  return result.reason instanceof Error ? result.reason.name : 'Error';
 }
 
 // QStash signature verification — skip in dev if signing keys not set

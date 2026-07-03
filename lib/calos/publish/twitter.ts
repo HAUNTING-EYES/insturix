@@ -1,3 +1,4 @@
+import { recordProviderCostEvent } from "@/lib/financials/provider-cost-events";
 import type { PublishParams, PublishResult } from "./contract";
 
 /**
@@ -13,6 +14,7 @@ import type { PublishParams, PublishResult } from "./contract";
  */
 
 type XAuth = { accessToken: string; userName?: string | null } | { error: string; retryable: boolean };
+type XPublishResult = PublishResult & { responseStatus?: number };
 type XTokens = {
   accessToken?: string;
   refreshToken?: string;
@@ -33,7 +35,9 @@ export async function publishToTwitter(params: PublishParams): Promise<PublishRe
   const auth = await resolveBrandXAuth(params.brandId, params.accountRef);
   if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
 
-  return createTweet(auth.accessToken, auth.userName, text);
+  const result = await createTweet(auth.accessToken, auth.userName, text);
+  await recordCalosXPublishCost(params, result);
+  return result;
 }
 
 /** Per-brand X auth (Model A — reference the assigning owner's live token). */
@@ -109,7 +113,7 @@ async function createTweet(
   accessToken: string,
   userName: string | null | undefined,
   text: string,
-): Promise<PublishResult> {
+): Promise<XPublishResult> {
   try {
     const res = await fetch("https://api.x.com/2/tweets", {
       method: "POST",
@@ -127,12 +131,40 @@ async function createTweet(
     if (!res.ok || data.errors || !id) {
       const retryable = res.status >= 500 || res.status === 429;
       const msg = data.detail || data.errors?.[0]?.message || data.title || res.statusText || "unknown error";
-      return { ok: false, error: `X post failed (${res.status}): ${msg}`, retryable };
+      return { ok: false, error: `X post failed (${res.status}): ${msg}`, retryable, responseStatus: res.status };
     }
 
     const url = userName ? `https://x.com/${userName}/status/${id}` : `https://x.com/i/web/status/${id}`;
-    return { ok: true, postId: id, postUrl: url };
+    return { ok: true, postId: id, postUrl: url, responseStatus: res.status };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "X post threw", retryable: true };
   }
+}
+
+async function recordCalosXPublishCost(params: PublishParams, result: XPublishResult) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      result.ok && result.postId
+        ? `calos:twitter:publish:${params.deliverableId}:${result.postId}`
+        : undefined,
+    status: result.ok ? "success" : "failed",
+    userId: params.ownerUserId,
+    projectId: params.brandId,
+    taskId: params.deliverableId,
+    service: "calos",
+    action: "platform_publish",
+    route: "lib/calos/publish/twitter",
+    provider: "x-api",
+    model: "twitter-v2",
+    operation: "social_publish",
+    providerJobId: result.postId,
+    units: { requestCount: 1 },
+    metadata: {
+      platform: "twitter",
+      responseStatus: result.responseStatus,
+      retryable: result.retryable,
+      hasAccountRef: Boolean(params.accountRef),
+      hasBrandId: Boolean(params.brandId),
+    },
+  });
 }

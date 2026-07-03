@@ -1,0 +1,29 @@
+name: Secret Scan (gitleaks)
+
+# Scans the WORKING TREE only (--no-git), not history — so pre-existing secrets in old
+# commits don't permanently red the build. History purge is a separate, coordinated task
+# (see docs/SECURITY-KEY-ROTATION.md). New literal secrets in any PR/push are caught here.
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks (working tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install and run gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=8.21.2
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" -o gitleaks.tgz
+          tar -xzf gitleaks.tgz gitleaks
+          ./gitleaks detect --source . --no-git --redact --exit-code 1 --config .gitleaks.toml

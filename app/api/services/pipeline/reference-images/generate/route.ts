@@ -2,7 +2,7 @@
  * POST /api/services/pipeline/reference-images/generate
  *
  * Generate reference images for extracted subjects.
- * Cost: 1 credit per subject.
+ * Cost: 1 credit per generated subject. Brand-backed references do not burn generation credits.
  *
  * Bundle 4 (2026-04-09) ARCHITECTURE CHANGE:
  *   OLD: Inline generateAllReferenceImages() ran all subjects in one 120s route.
@@ -25,61 +25,94 @@ import {
 } from '@/lib/pipeline/reference-image-queue';
 import type { ReferenceImageSet, SubjectReference } from '@/lib/pipeline/schemas/reference-image';
 import type { ExtractedSubject } from '@/lib/pipeline/llm-scene-parser';
+import {
+  BRAND_EVIDENCE_REQUIRED_REASON,
+  cleanOptionalString,
+  resolveBrandReferenceContext,
+  requiresBrandReferenceEvidence,
+  type BrandEvidenceStatus,
+  type ReferenceProvenance,
+} from '@/lib/pipeline/reference-brand-evidence';
 
 export const runtime = 'nodejs';
 // Route only validates + dispatches. Should complete in <15s.
 export const maxDuration = 60;
+
+type ProvenancedSubjectReference = SubjectReference & {
+  referenceProvenance?: ReferenceProvenance;
+  referenceProvenanceLabel?: string;
+  requiresBrandEvidence?: boolean;
+  brandEvidenceStatus?: BrandEvidenceStatus;
+  evidenceRequiredReason?: string;
+};
+function serializeSubject(subject: ProvenancedSubjectReference) {
+  return {
+    subjectId: subject.subjectId,
+    name: subject.name,
+    category: subject.category,
+    imageUrl: subject.imageUrl,
+    source: subject.source,
+    status: subject.status,
+    scenesAppearingIn: subject.scenesAppearingIn,
+    visualDescription: subject.visualDescription,
+    referenceProvenance: subject.referenceProvenance,
+    referenceProvenanceLabel: subject.referenceProvenanceLabel,
+    requiresBrandEvidence: subject.requiresBrandEvidence,
+    brandEvidenceStatus: subject.brandEvidenceStatus,
+    evidenceRequiredReason: subject.evidenceRequiredReason,
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { subjects, artStyle, sourceScriptId, modelId } = (await req.json()) as {
+    const { subjects, artStyle, sourceScriptId, modelId, brandId } = (await req.json()) as {
       subjects: ExtractedSubject[];
       artStyle?: string;
       sourceScriptId?: string;
       modelId?: string;
+      brandId?: string;
     };
 
     if (!subjects?.length) {
       return NextResponse.json({ error: 'subjects array required' }, { status: 400 });
     }
 
-    // ─── Atomic credit deduction ───────────────────────────────────
-    // Bundle 4: changed from loop to single deduction with quantity flag.
-    const costPerSubject = 1;
-    const totalCost = subjects.length * costPerSubject;
+    const normalizedBrandId = cleanOptionalString(brandId);
+    const brandContext = await resolveBrandReferenceContext(userId, normalizedBrandId, {
+      logScope: 'reference-images/generate',
+    });
+    const brandEvidence = brandContext.evidence;
+    let nextBrandEvidenceIndex = 0;
 
-    const preCheck = await CreditsService.getBalance(userId);
-    if (!preCheck || preCheck.totalCredits < totalCost) {
-      return NextResponse.json(
-        { error: `Insufficient credits. Need ${totalCost}, have ${preCheck?.totalCredits || 0}` },
-        { status: 402 },
-      );
-    }
+    const refSubjects: ProvenancedSubjectReference[] = subjects.map((s) => {
+      const requiresBrandEvidence = requiresBrandReferenceEvidence(s, brandContext);
+      const evidence = requiresBrandEvidence && brandEvidence.length > 0
+        ? brandEvidence[nextBrandEvidenceIndex++ % brandEvidence.length]
+        : undefined;
 
-    const deductResult = await CreditsService.deductCredits(
-      userId,
-      'pipeline',
-      'reference_image',
-      { quantity: subjects.length },
-    );
-    if (!deductResult.success) {
-      return NextResponse.json(
-        { error: `Credit deduction failed. Need ${totalCost} credits.` },
-        { status: 402 },
-      );
-    }
+      if (requiresBrandEvidence && evidence) {
+        return {
+          subjectId: s.id,
+          name: s.name,
+          category: s.category,
+          visualDescription: s.visualDescription,
+          scenesAppearingIn: s.scenesAppearingIn,
+          imageUrl: evidence.imageUrl,
+          source: evidence.source,
+          status: 'generated',
+          generationHistory: [],
+          referenceProvenance: evidence.referenceProvenance,
+          referenceProvenanceLabel: evidence.referenceProvenanceLabel,
+          requiresBrandEvidence: true,
+          brandEvidenceStatus: 'resolved',
+        };
+      }
 
-    // ─── Create ref set shell ──────────────────────────────────────
-    const refSetId = `refs_${nanoid(12)}`;
-    const refSet: ReferenceImageSet = {
-      refSetId,
-      userId,
-      sourceScriptId,
-      subjects: subjects.map(
-        (s): SubjectReference => ({
+      if (requiresBrandEvidence) {
+        return {
           subjectId: s.id,
           name: s.name,
           category: s.category,
@@ -87,19 +120,100 @@ export async function POST(req: NextRequest) {
           scenesAppearingIn: s.scenesAppearingIn,
           status: 'pending',
           generationHistory: [],
-        }),
-      ),
-      status: 'generating',
+          referenceProvenance: 'missing-brand-evidence',
+          referenceProvenanceLabel: 'Evidence required',
+          requiresBrandEvidence: true,
+          brandEvidenceStatus: 'missing',
+          evidenceRequiredReason: BRAND_EVIDENCE_REQUIRED_REASON,
+        };
+      }
+
+      return {
+        subjectId: s.id,
+        name: s.name,
+        category: s.category,
+        visualDescription: s.visualDescription,
+        scenesAppearingIn: s.scenesAppearingIn,
+        status: 'pending',
+        generationHistory: [],
+        referenceProvenance: 'generated',
+        referenceProvenanceLabel: 'Generated',
+        requiresBrandEvidence: false,
+        brandEvidenceStatus: 'not-required',
+      };
+    });
+
+    const refBySubjectId = new Map(refSubjects.map((subject) => [subject.subjectId, subject]));
+    const subjectsNeedingGeneration = subjects.filter((subject) => {
+      const refSubject = refBySubjectId.get(subject.id);
+      return !refSubject?.requiresBrandEvidence && !refSubject?.imageUrl;
+    });
+    const missingBrandEvidenceCount = refSubjects.filter((subject) => subject.brandEvidenceStatus === 'missing').length;
+
+    // Atomic credit deduction. Only subjects that actually go through image generation burn credits.
+    const costPerSubject = 1;
+    const totalCost = subjectsNeedingGeneration.length * costPerSubject;
+
+    if (totalCost > 0) {
+      const preCheck = await CreditsService.getBalance(userId);
+      if (!preCheck || preCheck.totalCredits < totalCost) {
+        return NextResponse.json(
+          { error: `Insufficient credits. Need ${totalCost}, have ${preCheck?.totalCredits || 0}` },
+          { status: 402 },
+        );
+      }
+
+      const deductResult = await CreditsService.deductCredits(
+        userId,
+        'pipeline',
+        'reference_image',
+        { quantity: subjectsNeedingGeneration.length },
+      );
+      if (!deductResult.success) {
+        return NextResponse.json(
+          { error: `Credit deduction failed. Need ${totalCost} credits.` },
+          { status: 402 },
+        );
+      }
+    }
+
+    const refSetId = `refs_${nanoid(12)}`;
+    const refSet: ReferenceImageSet = {
+      refSetId,
+      userId,
+      sourceScriptId,
+      brandId: normalizedBrandId,
+      subjects: refSubjects,
+      status: subjectsNeedingGeneration.length > 0
+        ? 'generating'
+        : missingBrandEvidenceCount > 0
+          ? 'partial'
+          : 'ready',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
     await saveReferenceImageSet(refSet);
 
+    if (subjectsNeedingGeneration.length === 0) {
+      return NextResponse.json({
+        success: true,
+        refSetId,
+        status: refSet.status,
+        subjects: refSubjects.map(serializeSubject),
+        async: false,
+        brandReferenceWarnings: missingBrandEvidenceCount > 0
+          ? refSubjects
+              .filter((subject) => subject.brandEvidenceStatus === 'missing')
+              .map((subject) => `Brand evidence required for ${subject.name}`)
+          : [],
+      });
+    }
+
     // ─── Create batch + dispatch workers ───────────────────────────
     const { batchId } = await createReferenceImageBatch(
       userId,
       refSetId,
-      subjects.map((s) => ({ subjectId: s.id, name: s.name })),
+      subjectsNeedingGeneration.map((s) => ({ subjectId: s.id, name: s.name })),
       'initial-generation',
     );
 
@@ -131,7 +245,7 @@ export async function POST(req: NextRequest) {
 
     if (isDev || !process.env.QSTASH_TOKEN) {
       if (!isDev) console.warn('[reference-images/generate] QSTASH_TOKEN not set, using fetch fallback');
-      for (const subject of subjects) {
+      for (const subject of subjectsNeedingGeneration) {
         fetch(workerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -147,7 +261,7 @@ export async function POST(req: NextRequest) {
       });
 
       const qstashResults = await Promise.allSettled(
-        subjects.map((subject) =>
+        subjectsNeedingGeneration.map((subject) =>
           qstashClient.publishJSON({
             url: workerUrl,
             body: buildPayload(subject),
@@ -160,7 +274,7 @@ export async function POST(req: NextRequest) {
         if (qstashResults[i].status === 'rejected') {
           enqueueErrors++;
           console.error(
-            `[reference-images/generate] QStash publish failed for subject ${subjects[i].id}:`,
+            `[reference-images/generate] QStash publish failed for subject ${subjectsNeedingGeneration[i].id}:`,
             (qstashResults[i] as PromiseRejectedResult).reason,
           );
         }
@@ -172,7 +286,7 @@ export async function POST(req: NextRequest) {
           await CreditsService.refundCredits(
             userId,
             totalCost,
-            `reference-image dispatch failed (${enqueueErrors}/${subjects.length} enqueue errors)`,
+            `reference-image dispatch failed (${enqueueErrors}/${subjectsNeedingGeneration.length} enqueue errors)`,
             { service: 'pipeline', action: 'reference_image' },
           );
         } catch (refundErr: any) {
@@ -181,31 +295,28 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json(
           {
-            error: `Failed to enqueue ${enqueueErrors} of ${subjects.length} subjects. Credits refunded. Please retry.`,
+            error: `Failed to enqueue ${enqueueErrors} of ${subjectsNeedingGeneration.length} subjects. Credits refunded. Please retry.`,
           },
           { status: 503 },
         );
       }
     }
 
-    console.log(`[reference-images/generate] Dispatched ${subjects.length} subjects (batch ${batchId})`);
+    console.log(`[reference-images/generate] Dispatched ${subjectsNeedingGeneration.length} subjects (batch ${batchId})`);
 
     return NextResponse.json({
       success: true,
       refSetId,
       batchId,
       status: 'generating',
-      subjects: refSet.subjects.map((s) => ({
-        subjectId: s.subjectId,
-        name: s.name,
-        category: s.category,
-        imageUrl: undefined,
-        status: 'pending',
-        scenesAppearingIn: s.scenesAppearingIn,
-        visualDescription: s.visualDescription,
-      })),
+      subjects: refSubjects.map(serializeSubject),
       async: true,
       pollUrl: `/api/services/pipeline/reference-images/${refSetId}/generate-status?batchId=${batchId}`,
+      brandReferenceWarnings: missingBrandEvidenceCount > 0
+        ? refSubjects
+            .filter((subject) => subject.brandEvidenceStatus === 'missing')
+            .map((subject) => `Brand evidence required for ${subject.name}`)
+        : [],
     });
   } catch (error: any) {
     console.error('[reference-images/generate]', error);

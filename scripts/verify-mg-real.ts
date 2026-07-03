@@ -17,8 +17,9 @@ import { analyzeContentShape } from '../lib/editron/motion-graphics/engine/conte
 import { resolveMotionTokens } from '../lib/editron/data/motion-theme-resolver';
 import { getOverlayDefinitions } from '../lib/editron/engine/overlay-definitions-loader';
 import { scoreAllOverlays } from '../lib/editron/engine/utility-scorer';
+import { requireMongoUri } from './utils/mongo-uri';
 
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = requireMongoUri('scripts/verify-mg-real.ts');
 
 // 7 real projects whose MG overlays carry real signal snapshots (from mg-probe.ts inventory).
 const PROJECT_IDS = [

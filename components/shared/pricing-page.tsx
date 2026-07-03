@@ -19,10 +19,12 @@ import { Check, ArrowRight } from "lucide-react";
 import {
   SUBSCRIPTION_PLANS,
   CREDIT_PACKAGES,
+  getPlanMediaCreditAllocation,
   type SubscriptionPlan,
   type CreditPackage,
 } from "@/lib/config/creditCosts";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
+import { normalizePlanKey } from "@/lib/config/plan-limits";
 import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -47,11 +49,71 @@ const ROOMS = [
 ];
 
 const VOLUME_TIERS = [
-  { label: "1-5 videos", sublabel: "Solo", planId: "plus" },
-  { label: "5-20 videos", sublabel: "Small team", planId: "pro" },
-  { label: "20-50 videos", sublabel: "Growing business", planId: "premium" },
-  { label: "50+", sublabel: "Full-scale", planId: "enterprise" },
+  { label: "Starter", sublabel: "Solo", planId: "agency_starter" },
+  { label: "Growth", sublabel: "Small team", planId: "agency_growth" },
+  { label: "Scale", sublabel: "Growing business", planId: "agency_scale" },
+  { label: "Custom", sublabel: "Full-scale", planId: "enterprise" },
 ] as const;
+
+// What each plan's credits are worth, service by service — an "UP TO ... mix
+// freely" capacity list, NOT an implied "you get all of this at once".
+//
+// Honest framing: credits are ONE shared workflow pool. Each row is the true
+// per-service CEILING (spend the whole pool on that one thing). "One pool, mix
+// freely" tells the user it's shared, so nobody thinks they get 42 hrs of editing
+// AND 6,000 scripts simultaneously. Never render these as a checklist of
+// things-you-get — the "up to / or" wrapper is what keeps it truthful.
+//
+// Numbers from real per-action costs (creditCosts.ts): edit auto-analysis 12cr/min,
+// analysis 8cr/min, script 5, calendar 20, scan 15, post 1. Media (separate wallet)
+// after the 2026-07-04 reprice: image 1cr, video 5cr/sec.
+type ValueItem = { tool: string; n: string; unit: string };
+type PlanBundle = { workflow: ValueItem[]; media: ValueItem[] };
+
+const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
+  agency_starter: {
+    workflow: [
+      { tool: "Edit", n: "~4 hrs", unit: "of video edited" },
+      { tool: "Analyze", n: "~6 hrs", unit: "of video analyzed" },
+      { tool: "Script", n: "600", unit: "scripts" },
+      { tool: "Plan", n: "150", unit: "content calendars" },
+      { tool: "Distribute", n: "3,000", unit: "social posts" },
+      { tool: "Vault", n: "200", unit: "brand scans" },
+    ],
+    media: [
+      { tool: "Design", n: "300", unit: "AI images" },
+      { tool: "Video", n: "~1 min", unit: "of AI video" },
+    ],
+  },
+  agency_growth: {
+    workflow: [
+      { tool: "Edit", n: "~21 hrs", unit: "of video edited" },
+      { tool: "Analyze", n: "~31 hrs", unit: "of video analyzed" },
+      { tool: "Script", n: "3,000", unit: "scripts" },
+      { tool: "Plan", n: "750", unit: "content calendars" },
+      { tool: "Distribute", n: "15,000", unit: "social posts" },
+      { tool: "Vault", n: "1,000", unit: "brand scans" },
+    ],
+    media: [
+      { tool: "Design", n: "900", unit: "AI images" },
+      { tool: "Video", n: "~3 min", unit: "of AI video" },
+    ],
+  },
+  agency_scale: {
+    workflow: [
+      { tool: "Edit", n: "~42 hrs", unit: "of video edited" },
+      { tool: "Analyze", n: "~62 hrs", unit: "of video analyzed" },
+      { tool: "Script", n: "6,000", unit: "scripts" },
+      { tool: "Plan", n: "1,500", unit: "content calendars" },
+      { tool: "Distribute", n: "30,000", unit: "social posts" },
+      { tool: "Vault", n: "2,000", unit: "brand scans" },
+    ],
+    media: [
+      { tool: "Design", n: "1,500", unit: "AI images" },
+      { tool: "Video", n: "~5 min", unit: "of AI video" },
+    ],
+  },
+};
 
 const TOTAL_DIGITS = ["$", "2", ",", "0", "0", "0", "+"];
 
@@ -80,11 +142,93 @@ export function PricingPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+  // The signed-in user's current plan key (normalized). null when logged out.
+  const [currentPlanKey, setCurrentPlanKey] = useState<string | null>(null);
+  // A scheduled downgrade that Razorpay applies at cycle end (null if none).
+  const [pendingPlanChange, setPendingPlanChange] = useState<{ toPlanType: string; effectiveAt: string | null } | null>(null);
+  const [downgradeBusy, setDowngradeBusy] = useState(false);
+
+  const applyPlanData = (d: any, autoJump: boolean) => {
+    const key = d?.currentPlan?.name ? normalizePlanKey(d.currentPlan.name) : null;
+    if (key) {
+      setCurrentPlanKey(key);
+      if (autoJump) {
+        // Auto-jump the tier selector to the user's current plan (mount only).
+        const idx = VOLUME_TIERS.findIndex((t) => normalizePlanKey(t.planId) === key);
+        if (idx >= 0) setSelectedTier(idx);
+      }
+    }
+    setPendingPlanChange(
+      d?.pendingPlanChange
+        ? { toPlanType: normalizePlanKey(d.pendingPlanChange.toPlanType), effectiveAt: d.pendingPlanChange.effectiveAt ?? null }
+        : null
+    );
+  };
+
+  useEffect(() => {
+    fetch('/api/user/plans')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && applyPlanData(d, true))
+      .catch(() => {});
+  }, []);
+
+  const reloadPlan = async () => {
+    try {
+      const r = await fetch('/api/user/plans');
+      if (r.ok) applyPlanData(await r.json(), false);
+    } catch {
+      /* keep last-known state */
+    }
+  };
+
+  // Schedule a downgrade — no immediate charge; takes effect at cycle end.
+  const handleScheduleDowngrade = async (toPlanId: string) => {
+    const targetName = SUBSCRIPTION_PLANS.find((p) => p.id === toPlanId)?.name ?? toPlanId;
+    if (!window.confirm(`Schedule a downgrade to ${targetName}? Your current plan stays active until the end of this billing cycle, then switches automatically. You won't be charged now.`)) return;
+    setDowngradeBusy(true);
+    try {
+      const r = await fetch('/api/user/plans/downgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toPlanType: toPlanId }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        window.alert(e.error || 'Could not schedule the downgrade. Please try again.');
+        return;
+      }
+      await reloadPlan();
+    } finally {
+      setDowngradeBusy(false);
+    }
+  };
+
+  const handleCancelDowngrade = async () => {
+    setDowngradeBusy(true);
+    try {
+      const r = await fetch('/api/user/plans/downgrade', { method: 'DELETE' });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        window.alert(e.error || 'Could not cancel the scheduled downgrade. Please try again.');
+        return;
+      }
+      await reloadPlan();
+    } finally {
+      setDowngradeBusy(false);
+    }
+  };
 
   const activePlanId = VOLUME_TIERS[selectedTier].planId;
   const activePlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId);
   const isEnterprise = activePlanId === "enterprise";
   const tierIndex = selectedTier;
+  // Relation of the shown tier to the user's current plan (by tier rank).
+  const currentTierIdx = currentPlanKey ? VOLUME_TIERS.findIndex((t) => normalizePlanKey(t.planId) === currentPlanKey) : -1;
+  const planRelation: 'none' | 'current' | 'upgrade' | 'downgrade' =
+    currentTierIdx < 0 ? 'none'
+    : selectedTier === currentTierIdx ? 'current'
+    : selectedTier < currentTierIdx ? 'downgrade'
+    : 'upgrade';
 
   const handleActivatePlan = (planId: string) => {
     setSelectedPlanId(planId);
@@ -133,7 +277,7 @@ export function PricingPage() {
         </motion.h2>
         <motion.p initial="hidden" whileInView="visible" viewport={{ margin: "-48px" }} variants={fadeIn}
           style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 24 }}>
-          Every plan unlocks all six rooms. Choose your production volume.
+          Every plan unlocks all six rooms. Pick the monthly credit budget that fits your output — one shared wallet, spend it any way.
         </motion.p>
 
         {/* Billing cycle toggle */}
@@ -233,7 +377,7 @@ export function PricingPage() {
             transition={{ duration: 0.35, ease: EASE }}
             style={{ maxWidth: "min(440px, 100%)", margin: "0 auto 48px" }}
           >
-            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} />}
+            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} relation={planRelation} pendingPlanChange={pendingPlanChange} onScheduleDowngrade={handleScheduleDowngrade} onCancelDowngrade={handleCancelDowngrade} downgradeBusy={downgradeBusy} />}
           </motion.div>
         </AnimatePresence>
 
@@ -269,9 +413,22 @@ export function PricingPage() {
           <AnimatePresence>
             {showCredits && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.35, ease: EASE }} style={{ overflow: "hidden" }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginTop: 16, marginBottom: 24 }}>Top up anytime. Credits never expire.</p>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginTop: 16, marginBottom: 24 }}>Top up anytime at $1 = 30 credits. Credits never expire.</p>
+
+                {/* Workflow top-ups */}
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", textAlign: "center", marginBottom: 12 }}>
+                  WORKFLOW CREDITS
+                </span>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, maxWidth: 640, margin: "0 auto 32px" }}>
+                  {CREDIT_PACKAGES.filter((pkg) => pkg.pool !== "media").map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
+                </div>
+
+                {/* AI media recharge */}
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", textAlign: "center", marginBottom: 12 }}>
+                  AI MEDIA RECHARGE · IMAGE / VIDEO / AUDIO
+                </span>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, maxWidth: 640, margin: "0 auto" }}>
-                  {CREDIT_PACKAGES.map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
+                  {CREDIT_PACKAGES.filter((pkg) => pkg.pool === "media").map((pkg) => <CreditCard key={pkg.id} pkg={pkg} onBuy={handleBuyCredits} />)}
                 </div>
               </motion.div>
             )}
@@ -491,7 +648,7 @@ function CostAccumulation() {
           }}>
             <span style={{ fontSize: 18, fontWeight: 500, color: "var(--text-primary)" }}>
               One platform. Starting at{" "}
-              <span style={{ color: "var(--accent-gold)", fontWeight: 800 }}>$20/mo</span>
+              <span style={{ color: "var(--accent-gold)", fontWeight: 800 }}>${Math.min(...SUBSCRIPTION_PLANS.map((p) => p.price))}/mo</span>
             </span>
           </div>
         )}
@@ -510,10 +667,23 @@ function CostAccumulation() {
 // BADGE CARD — access pass to the production floor
 // =====================================================================
 
-function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void }) {
+function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none', pendingPlanChange = null, onScheduleDowngrade, onCancelDowngrade, downgradeBusy = false }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void; relation?: 'none' | 'current' | 'upgrade' | 'downgrade'; pendingPlanChange?: { toPlanType: string; effectiveAt: string | null } | null; onScheduleDowngrade?: (planId: string) => void; onCancelDowngrade?: () => void; downgradeBusy?: boolean }) {
   const displayPrice = billingCycle === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.price;
   const totalYearly = plan.yearlyPrice;
   const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
+  const mediaCredits = getPlanMediaCreditAllocation(plan.id);
+  const bundle = PLAN_VALUE_BUNDLES[plan.id];
+
+  // Scheduled-downgrade context for the shown plan.
+  const hasPending = !!pendingPlanChange;
+  const isPendingTarget = hasPending && normalizePlanKey(plan.id) === pendingPlanChange!.toPlanType;
+  const pendingTargetName = hasPending
+    ? SUBSCRIPTION_PLANS.find((p) => normalizePlanKey(p.id) === pendingPlanChange!.toPlanType)?.name ?? pendingPlanChange!.toPlanType
+    : null;
+  const effectiveDate = pendingPlanChange?.effectiveAt
+    ? new Date(pendingPlanChange.effectiveAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+
   return (
     <div style={{
       background: "var(--bg-raised)", border: "1px solid var(--accent-gold)",
@@ -554,7 +724,7 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
         )}
 
         <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)", display: "block", marginBottom: 24 }}>
-          {plan.credits.toLocaleString()} CREDITS/MONTH
+          {plan.credits.toLocaleString()} WORKFLOW CREDITS/MO · +{mediaCredits.toLocaleString()} AI-MEDIA SAMPLE
         </span>
 
         {/* Room dots */}
@@ -578,24 +748,144 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
           ))}
         </ul>
 
+        {/* Per-service capacity — "up to ... mix freely" (NOT an implied you-get-all) */}
+        {bundle && (
+          <div style={{
+            textAlign: "left", maxWidth: 300, margin: "0 auto 24px",
+            padding: "16px", borderRadius: 8,
+            background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
+          }}>
+            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
+              ONE FLEXIBLE POOL — UP TO ANY OF
+            </span>
+            <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginBottom: 12 }}>
+              Spend it however your month goes.
+            </span>
+
+            {bundle.workflow.map((ex) => (
+              <div key={ex.tool} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 62 }}>{ex.tool}</span>
+                <span style={{ color: "var(--text-secondary)", textAlign: "right", flex: 1 }}>
+                  <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{ex.n}</span> {ex.unit}
+                </span>
+              </div>
+            ))}
+
+            {/* AI media — separate pay-as-you-go wallet */}
+            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", margin: "12px 0 8px" }}>
+              AI MEDIA · PAY AS YOU GO
+            </span>
+            {bundle.media.map((ex) => (
+              <div key={ex.tool} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 62 }}>{ex.tool}</span>
+                <span style={{ textAlign: "right", flex: 1, color: "var(--text-secondary)" }}>
+                  <span style={{ color: "var(--accent-gold)", fontWeight: 600 }}>{ex.n}</span> {ex.unit}
+                </span>
+              </div>
+            ))}
+
+            <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
+              One shared pool — do all video, all scripts, or any blend. AI media is separate &amp; pay-as-you-go: standard images ~free, recharge at <span style={{ color: "var(--accent-gold)" }}>$1 = 30 credits</span>.
+            </span>
+          </div>
+        )}
+
         {/* Barcode */}
         <Barcode />
 
-        {/* CTA */}
-        <button
-          onClick={() => onActivate(plan.id)}
-          style={{
-            width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
-            fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
-            border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)",
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-            transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
-        >
-          Activate <ArrowRight size={14} />
-        </button>
+        {/* CTA — reflects the shown tier's relation to the user's current plan,
+            plus any scheduled downgrade that Razorpay applies at cycle end. */}
+        {relation === 'current' ? (
+          <>
+            <button
+              disabled
+              style={{
+                width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+                fontSize: 14, fontWeight: 600, fontFamily: "var(--font-sans)", cursor: "default",
+                border: "1px solid var(--status-success, #46A758)",
+                background: "rgba(70,167,88,0.12)", color: "var(--status-success, #46A758)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16,
+              }}
+            >
+              <Check size={14} /> Current Plan
+            </button>
+            {hasPending && (
+              <div style={{ marginTop: 12, textAlign: "center" }}>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", lineHeight: 1.5 }}>
+                  Downgrading to <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{pendingTargetName}</span>
+                  {effectiveDate ? <> on <span style={{ color: "var(--text-primary)" }}>{effectiveDate}</span></> : <> at your next billing cycle</>}.
+                </span>
+                <button
+                  onClick={() => onCancelDowngrade?.()}
+                  disabled={downgradeBusy}
+                  style={{
+                    marginTop: 6, background: "none", border: "none", padding: 0,
+                    fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)",
+                    cursor: downgradeBusy ? "default" : "pointer", textDecoration: "underline", opacity: downgradeBusy ? 0.5 : 1,
+                  }}
+                >
+                  {downgradeBusy ? 'Working…' : 'Cancel downgrade'}
+                </button>
+              </div>
+            )}
+          </>
+        ) : isPendingTarget ? (
+          /* The shown plan IS the scheduled downgrade target. */
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <span
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+                fontSize: 14, fontWeight: 600, fontFamily: "var(--font-sans)",
+                border: "1px solid var(--accent-gold)", background: "rgba(212,166,82,0.10)", color: "var(--accent-gold)",
+              }}
+            >
+              <Check size={14} /> Downgrade scheduled
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
+              Takes effect {effectiveDate ? <span style={{ color: "var(--text-primary)" }}>{effectiveDate}</span> : 'at your next billing cycle'}. You keep your current plan until then.
+            </span>
+            <button
+              onClick={() => onCancelDowngrade?.()}
+              disabled={downgradeBusy}
+              style={{
+                marginTop: 8, background: "none", border: "none", padding: 0,
+                fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)",
+                cursor: downgradeBusy ? "default" : "pointer", textDecoration: "underline", opacity: downgradeBusy ? 0.5 : 1,
+              }}
+            >
+              {downgradeBusy ? 'Working…' : 'Cancel downgrade'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => (relation === 'downgrade' ? onScheduleDowngrade?.(plan.id) : onActivate(plan.id))}
+              disabled={relation === 'downgrade' && downgradeBusy}
+              style={{
+                width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+                fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)",
+                cursor: relation === 'downgrade' && downgradeBusy ? "default" : "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
+                ...(relation === 'downgrade'
+                  ? { border: "1px solid var(--border-subtle)", background: "transparent", color: "var(--text-secondary)" }
+                  : { border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)" }),
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+            >
+              {relation === 'downgrade'
+                ? (downgradeBusy ? 'Scheduling…' : 'Downgrade')
+                : relation === 'upgrade' ? 'Upgrade' : 'Activate'} <ArrowRight size={14} />
+            </button>
+            {relation === 'downgrade' && (
+              <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", textAlign: "center", marginTop: 6, lineHeight: 1.4 }}>
+                Applies at your next billing cycle — no change until then.
+              </span>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

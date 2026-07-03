@@ -46,6 +46,9 @@ export interface Phase0RenderedAestheticReportLike {
   };
   frames?: Array<{
     frame?: number;
+    activeOverlayTypes?: string[];
+    fullStill?: string;
+    baselineStill?: string;
     report?: {
       issues?: Array<{
         dimension?: string;
@@ -64,9 +67,10 @@ export function classifyPhase0Fixture(
   renderedReport?: Phase0RenderedAestheticReportLike,
 ): Phase0FailureTaxonomy {
   const classes: Phase0FailureClass[] = [];
+  const generatedSceneTimeline = isGeneratedSceneTimeline(manifest, artifactPack);
 
-  addCutClasses(classes, manifest);
-  addTimelineClasses(classes, manifest);
+  addCutClasses(classes, manifest, generatedSceneTimeline);
+  addTimelineClasses(classes, manifest, generatedSceneTimeline);
   addDecisionClasses(classes, manifest);
   addVjepaClasses(classes, manifest);
   addOverlayClasses(classes, manifest);
@@ -84,7 +88,21 @@ export function classifyPhase0Fixture(
   };
 }
 
-function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+function isGeneratedSceneTimeline(
+  manifest: Phase0FixtureManifest,
+  artifactPack?: Phase0RenderArtifactPack,
+): boolean {
+  const renderOverlays = artifactPack?.renderInput.overlays ?? [];
+  const hasGeneratedScene = (manifest.overlayCounts['generated-scene'] ?? 0) > 0
+    || renderOverlays.some((overlay) => overlay.type === 'generated-scene');
+  const hasVideo = (manifest.overlayCounts.video ?? 0) > 0
+    || renderOverlays.some((overlay) => overlay.type === 'video');
+  return hasGeneratedScene && !hasVideo;
+}
+
+function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest, generatedSceneTimeline = false): void {
+  if (generatedSceneTimeline) return;
+
   const cut = manifest.cutContinuity;
   const cutPlan = manifest.cutPlan;
   if (cutPlan.status !== 'present') {
@@ -170,7 +188,9 @@ function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureMan
   }
 }
 
-function addTimelineClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+function addTimelineClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest, generatedSceneTimeline = false): void {
+  if (generatedSceneTimeline) return;
+
   if (!manifest.sourceMapping.hasCompleteSourceMapping) {
     classes.push({
       id: 'timeline.source_mapping_incomplete',
@@ -324,6 +344,38 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
       evidence: compactDecisionOutputTraceEvidence(decisionOutputTrace),
     });
   }
+
+  addCrossOverlayChoreographyClasses(classes, manifest);
+}
+
+function addCrossOverlayChoreographyClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+  const choreography = asRecord(manifest.unifiedDecisionBundle.crossOverlayChoreography);
+  const status = readString(choreography.status);
+  if (status === 'missing') {
+    classes.push({
+      id: 'decision.cross_overlay_choreography_missing',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Unified bundle exists, but cross-overlay choreography scheduler evidence is missing.',
+      evidence: {
+        issue: readString(choreography.issue),
+      },
+    });
+    return;
+  }
+
+  if (status !== 'present') return;
+
+  const suppressedDecisionCount = readNumber(choreography.suppressedDecisionCount) ?? 0;
+  if (suppressedDecisionCount <= 0) return;
+
+  classes.push({
+    id: 'decision.cross_overlay_choreography_suppression',
+    severity: 'info',
+    source: 'decision',
+    message: 'Cross-overlay choreography suppressed one or more candidate decisions to avoid unsynchronized overlay stacking.',
+    evidence: compactCrossOverlayChoreographyEvidence(choreography),
+  });
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -609,7 +661,7 @@ function addZoomTimingClass(classes: Phase0FailureClass[], overlays: Phase0Overl
 
 function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0OverlayLike[], fps: number): void {
   const sfx = overlays
-    .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+    .filter(isSfxOverlay)
     .map((overlay) => ({
       id: overlayId(overlay),
       frame: sfxSyncFrameOf(overlay),
@@ -865,8 +917,16 @@ function collectRenderedIssues(renderedReport: Phase0RenderedAestheticReportLike
     message: string;
     overlayId: string | number | null;
     evidence: string | null;
+    fullStill: string | null;
+    baselineStill: string | null;
+    activeOverlayTypes: string[];
   }> = [];
   for (const frame of renderedReport.frames ?? []) {
+    const fullStill = typeof frame.fullStill === 'string' && frame.fullStill.trim() ? frame.fullStill.trim() : null;
+    const baselineStill = typeof frame.baselineStill === 'string' && frame.baselineStill.trim() ? frame.baselineStill.trim() : null;
+    const activeOverlayTypes = Array.isArray(frame.activeOverlayTypes)
+      ? frame.activeOverlayTypes.filter((type): type is string => typeof type === 'string' && type.trim().length > 0).slice(0, TIMELINE_SAMPLE_LIMIT)
+      : [];
     for (const issue of frame.report?.issues ?? []) {
       const dimension = typeof issue.dimension === 'string' && issue.dimension.trim() ? issue.dimension.trim() : 'unknown';
       const severity = issue.severity === 'fail' || issue.severity === 'warn' || issue.severity === 'info'
@@ -879,6 +939,9 @@ function collectRenderedIssues(renderedReport: Phase0RenderedAestheticReportLike
         message: typeof issue.message === 'string' ? issue.message : '',
         overlayId: typeof issue.overlayId === 'string' || typeof issue.overlayId === 'number' ? issue.overlayId : null,
         evidence: typeof issue.evidence === 'string' ? issue.evidence : null,
+        fullStill,
+        baselineStill,
+        activeOverlayTypes,
       });
     }
   }
@@ -895,6 +958,9 @@ function groupRenderedIssues(issues: ReturnType<typeof collectRenderedIssues>) {
       overlayId: string | number | null;
       message: string;
       evidence: string | null;
+      fullStill: string | null;
+      baselineStill: string | null;
+      activeOverlayTypes: string[];
     }>;
   }>();
   for (const issue of issues) {
@@ -912,6 +978,9 @@ function groupRenderedIssues(issues: ReturnType<typeof collectRenderedIssues>) {
         overlayId: issue.overlayId,
         message: issue.message,
         evidence: issue.evidence,
+        fullStill: issue.fullStill,
+        baselineStill: issue.baselineStill,
+        activeOverlayTypes: issue.activeOverlayTypes,
       });
     }
     groups.set(key, group);
@@ -983,6 +1052,7 @@ function collectZoomEvents(overlays: Phase0OverlayLike[]): Array<{ id: string; f
 function collectVisualSyncAnchors(overlays: Phase0OverlayLike[]): Array<{ frame: number; type: string }> {
   const visualAnchorTypes = new Set([
     'caption',
+    'generated-scene',
     'html-scene',
     'html-sticker',
     'image',
@@ -1076,6 +1146,25 @@ function transitionStyle(overlay: Phase0OverlayLike): string {
       ?? readString(form.job)
       ?? 'unknown',
   );
+}
+
+function isSfxOverlay(overlay: Phase0OverlayLike): boolean {
+  return isAudioOverlay(overlay) && !isVoiceoverOverlay(overlay);
+}
+
+function isAudioOverlay(overlay: Phase0OverlayLike): boolean {
+  return overlay.type === 'sound' || overlay.type === 'audio';
+}
+
+function isVoiceoverOverlay(overlay: Phase0OverlayLike): boolean {
+  const metadata = asRecord(overlay.metadata);
+  return metadata.isVoiceover === true
+    || hasScalarEvidence(metadata.narrationText)
+    || hasScalarEvidence(metadata.voiceoverSlotId)
+    || readString(metadata.kind) === 'voiceover'
+    || String(overlay.assetId ?? '').startsWith('voiceover_')
+    || String(overlay.content ?? '').startsWith('VO ready:')
+    || String(overlay.content ?? '').startsWith('VO pending:');
 }
 
 function sfxRole(overlay: Phase0OverlayLike): string | null {
@@ -1260,6 +1349,22 @@ function compactDecisionOutputTraceEvidence(decisionOutputTrace: JsonRecord): Re
     executedWithoutOverlayLinkCount: readNumber(decisionOutputTrace.executedWithoutOverlayLinkCount),
     byOutcome: asRecord(decisionOutputTrace.byOutcome),
     samples: Array.isArray(decisionOutputTrace.samples) ? decisionOutputTrace.samples.slice(0, 5) : [],
+  };
+}
+
+function compactCrossOverlayChoreographyEvidence(choreography: JsonRecord): Record<string, unknown> {
+  return {
+    inputDecisionCount: readNumber(choreography.inputDecisionCount),
+    outputDecisionCount: readNumber(choreography.outputDecisionCount),
+    suppressedDecisionCount: readNumber(choreography.suppressedDecisionCount),
+    suppressionRate: readNumber(choreography.suppressionRate),
+    syncGroupCount: readNumber(choreography.syncGroupCount),
+    laneLoad: asRecord(choreography.laneLoad),
+    suppressedByReason: asRecord(choreography.suppressedByReason),
+    suppressedByFamily: asRecord(choreography.suppressedByFamily),
+    topSuppressions: Array.isArray(choreography.topSuppressions) ? choreography.topSuppressions.slice(0, 5) : [],
+    syncGroups: Array.isArray(choreography.syncGroups) ? choreography.syncGroups.slice(0, 5) : [],
+    calibrationStatus: readString(choreography.calibrationStatus),
   };
 }
 

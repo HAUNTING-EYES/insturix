@@ -19,10 +19,13 @@ export const THINKFORGE_CLICKATRON_EXPORT_END = 'END_THINKFORGE_CLICKATRON_EXPOR
 
 const SIDECAR_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\s*([\s\S]*?)\s*END_THINKFORGE_CLICKATRON_EXPORT\s*-->/i;
 const SIDECAR_START_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\b/i;
+const MAX_REPAIRED_CAROUSEL_SLIDES = 7;
 const NON_VIDEO_CREATIVE_INTENT_RE =
   /\b(post|posts|caption|captions|carousel|carousels|thread|threads|blog|article|newsletter|social|linkedin|instagram|facebook|pinterest|graphic|static creative|ad creative|blog header|x post)\b/;
 const VIDEO_PRODUCTION_DELIVERABLE_RE =
-  /\b(video script|videos? with scenes?|youtube video|tiktok video|scripted reel|reel script|reels?|shorts?|storyboard|shot list|scene breakdown|b-roll|voiceover|commercial script|ugc script)\b/;
+  /\b(video script|videos? with scenes?|youtube video|tiktok video|scripted reel|reel script|reels?|shorts?|storyboard|shot list|scene breakdown|scene-by-scene|b-roll|voiceover|narration|commercial script|ugc script|saas explainer|explainer video|explainer script|product demo)\b/;
+const VIDEO_PROJECT_DELIVERABLE_RE =
+  /\b(video_script|video script|saas explainer|explainer video|explainer script|commercial script|ugc script)\b/;
 const CALENDAR_FIELDS: Array<keyof ClickatronCreativeCalendarScope> = [
   'contentCardId',
   'campaignId',
@@ -34,7 +37,7 @@ function compactText(parts: Array<string | undefined>): string {
   return parts.filter(Boolean).join('\n').toLowerCase();
 }
 
-type SidecarProfileInput = Pick<AgentInput, 'context' | 'userPrompt'>;
+type SidecarProfileInput = Pick<AgentInput, 'context' | 'userPrompt' | 'project'>;
 
 export interface ClickatronCreativeSidecarProfile {
   kind: ClickatronCreativeKind;
@@ -77,12 +80,22 @@ export function shouldRequestClickatronCreativeSidecar(
   const contextRequestsCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(supportingContext);
   const currentScriptLooksCreative = NON_VIDEO_CREATIVE_INTENT_RE.test(currentScript);
   const promptRequestsVideoProductionDeliverable = VIDEO_PRODUCTION_DELIVERABLE_RE.test(userPrompt);
+  const projectRequestsVideoProductionDeliverable = VIDEO_PROJECT_DELIVERABLE_RE.test(compactText([
+    input.project?.format,
+    input.project?.idea,
+    input.project?.purpose,
+    input.project?.style,
+  ]));
 
   const profileStaticCreative = profile?.intent.clickatron.requested === true
     && profile.intent.clickatron.assetIntent === 'static_image'
     && (profile.intent.outputFormat === 'social_post' || profile.intent.outputFormat === 'caption');
 
-  if (promptRequestsVideoProductionDeliverable && !promptRequestsCreative && !profileStaticCreative) {
+  if (
+    (promptRequestsVideoProductionDeliverable || projectRequestsVideoProductionDeliverable)
+    && !promptRequestsCreative
+    && !profileStaticCreative
+  ) {
     return false;
   }
 
@@ -396,18 +409,19 @@ export function extractRequiredClickatronCreativeSidecar(markdown: string): {
     throw new Error(`ThinkForge Clickatron export sidecar JSON is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const exportMeta = normalizeThinkForgeBlockExportMeta(repairRecoverableClickatronCreativeSidecar(parsed));
+  const visibleMarkdown = stripClickatronCreativeSidecarText(markdown);
+  const exportMeta = normalizeThinkForgeBlockExportMeta(repairRecoverableClickatronCreativeSidecar(parsed, visibleMarkdown));
   if (!exportMeta?.clickatron) {
     throw new Error('ThinkForge Clickatron export sidecar must include exportMeta.clickatron');
   }
 
   return {
-    visibleMarkdown: stripClickatronCreativeSidecarText(markdown),
+    visibleMarkdown,
     exportMeta,
   };
 }
 
-function repairRecoverableClickatronCreativeSidecar(input: unknown): unknown {
+function repairRecoverableClickatronCreativeSidecar(input: unknown, visibleMarkdown: string): unknown {
   if (!isRecord(input)) return input;
   const clickatron = isRecord(input.clickatron) ? input.clickatron : undefined;
   const metadata = clickatron && isRecord(clickatron.metadata) ? clickatron.metadata : undefined;
@@ -421,33 +435,139 @@ function repairRecoverableClickatronCreativeSidecar(input: unknown): unknown {
   const repairedClickatron = clickatron && calendar ? { ...clickatron, calendar } : clickatron;
   const renderPlan = repairedClickatron && isRecord(repairedClickatron.renderPlan) ? repairedClickatron.renderPlan : undefined;
   if (!clickatron || !renderPlan) return input;
-
-  const imagePrompt = typeof renderPlan.imagePrompt === 'string' ? renderPlan.imagePrompt.trim() : '';
-  if (imagePrompt) {
-    return {
-      ...input,
-      clickatron: repairedClickatron,
-    };
-  }
+  const nextClickatron = repairedClickatron ?? clickatron;
 
   const slidePrompts = Array.isArray(renderPlan.slides)
     ? renderPlan.slides
       .map((slide) => (isRecord(slide) && typeof slide.imagePrompt === 'string' ? slide.imagePrompt.trim() : ''))
       .filter(Boolean)
     : [];
+  const imagePrompt = typeof renderPlan.imagePrompt === 'string' ? renderPlan.imagePrompt.trim() : '';
+  const hasUsableSlides = slidePrompts.length > 0;
+  const repairedSlides = !hasUsableSlides && nextClickatron.kind === 'carousel'
+    ? deriveCarouselSlidesFromVisibleMarkdown(visibleMarkdown, imagePrompt, renderPlan.textPolicy)
+    : undefined;
 
-  if (slidePrompts.length === 0) return input;
+  if (imagePrompt && (!repairedSlides || repairedSlides.length === 0)) {
+    return {
+      ...input,
+      clickatron: nextClickatron,
+    };
+  }
+
+  if (!hasUsableSlides && (!repairedSlides || repairedSlides.length === 0)) return input;
+
+  const nextSlides = hasUsableSlides ? renderPlan.slides : repairedSlides;
+  const nextImagePrompt = imagePrompt || buildCarouselOverviewImagePrompt(
+    hasUsableSlides
+      ? slidePrompts
+      : (repairedSlides ?? []).map((slide) => slide.imagePrompt),
+  );
+  const validation = isRecord(nextClickatron.validation) ? nextClickatron.validation : {};
+  const existingIssues = Array.isArray(validation.issues) ? validation.issues : [];
+  const recoveredIssue = !hasUsableSlides
+    ? [{
+        code: 'carousel_slides_recovered_at_authoring',
+        message: 'The hidden Clickatron sidecar declared a carousel without slide render plans, so ThinkForge derived review-required slides from the visible draft before saving.',
+        severity: 'warning',
+      }]
+    : [];
+  const needsUserInput = Array.isArray(validation.needsUserInput) ? validation.needsUserInput : [];
 
   return {
     ...input,
     clickatron: {
-      ...repairedClickatron,
+      ...nextClickatron,
       renderPlan: {
         ...renderPlan,
-        imagePrompt: buildCarouselOverviewImagePrompt(slidePrompts),
+        imagePrompt: nextImagePrompt,
+        slides: nextSlides,
       },
+      validation: !hasUsableSlides
+        ? {
+            ...validation,
+            status: 'needs_user_input',
+            issues: [...existingIssues, ...recoveredIssue],
+            needsUserInput: [
+              ...needsUserInput,
+              'Review and confirm the recovered carousel slide plan before sending to Clickatron.',
+            ],
+          }
+        : nextClickatron.validation,
     },
   };
+}
+
+function deriveCarouselSlidesFromVisibleMarkdown(
+  markdown: string,
+  promptBase: string,
+  textPolicy: unknown,
+): ClickatronCarouselSlideSpec[] | undefined {
+  const seeds = extractCarouselSlideSeeds(markdown);
+  if (seeds.length === 0) return undefined;
+  const shouldKeepText = textPolicy !== 'no_generated_text';
+  const base = promptBase || 'Recovered carousel visual system from ThinkForge visible copy.';
+  return seeds.slice(0, MAX_REPAIRED_CAROUSEL_SLIDES).map((seed, index) => ({
+    id: `slide_${index + 1}`,
+    index,
+    imagePrompt: [
+      `${base} Slide ${index + 1}: create a text-free, brand-safe visual background for this slide.`,
+      `Slide concept to interpret, not draw as text: ${seed.text}.`,
+      'Keep readable words in editable text layers, not rasterized in the image.',
+    ].join(' '),
+    sourceBlockIds: ['AUTO'],
+    ...(shouldKeepText
+      ? {
+          textLayers: [{
+            id: `slide_${index + 1}_headline`,
+            text: seed.text,
+            role: index === 0 ? 'hook' : 'headline',
+            priority: Math.max(55, 95 - index * 7),
+          }],
+        }
+      : {}),
+  }));
+}
+
+function extractCarouselSlideSeeds(markdown: string): Array<{ text: string }> {
+  const lines = markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^<!--/.test(line));
+  const explicitSlides: string[] = [];
+
+  for (const line of lines) {
+    const slideMatch = /^(?:#{1,4}\s*)?(?:slide|card)\s*\d+\s*[:.)-]?\s*(.+)$/i.exec(line);
+    if (slideMatch?.[1]?.trim()) explicitSlides.push(slideMatch[1].trim());
+  }
+
+  const numbered = lines
+    .map((line) => /^(?:[-*]\s*)?\d{1,2}[.)]\s+(.+)$/.exec(line)?.[1]?.trim())
+    .filter((line): line is string => Boolean(line));
+  const bullets = lines
+    .map((line) => /^[-*]\s+(.+)$/.exec(line)?.[1]?.trim())
+    .filter((line): line is string => Boolean(line));
+
+  const candidates = explicitSlides.length >= 2
+    ? explicitSlides
+    : numbered.length >= 2
+      ? numbered
+      : bullets.length >= 2
+        ? bullets
+        : lines.slice(0, Math.min(lines.length, 4));
+
+  return candidates
+    .map((line) => ({ text: cleanSlideSeedText(line) }))
+    .filter((seed) => seed.text.length > 0);
+}
+
+function cleanSlideSeedText(value: string): string {
+  return value
+    .replace(/[*_`#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
 }
 
 function buildCarouselOverviewImagePrompt(slidePrompts: string[]): string {

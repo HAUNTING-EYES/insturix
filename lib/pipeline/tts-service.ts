@@ -7,6 +7,7 @@
 
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import { TTS_VOICES, TTS_SPEED_MAP, TTS_PAUSE_CONFIG } from './config/tts-config';
 export type { TTSVoice } from './config/tts-config';
@@ -93,7 +94,8 @@ interface TTSResult {
   durationMs: number;
   audioUrl: string;
   audioAssetId: string;
-  gcsPath: string;
+  gcsPath?: string;
+  r2Key: string | null;
 }
 
 /**
@@ -200,15 +202,12 @@ async function generateWithKokoro(
   const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
 
   const assetId = `voiceover_${nanoid(12)}`;
-  const filename = `${assetId}.wav`;
-  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
+  const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
 
   return {
     audioBuffer,
     durationMs,
-    audioUrl: uploadResult.signedUrl,
-    audioAssetId: uploadResult.assetId,
-    gcsPath: uploadResult.gcsPath!,
+    ...uploaded,
   };
 }
 
@@ -268,15 +267,57 @@ async function generateWithDeepgram(
   const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
 
   const assetId = `voiceover_${nanoid(12)}`;
-  const filename = `${assetId}.wav`;
-  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
+  const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
 
   return {
     audioBuffer,
     durationMs,
+    ...uploaded,
+  };
+}
+
+async function uploadVoiceoverAudio(
+  audioBuffer: Buffer,
+  userId: string,
+  assetId: string,
+  durationMs: number,
+): Promise<Pick<TTSResult, 'audioUrl' | 'audioAssetId' | 'gcsPath' | 'r2Key'>> {
+  const filename = `${assetId}.wav`;
+  const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
+  const urlExpiresAt = uploadResult.urlExpiresAt ?? new Date('2099-12-31T00:00:00.000Z');
+
+  const db = await getDatabase();
+  await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+    { assetId: uploadResult.assetId },
+    {
+      $set: {
+        cachedUrl: uploadResult.signedUrl,
+        gcsPath: uploadResult.gcsPath ?? null,
+        r2Key: uploadResult.r2Key,
+        urlExpiresAt,
+        durationMs,
+        audioDurationMs: durationMs,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        assetId: uploadResult.assetId,
+        userId,
+        type: 'audio',
+        filename,
+        source: 'user-upload',
+        size: uploadResult.size,
+        contentType: uploadResult.contentType,
+        uploadedAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+
+  return {
     audioUrl: uploadResult.signedUrl,
     audioAssetId: uploadResult.assetId,
-    gcsPath: uploadResult.gcsPath!,
+    gcsPath: uploadResult.gcsPath ?? undefined,
+    r2Key: uploadResult.r2Key,
   };
 }
 

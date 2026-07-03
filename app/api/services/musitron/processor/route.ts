@@ -12,12 +12,13 @@ async function handler(request: Request) {
 
   let userId: string | undefined;
   let taskId: string | undefined;
+  let model: string | undefined;
 
   try {
     const body = await request.json();
     console.log("[Musitron Processor] Received body:", body);
     ({ taskId, userId } = body);
-    const model: string | undefined = body.model;
+    model = body.model;
 
     if (!taskId || !userId) {
       return NextResponse.json(
@@ -295,19 +296,6 @@ async function handler(request: Request) {
         model: task.model || model 
       });
 
-      const creditCheck = {
-        refund: async (reason: string) => {
-          await CreditsService.refundCredits(
-            task.clerkUserId,
-            refundAmount,
-            reason,
-            {
-              service: "musitron",
-              action: "music_generation",
-            }
-          );
-        },
-      };
 
       const errorMessage = (() => {
         if (generationError instanceof Error) {
@@ -349,9 +337,9 @@ async function handler(request: Request) {
         }
       );
 
-      // Refund credits (8 for Musitron)
+      // Refund the same model-aware Musitron generation cost that was charged.
       try {
-        await CreditsService.refundCredits(userId, 8, "Music generation failed", {
+        await CreditsService.refundCredits(userId, refundAmount, "Music generation failed", {
           service: "musitron",
           action: "music_generation",
         });
@@ -372,7 +360,7 @@ async function handler(request: Request) {
     // Try to refund on catastrophic error
     try {
       if (userId) {
-        await CreditsService.refundCredits(userId, 8, "Internal server error during music generation", {
+        await CreditsService.refundCredits(userId, getCreditCost("musitron", "music_generation", { model }), "Internal server error during music generation", {
           service: "musitron",
           action: "music_generation",
         });
@@ -408,10 +396,12 @@ export const POST = async (req: Request) => {
     // Try to extract taskId and userId from request for error reporting
     let taskId: string | undefined;
     let userId: string | undefined;
+    let model: string | undefined;
     try {
       const body = await req.json();
       taskId = body.taskId;
       userId = body.userId;
+      model = body.model;
     } catch (bodyError) {
       console.error(
         "Musitron processor: Failed to parse request body for error reporting:",
@@ -422,7 +412,7 @@ export const POST = async (req: Request) => {
     // If we have userId, try to refund
     if (userId) {
       try {
-        await CreditsService.refundCredits(userId, 8, "Signature verification failed", {
+        await CreditsService.refundCredits(userId, getCreditCost("musitron", "music_generation", { model }), "Signature verification failed", {
           service: "musitron",
           action: "music_generation",
         });

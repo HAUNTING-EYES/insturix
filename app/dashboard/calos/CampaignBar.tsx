@@ -7,6 +7,11 @@ import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import { type CalosObjective } from '@/lib/calos/campaign-intent';
 import { type Period, PERIOD_LABELS, periodRange } from './period';
 import CadenceEditor, { type CadenceRule } from './CadenceEditor';
+import TrendMarketSelector, {
+  LOCAL_TREND_MARKET,
+  useResolvedTrendLocation,
+} from './TrendMarketSelector';
+import { ExternalLink, MoreHorizontal, Plus, SlidersHorizontal, Sparkles } from 'lucide-react';
 
 interface Campaign {
   _id: string;
@@ -35,8 +40,11 @@ export default function CampaignBar({
   const [pending, setPending] = useState<Pending>('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [campaignMenuOpen, setCampaignMenuOpen] = useState(false);
   const [suggestedRules, setSuggestedRules] = useState<CadenceRule[]>(DEFAULT_CADENCE as CadenceRule[]);
   const [period, setPeriod] = useState<Period>('next_30_days');
+  const [trendMarket, setTrendMarket] = useState(LOCAL_TREND_MARKET);
+  const { trendLocation, isLoading: trendLocationLoading } = useResolvedTrendLocation(trendMarket);
   const router = useRouter();
 
   const loadCampaigns = useCallback(async () => {
@@ -73,6 +81,23 @@ export default function CampaignBar({
   useEffect(() => {
     void loadCampaigns();
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (!campaignMenuOpen) return;
+    const closeMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      if (!event.target.closest('[data-calos-campaign-menu]')) setCampaignMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCampaignMenuOpen(false);
+    };
+    document.addEventListener('mousedown', closeMenu);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeMenu);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [campaignMenuOpen]);
 
   const selected = campaigns.find((c) => c._id === campaignId) ?? null;
 
@@ -140,7 +165,7 @@ export default function CampaignBar({
       const res = await fetch('/api/services/calos/ai-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, campaignId: campaignId || undefined, from, to }),
+        body: JSON.stringify({ brandId, campaignId: campaignId || undefined, from, to, trendLocation }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -154,11 +179,12 @@ export default function CampaignBar({
       }
       const created = data?.created ?? 0;
       const trendsUsed = data?.trendsUsed ?? 0;
+      const market = typeof data?.trendLocation === 'string' && data.trendLocation ? data.trendLocation : 'global';
       toast({
         title: `Drafted ${created} idea${created === 1 ? '' : 's'}`,
         description: `${PERIOD_LABELS[period]} · ${trendsUsed} trend${
           trendsUsed === 1 ? '' : 's'
-        } via ${data?.provider ?? 'none'}.`,
+        } in ${market} via ${data?.provider ?? 'none'}.`,
       });
       onAutoFilled();
     } catch (err) {
@@ -173,53 +199,84 @@ export default function CampaignBar({
   };
 
   const busy = pending !== '';
+  const waitingForTrendLocation = trendMarket === LOCAL_TREND_MARKET && trendLocationLoading;
   const btn =
-    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50';
+    'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45';
+  const iconBtn =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-[#7A776E] transition-colors hover:border-[#1C1B19] hover:bg-[#1C1B19]/70 hover:text-[#ECE9E1] disabled:cursor-not-allowed disabled:opacity-45';
   const selectCls =
-    'bg-[#0F0F0E] border border-[#1C1B19] text-[#ECE9E1] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
+    'h-9 rounded-lg border border-[#1C1B19] bg-[#0F0F0E] px-3 text-xs text-[#ECE9E1] focus:outline-none focus:ring-1 focus:ring-[#5CCCB8]/40 disabled:opacity-50';
+  const menuItem =
+    'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#B9B4AA] transition-colors hover:bg-[#1C1B19]/70 hover:text-[#ECE9E1] disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
-    <div className="flex items-center gap-2">
-      {campaigns.length > 0 && (
-        <select
-          value={campaignId}
-          onChange={(e) => setCampaignId(e.target.value)}
-          aria-label="Select campaign"
-          className={selectCls}
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex min-w-0 items-center gap-1 rounded-xl border border-[#1C1B19]/80 bg-[#0F0F0E]/55 p-1">
+        {campaigns.length > 0 && (
+          <select
+            value={campaignId}
+            onChange={(e) => setCampaignId(e.target.value)}
+            aria-label="Select campaign"
+            className={`${selectCls} max-w-[170px] border-transparent bg-transparent`}
+          >
+            {campaigns.map((c) => (
+              <option key={c._id} value={c._id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          onClick={createCampaign}
+          disabled={busy}
+          aria-label="New campaign"
+          title="New campaign"
+          className={iconBtn}
         >
-          {campaigns.map((c) => (
-            <option key={c._id} value={c._id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      )}
-      <button
-        onClick={createCampaign}
-        disabled={busy}
-        className={`${btn} bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-300 hover:bg-[#1C1B19]/90`}
-      >
-        {pending === 'create' ? 'Working…' : '+ Campaign'}
-      </button>
-      <button
-        onClick={() => setEditorOpen(true)}
-        disabled={busy || !campaignId}
-        className={`${btn} bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-300 hover:bg-[#1C1B19]/90`}
-      >
-        Edit cadence
-      </button>
-      <button
-        onClick={() =>
-          router.push(
-            `/dashboard/calos/campaigns/${encodeURIComponent(campaignId)}?brandId=${encodeURIComponent(brandId)}`
-          )
-        }
-        disabled={busy || !campaignId}
-        title="Open the campaign workspace"
-        className={`${btn} bg-[#1C1B19]/60 border-neutral-700/70 text-neutral-300 hover:bg-[#1C1B19]/90`}
-      >
-        Open
-      </button>
+          {pending === 'create' ? <span className="text-[10px]">...</span> : <Plus size={15} />}
+        </button>
+        <div className="relative" data-calos-campaign-menu>
+          <button
+            type="button"
+            onClick={() => setCampaignMenuOpen((open) => !open)}
+            aria-label="Campaign actions"
+            aria-expanded={campaignMenuOpen}
+            className={iconBtn}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {campaignMenuOpen && (
+            <div className="absolute left-0 top-full z-40 mt-2 w-44 rounded-xl border border-[#1C1B19] bg-[#0B0B0A] p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.45)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditorOpen(true);
+                  setCampaignMenuOpen(false);
+                }}
+                disabled={busy || !campaignId}
+                className={menuItem}
+              >
+                <SlidersHorizontal size={14} />
+                Edit cadence
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCampaignMenuOpen(false);
+                  router.push(
+                    `/dashboard/calos/campaigns/${encodeURIComponent(campaignId)}?brandId=${encodeURIComponent(brandId)}`
+                  );
+                }}
+                disabled={busy || !campaignId}
+                className={menuItem}
+              >
+                <ExternalLink size={14} />
+                Open workspace
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
       <select
         value={period}
         onChange={(e) => setPeriod(e.target.value as Period)}
@@ -234,20 +291,26 @@ export default function CampaignBar({
           </option>
         ))}
       </select>
+      <TrendMarketSelector
+        value={trendMarket}
+        onChange={setTrendMarket}
+        disabled={busy}
+        className={`${selectCls} max-w-[170px]`}
+      />
       <button
         onClick={autoFill}
         disabled={busy || !campaignId}
-        className={`${btn} bg-[#5CCCB8]/15 border-[#5CCCB8]/40 text-[#5CCCB8] hover:bg-[#5CCCB8]/25`}
+        className={`${btn} border-[#5CCCB8]/35 bg-[#5CCCB8]/14 text-[#5CCCB8] hover:bg-[#5CCCB8]/24`}
       >
-        {pending === 'auto' ? 'Working…' : 'Auto-fill'}
+        {pending === 'auto' ? 'Working...' : 'Auto-fill'}
       </button>
       <button
         onClick={aiPlan}
-        disabled={busy}
+        disabled={busy || waitingForTrendLocation}
         title="Draft on-brand ideas from your cadence + current trends for the selected period"
-        className={`${btn} bg-[#D4A652]/15 border-[#D4A652]/40 text-[#D4A652] hover:bg-[#D4A652]/25`}
+        className={`${btn} border-[#D4A652]/35 bg-[#D4A652]/14 text-[#D4A652] hover:bg-[#D4A652]/24`}
       >
-        {pending === 'ai' ? 'Working…' : '✨ AI plan'}
+        {pending === 'ai' ? 'Working...' : <><Sparkles size={13} />AI plan</>}
       </button>
 
       {editorOpen && selected && (

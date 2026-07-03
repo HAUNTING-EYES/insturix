@@ -1,46 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { getLinkedInScopes } from "@/lib/uploaderx/linkedinScopes";
 import { getLinkedInDashboardUrl, getLinkedInRedirectUri } from "@/lib/uploaderx/linkedinUrl";
+import {
+    consumeUploaderXOAuthState,
+    UploaderXOAuthStateError,
+} from "@/app/api/services/uploaderx/utils/oauth-state";
+import { createOAuthPopupResponse } from "@/lib/oauth/popup-response";
 
 function createPopupResponse(
     request: NextRequest,
     payload: Record<string, string | number | boolean | null | undefined>,
     fallbackUrl: string
 ) {
-    const origin = new URL(request.url).origin;
-    const serializedPayload = JSON.stringify(payload);
-    const escapedFallback = JSON.stringify(fallbackUrl);
-
-    const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>LinkedIn Connection</title>
-  </head>
-  <body>
-    <script>
-      (function () {
-        var payload = ${serializedPayload};
-        var fallbackUrl = ${escapedFallback};
-        try {
-          if (window.opener && !window.opener.closed) {
-            window.opener.postMessage({ source: "uploaderx-linkedin-oauth", payload: payload }, ${JSON.stringify(origin)});
-            window.close();
-            return;
-          }
-        } catch (error) {}
-        window.location.replace(fallbackUrl);
-      })();
-    </script>
-    <p>Completing LinkedIn connection...</p>
-  </body>
-</html>`;
-
-    return new NextResponse(html, {
-        headers: {
-            "Content-Type": "text/html; charset=utf-8",
-        },
+    return createOAuthPopupResponse({
+        request,
+        source: "uploaderx-linkedin-oauth",
+        payload,
+        fallbackUrl,
+        title: "LinkedIn Connection",
+        message: "Completing LinkedIn connection...",
     });
 }
 
@@ -50,6 +30,15 @@ function createPopupResponse(
  */
 export async function GET(request: NextRequest) {
     try {
+        const session = await auth();
+        if (!session.userId) {
+            const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_auth_unauthorized", request);
+            return createPopupResponse(request, {
+                success: false,
+                error: "linkedin_auth_unauthorized",
+            }, fallbackUrl);
+        }
+
         const { searchParams } = new URL(request.url);
         const code = searchParams.get("code");
         const state = searchParams.get("state");
@@ -67,12 +56,30 @@ export async function GET(request: NextRequest) {
         }
 
         if (!code || !state) {
-            console.error("LinkedIn callback missing code or state. Code:", !!code, "State:", state);
+            console.error("LinkedIn callback missing code or state. Code:", !!code, "State present:", !!state);
             const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_auth_invalid", request);
             return createPopupResponse(request, {
                 success: false,
                 error: "linkedin_auth_invalid",
             }, fallbackUrl);
+        }
+
+        try {
+            await consumeUploaderXOAuthState({
+                userId: session.userId,
+                provider: "linkedin",
+                state,
+            });
+        } catch (stateError) {
+            if (stateError instanceof UploaderXOAuthStateError) {
+                const fallbackUrl = getLinkedInDashboardUrl("/dashboard/uploaderx?error=linkedin_auth_invalid_state", request);
+                return createPopupResponse(request, {
+                    success: false,
+                    error: "linkedin_auth_invalid_state",
+                }, fallbackUrl);
+            }
+
+            throw stateError;
         }
 
         const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
@@ -238,13 +245,13 @@ export async function GET(request: NextRequest) {
         }
 
         await User.updateOne(
-            { clerkUserId: state },
+            { clerkUserId: session.userId },
             {
                 $set: {
                     linkedinTokens,
                 },
             },
-            { upsert: true }
+            { upsert: false }
         );
 
         const redirectUrl = getLinkedInDashboardUrl(`/dashboard/uploaderx?success=linkedin_connected&t=${Date.now()}`, request);

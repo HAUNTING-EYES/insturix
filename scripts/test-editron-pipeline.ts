@@ -22,6 +22,8 @@
  *   8. Transition placement (correct row, no BGM collision)
  */
 
+export {};
+
 const BASE_URL = process.argv[2] || 'http://localhost:3000';
 
 // ─── Test Scripts (diverse content types per Rule 0) ────────────────

@@ -62,7 +62,7 @@ After consent screen is created:
 
 You'll get a popup with:
 - **Client ID:** `NEW_PROJECT_NUMBER-xxxxx.apps.googleusercontent.com`
-- **Client Secret:** `GOCSPX-xxxxx`
+- **Client Secret:** `YOUR_GOOGLE_OAUTH_CLIENT_SECRET`
 
 **📝 IMPORTANT: Copy both values to a secure place.** You cannot view the Client Secret again later — only at creation time.
 
@@ -122,7 +122,7 @@ Once you save the new credentials in Clerk, all new Google sign-ins use the new 
 
 ## Step 6: Rotate the OLD Client Secret (Optional but Recommended)
 
-The old secret `GOCSPX-4uNEZeCHlLMEFaYuAfXa5-rO3AF` was visible in your screenshot (and in chat history). Even though we're not using it anymore after cutover, best practice is to rotate it:
+The old secret was visible in your screenshot (and in chat history). Even though we are not using it anymore after cutover, best practice is to rotate it:
 
 1. Go to old project: https://console.cloud.google.com/apis/credentials?project=clerk-oauth-project
 2. Click the OAuth Client that was used by Clerk
@@ -136,8 +136,8 @@ The old secret `GOCSPX-4uNEZeCHlLMEFaYuAfXa5-rO3AF` was visible in your screensh
 
 Any time before Step 5, nothing affects production.
 At Step 5, if something breaks, just paste the OLD credentials back into Clerk Dashboard:
-- Client ID: `785444891498-5maafejqmig2u66kuujb979cp8u0punb.apps.googleusercontent.com`
-- Client Secret: `GOCSPX-4uNEZeCHlLMEFaYuAfXa5-rO3AF` (from your screenshot)
+- Client ID: paste the previous Client ID from your secure backup or Clerk history
+- Client Secret: paste the previous Client Secret from your secure backup or Clerk history
 - Takes effect immediately
 
 ---

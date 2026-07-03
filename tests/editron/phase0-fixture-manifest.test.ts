@@ -50,6 +50,8 @@ function signalAudit(overrides: Record<string, unknown> = {}) {
     sourcePacket: {
       hasSignals: true,
       signalKeys: ['signal:entity.number'],
+      hasVisualSetupSignals: true,
+      visualSetupSignalKeys: ['enrichment.visual_setup_source', 'visual.environment', 'visual.shot_scale'],
       hasAtomicMomentBundle: true,
       hasUnifiedMomentEvidence: true,
     },
@@ -389,11 +391,17 @@ describe('phase0 fixture manifest', () => {
           addedExecutableCount: 1,
           executableSignalOutcomeCount: 1,
           promotionRate: 1,
+          visualSetupSignalCandidateCount: 1,
+          visualSetupSignalCoverageRate: 1,
+          visualSetupSignalKeys: ['enrichment.visual_setup_source', 'visual.environment', 'visual.shot_scale'],
           candidateSamples: [expect.objectContaining({
             family: 'graphic',
             confidence: 0.88,
             evidenceStrength: 1,
             hasSignals: true,
+            hasVisualSetupSignals: true,
+            visualSetupSignalKeyCount: 3,
+            visualSetupSignalKeys: ['enrichment.visual_setup_source', 'visual.environment', 'visual.shot_scale'],
             hasAtomicMomentBundle: true,
           })],
           evidenceSamples: [expect.objectContaining({
@@ -547,6 +555,59 @@ describe('phase0 fixture manifest', () => {
     });
   });
 
+  it('counts MG semantic atoms persisted under metadata and content object contracts', () => {
+    const manifest = buildPhase0FixtureManifest(baseProject({
+      overlays: [
+        {
+          id: 'mg-metadata-semantic',
+          type: 'motion-graphic',
+          from: 0,
+          durationInFrames: 30,
+          content: 'metadata-backed semantic atoms',
+          metadata: {
+            graphicType: 'structured',
+            atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+            atomicOverlayReceipt: { family: 'motion-graphic' },
+            semanticAtoms: { keyword: { value: 'myth' }, claim: { value: 'internet myth' } },
+            relations: { supports: { from: 'keyword', to: 'claim' } },
+          },
+        },
+        {
+          id: 'mg-content-semantic',
+          type: 'motion-graphic',
+          from: 30,
+          durationInFrames: 30,
+          content: {
+            semanticAtoms: { identity: { name: 'Hank Green' }, evidencePhrase: { text: 'creator context' } },
+            relations: { introduces: { from: 'identity', to: 'evidencePhrase' } },
+          },
+          metadata: {
+            graphicType: 'identity',
+            atomicOverlayPlan: { version: 'atomic-overlay-plan-v1' },
+            atomicOverlayReceipt: { family: 'motion-graphic' },
+          },
+        },
+      ],
+    }));
+
+    expect(manifest.overlayFamilies.motionGraphics).toEqual([
+      expect.objectContaining({
+        id: 'mg-metadata-semantic',
+        hasAtomicPlan: true,
+        hasAtomicReceipt: true,
+        semanticAtomCount: 2,
+        relationCount: 1,
+      }),
+      expect.objectContaining({
+        id: 'mg-content-semantic',
+        hasAtomicPlan: true,
+        hasAtomicReceipt: true,
+        semanticAtomCount: 2,
+        relationCount: 1,
+      }),
+    ]);
+  });
+
   it('records missing or weak cut-plan evidence without rewriting cuts', () => {
     const missing = buildPhase0FixtureManifest(baseProject({ rawFootageAnalysis: undefined }));
     expect(missing.cutPlan).toMatchObject({
@@ -674,6 +735,21 @@ describe('phase0 fixture manifest', () => {
       renderedIssueCount: 2,
       renderedIssuesBySeverity: { fail: 1, warn: 1, info: 0 },
       renderedIssuesByDimension: { contrast: 1, 'safe-area': 1 },
+      renderedIssueSamples: [{
+        frame: 30,
+        dimension: 'contrast',
+        severity: 'fail',
+        overlayId: 'cap-1',
+        message: 'rendered text contrast is below accessibility floor',
+        evidence: 'contrast=1.3',
+      }, {
+        frame: 30,
+        dimension: 'safe-area',
+        severity: 'warn',
+        overlayId: 'mg-1',
+        message: 'motion graphic leaves title safe bounds',
+        evidence: 'overflow=22px',
+      }],
       sampledFrames: [{
         frame: 30,
         status: 'fail',
@@ -696,6 +772,21 @@ describe('phase0 fixture manifest', () => {
       renderedAestheticFailFrameCount: 2,
       renderedAestheticWarnFrameCount: 1,
       renderedAestheticSampledFrames: 4,
+      renderedAestheticIssueSamples: [{
+        frame: 30,
+        dimension: 'contrast',
+        severity: 'fail',
+        overlayId: 'cap-1',
+        message: 'rendered text contrast is below accessibility floor',
+        evidence: 'contrast=1.3',
+      }, {
+        frame: 30,
+        dimension: 'safe-area',
+        severity: 'warn',
+        overlayId: 'mg-1',
+        message: 'motion graphic leaves title safe bounds',
+        evidence: 'overflow=22px',
+      }],
       renderedAestheticJson: 'fixtures/proj/rendered-aesthetic/rendered-aesthetic.json',
       renderedAestheticHtml: 'fixtures/proj/rendered-aesthetic/report.html',
     });

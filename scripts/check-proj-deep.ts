@@ -2,8 +2,9 @@
 // (1) transcript integrity, (2) timeline gaps between cuts, (3) word-highlight reality
 // (caption word-by-word vs MG keyword-highlight), (4) caption style/configurability. Read-only.
 import { MongoClient } from 'mongodb';
+import { requireMongoUri } from './utils/mongo-uri';
 
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = requireMongoUri('scripts/check-proj-deep.ts');
 const PID = process.argv[2] || 'proj_XbI_NCq181A2';
 const FPS = 30;
 const f2s = (f: number) => (f / FPS).toFixed(2);

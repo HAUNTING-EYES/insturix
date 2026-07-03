@@ -12,6 +12,7 @@
  */
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { generateEditronEmbedding } from './gemini-embedding';
 import type { MediaAsset } from './asset-resolver';
 
 export interface AssetSearchResult {
@@ -197,13 +198,7 @@ async function searchViaMongoDB(
 
 async function embedQuery(text: string): Promise<number[] | null> {
   try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    if (!apiKey) return null;
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-005' });
-    const result = await model.embedContent(text);
-    return result.embedding?.values ?? null;
+    return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_QUERY' });
   } catch (err: unknown) {
     console.warn('[AssetSearch] embedding failed:', err instanceof Error ? err.message : err);
     return null;

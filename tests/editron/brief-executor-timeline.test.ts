@@ -153,6 +153,96 @@ describe('cut <-> original frame mapping', () => {
 });
 
 describe('brief decision conversion', () => {
+  it('recovers a missing brief coordinate from grounded semantic evidence', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: -1,
+        confidence: 0.91,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            claim: 'The growth happened quickly',
+            evidencePhrase: 'grew fast',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions).toHaveLength(1);
+    expect(output.stats.resolvedToFrame).toBe(1);
+    expect(output.stats.recoveredSemanticAnchor).toBe(1);
+    expect(output.edl.decisions[0]).toEqual(expect.objectContaining({
+      frame: 9,
+      source: 'creative-brief:emphasis_word:semantic-anchor',
+    }));
+    expect(output.edl.decisions[0].params).toEqual(expect.objectContaining({
+      contextPhrase: 'we grew fast',
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        timing: expect.objectContaining({
+          source: 'semantic-anchor',
+          targetWordIdx: -1,
+          resolvedWordIdx: 1,
+        }),
+      }),
+    }));
+  });
+
+  it('recovers a stale raw-video word index from grounded edited-transcript evidence', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'caption_emphasis',
+        targetWordIdx: 999,
+        confidence: 0.86,
+        reason: 'emphasis_word',
+        params: {
+          text: 'grew fast',
+          semanticAtoms: {
+            text: { phrase: 'grew fast' },
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions).toHaveLength(1);
+    expect(output.stats.recoveredSemanticAnchor).toBe(1);
+    expect(output.edl.decisions[0]).toEqual(expect.objectContaining({
+      frame: 9,
+      source: 'creative-brief:emphasis_word:semantic-anchor',
+    }));
+  });
+
+  it('does not invent timing when an invalid brief coordinate has no transcript-backed evidence', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: -1,
+        confidence: 0.88,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            claim: 'A useful but ungrounded fact',
+            evidencePhrase: 'not present in transcript',
+          },
+        },
+      }]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions).toHaveLength(0);
+    expect(output.stats.resolvedToFrame).toBe(0);
+    expect(output.stats.recoveredSemanticAnchor).toBe(0);
+    expect(output.stats.skippedOutOfRange).toBe(1);
+  });
+
   it('keeps Path E zoom as intent instead of stamping legacy zoom subtype', () => {
     const output = executeBrief({
       brief: briefWith([{
@@ -406,6 +496,75 @@ describe('brief decision conversion', () => {
     }));
     expect(sfxParams).not.toHaveProperty('sfxType');
     expect(sfxParams).not.toHaveProperty('soundDescription');
+  });
+
+  it('strips Creative Brief render-authority params while preserving facts and compatibility hints', () => {
+    const output = executeBrief({
+      brief: briefWith([
+        {
+          type: 'graphic_callout',
+          targetWordIdx: 2,
+          confidence: 0.9,
+          reason: 'emphasis_word',
+          params: {
+            graphicType: 'keyword-box',
+            layout: 'top-right',
+            keyframes: [{ frame: 0, scale: 1.4 }],
+            fontSize: 140,
+            color: '#ffffff',
+            assetId: 'unsafe-render-asset',
+            durationFrames: 300,
+            semanticAtoms: {
+              claim: 'Comments overrepresent angry people',
+              evidencePhrase: 'we grew fast',
+            },
+          },
+        },
+        {
+          type: 'sfx_impact',
+          targetWordIdx: 1,
+          confidence: 0.82,
+          reason: 'beat_accent',
+          params: {
+            sfxType: 'impact',
+            volume: 1,
+            sfxAssetId: 'unsafe-sfx-asset',
+            assetQuery: 'cinematic impact',
+            soundDescription: 'huge hit',
+          },
+        },
+      ]),
+      transcription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    const byTechnique = new Map(output.edl.decisions.map((decision) => [decision.technique, decision]));
+    const graphicParams = byTechnique.get('graphic_callout')?.params as Record<string, unknown>;
+    const sfxParams = byTechnique.get('sfx_impact')?.params as Record<string, unknown>;
+
+    expect(graphicParams).toEqual(expect.objectContaining({
+      creativeDecisionAuthority: 'semantic-context',
+      semanticAtoms: expect.objectContaining({
+        claim: 'Comments overrepresent angry people',
+        evidencePhrase: 'we grew fast',
+      }),
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        executableAuthority: false,
+        compatibilityHints: expect.objectContaining({ graphicKind: 'callout' }),
+      }),
+    }));
+    for (const key of ['graphicType', 'layout', 'keyframes', 'fontSize', 'color', 'assetId', 'durationFrames']) {
+      expect(graphicParams).not.toHaveProperty(key);
+    }
+
+    expect(sfxParams.creativeBriefSemanticCandidate).toEqual(expect.objectContaining({
+      executableAuthority: false,
+      compatibilityHints: expect.objectContaining({ sfxToken: 'impact' }),
+    }));
+    for (const key of ['sfxType', 'volume', 'sfxAssetId', 'assetQuery', 'soundDescription']) {
+      expect(sfxParams).not.toHaveProperty(key);
+    }
   });
 
   it('classifies MG semantic atoms into fact kinds before form resolving', () => {

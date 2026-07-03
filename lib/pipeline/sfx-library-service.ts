@@ -30,6 +30,42 @@ export interface SFXLibraryResult {
   originalTitle?: string;
 }
 
+export type SFXLibrarySearchFailureReason =
+  | 'no-provider-candidates'
+  | 'all-candidates-rejected'
+  | 'download-failed'
+  | 'non-audio-download'
+  | 'upload-failed';
+
+export interface SFXLibraryCandidateReport {
+  providerId?: string;
+  source: SFXLibraryResult['source'];
+  title: string;
+  durationMs: number;
+  rating?: number;
+  score: number;
+  accepted: boolean;
+  decision?: AtomicSfxCandidateEvaluation['decision'];
+  qualityScore?: number;
+  qualityFloor?: number;
+  reasons: string[];
+}
+
+export interface SFXLibrarySearchReport {
+  version: 'sfx-library-search-report-v1';
+  query: string;
+  maxDurationSec?: number;
+  atomicGate: boolean;
+  providerCandidateCount: number;
+  acceptedCandidateCount: number;
+  rejectedCandidateCount: number;
+  selectedCandidate?: SFXLibraryCandidateReport;
+  failureReason?: SFXLibrarySearchFailureReason;
+  candidates: SFXLibraryCandidateReport[];
+}
+
+export type SFXLibrarySearchReporter = (report: SFXLibrarySearchReport) => void;
+
 interface SFXProviderCandidate {
   id?: string;
   url: string;
@@ -136,6 +172,7 @@ export async function searchAndDownloadSFX(
   userId: string,
   maxDurationSec?: number,
   atomicForm?: AtomicSfxForm,
+  reportSearch?: SFXLibrarySearchReporter,
 ): Promise<SFXLibraryResult | null> {
   console.log(`[SFXLib] Searching providers: "${query}" (maxDuration=${maxDurationSec || 'any'}s)`);
 
@@ -146,11 +183,20 @@ export async function searchAndDownloadSFX(
   // resulting in JPEG data stored with audio/mpeg content type. These never play.
   // Pixabay's actual audio API (/api/music/) requires special access we don't have.
 
-  const selected = selectProviderCandidate(query, candidates, maxDurationSec, atomicForm);
+  const ranked = rankProviderCandidates(query, candidates, maxDurationSec, atomicForm);
+  const threshold = atomicForm ? 0 : 0.52;
+  const selected = ranked.find((item) => item.score >= threshold) ?? null;
+  let report = buildSfxSearchReport(query, maxDurationSec, atomicForm, ranked, selected);
   if (!selected) {
+    report = {
+      ...report,
+      failureReason: candidates.length === 0 ? 'no-provider-candidates' : 'all-candidates-rejected',
+    };
+    reportSearch?.(report);
     console.warn(`[SFXLib] No acceptable provider candidates for "${query}"`);
     return null;
   }
+  reportSearch?.(report);
 
   const { candidate, quality } = selected;
   console.log(`[SFXLib] Selected ${candidate.source}: "${candidate.title}" (${candidate.duration}s, score=${selected.score.toFixed(2)})`);
@@ -160,6 +206,7 @@ export async function searchAndDownloadSFX(
   try {
     const response = await fetch(candidate.url);
     if (!response.ok) {
+      reportSearch?.({ ...report, failureReason: 'download-failed' });
       console.error(`[SFXLib] Failed to download from ${candidate.source}: ${response.status}`);
       return null;
     }
@@ -175,6 +222,7 @@ export async function searchAndDownloadSFX(
       const isPNG = header === '89504e47';
       const isHTML = buffer.slice(0, 20).toString('utf-8').trim().startsWith('<');
       if (isJPEG || isPNG || isHTML) {
+        reportSearch?.({ ...report, failureReason: 'non-audio-download' });
         console.error(`[SFXLib] Downloaded file is NOT audio (${isJPEG ? 'JPEG' : isPNG ? 'PNG' : 'HTML'}). Source returned wrong content. Skipping.`);
         return null;
       }
@@ -232,20 +280,21 @@ export async function searchAndDownloadSFX(
       originalTitle: candidate.title,
     };
   } catch (err: any) {
+    reportSearch?.({ ...report, failureReason: 'upload-failed' });
     console.error(`[SFXLib] Download/upload failed: ${err.message}`);
     return null;
   }
 }
 
-function selectProviderCandidate(
+function rankProviderCandidates(
   query: string,
   candidates: SFXProviderCandidate[],
   maxDurationSec?: number,
   atomicForm?: AtomicSfxForm,
-): { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null {
-  if (candidates.length === 0) return null;
+): Array<{ candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation }> {
+  if (candidates.length === 0) return [];
 
-  const ranked = candidates
+  return candidates
     .map((candidate) => {
       if (atomicForm) {
         const quality = evaluateAtomicSfxAssetCandidate(atomicForm, {
@@ -269,15 +318,55 @@ function selectProviderCandidate(
         quality: undefined,
       };
     })
-    .filter((item) => item.score >= (atomicForm ? 0 : 0.52))
     .sort((a, b) =>
       b.score - a.score
       || providerRatingScore(b.candidate) - providerRatingScore(a.candidate)
       || a.candidate.duration - b.candidate.duration
       || a.candidate.title.localeCompare(b.candidate.title),
     );
+}
 
-  return ranked[0] ?? null;
+function buildSfxSearchReport(
+  query: string,
+  maxDurationSec: number | undefined,
+  atomicForm: AtomicSfxForm | undefined,
+  ranked: Array<{ candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation }>,
+  selected: { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null,
+): SFXLibrarySearchReport {
+  const threshold = atomicForm ? 0 : 0.52;
+  const candidateReports = ranked.slice(0, 8).map((item) => summarizeProviderCandidate(item, threshold));
+  const selectedReport = selected ? summarizeProviderCandidate(selected, threshold) : undefined;
+  return {
+    version: 'sfx-library-search-report-v1',
+    query,
+    maxDurationSec,
+    atomicGate: Boolean(atomicForm),
+    providerCandidateCount: ranked.length,
+    acceptedCandidateCount: ranked.filter((item) => item.score >= threshold).length,
+    rejectedCandidateCount: ranked.filter((item) => item.score < threshold).length,
+    selectedCandidate: selectedReport,
+    candidates: candidateReports,
+  };
+}
+
+function summarizeProviderCandidate(
+  item: { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation },
+  threshold: number,
+): SFXLibraryCandidateReport {
+  const quality = item.quality;
+  return {
+    providerId: item.candidate.id,
+    source: item.candidate.source,
+    title: item.candidate.title,
+    durationMs: Math.round(item.candidate.duration * 1000),
+    rating: item.candidate.rating,
+    score: round4(item.score),
+    accepted: item.score >= threshold,
+    decision: quality?.decision,
+    qualityScore: quality ? round4(quality.score) : undefined,
+    qualityFloor: quality ? round4(quality.qualityFloor) : undefined,
+    reasons: quality?.reasons.slice(0, 8) ?? [],
+  };
 }
 
 async function searchProviderCandidates(
@@ -318,6 +407,10 @@ function scoreProviderCandidateByQuery(
   if (!durationOk) score -= 0.36;
 
   return score;
+}
+
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
 }
 
 function providerRatingScore(candidate: SFXProviderCandidate): number {

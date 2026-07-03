@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import {
+  consumeUploaderXOAuthState,
+  UploaderXOAuthStateError,
+} from "@/app/api/services/uploaderx/utils/oauth-state";
 
 const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
 const debugInstagramCallback = (...args: unknown[]) => {
@@ -22,12 +26,29 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
+    const state = url.searchParams.get("state");
 
     if (error || !code) {
-      console.error("❌ Instagram OAuth error:", error || "No code");
+      console.error("[Instagram OAuth] Provider error:", error || "No code");
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?ig_error=denied`
       );
+    }
+
+    try {
+      await consumeUploaderXOAuthState({
+        userId: session.userId,
+        provider: "instagram",
+        state,
+      });
+    } catch (stateError) {
+      if (stateError instanceof UploaderXOAuthStateError) {
+        return NextResponse.redirect(
+          `${baseUrl}/dashboard/uploaderx?ig_error=invalid_state`
+        );
+      }
+
+      throw stateError;
     }
 
     const appId = (process.env.INSTAGRAM_APP_ID || process.env.FACEBOOK_APP_ID || "").trim();
@@ -51,7 +72,7 @@ export async function GET(req: Request) {
     const tokenData = await tokenRes.json();
 
     if (tokenData.error_type || tokenData.error_message) {
-      console.error("❌ Token exchange error:", tokenData);
+      console.error("[Instagram OAuth] Token exchange error:", tokenData);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?ig_error=token_exchange`
       );
@@ -74,7 +95,7 @@ export async function GET(req: Request) {
     const meData = await meRes.json();
 
     if (meData.error) {
-      console.error("❌ Instagram profile fetch error:", meData.error);
+      console.error("[Instagram OAuth] Profile fetch error:", meData.error);
       return NextResponse.redirect(
         `${baseUrl}/dashboard/uploaderx?ig_error=profile_fetch`
       );
@@ -114,14 +135,14 @@ export async function GET(req: Request) {
           },
         },
       },
-      { upsert: true }
+      { upsert: false }
     );
 
     return NextResponse.redirect(
       `${baseUrl}/dashboard/uploaderx?ig_connected=true`
     );
   } catch (err) {
-    console.error("❌ Instagram callback error:", err);
+    console.error("[Instagram OAuth] Callback error:", err);
     return NextResponse.redirect(
       `${baseUrl}/dashboard/uploaderx?ig_error=unknown`
     );

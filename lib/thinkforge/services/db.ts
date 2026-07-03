@@ -1384,6 +1384,7 @@ export async function saveScriptWithVersion(
         title: script.title || 'Untitled Script',
         content: script.content || '',
         blocks,
+        documentType: script.documentType || 'screenplay',
         version: 1,
         createdAt: now,
         updatedAt: now,
@@ -1407,6 +1408,7 @@ export async function saveScriptWithVersion(
           blocks: created.blocks,
           richText: (created as any).richText,
           metadata: (created as any).metadata || {},
+          documentType: (created as any).documentType || 'screenplay',
           version: typeof (created as any).version === 'number' ? (created as any).version : 1,
           createdAt: created.createdAt,
           updatedAt: created.updatedAt,
@@ -1422,6 +1424,7 @@ export async function saveScriptWithVersion(
       title: script.title ?? existing.title,
       content: script.content ?? existing.content,
       blocks,
+      documentType: script.documentType ?? (existing as any).documentType ?? 'screenplay',
       version: baseVersion + 1,
       updatedAt: now,
     };
@@ -1457,6 +1460,7 @@ export async function saveScriptWithVersion(
         blocks: updated.blocks,
         richText: updated.richText,
         metadata: updated.metadata || {},
+        documentType: updated.documentType || 'screenplay',
         version: typeof updated.version === 'number' ? updated.version : baseVersion + 1,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -1529,6 +1533,39 @@ export async function listScripts(sessionId: string): Promise<Array<{ scriptId: 
     return items;
   } catch (error) {
     console.error('Error listing scripts:', error);
+    return [];
+  }
+}
+
+/** All of a user's scripts across every session (for the unified content library). */
+export async function listScriptsByUser(
+  userId: string,
+  limit = 100,
+): Promise<Array<{ scriptId: string; sessionId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }>> {
+  try {
+    const { ScriptModel } = await getModels();
+    const docs = (await ScriptModel.find({ userId }).sort({ updatedAt: -1 }).limit(limit * 3).lean()) as any[];
+    const seen = new Set<string>();
+    const items: Array<{ scriptId: string; sessionId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }> = [];
+    for (const doc of docs) {
+      const sid = doc.scriptId || 'default';
+      const key = `${doc.sessionId}:${sid}`;
+      if (seen.has(key)) continue; // keep the latest per (session, script)
+      seen.add(key);
+      items.push({
+        scriptId: sid,
+        sessionId: doc.sessionId,
+        title: doc.title || 'Untitled Script',
+        documentType: doc.documentType || 'screenplay',
+        version: doc.version || 1,
+        updatedAt: doc.updatedAt || doc.createdAt,
+        createdAt: doc.createdAt,
+      });
+      if (items.length >= limit) break;
+    }
+    return items;
+  } catch (error) {
+    console.error('Error listing scripts by user:', error);
     return [];
   }
 }

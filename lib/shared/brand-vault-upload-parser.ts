@@ -34,6 +34,11 @@ const MAX_TEXT_FILE_BYTES = 4_000_000;
 const MAX_IMAGE_SAMPLE_SIZE = 96;
 const MAX_IMAGE_SAMPLE_PIXELS = MAX_IMAGE_SAMPLE_SIZE * MAX_IMAGE_SAMPLE_SIZE;
 const MAX_ZIP_ENTRY_BYTES = 8_000_000;
+// DoS guards: a small compressed upload must not decompress into a memory bomb or fan out into
+// thousands of entries. Caps are well above real brand decks, below memory-danger. Tune vs finance.
+const MAX_ZIP_ENTRIES = 512;
+const MAX_TOTAL_INFLATE_BYTES = 64_000_000;
+const MAX_OCR_IMAGE_BYTES = 10_000_000;
 
 const TEXT_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'html', 'htm', 'css', 'svg', 'xml']);
 const GUIDELINE_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'md', 'markdown', 'csv', 'json']);
@@ -81,7 +86,9 @@ export async function extractBrandVaultUploadEvidenceFromBuffer(
     } catch {
       warnings.push(`${name}: image colors could not be sampled on the server.`);
     }
-    if (ocrProvider) {
+    if (ocrProvider && input.buffer.byteLength > MAX_OCR_IMAGE_BYTES) {
+      warnings.push(`${name}: image too large for server OCR; skipped.`);
+    } else if (ocrProvider) {
       const ocr = await ocrProvider.readTextFromImage({
         imageBase64: input.buffer.toString('base64'),
         mimeType: mimeType ?? `image/${extension === 'jpg' ? 'jpeg' : extension}`,
@@ -174,9 +181,13 @@ function readZipEntries(buffer: Buffer): ZipEntry[] {
   const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
   const centralDirectoryEnd = Math.min(buffer.length, centralDirectoryOffset + centralDirectorySize);
   const entries: ZipEntry[] = [];
+  let totalInflated = 0;
   let cursor = centralDirectoryOffset;
 
   while (cursor + 46 <= centralDirectoryEnd && buffer.readUInt32LE(cursor) === 0x02014b50) {
+    // DoS guard: stop at the entry-count or cumulative-inflate ceiling (zip-bomb / entry fan-out).
+    if (entries.length >= MAX_ZIP_ENTRIES || totalInflated >= MAX_TOTAL_INFLATE_BYTES) break;
+
     const method = buffer.readUInt16LE(cursor + 10);
     const compressedSize = buffer.readUInt32LE(cursor + 20);
     const uncompressedSize = buffer.readUInt32LE(cursor + 24);
@@ -195,8 +206,21 @@ function readZipEntries(buffer: Buffer): ZipEntry[] {
       const dataEnd = dataStart + compressedSize;
       if (dataEnd <= buffer.length) {
         const compressed = buffer.subarray(dataStart, dataEnd);
-        const data = method === 0 ? compressed : method === 8 ? inflateRawSync(compressed) : Buffer.alloc(0);
-        if (data.length > 0 || uncompressedSize === 0) entries.push({ name, data });
+        // Cap decompression output per entry — a forged small uncompressedSize can't bomb memory.
+        let data: Buffer;
+        try {
+          data = method === 0
+            ? compressed
+            : method === 8
+              ? inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_ENTRY_BYTES })
+              : Buffer.alloc(0);
+        } catch {
+          data = Buffer.alloc(0); // decompression bomb or corrupt entry -> skip
+        }
+        totalInflated += data.length;
+        if ((data.length > 0 || uncompressedSize === 0) && totalInflated <= MAX_TOTAL_INFLATE_BYTES) {
+          entries.push({ name, data });
+        }
       }
     }
 
@@ -298,13 +322,14 @@ function extractPdfStreamChunks(buffer: Buffer): string[] {
 }
 
 function inflatePdfStream(raw: Buffer): Buffer {
+  const opts = { maxOutputLength: MAX_ZIP_ENTRY_BYTES };
   try {
-    return inflateSync(raw);
+    return inflateSync(raw, opts);
   } catch {
     try {
-      return inflateRawSync(raw);
+      return inflateRawSync(raw, opts);
     } catch {
-      return Buffer.alloc(0);
+      return Buffer.alloc(0); // decompression bomb or corrupt stream -> skip
     }
   }
 }
@@ -400,6 +425,17 @@ function isTextUpload(name: string, mimeType?: string): boolean {
 
 function isImageUpload(name: string, mimeType?: string): boolean {
   return Boolean(mimeType?.startsWith('image/')) || IMAGE_EXTENSIONS.has(fileExtension(name));
+}
+
+/**
+ * Server-side upload allowlist. True when this file is something the extractor can read
+ * (text / Office / PDF) or a visual asset we sample or store (image). It reuses the SAME
+ * predicates the extractor dispatches on, so the route boundary can never drift from real
+ * capability. This mirrors the UI's BRAND_VAULT_UPLOAD_ACCEPT and lets the route reject
+ * video / audio / archives / executables / fonts BEFORE buffering the bytes.
+ */
+export function isSupportedBrandVaultUpload(name: string, mimeType?: string): boolean {
+  return isTextUpload(name, mimeType) || isImageUpload(name, mimeType) || isParserBackedDocument(name, mimeType);
 }
 
 function inferSourceKind(

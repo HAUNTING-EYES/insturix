@@ -765,7 +765,9 @@ function ensureReadOnlyProbeEnv(): void {
       type: 'service_account',
       project_id: 'read-only-mg-probe',
       private_key_id: 'read-only',
-      private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n',
+      // Dummy value for a read-only probe that never authenticates to GCP.
+      // Deliberately NOT a real PEM key block (so secret scanners don't false-positive).
+      private_key: 'read-only-mg-probe-placeholder-not-a-real-credential',
       client_email: 'read-only-mg-probe@example.invalid',
       client_id: '0',
       auth_uri: 'https://accounts.google.com/o/oauth2/auth',

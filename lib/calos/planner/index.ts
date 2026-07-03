@@ -5,14 +5,15 @@ import { isFunnelStage } from "../campaign-intent";
 import { extractJsonArray } from "../llm-json";
 import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
 
-const PLANNER_MODEL = process.env.LLM_PLANNER_MODEL || "gemini-3.1-pro-preview";
-const DEFAULT_SEED = 42; // Rule 35: always seed — temperature 0 alone is not deterministic.
+export const DEFAULT_PLANNER_MODEL = "gemini-3.1-flash-lite";
+const PLANNER_MODEL = process.env.LLM_PLANNER_MODEL || DEFAULT_PLANNER_MODEL;
+const DEFAULT_SEED = 42; // Rule 35: always seed - temperature 0 alone is not deterministic.
 
 /**
  * Propose a batch of on-brand content ideas, one per cadence slot, repurposing current trends
  * where they fit. DRAFT-only: the caller turns these into draft deliverables for human review.
  *
- * Fails loud (R18N) when no Gemini key is configured — the caller surfaces that and degrades to
+ * Fails loud (R18N) when no Gemini key is configured - the caller surfaces that and degrades to
  * plain cadence auto-fill rather than silently producing nothing.
  */
 export async function proposePlan(
@@ -42,7 +43,7 @@ export async function proposePlan(
 
 /**
  * Parse + validate the model's JSON, aligning each idea to a real slot by index. The schedule
- * (date/platform) comes from the slot, not the model — the model only supplies title/angle/trend,
+ * (date/platform) comes from the slot, not the model - the model only supplies title/angle/trend,
  * so it can never corrupt the cadence. Malformed JSON degrades to [] (a bad reply is not an outage).
  */
 function parsePlan(text: string, slots: PlannerSlot[]): PlannedIdea[] {

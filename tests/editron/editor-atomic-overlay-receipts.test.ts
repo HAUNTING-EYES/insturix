@@ -7,7 +7,7 @@ import {
   withEditorAtomicOverlayReceipt,
 } from "../../components/editron/editor/version-7.0.0/utils/atomic-overlay-receipts";
 import { buildAtomicMomentBundle } from "../../lib/editron/services/moment-bundle";
-import { OverlayType, type CaptionOverlay, type SoundOverlay, type TextOverlay } from "../../components/editron/editor/version-7.0.0/types";
+import { OverlayType, type CaptionOverlay, type MotionGraphicOverlay, type SoundOverlay, type TextOverlay } from "../../components/editron/editor/version-7.0.0/types";
 
 describe("editor atomic overlay receipts", () => {
   it("stamps editor text overlays with geometry, typography, and text atoms", () => {
@@ -695,6 +695,80 @@ describe("editor atomic overlay receipts", () => {
       expect.objectContaining({ kind: "position-x", key: "overlay.x", value: 640 }),
       expect.objectContaining({ kind: "font-size", key: "text.font_size", value: "56" }),
       expect.objectContaining({ kind: "text-content", key: "content.text", value: "after" }),
+    ]));
+    expect(isAtomicOverlayReceiptCurrent(refreshed)).toBe(true);
+  });
+
+  it("treats persisted motion-graphic contentSignals as live receipt evidence", () => {
+    const overlay = {
+      id: 73,
+      type: OverlayType.MOTION_GRAPHIC,
+      from: 24,
+      durationInFrames: 90,
+      row: 7,
+      left: 140,
+      top: 240,
+      width: 720,
+      height: 280,
+      isDragging: false,
+      rotation: 0,
+      structureType: "composition",
+      content: { value: "82%", label: "retention" },
+      resolvedTokens: {},
+      contentSignals: {
+        formality: 0.34,
+        enthusiasm: 0.82,
+        warmth: 0.58,
+        emotional_arousal: 0.74,
+        pacing_velocity: 0.69,
+        humor: 0.18,
+        visceral_impact: 0.8,
+        visual_dependency: 0.62,
+        cinematic_moment: 0.82,
+        narrative_pressure: 0.76,
+        motion_intensity: 0.66,
+        speech_energy: 0.88,
+      },
+      styles: {
+        opacity: 1,
+        backgroundColor: "transparent",
+      },
+      metadata: {
+        sourceType: "edl",
+        graphicType: "composition",
+      },
+    } as unknown as MotionGraphicOverlay;
+
+    const stamped = ensureLiveAtomicOverlayReceipt(overlay, {
+      source: "phase0-rendered-aesthetic-scoring",
+      appendReceipt: false,
+    }) as MotionGraphicOverlay & { metadata: { atomicOverlayReceipt: any } };
+
+    expect(stamped.metadata.atomicOverlayReceipt.atoms).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "content-signal", key: "content_signal.cinematic_moment", value: 0.82 }),
+      expect.objectContaining({ kind: "content-signal", key: "content_signal.narrative_pressure", value: 0.76 }),
+      expect.objectContaining({ kind: "content-signal", key: "content_signal.motion_intensity", value: 0.66 }),
+      expect.objectContaining({ kind: "motion-intensity", key: "visual.motion_intensity", value: 0.66 }),
+    ]));
+    expect(isAtomicOverlayReceiptCurrent(stamped)).toBe(true);
+
+    const stale = {
+      ...stamped,
+      contentSignals: {
+        ...(stamped as any).contentSignals,
+        cinematic_moment: 0.24,
+      },
+    } as MotionGraphicOverlay;
+
+    expect(isAtomicOverlayReceiptCurrent(stale)).toBe(false);
+
+    const refreshed = ensureLiveAtomicOverlayReceipt(stale, {
+      source: "phase0-rendered-aesthetic-scoring",
+      appendReceipt: false,
+    }) as MotionGraphicOverlay & { metadata: { atomicOverlayReceipt: any } };
+
+    expect(refreshed.metadata.atomicOverlayReceipt.atoms).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "content-signal", key: "content_signal.cinematic_moment", value: 0.24 }),
     ]));
     expect(isAtomicOverlayReceiptCurrent(refreshed)).toBe(true);
   });

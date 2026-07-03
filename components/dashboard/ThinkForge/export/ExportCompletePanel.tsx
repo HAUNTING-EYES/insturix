@@ -21,6 +21,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
     aspectRatio,
     storyboardId,
     storyboardScenes,
+    scriptImportPreflight,
     videosGenerated,
     audioGenerating,
     projectId,
@@ -32,7 +33,12 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
     handleCreateClickatronSession,
     handleClose,
   } = pipeline;
-  const clickatronCanSend = Boolean(clickatronHandoffState?.canSendToClickatron);
+  const isEditronAiVideoExport = Boolean(videosGenerated || storyboardId);
+  const showClickatronHandoff = !projectId && !isEditronAiVideoExport && Boolean(clickatronHandoffState);
+  const wrapLabel = videosGenerated ? "PRODUCTION WRAP" : storyboardId ? "STORYBOARD READY" : "DRAFT IMPORT";
+  const sceneStatus = videosGenerated ? "COMPLETE" : storyboardId ? "REVIEW" : "DRAFT";
+  const sceneStatusColor = videosGenerated ? "#5EC97E" : "#D4A652";
+  const clickatronCanSend = showClickatronHandoff && Boolean(clickatronHandoffState?.canSendToClickatron);
   const clickatronButtonText = clickatronCreating
     ? "Starting..."
     : clickatronVisualChoices.kind === "carousel"
@@ -69,7 +75,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
           borderBottom: "2px solid #D4A652",
         }}>
           <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, color: "#D4A652", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            PRODUCTION WRAP
+            {wrapLabel}
           </span>
           <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, color: "#D4A652", letterSpacing: "0.06em", textTransform: "uppercase", opacity: 0.5 }}>
             EDITRON
@@ -81,7 +87,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
           {/* Row: Scene */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #1C1B19" }}>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#5F5E5A", textTransform: "uppercase", letterSpacing: "0.06em" }}>Scene</span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: "#5EC97E" }}>COMPLETE</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: sceneStatusColor }}>{sceneStatus}</span>
           </div>
           {/* Row: Take */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #1C1B19" }}>
@@ -98,7 +104,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#5F5E5A", textTransform: "uppercase", letterSpacing: "0.06em" }}>Format</span>
             <span style={{ fontSize: 12, fontWeight: 500, color: "#ECE9E1" }}>
               {scenes.length} scenes · {aspectRatio}
-              {videosGenerated ? " · AI Videos" : storyboardId ? " · Storyboard" : ""}
+              {videosGenerated ? " · AI Videos" : storyboardId ? " · Storyboard" : projectId ? " · Draft" : ""}
             </span>
           </div>
         </div>
@@ -119,6 +125,24 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
         </div>
       )}
 
+      {scriptImportPreflight && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          padding: 10, borderRadius: 4,
+          background: "rgba(94,201,126,0.06)", border: "1px solid rgba(94,201,126,0.14)",
+        }}>
+          <div>
+            <p style={{ fontSize: 10, fontWeight: 600, color: "#5EC97E" }}>Import preflight verified</p>
+            <p style={{ fontSize: 9, color: "rgba(236,233,225,0.58)", marginTop: 1 }}>
+              {scriptImportPreflight.wouldReuseProject ? "Source-session project matched" : "New Editron project expected"}
+            </p>
+          </div>
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#B5B2A8", whiteSpace: "nowrap" }}>
+            {scriptImportPreflight.overlayCount} overlays / {Math.round(scriptImportPreflight.totalDurationSeconds)}s / 0 credits
+          </p>
+        </div>
+      )}
+
       {/* Warnings */}
       {error && (
         <div style={{ padding: 10, borderRadius: 4, background: "rgba(212,166,82,0.06)", border: "1px solid rgba(212,166,82,0.12)" }}>
@@ -126,11 +150,13 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
         </div>
       )}
 
-      <ClickatronHandoffPanel
-        handoffState={clickatronHandoffState}
-        visualChoices={clickatronVisualChoices}
-        setVisualChoice={setClickatronVisualChoice}
-      />
+      {showClickatronHandoff && (
+        <ClickatronHandoffPanel
+          handoffState={clickatronHandoffState}
+          visualChoices={clickatronVisualChoices}
+          setVisualChoice={setClickatronVisualChoice}
+        />
+      )}
 
       {/* Storyboard preview with film-frame borders */}
       {storyboardScenes.length > 0 && (
@@ -206,26 +232,28 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
             Edit Storyboard
           </button>
         )}
-        <button
-          onClick={() => { void handleCreateClickatronSession(); }}
-          disabled={clickatronCreating || !clickatronCanSend}
-          style={{
-            padding: "7px 14px", borderRadius: 4,
-            background: "transparent", border: "1px solid rgba(92,184,204,0.3)",
-            color: "#5CB8CC", fontSize: 13, fontWeight: 600,
-            cursor: clickatronCreating ? "wait" : clickatronCanSend ? "pointer" : "not-allowed",
-            display: "flex", alignItems: "center", gap: 6,
-            opacity: clickatronCreating || !clickatronCanSend ? 0.65 : 1,
-          }}
-        >
-          {clickatronCreating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="h-4 w-4" />
-          )}
-          {clickatronButtonText}
-        </button>
-        <button
+        {showClickatronHandoff && (
+          <button
+            onClick={() => { void handleCreateClickatronSession(); }}
+            disabled={clickatronCreating || !clickatronCanSend}
+            style={{
+              padding: "7px 14px", borderRadius: 4,
+              background: "transparent", border: "1px solid rgba(92,184,204,0.3)",
+              color: "#5CB8CC", fontSize: 13, fontWeight: 600,
+              cursor: clickatronCreating ? "wait" : clickatronCanSend ? "pointer" : "not-allowed",
+              display: "flex", alignItems: "center", gap: 6,
+              opacity: clickatronCreating || !clickatronCanSend ? 0.65 : 1,
+            }}
+          >
+            {clickatronCreating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {clickatronButtonText}
+          </button>
+        )}
+        {projectId && <button
           onClick={() => { window.location.href = `/dashboard/editron/project/${projectId}`; }}
           style={{
             padding: "7px 14px", borderRadius: 4,
@@ -237,6 +265,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="23 7 16 12 23 17 23 7" /><rect width="15" height="14" x="1" y="5" rx="2" ry="2" /></svg>
           Open in Editor
         </button>
+        }
       </div>
     </motion.div>
   );

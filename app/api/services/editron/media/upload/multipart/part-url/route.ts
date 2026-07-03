@@ -48,7 +48,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const url = await generatePartUploadUrl(r2Key, uploadId, partNumber);
+    if (upload.r2Key !== r2Key) {
+      return NextResponse.json(
+        { success: false, error: 'Upload key does not match tracked upload' },
+        { status: 400 },
+      );
+    }
+
+    const numericPartNumber = Number(partNumber);
+    if (!Number.isInteger(numericPartNumber) || numericPartNumber < 1 || numericPartNumber > 10000) {
+      return NextResponse.json({ success: false, error: 'Invalid partNumber' }, { status: 400 });
+    }
+
+    const url = await generatePartUploadUrl(upload.r2Key, uploadId, numericPartNumber);
 
     // Keep the upload alive — TTL is on lastActivityAt
     await db.collection(MEDIA_UPLOADS_COLLECTION).updateOne(
@@ -56,7 +68,7 @@ export async function POST(request: NextRequest) {
       { $set: { lastActivityAt: new Date() } },
     );
 
-    return NextResponse.json({ success: true, url, partNumber });
+    return NextResponse.json({ success: true, url, partNumber: numericPartNumber });
   } catch (error: any) {
     console.error('[Multipart] Part URL failed:', error);
     return NextResponse.json(

@@ -95,9 +95,13 @@ export interface BrandVaultRefineryJobSnapshot {
 }
 
 export type BrandVaultRefineryJobListFilter = {
+  brandId?: string;
+  userId?: string;
+  orgId?: string | null;
   statuses?: BrandRefineryJob['status'][];
   updatedBefore?: string;
   limit?: number;
+  sort?: 'updatedAtAsc' | 'updatedAtDesc';
 };
 
 export type BrandVaultAcceptedBrandListFilter = {
@@ -331,13 +335,19 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
     const updatedBeforeMs = filter.updatedBefore ? Date.parse(filter.updatedBefore) : null;
     const limit = Math.max(1, Math.min(filter.limit ?? 25, 100));
     return Array.from(this.jobs.values())
+      .filter((snapshot) => !filter.brandId || snapshot.job.brandId === filter.brandId)
+      .filter((snapshot) => !filter.userId || snapshot.job.userId === filter.userId)
+      .filter((snapshot) => filter.orgId === undefined || (snapshot.job.orgId ?? null) === filter.orgId)
       .filter((snapshot) => statuses.size === 0 || statuses.has(snapshot.job.status))
       .filter((snapshot) => {
         if (updatedBeforeMs === null || !Number.isFinite(updatedBeforeMs)) return true;
         const updatedAt = Date.parse(snapshot.job.updatedAt);
         return Number.isFinite(updatedAt) && updatedAt < updatedBeforeMs;
       })
-      .sort((a, b) => Date.parse(a.job.updatedAt) - Date.parse(b.job.updatedAt))
+      .sort((a, b) => {
+        const delta = Date.parse(a.job.updatedAt) - Date.parse(b.job.updatedAt);
+        return filter.sort === 'updatedAtDesc' ? -delta : delta;
+      })
       .slice(0, limit)
       .map(cloneSnapshot);
   }
