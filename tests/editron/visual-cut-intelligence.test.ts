@@ -127,6 +127,11 @@ describe('visual cut intelligence', () => {
       inputActionCount: 1,
       outputActionCount: 1,
       visualSegmentCount: 0,
+      perception: expect.objectContaining({
+        status: 'unavailable',
+        screenAwarePlacementTrust: 'unavailable',
+        missingEvidence: ['vjepa-segments'],
+      }),
     }));
   });
 
@@ -259,5 +264,74 @@ describe('visual cut intelligence', () => {
       }),
     }));
     expect(result.report.addedSplitCount).toBe(1);
+  });
+  it('persists reusable visual perception facts for downstream overlay planners', () => {
+    const result = refineCutPlanWithVisualIntelligence(
+      rawFootage({ speechCoverage: 0.84, needsVisualDrivenEditing: false }),
+      vjepa([
+        visualSegment({
+          startMs: 2_000,
+          endMs: 4_000,
+          visualSignificance: 0.66,
+          motionIntensity: 0.33,
+          actionType: 'demonstrating',
+          motionType: 'subject_moving',
+          objectCount: 4,
+          textBoxCount: 2,
+          textCoverage: 0.22,
+          mainSubject: { x: 0.12, y: 0.18, width: 0.28, height: 0.42, confidence: 0.74 },
+          mainSubjectX: 0.12,
+          mainSubjectY: 0.18,
+          mainSubjectWidth: 0.28,
+          mainSubjectHeight: 0.42,
+          negativeSpaceTop: 0.16,
+          negativeSpaceRight: 0.72,
+          negativeSpaceBottom: 0.12,
+          negativeSpaceLeft: 0.1,
+        }),
+        visualSegment({
+          startMs: 4_000,
+          endMs: 6_000,
+          visualSignificance: 0.42,
+          motionIntensity: 0.2,
+          actionType: 'talking',
+          motionType: 'static',
+          faceCount: 1,
+          objectCount: 1,
+          mainSubject: { x: 0.2, y: 0.12, width: 0.32, height: 0.5, confidence: 0.81 },
+          mainSubjectX: 0.2,
+          mainSubjectY: 0.12,
+          mainSubjectWidth: 0.32,
+          mainSubjectHeight: 0.5,
+          negativeSpaceTop: 0.18,
+          negativeSpaceRight: 0.62,
+          negativeSpaceBottom: 0.1,
+          negativeSpaceLeft: 0.08,
+        }),
+      ]),
+    );
+
+    expect(result.plan).toEqual([]);
+    expect(result.report.perception).toMatchObject({
+      status: 'available',
+      segmentCount: 2,
+      durationMs: 4_000,
+      speechCoverage: 0.84,
+      primaryVisualMode: 'screen-text',
+      preferredOverlayRegion: 'right',
+      screenAwarePlacementTrust: 'trusted',
+      visualExplainability: 'high',
+      textPresenceRatio: 0.5,
+      facePresenceRatio: 0.5,
+      motionPresenceRatio: 0.5,
+      screenClutterRatio: 0.5,
+      missingEvidence: [],
+    });
+    expect(result.report.perception.reasons).toEqual(expect.arrayContaining([
+      'primary:screen-text',
+      'placement:trusted',
+      'preferred-region:right',
+      'visual-explainability:high',
+    ]));
   });
 });

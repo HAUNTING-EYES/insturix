@@ -61,7 +61,38 @@ export interface VisualCutIntelligenceReport {
   addedRemovalCount: number;
   addedSplitCount: number;
   calibrationStatus: 'invented-threshold';
+  perception: VisualPerceptionSummary;
   decisions: VisualCutDecision[];
+}
+
+export interface VisualPerceptionSummary {
+  version: 1;
+  source: 'vjepa';
+  calibrationStatus: 'invented-threshold';
+  status: 'available' | 'unavailable';
+  segmentCount: number;
+  durationMs: number;
+  speechCoverage: number;
+  primaryVisualMode: 'unknown' | 'talking-head' | 'screen-text' | 'demonstration' | 'action-broll' | 'static-low-value' | 'mixed';
+  dominantActionType: VjepaSegmentResult['actionType'] | null;
+  dominantMotionType: VjepaSegmentResult['motionType'] | null;
+  subjectPresenceRatio: number;
+  facePresenceRatio: number;
+  textPresenceRatio: number;
+  motionPresenceRatio: number;
+  screenClutterRatio: number;
+  avgViewerValue: number;
+  avgCutEligibility: number;
+  avgCoverageTrust: number;
+  avgTextCoverage: number;
+  avgObjectCount: number;
+  avgFaceCount: number;
+  avgNegativeSpace: { top: number; right: number; bottom: number; left: number };
+  preferredOverlayRegion: 'top' | 'right' | 'bottom' | 'left' | 'unknown';
+  screenAwarePlacementTrust: 'trusted' | 'degraded' | 'unavailable';
+  visualExplainability: 'high' | 'medium' | 'low' | 'unknown';
+  reasons: string[];
+  missingEvidence: string[];
 }
 
 export interface VisualCutRefinementResult {
@@ -133,6 +164,7 @@ export function refineCutPlanWithVisualIntelligence(
         protectedActionCount: 0,
         addedRemovalCount: 0,
         addedSplitCount: 0,
+        perception: buildVisualPerceptionSummary([], rawFootage),
         decisions,
       }),
     };
@@ -212,8 +244,128 @@ export function refineCutPlanWithVisualIntelligence(
       protectedActionCount,
       addedRemovalCount,
       addedSplitCount,
+      perception: buildVisualPerceptionSummary(visualSegments, rawFootage),
       decisions,
     }),
+  };
+}
+
+function buildVisualPerceptionSummary(
+  visualSegments: VjepaSegmentResult[],
+  rawFootage: RawFootageAnalysis,
+): VisualPerceptionSummary {
+  const speechCoverage = clamp01(rawFootage.speechCoverage ?? 0);
+  if (!visualSegments.length) {
+    return {
+      version: 1,
+      source: 'vjepa',
+      calibrationStatus: 'invented-threshold',
+      status: 'unavailable',
+      segmentCount: 0,
+      durationMs: 0,
+      speechCoverage,
+      primaryVisualMode: 'unknown',
+      dominantActionType: null,
+      dominantMotionType: null,
+      subjectPresenceRatio: 0,
+      facePresenceRatio: 0,
+      textPresenceRatio: 0,
+      motionPresenceRatio: 0,
+      screenClutterRatio: 0,
+      avgViewerValue: 0,
+      avgCutEligibility: 0,
+      avgCoverageTrust: 0,
+      avgTextCoverage: 0,
+      avgObjectCount: 0,
+      avgFaceCount: 0,
+      avgNegativeSpace: { top: 0, right: 0, bottom: 0, left: 0 },
+      preferredOverlayRegion: 'unknown',
+      screenAwarePlacementTrust: 'unavailable',
+      visualExplainability: 'unknown',
+      reasons: ['no-vjepa-segments'],
+      missingEvidence: ['vjepa-segments'],
+    };
+  }
+
+  const evidence = visualSegments.map(segment => segmentEvidence(segment, rawFootage));
+  const avgCoverageTrust = durationWeightedAverage(visualSegments, (_, index) => evidence[index]?.coverageTrust ?? 0);
+  const avgViewerValue = durationWeightedAverage(visualSegments, (_, index) => evidence[index]?.viewerValue ?? 0);
+  const avgCutEligibility = durationWeightedAverage(visualSegments, (_, index) => evidence[index]?.cutEligibility ?? 0);
+  const avgTextCoverage = durationWeightedAverage(visualSegments, segment => segment.textCoverage);
+  const avgObjectCount = durationWeightedAverage(visualSegments, segment => segment.objectCount);
+  const avgFaceCount = durationWeightedAverage(visualSegments, segment => segment.faceCount);
+  const negativeSpace = averageNegativeSpace(visualSegments);
+  const preferredOverlayRegion = preferredRegionFromNegativeSpace(negativeSpace);
+  const subjectPresenceRatio = durationWeightedRatio(visualSegments, hasSubjectPresence);
+  const facePresenceRatio = durationWeightedRatio(visualSegments, segment => segment.faceCount > 0 || segment.eyeContact === true);
+  const textPresenceRatio = durationWeightedRatio(visualSegments, segment => segment.textCoverage >= 0.08 || segment.textBoxCount > 0);
+  const motionPresenceRatio = durationWeightedRatio(visualSegments, segment => segment.motionIntensity >= 0.28 || segment.motionType !== 'static');
+  const screenClutterRatio = durationWeightedRatio(visualSegments, segment => segment.textCoverage >= 0.18 || segment.objectCount >= 4);
+  const dominantActionType = dominantDurationValue(visualSegments, segment => segment.actionType);
+  const dominantMotionType = dominantDurationValue(visualSegments, segment => segment.motionType);
+  const demoRatio = durationWeightedRatio(visualSegments, segment => (
+    segment.actionType === 'demonstrating' || segment.actionType === 'interacting_with_object' || segment.actionType === 'writing'
+  ));
+  const actionRatio = durationWeightedRatio(visualSegments, segment => (
+    segment.actionType === 'walking' || segment.actionType === 'eating' || segment.actionType === 'gesturing'
+  ));
+  const primaryVisualMode = classifyPrimaryVisualMode({
+    dominantActionType,
+    textPresenceRatio,
+    avgTextCoverage,
+    demoRatio,
+    facePresenceRatio,
+    motionPresenceRatio,
+    actionRatio,
+    avgViewerValue,
+  });
+  const missingEvidence = uniqueStrings(evidence.flatMap(item => item.missingEvidence));
+  const screenAwarePlacementTrust = avgCoverageTrust >= 0.78
+    && !missingEvidence.includes('negative-space')
+    && !missingEvidence.includes('main-subject')
+    ? 'trusted'
+    : 'degraded';
+  const visualExplainability = resolveVisualExplainability({
+    textPresenceRatio,
+    demoRatio,
+    avgObjectCount,
+    avgViewerValue,
+    facePresenceRatio,
+  });
+
+  return {
+    version: 1,
+    source: 'vjepa',
+    calibrationStatus: 'invented-threshold',
+    status: 'available',
+    segmentCount: visualSegments.length,
+    durationMs: Math.round(totalSegmentDuration(visualSegments)),
+    speechCoverage,
+    primaryVisualMode,
+    dominantActionType,
+    dominantMotionType,
+    subjectPresenceRatio,
+    facePresenceRatio,
+    textPresenceRatio,
+    motionPresenceRatio,
+    screenClutterRatio,
+    avgViewerValue,
+    avgCutEligibility,
+    avgCoverageTrust,
+    avgTextCoverage,
+    avgObjectCount,
+    avgFaceCount,
+    avgNegativeSpace: negativeSpace,
+    preferredOverlayRegion,
+    screenAwarePlacementTrust,
+    visualExplainability,
+    reasons: [
+      `primary:${primaryVisualMode}`,
+      `placement:${screenAwarePlacementTrust}`,
+      `preferred-region:${preferredOverlayRegion}`,
+      `visual-explainability:${visualExplainability}`,
+    ],
+    missingEvidence,
   };
 }
 
@@ -424,6 +576,116 @@ function buildDecision(
   };
 }
 
+function classifyPrimaryVisualMode(input: {
+  dominantActionType: VjepaSegmentResult['actionType'] | null;
+  textPresenceRatio: number;
+  avgTextCoverage: number;
+  demoRatio: number;
+  facePresenceRatio: number;
+  motionPresenceRatio: number;
+  actionRatio: number;
+  avgViewerValue: number;
+}): VisualPerceptionSummary['primaryVisualMode'] {
+  if (input.textPresenceRatio >= 0.42 || input.avgTextCoverage >= 0.12) return 'screen-text';
+  if (input.demoRatio >= 0.3) return 'demonstration';
+  if (input.facePresenceRatio >= 0.45 && (input.dominantActionType === 'talking' || input.dominantActionType === 'gesturing')) return 'talking-head';
+  if (input.actionRatio >= 0.35 || input.motionPresenceRatio >= 0.55) return 'action-broll';
+  if (input.avgViewerValue <= 0.26 && input.motionPresenceRatio <= 0.22) return 'static-low-value';
+  return 'mixed';
+}
+
+function resolveVisualExplainability(input: {
+  textPresenceRatio: number;
+  demoRatio: number;
+  avgObjectCount: number;
+  avgViewerValue: number;
+  facePresenceRatio: number;
+}): VisualPerceptionSummary['visualExplainability'] {
+  if (input.textPresenceRatio >= 0.35 || input.demoRatio >= 0.3 || input.avgObjectCount >= 2.2) return 'high';
+  if (input.avgViewerValue >= 0.38 || input.facePresenceRatio >= 0.3) return 'medium';
+  return 'low';
+}
+
+function averageNegativeSpace(segments: VjepaSegmentResult[]): VisualPerceptionSummary['avgNegativeSpace'] {
+  return {
+    top: durationWeightedAverage(segments, segment => segment.negativeSpaceTop),
+    right: durationWeightedAverage(segments, segment => segment.negativeSpaceRight),
+    bottom: durationWeightedAverage(segments, segment => segment.negativeSpaceBottom),
+    left: durationWeightedAverage(segments, segment => segment.negativeSpaceLeft),
+  };
+}
+
+function preferredRegionFromNegativeSpace(
+  negativeSpace: VisualPerceptionSummary['avgNegativeSpace'],
+): VisualPerceptionSummary['preferredOverlayRegion'] {
+  const entries = [
+    ['top', negativeSpace.top],
+    ['right', negativeSpace.right],
+    ['bottom', negativeSpace.bottom],
+    ['left', negativeSpace.left],
+  ] as Array<[VisualPerceptionSummary['preferredOverlayRegion'], number]>;
+  const best = entries.reduce((winner, entry) => entry[1] > winner[1] ? entry : winner, entries[0]);
+  return best[1] > 0 ? best[0] : 'unknown';
+}
+
+function hasSubjectPresence(segment: VjepaSegmentResult): boolean {
+  return (segment.mainSubject?.confidence ?? 0) >= 0.35
+    || segment.mainSubjectWidth * segment.mainSubjectHeight >= 0.04
+    || segment.faceCount > 0
+    || segment.objectCount > 0;
+}
+
+function durationWeightedRatio(segments: VjepaSegmentResult[], predicate: (segment: VjepaSegmentResult) => boolean): number {
+  const durationMs = totalSegmentDuration(segments);
+  if (durationMs <= 0) return 0;
+  const matchingMs = segments.reduce((sum, segment) => sum + (predicate(segment) ? segmentDuration(segment) : 0), 0);
+  return round01(matchingMs / durationMs);
+}
+
+function durationWeightedAverage(segments: VjepaSegmentResult[], value: (segment: VjepaSegmentResult, index: number) => number): number {
+  const durationMs = totalSegmentDuration(segments);
+  if (durationMs <= 0) return 0;
+  const weighted = segments.reduce((sum, segment, index) => sum + clampFinite(value(segment, index)) * segmentDuration(segment), 0);
+  return roundMetric(weighted / durationMs);
+}
+
+function dominantDurationValue<T extends string>(segments: VjepaSegmentResult[], value: (segment: VjepaSegmentResult) => T): T | null {
+  const totals = new Map<T, number>();
+  for (const segment of segments) {
+    const key = value(segment);
+    totals.set(key, (totals.get(key) ?? 0) + segmentDuration(segment));
+  }
+  let best: T | null = null;
+  let bestDuration = 0;
+  for (const [key, duration] of totals) {
+    if (duration > bestDuration) {
+      best = key;
+      bestDuration = duration;
+    }
+  }
+  return best;
+}
+
+function totalSegmentDuration(segments: VjepaSegmentResult[]): number {
+  return segments.reduce((sum, segment) => sum + segmentDuration(segment), 0);
+}
+
+function segmentDuration(segment: VjepaSegmentResult): number {
+  return Math.max(0, segment.endMs - segment.startMs);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function clampFinite(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function roundMetric(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 1000) / 1000;
+}
 function visualImportanceScore(
   segment: VjepaSegmentResult,
   rawFootage: RawFootageAnalysis,
