@@ -26,6 +26,22 @@ function transitionSfxReceipt(transitionId = 'tr-1') {
   };
 }
 
+function crossOverlayChoreographyReport(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 'cross-overlay-choreography-v1',
+    inputDecisionCount: 1,
+    outputDecisionCount: 1,
+    suppressedDecisionCount: 0,
+    annotatedDecisionCount: 1,
+    calibrationStatus: 'invented-needs-calibration',
+    laneLoad: { text: 1, motion: 0, audio: 0, timeline: 0, other: 0 },
+    syncGroups: [],
+    suppressed: [],
+    suppressedByReason: {},
+    suppressedByFamily: {},
+    ...overrides,
+  };
+}
 function signalAudit(overrides: Record<string, unknown> = {}) {
   const candidate = {
     version: 'signal-execution-candidate-v1',
@@ -407,6 +423,78 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('surfaces cross-overlay choreography suppressions as Phase 0 decision evidence', () => {
+    const project = cleanProject();
+    project.intelligence!.unifiedDecisionBundle!.evidence = {
+      signalDecisionAudit: signalAudit(),
+      crossOverlayChoreography: crossOverlayChoreographyReport({
+        inputDecisionCount: 4,
+        outputDecisionCount: 2,
+        suppressedDecisionCount: 2,
+        laneLoad: { text: 2, motion: 1, audio: 1, timeline: 0, other: 0 },
+        syncGroups: [{
+          id: 'sync:120',
+          lane: 'text',
+          lanes: ['text', 'motion'],
+          frame: 120,
+          families: ['mg', 'camera'],
+          decisionTypes: ['graphic', 'zoom'],
+          count: 2,
+        }],
+        suppressedByReason: { 'text-motion-stack': 1, 'unlinked-audio-on-crowded-moment': 1 },
+        suppressedByFamily: { transition: 1, audio: 1 },
+        suppressed: [{
+          reason: 'text-motion-stack',
+          family: 'transition',
+          frame: 124,
+          conflictingWith: {
+            type: 'graphic',
+            frame: 120,
+            family: 'mg',
+            source: 'signal-driven',
+          },
+          calibrationStatus: 'invented-needs-calibration',
+        }],
+      }),
+    };
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_choreography_suppression',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_choreography_suppression',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(manifest.unifiedDecisionBundle.crossOverlayChoreography).toMatchObject({
+      status: 'present',
+      inputDecisionCount: 4,
+      outputDecisionCount: 2,
+      suppressedDecisionCount: 2,
+      suppressionRate: 0.5,
+      suppressedByReason: {
+        'text-motion-stack': 1,
+        'unlinked-audio-on-crowded-moment': 1,
+      },
+      syncGroups: [expect.objectContaining({ id: 'sync:120', lanes: ['text', 'motion'] })],
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'decision.cross_overlay_choreography_suppression')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        inputDecisionCount: 4,
+        outputDecisionCount: 2,
+        suppressedDecisionCount: 2,
+        suppressionRate: 0.5,
+        suppressedByFamily: { audio: 1, transition: 1 },
+        topSuppressions: [expect.objectContaining({
+          reason: 'text-motion-stack',
+          family: 'transition',
+          frame: 124,
+          conflictingWith: expect.objectContaining({ type: 'graphic', frame: 120, family: 'mg' }),
+        })],
+      },
+    });
+  });
   it('classifies rendered aesthetic failures with stable ids and grouped evidence', () => {
     const project = cleanProject();
     const manifest = buildPhase0FixtureManifest(project, {
@@ -1275,7 +1363,7 @@ function cleanProject(): Phase0FixtureProject {
             afterOverlayCount: 4,
           }],
         },
-        evidence: { signalDecisionAudit: signalAudit() },
+        evidence: { signalDecisionAudit: signalAudit(), crossOverlayChoreography: crossOverlayChoreographyReport() },
       },
       postBundleProfileActionPolicy: {
         version: 'post-bundle-profile-action-policy-v1',

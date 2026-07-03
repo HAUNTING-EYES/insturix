@@ -556,6 +556,7 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
       evidence: null,
       signalDecisionHealth: summarizeSignalDecisionHealth(null),
       decisionOutputTrace: summarizeDecisionOutputTrace(null),
+      crossOverlayChoreography: summarizeCrossOverlayChoreography(null),
     };
   }
 
@@ -575,9 +576,92 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
     evidence,
     signalDecisionHealth: summarizeSignalDecisionHealth(evidence),
     decisionOutputTrace: summarizeDecisionOutputTrace(bundle.executionTrace),
+    crossOverlayChoreography: summarizeCrossOverlayChoreography(evidence),
   };
 }
 
+function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
+  const report = isRecord(evidence?.crossOverlayChoreography) ? evidence.crossOverlayChoreography : null;
+  if (!report) {
+    return {
+      version: 'phase0-cross-overlay-choreography-v1' as const,
+      status: 'missing' as const,
+      issue: 'unifiedDecisionBundle.evidence.crossOverlayChoreography is missing',
+      inputDecisionCount: 0,
+      outputDecisionCount: 0,
+      suppressedDecisionCount: 0,
+      suppressionRate: null,
+      syncGroupCount: 0,
+      laneLoad: {} as Record<string, number>,
+      suppressedByReason: {} as Record<string, number>,
+      suppressedByFamily: {} as Record<string, number>,
+      topSuppressions: [] as Array<Record<string, unknown>>,
+      syncGroups: [] as Array<Record<string, unknown>>,
+      calibrationStatus: null,
+    };
+  }
+
+  const inputDecisionCount = readPositiveNumber(report.inputDecisionCount, 0);
+  const suppressedDecisionCount = readPositiveNumber(report.suppressedDecisionCount, 0);
+  const syncGroups = Array.isArray(report.syncGroups)
+    ? report.syncGroups.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySyncGroup)
+    : [];
+  return {
+    version: 'phase0-cross-overlay-choreography-v1' as const,
+    status: 'present' as const,
+    issue: null,
+    inputDecisionCount,
+    outputDecisionCount: readPositiveNumber(report.outputDecisionCount, 0),
+    suppressedDecisionCount,
+    suppressionRate: inputDecisionCount > 0 ? round(suppressedDecisionCount / inputDecisionCount) : null,
+    syncGroupCount: syncGroups.length,
+    laneLoad: normalizeNumberRecord(report.laneLoad),
+    suppressedByReason: normalizeNumberRecord(report.suppressedByReason),
+    suppressedByFamily: normalizeNumberRecord(report.suppressedByFamily),
+    topSuppressions: Array.isArray(report.suppressed)
+      ? report.suppressed.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySuppression)
+      : [],
+    syncGroups,
+    calibrationStatus: readString(report.calibrationStatus) || null,
+  };
+}
+
+function summarizeCrossOverlaySuppression(item: JsonRecord) {
+  const conflictingWith = isRecord(item.conflictingWith) ? item.conflictingWith : {};
+  return {
+    reason: readString(item.reason) || 'unknown',
+    family: readString(item.family) || 'unknown',
+    frame: readNullableNumber(item.frame),
+    conflictingWith: {
+      type: readString(conflictingWith.type) || null,
+      frame: readNullableNumber(conflictingWith.frame),
+      family: readString(conflictingWith.family) || null,
+      source: preview(conflictingWith.source, 80) || null,
+    },
+    calibrationStatus: readString(item.calibrationStatus) || null,
+  };
+}
+
+function summarizeCrossOverlaySyncGroup(item: JsonRecord) {
+  return {
+    id: readString(item.id) || 'unknown',
+    lane: readString(item.lane) || null,
+    lanes: readStringArray(item.lanes).slice(0, 8),
+    frame: readNullableNumber(item.frame),
+    families: readStringArray(item.families).slice(0, 8),
+    decisionTypes: readStringArray(item.decisionTypes).slice(0, 8),
+    count: readPositiveNumber(item.count, 0),
+  };
+}
+
+function normalizeNumberRecord(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  const result: Record<string, number> = {};
+  for (const [key, count] of Object.entries(value)) {
+    result[key] = readPositiveNumber(count, 0);
+  }
+  return sortRecordByKey(result);
+}
 function summarizeDecisionOutputTrace(trace: unknown) {
   if (!isRecord(trace)) {
     return {

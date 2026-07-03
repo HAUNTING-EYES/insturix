@@ -341,6 +341,38 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
       evidence: compactDecisionOutputTraceEvidence(decisionOutputTrace),
     });
   }
+
+  addCrossOverlayChoreographyClasses(classes, manifest);
+}
+
+function addCrossOverlayChoreographyClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+  const choreography = asRecord(manifest.unifiedDecisionBundle.crossOverlayChoreography);
+  const status = readString(choreography.status);
+  if (status === 'missing') {
+    classes.push({
+      id: 'decision.cross_overlay_choreography_missing',
+      severity: 'warn',
+      source: 'decision',
+      message: 'Unified bundle exists, but cross-overlay choreography scheduler evidence is missing.',
+      evidence: {
+        issue: readString(choreography.issue),
+      },
+    });
+    return;
+  }
+
+  if (status !== 'present') return;
+
+  const suppressedDecisionCount = readNumber(choreography.suppressedDecisionCount) ?? 0;
+  if (suppressedDecisionCount <= 0) return;
+
+  classes.push({
+    id: 'decision.cross_overlay_choreography_suppression',
+    severity: 'info',
+    source: 'decision',
+    message: 'Cross-overlay choreography suppressed one or more candidate decisions to avoid unsynchronized overlay stacking.',
+    evidence: compactCrossOverlayChoreographyEvidence(choreography),
+  });
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -1297,6 +1329,22 @@ function compactDecisionOutputTraceEvidence(decisionOutputTrace: JsonRecord): Re
     executedWithoutOverlayLinkCount: readNumber(decisionOutputTrace.executedWithoutOverlayLinkCount),
     byOutcome: asRecord(decisionOutputTrace.byOutcome),
     samples: Array.isArray(decisionOutputTrace.samples) ? decisionOutputTrace.samples.slice(0, 5) : [],
+  };
+}
+
+function compactCrossOverlayChoreographyEvidence(choreography: JsonRecord): Record<string, unknown> {
+  return {
+    inputDecisionCount: readNumber(choreography.inputDecisionCount),
+    outputDecisionCount: readNumber(choreography.outputDecisionCount),
+    suppressedDecisionCount: readNumber(choreography.suppressedDecisionCount),
+    suppressionRate: readNumber(choreography.suppressionRate),
+    syncGroupCount: readNumber(choreography.syncGroupCount),
+    laneLoad: asRecord(choreography.laneLoad),
+    suppressedByReason: asRecord(choreography.suppressedByReason),
+    suppressedByFamily: asRecord(choreography.suppressedByFamily),
+    topSuppressions: Array.isArray(choreography.topSuppressions) ? choreography.topSuppressions.slice(0, 5) : [],
+    syncGroups: Array.isArray(choreography.syncGroups) ? choreography.syncGroups.slice(0, 5) : [],
+    calibrationStatus: readString(choreography.calibrationStatus),
   };
 }
 
