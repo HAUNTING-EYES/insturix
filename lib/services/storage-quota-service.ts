@@ -45,7 +45,10 @@ export async function getStorageLimitBytes(userId: string): Promise<number> {
       plan?.serviceLimits?.storage?.limitBytes ??
       plan?.serviceLimits?.storage?.limit;
     if (typeof fromLimits === 'number' && fromLimits > 0) return fromLimits;
-    return getPlanStorageBytes(plan?.type ?? plan?.planType);
+    // The plan identifier lives in currentPlan.name (UserType enum, e.g. "agency_scale");
+    // there is NO `type` field on currentPlan. Fall back to name (the normalizer
+    // handles both the type value and a display name).
+    return getPlanStorageBytes(plan?.type ?? plan?.planType ?? plan?.name);
   } catch {
     // No plan / lookup failure -> the smallest (free) tier via the central config.
     return getPlanStorageBytes(undefined);
