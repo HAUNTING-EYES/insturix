@@ -5,11 +5,11 @@
  * Follows the same pattern as render-queue-service.ts but for fal.ai video generation.
  *
  * Architecture:
- * 1. Frontend calls POST /generate-videos → enqueues individual scene jobs
+ * 1. Frontend calls POST /generate-videos -> enqueues individual scene jobs
  * 2. Each scene is an independent Redis queue entry
  * 3. Cron (/api/cron/process-video-queue) pops jobs and processes them in parallel
  * 4. Frontend polls GET /generate-videos/status?batchId=xxx for progress
- * 5. Each scene completes independently — partial results are available immediately
+ * 5. Each scene completes independently - partial results are available immediately
  *
  * This replaces the old blocking sequential approach that timed out on 4+ scenes.
  */
@@ -18,9 +18,9 @@ import { Redis } from '@upstash/redis';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 
-// ─── Redis Queue ─────────────────────────────────────────────────
+// --- Redis Queue ---
 
-// Lazy-initialized Redis client — avoids cold-start race where env vars
+// Lazy-initialized Redis client - avoids cold-start race where env vars
 // aren't available yet at module init time on Vercel serverless.
 let _redis: Redis | null = null;
 function getRedis(): Redis {
@@ -41,7 +41,7 @@ const MAX_CONCURRENT_VIDEO_JOBS = 4;
 
 /**
  * Retry a Redis operation with exponential backoff.
- * Upstash REST API uses fetch() internally — transient DNS/network failures
+ * Upstash REST API uses fetch() internally - transient DNS/network failures
  * cause TypeError: fetch failed. Retrying 2-3 times fixes this.
  */
 async function retryRedis<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
@@ -59,7 +59,7 @@ async function retryRedis<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw new Error('retryRedis: unreachable');
 }
 
-// ─── Types ───────────────────────────────────────────────────────
+// --- Types ---
 
 export interface VideoJobScene {
   sceneIndex: number;
@@ -104,7 +104,7 @@ export interface VideoJob {
   startedAt?: Date;
   completedAt?: Date;
   createdAt: Date;
-  expiresAt: Date; // TTL — auto-delete after 24h
+  expiresAt: Date; // TTL - auto-delete after 24h
 }
 
 export interface VideoBatch {
@@ -123,8 +123,9 @@ export interface VideoBatch {
 // MongoDB collection for video generation jobs
 const VIDEO_JOBS_COLLECTION = 'pipeline_video_jobs';
 const VIDEO_BATCHES_COLLECTION = 'pipeline_video_batches';
+type PipelineDb = Awaited<ReturnType<typeof getDatabase>>;
 
-// ─── Enqueue ─────────────────────────────────────────────────────
+// --- Enqueue ---
 
 /**
  * Enqueue a batch of scenes for parallel video generation.
@@ -195,7 +196,7 @@ export async function enqueueVideoBatch(
 
   console.log(`[VideoQueue] Enqueued batch ${batchId}: ${scenes.length} scenes for storyboard ${storyboardId}`);
 
-  // Trigger immediate processing — don't wait for the next cron tick (up to 60s delay)
+  // Trigger immediate processing - don't wait for the next cron tick (up to 60s delay)
   triggerImmediateProcessing('video').catch((err) =>
     console.warn('[VideoQueue] Immediate trigger failed (cron will pick it up):', err.message),
   );
@@ -203,7 +204,7 @@ export async function enqueueVideoBatch(
   return { batchId, totalScenes: scenes.length };
 }
 
-// ─── Process Queue ───────────────────────────────────────────────
+// --- Process Queue ---
 
 /**
  * Pop and process the next job from the queue.
@@ -411,7 +412,7 @@ function summarizeVideoBatchFromJobs(batch: VideoBatch, jobs: VideoJob[], update
 }
 
 async function persistVideoBatchSummary(
-  db: Awaited<ReturnType<typeof getDatabase>>,
+  db: PipelineDb,
   batch: VideoBatch,
   summarized: VideoBatch,
 ): Promise<void> {
@@ -439,7 +440,7 @@ async function persistVideoBatchSummary(
 }
 
 async function reconcileVideoBatchFromStoryboard(
-  db: Awaited<ReturnType<typeof getDatabase>>,
+  db: PipelineDb,
   batch: VideoBatch,
   jobs: VideoJob[],
 ): Promise<{ batch: VideoBatch; jobs: VideoJob[] }> {
@@ -499,7 +500,32 @@ async function reconcileVideoBatchFromStoryboard(
   await persistVideoBatchSummary(db, batch, summarized);
   return { batch: summarized, jobs: reconciledJobs };
 }
-// ─── Status Polling ──────────────────────────────────────────────
+// --- Status Polling ---
+
+export async function reconcileVideoBatchStatus(
+  batchId: string,
+  userId: string,
+  db?: PipelineDb,
+): Promise<{
+  batch: VideoBatch | null;
+  jobs: VideoJob[];
+}> {
+  const videoDb = db ?? await getDatabase();
+  const batch = await videoDb.collection(VIDEO_BATCHES_COLLECTION).findOne({
+    _id: batchId,
+    userId,
+  } as any) as any;
+
+  if (!batch) return { batch: null, jobs: [] };
+
+  const jobs = await videoDb
+    .collection(VIDEO_JOBS_COLLECTION)
+    .find({ batchId, userId } as any)
+    .sort({ sceneIndex: 1 })
+    .toArray() as any[];
+
+  return reconcileVideoBatchFromStoryboard(videoDb, batch as VideoBatch, jobs as VideoJob[]);
+}
 
 /**
  * Get batch status + per-scene job details for frontend polling.
@@ -511,23 +537,8 @@ export async function getVideoBatchStatus(
   batch: VideoBatch | null;
   jobs: VideoJob[];
 }> {
-  const db = await getDatabase();
-  const batch = await db.collection(VIDEO_BATCHES_COLLECTION).findOne({
-    _id: batchId,
-    userId,
-  } as any) as any;
-
-  if (!batch) return { batch: null, jobs: [] };
-
-  const jobs = await db
-    .collection(VIDEO_JOBS_COLLECTION)
-    .find({ batchId, userId } as any)
-    .sort({ sceneIndex: 1 })
-    .toArray() as any[];
-
-  return reconcileVideoBatchFromStoryboard(db, batch as VideoBatch, jobs as VideoJob[]);
+  return reconcileVideoBatchStatus(batchId, userId);
 }
-
 /**
  * Get the queue length (for monitoring).
  */
@@ -544,11 +555,11 @@ async function triggerImmediateProcessing(type: 'video' | 'storyboard'): Promise
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   const path = type === 'video' ? '/api/cron/process-video-queue' : '/api/cron/process-storyboard-queue';
 
-  // Fire-and-forget — don't await, don't block enqueue response
+  // Fire-and-forget - don't await, don't block enqueue response
   fetch(`${baseUrl}${path}`, {
     method: 'GET',
     headers: process.env.CRON_SECRET
       ? { 'Authorization': `Bearer ${process.env.CRON_SECRET}` }
       : {},
-  }).catch(() => {}); // Silently ignore — cron is the fallback
+  }).catch(() => {}); // Silently ignore - cron is the fallback
 }
