@@ -303,6 +303,7 @@ export function momentBundleToSignalMap(bundle: AtomicMomentBundle): Record<stri
   setBundleSignal(signals, 'motion_vector_y', bundle.screen.motionVector.y);
   setBundleSignal(signals, 'word_importance', Math.max(bundle.familyIntents.captionEmphasis, bundle.familyIntents.motionGraphic));
   setBundleSignal(signals, 'topic_shift', bundle.familyIntents.transition);
+  setNegativeSpaceSignals(signals, bundle.screen.negativeSpace);
 
   if (bundle.screen.subject) {
     setBundleSignal(signals, 'main_subject_x', bundle.screen.subject.x);
@@ -312,6 +313,17 @@ export function momentBundleToSignalMap(bundle: AtomicMomentBundle): Record<stri
   }
 
   return signals;
+}
+
+function setNegativeSpaceSignals(
+  target: Record<string, unknown>,
+  negativeSpace: MomentScreenContext['negativeSpace'],
+): void {
+  if (negativeSpace.region === 'none' || negativeSpace.strength <= 0) return;
+  setBundleSignal(target, 'negative_space', negativeSpace.strength);
+  setBundleSignal(target, 'visual.negative_space', negativeSpace.strength);
+  setBundleSignal(target, `negative_space_${negativeSpace.region}`, negativeSpace.strength);
+  setBundleSignal(target, `visual.negative_space.${negativeSpace.region}`, negativeSpace.strength);
 }
 
 function setBundleSignal(target: Record<string, unknown>, key: string, value: unknown): void {

@@ -157,6 +157,10 @@ describe('atomic moment bundle', () => {
     expect(fallbackBundle.screen.busyness).toBeGreaterThan(0.4);
     expect(fallbackBundle.screen.visualSalience).toBeGreaterThan(0.5);
     expect(fallbackBundle.constraints.preferNegativeSpace).toBe(true);
+    const fallbackSignals = momentBundleToSignalMap(fallbackBundle);
+    expect(fallbackSignals['visual.negative_space.right']).toBe(0.66);
+    expect(fallbackSignals.negative_space_right).toBe(0.66);
+    expect(fallbackSignals.negative_space).toBe(0.66);
 
     const directBundle = buildAtomicMomentBundle({
       frame: 60,
@@ -170,6 +174,10 @@ describe('atomic moment bundle', () => {
       } as SignalSnapshot,
     });
     expect(directBundle.screen.negativeSpace).toEqual({ region: 'left', strength: 0.81 });
+    const directSignals = momentBundleToSignalMap(directBundle);
+    expect(directSignals['visual.negative_space.left']).toBe(0.81);
+    expect(directSignals.negative_space_left).toBe(0.81);
+    expect(directSignals['visual.negative_space.right']).toBeUndefined();
   });
 
   it('does not invent placement from degraded perception trust', () => {
