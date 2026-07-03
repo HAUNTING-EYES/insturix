@@ -555,6 +555,7 @@ export function useExportPipeline(
               subjects: subjectsToGenerate,
               artStyle,
               sourceScriptId: scriptId,
+              brandId: sourceBrandId || undefined,
               modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
             }),
           });
@@ -563,7 +564,21 @@ export function useExportPipeline(
             const genData = await genRes.json().catch(() => ({}));
             const sbRefSetId = genData.refSetId || "";
             setRefSetId(sbRefSetId);
-            setSubjects((genData.subjects || []).map((s: any) => ({ ...s, priority: "hero" })));
+            let latestSubjects: SubjectRef[] = (genData.subjects || []).map((s: any) => ({ ...s, priority: "hero" }));
+            const mergeReferenceSubjects = (base: SubjectRef[], updates: any[]): SubjectRef[] => {
+              const nextById = new Map(base.map((subject) => [subject.subjectId, subject]));
+              for (const update of updates || []) {
+                if (!update?.subjectId) continue;
+                const previous = nextById.get(update.subjectId);
+                nextById.set(update.subjectId, {
+                  ...(previous || {}),
+                  ...update,
+                  priority: previous?.priority || "hero",
+                } as SubjectRef);
+              }
+              return Array.from(nextById.values());
+            };
+            setSubjects(latestSubjects);
 
             // Async polling for reference image generation
             if (genData.async && genData.batchId && sbRefSetId) {
@@ -571,7 +586,7 @@ export function useExportPipeline(
               const MAX_POLL_ATTEMPTS = 60;
               const POLL_INTERVAL_MS = 5000;
               let refsCompleted = false;
-              let finalSubjects: any[] = [];
+              let finalSubjects: SubjectRef[] = latestSubjects;
 
               for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
                 await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -584,14 +599,10 @@ export function useExportPipeline(
                     console.log(
                       `[ExportToEditron] Ref poll #${poll + 1}: ${statusData.completed}/${statusData.totalSubjects} done, failed=${statusData.failed}, status=${statusData.status}`,
                     );
-                    setSubjects(
-                      (statusData.subjects || []).map((s: any) => ({
-                        ...s,
-                        priority: "hero",
-                      })),
-                    );
+                    latestSubjects = mergeReferenceSubjects(latestSubjects, statusData.subjects || []);
+                    setSubjects(latestSubjects);
                     if (statusData.isComplete) {
-                      finalSubjects = statusData.subjects || [];
+                      finalSubjects = latestSubjects;
                       refsCompleted = true;
                       break;
                     }
@@ -621,7 +632,7 @@ export function useExportPipeline(
             } else {
               // Legacy synchronous response
               const allIds = new Set<string>(
-                (genData.subjects || []).map((s: SubjectRef) => s.subjectId),
+                (genData.subjects || []).filter((s: SubjectRef) => s.imageUrl).map((s: SubjectRef) => s.subjectId),
               );
               setApprovedSubjectIds(allIds);
               const generatedIds = new Set(subjectsToGenerate.map((s: any) => s.id));
@@ -807,6 +818,15 @@ export function useExportPipeline(
       return;
     }
 
+    const missingBrandEvidence = subjects.filter((s) => s.requiresBrandEvidence && !s.imageUrl);
+    if (generateStoryboard && missingBrandEvidence.length > 0) {
+      const names = missingBrandEvidence.map((s) => s.name).join(", ");
+      const message = `Brand evidence required before storyboard generation: ${names}. Upload evidence or connect Brand Vault evidence for these owned subjects.`;
+      setError(message);
+      sendNotification("Brand Evidence Required", message);
+      setStep("reviewing-references");
+      return;
+    }
     try {
       const approved = subjects
         .filter((s) => approvedSubjectIds.has(s.subjectId) && s.imageUrl)

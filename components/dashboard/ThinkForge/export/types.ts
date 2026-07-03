@@ -15,6 +15,14 @@ export type ExportStep =
   | "directing"
   | "done";
 
+export type ReferenceImageProvenance =
+  | "brand-vault"
+  | "website-screenshot"
+  | "uploaded"
+  | "generated"
+  | "missing-brand-evidence";
+
+export type BrandEvidenceStatus = "resolved" | "missing" | "not-required";
 export interface SubjectRef {
   subjectId: string;
   name: string;
@@ -24,6 +32,11 @@ export interface SubjectRef {
   scenesAppearingIn: number[];
   visualDescription?: string;
   priority?: "hero" | "suggested";
+  referenceProvenance?: ReferenceImageProvenance;
+  referenceProvenanceLabel?: string;
+  requiresBrandEvidence?: boolean;
+  brandEvidenceStatus?: BrandEvidenceStatus;
+  evidenceRequiredReason?: string;
 }
 
 export interface SuggestedSubject {

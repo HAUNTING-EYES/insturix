@@ -58,4 +58,26 @@ describe('storyboard source session lineage contract', () => {
     expect(finalizeRoute).toContain('findProjectBySessionId(userId, storyboardSourceSessionId)');
     expect(finalizeRoute).toContain('sourceSessionId: storyboardSourceSessionId');
   });
+
+  it('keeps brand-owned product references evidence backed before storyboard handoff', () => {
+    const refGenerateRoute = read('app/api/services/pipeline/reference-images/generate/route.ts');
+    const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
+    const subjectTypes = read('components/dashboard/ThinkForge/export/types.ts');
+    const subjectCard = read('components/dashboard/ThinkForge/export/SubjectCard.tsx');
+
+    expect(refGenerateRoute).toContain('resolveEffectiveBrandWithProfile');
+    expect(refGenerateRoute).toContain("service: 'editron'");
+    expect(refGenerateRoute).toContain('strict: true');
+    expect(refGenerateRoute).toContain("referenceProvenance: 'brand-vault'");
+    expect(refGenerateRoute).toContain("referenceProvenance: 'missing-brand-evidence'");
+    expect(refGenerateRoute).toContain('subjectsNeedingGeneration.length * costPerSubject');
+    expect(refGenerateRoute).toContain('subjectsNeedingGeneration.map((s) => ({ subjectId: s.id, name: s.name }))');
+    expect(exportHook).toContain('brandId: sourceBrandId || undefined');
+    expect(exportHook).toContain('mergeReferenceSubjects');
+    expect(exportHook).toContain('missingBrandEvidence');
+    expect(exportHook).toContain('Brand evidence required before storyboard generation');
+    expect(subjectTypes).toContain('referenceProvenance?: ReferenceImageProvenance;');
+    expect(subjectCard).toContain('referenceProvenanceLabel');
+    expect(subjectCard).toContain('Evidence required');
+  });
 });

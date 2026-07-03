@@ -46,6 +46,17 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
   const isRegenerating = regeneratingSubjectIds.has(subject.subjectId);
   const showFeedback = feedbackSubjectId === subject.subjectId;
   const isEditing = editingSubjectId === subject.subjectId;
+  const isMissingRequiredEvidence = Boolean(subject.requiresBrandEvidence && !subject.imageUrl);
+  const provenanceLabel =
+    subject.referenceProvenanceLabel ||
+    (isMissingRequiredEvidence ? "Evidence required" : subject.referenceProvenance === "uploaded" ? "Uploaded" : undefined);
+  const provenanceColor = isMissingRequiredEvidence
+    ? "#D46A5C"
+    : subject.referenceProvenance === "brand-vault" ||
+        subject.referenceProvenance === "website-screenshot" ||
+        subject.referenceProvenance === "uploaded"
+      ? "#5EC97E"
+      : "#D4A652";
 
   /* Mini sprocket row for subject film frames */
   const miniSprockets = (
@@ -93,6 +104,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         {/* Approve/reject toggle */}
         <button
           onClick={() => {
+            if (isMissingRequiredEvidence) return;
             setApprovedSubjectIds((prev) => {
               const next = new Set(prev);
               if (next.has(subject.subjectId)) {
@@ -103,12 +115,21 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
               return next;
             });
           }}
+          disabled={isMissingRequiredEvidence}
           className={`absolute top-1.5 right-1.5 p-1 rounded-full transition-colors ${
-            isApproved
-              ? "bg-[#5EC97E] text-[#ECE9E1]"
-              : "bg-[#D4A652]/80 text-white hover:bg-[#D4A652]"
+            isMissingRequiredEvidence
+              ? "bg-[#D46A5C]/20 text-[#D46A5C] cursor-not-allowed"
+              : isApproved
+                ? "bg-[#5EC97E] text-[#ECE9E1]"
+                : "bg-[#D4A652]/80 text-white hover:bg-[#D4A652]"
           }`}
-          title={isApproved ? "Approved — click to reject" : "Rejected — click to approve"}
+          title={
+            isMissingRequiredEvidence
+              ? "Brand evidence required before approval"
+              : isApproved
+                ? "Approved - click to reject"
+                : "Rejected - click to approve"
+          }
         >
           {isApproved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
         </button>
@@ -186,6 +207,16 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         <p style={{ fontSize: 9, color: "#5F5E5A", marginTop: 1 }}>
           {subject.category} · Scenes {subject.scenesAppearingIn?.join(", ")}
         </p>
+        {provenanceLabel && (
+          <p className="font-mono text-[8px] uppercase tracking-[0.08em] mt-1" style={{ color: provenanceColor }}>
+            {provenanceLabel}
+          </p>
+        )}
+        {isMissingRequiredEvidence && (
+          <p className="text-[9px] text-[#D46A5C] mt-1 line-clamp-2">
+            {subject.evidenceRequiredReason || "Brand evidence required before storyboard generation."}
+          </p>
+        )}
         {subject.visualDescription && !isEditing && (
           <p className="text-[9px] text-[#454340] mt-0.5 line-clamp-2">
             {subject.visualDescription}
