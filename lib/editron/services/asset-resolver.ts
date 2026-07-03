@@ -13,6 +13,8 @@ export interface MediaAsset {
   _id?: any;
   assetId: string;
   userId: string;
+  /** Org that owns the asset (org-shared storage pool). Undefined for solo users. */
+  orgId?: string;
   projectId?: string;
   type: 'video' | 'audio' | 'image';
   filename: string;
@@ -29,6 +31,10 @@ export interface MediaAsset {
     height: number;
   };
   uploadedAt: Date;
+  /** Last time the asset was used/resolved — the LRU signal for storage eviction. */
+  lastUsedAt?: Date;
+  /** When true, the asset is protected from LRU eviction (brand-vault reference or user-pinned). */
+  pinned?: boolean;
   /** R2 key for CDN-cached assets */
   r2Key?: string;
   /** True when this asset is a compressed proxy — original still uploading */
@@ -37,6 +43,30 @@ export interface MediaAsset {
   originalR2Key?: string;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
+}
+
+/** Don't rewrite lastUsedAt more than once per hour per asset (avoids write amplification). */
+const LRU_TOUCH_THROTTLE_MS = 60 * 60 * 1000;
+
+/**
+ * Bump `lastUsedAt` for assets that are being used (the LRU signal for storage
+ * eviction). Throttled + best-effort: only touches assets not touched in the last
+ * hour, and never throws — an LRU miss must not affect asset resolution.
+ */
+async function touchAssetsLastUsed(db: any, assetIds: string[]): Promise<void> {
+  if (!assetIds.length) return;
+  try {
+    const cutoff = new Date(Date.now() - LRU_TOUCH_THROTTLE_MS);
+    await db.collection(COLLECTIONS.MEDIA_ASSETS).updateMany(
+      {
+        assetId: { $in: assetIds },
+        $or: [{ lastUsedAt: { $lt: cutoff } }, { lastUsedAt: { $exists: false } }],
+      },
+      { $set: { lastUsedAt: new Date() } },
+    );
+  } catch {
+    /* best-effort LRU touch — ignore */
+  }
 }
 
 export class AssetResolver {
@@ -130,6 +160,9 @@ export class AssetResolver {
       .collection(COLLECTIONS.MEDIA_ASSETS)
       .find({ assetId: { $in: Array.from(assetIds) } })
       .toArray() as unknown as MediaAsset[];
+
+    // LRU: mark the resolved assets as recently used (fire-and-forget, throttled).
+    void touchAssetsLastUsed(db, assets.map(a => a.assetId));
 
     console.log(`[AssetResolver] Resolving ${assetIds.size} assets, found ${assets.length} in DB`);
 

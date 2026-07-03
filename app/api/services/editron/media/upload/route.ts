@@ -202,9 +202,11 @@ export async function POST(request: NextRequest) {
           }
         : undefined;
 
+    const now = new Date();
     const mediaAsset: MediaAsset = {
       assetId,
       userId,
+      orgId: orgId || undefined, // org-shared storage pool (undefined for solo users)
       projectId: projectId || undefined,
       type: fileType,
       source: 'user-upload',
@@ -216,7 +218,8 @@ export async function POST(request: NextRequest) {
       thumbnail: thumbnail || undefined,
       duration: verifiedDuration,
       dimensions: parsedDimensions,
-      uploadedAt: new Date(),
+      uploadedAt: now,
+      lastUsedAt: now, // seed the LRU signal at upload time
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
     };
