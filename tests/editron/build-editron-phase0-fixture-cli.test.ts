@@ -143,6 +143,35 @@ describe('build-editron-phase0-fixture cli', () => {
     expect(set).not.toHaveProperty('projectStatus');
   });
 
+  it('persists rendered Phase 0 warnings as explicit non-blocking gate evidence', () => {
+    const snapshot = phase0Snapshot({
+      qualityEvidenceSource: 'rendered-aesthetic',
+      renderedAestheticStatus: 'warn',
+      renderedQualityStatus: 'warn',
+      artifactStatus: 'warn',
+      qualityScore: 74,
+      renderedAestheticScore: 0.74,
+      renderedAestheticIssueCount: 2,
+      renderedAestheticFailFrameCount: 0,
+      renderedAestheticWarnFrameCount: 2,
+    });
+    const gate = buildPhase0RenderedQualityGate(snapshot);
+    const update = buildPhase0PersistUpdate(snapshot, phase0Paths());
+    const set = update.$set as Record<string, unknown>;
+
+    expect(gate).toMatchObject({
+      status: 'warn',
+      reason: 'rendered_quality_warning',
+      qualityScore: 74,
+      renderedAestheticIssueCount: 2,
+      renderedAestheticFailFrameCount: 0,
+    });
+    expect(gate.warning).toContain('warning issue');
+    expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject(gate);
+    expect(set).not.toHaveProperty('autoEditStatus');
+    expect(set).not.toHaveProperty('projectStatus');
+    expect(set).not.toHaveProperty('autoEditHealth');
+  });
   it('persists rendered Phase 0 failures as review state instead of learning-safe completion', () => {
     const snapshot = phase0Snapshot({
       qualityEvidenceSource: 'rendered-aesthetic',

@@ -49,7 +49,7 @@ export interface DirectorCompletionHealth {
   warning?: string;
 }
 
-export type Phase0RenderedQualityGateStatus = 'missing_rendered_evidence' | 'pass' | 'needs_review';
+export type Phase0RenderedQualityGateStatus = 'missing_rendered_evidence' | 'pass' | 'warn' | 'needs_review';
 
 export interface Phase0RenderedQualityGate {
   version: 'editron-phase0-rendered-quality-gate-v1';
@@ -86,19 +86,25 @@ export function buildPhase0RenderedQualityGate(input: {
     artifactStatus: evidence.artifactStatus,
     renderedAestheticFailFrameCount: failFrameCount,
   });
+  const renderedStatus = readRenderedStatus(evidence.renderedQualityStatus ?? evidence.renderedAestheticStatus ?? evidence.artifactStatus);
+  const hasRenderedWarnings = renderedStatus === 'warn' || issueCount > 0;
   const status: Phase0RenderedQualityGateStatus = !hasRenderedEvidence
     ? 'missing_rendered_evidence'
     : decision.shouldRecord
-      ? 'pass'
+      ? hasRenderedWarnings
+        ? 'warn'
+        : 'pass'
       : 'needs_review';
   const warning = status === 'needs_review'
     ? `Rendered Phase 0 quality failed with score ${decision.qualityScore ?? 0}. Review rendered artifacts before learning or calibration.`
-    : null;
+    : status === 'warn'
+      ? `Rendered Phase 0 quality produced ${issueCount} warning issue(s). Treat as diagnostic evidence, not calibration truth.`
+      : null;
 
   return {
     version: 'editron-phase0-rendered-quality-gate-v1',
     status,
-    reason: decision.reason ?? null,
+    reason: status === 'warn' ? 'rendered_quality_warning' : decision.reason ?? null,
     qualityEvidenceSource: evidence.qualityEvidenceSource,
     renderedQualityStatus: evidence.renderedQualityStatus,
     renderedAestheticStatus: evidence.renderedAestheticStatus,
