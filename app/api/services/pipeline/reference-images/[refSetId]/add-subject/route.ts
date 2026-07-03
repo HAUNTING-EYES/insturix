@@ -74,6 +74,10 @@ export async function POST(
       scenesAppearingIn: scenesAppearingIn || [],
       status: 'pending',
       generationHistory: [],
+      referenceProvenance: 'generated',
+      referenceProvenanceLabel: 'Generated',
+      requiresBrandEvidence: false,
+      brandEvidenceStatus: 'not-required',
     };
 
     // Persist to DB so frontend can poll it immediately
@@ -164,6 +168,10 @@ export async function POST(
         imageUrl: undefined,
         imageAssetId: undefined,
         status: 'pending',
+        referenceProvenance: newSubject.referenceProvenance,
+        referenceProvenanceLabel: newSubject.referenceProvenanceLabel,
+        requiresBrandEvidence: newSubject.requiresBrandEvidence,
+        brandEvidenceStatus: newSubject.brandEvidenceStatus,
       },
       pollUrl: `/api/services/pipeline/reference-images/${refSetId}/generate-status?batchId=${batchId}`,
     });

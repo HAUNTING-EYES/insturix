@@ -39,6 +39,12 @@ export async function POST(
 
     const subject = refSet.subjects.find((s) => s.subjectId === subjectId);
     if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 });
+    if ((subject as any).requiresBrandEvidence) {
+      return NextResponse.json(
+        { error: 'Brand-owned references require Brand Vault, website screenshot, or uploaded evidence and cannot be regenerated generically.' },
+        { status: 409 },
+      );
+    }
 
     // Deduct 1 credit
     const deduct = await CreditsService.deductCredits(
@@ -51,7 +57,13 @@ export async function POST(
     }
 
     // Mark subject as generating immediately so UI shows progress
-    await updateSubjectReference(refSetId, subjectId, { status: 'generating' });
+    await updateSubjectReference(refSetId, subjectId, {
+      status: 'generating',
+      referenceProvenance: 'generated',
+      referenceProvenanceLabel: 'Generated',
+      requiresBrandEvidence: false,
+      brandEvidenceStatus: 'not-required',
+    });
 
     // Create 1-item batch + dispatch worker
     const { batchId } = await createReferenceImageBatch(
@@ -140,6 +152,9 @@ export async function POST(
       batchId,
       subjectId,
       status: 'generating',
+      referenceProvenance: 'generated',
+      referenceProvenanceLabel: 'Generated',
+      brandEvidenceStatus: 'not-required',
       pollUrl: `/api/services/pipeline/reference-images/${refSetId}/generate-status?batchId=${batchId}`,
     });
   } catch (error: any) {
