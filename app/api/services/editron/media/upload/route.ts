@@ -309,6 +309,11 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId, userId },
+          { $set: { analysisStatus: 'queued', analysisQueuedAt: new Date() } },
+        );
+
         const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
           method: 'POST',
           headers: {
@@ -342,10 +347,6 @@ export async function POST(request: NextRequest) {
           console.warn(`[Upload] ${errMsg}`);
         } else {
           analysisQueued = true;
-          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-            { assetId, userId },
-            { $set: { analysisStatus: 'queued', analysisQueuedAt: new Date() } },
-          );
           console.log(`[Upload] Dispatched analysis worker for ${assetId}`);
         }
 

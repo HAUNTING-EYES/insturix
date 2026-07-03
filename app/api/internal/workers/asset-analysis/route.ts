@@ -19,6 +19,11 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { EDITRON_EMBEDDING_MODEL, generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
 import {
+  buildAssetAnalysisClaimFilter,
+  buildAssetAnalysisClaimUpdate,
+  resolveAssetVideoAnalysisPolicy,
+} from '@/lib/editron/services/asset-analysis-worker-policy';
+import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
@@ -53,26 +58,51 @@ async function handler(request: NextRequest) {
 
     const db = await getDatabase();
 
-    // Mark asset as analyzing
-    await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-      { assetId, userId },
-      { $set: { analysisStatus: 'analyzing', analysisStartedAt: new Date() } },
+    const claimNow = new Date();
+    const claim = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+      buildAssetAnalysisClaimFilter({ assetId, userId, now: claimNow }),
+      buildAssetAnalysisClaimUpdate(claimNow),
     );
+    if (claim.matchedCount === 0) {
+      const existing = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+        { assetId, userId },
+        { projection: { analysisStatus: 1, analysisStartedAt: 1, analysisCompletedAt: 1 } },
+      );
+      const skipped = existing?.analysisStatus === 'complete' ? 'already-complete' : 'duplicate-delivery';
+      console.log(`[AssetAnalysis] ${assetId}: ${skipped}; current status=${existing?.analysisStatus ?? 'missing'}`);
+      return NextResponse.json({
+        success: true,
+        assetId,
+        skipped,
+        analysisStatus: existing?.analysisStatus ?? null,
+      });
+    }
 
     const tags: string[] = [];
     let embedding: number[] | null = null;
 
     // ─── Video Analysis (full 5-Track) ──────────────────────────
     if (type === 'video') {
+      const videoPolicy = resolveAssetVideoAnalysisPolicy({ type, durationSeconds: duration });
       try {
-        const { runFullAnalysis } = await import('@/lib/editron/services/five-track-analysis');
-        const durationMs = (duration || 5) * 1000;
+        let analysis: any = null;
 
-        const analysis = await runFullAnalysis(assetId, userId, {
-          videoUrl: url,
-          durationMs,
-          sourceType: 'real-footage',
-        });
+        if (videoPolicy.shouldRunFullAnalysis) {
+          const { runFullAnalysis } = await import('@/lib/editron/services/five-track-analysis');
+          const durationMs = (duration || 5) * 1000;
+
+          analysis = await runFullAnalysis(assetId, userId, {
+            videoUrl: url,
+            durationMs,
+            sourceType: 'real-footage',
+          });
+        } else {
+          tags.push('video', 'metadata-only', 'full-analysis-deferred');
+          console.log(
+            `[AssetAnalysis] ${assetId}: skipping full 5-Track at ingest (${videoPolicy.reason}, ` +
+            `duration=${videoPolicy.durationSeconds ?? 'unknown'}s, max=${videoPolicy.maxDurationSeconds}s)`,
+          );
+        }
 
         if (analysis) {
           // Extract tags from analysis
@@ -91,14 +121,14 @@ async function handler(request: NextRequest) {
 
           // Layer 2 (motion): dominant motion type
           if (analysis.motionSegments?.length) {
-            const motionTypes = analysis.motionSegments.map(s => s.cameraMotion).filter(Boolean);
+            const motionTypes = analysis.motionSegments.map((s: { cameraMotion?: string }) => s.cameraMotion).filter(Boolean);
             const dominant = mostFrequent(motionTypes);
             if (dominant && !tags.includes(dominant)) tags.push(dominant);
           }
 
           // Energy level tag from motion segments
           if (analysis.motionSegments?.length) {
-            const avgIntensity = analysis.motionSegments.reduce((sum, s) => sum + (s.motionIntensity || 0), 0) / analysis.motionSegments.length;
+            const avgIntensity = analysis.motionSegments.reduce((sum: number, s: { motionIntensity?: number }) => sum + (s.motionIntensity || 0), 0) / analysis.motionSegments.length;
             tags.push(avgIntensity > 0.7 ? 'high-energy' : avgIntensity > 0.3 ? 'medium-energy' : 'calm');
           }
 
@@ -115,13 +145,18 @@ async function handler(request: NextRequest) {
 
         await recordAssetAnalysisCostEvent(payload, {
           stage: 'video_5_track',
-          status: 'success',
+          status: videoPolicy.shouldRunFullAnalysis ? 'success' : 'skipped',
           provider: 'editron-five-track',
           model: 'five-track-analysis',
           operation: 'video_analysis',
           includeRevenue: true,
           units: { mediaSeconds: duration || undefined, requestCount: 1 },
-          metadata: { durationSeconds: duration || null, analysisReturned: !!analysis, tagsCount: tags.length },
+          metadata: {
+            durationSeconds: duration || null,
+            analysisReturned: !!analysis,
+            tagsCount: tags.length,
+            fullVideoAnalysisPolicy: videoPolicy,
+          },
         });
       } catch (analysisErr: any) {
         console.warn(`[AssetAnalysis] ${assetId}: 5-Track failed: ${analysisErr.message}`);
@@ -134,7 +169,11 @@ async function handler(request: NextRequest) {
           operation: 'video_analysis',
           includeRevenue: true,
           units: { mediaSeconds: duration || undefined, requestCount: 1 },
-          metadata: { durationSeconds: duration || null, errorClass: analysisErr?.name || 'Error' },
+          metadata: {
+            durationSeconds: duration || null,
+            errorClass: analysisErr?.name || 'Error',
+            fullVideoAnalysisPolicy: videoPolicy,
+          },
         });
       }
     }
