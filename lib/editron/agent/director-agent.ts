@@ -512,6 +512,7 @@ export async function executeDirectorPlan(
     // Path D: hoisted constraint violations + genre params for quality review step 11
     let pathDConstraintViolations: any[] | undefined;
     let pathDGenreParams: any | undefined;
+    let pathEGenreParams: any | undefined;
     let briefCaptionStyle: string | undefined;
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
@@ -865,7 +866,6 @@ export async function executeDirectorPlan(
           };
 
           // Compute per-video genre parameters from signals (no profiles)
-          let pathEGenreParams: import('@/lib/editron/services/graph-query').GenreParameters | undefined;
           try {
             const { computeGenreParameters } = await import('@/lib/editron/services/genre-parameter-computer');
             const genreResult = computeGenreParameters({
@@ -1688,12 +1688,13 @@ export async function executeDirectorPlan(
           // project: storyboard projects already get BGM from finalize, so dispatching here too
           // would double it. The worker $pushes a _workerAdded BGM overlay that saveProject
           // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
+          const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
+          const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
           try {
             const {
               buildAutoBgmDecisionEvidence,
               persistAutoBgmDecisionEvidence,
             } = await import('@/lib/editron/services/auto-bgm-decision');
-            const bgmRec = (pathDGenreParams as any)?.bgmRecommendation;
             const isStoryboardProject = !!(projectDoc as any)?.sourceStoryboardId;
             const bgmFps = project.fps || 30;
             const bgmTotalFrames = overlays.reduce(
@@ -1723,8 +1724,8 @@ export async function executeDirectorPlan(
               if (providerAvailable && bgmDurationSec >= 10) {
                 // No scene descriptors / overallMusicPrompt on the auto-edit path - derive a music
                 // mood from genre signals; buildMusicPrompt maps mood+pacing -> BPM tier + key/mode.
-                const bgmEnergy = typeof pathDGenreParams?.energy_baseline === 'number' ? pathDGenreParams.energy_baseline : 0.5;
-                const bgmFormality = typeof pathDGenreParams?.formality === 'number' ? pathDGenreParams.formality : 0.5;
+                const bgmEnergy = typeof bgmGenreParams?.energy_baseline === 'number' ? bgmGenreParams.energy_baseline : 0.5;
+                const bgmFormality = typeof bgmGenreParams?.formality === 'number' ? bgmGenreParams.formality : 0.5;
                 const bgmMood = bgmEnergy > 0.6 ? 'energetic'
                   : bgmEnergy < 0.35 ? (bgmFormality > 0.55 ? 'calm' : 'nostalgic')
                   : (bgmFormality > 0.6 ? 'sophisticated' : 'inspirational');
@@ -1770,7 +1771,7 @@ export async function executeDirectorPlan(
                 0,
               );
               const evidence = buildAutoBgmDecisionEvidence({
-                recommendation: (pathDGenreParams as any)?.bgmRecommendation,
+                recommendation: (bgmGenreParams as any)?.bgmRecommendation,
                 isStoryboardProject: !!(projectDoc as any)?.sourceStoryboardId,
                 durationSec: Math.round(bgmTotalFrames / bgmFps),
                 totalFrames: bgmTotalFrames,

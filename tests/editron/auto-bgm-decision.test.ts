@@ -139,6 +139,8 @@ describe('Auto-BGM decision evidence', () => {
     const dispatchSource = readFileSync(join(process.cwd(), 'lib/editron/services/audio-worker-dispatch.ts'), 'utf8');
 
     expect(directorSource).toContain("@/lib/editron/services/auto-bgm-decision");
+    expect(directorSource).toContain('const bgmGenreParams = pathDGenreParams ?? pathEGenreParams');
+    expect(directorSource).toContain('const bgmRec = (bgmGenreParams as any)?.bgmRecommendation');
     expect(directorSource).toContain('persistAutoBgmDecisionEvidence(projectId, evidence)');
     expect(directorSource).toContain('const dispatchResult = await dispatchAudioJob');
     expect(dispatchSource).toContain('Promise<AudioDispatchResult>');
