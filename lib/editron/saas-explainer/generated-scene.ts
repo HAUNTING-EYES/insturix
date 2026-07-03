@@ -154,6 +154,7 @@ export function buildSaasGeneratedSceneOverlays(input: BuildSaasGeneratedSceneOv
     const directorBeat = resolveDirectorBeat(input.directorContract, scene, sceneOrder);
     const familyPlan = planSceneFamily({
       scene,
+      sceneOrder,
       sceneCount: input.scenes.length,
       input: input.input,
       brandContext: input.brandContext,
@@ -314,6 +315,7 @@ const FAMILY_SEQUENCE: SaasSceneFamily[] = [
 
 function planSceneFamily(input: {
   scene: SceneDescriptor;
+  sceneOrder: number;
   sceneCount: number;
   input: NormalizedSaasExplainerIntake;
   brandContext: SaasExplainerBrandContext;
@@ -338,7 +340,44 @@ function planSceneFamily(input: {
     motionIntent: familyMotionIntent(family, input.brandContext, input.referenceStyleBrief),
     copyRole: familyCopyRole(family),
     claimMode,
+    visualArchetype: fallbackVisualArchetypeForFamily(family, claimMode, input.sceneOrder),
   };
+}
+
+function fallbackVisualArchetypeForFamily(
+  family: SaasSceneFamily,
+  claimMode: SaasSceneFamilyPlan["claimMode"],
+  sceneOrder: number,
+): SaasDirectorSceneBeat["visualArchetype"] {
+  const options = fallbackVisualArchetypeOptions(family, claimMode);
+  return options[Math.max(0, sceneOrder) % Math.max(1, options.length)] ?? "TYPE_ONLY";
+}
+
+function fallbackVisualArchetypeOptions(
+  family: SaasSceneFamily,
+  claimMode: SaasSceneFamilyPlan["claimMode"],
+): Array<SaasDirectorSceneBeat["visualArchetype"]> {
+  if (claimMode === "synthetic_demo_only") {
+    if (["hook", "promise", "cta", "logo_outro", "section_header"].includes(family)) return ["TYPE_ONLY"];
+    return ["DIAGRAM_SCHEMATIC", "TYPE_OVER_MEDIA"];
+  }
+
+  const options: Record<SaasSceneFamily, Array<SaasDirectorSceneBeat["visualArchetype"]>> = {
+    hook: ["UI_FRAMED", "TYPE_OVER_MEDIA"],
+    problem: ["SPLIT_COMPARE", "DIAGRAM_SCHEMATIC"],
+    promise: ["TYPE_OVER_MEDIA", "UI_FLOAT_STACK"],
+    workflow_demo: ["UI_FRAMED", "UI_FULL_BLEED", "UI_FLOAT_STACK", "CURSOR_HERO"],
+    feature_demo: ["UI_CROP_ZOOM", "UI_FRAMED", "CURSOR_HERO", "UI_FLOAT_STACK", "TYPE_OVER_MEDIA", "BENTO_GRID"],
+    ui_proof: ["UI_FULL_BLEED", "UI_FRAMED", "UI_CROP_ZOOM"],
+    proof_metric: ["DATA_VIZ", "BENTO_GRID"],
+    comparison: ["SPLIT_COMPARE", "TYPE_OVER_MEDIA"],
+    social_proof: ["BENTO_GRID", "TYPE_OVER_MEDIA"],
+    objection_handling: ["TYPE_OVER_MEDIA", "DIAGRAM_SCHEMATIC"],
+    cta: ["TYPE_OVER_MEDIA", "TYPE_ONLY"],
+    logo_outro: ["LOGO_FIELD", "TYPE_ONLY"],
+    section_header: ["TYPE_ONLY", "TYPE_OVER_MEDIA"],
+  };
+  return options[family];
 }
 
 function resolveDirectorBeat(

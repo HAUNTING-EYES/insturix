@@ -108,6 +108,37 @@ describe("SaaS GeneratedScene director bridge", () => {
     expect(generated?.sceneModel.qualityGates.productSpecificVisualProof).toBe(false);
     expect(generated?.sceneModel.qualityGates.finalVisualProof).toBe(false);
   });
+
+  it("assigns deterministic fallback archetypes when no director contract is present", () => {
+    const overlays = buildSaasGeneratedSceneOverlays({
+      scenes: [
+        scene({ sceneIndex: 0, title: "Open Insturix", visualDescription: "Introduce the product workspace." }),
+        scene({
+          sceneIndex: 1,
+          title: "Feature: script and edit",
+          visualDescription: "Show the feature capability inside the product workspace.",
+        }),
+        scene({
+          sceneIndex: 2,
+          title: "Feature: analyze and distribute",
+          visualDescription: "Show another feature capability with a different product focus.",
+        }),
+        scene({ sceneIndex: 3, title: "Get started", visualDescription: "CTA with product URL." }),
+      ],
+      dimensions: { fps: 30, width: 1920, height: 1080 },
+      input: intake(),
+      brandContext: acceptedBrandContext(),
+    });
+
+    const featurePlans = overlays
+      .filter((overlay) => overlay.type === "generated-scene")
+      .map((overlay) => overlay.sceneModel.familyPlan)
+      .filter((plan) => plan.family === "feature_demo");
+
+    expect(featurePlans).toHaveLength(2);
+    expect(featurePlans.map((plan) => plan.visualArchetype)).toEqual(["UI_FRAMED", "CURSOR_HERO"]);
+    expect(featurePlans.every((plan) => plan.evidenceSource === "product_url")).toBe(true);
+  });
 });
 
 function scene(overrides: Partial<SceneDescriptor>): SceneDescriptor {

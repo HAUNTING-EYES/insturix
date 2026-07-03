@@ -109,6 +109,62 @@ describe("SaaS director contract", () => {
     expect(promptBlock).toContain("Degraded from: demo_90s");
     expect(promptBlock).toContain("No framed real-product demo scenes are allowed");
   });
+
+  it("rotates visual archetypes across feature parade demo beats", () => {
+    const productEvidencePack = richEvidencePack();
+    productEvidencePack.brief.productServices = [
+      "New launch workspace for scripting.",
+      "New launch workspace for editing.",
+      "New launch workspace for distribution.",
+    ];
+    productEvidencePack.visualIdentity.productImages = [
+      ...productEvidencePack.visualIdentity.productImages,
+      {
+        kind: "product_image",
+        label: "Insturix editor",
+        url: "https://insturix.example/editor.png",
+        stored: true,
+        signalPath: "visualIdentity.images[1]",
+        sourceType: "first_party_website",
+      },
+      {
+        kind: "product_image",
+        label: "Insturix distribution",
+        url: "https://insturix.example/distribution.png",
+        stored: true,
+        signalPath: "visualIdentity.images[2]",
+        sourceType: "first_party_website",
+      },
+    ];
+    productEvidencePack.coverage.counts.productImages = productEvidencePack.visualIdentity.productImages.length;
+
+    const contract = buildSaasDirectorContract({
+      input: {
+        durationSec: 90,
+        aspectRatio: "16:9",
+        productName: "Insturix",
+        productUrl: "https://insturix.example/",
+        outcome: "Launch the new Insturix release.",
+        brandId: "brand_insturix",
+      },
+      productEvidencePack,
+      referenceProvided: false,
+    });
+
+    const featureArchetypes = contract.sequence
+      .filter((scene) => scene.family === "feature_demo")
+      .map((scene) => scene.visualArchetype);
+
+    expect(contract.selectedStructure).toMatchObject({
+      id: "demo_90s",
+      variant: "featureParadeVariant",
+    });
+    expect(featureArchetypes.length).toBeGreaterThan(1);
+    expect(new Set(featureArchetypes).size).toBeGreaterThan(1);
+    for (let index = 1; index < featureArchetypes.length; index += 1) {
+      expect(featureArchetypes[index]).not.toBe(featureArchetypes[index - 1]);
+    }
+  });
 });
 
 function richEvidencePack(): SaasProductEvidencePack {

@@ -366,6 +366,8 @@ function buildSceneSequence(input: {
   const rawSpecs = rawSceneSpecsForSelection(input.selected, input.productEvidencePack);
   const sourceDuration = numericStructureDuration(input.selected.structure);
   const scale = input.selected.targetDurationSec / Math.max(sourceDuration, 1);
+  const familyCounts = new Map<SaasDirectorSceneFamily, number>();
+  let previousArchetype: SaasDirectorVisualArchetype | undefined;
   return rawSpecs.map((spec, index) => {
     const resolved = resolveSceneFamily(spec.family || "feature_demo", input.productEvidencePack);
     if (resolved.substitutionReason) {
@@ -381,7 +383,13 @@ function buildSceneSequence(input: {
     const evidence = sceneEvidenceDuty(resolved.family, input.productEvidencePack);
     const claimPolicy = claimPolicyForScene(resolved.family, input.productEvidencePack, evidence.claims);
     const synthetic = input.productEvidencePack.coverage.syntheticModeRequired;
-    const visualArchetype = visualArchetypeForScene(resolved.family, input.productEvidencePack);
+    const familyCount = familyCounts.get(resolved.family) ?? 0;
+    const visualArchetype = visualArchetypeForScene(resolved.family, input.productEvidencePack, {
+      familyCount,
+      previousArchetype,
+    });
+    familyCounts.set(resolved.family, familyCount + 1);
+    previousArchetype = visualArchetype;
 
     return {
       index,
@@ -582,28 +590,58 @@ function claimPolicyForScene(
 function visualArchetypeForScene(
   family: SaasDirectorSceneFamily,
   productEvidencePack: SaasProductEvidencePack,
+  context: {
+    familyCount: number;
+    previousArchetype?: SaasDirectorVisualArchetype;
+  },
 ): SaasDirectorVisualArchetype {
+  return pickRotatedVisualArchetype(
+    visualArchetypeOptionsForScene(family, productEvidencePack),
+    context,
+  );
+}
+
+function visualArchetypeOptionsForScene(
+  family: SaasDirectorSceneFamily,
+  productEvidencePack: SaasProductEvidencePack,
+): SaasDirectorVisualArchetype[] {
   if (productEvidencePack.coverage.syntheticModeRequired) {
-    if (family === "logo_outro" && productEvidencePack.visualIdentity.hasLogo) return "LOGO_FIELD";
-    if (["hook", "promise", "cta", "logo_outro"].includes(family)) return "TYPE_ONLY";
-    return "DIAGRAM_SCHEMATIC";
+    if (family === "logo_outro" && productEvidencePack.visualIdentity.hasLogo) return ["LOGO_FIELD"];
+    if (["hook", "promise", "cta", "logo_outro", "section_header"].includes(family)) return ["TYPE_ONLY"];
+    return ["DIAGRAM_SCHEMATIC"];
   }
-  const archetypes: Record<SaasDirectorSceneFamily, SaasDirectorVisualArchetype> = {
-    hook: "UI_FRAMED",
-    problem: "SPLIT_COMPARE",
-    promise: "TYPE_OVER_MEDIA",
-    workflow_demo: "UI_FRAMED",
-    feature_demo: "UI_CROP_ZOOM",
-    ui_proof: "UI_FULL_BLEED",
-    proof_metric: hasMetricProof(productEvidencePack) ? "DATA_VIZ" : "UI_FRAMED",
-    comparison: "SPLIT_COMPARE",
-    social_proof: "BENTO_GRID",
-    objection_handling: "TYPE_OVER_MEDIA",
-    cta: "TYPE_OVER_MEDIA",
-    logo_outro: productEvidencePack.visualIdentity.hasLogo ? "LOGO_FIELD" : "TYPE_ONLY",
-    section_header: "TYPE_ONLY",
+
+  const options: Record<SaasDirectorSceneFamily, SaasDirectorVisualArchetype[]> = {
+    hook: ["UI_FRAMED", "TYPE_OVER_MEDIA"],
+    problem: ["SPLIT_COMPARE", "DIAGRAM_SCHEMATIC"],
+    promise: ["TYPE_OVER_MEDIA", "UI_FLOAT_STACK"],
+    workflow_demo: ["UI_FRAMED", "UI_FULL_BLEED", "UI_FLOAT_STACK", "CURSOR_HERO"],
+    feature_demo: ["UI_CROP_ZOOM", "UI_FRAMED", "CURSOR_HERO", "UI_FLOAT_STACK", "TYPE_OVER_MEDIA", "BENTO_GRID"],
+    ui_proof: ["UI_FULL_BLEED", "UI_FRAMED", "UI_CROP_ZOOM"],
+    proof_metric: hasMetricProof(productEvidencePack) ? ["DATA_VIZ", "BENTO_GRID"] : ["UI_FRAMED", "TYPE_OVER_MEDIA"],
+    comparison: ["SPLIT_COMPARE", "TYPE_OVER_MEDIA"],
+    social_proof: ["BENTO_GRID", "TYPE_OVER_MEDIA"],
+    objection_handling: ["TYPE_OVER_MEDIA", "DIAGRAM_SCHEMATIC"],
+    cta: ["TYPE_OVER_MEDIA", "TYPE_ONLY"],
+    logo_outro: productEvidencePack.visualIdentity.hasLogo ? ["LOGO_FIELD", "TYPE_ONLY"] : ["TYPE_ONLY"],
+    section_header: ["TYPE_ONLY", "TYPE_OVER_MEDIA"],
   };
-  return archetypes[family];
+  return options[family];
+}
+
+function pickRotatedVisualArchetype(
+  options: SaasDirectorVisualArchetype[],
+  context: {
+    familyCount: number;
+    previousArchetype?: SaasDirectorVisualArchetype;
+  },
+): SaasDirectorVisualArchetype {
+  const start = Math.max(0, context.familyCount) % Math.max(1, options.length);
+  for (let offset = 0; offset < options.length; offset += 1) {
+    const candidate = options[(start + offset) % options.length];
+    if (candidate && candidate !== context.previousArchetype) return candidate;
+  }
+  return options[start] ?? "TYPE_ONLY";
 }
 
 function directorNotesForScene(
