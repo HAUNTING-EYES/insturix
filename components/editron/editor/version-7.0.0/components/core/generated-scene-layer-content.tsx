@@ -62,9 +62,10 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
   const activeStep = activeIndex(localFrame, duration, items.length);
   const activeItem = items[activeStep] ?? items[0] ?? DEFAULT_ITEMS[0];
   const sceneProgress = progress(localFrame, 0, duration, EASE_BALANCED);
-  const enter = progress(localFrame, 0, Math.min(34, duration * 0.18), EASE_OUT);
-  const headlineIn = progress(localFrame, 6, Math.min(42, duration * 0.2), EASE_OUT);
-  const shellIn = progress(localFrame, 14, Math.min(54, duration * 0.26), EASE_OUT);
+  const openingAnchorOpacity = 0.42;
+  const enter = Math.max(openingAnchorOpacity, progress(localFrame, 0, Math.min(34, duration * 0.18), EASE_OUT));
+  const headlineIn = Math.max(openingAnchorOpacity, progress(localFrame, 6, Math.min(42, duration * 0.2), EASE_OUT));
+  const shellIn = Math.max(0.34, progress(localFrame, 14, Math.min(54, duration * 0.26), EASE_OUT));
   const proofIn = progress(localFrame, duration * 0.16, duration * 0.34, EASE_OUT);
   const ctaIn = progress(localFrame, duration * 0.62, duration * 0.78, EASE_OUT);
   const exit = progress(localFrame, Math.max(0, duration - 18), duration, Easing.in(Easing.cubic));

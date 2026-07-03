@@ -90,6 +90,26 @@ describe("GeneratedSceneLayerContent director rendering", () => {
     expect(html).toContain("Substituted");
     expect(html).not.toContain("Live product flow");
   });
+
+  it("keeps a branded visual anchor visible on the first rendered frame", () => {
+    remotionState.frame = 0;
+
+    const html = renderToStaticMarkup(
+      React.createElement(GeneratedSceneLayerContent, {
+        overlay: makeOverlay({
+          family: "hook",
+          visualArchetype: "CURSOR_HERO",
+          evidenceStatus: "satisfied",
+          productAssetUse: { logo: true, productImage: true, productUrl: true },
+        }),
+      }),
+    );
+
+    expect(html).toContain("opacity:0.42");
+    expect(html).toContain('src="https://cdn.example.com/logo.svg"');
+    expect(html).toContain("Insturix workspace");
+    expect(html).toContain("Live product flow");
+  });
 });
 
 function makeOverlay(
