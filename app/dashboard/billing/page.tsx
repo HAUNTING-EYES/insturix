@@ -7,6 +7,7 @@ import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 import { ReceiptTape } from "@/components/dashboard/Billing";
 import { StorageCard } from "@/components/shared/StorageCard";
 import { SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
+import { normalizePlanKey } from "@/lib/config/plan-limits";
 
 interface CurrentPlan {
   id: string;
@@ -81,12 +82,17 @@ function BillingContent() {
     fetchPlan();
   }, []);
 
-  // Derive plan credits from SUBSCRIPTION_PLANS config
-  const planCredits = currentPlan
+  // Match the config plan by NORMALIZED key — currentPlan.name is the UserType
+  // value ("agency_scale"), while SUBSCRIPTION_PLANS.id is "agency_scale" and .name
+  // is the display form "Agency Scale". Comparing raw name<->name never matched, so
+  // credits showed "---". Normalize both.
+  const matchedPlan = currentPlan
     ? SUBSCRIPTION_PLANS.find(
-        (p) => p.id === currentPlan.id || (p.name && currentPlan.name && p.name.toLowerCase() === currentPlan.name.toLowerCase())
-      )?.credits
+        (p) => normalizePlanKey(p.id) === normalizePlanKey(currentPlan.name) || p.id === currentPlan.id
+      )
     : undefined;
+  const planCredits = matchedPlan?.credits;
+  const planDisplayName = matchedPlan?.name ?? currentPlan?.name ?? "Current plan";
 
   /* ── Loading skeleton: receipt-shaped ── */
   if (isLoading || planLoading) {
@@ -168,7 +174,7 @@ function BillingContent() {
         plan={
           currentPlan
             ? {
-                name: currentPlan.name,
+                name: planDisplayName,
                 price: currentPlan.price,
                 credits: planCredits,
               }

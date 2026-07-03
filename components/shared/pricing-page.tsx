@@ -163,7 +163,13 @@ export function PricingPage() {
   const activePlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId);
   const isEnterprise = activePlanId === "enterprise";
   const tierIndex = selectedTier;
-  const activeIsCurrent = !!currentPlanKey && !!activePlan && normalizePlanKey(activePlan.id) === currentPlanKey;
+  // Relation of the shown tier to the user's current plan (by tier rank).
+  const currentTierIdx = currentPlanKey ? VOLUME_TIERS.findIndex((t) => normalizePlanKey(t.planId) === currentPlanKey) : -1;
+  const planRelation: 'none' | 'current' | 'upgrade' | 'downgrade' =
+    currentTierIdx < 0 ? 'none'
+    : selectedTier === currentTierIdx ? 'current'
+    : selectedTier < currentTierIdx ? 'downgrade'
+    : 'upgrade';
 
   const handleActivatePlan = (planId: string) => {
     setSelectedPlanId(planId);
@@ -312,7 +318,7 @@ export function PricingPage() {
             transition={{ duration: 0.35, ease: EASE }}
             style={{ maxWidth: "min(440px, 100%)", margin: "0 auto 48px" }}
           >
-            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} isCurrent={activeIsCurrent} />}
+            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} relation={planRelation} />}
           </motion.div>
         </AnimatePresence>
 
@@ -602,7 +608,7 @@ function CostAccumulation() {
 // BADGE CARD — access pass to the production floor
 // =====================================================================
 
-function BadgeCard({ plan, tierIndex, billingCycle, onActivate, isCurrent = false }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void; isCurrent?: boolean }) {
+function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none' }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void; relation?: 'none' | 'current' | 'upgrade' | 'downgrade' }) {
   const displayPrice = billingCycle === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.price;
   const totalYearly = plan.yearlyPrice;
   const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
@@ -717,8 +723,8 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate, isCurrent = fals
         {/* Barcode */}
         <Barcode />
 
-        {/* CTA — or a "current plan" state when this is the user's active plan */}
-        {isCurrent ? (
+        {/* CTA — reflects the shown tier's relation to the user's current plan */}
+        {relation === 'current' ? (
           <button
             disabled
             style={{
@@ -732,20 +738,29 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate, isCurrent = fals
             <Check size={14} /> Current Plan
           </button>
         ) : (
-          <button
-            onClick={() => onActivate(plan.id)}
-            style={{
-              width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
-              fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
-              border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)",
-              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-              transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
-          >
-            Activate <ArrowRight size={14} />
-          </button>
+          <>
+            <button
+              onClick={() => onActivate(plan.id)}
+              style={{
+                width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+                fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
+                ...(relation === 'downgrade'
+                  ? { border: "1px solid var(--border-subtle)", background: "transparent", color: "var(--text-secondary)" }
+                  : { border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)" }),
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+            >
+              {relation === 'downgrade' ? 'Downgrade' : relation === 'upgrade' ? 'Upgrade' : 'Activate'} <ArrowRight size={14} />
+            </button>
+            {relation === 'downgrade' && (
+              <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", textAlign: "center", marginTop: 6, lineHeight: 1.4 }}>
+                Applies at your next billing cycle — no change until then.
+              </span>
+            )}
+          </>
         )}
       </div>
     </div>
