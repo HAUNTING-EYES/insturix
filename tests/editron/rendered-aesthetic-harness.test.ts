@@ -14,6 +14,7 @@ import {
   buildFrameAwareOverlayReceipt,
   buildOverlayOnlyRenderOverlays,
   changedPixelBounds,
+  evaluateSaasMotionVarietyGate,
   hydratePhase0RenderArtifactPackForTaxonomy,
   imageMotionDelta,
   normalizeRenderedAestheticSamplePlan,
@@ -110,6 +111,42 @@ describe('rendered aesthetic harness helpers', () => {
     expect(renderOverlays.map((overlay) => overlay.id)).toEqual([21]);
   });
 
+  it('fails SaaS motion variety when SaaS generated scenes repeat or dominate the sequence', () => {
+    const issues = evaluateSaasMotionVarietyGate([
+      generatedSceneOverlay({ id: 31, from: 0, sceneFamily: 'hook' }),
+      generatedSceneOverlay({ id: 32, from: 60, sceneFamily: 'feature_demo' }),
+      generatedSceneOverlay({ id: 33, from: 120, sceneFamily: 'feature_demo' }),
+    ]);
+
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        gateId: 'G8_motion_variety',
+        dimension: 'motion',
+        severity: 'fail',
+        overlayId: 33,
+        relatedOverlayId: 32,
+        message: 'SaaS scene variety repeats feature_demo consecutively',
+        evidence: 'sequence=hook > feature_demo > feature_demo',
+      }),
+      expect.objectContaining({
+        gateId: 'G8_motion_variety',
+        dimension: 'motion',
+        severity: 'fail',
+        message: 'SaaS scene variety overuses feature_demo',
+        evidence: 'count=2/3; share=0.667; sequence=hook > feature_demo > feature_demo',
+      }),
+    ]));
+  });
+
+  it('passes SaaS motion variety for varied generated scene forms', () => {
+    const issues = evaluateSaasMotionVarietyGate([
+      generatedSceneOverlay({ id: 41, from: 0, visualArchetype: 'TYPE_ONLY', sceneFamily: 'hook' }),
+      generatedSceneOverlay({ id: 42, from: 60, visualArchetype: 'UI_FRAMED', sceneFamily: 'feature_demo' }),
+      generatedSceneOverlay({ id: 43, from: 120, visualArchetype: 'DATA_VIZ', sceneFamily: 'proof_metric' }),
+    ]);
+
+    expect(issues).toEqual([]);
+  });
   it('merges manual benchmark frames with animation-state samples', () => {
     const samples = resolveRenderedAestheticSamplePlan({
       durationInFrames: 240,
@@ -574,6 +611,8 @@ interface OverlayFixtureInput {
   keyframeTracks?: KeyframeTrack[];
   clipAId?: number | string;
   clipBId?: number | string;
+  sceneFamily?: string;
+  visualArchetype?: string;
 }
 
 function baseOverlay(input: OverlayFixtureInput & { type: OverlayType }): Overlay {
@@ -712,6 +751,14 @@ function generatedSceneOverlay(input: OverlayFixtureInput & { id: number }): Ove
       type: OverlayType.GENERATED_SCENE,
     }),
     content: 'Generated SaaS scene',
+    sceneModel: {
+      schemaVersion: 'saas-generated-scene/v1',
+      familyPlan: {
+        family: input.sceneFamily ?? 'hook',
+        ...(input.visualArchetype ? { visualArchetype: input.visualArchetype } : {}),
+      },
+    },
+    metadata: { sourceType: 'saas-explainer-generated-scene' },
   } as unknown as Overlay;
 }
 
@@ -809,7 +856,9 @@ function fakeHarnessReport(): RenderedAestheticHarnessReport {
       failFrames: 1,
       sampledFrames: 1,
       animationSampleFrames: 1,
+      projectIssueCount: 0,
     },
+    projectIssues: [],
     frames: [{
       frame: 18,
       sample: {

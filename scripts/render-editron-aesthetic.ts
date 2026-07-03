@@ -111,6 +111,10 @@ export interface RenderedAestheticFrameReport {
   report: RenderedFrameAestheticReport;
 }
 
+export interface RenderedAestheticProjectIssue extends RenderedAestheticIssue {
+  gateId: 'G8_motion_variety';
+}
+
 export interface RenderedTimelineOverlayEvidence {
   id?: string | number;
   type: string;
@@ -148,7 +152,9 @@ export interface RenderedAestheticHarnessReport {
     failFrames: number;
     sampledFrames: number;
     animationSampleFrames: number;
+    projectIssueCount: number;
   };
+  projectIssues: RenderedAestheticProjectIssue[];
   frames: RenderedAestheticFrameReport[];
 }
 
@@ -597,6 +603,83 @@ export function normalizeRenderedAestheticSamplePlan(value: unknown, durationInF
   return samples.length ? samples : undefined;
 }
 
+export function evaluateProjectLevelRenderedGates(overlays: Overlay[]): RenderedAestheticProjectIssue[] {
+  return evaluateSaasMotionVarietyGate(overlays);
+}
+
+export function evaluateSaasMotionVarietyGate(overlays: Overlay[]): RenderedAestheticProjectIssue[] {
+  const scenes = overlays
+    .filter(isSaasGeneratedSceneOverlay)
+    .map((overlay): { id: string | number; from: number; varietyKey: string | undefined } => ({
+      id: overlay.id,
+      from: overlay.from,
+      varietyKey: readSaasSceneVarietyKey(overlay),
+    }))
+    .filter((scene): scene is { id: string | number; from: number; varietyKey: string } => Boolean(scene.varietyKey))
+    .sort((a, b) => a.from - b.from);
+
+  if (scenes.length < 2) return [];
+
+  const issues: RenderedAestheticProjectIssue[] = [];
+  const sequence = scenes.map((scene) => scene.varietyKey).join(' > ');
+  for (let index = 1; index < scenes.length; index += 1) {
+    const previous = scenes[index - 1];
+    const current = scenes[index];
+    if (!previous || !current || previous.varietyKey !== current.varietyKey) continue;
+    issues.push({
+      gateId: 'G8_motion_variety',
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: `SaaS scene variety repeats ${current.varietyKey} consecutively`,
+      overlayId: current.id,
+      relatedOverlayId: previous.id,
+      evidence: `sequence=${sequence}`,
+    });
+  }
+
+  const counts = new Map<string, number>();
+  for (const scene of scenes) counts.set(scene.varietyKey, (counts.get(scene.varietyKey) ?? 0) + 1);
+  for (const [varietyKey, count] of counts) {
+    const share = count / scenes.length;
+    if (share <= 0.4) continue;
+    issues.push({
+      gateId: 'G8_motion_variety',
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: `SaaS scene variety overuses ${varietyKey}`,
+      evidence: `count=${count}/${scenes.length}; share=${round3(share)}; sequence=${sequence}`,
+    });
+  }
+
+  return issues;
+}
+
+function isSaasGeneratedSceneOverlay(overlay: Overlay): boolean {
+  if (overlay.type !== OverlayType.GENERATED_SCENE) return false;
+  const record = overlay as Overlay & { sceneModel?: unknown; metadata?: unknown };
+  const sceneModel = isRecord(record.sceneModel) ? record.sceneModel : undefined;
+  const metadata = isRecord(record.metadata) ? record.metadata : undefined;
+  return stringProp(sceneModel, 'schemaVersion') === 'saas-generated-scene/v1'
+    || stringProp(metadata, 'sourceType') === 'saas-explainer-generated-scene';
+}
+
+function readSaasSceneVarietyKey(overlay: Overlay): string | undefined {
+  const record = overlay as Overlay & { sceneModel?: unknown };
+  const sceneModel = isRecord(record.sceneModel) ? record.sceneModel : undefined;
+  const familyPlan = isRecord(sceneModel?.familyPlan) ? sceneModel.familyPlan : undefined;
+  return normalizeVarietyKey(
+    stringProp(familyPlan, 'visualArchetype')
+    ?? stringProp(sceneModel, 'visualArchetype')
+    ?? stringProp(familyPlan, 'family'),
+  );
+}
+
+function normalizeVarietyKey(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/g, '_');
+  return normalized || undefined;
+}
 function readSampleRole(value: unknown): RenderedAestheticSampleRole | undefined {
   if (
     value === 'manual' ||
@@ -1486,9 +1569,13 @@ function buildHarnessReport(input: {
   const passFrames = input.frames.filter((frame) => frame.report.status === 'pass').length;
   const warnFrames = input.frames.filter((frame) => frame.report.status === 'warn').length;
   const failFrames = input.frames.filter((frame) => frame.report.status === 'fail').length;
-  const score = round3(input.frames.length
+  const frameScore = round3(input.frames.length
     ? Math.min(...input.frames.map((frame) => frame.report.score))
     : 0);
+  const projectIssues = evaluateProjectLevelRenderedGates(input.input.overlays);
+  const projectFail = projectIssues.some((issue) => issue.severity === 'fail');
+  const projectWarn = projectIssues.some((issue) => issue.severity === 'warn');
+  const score = projectFail ? 0 : frameScore;
   const jsonReport = path.join(input.outputDir, 'rendered-aesthetic.json');
   const htmlReport = path.join(input.outputDir, 'report.html');
 
@@ -1509,19 +1596,26 @@ function buildHarnessReport(input: {
       auditedOverlayCount: input.input.overlays.filter(isSampledOverlay).length,
     },
     summary: {
-      status: failFrames > 0 ? 'fail' : warnFrames > 0 ? 'warn' : 'pass',
+      status: projectFail || failFrames > 0 ? 'fail' : projectWarn || warnFrames > 0 ? 'warn' : 'pass',
       score,
       passFrames,
       warnFrames,
       failFrames,
       sampledFrames: input.frames.length,
       animationSampleFrames: input.frames.filter((frame) => frame.sample.roles.some((role) => role !== 'manual' && role !== 'hold')).length,
+      projectIssueCount: projectIssues.length,
     },
+    projectIssues,
     frames: input.frames,
   };
 }
 
 export function renderRenderedAestheticHtmlReport(report: RenderedAestheticHarnessReport): string {
+  const projectIssueCards = report.projectIssues.length > 0
+    ? `<section class="frame-card fail"><h2>Project gates</h2><ul class="issues">${report.projectIssues.map((issue) => (
+      `<li><strong>${escapeHtml(issue.gateId)}</strong> ${escapeHtml(issue.severity)}: ${escapeHtml(issue.message)}${issue.evidence ? `<small>${escapeHtml(issue.evidence)}</small>` : ''}</li>`
+    )).join('')}</ul></section>`
+    : '';
   const frameCards = report.frames.map((frame) => {
     const issues = frame.report.issues.length > 0
       ? frame.report.issues.map((issue) => (
@@ -1607,11 +1701,13 @@ export function renderRenderedAestheticHtmlReport(report: RenderedAestheticHarne
       <div class="box"><span>Canvas</span>${report.width} x ${report.height} @ ${report.fps}fps</div>
       <div class="box"><span>Duration</span>${report.durationInFrames} frames</div>
       <div class="box"><span>Samples</span>${report.summary.sampledFrames} frames, ${report.summary.animationSampleFrames} animation-state frames</div>
+      <div class="box"><span>Project gates</span>${report.summary.projectIssueCount} issue(s)</div>
       <div class="box"><span>Overlays</span>${report.project.auditedOverlayCount} audited | ${escapeHtml(formatOverlayCounts(report.project.overlayCounts))}</div>
       <div class="box"><span>Input</span>${escapeHtml(report.project.inputFile ?? report.inputFile ?? 'self-test')}</div>
     </div>
   </header>
   <main>
+    ${projectIssueCards}
     ${frameCards}
   </main>
 </body>
