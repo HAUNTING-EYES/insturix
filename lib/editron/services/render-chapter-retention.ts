@@ -14,7 +14,14 @@
  */
 
 const RETENTION_DAYS_BY_PLAN: Record<string, number> = {
-  free: 7, base: 7,
+  // Live agency plans (the real tiers). base 7d / mid 30d / top 90d.
+  free: 7,
+  agency_starter: 7,
+  agency_growth: 30,
+  agency_scale: 90,
+  // Generic + legacy aliases (kept so callers passing tier names / old plan
+  // types still resolve; without these, agency plans fell back to base 7d).
+  base: 7,
   plus: 30, mid: 30,
   pro: 90, premium: 90, top: 90,
 };

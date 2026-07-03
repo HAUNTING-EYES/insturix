@@ -13,6 +13,13 @@ describe('render-chapter plan-based retention', () => {
     expect(renderChapterRetentionDays('premium')).toBe(90);
   });
 
+  it('maps the LIVE agency plans (regression guard — these silently fell to 7d before)', () => {
+    // chapter-renderer passes plan.type (e.g. "agency_scale"), so these are the real keys.
+    expect(renderChapterRetentionDays('agency_starter')).toBe(7);
+    expect(renderChapterRetentionDays('agency_growth')).toBe(30);
+    expect(renderChapterRetentionDays('agency_scale')).toBe(90);
+  });
+
   it('is case-insensitive and accepts base/mid/top aliases', () => {
     expect(renderChapterRetentionDays('PRO')).toBe(90);
     expect(renderChapterRetentionDays('base')).toBe(7);

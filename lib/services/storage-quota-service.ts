@@ -4,15 +4,12 @@
  * OWNER = the org if the user is in one (Clerk `orgId`), else the individual user.
  * Both have a quota; the solo/free default is deliberately tiny (upgrade pressure).
  *
- * DESIGN: this is the enforcement + usage-tracking INFRA. The per-plan limit NUMBERS ideally live
- * in the existing plan `serviceLimits` system (User.getServiceLimitUsage / plans.serviceLimits) —
- * that is the credits-session domain. So `getStorageLimitBytes` PREFERS `plan.serviceLimits.storage`
- * when present, and falls back to the placeholder table below until the credits session adds it.
+ * DESIGN: this is the enforcement + usage-tracking INFRA. `getStorageLimitBytes` PREFERS an explicit
+ * `plan.serviceLimits.storage` when present, and otherwise reads STORAGE_QUOTA_PLAN_BYTES below.
  * Usage is tracked in a dedicated `storage_usage` counter (owner-keyed) so we don't have to sum
  * every asset across org members on each upload, and so we don't modify the credits/User schema.
  *
- * ⚠️ STORAGE_QUOTA_PLACEHOLDER_BYTES numbers are INVENTED placeholders — the credits session owns
- * the real per-plan GB values (finance sources in docs/agents/.../Credits-System-Resource-DoS-Handoff).
+ * Per-plan byte limits are the founder-set tiers (base 1GB / mid 10GB / top 1TB, 2026-07-03).
  */
 
 import { getDatabase } from '@/lib/editron/db/mongodb';
@@ -21,13 +18,24 @@ const STORAGE_USAGE_COLLECTION = 'storage_usage';
 
 const GB = 1024 * 1024 * 1024;
 const MB = 1024 * 1024;
+const TB = 1024 * GB;
 
-/** Placeholder per-plan storage limits in BYTES. Keyed by lower-cased plan `type`. */
-const STORAGE_QUOTA_PLACEHOLDER_BYTES: Record<string, number> = {
+/**
+ * Per-plan storage limits in BYTES, keyed by lower-cased plan `type`.
+ * Founder-set tiers (2026-07-03): base 1GB / mid 10GB / top 1TB. Free stays tiny
+ * (upgrade pressure). `getStorageLimitBytes` still prefers an explicit
+ * `plan.serviceLimits.storage` when present; this table is the effective source
+ * until that's populated. Legacy plus/pro/premium kept as aliases.
+ */
+const STORAGE_QUOTA_PLAN_BYTES: Record<string, number> = {
   free: 500 * MB, // solo / free — "as low as hell"
-  plus: 10 * GB,
-  pro: 50 * GB,
-  premium: 200 * GB,
+  agency_starter: 1 * GB,
+  agency_growth: 10 * GB,
+  agency_scale: 1 * TB,
+  // legacy aliases
+  plus: 1 * GB,
+  pro: 10 * GB,
+  premium: 1 * TB,
 };
 const DEFAULT_PLAN = 'free';
 
@@ -55,10 +63,10 @@ export async function getStorageLimitBytes(userId: string): Promise<number> {
       plan?.serviceLimits?.storage?.limit;
     if (typeof fromLimits === 'number' && fromLimits > 0) return fromLimits;
     const type = String(plan?.type ?? plan?.planType ?? DEFAULT_PLAN).toLowerCase();
-    return STORAGE_QUOTA_PLACEHOLDER_BYTES[type] ?? STORAGE_QUOTA_PLACEHOLDER_BYTES[DEFAULT_PLAN];
+    return STORAGE_QUOTA_PLAN_BYTES[type] ?? STORAGE_QUOTA_PLAN_BYTES[DEFAULT_PLAN];
   } catch {
     // No plan / lookup failure -> the low free default (fail closed to the smallest quota).
-    return STORAGE_QUOTA_PLACEHOLDER_BYTES[DEFAULT_PLAN];
+    return STORAGE_QUOTA_PLAN_BYTES[DEFAULT_PLAN];
   }
 }
 
