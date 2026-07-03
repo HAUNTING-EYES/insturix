@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useCredits } from "@/hooks/useCredits";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 import { ReceiptTape } from "@/components/dashboard/Billing";
+import { StorageCard } from "@/components/shared/StorageCard";
 import { SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
 
 interface CurrentPlan {
@@ -177,6 +178,11 @@ function BillingContent() {
         transactions={transactions}
         onTopup={() => setShowTopupModal(true)}
       />
+
+      {/* Storage flag: usage vs plan cap + the extra-storage (paid overage) toggle */}
+      <div className="mx-auto max-w-xl px-4 pb-12">
+        <StorageCard />
+      </div>
 
       {/* Top-up / Subscription Modal — unchanged */}
       <BillingPaymentModal
