@@ -1405,8 +1405,8 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('visualChange', ['visualChange', 'visual_change', 'visual_change_rate', 'visual.significance']);
     setAtom('beatStrength', ['beatStrength', 'beat_strength', 'music_energy', 'audio.music_energy']);
     setAtom('emotionJump', ['emotionJump', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
-    setAtom('textCoverage', ['textCoverage', 'text_coverage', 'visual.text_coverage']);
-    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
+    setAtom('textCoverage', ['textCoverage', 'text_coverage', 'visual.text_coverage', 'visual.perception.avg_text_coverage']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen', 'visual.perception.text_presence_ratio']);
     setAtom('subjectPositionJump', ['subjectPositionJump', 'subject_position_jump', 'eye_trace_jump', 'subjectJump']);
     setAtom('subjectSizeJump', ['subjectSizeJump', 'subject_size_jump', 'scale_jump', 'subjectScaleJump']);
     setAtom('shotScaleDelta', ['shotScaleDelta', 'shot_scale_delta', 'shotScaleChange']);
@@ -1419,12 +1419,12 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('audioTailMs', ['audioTailMs', 'audio_tail_ms', 'incoming_audio_lead_ms', 'outgoing_audio_tail_ms']);
     setAtom('colorDelta', ['colorDelta', 'color_delta', 'color_temperature_delta']);
     setAtom('brightnessDelta', ['brightnessDelta', 'brightness_delta', 'luma_delta']);
-    setAtom('clutterDelta', ['clutterDelta', 'clutter_delta', 'visual_clutter_delta']);
+    setAtom('clutterDelta', ['clutterDelta', 'clutter_delta', 'visual_clutter_delta', 'visual.perception.screen_clutter_ratio']);
     setAtom('tensionRelease', ['tensionRelease', 'tension_release', 'release_pressure']);
     setAtom('hookPayoff', ['hookPayoff', 'hook_payoff', 'setup_payoff']);
     setAtom('boundaryConfidence', ['boundaryConfidence', 'boundary_confidence']);
     setAtom('rawToCutConfidence', ['rawToCutConfidence', 'raw_to_cut_confidence', 'source_map_confidence']);
-    setAtom('vjepaCoverageQuality', ['vjepaCoverageQuality', 'vjepa_coverage_quality', 'visual_coverage_quality']);
+    setAtom('vjepaCoverageQuality', ['vjepaCoverageQuality', 'vjepa_coverage_quality', 'visual_coverage_quality', 'visual.perception.avg_coverage_trust']);
     setAtom('recentTransitionSimilarity', ['recentTransitionSimilarity', 'recent_transition_similarity', 'transition_repetition']);
     setAtom('recentDirectionSimilarity', ['recentDirectionSimilarity', 'recent_direction_similarity']);
     setAtom('recentOverlayDensity', ['recentOverlayDensity', 'recent_overlay_density', 'overlay_density']);
@@ -1466,8 +1466,8 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal', 'speech.emotion_intensity']);
     setAtom('visualSignificance', ['visualSignificance', 'visual_significance', 'visual.significance']);
     setAtom('visualMotion', ['visualMotion', 'motion_intensity', 'visual.motion_intensity']);
-    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
-    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen', 'visual.perception.text_presence_ratio']);
+    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity', 'visual.perception.screen_clutter_ratio']);
     setAtom('topicDelta', ['topicDelta', 'topic_shift', 'topicShift', 'topic_shift_strength', 'narrative_pressure']);
     setAtom('currentZoomScale', ['currentZoomScale', 'current_zoom_scale']);
     setAtom('timeSinceLastZoomSec', ['timeSinceLastZoomSec', 'time_since_last_zoom', 'seconds_since_last_zoom']);
@@ -1525,9 +1525,9 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('phraseImpact', ['phraseImpact', 'visceral_impact', 'claim_strength']);
     setAtom('emotionIntensity', ['emotionIntensity', 'emotion_intensity', 'emotional_arousal']);
     setAtom('beatStrength', ['beatStrength', 'beat_strength', 'audio.music_energy']);
-    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity']);
-    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen']);
-    setAtom('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom', 'visual.negative_space_bottom']);
+    setAtom('visualComplexity', ['visualComplexity', 'visual_complexity', 'visual.complexity', 'visual.perception.screen_clutter_ratio']);
+    setAtom('textOnScreen', ['textOnScreen', 'text_on_screen', 'visual.text_on_screen', 'visual.perception.text_presence_ratio']);
+    setAtom('negativeSpaceBottom', ['negativeSpaceBottom', 'negative_space_bottom', 'visual.negative_space_bottom', 'visual.perception.negative_space.bottom']);
     setAtom('phraseWordCount', ['phraseWordCount', 'word_count', 'caption_word_count']);
     setAtom('captionDurationMs', ['captionDurationMs', 'duration_ms', 'display_duration_ms']);
     setAtom('captionSpanFrames', ['captionSpanFrames', 'durationFrames']);
@@ -1538,7 +1538,7 @@ function projectSignalFamilyAtoms(decision: ReactiveEditDecision): Record<string
     setAtom('brandContrast', ['brandContrast', 'brand_contrast', 'caption_contrast']);
     setAtom('brandCaptionEnergy', ['brandCaptionEnergy', 'brand_caption_energy', 'caption_energy']);
     setAtom('safeZoneBottom', ['safeZoneBottom', 'safe_zone_bottom', 'caption_safe_zone_pressure']);
-    setAtom('negativeSpaceTop', ['negativeSpaceTop', 'negative_space_top', 'visual.negative_space_top']);
+    setAtom('negativeSpaceTop', ['negativeSpaceTop', 'negative_space_top', 'visual.negative_space_top', 'visual.perception.negative_space.top']);
     setAtom('negativeSpaceCenter', ['negativeSpaceCenter', 'negative_space_center', 'visual.negative_space_center']);
     setAtom('subjectBottom', ['subjectBottom', 'subject_bottom', 'visual.subject_bottom']);
     setAtom('faceBottom', ['faceBottom', 'face_bottom', 'visual.face_bottom']);
@@ -1579,7 +1579,8 @@ function summarizeSignalSourcePacket(decision: ReactiveEditDecision): UnifiedSig
 }
 
 function isVisualSetupSignalKey(key: string): boolean {
-  return key === 'visual_complexity'
+  return key.startsWith('visual.perception.')
+    || key === 'visual_complexity'
     || key === 'enrichment.visual_setup_source'
     || key === 'visual.environment'
     || key === 'visual.scene_type'

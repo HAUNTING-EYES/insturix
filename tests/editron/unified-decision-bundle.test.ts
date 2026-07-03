@@ -988,6 +988,127 @@ describe('unified decision bundle merge', () => {
     }));
   });
 
+  it('uses visual perception facts as family planner evidence without turning them into executable labels', () => {
+    const pathE = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      edl: edl([
+        decision({ type: 'graphic', frame: 30, source: 'creative-brief:test' }),
+      ]),
+    });
+
+    const merged = mergeSignalDrivenBundle(pathE, edl([
+      decision({
+        type: 'transition',
+        frame: 180,
+        source: 'signal-executor:perception-transition',
+        confidence: 0.9,
+        params: {
+          transitionType: 'whip-pan',
+          boundaryFrame: 180,
+          topicDelta: 0.74,
+          signals: {
+            'visual.perception.text_presence_ratio': 0.92,
+            'visual.perception.screen_clutter_ratio': 0.88,
+            'visual.perception.avg_text_coverage': 0.42,
+            'visual.perception.avg_coverage_trust': 0.84,
+          },
+        },
+      }),
+      decision({
+        type: 'zoom',
+        frame: 300,
+        source: 'signal-executor:perception-zoom',
+        confidence: 0.9,
+        params: {
+          signals: {
+            speech_energy: 0.84,
+            word_importance: 0.76,
+            'visual.perception.text_presence_ratio': 0.94,
+            'visual.perception.screen_clutter_ratio': 0.93,
+          },
+        },
+      }),
+      decision({
+        type: 'caption-emphasis',
+        frame: 520,
+        source: 'signal-executor:perception-caption',
+        confidence: 0.92,
+        params: {
+          keyword: 'everything',
+          phrase: 'everything changed right here',
+          signals: {
+            speaking_rate_wpm: 224,
+            speech_energy: 0.88,
+            word_importance: 0.9,
+            visceral_impact: 0.84,
+            'visual.perception.text_presence_ratio': 0.9,
+            'visual.perception.screen_clutter_ratio': 0.91,
+            'visual.perception.negative_space.bottom': 0.08,
+          },
+        },
+      }),
+    ]));
+
+    expect(merged.edl.decisions.map((decision) => decision.type)).toEqual(['graphic']);
+    expect(merged.evidence).toEqual(expect.objectContaining({
+      signalDecisionCount: 3,
+      addedSignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 3,
+    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'transition',
+        source: 'signal-executor:perception-transition',
+        reason: 'transition-family-plan-kept-clean-cut',
+        candidate: expect.objectContaining({
+          projectedAtoms: expect.objectContaining({
+            textOnScreen: 0.92,
+            clutterDelta: 0.88,
+            textCoverage: 0.42,
+            vjepaCoverageQuality: 0.84,
+          }),
+          sourcePacket: expect.objectContaining({
+            hasVisualSetupSignals: true,
+            visualSetupSignalKeys: expect.arrayContaining(['visual.perception.text_presence_ratio']),
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'zoom',
+        source: 'signal-executor:perception-zoom',
+        reason: 'zoom-family-plan-kept-clean-camera',
+        candidate: expect.objectContaining({
+          projectedAtoms: expect.objectContaining({
+            speechPeak: 0.84,
+            wordImportance: 0.76,
+            textOnScreen: 0.94,
+            visualComplexity: 0.93,
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'caption-emphasis',
+        source: 'signal-executor:perception-caption',
+        reason: 'caption-family-plan-kept-readable',
+        candidate: expect.objectContaining({
+          projectedAtoms: expect.objectContaining({
+            speechRate: 224,
+            speechPeak: 0.88,
+            wordImportance: 0.9,
+            phraseImpact: 0.84,
+            textOnScreen: 0.9,
+            visualComplexity: 0.91,
+            negativeSpaceBottom: 0.08,
+          }),
+        }),
+      }),
+    ]));
+    expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'transition-family-plan-kept-clean-cut': expect.objectContaining({ count: 1 }),
+      'zoom-family-plan-kept-clean-camera': expect.objectContaining({ count: 1 }),
+      'caption-family-plan-kept-readable': expect.objectContaining({ count: 1 }),
+    }));
+  });
   it('normalizes Path E brief-executor EDL shape before merge/execution', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',
