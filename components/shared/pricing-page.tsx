@@ -54,60 +54,62 @@ const VOLUME_TIERS = [
   { label: "Custom", sublabel: "Full-scale", planId: "enterprise" },
 ] as const;
 
-// What each plan produces in a real month — an AND-basket, not an OR-menu.
+// What each plan's credits are worth, service by service — an "UP TO ... mix
+// freely" capacity list, NOT an implied "you get all of this at once".
 //
-// Credits live in TWO pools: WORKFLOW (chat, scripts, posting, content calendars,
-// brand scans, video editing & analysis) and AI MEDIA (image/video/audio
-// generation, granted on top). This shows a realistic full month across BOTH,
-// so a customer sees everything they make — not "N images OR N video minutes".
+// Honest framing: credits are ONE shared workflow pool. Each row is the true
+// per-service CEILING (spend the whole pool on that one thing). "One pool, mix
+// freely" tells the user it's shared, so nobody thinks they get 42 hrs of editing
+// AND 6,000 scripts simultaneously. Never render these as a checklist of
+// things-you-get — the "up to / or" wrapper is what keeps it truthful.
 //
-// Every count fits its pool at the real per-action cost from lib/config/creditCosts.ts
-// (edit ~150cr, post 1, script 5, calendar 20, scan 15 | image 5, clip 75, audio 15),
-// leaving headroom for everyday chat & analysis. ADJUSTABLE display model — tune here.
-type ValueItem = { n: string; unit: string };
+// Numbers from real per-action costs (creditCosts.ts): edit auto-analysis 12cr/min,
+// analysis 8cr/min, script 5, calendar 20, scan 15, post 1. Media (separate wallet)
+// after the 2026-07-04 reprice: image 1cr, video 5cr/sec.
+type ValueItem = { tool: string; n: string; unit: string };
 type PlanBundle = { workflow: ValueItem[]; media: ValueItem[] };
 
 const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
   agency_starter: {
     workflow: [
-      { n: "12", unit: "full video edits" },
-      { n: "60", unit: "social posts" },
-      { n: "15", unit: "scripts & docs" },
-      { n: "4", unit: "content calendars" },
-      { n: "2", unit: "brand scans" },
+      { tool: "Edit", n: "~4 hrs", unit: "of video edited" },
+      { tool: "Analyze", n: "~6 hrs", unit: "of video analyzed" },
+      { tool: "Script", n: "600", unit: "scripts" },
+      { tool: "Plan", n: "150", unit: "content calendars" },
+      { tool: "Distribute", n: "3,000", unit: "social posts" },
+      { tool: "Vault", n: "200", unit: "brand scans" },
     ],
     media: [
-      { n: "40", unit: "AI images" },
-      { n: "1", unit: "AI video clip" },
-      { n: "1", unit: "AI audio track" },
+      { tool: "Design", n: "300", unit: "AI images" },
+      { tool: "Video", n: "~1 min", unit: "of AI video" },
     ],
   },
   agency_growth: {
     workflow: [
-      { n: "60", unit: "full video edits" },
-      { n: "300", unit: "social posts" },
-      { n: "60", unit: "scripts & docs" },
-      { n: "12", unit: "content calendars" },
-      { n: "8", unit: "brand scans" },
+      { tool: "Edit", n: "~21 hrs", unit: "of video edited" },
+      { tool: "Analyze", n: "~31 hrs", unit: "of video analyzed" },
+      { tool: "Script", n: "3,000", unit: "scripts" },
+      { tool: "Plan", n: "750", unit: "content calendars" },
+      { tool: "Distribute", n: "15,000", unit: "social posts" },
+      { tool: "Vault", n: "1,000", unit: "brand scans" },
     ],
     media: [
-      { n: "120", unit: "AI images" },
-      { n: "3", unit: "AI video clips" },
-      { n: "4", unit: "AI audio tracks" },
+      { tool: "Design", n: "900", unit: "AI images" },
+      { tool: "Video", n: "~3 min", unit: "of AI video" },
     ],
   },
   agency_scale: {
     workflow: [
-      { n: "120", unit: "full video edits" },
-      { n: "600", unit: "social posts" },
-      { n: "120", unit: "scripts & docs" },
-      { n: "24", unit: "content calendars" },
-      { n: "16", unit: "brand scans" },
+      { tool: "Edit", n: "~42 hrs", unit: "of video edited" },
+      { tool: "Analyze", n: "~62 hrs", unit: "of video analyzed" },
+      { tool: "Script", n: "6,000", unit: "scripts" },
+      { tool: "Plan", n: "1,500", unit: "content calendars" },
+      { tool: "Distribute", n: "30,000", unit: "social posts" },
+      { tool: "Vault", n: "2,000", unit: "brand scans" },
     ],
     media: [
-      { n: "200", unit: "AI images" },
-      { n: "6", unit: "AI video clips" },
-      { n: "3", unit: "AI audio tracks" },
+      { tool: "Design", n: "1,500", unit: "AI images" },
+      { tool: "Video", n: "~5 min", unit: "of AI video" },
     ],
   },
 };
@@ -652,41 +654,44 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
           ))}
         </ul>
 
-        {/* What you make every month — an AND-basket across both pools */}
+        {/* Per-service capacity — "up to ... mix freely" (NOT an implied you-get-all) */}
         {bundle && (
           <div style={{
             textAlign: "left", maxWidth: 300, margin: "0 auto 24px",
             padding: "16px", borderRadius: 8,
             background: "var(--bg-deeper)", border: "1px solid var(--border-subtle)",
           }}>
-            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 12 }}>
-              EVERY MONTH YOU CAN MAKE
+            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
+              ONE FLEXIBLE POOL — UP TO ANY OF
+            </span>
+            <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginBottom: 12 }}>
+              Spend it however your month goes.
             </span>
 
-            {/* Workflow pool */}
-            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--text-dim)", display: "block", marginBottom: 8 }}>
-              WORKFLOW
-            </span>
             {bundle.workflow.map((ex) => (
-              <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
-                <span style={{ color: "var(--text-secondary)" }}>{ex.unit}</span>
-                <span style={{ color: "var(--text-primary)", fontWeight: 600, fontFamily: "var(--font-mono)" }}>{ex.n}</span>
+              <div key={ex.tool} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 62 }}>{ex.tool}</span>
+                <span style={{ color: "var(--text-secondary)", textAlign: "right", flex: 1 }}>
+                  <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{ex.n}</span> {ex.unit}
+                </span>
               </div>
             ))}
 
-            {/* AI media pool — monthly sample */}
+            {/* AI media — separate pay-as-you-go wallet */}
             <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", margin: "12px 0 8px" }}>
-              AI MEDIA · MONTHLY SAMPLE
+              AI MEDIA · PAY AS YOU GO
             </span>
             {bundle.media.map((ex) => (
-              <div key={ex.unit} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
-                <span style={{ color: "var(--text-secondary)" }}>{ex.unit}</span>
-                <span style={{ fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--accent-gold)" }}>{ex.n}</span>
+              <div key={ex.tool} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 62 }}>{ex.tool}</span>
+                <span style={{ textAlign: "right", flex: 1, color: "var(--text-secondary)" }}>
+                  <span style={{ color: "var(--accent-gold)", fontWeight: 600 }}>{ex.n}</span> {ex.unit}
+                </span>
               </div>
             ))}
 
             <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
-              Workflow runs your whole month — plus everyday AI chat &amp; analysis. AI media starts with a monthly sample; recharge anytime at <span style={{ color: "var(--accent-gold)" }}>$1 = 30 credits</span> (never expires) and it never touches your workflow credits.
+              One shared pool — do all video, all scripts, or any blend. AI media is separate &amp; pay-as-you-go: standard images ~free, recharge at <span style={{ color: "var(--accent-gold)" }}>$1 = 30 credits</span>.
             </span>
           </div>
         )}
