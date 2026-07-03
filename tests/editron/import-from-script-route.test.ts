@@ -88,6 +88,43 @@ describe('import-from-script route', () => {
     expect(mocks.addProjectToLinkBySessionId).toHaveBeenCalledWith('user_1', 'tf_session_1', 'proj_existing');
   });
 
+  it('dry-runs source-session imports without charging credits or writing project state', async () => {
+    mocks.findProjectBySessionId.mockResolvedValue({ projectId: 'proj_existing', brandId: 'brand_old' });
+
+    const { POST } = await import('@/app/api/services/editron/projects/import-from-script/route');
+    const response = await POST(request({
+      scenes: [scene],
+      title: 'Dry Run Script',
+      sourceSessionId: 'tf_session_dry',
+      sourceScriptId: 'script_dry',
+      brandId: 'brand_dry',
+      dryRun: true,
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual(expect.objectContaining({
+      success: true,
+      dryRun: true,
+      projectId: 'proj_existing',
+      reusedProject: true,
+      wouldReuseProject: true,
+      overlayCount: 1,
+      totalDurationFrames: 90,
+      totalDurationSeconds: 3,
+      creditsDeducted: 0,
+      writeOperationsSkipped: true,
+    }));
+    expect(mocks.findProjectBySessionId).toHaveBeenCalledWith('user_1', 'tf_session_dry');
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+    expect(mocks.addProjectToLinkBySessionId).not.toHaveBeenCalled();
+  });
+
   it('tags new direct-import projects with source session identity and creates a link', async () => {
     mocks.findProjectBySessionId.mockResolvedValue(null);
     mocks.findLinkBySessionId.mockResolvedValue(null);

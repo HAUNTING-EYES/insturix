@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       brandId,
       importMode,
       productionManifest,
+      dryRun,
     }: {
       scenes: SceneDescriptor[];
       title?: string;
@@ -61,12 +62,14 @@ export async function POST(request: NextRequest) {
       brandId?: string;
       importMode?: string;
       productionManifest?: unknown;
+      dryRun?: boolean;
     } = body;
 
     const normalizedBrandId = nonEmptyString(brandId);
     const normalizedImportMode = isDraftScriptImportMode(importMode) ? importMode : undefined;
     const normalizedSourceSessionId = nonEmptyString(sourceSessionId);
     const normalizedSourceScriptId = nonEmptyString(sourceScriptId);
+    const shouldDryRun = dryRun === true;
     const warnings: string[] = [];
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -87,6 +90,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Determine dimensions from aspect ratio
+    const ar = aspectRatio || '16:9';
+    let width = 1920;
+    let height = 1080;
+    if (ar === '9:16') { width = 1080; height = 1920; }
+    else if (ar === '1:1') { width = 1080; height = 1080; }
+    else if (ar === '4:5') { width = 1080; height = 1350; }
+
+    const fps = 30;
+    const projectName = title || 'Imported Script';
+    const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);
+    const totalFrames = scenesToTotalFrames(scenes, fps);
+    const findExistingSourceProject = async () => normalizedSourceSessionId
+      ? projectService.findProjectBySessionId(userId, normalizedSourceSessionId)
+      : null;
+
+    if (shouldDryRun) {
+      const existingProject = await findExistingSourceProject();
+
+      return NextResponse.json({
+        success: true,
+        dryRun: true,
+        projectId: existingProject?.projectId ?? null,
+        name: projectName,
+        overlayCount: overlays.length,
+        totalDurationFrames: totalFrames,
+        totalDurationSeconds: Math.round(totalFrames / fps),
+        creditsDeducted: 0,
+        reusedProject: Boolean(existingProject),
+        wouldReuseProject: Boolean(existingProject),
+        importMode: normalizedImportMode || 'legacy-direct-import',
+        draftOnly: normalizedImportMode === 'draft-script-import',
+        writeOperationsSkipped: true,
+      });
+    }
+
     // Deduct credits (1 credit for script import)
     const deductResult = await CreditsService.deductCredits(
       userId,
@@ -101,21 +140,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Determine dimensions from aspect ratio
-    const ar = aspectRatio || '16:9';
-    let width = 1920;
-    let height = 1080;
-    if (ar === '9:16') { width = 1080; height = 1920; }
-    else if (ar === '1:1') { width = 1080; height = 1080; }
-    else if (ar === '4:5') { width = 1080; height = 1350; }
-
-    const fps = 30;
-
     // Reuse the source-session project when ThinkForge created one at script stage.
-    const projectName = title || 'Imported Script';
-    const existingProject = normalizedSourceSessionId
-      ? await projectService.findProjectBySessionId(userId, normalizedSourceSessionId)
-      : null;
+    const existingProject = await findExistingSourceProject();
     const project = existingProject || await projectService.createProject(userId, projectName, {
       brandId: normalizedBrandId,
       sourceSessionId: normalizedSourceSessionId,
@@ -134,10 +160,6 @@ export async function POST(request: NextRequest) {
         { $set: update },
       );
     }
-
-    // Convert scenes to overlays (with storyboard images if available)
-    const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);
-    const totalFrames = scenesToTotalFrames(scenes, fps);
 
     // Save overlays to the project
     await projectService.saveProject(userId, project.projectId, {

@@ -89,7 +89,7 @@ describe('ThinkForge to Editron no-credit dry run', () => {
     mocks.createProjectLink.mockResolvedValue({ universalId: 'plink_created' });
   });
 
-  it('exports scenes, imports them into the existing source-session project, and never echoes raw script text', async () => {
+  it('exports scenes, preflights the existing source-session import, and never echoes raw script text', async () => {
     const { POST: exportForEditron } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
     const { POST: importFromScript } = await import('@/app/api/services/editron/projects/import-from-script/route');
 
@@ -130,6 +130,7 @@ describe('ThinkForge to Editron no-credit dry run', () => {
         sourceSessionId,
         sourceScriptId,
         brandId,
+        dryRun: true,
       },
     ) as never);
     const imported = await importResponse.json();
@@ -137,37 +138,23 @@ describe('ThinkForge to Editron no-credit dry run', () => {
     expect(importResponse.status).toBe(200);
     expect(imported).toEqual(expect.objectContaining({
       success: true,
+      dryRun: true,
       projectId: 'proj_from_tf_session',
       reusedProject: true,
+      wouldReuseProject: true,
       overlayCount: 6,
       totalDurationFrames: 270,
       totalDurationSeconds: 9,
-      creditsDeducted: 1,
+      creditsDeducted: 0,
+      writeOperationsSkipped: true,
     }));
     expect(mocks.findProjectBySessionId).toHaveBeenCalledWith('user_dry_run', sourceSessionId);
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
     expect(mocks.createProject).not.toHaveBeenCalled();
-    expect(mocks.updateOne).toHaveBeenCalledWith(
-      { userId: 'user_dry_run', projectId: 'proj_from_tf_session' },
-      { $set: expect.objectContaining({ pipelineStage: 'edit', brandId }) },
-    );
-    expect(mocks.saveProject).toHaveBeenCalledWith(
-      'user_dry_run',
-      'proj_from_tf_session',
-      expect.objectContaining({
-        aspectRatio: '16:9',
-        durationInFrames: 270,
-        fps: 30,
-        playerDimensions: { width: 1920, height: 1080 },
-      }),
-    );
-    expect(mocks.findLinkBySessionId).toHaveBeenCalledWith('user_dry_run', sourceSessionId);
-
-    const savedPayload = mocks.saveProject.mock.calls[0]?.[2];
-    expect(savedPayload.overlays).toEqual(expect.arrayContaining([
-      expect.objectContaining({ row: 2, type: 'html-scene' }),
-      expect.objectContaining({ row: 3, type: 'sound' }),
-      expect.objectContaining({ row: 4, type: 'text' }),
-    ]));
-    expect(JSON.stringify(savedPayload)).not.toContain('PRIVATE CUSTOMER BRIEF');
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+    expect(JSON.stringify(imported)).not.toContain('PRIVATE CUSTOMER BRIEF');
   });
 });
