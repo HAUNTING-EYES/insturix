@@ -154,15 +154,17 @@ export async function assembleUnifiedContext(
   let colorPalette: string[] = [];
   let environmentNotes = '';
 
-  if (project.sourceStoryboardId) {
-    const sb = await db.collection('storyboards').findOne({ storyboardId: project.sourceStoryboardId }) as any;
-    if (sb) {
-      storyboardScenes = sb.scenes || [];
-      globalEditDirections = (sb as any).globalEditDirections || null;
-      overallMusicPrompt = sb.overallMusicPrompt || '';
-      colorPalette = (sb as any).colorPalette || [];
-      environmentNotes = (sb as any).environmentNotes || '';
-    }
+  const { getStoryboardForProjectContext } = await import('@/lib/pipeline/storyboard-db');
+  const sb = await getStoryboardForProjectContext({
+    projectId,
+    sourceStoryboardId: project.sourceStoryboardId,
+  }, userId);
+  if (sb) {
+    storyboardScenes = sb.scenes || [];
+    globalEditDirections = (sb as any).globalEditDirections || null;
+    overallMusicPrompt = sb.overallMusicPrompt || '';
+    colorPalette = (sb as any).colorPalette || [];
+    environmentNotes = (sb as any).environmentNotes || '';
   }
 
   // Get video overlays sorted by position

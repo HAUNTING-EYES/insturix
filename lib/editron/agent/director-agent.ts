@@ -505,6 +505,7 @@ export async function executeDirectorPlan(
     // Previously declared inside the { } block below → caused "storyboardScenes is not defined"
     // which silently killed captions, filters, transitions, and quality review.
     let storyboardScenes: any[] = [];
+    let storyboardContextSource: 'storyboard' | 'raw-footage-analysis' | 'synthetic-storyboard' | null = null;
     // Fix 24: Hoist per-asset analysis data to function scope so continuity scoring
     // can use real 5-Track visual data (dominant colors, energy) instead of empty arrays.
     const perAssetAnalysis = new Map<string, any>();
@@ -545,24 +546,25 @@ export async function executeDirectorPlan(
       try {
         const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
         projectDoc = await db.collection('projects').findOne({ projectId }) as any;
-        const storyboardId = projectDoc?.sourceStoryboardId;
-        if (storyboardId) {
-          // Path A: ThinkForge storyboard (Mode 1: script → AI video)
-          const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
-          const sb = await getStoryboard(storyboardId, userId);
-          if (sb) {
-            storyboardScenes = sb.scenes.map(s => ({
-              sceneIndex: s.sceneIndex,
-              sceneType: (s as any).sceneType || 'continuous',
-              narration: s.descriptor.narration,
-              visualDescription: s.descriptor.visualDescription,
-              mood: s.descriptor.mood,
-              audioDescription: s.descriptor.audioDescription,
-              cameraDirection: s.descriptor.cameraDirection,
-              editDirections: s.descriptor.editDirections,
-            }));
-            console.log(`[Director] Found storyboard with ${storyboardScenes.length} scenes`);
-          }
+        const { getStoryboardForProjectContext } = await import('@/lib/pipeline/storyboard-db');
+        const sb = await getStoryboardForProjectContext({
+          projectId,
+          sourceStoryboardId: projectDoc?.sourceStoryboardId,
+        }, userId);
+        if (sb) {
+          // Path A: ThinkForge storyboard (Mode 1: script -> AI video)
+          storyboardScenes = sb.scenes.map(s => ({
+            sceneIndex: s.sceneIndex,
+            sceneType: (s as any).sceneType || 'continuous',
+            narration: s.descriptor.narration,
+            visualDescription: s.descriptor.visualDescription,
+            mood: s.descriptor.mood,
+            audioDescription: s.descriptor.audioDescription,
+            cameraDirection: s.descriptor.cameraDirection,
+            editDirections: s.descriptor.editDirections,
+          }));
+          storyboardContextSource = 'storyboard';
+          console.log(`[Director] Found storyboard with ${storyboardScenes.length} scenes`);
         } else if (projectDoc?.rawFootageAnalysis?.segments?.length > 0) {
           // Path C: Raw Footage Analysis (Mode 2 with transcript intelligence)
           // Built by raw-footage-processor.ts from real transcript data.
@@ -583,6 +585,7 @@ export async function executeDirectorPlan(
               onScreenText: [],
             },
           }));
+          storyboardContextSource = 'raw-footage-analysis';
           // Carry Gemini file URI from VU (if VU ran in parallel and produced one)
           // so 5-Track can skip redundant CDN download + Gemini upload (saves ~30s).
           if (projectDoc.syntheticStoryboard?.geminiFileUri) {
@@ -602,6 +605,7 @@ export async function executeDirectorPlan(
             cameraDirection: s.descriptor?.cameraDirection || 'static',
             editDirections: s.descriptor?.editDirections,
           }));
+          storyboardContextSource = 'synthetic-storyboard';
           // Carry Gemini file URI from VideoUnderstanding so 5-Track can skip redundant CDN download
           if (ssb.geminiFileUri) {
             (projectDoc as any)._vuGeminiFileUri = ssb.geminiFileUri;
@@ -1690,12 +1694,12 @@ export async function executeDirectorPlan(
           // preserves (project-service.ts:269) — arrives async, no clobber. FAIL-SOFT throughout.
           const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
           const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
+          const isStoryboardProject = storyboardContextSource === 'storyboard';
           try {
             const {
               buildAutoBgmDecisionEvidence,
               persistAutoBgmDecisionEvidence,
             } = await import('@/lib/editron/services/auto-bgm-decision');
-            const isStoryboardProject = !!(projectDoc as any)?.sourceStoryboardId;
             const bgmFps = project.fps || 30;
             const bgmTotalFrames = overlays.reduce(
               (m: number, o: any) => Math.max(m, (o?.from || 0) + (o?.durationInFrames || 0)),
@@ -1772,7 +1776,7 @@ export async function executeDirectorPlan(
               );
               const evidence = buildAutoBgmDecisionEvidence({
                 recommendation: (bgmGenreParams as any)?.bgmRecommendation,
-                isStoryboardProject: !!(projectDoc as any)?.sourceStoryboardId,
+                isStoryboardProject,
                 durationSec: Math.round(bgmTotalFrames / bgmFps),
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
