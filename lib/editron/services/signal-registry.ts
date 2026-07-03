@@ -26,6 +26,7 @@
  */
 
 import type { SignalValues } from './graph-query';
+import type { VisualCutIntelligenceReport, VisualPerceptionSummary } from './visual-cut-intelligence';
 import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
 import type { Wav2VecAnalysisResult, Wav2VecSegmentResult } from './wav2vec-service';
 
@@ -107,6 +108,8 @@ export interface RawFootageAnalysis {
   };
   estimatedCleanDurationMs?: number;
   originalDurationMs?: number;
+  /** Visual perception/cut-intelligence report produced before silence removal. */
+  visualCutIntelligence?: VisualCutIntelligenceReport;
 }
 
 /** From overlay types */
@@ -214,6 +217,55 @@ function setOptionalNumber(snapshot: SignalSnapshot, key: string, value: unknown
   if (typeof value === 'number' && Number.isFinite(value)) {
     snapshot[key] = value;
   }
+}
+
+function setOptionalGlobalNumber(globalSignals: SignalValues, key: string, value: unknown): void {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    globalSignals[key] = value;
+  }
+}
+
+function applyVisualPerceptionGlobalSignals(
+  timeline: SignalTimeline,
+  rawFootage: RawFootageAnalysis | null,
+): void {
+  const perception = rawFootage?.visualCutIntelligence?.perception;
+  if (!perception) return;
+
+  const globalSignals = timeline.globalSignals;
+  globalSignals['enrichment.visual_perception_source'] = rawFootage?.visualCutIntelligence?.source ?? perception.source;
+  globalSignals['visual.perception.status'] = perception.status;
+  globalSignals['visual.perception.primary_mode'] = perception.primaryVisualMode;
+  globalSignals['visual.perception.dominant_action_type'] = perception.dominantActionType ?? null;
+  globalSignals['visual.perception.dominant_motion_type'] = perception.dominantMotionType ?? null;
+  globalSignals['visual.perception.preferred_overlay_region'] = perception.preferredOverlayRegion;
+  globalSignals['visual.perception.placement_trust'] = perception.screenAwarePlacementTrust;
+  globalSignals['visual.perception.visual_explainability'] = perception.visualExplainability;
+  globalSignals['visual.perception.missing_evidence_count'] = perception.missingEvidence.length;
+  globalSignals['visual.perception.reason_count'] = perception.reasons.length;
+
+  setVisualPerceptionNumbers(globalSignals, perception);
+}
+
+function setVisualPerceptionNumbers(globalSignals: SignalValues, perception: VisualPerceptionSummary): void {
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.segment_count', perception.segmentCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.duration_ms', perception.durationMs);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.speech_coverage', perception.speechCoverage);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.subject_presence_ratio', perception.subjectPresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.face_presence_ratio', perception.facePresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.text_presence_ratio', perception.textPresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.motion_presence_ratio', perception.motionPresenceRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.screen_clutter_ratio', perception.screenClutterRatio);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_viewer_value', perception.avgViewerValue);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_cut_eligibility', perception.avgCutEligibility);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_coverage_trust', perception.avgCoverageTrust);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_text_coverage', perception.avgTextCoverage);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_object_count', perception.avgObjectCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.avg_face_count', perception.avgFaceCount);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.top', perception.avgNegativeSpace.top);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.right', perception.avgNegativeSpace.right);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.bottom', perception.avgNegativeSpace.bottom);
+  setOptionalGlobalNumber(globalSignals, 'visual.perception.negative_space.left', perception.avgNegativeSpace.left);
 }
 
 export function buildSignalTimeline(
@@ -660,6 +712,7 @@ export function buildSignalTimeline(
   timeline.globalSignals['enrichment.vjepa_segments'] = vjepaSegments?.length ?? 0;
   timeline.globalSignals['enrichment.wav2vec_segments'] = wav2vecSegments?.length ?? 0;
   timeline.globalSignals['enrichment.diarization'] = speakerIds.size > 1 ? 'grok' : 'none';
+  applyVisualPerceptionGlobalSignals(timeline, rawFootage);
 
   // ── PERSONALITY SIGNALS (global, derived from Wav2Vec + V-JEPA + structural) ──
   // Used by MG composition planner, theme resolver, and overlay definitions.
