@@ -148,7 +148,14 @@ export function PricingPage() {
   useEffect(() => {
     fetch('/api/user/plans')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.currentPlan?.name) setCurrentPlanKey(normalizePlanKey(d.currentPlan.name)); })
+      .then((d) => {
+        const key = d?.currentPlan?.name ? normalizePlanKey(d.currentPlan.name) : null;
+        if (!key) return;
+        setCurrentPlanKey(key);
+        // Auto-jump the tier selector to the user's current plan.
+        const idx = VOLUME_TIERS.findIndex((t) => normalizePlanKey(t.planId) === key);
+        if (idx >= 0) setSelectedTier(idx);
+      })
       .catch(() => {});
   }, []);
 
