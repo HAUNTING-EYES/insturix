@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
-import { CALOS_CAMPAIGN_PLATFORMS, MAX_CAMPAIGN_POSTS_PER_WEEK } from '@/lib/calos/campaign-cadence';
+import { CALOS_CAMPAIGN_PLATFORMS } from '@/lib/calos/campaign-cadence';
+import { clampPerWeek, normalizePreferredDays } from '@/lib/calos/cadence-normalize';
 import { CALOS_OBJECTIVES, DEFAULT_OBJECTIVE, type CalosObjective } from '@/lib/calos/campaign-intent';
 import type { CadenceRule } from '@/app/dashboard/calos/CadenceEditor';
 import { C, DOW, platLabel } from './calos-view-model';
@@ -25,11 +26,6 @@ export interface EditableCampaign {
   cadenceRules: CadenceRule[];
 }
 
-const clampPerWeek = (v: number) =>
-  Math.max(0, Math.min(MAX_CAMPAIGN_POSTS_PER_WEEK, Number.isFinite(v) ? Math.floor(v) : 0));
-
-const normalizeDays = (days: number[]) =>
-  [...new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
 
 export function CalosCadenceModal({
   campaign,
@@ -54,13 +50,13 @@ export function CalosCadenceModal({
     (campaign?.cadenceRules?.length ? campaign.cadenceRules : initialRules?.length ? initialRules : (DEFAULT_CADENCE as CadenceRule[])).map((r) => ({
       platform: typeof r.platform === 'string' && r.platform.trim() ? r.platform.trim().toLowerCase() : 'instagram',
       perWeek: clampPerWeek(r.perWeek),
-      preferredDays: normalizeDays(r.preferredDays),
+      preferredDays: normalizePreferredDays(r.preferredDays),
     })),
   );
   const [saving, setSaving] = useState(false);
 
   const toggleDay = (ri: number, di: number) =>
-    setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, preferredDays: r.preferredDays.includes(di) ? r.preferredDays.filter((x) => x !== di) : normalizeDays([...r.preferredDays, di]) } : r)));
+    setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, preferredDays: r.preferredDays.includes(di) ? r.preferredDays.filter((x) => x !== di) : normalizePreferredDays([...r.preferredDays, di]) } : r)));
   const setPW = (ri: number, v: number) =>
     setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, perWeek: clampPerWeek(v) } : r)));
   const removeRow = (ri: number) => setRows((rs) => rs.filter((_, i) => i !== ri));

@@ -50,7 +50,20 @@ export default function CalosCalendarV3() {
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<string | null>(null);
 
-  const today = useMemo(() => new Date(), []);
+  // Self-updating "today" so a session left open past midnight rolls over (checks each minute,
+  // only re-renders when the calendar day actually changes).
+  const [today, setToday] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => {
+      setToday((prev) => {
+        const now = new Date();
+        return prev.getDate() === now.getDate() && prev.getMonth() === now.getMonth() && prev.getFullYear() === now.getFullYear()
+          ? prev
+          : now;
+      });
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Brand loading — mirrors the live CalOS page: 0 brands → personal default,
   // exactly 1 → that brand, many → last-selected or first. No forced picker.
@@ -420,7 +433,7 @@ export default function CalosCalendarV3() {
                   return (
                     <div key={p} style={{ display: 'grid', gridTemplateColumns: `60px repeat(${wk.length},1fr)`, gap: 6, marginBottom: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Glyph p={p} /><Mono s={8} c={C.faint}>{platGlyph(p)}</Mono></div>
-                      {wk.map((dn) => <div key={dateKey(dn)} style={{ minHeight: 54, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>{rowPlacements.filter((pl) => sameDay(pl.date, dn)).map((pl) => <Chip key={`${pl.item.id}-${pl.time}`} d={pl.item} compact onClick={() => setOpenId(pl.item.id)} />)}</div>)}
+                      {wk.map((dn) => <div key={dateKey(dn)} style={{ minHeight: 54, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>{rowPlacements.filter((pl) => sameDay(pl.date, dn)).map((pl) => <Chip key={`${pl.item.id}-${pl.date.toISOString()}`} d={pl.item} compact onClick={() => setOpenId(pl.item.id)} />)}</div>)}
                     </div>
                   );
                 })}
@@ -436,7 +449,7 @@ export default function CalosCalendarV3() {
                 ) : (
                   <div style={{ position: 'relative', paddingLeft: 74 }}><div style={{ position: 'absolute', left: 70, top: 8, bottom: 8, width: 1.5, background: C.border }} />
                     {selDayPlacements.map((pl) => { const d = pl.item; return (
-                      <div key={`${d.id}-${pl.time}`} style={{ position: 'relative', marginBottom: 12 }}>
+                      <div key={`${d.id}-${pl.date.toISOString()}`} style={{ position: 'relative', marginBottom: 12 }}>
                         <span style={{ position: 'absolute', left: -74, top: 14, fontFamily: MONO, fontSize: 11, color: C.dim, width: 40, textAlign: 'right' }}>{pl.time}</span>
                         <span style={{ position: 'absolute', left: -8, top: 15, width: 11, height: 11, borderRadius: '50%', background: d.stage === 'approved' ? C.gold : C.bg, border: `1.5px solid ${d.stage === 'approved' || d.stage === 'in_review' ? C.gold : C.muted}`, zIndex: 2 }} />
                         <button className="calos-fr" onClick={() => setOpenId(d.id)} style={{ cursor: 'pointer', width: '100%', textAlign: 'left', background: C.raised, border: `1px solid ${C.border}`, borderLeft: `2px solid ${stageTick(d.stage)}`, borderRadius: 9, padding: 13 }}>

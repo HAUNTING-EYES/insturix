@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DEFAULT_CADENCE } from '@/lib/calos/cadence';
 import { CALOS_CAMPAIGN_PLATFORMS, MAX_CAMPAIGN_POSTS_PER_WEEK } from '@/lib/calos/campaign-cadence';
+import { clampPerWeek, normalizePreferredDays } from '@/lib/calos/cadence-normalize';
 import { CALOS_OBJECTIVES, DEFAULT_OBJECTIVE, type CalosObjective } from '@/lib/calos/campaign-intent';
 
 export interface CadenceRule {
@@ -16,14 +17,6 @@ export interface CadenceRule {
 
 const PLATFORMS = CALOS_CAMPAIGN_PLATFORMS;
 const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-
-function clampPerWeek(value: number) {
-  return Math.max(0, Math.min(MAX_CAMPAIGN_POSTS_PER_WEEK, Number.isFinite(value) ? Math.floor(value) : 0));
-}
-
-function normalizePreferredDays(days: number[]) {
-  return [...new Set(days.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
-}
 
 /**
  * Edit a campaign's per-platform cadence (posts/week + which days). Auto-fill consumes

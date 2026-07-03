@@ -40,7 +40,7 @@ export function StatusMark({ stage }: { stage: string }) {
 export type BtnVariant = 'primary' | 'approve' | 'danger' | 'ghost';
 
 export function Btn({
-  children, variant = 'ghost', size = 'md', onClick, style, title, active, disabled,
+  children, variant = 'ghost', size = 'md', onClick, style, title, disabled,
 }: {
   children: React.ReactNode;
   variant?: BtnVariant;
@@ -48,18 +48,13 @@ export function Btn({
   onClick?: () => void;
   style?: React.CSSProperties;
   title?: string;
-  active?: boolean;
   disabled?: boolean;
 }) {
   const V = {
     primary: { bg: C.gold, fg: '#241B08', bd: C.gold },
     approve: { bg: 'transparent', fg: C.green, bd: 'rgba(94,201,126,.4)' },
     danger: { bg: 'transparent', fg: C.coral, bd: 'rgba(212,106,92,.4)' },
-    ghost: {
-      bg: active ? 'rgba(212,166,82,.1)' : C.surface,
-      fg: active ? C.gold : C.soft,
-      bd: active ? 'rgba(212,166,82,.4)' : C.border,
-    },
+    ghost: { bg: C.surface, fg: C.soft, bd: C.border },
   }[variant];
   const pad = size === 'sm' ? '6px 10px' : '8px 13px';
   const fs = size === 'sm' ? 11 : 12.5;
