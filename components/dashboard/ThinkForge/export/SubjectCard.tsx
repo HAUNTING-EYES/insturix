@@ -47,6 +47,12 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
   const showFeedback = feedbackSubjectId === subject.subjectId;
   const isEditing = editingSubjectId === subject.subjectId;
   const isMissingRequiredEvidence = Boolean(subject.requiresBrandEvidence && !subject.imageUrl);
+  const isBrandEvidenceLocked = Boolean(subject.requiresBrandEvidence);
+  const regenerateDisabled = isBrandEvidenceLocked || isRegenerating;
+  const uploadTitle = isMissingRequiredEvidence ? "Upload brand evidence" : "Upload your own image";
+  const regenerateTitle = isBrandEvidenceLocked
+    ? "Brand-owned references need real evidence, not AI regeneration"
+    : "Regenerate (random)";
   const provenanceLabel =
     subject.referenceProvenanceLabel ||
     (isMissingRequiredEvidence ? "Evidence required" : subject.referenceProvenance === "uploaded" ? "Uploaded" : undefined);
@@ -137,8 +143,12 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         {/* Top-left: Upload + Regenerate + Delete */}
         <div className="absolute top-1.5 left-1.5 flex gap-1">
           <label
-            className={`p-1 rounded-full bg-[#D4A652]/30 text-[#D4A652] hover:bg-[#D4A652]/50 hover:text-[#ECE9E1] transition-colors cursor-pointer ${isRegenerating ? "opacity-50 pointer-events-none" : ""}`}
-            title="Upload your own image"
+            className={`p-1 rounded-full transition-colors cursor-pointer ${
+              isMissingRequiredEvidence
+                ? "bg-[#D46A5C]/25 text-[#D46A5C] hover:bg-[#D46A5C]/40 hover:text-[#ECE9E1]"
+                : "bg-[#D4A652]/30 text-[#D4A652] hover:bg-[#D4A652]/50 hover:text-[#ECE9E1]"
+            } ${isRegenerating ? "opacity-50 pointer-events-none" : ""}`}
+            title={uploadTitle}
           >
             <Upload className="h-3 w-3" />
             <input
@@ -154,9 +164,13 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
           </label>
           <button
             onClick={() => handleRegenerateSubject(subject.subjectId)}
-            disabled={isRegenerating}
-            className="p-1 rounded-full bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1] transition-colors"
-            title="Regenerate (random)"
+            disabled={regenerateDisabled}
+            className={`p-1 rounded-full transition-colors ${
+              isBrandEvidenceLocked
+                ? "bg-[#1B1A18]/80 text-[#454340] cursor-not-allowed"
+                : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
+            }`}
+            title={regenerateTitle}
           >
             <RefreshCw className={`h-3 w-3 ${isRegenerating ? "animate-spin" : ""}`} />
           </button>
@@ -173,25 +187,29 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         <div className="absolute bottom-1.5 right-1.5 flex gap-1">
           <button
             onClick={() => handleStartEditDescription(subject.subjectId)}
-            disabled={isRegenerating}
+            disabled={regenerateDisabled}
             className={`p-1 rounded-full transition-colors ${
-              isEditing
-                ? "bg-[#D4A652] text-[#0B0B0A]"
-                : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
+              isBrandEvidenceLocked
+                ? "bg-[#1B1A18]/80 text-[#454340] cursor-not-allowed"
+                : isEditing
+                  ? "bg-[#D4A652] text-[#0B0B0A]"
+                  : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
             }`}
-            title="Edit description & regenerate"
+            title={regenerateTitle}
           >
             <Pencil className="h-3 w-3" />
           </button>
           <button
             onClick={() => toggleFeedbackPrompt(subject.subjectId)}
-            disabled={isRegenerating}
+            disabled={regenerateDisabled}
             className={`p-1 rounded-full transition-colors ${
-              showFeedback
-                ? "bg-[#D4A652] text-[#0B0B0A]"
-                : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
+              isBrandEvidenceLocked
+                ? "bg-[#1B1A18]/80 text-[#454340] cursor-not-allowed"
+                : showFeedback
+                  ? "bg-[#D4A652] text-[#0B0B0A]"
+                  : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
             }`}
-            title="Quick feedback"
+            title={regenerateTitle}
           >
             <MessageSquare className="h-3 w-3" />
           </button>
@@ -252,7 +270,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
             <Button
               size="sm"
               onClick={() => handleSaveDescriptionAndRegenerate(subject.subjectId)}
-              disabled={!editingDescription.trim() || isRegenerating}
+              disabled={!editingDescription.trim() || regenerateDisabled}
               className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] h-6 px-2 text-[10px] rounded-[7px] border-none font-semibold"
             >
               {isRegenerating ? (
@@ -275,7 +293,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
               placeholder="e.g. make it darker, remove text..."
               className="bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[11px] h-7 flex-1"
               onKeyDown={(e) => {
-                if (e.key === "Enter" && feedbackText.trim()) {
+                if (e.key === "Enter" && feedbackText.trim() && !isBrandEvidenceLocked) {
                   handleRegenerateSubject(subject.subjectId, feedbackText.trim());
                 }
               }}
@@ -286,7 +304,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
               onClick={() =>
                 handleRegenerateSubject(subject.subjectId, feedbackText.trim())
               }
-              disabled={!feedbackText.trim() || isRegenerating}
+              disabled={!feedbackText.trim() || regenerateDisabled}
               className="bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] h-7 px-2 rounded-[7px] border-none"
             >
               <Send className="h-3 w-3" />

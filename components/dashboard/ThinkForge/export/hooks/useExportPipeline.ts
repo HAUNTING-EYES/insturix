@@ -1285,6 +1285,14 @@ export function useExportPipeline(
 
   const handleRegenerateSubject = async (subjectId: string, feedback?: string) => {
     if (!refSetId || regeneratingSubjectIds.has(subjectId)) return;
+    const subject = subjects.find((s) => s.subjectId === subjectId);
+    if (subject?.requiresBrandEvidence) {
+      const message = "Brand-owned references require uploaded or Brand Vault evidence, not AI regeneration.";
+      setError(message);
+      sendNotification("Brand Evidence Required", message);
+      return;
+    }
+
     setRegeneratingSubjectIds((prev) => new Set(prev).add(subjectId));
     setFeedbackSubjectId(null);
     setFeedbackText("");
@@ -1387,7 +1395,18 @@ export function useExportPipeline(
         setSubjects((prev) =>
           prev.map((s) =>
             s.subjectId === subjectId
-              ? { ...s, imageUrl: data.imageUrl, visualDescription: data.visualDescription || s.visualDescription, status: "generated" }
+              ? {
+                  ...s,
+                  imageUrl: data.imageUrl,
+                  visualDescription: data.visualDescription || s.visualDescription,
+                  status: "generated",
+                  referenceProvenance: data.referenceProvenance || "uploaded",
+                  referenceProvenanceLabel: data.referenceProvenanceLabel || "Uploaded",
+                  requiresBrandEvidence:
+                    typeof data.requiresBrandEvidence === "boolean" ? data.requiresBrandEvidence : s.requiresBrandEvidence,
+                  brandEvidenceStatus: data.brandEvidenceStatus || (s.requiresBrandEvidence ? "resolved" : s.brandEvidenceStatus),
+                  evidenceRequiredReason: data.brandEvidenceStatus === "resolved" ? undefined : s.evidenceRequiredReason,
+                }
               : s,
           ),
         );

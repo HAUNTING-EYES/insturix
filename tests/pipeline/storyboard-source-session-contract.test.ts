@@ -76,7 +76,13 @@ describe('storyboard source session lineage contract', () => {
     expect(exportHook).toContain('mergeReferenceSubjects');
     expect(exportHook).toContain('missingBrandEvidence');
     expect(exportHook).toContain('Brand evidence required before storyboard generation');
+    expect(exportHook).toContain('Brand-owned references require uploaded or Brand Vault evidence');
+    expect(exportHook).toContain('referenceProvenance: data.referenceProvenance || "uploaded"');
+    expect(exportHook).toContain('brandEvidenceStatus: data.brandEvidenceStatus');
     expect(subjectTypes).toContain('referenceProvenance?: ReferenceImageProvenance;');
+    expect(subjectCard).toContain('isBrandEvidenceLocked');
+    expect(subjectCard).toContain('Upload brand evidence');
+    expect(subjectCard).toContain('Brand-owned references need real evidence');
     expect(subjectCard).toContain('referenceProvenanceLabel');
     expect(subjectCard).toContain('Evidence required');
   });
