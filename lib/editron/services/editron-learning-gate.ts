@@ -28,6 +28,15 @@ export interface DirectorQualityReviewSnapshot {
   criticalCount?: unknown;
 }
 
+export interface RenderedQualityIssueSample {
+  frame: number;
+  dimension: string;
+  severity: 'info' | 'warn' | 'fail';
+  overlayId: string | number | null;
+  message: string;
+  evidence: string | null;
+}
+
 export interface DirectorRenderedQualityEvidenceSnapshot {
   qualityEvidenceSource?: unknown;
   renderedQualityStatus?: unknown;
@@ -63,7 +72,7 @@ export interface Phase0RenderedQualityGate {
   qualityScore: number | null;
   renderedAestheticFailFrameCount: number;
   renderedAestheticIssueCount: number;
-  renderedAestheticIssueSamples: unknown;
+  renderedAestheticIssueSamples: RenderedQualityIssueSample[];
   renderedAestheticJson: unknown;
   renderedAestheticHtml: unknown;
   warning: string | null;
@@ -79,6 +88,7 @@ export function buildPhase0RenderedQualityGate(input: {
   const hasRenderedEvidence = evidence.qualityEvidenceSource === 'rendered-aesthetic';
   const failFrameCount = Math.max(0, Math.round(readFiniteNumber(evidence.renderedAestheticFailFrameCount, 0)));
   const issueCount = Math.max(0, Math.round(readFiniteNumber(evidence.renderedAestheticIssueCount, 0)));
+  const issueSamples = normalizeRenderedIssueSamples(evidence.renderedAestheticIssueSamples);
   const decision = resolveEditronLearningOutcome({
     hasQualityReview: input.hasQualityReview ?? hasRenderedEvidence,
     qualityScore: evidence.qualityScore,
@@ -114,7 +124,7 @@ export function buildPhase0RenderedQualityGate(input: {
     qualityScore: decision.qualityScore,
     renderedAestheticFailFrameCount: failFrameCount,
     renderedAestheticIssueCount: issueCount,
-    renderedAestheticIssueSamples: evidence.renderedAestheticIssueSamples,
+    renderedAestheticIssueSamples: issueSamples,
     renderedAestheticJson: evidence.renderedAestheticJson,
     renderedAestheticHtml: evidence.renderedAestheticHtml,
     warning,
@@ -226,4 +236,42 @@ function readFiniteNumber(value: unknown, fallback: number): number {
 
 function readRenderedStatus(value: unknown): 'pass' | 'warn' | 'fail' | null {
   return value === 'pass' || value === 'warn' || value === 'fail' ? value : null;
+}
+function normalizeRenderedIssueSamples(value: unknown): RenderedQualityIssueSample[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 24).map((sample) => {
+    const record = isRecord(sample) ? sample : {};
+    return {
+      frame: Math.max(0, Math.round(readFiniteNumber(record.frame, 0))),
+      dimension: readShortString(record.dimension, 'unknown', 80),
+      severity: readRenderedIssueSeverity(record.severity),
+      overlayId: readIssueOverlayId(record.overlayId),
+      message: readShortString(record.message, 'Rendered aesthetic issue', 240),
+      evidence: readNullableShortString(record.evidence, 240),
+    };
+  });
+}
+
+function readRenderedIssueSeverity(value: unknown): RenderedQualityIssueSample['severity'] {
+  return value === 'fail' || value === 'warn' || value === 'info' ? value : 'warn';
+}
+
+function readIssueOverlayId(value: unknown): string | number | null {
+  return typeof value === 'string' || typeof value === 'number' ? value : null;
+}
+
+function readShortString(value: unknown, fallback: string, maxLength: number): string {
+  const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value).trim()
+    : '';
+  return (text || fallback).slice(0, maxLength);
+}
+
+function readNullableShortString(value: unknown, maxLength: number): string | null {
+  const text = readShortString(value, '', maxLength);
+  return text || null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

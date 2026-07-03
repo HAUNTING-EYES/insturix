@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { buildPhase0RenderedQualityGate as buildSharedPhase0RenderedQualityGate } from '../../lib/editron/services/editron-learning-gate';
+
 import {
   buildPhase0PersistUpdate,
   buildPhase0RenderedQualityGate,
@@ -188,6 +190,55 @@ describe('build-editron-phase0-fixture cli', () => {
     expect(set).not.toHaveProperty('autoEditStatus');
     expect(set).not.toHaveProperty('projectStatus');
     expect(set).not.toHaveProperty('autoEditHealth');
+  });
+
+  it('sanitizes rendered Phase 0 issue samples before persistence', () => {
+    const oversizedDimension = 'dimension-'.repeat(20);
+    const samples = Array.from({ length: 26 }, (_, index) => index === 0
+      ? {
+          frame: -4.7,
+          dimension: oversizedDimension,
+          severity: 'critical',
+          overlayId: { bad: true },
+          message: '   ',
+          evidence: true,
+        }
+      : {
+          frame: index + 0.6,
+          dimension: `dim-${index}`,
+          severity: 'info',
+          overlayId: `overlay-${index}`,
+          message: `issue-${index}`,
+          evidence: `evidence-${index}`,
+        });
+    const gate = buildSharedPhase0RenderedQualityGate({
+      qualityEvidence: {
+        qualityEvidenceSource: 'rendered-aesthetic',
+        renderedAestheticStatus: 'pass',
+        renderedQualityStatus: 'pass',
+        artifactStatus: 'pass',
+        qualityScore: 82,
+        renderedAestheticFailFrameCount: 0,
+        renderedAestheticIssueCount: samples.length,
+        renderedAestheticIssueSamples: samples,
+      },
+    });
+
+    expect(gate.renderedAestheticIssueSamples).toHaveLength(24);
+    expect(gate.renderedAestheticIssueSamples[0]).toEqual({
+      frame: 0,
+      dimension: oversizedDimension.slice(0, 80),
+      severity: 'warn',
+      overlayId: null,
+      message: 'Rendered aesthetic issue',
+      evidence: 'true',
+    });
+    expect(gate.renderedAestheticIssueSamples.at(-1)).toMatchObject({
+      frame: 24,
+      dimension: 'dim-23',
+      severity: 'info',
+      overlayId: 'overlay-23',
+    });
   });
   it('persists rendered Phase 0 failures as review state instead of learning-safe completion', () => {
     const snapshot = phase0Snapshot({
