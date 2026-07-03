@@ -253,22 +253,25 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
     {
       service: 'clickatron',
       action: 'variation',
+      // REPRICED 2026-07-04: standard image models = 1 credit (near-free / "effectively
+      // unlimited" for normal use, matching Higgsfield's model); credits only bite on
+      // the premium models (Nano Banana Pro, Gemini 3 Pro Image). Was baseCost 5.
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per image variation generated',
       modelMultipliers: {
         'fal-ai/imagen4/preview': 1,
         'fal-ai/bytedance/seedream/v4/edit': 1,
         'fal-ai/bytedance/seedream/v4/text-to-image': 1,
         'fal-ai/flux-kontext/dev': 1,
-        'fal-ai/flux/dev/inpainting': 0.8,
+        'fal-ai/flux/dev/inpainting': 1,
         'fal-ai/nano-banana': 1,
         'fal-ai/nano-banana/edit': 1,
-        'fal-ai/bytedance/seedream/v4.5/text-to-image': 1.2,
-        'fal-ai/bytedance/seedream/v4.5/edit': 1.2,
-        'fal-ai/nano-banana-pro': 4.6,
-        'fal-ai/nano-banana-pro/edit': 4.6,
-        'fal-ai/gemini-3-pro-image-preview': 4,
+        'fal-ai/bytedance/seedream/v4.5/text-to-image': 2,
+        'fal-ai/bytedance/seedream/v4.5/edit': 2,
+        'fal-ai/nano-banana-pro': 6, // premium, fal ~$0.15 -> $0.20 (~25% margin); was 23cr
+        'fal-ai/nano-banana-pro/edit': 6,
+        'fal-ai/gemini-3-pro-image-preview': 6,
       },
       requestTypeMultipliers: {
         'variation': 1,
@@ -352,17 +355,15 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       baseCost: 1,
       description: 'Per second of AI video generated from storyboard',
       modelMultipliers: {
-        // Absolute credits/sec (baseCost 1 * this). Traced to fal $/sec in
-        // docs/financials/code-backed-pricing-viability-audit-2026-06-29.md.
-        'kling-2.1': 15,
-        'kling-2.6': 17,
-        'veo-3.1': 30,
-        'seedance-1.5': 36,
-        'seedance-2.0': 45,
-        // happy-horse-v1.1 (native-audio, 1080p default): fal charges $0.18/sec at 1080p
-        // ($0.14/sec at 720p). Interpolated on the audio-model curve (Kling 2.6 audio
-        // $0.14->17, Veo 3.1 audio $0.40->30) => ~20 credits/sec at $0.18/sec.
-        'happy-horse-v1.1': 20,
+        // Absolute credits/sec (baseCost 1 * this). REPRICED 2026-07-04 to ~40% margin
+        // over fal cost (was 5x markup, uncompetitive vs Higgsfield's near-cost gen).
+        // fal $/sec from code-backed-pricing-viability-audit-2026-06-29.md.
+        'kling-2.1': 5, // fal $0.098/s -> $0.167/s (~41% margin); was 15
+        'kling-2.6': 7, // fal $0.14/s -> $0.233/s (~40%); was 17
+        'veo-3.1': 18, // fal $0.40/s -> $0.60/s (~33%, premium); was 30
+        'seedance-1.5': 8, // "cheapest" per audit; was 36
+        'seedance-2.0': 12, // fal $0.24/s -> $0.40/s (~40%); was 45
+        'happy-horse-v1.1': 9, // fal $0.18/s -> $0.30/s (~40%); was 20
       },
     },
     {
@@ -380,7 +381,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'storyboard_generation',
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per storyboard image generated',
       modelMultipliers: {},
     },
@@ -417,7 +418,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'reference_generation',
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per reference image generated (legacy action name)',
       modelMultipliers: {},
     },
@@ -425,7 +426,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'reference_image',
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per reference image generated for visual consistency',
       modelMultipliers: {},
     },
@@ -433,15 +434,17 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'reference_image_regen',
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per reference image regenerated with feedback',
       modelMultipliers: {},
     },
     {
       service: 'pipeline',
       action: 'storyboard_image_generation',
+      // REPRICED 2026-07-04: standard image = 1 credit; premium (Nano Banana Pro,
+      // Photon) carries the cost. Was baseCost 5. See clickatron.variation.
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per storyboard image generated (batch or sequential)',
       modelMultipliers: {
         'fal-ai/flux/schnell': 1,
@@ -449,19 +452,19 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
         'fal-ai/flux-pro/v1.1': 1,
         'fal-ai/imagen4/preview': 1,
         'fal-ai/bytedance/seedream/v4/text-to-image': 1,
-        'fal-ai/bytedance/seedream/v4.5/text-to-image': 1.2,
+        'fal-ai/bytedance/seedream/v4.5/text-to-image': 2,
         'fal-ai/recraft-v3': 1,
         'fal-ai/nano-banana': 1,
         'fal-ai/nano-banana-2': 1,
-        'fal-ai/nano-banana-pro': 4.6,
-        'photon-1': 3,
+        'fal-ai/nano-banana-pro': 6,
+        'photon-1': 4,
       },
     },
     {
       service: 'pipeline',
       action: 'storyboard_image_regeneration',
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per storyboard image regenerated with feedback',
       modelMultipliers: {},
     },
@@ -469,7 +472,7 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'pipeline',
       action: 'storyboard_context_regeneration',
       billingType: 'per_request',
-      baseCost: 5,
+      baseCost: 1,
       description: 'Per scene storyboard image regenerated with context feedback',
       modelMultipliers: {},
     },

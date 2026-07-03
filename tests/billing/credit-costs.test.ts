@@ -42,17 +42,17 @@ describe("credit pricing", () => {
   });
 
   it("charges pipeline video by model-second instead of flat clips", () => {
-    expect(getCreditCost("pipeline", "video_generation", { model: "kling-2.1", durationSeconds: 10 })).toBe(150);
-    expect(getCreditCost("pipeline", "video_generation", { model: "kling-2.6", durationSeconds: 10 })).toBe(170);
-    expect(getCreditCost("pipeline", "video_generation", { model: "veo-3.1", durationSeconds: 10 })).toBe(300);
-    expect(getCreditCost("pipeline", "video_generation", { model: "seedance-2.0", durationSeconds: 10 })).toBe(450);
+    expect(getCreditCost("pipeline", "video_generation", { model: "kling-2.1", durationSeconds: 10 })).toBe(50);
+    expect(getCreditCost("pipeline", "video_generation", { model: "kling-2.6", durationSeconds: 10 })).toBe(70);
+    expect(getCreditCost("pipeline", "video_generation", { model: "veo-3.1", durationSeconds: 10 })).toBe(180);
+    expect(getCreditCost("pipeline", "video_generation", { model: "seedance-2.0", durationSeconds: 10 })).toBe(120);
   });
 
   it("covers critical media and import pricing rows", () => {
     expect(getCreditCost("pipeline", "script_import")).toBe(5);
     expect(getCreditCost("pipeline", "storyboard_finalize")).toBe(8);
-    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "fal-ai/nano-banana-pro" })).toBe(23);
-    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "photon-1" })).toBe(15);
+    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "fal-ai/nano-banana-pro" })).toBe(6);
+    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "photon-1" })).toBe(4);
     expect(getCreditCost("pipeline", "voiceover_generation", { characterCount: 1000, requestType: "kokoro" })).toBe(3);
     expect(getCreditCost("pipeline", "voiceover_generation", { characterCount: 2000, requestType: "deepgram" })).toBe(6);
     expect(getCreditCost("pipeline", "bgm_generation", { durationSeconds: 60, requestType: "cassetteai" })).toBe(6);
@@ -83,16 +83,16 @@ describe("credit pricing", () => {
     expect(getCreditCost("uploaderx", "platform_publish", { requestType: "linkedin" })).toBe(1);
     expect(getCreditCost("musitron", "music_generation", { model: "fal-ai/stable-audio/v2.5" })).toBe(30);
     expect(getCreditCost("musitron", "music_generation", { model: "beatoven/music-generation" })).toBe(15);
-    expect(getCreditCost("clickatron", "variation", { model: "fal-ai/nano-banana-pro" })).toBe(23);
+    expect(getCreditCost("clickatron", "variation", { model: "fal-ai/nano-banana-pro" })).toBe(6);
   });
 
   it("applies batch quantity inside canonical credit pricing", () => {
-    expect(getCreditCost("clickatron", "variation", { quantity: 3 })).toBe(15);
-    expect(getCreditCost("clickatron", "variation", { model: "fal-ai/nano-banana-pro", quantity: 2 })).toBe(46);
-    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "photon-1", quantity: 4 })).toBe(60);
-    expect(getCreditCost("clickatron", "variation", { quantity: 0 })).toBe(5);
-    expect(getCreditCost("clickatron", "variation", { quantity: -2 })).toBe(5);
-    expect(getCreditCost("clickatron", "variation", { quantity: 2.2 })).toBe(15);
+    expect(getCreditCost("clickatron", "variation", { quantity: 3 })).toBe(3);
+    expect(getCreditCost("clickatron", "variation", { model: "fal-ai/nano-banana-pro", quantity: 2 })).toBe(12);
+    expect(getCreditCost("pipeline", "storyboard_image_generation", { model: "photon-1", quantity: 4 })).toBe(16);
+    expect(getCreditCost("clickatron", "variation", { quantity: 0 })).toBe(1);
+    expect(getCreditCost("clickatron", "variation", { quantity: -2 })).toBe(1);
+    expect(getCreditCost("clickatron", "variation", { quantity: 2.2 })).toBe(3);
 
     const creditsServiceSource = readRoute("lib/services/creditsService.ts");
     expect(creditsServiceSource).toContain("const cost = getCreditCost(service, action, options);");
