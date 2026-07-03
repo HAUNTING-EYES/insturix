@@ -15,6 +15,7 @@ import type {
   AvatarProviderSelection,
   AvatarProviderSelectionMode,
 } from '@/lib/avatar/avatar-provider-adapter';
+import type { AvatarRenderJobSnapshot } from '@/lib/avatar/avatar-render-job';
 import type { AvatarProfileDraftRequest } from './avatar-vault-form';
 
 interface AvatarVaultApiError {
@@ -48,12 +49,17 @@ interface AvatarVaultRenderPlanSuccess {
   providerPlan: AvatarProviderSelection;
 }
 
+interface AvatarVaultRenderJobSuccess extends AvatarVaultRenderPlanSuccess {
+  job: AvatarRenderJobSnapshot;
+}
+
 type AvatarVaultApiResult =
   | AvatarVaultApiError
   | AvatarVaultListSuccess
   | AvatarVaultRecordSuccess
   | AvatarVaultUploadSuccess
-  | AvatarVaultRenderPlanSuccess;
+  | AvatarVaultRenderPlanSuccess
+  | AvatarVaultRenderJobSuccess;
 
 export interface AvatarProfileListQuery {
   status?: AvatarProfileStatus;
@@ -87,6 +93,8 @@ export interface PlanAvatarRenderInput {
     includeProviderIds?: AvatarProviderId[];
   };
 }
+
+export type CreateAvatarRenderJobInput = PlanAvatarRenderInput;
 
 export interface AvatarVaultUploadedReference {
   assetId: string;
@@ -161,6 +169,12 @@ export function useAvatarRenderPlanMutation() {
   });
 }
 
+export function useAvatarRenderJobMutation() {
+  return useMutation({
+    mutationFn: createAvatarRenderJobRequest,
+  });
+}
+
 async function fetchAvatarProfiles(query: AvatarProfileListQuery): Promise<AvatarProfileRecord[]> {
   const params = new URLSearchParams();
   if (query.status) params.set('status', query.status);
@@ -220,6 +234,18 @@ async function planAvatarRenderRequest(input: PlanAvatarRenderInput): Promise<Av
   const { recordId, ...body } = input;
   return avatarVaultFetch<AvatarVaultRenderPlanSuccess>(
     `/api/avatar-vault/profiles/${encodeURIComponent(recordId)}/render-plan`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+async function createAvatarRenderJobRequest(input: CreateAvatarRenderJobInput): Promise<AvatarVaultRenderJobSuccess> {
+  const { recordId, ...body } = input;
+  return avatarVaultFetch<AvatarVaultRenderJobSuccess>(
+    `/api/avatar-vault/profiles/${encodeURIComponent(recordId)}/render-jobs`,
     {
       method: 'POST',
       headers: JSON_HEADERS,

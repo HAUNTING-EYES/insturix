@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Video, Wand2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, PlayCircle, Video, Wand2 } from 'lucide-react';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
+import type { AvatarRenderJobStatus } from '@/lib/avatar/avatar-render-job';
 import type { AvatarProviderId, AvatarProviderReadinessIssue, AvatarProviderSelection } from '@/lib/avatar/avatar-provider-adapter';
 import type { AvatarRenderAudioMode, AvatarRenderIssue, AvatarRenderUseCase } from '@/lib/avatar/avatar-render-recipe';
-import { type PlanAvatarRenderInput, useAvatarRenderPlanMutation } from './useAvatarVault';
+import { type PlanAvatarRenderInput, useAvatarRenderJobMutation, useAvatarRenderPlanMutation } from './useAvatarVault';
 
 type PlannerProviderChoice = 'auto' | AvatarProviderId;
 
@@ -51,6 +52,7 @@ const BENCHMARK_PROVIDER_IDS: AvatarProviderId[] = ['a2e', 'd_id'];
 
 export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileRecord }) {
   const planRender = useAvatarRenderPlanMutation();
+  const createRenderJob = useAvatarRenderJobMutation();
   const [state, setState] = useState<PlannerState>(() => initialPlannerState(record));
   const [clientError, setClientError] = useState<string | null>(null);
 
@@ -63,25 +65,25 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
   }, [planRender.data?.providerPlan, planRender.data?.recipe.readiness.errors.length]);
 
   function handlePlan() {
-    const prompt = state.prompt.trim();
-    if (!prompt) {
-      setClientError('Scene prompt is required.');
-      return;
-    }
-
-    const speechProblem = speechInputProblem(record, state);
-    if (speechProblem) {
-      setClientError(speechProblem);
-      return;
-    }
-
+    const input = validatedPlanInput();
+    if (!input) return;
     setClientError(null);
-    planRender.mutate(buildPlanInput(record.id, state, prompt));
+    planRender.mutate(input);
   }
 
+  function handleGenerate() {
+    const input = validatedPlanInput();
+    if (!input) return;
+    setClientError(null);
+    createRenderJob.mutate(input);
+  }
   const recipe = planRender.data?.recipe;
   const providerPlan = planRender.data?.providerPlan;
-  const errorMessage = clientError ?? (planRender.error instanceof Error ? planRender.error.message : null);
+  const renderJob = createRenderJob.data?.job;
+  const errorMessage =
+    clientError
+    ?? (planRender.error instanceof Error ? planRender.error.message : null)
+    ?? (createRenderJob.error instanceof Error ? createRenderJob.error.message : null);
   const hasProviderSelection = Boolean(providerPlan?.selectedProviderIds.length);
   const resultIssues = recipe ? [...recipe.readiness.errors, ...recipe.readiness.warnings] : [];
   const providerIssues = providerPlan && recipe ? visibleProviderIssues(providerPlan, recipe.readiness.errors.length > 0) : [];
@@ -239,9 +241,22 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
 
       {providerPlan && (
         <div className={`mt-4 rounded-lg border px-3 py-3 text-sm ${hasProviderSelection ? 'border-[#4D7D62] bg-[#112019] text-[#CFEED8]' : 'border-[#73453F] bg-[#211312] text-[#F0B3AC]'}`}>
-          <div className="mb-2 flex items-center gap-2 font-semibold">
-            {hasProviderSelection ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            {hasProviderSelection ? `Selected: ${providerPlan.selectedProviderIds.map(providerLabel).join(', ')}` : resultTitle}
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold">
+              {hasProviderSelection ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+              {hasProviderSelection ? `Selected: ${providerPlan.selectedProviderIds.map(providerLabel).join(', ')}` : resultTitle}
+            </div>
+            {hasProviderSelection && (
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#74D6C6] px-3 text-xs font-semibold text-[#E7FFFB] hover:bg-[#12302B] disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleGenerate}
+                disabled={createRenderJob.isPending}
+              >
+                {createRenderJob.isPending ? <Loader2 size={14} className="animate-spin" /> : <PlayCircle size={14} />}
+                Generate video
+              </button>
+            )}
           </div>
           {recipe && (
             <div className="text-xs text-[#AEB6B3]">
@@ -251,6 +266,15 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
           <IssueList issues={resultIssues} />
           <ProviderIssueList issues={providerIssues} />
           <ProviderIssueList issues={providerWarnings} />
+          {renderJob && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${renderJobTone(renderJob.status)}`}>
+              <div className="font-semibold">Render job: {renderJob.status}</div>
+              <div className="mt-1 break-all text-[#AEB6B3]">
+                {providerLabel(renderJob.providerId)} / {renderJob.id}
+              </div>
+              <div className="mt-1">{renderJob.statusReason}</div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -259,6 +283,22 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
   function updateState<K extends keyof PlannerState>(key: K, value: PlannerState[K]) {
     setState((current) => ({ ...current, [key]: value }));
     setClientError(null);
+  }
+
+  function validatedPlanInput(): PlanAvatarRenderInput | null {
+    const prompt = state.prompt.trim();
+    if (!prompt) {
+      setClientError('Scene prompt is required.');
+      return null;
+    }
+
+    const speechProblem = speechInputProblem(record, state);
+    if (speechProblem) {
+      setClientError(speechProblem);
+      return null;
+    }
+
+    return buildPlanInput(record.id, state, prompt);
   }
 }
 
@@ -394,6 +434,12 @@ function providerResultTitle(plan: AvatarProviderSelection, recipeErrors: Avatar
   if (recipeErrors.some((issue) => issue.code === 'missing_speech_audio')) return 'Needs voice or audio';
   if (recipeErrors.length > 0) return 'Needs input';
   return 'No provider selected';
+}
+
+function renderJobTone(status: AvatarRenderJobStatus): string {
+  if (status === 'blocked') return 'border-[#7C6735] bg-[#211B0F] text-[#EDD494]';
+  if (status === 'failed') return 'border-[#73453F] bg-[#211312] text-[#F0B3AC]';
+  return 'border-[#4D7D62] bg-[#0F1A14] text-[#CFEED8]';
 }
 
 function isSpeechUseCase(useCase: AvatarRenderUseCase): boolean {
