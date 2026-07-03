@@ -39,15 +39,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'File too large for direct upload. Max 100MB.' }, { status: 413 });
     }
 
-    // Per-plan storage quota (owner = org if present, else user). Reject before storing.
-    const { checkStorageQuota, recordStorageUsage, resolveStorageOwner, formatStorageBytes } =
+    // Per-plan storage (owner = org if present, else user). Over cap → LRU-evict
+    // non-protected assets (or allow paid overage); block only when all else is in use.
+    const { recordStorageUsage, resolveStorageOwner, formatStorageBytes } =
       await import('@/lib/services/storage-quota-service');
-    const quota = await checkStorageQuota(userId, orgId, file.size);
-    if (!quota.allowed) {
+    const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
+    const reservation = await reserveStorageForUpload(userId, orgId, file.size);
+    if (!reservation.allowed) {
       return NextResponse.json(
         {
           success: false,
-          error: `Storage limit reached (${formatStorageBytes(quota.usedBytes)} of ${formatStorageBytes(quota.limitBytes)} used). Free up space or upgrade your plan.`,
+          error: `Storage full (${formatStorageBytes(reservation.usedBytes)} of ${formatStorageBytes(reservation.limitBytes)} used) — the rest is pinned or in use. Delete/unpin assets, enable extra storage, or upgrade your plan.`,
           code: 'storage_quota_exceeded',
         },
         { status: 413 },

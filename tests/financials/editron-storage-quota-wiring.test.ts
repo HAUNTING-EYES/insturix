@@ -9,9 +9,9 @@ describe("Editron storage quota wiring", () => {
   it("checks storage quota before multipart upload allocation", () => {
     const source = readSource("app/api/services/editron/media/upload/multipart/init/route.ts");
 
-    expect(source).toContain("checkStorageQuota(userId, orgId, numericTotalSize)");
+    expect(source).toContain("reserveStorageForUpload(userId, orgId, numericTotalSize)");
     expect(source).toContain("code: 'storage_quota_exceeded'");
-    expect(source.indexOf("checkStorageQuota(userId, orgId, numericTotalSize)")).toBeLessThan(
+    expect(source.indexOf("reserveStorageForUpload(userId, orgId, numericTotalSize)")).toBeLessThan(
       source.indexOf("initiateMultipartUpload(userId, filename, contentType)"),
     );
     expect(source).toContain("orgId: orgId || null");
@@ -34,7 +34,7 @@ describe("Editron storage quota wiring", () => {
 
     expect(source).toContain("const storageAlreadyRecorded = Boolean(completedMultipartUpload)");
     expect(source).toContain("const storedSizeBytes = actualSize ?? (typeof size === 'number' ? size : Number(size) || 0)");
-    expect(source).toContain("checkStorageQuota(userId, orgId, storedSizeBytes)");
+    expect(source).toContain("reserveStorageForUpload(userId, orgId, storedSizeBytes)");
     expect(source).toContain("await deleteUploadedObject(gcsPath, assetId)");
     expect(source).toContain("recordStorageUsage(resolveStorageOwner(userId, orgId), storedSizeBytes)");
     expect(source).toContain("...(!gcsPath && { r2Key: assetId })");

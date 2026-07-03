@@ -132,9 +132,12 @@ export async function POST(request: NextRequest) {
     const storedSizeBytes = actualSize ?? (typeof size === 'number' ? size : Number(size) || 0);
 
     if (!storageAlreadyRecorded) {
-      const { checkStorageQuota, formatStorageBytes } = await import('@/lib/services/storage-quota-service');
-      const quota = await checkStorageQuota(userId, orgId, storedSizeBytes);
-      if (!quota.allowed) {
+      const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
+      const { formatStorageBytes } = await import('@/lib/services/storage-quota-service');
+      // Over cap → LRU-evict non-protected assets (or allow paid overage if the
+      // owner enabled it). Only blocks when everything left is protected/in-use.
+      const reservation = await reserveStorageForUpload(userId, orgId, storedSizeBytes);
+      if (!reservation.allowed) {
         try {
           await deleteUploadedObject(gcsPath, assetId);
         } catch (delErr: unknown) {
@@ -144,11 +147,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: `Storage limit reached (${formatStorageBytes(quota.usedBytes)} of ${formatStorageBytes(quota.limitBytes)} used). Free up space or upgrade your plan.`,
+            error: `Storage full (${formatStorageBytes(reservation.usedBytes)} of ${formatStorageBytes(reservation.limitBytes)} used) — the rest is pinned or in use. Delete/unpin assets, enable extra storage, or upgrade your plan.`,
             code: 'storage_quota_exceeded',
           },
           { status: 413 },
         );
+      }
+      if (reservation.evictedAssetIds.length) {
+        console.log(`[Upload] LRU-evicted ${reservation.evictedAssetIds.length} asset(s) to fit ${assetId}`);
       }
     }
 

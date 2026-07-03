@@ -113,6 +113,34 @@ export async function recordStorageUsage(owner: StorageOwner, deltaBytes: number
   }
 }
 
+/**
+ * Whether the owner opted into paid storage overage ("use extra storage"). When
+ * true, uploads may exceed the plan cap and the overage is billed monthly in
+ * credits; when false, a full pool evicts LRU assets and then blocks.
+ */
+export async function getExtraStorageEnabled(owner: StorageOwner): Promise<boolean> {
+  try {
+    const db = await getDatabase();
+    const doc = await db.collection(STORAGE_USAGE_COLLECTION).findOne({ ownerId: owner.id });
+    return (doc as any)?.extraStorageEnabled === true;
+  } catch {
+    return false; // fail closed to the capped (non-overage) behavior
+  }
+}
+
+/** Set the owner's paid-overage opt-in. */
+export async function setExtraStorageEnabled(owner: StorageOwner, enabled: boolean): Promise<void> {
+  const db = await getDatabase();
+  await db.collection(STORAGE_USAGE_COLLECTION).updateOne(
+    { ownerId: owner.id },
+    {
+      $set: { extraStorageEnabled: enabled, ownerType: owner.type, updatedAt: new Date() },
+      $setOnInsert: { ownerId: owner.id },
+    },
+    { upsert: true },
+  );
+}
+
 export function formatStorageBytes(bytes: number): string {
   if (bytes >= GB) return `${(bytes / GB).toFixed(bytes % GB === 0 ? 0 : 1)} GB`;
   if (bytes >= MB) return `${Math.round(bytes / MB)} MB`;

@@ -10,7 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { initiateMultipartUpload, getR2PublicUrl } from '@/lib/editron/services/r2-service';
 import { getDatabase } from '@/lib/editron/db/mongodb';
-import { checkStorageQuota, formatStorageBytes } from '@/lib/services/storage-quota-service';
+import { formatStorageBytes } from '@/lib/services/storage-quota-service';
+import { reserveStorageForUpload } from '@/lib/services/storage-reserve-service';
 
 export const runtime = 'nodejs';
 
@@ -39,12 +40,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'File too large. Maximum size is 3GB.' }, { status: 413 });
     }
 
-    const quota = await checkStorageQuota(userId, orgId, numericTotalSize);
-    if (!quota.allowed) {
+    // Reserve BEFORE the multipart upload starts — evict LRU non-protected assets
+    // to make room for the declared size (or allow paid overage); block only when
+    // everything else is pinned/in-use.
+    const reservation = await reserveStorageForUpload(userId, orgId, numericTotalSize);
+    if (!reservation.allowed) {
       return NextResponse.json(
         {
           success: false,
-          error: `Storage limit reached (${formatStorageBytes(quota.usedBytes)} of ${formatStorageBytes(quota.limitBytes)} used). Free up space or upgrade your plan.`,
+          error: `Storage full (${formatStorageBytes(reservation.usedBytes)} of ${formatStorageBytes(reservation.limitBytes)} used) — the rest is pinned or in use. Delete/unpin assets, enable extra storage, or upgrade your plan.`,
           code: 'storage_quota_exceeded',
         },
         { status: 413 },
