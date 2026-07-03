@@ -5,39 +5,19 @@
  * Both have a quota; the solo/free default is deliberately tiny (upgrade pressure).
  *
  * DESIGN: this is the enforcement + usage-tracking INFRA. `getStorageLimitBytes` PREFERS an explicit
- * `plan.serviceLimits.storage` when present, and otherwise reads STORAGE_QUOTA_PLAN_BYTES below.
+ * `plan.serviceLimits.storage` override, and otherwise reads the central per-plan tiers from
+ * lib/config/plan-limits (base 1GB / mid 10GB / top 1TB — single source shared with retention).
  * Usage is tracked in a dedicated `storage_usage` counter (owner-keyed) so we don't have to sum
  * every asset across org members on each upload, and so we don't modify the credits/User schema.
- *
- * Per-plan byte limits are the founder-set tiers (base 1GB / mid 10GB / top 1TB, 2026-07-03).
  */
 
 import { getDatabase } from '@/lib/editron/db/mongodb';
+import { getPlanStorageBytes } from '@/lib/config/plan-limits';
 
 const STORAGE_USAGE_COLLECTION = 'storage_usage';
 
 const GB = 1024 * 1024 * 1024;
 const MB = 1024 * 1024;
-const TB = 1024 * GB;
-
-/**
- * Per-plan storage limits in BYTES, keyed by lower-cased plan `type`.
- * Founder-set tiers (2026-07-03): base 1GB / mid 10GB / top 1TB. Free stays tiny
- * (upgrade pressure). `getStorageLimitBytes` still prefers an explicit
- * `plan.serviceLimits.storage` when present; this table is the effective source
- * until that's populated. Legacy plus/pro/premium kept as aliases.
- */
-const STORAGE_QUOTA_PLAN_BYTES: Record<string, number> = {
-  free: 500 * MB, // solo / free — "as low as hell"
-  agency_starter: 1 * GB,
-  agency_growth: 10 * GB,
-  agency_scale: 1 * TB,
-  // legacy aliases
-  plus: 1 * GB,
-  pro: 10 * GB,
-  premium: 1 * TB,
-};
-const DEFAULT_PLAN = 'free';
 
 export interface StorageOwner {
   id: string;
@@ -50,8 +30,11 @@ export function resolveStorageOwner(userId: string, orgId?: string | null): Stor
 }
 
 /**
- * The owner's storage limit (bytes). Prefers an explicit `serviceLimits.storage` from the plan
- * (credits-session-owned); falls back to the placeholder table by plan type. Never throws.
+ * The owner's storage limit (bytes). Prefers an explicit `serviceLimits.storage`
+ * override on the plan; otherwise reads the central per-plan tier
+ * (lib/config/plan-limits). Never throws — fails closed to the free tier.
+ *
+ * NOTE (Phase 3): a purchased storage add-on will be summed on top of this base.
  */
 export async function getStorageLimitBytes(userId: string): Promise<number> {
   try {
@@ -62,11 +45,10 @@ export async function getStorageLimitBytes(userId: string): Promise<number> {
       plan?.serviceLimits?.storage?.limitBytes ??
       plan?.serviceLimits?.storage?.limit;
     if (typeof fromLimits === 'number' && fromLimits > 0) return fromLimits;
-    const type = String(plan?.type ?? plan?.planType ?? DEFAULT_PLAN).toLowerCase();
-    return STORAGE_QUOTA_PLAN_BYTES[type] ?? STORAGE_QUOTA_PLAN_BYTES[DEFAULT_PLAN];
+    return getPlanStorageBytes(plan?.type ?? plan?.planType);
   } catch {
-    // No plan / lookup failure -> the low free default (fail closed to the smallest quota).
-    return STORAGE_QUOTA_PLAN_BYTES[DEFAULT_PLAN];
+    // No plan / lookup failure -> the smallest (free) tier via the central config.
+    return getPlanStorageBytes(undefined);
   }
 }
 

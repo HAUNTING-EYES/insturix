@@ -13,26 +13,18 @@
  * `serviceLimits` config (credits session), same as the storage GB numbers.
  */
 
-const RETENTION_DAYS_BY_PLAN: Record<string, number> = {
-  // Live agency plans (the real tiers). base 7d / mid 30d / top 90d.
-  free: 7,
-  agency_starter: 7,
-  agency_growth: 30,
-  agency_scale: 90,
-  // Generic + legacy aliases (kept so callers passing tier names / old plan
-  // types still resolve; without these, agency plans fell back to base 7d).
-  base: 7,
-  plus: 30, mid: 30,
-  pro: 90, premium: 90, top: 90,
-};
+import { getPlanRetentionDays } from '@/lib/config/plan-limits';
 
 /** Smallest tier — used when the plan is unknown/missing (fail to the least generous retention). */
 export const BASE_RENDER_CHAPTER_RETENTION_DAYS = 7;
 
-/** Retention window in days for a given plan tier. Case-insensitive; unknown/missing → base (7d). */
+/**
+ * Retention window in days for a given plan tier. Delegates to the central
+ * PLAN_LIMITS (lib/config/plan-limits) so retention + storage share one source.
+ * Case-insensitive; accepts plan type or display name; unknown/missing → base (7d).
+ */
 export function renderChapterRetentionDays(planType?: string | null): number {
-  const key = planType?.trim().toLowerCase();
-  return (key && RETENTION_DAYS_BY_PLAN[key]) || BASE_RENDER_CHAPTER_RETENTION_DAYS;
+  return getPlanRetentionDays(planType);
 }
 
 /** The date a render-chapter job should auto-expire, given when it was created and the owner's plan. */
