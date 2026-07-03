@@ -20,6 +20,7 @@ interface LocalMediaContextType {
   localMediaFiles: LocalMediaFile[];
   addMediaFile: (file: File) => Promise<LocalMediaFile | void>;
   removeMediaFile: (id: string) => Promise<void>;
+  togglePinMediaFile: (id: string, pinned: boolean) => Promise<void>;
   clearMediaFiles: () => Promise<void>;
   isLoading: boolean;
 }
@@ -157,6 +158,32 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   /**
+   * Pin/unpin a media file (reference pool — protected from LRU eviction).
+   * Optimistic; reverts on failure.
+   */
+  const togglePinMediaFile = useCallback(
+    async (id: string, pinned: boolean): Promise<void> => {
+      setLocalMediaFiles((prev) =>
+        prev.map((f: any) => (f.id === id || f.assetId === id ? { ...f, pinned } : f)),
+      );
+      try {
+        const res = await fetch("/api/services/editron/media/pin", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assetId: id, pinned }),
+        });
+        if (!res.ok) throw new Error("Failed to update pin");
+      } catch (error) {
+        console.error("Error toggling pin:", error);
+        setLocalMediaFiles((prev) =>
+          prev.map((f: any) => (f.id === id || f.assetId === id ? { ...f, pinned: !pinned } : f)),
+        );
+      }
+    },
+    [],
+  );
+
+  /**
    * Clear all media files
    */
   const clearMediaFiles = useCallback(async (): Promise<void> => {
@@ -184,6 +211,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
     localMediaFiles,
     addMediaFile,
     removeMediaFile,
+    togglePinMediaFile,
     clearMediaFiles,
     isLoading,
   };

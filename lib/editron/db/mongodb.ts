@@ -114,6 +114,9 @@ export async function initializeIndexes(): Promise<void> {
     { key: { userId: 1, uploadedAt: -1 }, name: 'userId_uploadedAt' },
     { key: { projectId: 1 }, name: 'projectId' },
     { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
+    // LRU eviction candidate queries (ownerAssetFilter + sort by lastUsedAt asc).
+    { key: { orgId: 1, lastUsedAt: 1 }, name: 'orgId_lastUsedAt' },
+    { key: { userId: 1, lastUsedAt: 1 }, name: 'userId_lastUsedAt' },
   ]);
 
   // Media uploads tracking (multipart) — TTL on lastActivityAt so active slow uploads survive
