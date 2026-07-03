@@ -20,6 +20,14 @@ import {
   type AvatarRenderTarget,
   type AvatarRenderUseCase,
 } from './avatar-render-recipe';
+import {
+  AVATAR_PROVIDER_DESCRIPTORS,
+  planAvatarProviderRender,
+  type AvatarProviderId,
+  type AvatarProviderSelection,
+  type AvatarProviderSelectionMode,
+  type AvatarProviderSelectionOptions,
+} from './avatar-provider-adapter';
 
 export interface AvatarVaultApiDependencies {
   store?: AvatarVaultProfileStore;
@@ -204,22 +212,59 @@ export async function evaluateAvatarProfileRenderReadiness(
   input: AvatarVaultActorInput & { recordId: string; body: unknown },
   dependencies: AvatarVaultApiDependencies = {},
 ): Promise<AvatarVaultApiResult<{ ok: true; recipe: AvatarRenderRecipe } | AvatarVaultErrorBody>> {
+  const result = await resolveAcceptedAvatarRenderRecipe(input, dependencies);
+  if (!result.ok) return result.result;
+  return { status: 200, body: { ok: true, recipe: result.recipe } };
+}
+
+export async function planAvatarProfileRender(
+  input: AvatarVaultActorInput & { recordId: string; body: unknown },
+  dependencies: AvatarVaultApiDependencies = {},
+): Promise<AvatarVaultApiResult<{ ok: true; recipe: AvatarRenderRecipe; providerPlan: AvatarProviderSelection } | AvatarVaultErrorBody>> {
+  const result = await resolveAcceptedAvatarRenderRecipe(input, dependencies);
+  if (!result.ok) return result.result;
+
+  const providerOptions = parseProviderSelectionOptions(result.body.provider);
+  if (!providerOptions.ok) return providerOptions.result;
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      recipe: result.recipe,
+      providerPlan: planAvatarProviderRender(result.recipe, providerOptions.options),
+    },
+  };
+}
+
+async function resolveAcceptedAvatarRenderRecipe(
+  input: AvatarVaultActorInput & { recordId: string; body: unknown },
+  dependencies: AvatarVaultApiDependencies,
+): Promise<
+  | { ok: true; body: Record<string, unknown>; recipe: AvatarRenderRecipe }
+  | { ok: false; result: AvatarVaultApiResult<AvatarVaultErrorBody> }
+> {
   const body = asRecord(input.body);
-  if (!body) return fail(400, 'invalid_body', 'Render readiness body must be an object.');
+  if (!body) return { ok: false, result: fail(400, 'invalid_body', 'Render request body must be an object.') };
 
   const useCase = parseAvatarRenderUseCase(body.useCase);
   if (!useCase) {
-    return fail(400, 'invalid_body', `A valid avatar render useCase is required (one of: ${AVATAR_RENDER_USE_CASES.join(', ')}).`);
+    return {
+      ok: false,
+      result: fail(400, 'invalid_body', `A valid avatar render useCase is required (one of: ${AVATAR_RENDER_USE_CASES.join(', ')}).`),
+    };
   }
 
   const store = dependencies.store ?? getDefaultAvatarProfileStore();
   const record = await store.getRecord(input.recordId);
-  if (!record) return fail(404, 'not_found', `Avatar profile record "${input.recordId}" was not found.`);
+  if (!record) {
+    return { ok: false, result: fail(404, 'not_found', `Avatar profile record "${input.recordId}" was not found.`) };
+  }
   if (!canAccessRecord(record, input.userId, input.orgId ?? null)) {
-    return fail(403, 'forbidden', 'You cannot use this avatar profile.');
+    return { ok: false, result: fail(403, 'forbidden', 'You cannot use this avatar profile.') };
   }
   if (record.status !== 'accepted' || record.profile.status !== 'accepted') {
-    return fail(409, 'profile_not_accepted', 'Only accepted avatar profiles can be checked for render readiness.');
+    return { ok: false, result: fail(409, 'profile_not_accepted', 'Only accepted avatar profiles can be used for render planning.') };
   }
 
   const recipe = buildAvatarRenderRecipe({
@@ -234,7 +279,71 @@ export async function evaluateAvatarProfileRenderReadiness(
     target: parseRenderTarget(body.target),
   });
 
-  return { status: 200, body: { ok: true, recipe } };
+  return { ok: true, body, recipe };
+}
+
+function parseProviderSelectionOptions(value: unknown):
+  | { ok: true; options: AvatarProviderSelectionOptions }
+  | { ok: false; result: AvatarVaultApiResult<AvatarVaultErrorBody> } {
+  if (value === undefined) return { ok: true, options: {} };
+  const record = asRecord(value);
+  if (!record) return { ok: false, result: fail(400, 'invalid_body', 'provider must be an object when provided.') };
+
+  const mode = parseProviderSelectionMode(record.mode);
+  if (record.mode !== undefined && !mode) {
+    return { ok: false, result: fail(400, 'invalid_body', 'provider.mode must be "single" or "benchmark".') };
+  }
+
+  const preferredProviderId = parseAvatarProviderId(record.preferredProviderId);
+  if (record.preferredProviderId !== undefined && !preferredProviderId) {
+    return { ok: false, result: fail(400, 'invalid_body', `provider.preferredProviderId must be one of: ${avatarProviderIdList()}.`) };
+  }
+
+  const includeProviderIds = parseAvatarProviderIdArray(record.includeProviderIds);
+  if (!includeProviderIds.ok) return includeProviderIds;
+
+  const options: AvatarProviderSelectionOptions = {};
+  if (mode) options.mode = mode;
+  if (preferredProviderId) options.preferredProviderId = preferredProviderId;
+  if (includeProviderIds.providerIds) options.includeProviderIds = includeProviderIds.providerIds;
+  return { ok: true, options };
+}
+
+function parseProviderSelectionMode(value: unknown): AvatarProviderSelectionMode | undefined {
+  return value === 'single' || value === 'benchmark' ? value : undefined;
+}
+
+function parseAvatarProviderIdArray(value: unknown):
+  | { ok: true; providerIds?: AvatarProviderId[] }
+  | { ok: false; result: AvatarVaultApiResult<AvatarVaultErrorBody> } {
+  if (value === undefined) return { ok: true };
+  if (!Array.isArray(value)) {
+    return { ok: false, result: fail(400, 'invalid_body', 'provider.includeProviderIds must be an array when provided.') };
+  }
+
+  const providerIds: AvatarProviderId[] = [];
+  for (const item of value) {
+    const providerId = parseAvatarProviderId(item);
+    if (!providerId) {
+      return { ok: false, result: fail(400, 'invalid_body', `provider.includeProviderIds must only include: ${avatarProviderIdList()}.`) };
+    }
+    if (!providerIds.includes(providerId)) providerIds.push(providerId);
+  }
+
+  if (providerIds.length === 0) {
+    return { ok: false, result: fail(400, 'invalid_body', 'provider.includeProviderIds must include at least one provider when provided.') };
+  }
+  return { ok: true, providerIds };
+}
+
+function parseAvatarProviderId(value: unknown): AvatarProviderId | undefined {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(AVATAR_PROVIDER_DESCRIPTORS, value)
+    ? (value as AvatarProviderId)
+    : undefined;
+}
+
+function avatarProviderIdList(): string {
+  return Object.keys(AVATAR_PROVIDER_DESCRIPTORS).join(', ');
 }
 
 function parseAvatarRenderUseCase(value: unknown): AvatarRenderUseCase | undefined {
