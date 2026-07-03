@@ -12,6 +12,7 @@ import { evaluateAllTracks } from '../components/editron/editor/version-7.0.0/ut
 import { ensureLiveAtomicOverlayReceipt } from '../lib/editron/engine/overlay-atomic-receipts';
 import {
   scoreRenderedFrameAesthetic,
+  type RenderedAestheticIssue,
   type RenderedFrameAestheticReport,
   type RenderedOverlayBox,
   type RenderedOverlayEvidence,
@@ -105,6 +106,8 @@ export interface RenderedAestheticFrameReport {
   timelineEvidence: RenderedTimelineOverlayEvidence[];
   fullStill: string;
   baselineStill: string;
+  motionProbeStill?: string;
+  motionDelta?: MotionDeltaEvidence;
   report: RenderedFrameAestheticReport;
 }
 
@@ -160,6 +163,25 @@ export interface RawImage {
   channels: number;
 }
 
+type RemotionComposition = Awaited<ReturnType<typeof selectComposition>>;
+
+export interface MotionDeltaEvidence {
+  fromFrame: number;
+  toFrame: number;
+  changedPixelRatio: number;
+  meanAbsoluteLumaDelta: number;
+  sampledPixels: number;
+}
+
+interface MotionProbeResult {
+  still?: string;
+  delta?: MotionDeltaEvidence;
+  error?: string;
+}
+
+const MOTION_DELTA_PROBE_GAP_FRAMES = 6;
+const MOTION_DELTA_CHANGED_RATIO_FLOOR = 0.001;
+const MOTION_DELTA_LUMA_FLOOR = 0.0015;
 interface OverlayPixelEvidence {
   visiblePixelRatio?: number;
   foregroundLuma?: number;
@@ -266,6 +288,19 @@ export async function runRenderedAestheticHarness(
       })
       : new Map<string, RawImage>();
     const image = fullImage ? imageStats(fullImage) : undefined;
+    const motionProbeOverlays = motionProbeVisualOverlays(sample, activeAuditedVisualOverlays);
+    const motionProbe = fullImage && motionProbeOverlays.length > 0
+      ? await renderMotionProbe({
+        fullImage,
+        sample,
+        activeVisualOverlays: motionProbeOverlays,
+        durationInFrames: input.durationInFrames,
+        frameDir,
+        composition: fullComposition,
+        serveUrl,
+        inputProps: fullProps,
+      })
+      : undefined;
     const evidence = fullImage && baselineImage
       ? activeRenderedOverlayEvidence(overlays, frame, {
         baselineImage,
@@ -277,7 +312,7 @@ export async function runRenderedAestheticHarness(
       : activeRenderedOverlayEvidence(overlays, frame, { fps: input.fps, sample });
     const timelineEvidence = activeTimelineOverlayEvidence(overlays, frame);
 
-    const report = scoreRenderedFrameAesthetic({
+    let report = scoreRenderedFrameAesthetic({
       width: input.width,
       height: input.height,
       fps: input.fps,
@@ -296,6 +331,7 @@ export async function runRenderedAestheticHarness(
       renderError,
       overlays: evidence,
     });
+    report = applyMotionDeltaGate(report, motionProbe);
 
     const activeIds = uniqueIds([
       ...evidence.map((overlay) => overlay.id).filter((id): id is number | string => id !== undefined),
@@ -314,6 +350,8 @@ export async function runRenderedAestheticHarness(
       timelineEvidence,
       fullStill,
       baselineStill,
+      ...(motionProbe?.still ? { motionProbeStill: motionProbe.still } : {}),
+      ...(motionProbe?.delta ? { motionDelta: motionProbe.delta } : {}),
       report,
     });
   }
@@ -1241,6 +1279,153 @@ function imageStats(image: RawImage): RenderImageStats {
   };
 }
 
+function motionProbeVisualOverlays(sample: RenderedAestheticSample, activeVisualOverlays: Overlay[]): Overlay[] {
+  if (!sample.roles.some((role) => role !== 'manual' && role !== 'hold' && role !== 'sfx-sync')) return [];
+  return activeVisualOverlays.filter(isMotionProbeEligibleOverlay);
+}
+
+function isMotionProbeEligibleOverlay(overlay: Overlay): boolean {
+  if (overlay.type === OverlayType.GENERATED_SCENE) return true;
+  return Array.isArray(overlay.keyframeTracks) && overlay.keyframeTracks.some((track) => track.keyframes.length > 1);
+}
+
+async function renderMotionProbe(input: {
+  fullImage: RawImage;
+  sample: RenderedAestheticSample;
+  activeVisualOverlays: Overlay[];
+  durationInFrames: number;
+  frameDir: string;
+  composition: RemotionComposition;
+  serveUrl: string;
+  inputProps: Record<string, unknown>;
+}): Promise<MotionProbeResult> {
+  const probeFrame = chooseMotionProbeFrame(input.sample, input.activeVisualOverlays, input.durationInFrames);
+  if (probeFrame === undefined) {
+    return { error: `no active visual overlay near frame ${input.sample.frame} for motion probe` };
+  }
+
+  const still = path.join(input.frameDir, `motion-probe-${String(probeFrame).padStart(5, '0')}.png`);
+  try {
+    await renderStill({
+      composition: input.composition,
+      serveUrl: input.serveUrl,
+      output: still,
+      frame: probeFrame,
+      inputProps: input.inputProps,
+      imageFormat: 'png',
+      chromiumOptions: { headless: true },
+      overwrite: true,
+    });
+    const probeImage = await readRawImage(still);
+    return {
+      still,
+      delta: imageMotionDelta(input.fullImage, probeImage, input.sample.frame, probeFrame),
+    };
+  } catch (error) {
+    return {
+      still,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function chooseMotionProbeFrame(
+  sample: RenderedAestheticSample,
+  activeVisualOverlays: Overlay[],
+  durationInFrames: number,
+): number | undefined {
+  const gap = MOTION_DELTA_PROBE_GAP_FRAMES;
+  const direction = sample.roles.includes('exit-prep') ? -1 : 1;
+  const seen = new Set<number>();
+  const candidates = [
+    sample.frame + direction * gap,
+    sample.frame - direction * gap,
+    sample.frame + direction,
+    sample.frame - direction,
+  ]
+    .map((frame) => clampFrame(frame, durationInFrames))
+    .filter((frame) => {
+      if (frame === sample.frame || seen.has(frame)) return false;
+      seen.add(frame);
+      return true;
+    });
+
+  return candidates.find((frame) => activeVisualOverlays.some((overlay) => isActiveAtFrame(overlay, frame)));
+}
+
+export function imageMotionDelta(fromImage: RawImage, toImage: RawImage, fromFrame = 0, toFrame = 0): MotionDeltaEvidence {
+  const width = Math.min(fromImage.width, toImage.width);
+  const height = Math.min(fromImage.height, toImage.height);
+  let changed = 0;
+  let lumaDeltaSum = 0;
+  let sampled = 0;
+  const step = samplingStep(width * height, 60000);
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const fromOffset = pixelOffset(fromImage, x, y);
+      const toOffset = pixelOffset(toImage, x, y);
+      if (pixelChanged(fromImage.data, toImage.data, fromOffset, toOffset)) changed += 1;
+      const fromLuma = luma01(fromImage.data[fromOffset], fromImage.data[fromOffset + 1], fromImage.data[fromOffset + 2]);
+      const toLuma = luma01(toImage.data[toOffset], toImage.data[toOffset + 1], toImage.data[toOffset + 2]);
+      lumaDeltaSum += Math.abs(fromLuma - toLuma);
+      sampled += 1;
+    }
+  }
+
+  return {
+    fromFrame,
+    toFrame,
+    changedPixelRatio: sampled > 0 ? changed / sampled : 0,
+    meanAbsoluteLumaDelta: sampled > 0 ? lumaDeltaSum / sampled : 0,
+    sampledPixels: sampled,
+  };
+}
+
+function applyMotionDeltaGate(report: RenderedFrameAestheticReport, motionProbe: MotionProbeResult | undefined): RenderedFrameAestheticReport {
+  const issue = motionDeltaIssue(motionProbe);
+  if (!issue) return report;
+
+  return {
+    ...report,
+    score: 0,
+    status: 'fail',
+    issues: [...report.issues, issue],
+    subscores: {
+      ...report.subscores,
+      motion: 0,
+    },
+  };
+}
+
+function motionDeltaIssue(motionProbe: MotionProbeResult | undefined): RenderedAestheticIssue | undefined {
+  if (!motionProbe) return undefined;
+  if (motionProbe.error) {
+    return {
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: 'motion probe could not be rendered',
+      evidence: motionProbe.error,
+    };
+  }
+  const delta = motionProbe.delta;
+  if (!delta) return undefined;
+  if (
+    delta.changedPixelRatio <= MOTION_DELTA_CHANGED_RATIO_FLOOR
+    && delta.meanAbsoluteLumaDelta <= MOTION_DELTA_LUMA_FLOOR
+  ) {
+    return {
+      dimension: 'motion',
+      severity: 'fail',
+      penalty: 1,
+      message: 'animation-state sample has near-zero rendered motion delta',
+      evidence: `frames=${delta.fromFrame}->${delta.toFrame}; changedPixelRatio=${round3(delta.changedPixelRatio)}; meanAbsLumaDelta=${round3(delta.meanAbsoluteLumaDelta)}; sampledPixels=${delta.sampledPixels}`,
+    };
+  }
+  return undefined;
+}
+
 function overlayPixelEvidence(
   fullImage: RawImage,
   baselineImage: RawImage,
@@ -1587,12 +1772,12 @@ function pixelOffset(image: RawImage, x: number, y: number): number {
   return (y * image.width + x) * image.channels;
 }
 
-function pixelChanged(full: Buffer, baseline: Buffer, offset: number): boolean {
+function pixelChanged(full: Buffer, baseline: Buffer, fullOffset: number, baselineOffset = fullOffset): boolean {
   return Math.max(
-    Math.abs(full[offset] - baseline[offset]),
-    Math.abs(full[offset + 1] - baseline[offset + 1]),
-    Math.abs(full[offset + 2] - baseline[offset + 2]),
-    Math.abs(full[offset + 3] - baseline[offset + 3]),
+    Math.abs(full[fullOffset] - baseline[baselineOffset]),
+    Math.abs(full[fullOffset + 1] - baseline[baselineOffset + 1]),
+    Math.abs(full[fullOffset + 2] - baseline[baselineOffset + 2]),
+    Math.abs(full[fullOffset + 3] - baseline[baselineOffset + 3]),
   ) > 10;
 }
 

@@ -15,6 +15,7 @@ export type RenderedAestheticDimension =
   | 'overlap'
   | 'text'
   | 'contrast'
+  | 'motion'
   | 'motion-graphic'
   | 'clutter';
 
@@ -102,6 +103,7 @@ const DIMENSIONS: RenderedAestheticDimension[] = [
   'overlap',
   'text',
   'contrast',
+  'motion',
   'motion-graphic',
   'clutter',
 ];
@@ -703,6 +705,7 @@ function emptyPenaltyMap(): Record<RenderedAestheticDimension, number> {
     overlap: 0,
     text: 0,
     contrast: 0,
+    motion: 0,
     'motion-graphic': 0,
     clutter: 0,
   };

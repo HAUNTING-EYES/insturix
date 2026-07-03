@@ -15,6 +15,7 @@ import {
   buildOverlayOnlyRenderOverlays,
   changedPixelBounds,
   hydratePhase0RenderArtifactPackForTaxonomy,
+  imageMotionDelta,
   normalizeRenderedAestheticSamplePlan,
   overlayOnlyBlankImageJustification,
   pickRenderedAestheticSampleFrames,
@@ -354,6 +355,27 @@ describe('rendered aesthetic harness helpers', () => {
       width: 2,
       height: 2,
     });
+  });
+
+  it('measures frame-to-frame motion delta from actual pixels', () => {
+    const first = rawImage(10, 10);
+    const same = rawImage(10, 10);
+    const moved = rawImage(10, 10);
+    paintPixel(moved, 4, 3, [255, 255, 255, 255]);
+    paintPixel(moved, 5, 4, [255, 255, 255, 255]);
+
+    expect(imageMotionDelta(first, same, 8, 14)).toEqual({
+      fromFrame: 8,
+      toFrame: 14,
+      changedPixelRatio: 0,
+      meanAbsoluteLumaDelta: 0,
+      sampledPixels: 100,
+    });
+
+    const delta = imageMotionDelta(first, moved, 8, 14);
+    expect(delta.changedPixelRatio).toBeGreaterThan(0);
+    expect(delta.meanAbsoluteLumaDelta).toBeGreaterThan(0);
+    expect(delta.sampledPixels).toBe(100);
   });
 
   it('scores captions from the active frame words instead of the whole-video caption file', () => {
@@ -838,6 +860,7 @@ function fakeHarnessReport(): RenderedAestheticHarnessReport {
           overlap: 1,
           text: 1,
           contrast: 0.82,
+          motion: 1,
           clutter: 1,
           'motion-graphic': 1,
         },
