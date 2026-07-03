@@ -15,6 +15,7 @@
  */
 
 import type { GenreParameters } from './graph-query';
+import type { MusicAnalysisResult } from './music-analysis-service';
 import type { AssetAnalysis, RawFootageAnalysis } from './signal-registry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ import type { AssetAnalysis, RawFootageAnalysis } from './signal-registry';
 export interface GenreParameterInput {
   rawFootage: RawFootageAnalysis | null;
   analyses: AssetAnalysis[];
+  musicAnalysis?: Pick<MusicAnalysisResult, 'bpm' | 'beats' | 'sections' | 'energyCurve' | 'musicPresence'> | null;
   videoDurationSec: number;
   userPlatform?: string;
   userIntent?: string;
@@ -124,7 +126,7 @@ export function computeGenreParameters(input: GenreParameterInput): GenreParamet
   const energy_baseline = clamp(speechEnergyAvg || 0.45, 0.2, 0.8);
 
   // transition_density: f(pacing_tolerance, source music, speech_coverage)
-  const sourceMusic = resolveSourceMusicConfidence(analyses, speechCoverage);
+  const sourceMusic = resolveSourceMusicConfidence(analyses, speechCoverage, input.musicAnalysis ?? null);
   const musicBpm = sourceMusic.musicAlreadyPresent ? sourceMusic.bpm : 0;
   computedFrom.push('source_music_confidence');
   let transition_density = 60 / pacing_tolerance; // baseline from pacing
@@ -241,8 +243,10 @@ function computeBgmRecommendation(
 function resolveSourceMusicConfidence(
   analyses: AssetAnalysis[],
   speechCoverage: number,
+  projectMusicAnalysis?: Pick<MusicAnalysisResult, 'bpm' | 'beats' | 'sections' | 'energyCurve' | 'musicPresence'> | null,
 ): SourceMusicConfidence {
-  const music = analyses.find((analysis) => analysis.musicStructure)?.musicStructure;
+  const assetMusic = analyses.find((analysis) => analysis.musicStructure)?.musicStructure;
+  const music = assetMusic ?? projectMusicAnalysisToStructure(projectMusicAnalysis);
   if (!music) {
     return {
       bpm: 0,
@@ -295,6 +299,35 @@ function resolveSourceMusicConfidence(
       `explicitEvents=${explicitEventCount}`,
       `speechCoverage=${speechCoverage.toFixed(2)}`,
     ].join('; '),
+  };
+}
+
+function projectMusicAnalysisToStructure(
+  musicAnalysis?: Pick<MusicAnalysisResult, 'bpm' | 'beats' | 'sections' | 'energyCurve' | 'musicPresence'> | null,
+): AssetAnalysis['musicStructure'] | null {
+  if (!musicAnalysis) return null;
+  const hasUsefulMusicAnalysis =
+    (musicAnalysis.bpm ?? 0) > 0 ||
+    (musicAnalysis.sections?.length ?? 0) > 0 ||
+    (musicAnalysis.energyCurve?.length ?? 0) > 0 ||
+    (musicAnalysis.musicPresence ?? 0) > 0;
+  if (!hasUsefulMusicAnalysis) return null;
+
+  return {
+    bpm: musicAnalysis.bpm,
+    sections: (musicAnalysis.sections ?? []).map((section) => ({
+      type: section.label,
+      startMs: section.startMs,
+      endMs: section.endMs,
+    })),
+    energyCurve: (musicAnalysis.energyCurve ?? []).map((energy, index) => ({
+      timestampMs: musicAnalysis.energyCurve.length > 1
+        ? Math.round((index / (musicAnalysis.energyCurve.length - 1)) * 1000)
+        : 0,
+      energy,
+    })),
+    drops: [],
+    builds: [],
   };
 }
 

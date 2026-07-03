@@ -871,6 +871,7 @@ export async function executeDirectorPlan(
             const genreResult = computeGenreParameters({
               rawFootage: decisionRawFootage,
               analyses,
+              musicAnalysis: projectDoc.musicAnalysis ?? null,
               videoDurationSec: cleanDurationSec,
             });
             pathEGenreParams = genreResult.genreParams;
@@ -1220,6 +1221,7 @@ export async function executeDirectorPlan(
             const genreOutput = computeGenreParameters({
               rawFootage: pathDDecisionRawFootage,
               analyses,
+              musicAnalysis: projectDoc.musicAnalysis ?? null,
               videoDurationSec: (editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000,
               userPlatform: brief?.platform,
               userIntent: brief?.intent,

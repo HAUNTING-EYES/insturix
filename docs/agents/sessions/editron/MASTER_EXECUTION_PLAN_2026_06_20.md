@@ -77,6 +77,24 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.
 6. **Run P15 calibration only after P0/P12 rendered gates are trustworthy.**
 
+### 2026-07-03 real-run defects to carry forward
+
+Source run: `proj_evz_c18y-cd5` / `front-end-log-export-2026-07-03T06-55-08.csv`.
+These are plan amendments, not a new roadmap.
+
+1. **P7 Auto-BGM music-analysis contract mismatch.** TRIBE/Essentia produced project-level
+   `musicAnalysis` (`musicPresence`, BPM, beats, sections), but Auto-BGM reason still reported
+   `sourceMusicConfidence=0.00; no music-structure analysis`. Root contract: BGM recommendation
+   must consume project-level music analysis, not only `analyses[].musicStructure`.
+2. **P0 rendered-evidence signal propagation mismatch.** Persisted MG overlays contain
+   `cinematic_moment` / `narrative_pressure`, but the Phase0 rendered-evidence path logged them
+   missing while scoring samples. Root contract: render/judge code must evaluate the same MG
+   signal payload that Director persisted.
+3. **Worker reliability side defect: asset-analysis timeout loop.** `asset-analysis` timed out
+   repeatedly on the long upload. It did not block the main edit, but it wastes Vercel time and
+   weakens side metadata. Treat as a separate worker-budget/deduplication slice, not an MG/EDL
+   root-cause detour.
+
 ---
 
 ## 0) 2026-06-21 Binding Update From Codex Plan Brief

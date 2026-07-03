@@ -111,4 +111,37 @@ describe('computeGenreParameters BGM source-music detection', () => {
     expect(params.bgmRecommendation.shouldAddBgm).toBe(false);
     expect(params.bgmRecommendation.reason).toContain('explicitEvents=4');
   });
+
+  it('uses project-level Essentia music analysis when asset musicStructure is absent', () => {
+    const params = computeGenreParameters({
+      rawFootage: makeRawFootage(100_000, 320, 90_000, 25) as any,
+      analyses: [
+        {
+          audio: { energyCurve: [{ timestampMs: 0, energy: 0.55 }] },
+          subjectTracks: [],
+        } as any,
+      ],
+      musicAnalysis: {
+        bpm: 129,
+        beats: Array.from({ length: 64 }, (_, index) => ({
+          timestampMs: index * 500,
+          strength: 0.75,
+        })),
+        sections: [
+          { label: 'intro', startMs: 0, endMs: 10_000 },
+          { label: 'verse', startMs: 10_000, endMs: 40_000 },
+          { label: 'chorus', startMs: 40_000, endMs: 70_000 },
+          { label: 'outro', startMs: 70_000, endMs: 100_000 },
+        ],
+        energyCurve: [0.78, 0.82, 0.8],
+        musicPresence: 0.9,
+      },
+      videoDurationSec: 100,
+    });
+
+    expect(params.bgmRecommendation.reason).not.toContain('no music-structure analysis');
+    expect(params.bgmRecommendation.reason).toContain('sourceMusicConfidence');
+    expect(params.bgmRecommendation.reason).toContain('sections=4');
+    expect(params.bgmRecommendation.shouldAddBgm).toBe(true);
+  });
 });
