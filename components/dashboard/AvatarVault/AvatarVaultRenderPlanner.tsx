@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Video, Wand2 } from 'lucide-react';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
-import type { AvatarProviderId, AvatarProviderReadinessIssue } from '@/lib/avatar/avatar-provider-adapter';
+import type { AvatarProviderId, AvatarProviderReadinessIssue, AvatarProviderSelection } from '@/lib/avatar/avatar-provider-adapter';
 import type { AvatarRenderAudioMode, AvatarRenderIssue, AvatarRenderUseCase } from '@/lib/avatar/avatar-render-recipe';
 import { type PlanAvatarRenderInput, useAvatarRenderPlanMutation } from './useAvatarVault';
 
@@ -54,16 +54,24 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
   const [state, setState] = useState<PlannerState>(() => initialPlannerState(record));
   const [clientError, setClientError] = useState<string | null>(null);
 
+  const availableUseCaseOptions = useMemo(() => useCaseOptionsForRecord(record), [record]);
   const providerWarnings = useMemo(() => {
     const plan = planRender.data?.providerPlan;
     if (!plan) return [];
+    if (planRender.data?.recipe.readiness.errors.length) return [];
     return plan.selectedProviderIds.flatMap((providerId) => plan.readinessByProvider[providerId]?.warnings ?? []);
-  }, [planRender.data]);
+  }, [planRender.data?.providerPlan, planRender.data?.recipe.readiness.errors.length]);
 
   function handlePlan() {
     const prompt = state.prompt.trim();
     if (!prompt) {
       setClientError('Scene prompt is required.');
+      return;
+    }
+
+    const speechProblem = speechInputProblem(record, state);
+    if (speechProblem) {
+      setClientError(speechProblem);
       return;
     }
 
@@ -75,6 +83,9 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
   const providerPlan = planRender.data?.providerPlan;
   const errorMessage = clientError ?? (planRender.error instanceof Error ? planRender.error.message : null);
   const hasProviderSelection = Boolean(providerPlan?.selectedProviderIds.length);
+  const resultIssues = recipe ? [...recipe.readiness.errors, ...recipe.readiness.warnings] : [];
+  const providerIssues = providerPlan && recipe ? visibleProviderIssues(providerPlan, recipe.readiness.errors.length > 0) : [];
+  const resultTitle = providerPlan && recipe ? providerResultTitle(providerPlan, recipe.readiness.errors) : null;
 
   return (
     <div className="mt-5 border-t border-[#293034] pt-4">
@@ -98,7 +109,7 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
         <label className="block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-[#9EA7A4]">Use case</span>
           <select className="avatar-vault-input" value={state.useCase} onChange={(event) => updateState('useCase', event.target.value as AvatarRenderUseCase)}>
-            {USE_CASE_OPTIONS.map((option) => (
+            {availableUseCaseOptions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
               </option>
@@ -164,6 +175,12 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
           </label>
         </div>
 
+        {isSpeechUseCase(state.useCase) && !hasSavedSpeechVoice(record) && (
+          <div className="rounded-lg border border-[#7C6735] bg-[#211B0F] px-3 py-2 text-xs text-[#EDD494] xl:col-span-2">
+            This avatar has no saved voice yet. Paste a voiceover URL for speech, or add a TTS voice / voice sample to the avatar profile.
+          </div>
+        )}
+
         {state.audioMode === 'copied_reference_audio' && (
           <label className="flex items-center gap-2 rounded-lg border border-[#293034] bg-[#0F1213] px-3 py-2 text-sm text-[#D7D2C4] xl:col-span-2">
             <input
@@ -224,15 +241,15 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
         <div className={`mt-4 rounded-lg border px-3 py-3 text-sm ${hasProviderSelection ? 'border-[#4D7D62] bg-[#112019] text-[#CFEED8]' : 'border-[#73453F] bg-[#211312] text-[#F0B3AC]'}`}>
           <div className="mb-2 flex items-center gap-2 font-semibold">
             {hasProviderSelection ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            {hasProviderSelection ? `Selected: ${providerPlan.selectedProviderIds.map(providerLabel).join(', ')}` : 'No provider selected'}
+            {hasProviderSelection ? `Selected: ${providerPlan.selectedProviderIds.map(providerLabel).join(', ')}` : resultTitle}
           </div>
           {recipe && (
             <div className="text-xs text-[#AEB6B3]">
               {recipe.useCase} / {recipe.audio.mode} / {recipe.target.aspectRatio} / {recipe.target.durationSeconds}s / {recipe.target.resolution}
             </div>
           )}
-          <IssueList issues={[...(recipe?.readiness.errors ?? []), ...(recipe?.readiness.warnings ?? [])]} />
-          <ProviderIssueList issues={providerPlan.rejectedProviders.flatMap((provider) => provider.reasons)} />
+          <IssueList issues={resultIssues} />
+          <ProviderIssueList issues={providerIssues} />
           <ProviderIssueList issues={providerWarnings} />
         </div>
       )}
@@ -266,6 +283,7 @@ function buildPlanInput(recordId: string, state: PlannerState, prompt: string): 
   const audioSourceUrl = state.audioSourceUrl.trim();
   const script = state.script.trim();
   const durationSeconds = Number(state.durationSeconds);
+  const includeProviderIds = providerIdsForRequest(state);
   return {
     recordId,
     useCase: state.useCase,
@@ -287,7 +305,7 @@ function buildPlanInput(recordId: string, state: PlannerState, prompt: string): 
     provider: {
       mode: state.providerMode,
       ...(state.preferredProviderId !== 'auto' ? { preferredProviderId: state.preferredProviderId } : {}),
-      ...(state.providerMode === 'benchmark' ? { includeProviderIds: BENCHMARK_PROVIDER_IDS } : {}),
+      includeProviderIds,
     },
   };
 }
@@ -324,14 +342,70 @@ function defaultUseCase(record: AvatarProfileRecord): AvatarRenderUseCase {
   return presets[0] ?? 'generic_clip';
 }
 
+function useCaseOptionsForRecord(record: AvatarProfileRecord): Array<{ id: AvatarRenderUseCase; label: string }> {
+  const approved = new Set<AvatarRenderUseCase>(record.profile.performancePack?.usagePresets ?? []);
+  const options = USE_CASE_OPTIONS.filter((option) => approved.has(option.id) || option.id === 'generic_clip');
+  return options.length > 0 ? options : USE_CASE_OPTIONS.filter((option) => option.id === 'generic_clip');
+}
+
 function defaultPrompt(record: AvatarProfileRecord): string {
   const role = record.profile.persona.defaultRole ?? 'presenter';
   return `${record.profile.displayName} appears as a ${role} in a clean room background.`;
 }
 
 function defaultAudioMode(record: AvatarProfileRecord): AvatarRenderAudioMode {
-  if (record.profile.voice.sourceType === 'selected_tts_voice') return 'tts_voiceover';
+  if (hasTtsVoice(record)) return 'tts_voiceover';
   return 'uploaded_voiceover';
+}
+
+function speechInputProblem(record: AvatarProfileRecord, state: PlannerState): string | null {
+  if (!isSpeechUseCase(state.useCase)) return null;
+  const hasAudioUrl = Boolean(state.audioSourceUrl.trim());
+  if (state.audioMode === 'tts_voiceover' && !hasTtsVoice(record)) {
+    return 'This avatar has no TTS voice ID. Paste a voiceover URL, or add a TTS voice to the avatar profile.';
+  }
+  if (state.audioMode === 'uploaded_voiceover' && !hasAudioUrl && !hasSavedSpeechVoice(record)) {
+    return 'Speech needs a voice. Paste an Audio URL, or add a voice sample / imported voice / TTS voice to the avatar profile.';
+  }
+  if (state.audioMode === 'copied_reference_audio' && (!hasAudioUrl || !state.audioRightsConfirmed)) {
+    return 'Copied reference audio needs an Audio URL and copy permission confirmation.';
+  }
+  if (state.audioMode === 'silent' || state.audioMode === 'external_mix') {
+    return 'Speech use cases need TTS, a voiceover URL, a saved avatar voice, or authorized copied reference audio.';
+  }
+  return null;
+}
+
+function providerIdsForRequest(state: PlannerState): AvatarProviderId[] {
+  if (state.providerMode === 'benchmark') return BENCHMARK_PROVIDER_IDS;
+  if (state.preferredProviderId !== 'auto') return [state.preferredProviderId];
+  return BENCHMARK_PROVIDER_IDS;
+}
+
+function visibleProviderIssues(plan: AvatarProviderSelection, recipeHasErrors: boolean): AvatarProviderReadinessIssue[] {
+  if (recipeHasErrors) return [];
+  return plan.rejectedProviders
+    .flatMap((provider) => provider.reasons)
+    .filter((issue) => issue.code !== 'recipe_not_ready' && issue.code !== 'provider_stub_only');
+}
+
+function providerResultTitle(plan: AvatarProviderSelection, recipeErrors: AvatarRenderIssue[]): string {
+  if (plan.selectedProviderIds.length > 0) return `Selected: ${plan.selectedProviderIds.map(providerLabel).join(', ')}`;
+  if (recipeErrors.some((issue) => issue.code === 'missing_speech_audio')) return 'Needs voice or audio';
+  if (recipeErrors.length > 0) return 'Needs input';
+  return 'No provider selected';
+}
+
+function isSpeechUseCase(useCase: AvatarRenderUseCase): boolean {
+  return useCase === 'speech_delivery' || useCase === 'explainer_host' || useCase === 'social_presenter';
+}
+
+function hasSavedSpeechVoice(record: AvatarProfileRecord): boolean {
+  return hasTtsVoice(record) || Boolean(record.profile.voice.sampleAssetId?.trim() || record.profile.voice.voiceProfileId?.trim());
+}
+
+function hasTtsVoice(record: AvatarProfileRecord): boolean {
+  return Boolean(record.profile.voice.ttsVoiceId?.trim());
 }
 
 function parseLines(value: string): string[] | undefined {
