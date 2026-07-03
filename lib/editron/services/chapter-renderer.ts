@@ -89,6 +89,8 @@ interface ChapterRenderJob {
   outputUrl?: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Plan-based auto-expiry (base 7d / mid 30d / top 90d). A TTL index on this field deletes the job. */
+  expiresAt?: Date;
 }
 
 // ─── Chapter Detection ────────────────────────────────────────────
@@ -344,6 +346,18 @@ export async function startChapterRender(
     status: 'pending' as const,
   }));
 
+  // Plan-based retention: stamp when this render's transient chapter records auto-expire, so a TTL index
+  // on `expiresAt` (expireAfterSeconds: 0) deletes them after the owner's plan window (base 7d/mid 30d/top 90d).
+  // The plan read fails safe to the base tier.
+  let planType: string | undefined;
+  try {
+    const { getUserPlanWithServiceLimits } = await import('@/lib/services/planService');
+    const plan: any = await getUserPlanWithServiceLimits(userId);
+    planType = plan?.type ?? plan?.planType;
+  } catch { /* plan not resolvable → base retention */ }
+  const { renderChapterExpiresAt } = await import('@/lib/editron/services/render-chapter-retention');
+  const createdAt = new Date();
+
   // Store job in MongoDB
   const job: ChapterRenderJob = {
     _id: jobId,
@@ -355,8 +369,9 @@ export async function startChapterRender(
     fps,
     width,
     height,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt,
+    updatedAt: createdAt,
+    expiresAt: renderChapterExpiresAt(createdAt, planType),
   };
 
   await db.collection(CHAPTERS_COLLECTION).insertOne(job as any);
