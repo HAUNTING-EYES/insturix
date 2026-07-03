@@ -26,13 +26,20 @@ import {
 import type { ReferenceImageSet, SubjectReference } from '@/lib/pipeline/schemas/reference-image';
 import type { ExtractedSubject } from '@/lib/pipeline/llm-scene-parser';
 import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-resolver';
-import { isBrandSignalActionable, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
 export const runtime = 'nodejs';
 // Route only validates + dispatches. Should complete in <15s.
 export const maxDuration = 60;
-type ReferenceProvenance = 'brand-vault' | 'generated' | 'missing-brand-evidence';
+type ReferenceProvenance = 'brand-vault' | 'website-screenshot' | 'generated' | 'missing-brand-evidence';
 type BrandEvidenceStatus = 'resolved' | 'missing' | 'not-required';
+
+type BrandReferenceEvidence = {
+  imageUrl: string;
+  referenceProvenance: Extract<ReferenceProvenance, 'brand-vault' | 'website-screenshot'>;
+  referenceProvenanceLabel: 'Brand Vault' | 'Website screenshot';
+  source: 'brand-vault-product-image' | 'website-screenshot';
+};
 
 type ProvenancedSubjectReference = SubjectReference & {
   referenceProvenance?: ReferenceProvenance;
@@ -54,11 +61,10 @@ function isBrandOwnedSubject(subject: ExtractedSubject): boolean {
   return subject.category === 'product';
 }
 
-function brandProductReferenceImages(
-  profile: BrandSignalProfile | null | undefined,
-  max = MAX_BRAND_REFERENCE_IMAGES,
+function actionableImageUrls(
+  signal: BrandSignal<string[]> | undefined,
+  max: number,
 ): string[] {
-  const signal = profile?.assets?.productImages;
   if (!signal || !isBrandSignalActionable(signal)) return [];
   const urls = Array.isArray(signal.value) ? signal.value : [];
   return urls
@@ -67,7 +73,33 @@ function brandProductReferenceImages(
     .slice(0, Math.max(0, max));
 }
 
-async function resolveBrandProductImages(userId: string, brandId: string | undefined): Promise<string[]> {
+function brandReferenceEvidenceImages(
+  profile: BrandSignalProfile | null | undefined,
+  max = MAX_BRAND_REFERENCE_IMAGES,
+): BrandReferenceEvidence[] {
+  const productImages = actionableImageUrls(profile?.assets?.productImages, max).map((imageUrl) => ({
+    imageUrl,
+    referenceProvenance: 'brand-vault' as const,
+    referenceProvenanceLabel: 'Brand Vault' as const,
+    source: 'brand-vault-product-image' as const,
+  }));
+  const websiteScreenshots = actionableImageUrls(profile?.assets?.socialPreviewImages, max).map((imageUrl) => ({
+    imageUrl,
+    referenceProvenance: 'website-screenshot' as const,
+    referenceProvenanceLabel: 'Website screenshot' as const,
+    source: 'website-screenshot' as const,
+  }));
+  const seen = new Set<string>();
+  return [...productImages, ...websiteScreenshots]
+    .filter((evidence) => {
+      if (seen.has(evidence.imageUrl)) return false;
+      seen.add(evidence.imageUrl);
+      return true;
+    })
+    .slice(0, Math.max(0, max));
+}
+
+async function resolveBrandReferenceEvidence(userId: string, brandId: string | undefined): Promise<BrandReferenceEvidence[]> {
   if (!brandId) return [];
 
   try {
@@ -75,7 +107,7 @@ async function resolveBrandProductImages(userId: string, brandId: string | undef
       service: 'editron',
       strict: true,
     });
-    return brandProductReferenceImages(acceptedProfile);
+    return brandReferenceEvidenceImages(acceptedProfile);
   } catch (err) {
     console.error('[reference-images/generate] Brand Vault evidence resolution failed', err);
     return [];
@@ -88,6 +120,7 @@ function serializeSubject(subject: ProvenancedSubjectReference) {
     name: subject.name,
     category: subject.category,
     imageUrl: subject.imageUrl,
+    source: subject.source,
     status: subject.status,
     scenesAppearingIn: subject.scenesAppearingIn,
     visualDescription: subject.visualDescription,
@@ -117,25 +150,28 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedBrandId = nonEmptyString(brandId);
-    const brandImages = await resolveBrandProductImages(userId, normalizedBrandId);
-    let nextBrandImageIndex = 0;
+    const brandEvidence = await resolveBrandReferenceEvidence(userId, normalizedBrandId);
+    let nextBrandEvidenceIndex = 0;
 
     const refSubjects: ProvenancedSubjectReference[] = subjects.map((s) => {
       const requiresBrandEvidence = Boolean(normalizedBrandId && isBrandOwnedSubject(s));
-      const brandImageUrl = requiresBrandEvidence ? brandImages[nextBrandImageIndex++] : undefined;
+      const evidence = requiresBrandEvidence && brandEvidence.length > 0
+        ? brandEvidence[nextBrandEvidenceIndex++ % brandEvidence.length]
+        : undefined;
 
-      if (requiresBrandEvidence && brandImageUrl) {
+      if (requiresBrandEvidence && evidence) {
         return {
           subjectId: s.id,
           name: s.name,
           category: s.category,
           visualDescription: s.visualDescription,
           scenesAppearingIn: s.scenesAppearingIn,
-          imageUrl: brandImageUrl,
+          imageUrl: evidence.imageUrl,
+          source: evidence.source,
           status: 'generated',
           generationHistory: [],
-          referenceProvenance: 'brand-vault',
-          referenceProvenanceLabel: 'Brand Vault',
+          referenceProvenance: evidence.referenceProvenance,
+          referenceProvenanceLabel: evidence.referenceProvenanceLabel,
           requiresBrandEvidence: true,
           brandEvidenceStatus: 'resolved',
         };

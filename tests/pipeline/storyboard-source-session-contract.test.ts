@@ -69,6 +69,10 @@ describe('storyboard source session lineage contract', () => {
     expect(refGenerateRoute).toContain("service: 'editron'");
     expect(refGenerateRoute).toContain('strict: true');
     expect(refGenerateRoute).toContain("referenceProvenance: 'brand-vault'");
+    expect(refGenerateRoute).toContain("referenceProvenance: 'website-screenshot'");
+    expect(refGenerateRoute).toContain('socialPreviewImages');
+    expect(refGenerateRoute).toContain('brandEvidence[nextBrandEvidenceIndex++ % brandEvidence.length]');
+    expect(refGenerateRoute).toContain('source: evidence.source');
     expect(refGenerateRoute).toContain("referenceProvenance: 'missing-brand-evidence'");
     expect(refGenerateRoute).toContain('subjectsNeedingGeneration.length * costPerSubject');
     expect(refGenerateRoute).toContain('subjectsNeedingGeneration.map((s) => ({ subjectId: s.id, name: s.name }))');
