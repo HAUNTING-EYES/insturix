@@ -49,7 +49,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 
 | Phase | Status | Code-verified finding | Remaining production work |
 | --- | --- | --- | --- |
-| P0 Rendered truth fixture | **PARTIAL, live metadata + async Lambda stills wired** | Live Director calls `persistFinalPhase0LiveTruth` after final overlay save, persists `qualityReview`, `intelligence.phase0LiveTruth`, and planned artifact evidence, then dispatches `/api/internal/workers/phase0-rendered-evidence` to render sampled stills through Remotion Lambda and persist `intelligence.phase0RenderedStillEvidence`. | Still-evidence URLs now exist when Remotion/QStash env is configured, but pixel scoring/gate consumption is not complete yet; wire scored rendered reports into `renderedQualityEvidence` before using P0 as a hard calibration source. |
+| P0 Rendered truth fixture | **PARTIAL, live metadata + async Lambda stills + scored reports wired** | Live Director calls `persistFinalPhase0LiveTruth` after final overlay save, persists `qualityReview`, `intelligence.phase0LiveTruth`, and planned artifact evidence, then dispatches `/api/internal/workers/phase0-rendered-evidence` to render sampled full/baseline stills through Remotion Lambda. The worker now builds rendered aesthetic reports, persists `intelligence.phase0RenderedStillEvidence`, `intelligence.phase0RenderedAestheticReport`, `intelligence.renderedQualityEvidence`, and a rendered quality gate. | Code-level scoring is wired; remaining work is live env proof on real projects, broader gate-policy hardening, and enough real rendered evidence before P0 becomes the hard calibration source. |
 | P1 Decision authority | **DONE for the live unified-candidate path, with compatibility caveat** | `director-agent.ts` pushes Creative Brief and signal candidates into `planUnifiedDecisionBundleFromCandidates`; `unified-decision-bundle.ts` ranks both producer candidates and stamps selected decisions with `owner: unified-planner`, `creativeBriefRole: semantic-context`, `signalRole: candidate-source`. | Keep legacy/single-producer helper paths honest in telemetry. Do not claim all historical helpers are removed. |
 | P2 Candidate normalizer | **PARTIAL** | `signal-executor.ts` now emits `momentImportance`, `candidateConfidence`, `executionConfidence`, `evidenceStrength`, and `signalNormalization`; `unified-decision-bundle.ts` normalizes family/job/timing/evidence/risk. | Upstream still starts from `momentWeight` and blends it into confidence; formulas are invented and need calibration. |
 | P3 Caption planner | **PARTIAL** | Canonical final-timeline caption track exists, creates one caption overlay with multiple readable caption groups, and caption moment planning reads speech/readability/screen-pressure atoms. | Still one track container rather than a true moment-scoped caption planner/renderer ownership model. |
@@ -61,7 +61,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 | P9 MG expression authority | **PARTIAL** | MG expression authority, semantic obligations, draw support, choreography helpers, and brand/MG dials exist. The "no draw-on exists" claim is stale. | Visible expression is not fully signal-owned yet: enter order, beat sync, shimmer/draw usage, and form breadth still need rendered proof and calibration. |
 | P10 Stage-aware composition | **PARTIAL** | Full-frame/split/device/overlay stage modes exist and negotiate caption/screen context. | Many thresholds are explicitly invented; no hard rendered gate validates stage choices live. |
 | P11 MG family hardening | **PARTIAL** | Numeric, identity, quote, process, comparison, data-series/structured/emphasis/brand paths exist. Social-proof is not yet a first-class composer, and license strictness is uneven. | Finish missing families and even out license rules with rendered evidence. |
-| P12 Gate teeth | **PARTIAL** | Structural MG gate is now enforcing by default with `MG_STRUCTURAL_GATE=observe` as escape hatch; metadata quality evidence persists. | Pixel/aesthetic gate remains ungated/manual and must not be treated as a hard pass/fail until live rendered artifacts exist. |
+| P12 Gate teeth | **PARTIAL** | Structural MG gate is now enforcing by default with `MG_STRUCTURAL_GATE=observe` as escape hatch; metadata quality evidence persists. Phase0 rendered still scoring can mark projects `needs_review` when sampled full/baseline stills fail. | Do not promote this to a hard universal pass/fail yet: live render coverage, issue taxonomy, family-specific thresholds, and calibration are still incomplete. |
 | P13 Cross-overlay choreography | **PARTIAL, not not-started** | `overlay-timeline-memory.ts` is built and wired into the unified bundle; families receive active/recent overlay pressure, zoom/transition/SFX repetition, and direction similarity atoms. | Build the actual shared scheduler/collision/arbitration layer so families do not only have memory atoms in silos. |
 | P14 Learning quarantine | **DONE** | Learning gate and genre bandit block failed/missing rendered evidence; inline workers and brand-learning route use the shared learning gate. | Keep Phase 0 rendered evidence reliable before enabling broader learning writes. |
 | P15 Calibration | **PARTIAL scaffold only** | Threshold/bandit/write-gate scaffolds exist and many fields are marked `invented-needs-calibration`. | Make rendered evidence source-of-truth, add human-labeled holdout, then tune curves/weights. |
@@ -71,7 +71,7 @@ authority, source-of-truth timeline, and final consumer are all verified again.
 ### Immediate next work order
 
 1. **Do not rebuild P1.** It is done for the live candidate path; only telemetry/fallback cleanup is allowed.
-2. **Finish P0 rendered truth scoring** so the new paired Lambda full/baseline still artifacts become scored rendered reports/gate evidence, not only persisted still URLs.
+2. **Prove and harden P0 rendered truth scoring on real projects**: code-level full/baseline scoring is wired, so the next work is live env proof, false-positive control, and gate-policy hardening.
 3. **Harden P4 visual perception / VLM cut intelligence** beyond the built V-JEPA cut-refinement slice: add semantic VLM perception, real fixture proof, calibration, and overlay consumption.
 4. **Build P13 shared choreography scheduler** using the existing overlay timeline memory atoms.
 5. **Continue P7/P9/P10/P11/Rule-11 only with rendered evidence**, not by adding new hidden menus.
@@ -86,10 +86,11 @@ These are plan amendments, not a new roadmap.
    `musicAnalysis` (`musicPresence`, BPM, beats, sections), but Auto-BGM reason still reported
    `sourceMusicConfidence=0.00; no music-structure analysis`. Root contract: BGM recommendation
    must consume project-level music analysis, not only `analyses[].musicStructure`.
-2. **P0 rendered-evidence signal propagation mismatch.** Persisted MG overlays contain
+2. **P0 rendered-evidence signal propagation mismatch - FIXED IN CODE 2026-07-03.** Persisted MG overlays contain
    `cinematic_moment` / `narrative_pressure`, but the Phase0 rendered-evidence path logged them
    missing while scoring samples. Root contract: render/judge code must evaluate the same MG
-   signal payload that Director persisted.
+   signal payload that Director persisted. `overlay-atomic-receipts.ts` now treats top-level
+   `contentSignals` as receipt evidence and invalidates stale receipts when those signals change.
 3. **Worker reliability side defect: asset-analysis timeout loop.** `asset-analysis` timed out
    repeatedly on the long upload. It did not block the main edit, but it wastes Vercel time and
    weakens side metadata. Treat as a separate worker-budget/deduplication slice, not an MG/EDL
