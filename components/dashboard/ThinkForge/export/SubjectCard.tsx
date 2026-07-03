@@ -55,7 +55,19 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
     : "Regenerate (random)";
   const provenanceLabel =
     subject.referenceProvenanceLabel ||
-    (isMissingRequiredEvidence ? "Evidence required" : subject.referenceProvenance === "uploaded" ? "Uploaded" : undefined);
+    (isMissingRequiredEvidence
+      ? "Evidence required"
+      : subject.referenceProvenance === "brand-vault"
+        ? "Brand Vault"
+        : subject.referenceProvenance === "website-screenshot"
+          ? "Website screenshot"
+          : subject.referenceProvenance === "uploaded"
+            ? "Uploaded"
+            : subject.referenceProvenance === "generated"
+              ? "Generated"
+              : subject.imageUrl
+                ? "Legacy reference"
+                : undefined);
   const provenanceColor = isMissingRequiredEvidence
     ? "#D46A5C"
     : subject.referenceProvenance === "brand-vault" ||

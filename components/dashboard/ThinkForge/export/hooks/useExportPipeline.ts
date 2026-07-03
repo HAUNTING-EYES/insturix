@@ -122,6 +122,10 @@ export interface UseExportPipelineReturn {
   subjects: SubjectRef[];
   approvedSubjectIds: Set<string>;
   setApprovedSubjectIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  missingBrandEvidenceSubjects: SubjectRef[];
+  generatedBrandOwnedSubjects: SubjectRef[];
+  referenceContinueBlocked: boolean;
+  referenceContinueMessage: string;
   regeneratingSubjectIds: Set<string>;
   feedbackSubjectId: string | null;
   setFeedbackSubjectId: (v: string | null) => void;
@@ -281,6 +285,34 @@ export function useExportPipeline(
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState("");
   const [overallMusicPrompt, setOverallMusicPrompt] = useState("");
+  const missingBrandEvidenceSubjects = useMemo(
+    () => subjects.filter((s) => Boolean(s.requiresBrandEvidence && !s.imageUrl)),
+    [subjects],
+  );
+  const generatedBrandOwnedSubjects = useMemo(
+    () =>
+      subjects.filter((s) => {
+        if (!sourceBrandId) return false;
+        if (s.requiresBrandEvidence && s.referenceProvenance === "generated") return true;
+        if (s.requiresBrandEvidence) return false;
+        const provenance = s.referenceProvenance;
+        if (provenance && provenance !== "generated") return false;
+        return s.category?.toLowerCase() === "product";
+      }),
+    [sourceBrandId, subjects],
+  );
+  const referenceContinueBlocked = missingBrandEvidenceSubjects.length > 0 || generatedBrandOwnedSubjects.length > 0;
+  const referenceContinueMessage = useMemo(() => {
+    if (missingBrandEvidenceSubjects.length > 0) {
+      const names = missingBrandEvidenceSubjects.map((s) => s.name).join(", ");
+      return `Brand evidence required before storyboard generation: ${names}. Upload evidence or connect Brand Vault evidence for these owned subjects.`;
+    }
+    if (generatedBrandOwnedSubjects.length > 0) {
+      const names = generatedBrandOwnedSubjects.map((s) => s.name).join(", ");
+      return `Brand-owned references cannot use generated/fake or legacy-unverified imagery: ${names}. Upload evidence or use Brand Vault/website evidence.`;
+    }
+    return "";
+  }, [generatedBrandOwnedSubjects, missingBrandEvidenceSubjects]);
 
   // ── Suggested subjects ─────────────────────────────────────────
   const [suggestedSubjects, setSuggestedSubjects] = useState<SuggestedSubject[]>([]);
@@ -314,6 +346,32 @@ export function useExportPipeline(
     }
   };
 
+  const buildSubjectRefFromResponse = (subject: any, priority?: SubjectRef["priority"]): SubjectRef => ({
+    subjectId: subject.subjectId,
+    name: subject.name,
+    category: subject.category,
+    imageUrl: subject.imageUrl || undefined,
+    status: subject.status || (subject.imageUrl ? "generated" : "pending"),
+    scenesAppearingIn: subject.scenesAppearingIn || [],
+    visualDescription: subject.visualDescription,
+    priority,
+    referenceProvenance: subject.referenceProvenance,
+    referenceProvenanceLabel: subject.referenceProvenanceLabel,
+    requiresBrandEvidence: subject.requiresBrandEvidence,
+    brandEvidenceStatus: subject.brandEvidenceStatus,
+    evidenceRequiredReason: subject.evidenceRequiredReason,
+  });
+
+  const shouldAutoApproveReferenceSubject = (subject: SubjectRef): boolean =>
+    Boolean(subject.imageUrl && subject.referenceProvenance !== "missing-brand-evidence" && subject.brandEvidenceStatus !== "missing");
+
+  const applyBrandReferenceWarnings = (warnings: unknown): void => {
+    if (!Array.isArray(warnings) || warnings.length === 0) return;
+    const message = warnings.filter((warning): warning is string => typeof warning === "string" && warning.trim().length > 0).join(" ");
+    if (!message) return;
+    setError(message);
+    sendNotification("Brand Evidence Required", message);
+  };
   const setClickatronVisualChoice = useCallback((key: keyof ThinkToClickUserVisualChoices, value: string) => {
     setClickatronVisualChoices((prev) => ({
       ...prev,
@@ -818,15 +876,14 @@ export function useExportPipeline(
       return;
     }
 
-    const missingBrandEvidence = subjects.filter((s) => s.requiresBrandEvidence && !s.imageUrl);
-    if (generateStoryboard && missingBrandEvidence.length > 0) {
-      const names = missingBrandEvidence.map((s) => s.name).join(", ");
-      const message = `Brand evidence required before storyboard generation: ${names}. Upload evidence or connect Brand Vault evidence for these owned subjects.`;
+    if (generateStoryboard && referenceContinueBlocked) {
+      const message = referenceContinueMessage || "Brand evidence required before storyboard generation.";
       setError(message);
       sendNotification("Brand Evidence Required", message);
       setStep("reviewing-references");
       return;
     }
+
     try {
       const approved = subjects
         .filter((s) => approvedSubjectIds.has(s.subjectId) && s.imageUrl)
@@ -1520,6 +1577,7 @@ export function useExportPipeline(
           scenesAppearingIn: suggested.scenesAppearingIn,
           artStyle,
           modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
+          brandId: sourceBrandId || undefined,
         }),
       });
 
@@ -1531,16 +1589,7 @@ export function useExportPipeline(
       const data = await res.json().catch(() => ({}));
       if (!data.subject) throw new Error("Invalid response");
 
-      const newSubject: SubjectRef = {
-        subjectId: data.subject.subjectId,
-        name: data.subject.name,
-        category: data.subject.category,
-        imageUrl: data.subject.imageUrl || undefined,
-        status: data.subject.imageUrl ? "generated" : "pending",
-        scenesAppearingIn: data.subject.scenesAppearingIn,
-        visualDescription: data.subject.visualDescription,
-        priority: "suggested",
-      };
+      const newSubject = buildSubjectRefFromResponse(data.subject, "suggested");
       setSubjects((prev) => [...prev, newSubject]);
       setSuggestedSubjects((prev) => prev.filter((s) => s.id !== suggested.id));
 
@@ -1576,12 +1625,17 @@ export function useExportPipeline(
         }
       }
 
-      setApprovedSubjectIds((prev) => {
-        const next = new Set(prev);
-        next.add(newSubject.subjectId);
-        return next;
-      });
-      sendNotification("Reference Added", `"${suggested.name}" reference image generated.`);
+      if (data.async || shouldAutoApproveReferenceSubject(newSubject)) {
+        setApprovedSubjectIds((prev) => {
+          const next = new Set(prev);
+          next.add(newSubject.subjectId);
+          return next;
+        });
+      }
+      applyBrandReferenceWarnings(data.brandReferenceWarnings);
+      if (newSubject.brandEvidenceStatus !== "missing") {
+        sendNotification("Reference Added", `"${suggested.name}" reference ${newSubject.imageUrl ? "ready" : "queued"}.`);
+      }
     } catch (err: any) {
       setError(`Generate "${suggested.name}" failed: ${err.message}`);
     } finally {
@@ -1615,6 +1669,7 @@ export function useExportPipeline(
           scenesAppearingIn: sceneNums.length > 0 ? sceneNums : scenes.map((_: any, i: number) => i),
           artStyle,
           modelId: imageModel !== "flux-schnell" ? imageModel : undefined,
+          brandId: sourceBrandId || undefined,
         }),
       });
 
@@ -1626,15 +1681,7 @@ export function useExportPipeline(
       const data = await res.json().catch(() => ({}));
       if (!data.subject) throw new Error("Invalid response from add-subject");
 
-      const newSubject: SubjectRef = {
-        subjectId: data.subject.subjectId,
-        name: data.subject.name,
-        category: data.subject.category,
-        imageUrl: data.subject.imageUrl || undefined,
-        status: data.subject.imageUrl ? "generated" : "pending",
-        scenesAppearingIn: data.subject.scenesAppearingIn,
-        visualDescription: data.subject.visualDescription,
-      };
+      const newSubject = buildSubjectRefFromResponse(data.subject);
       setSubjects((prev) => [...prev, newSubject]);
 
       // Async polling
@@ -1669,11 +1716,14 @@ export function useExportPipeline(
         }
       }
 
-      setApprovedSubjectIds((prev) => {
-        const next = new Set(prev);
-        next.add(newSubject.subjectId);
-        return next;
-      });
+      if (data.async || shouldAutoApproveReferenceSubject(newSubject)) {
+        setApprovedSubjectIds((prev) => {
+          const next = new Set(prev);
+          next.add(newSubject.subjectId);
+          return next;
+        });
+      }
+      applyBrandReferenceWarnings(data.brandReferenceWarnings);
 
       // Reset form
       setNewSubjectName("");
@@ -1856,6 +1906,10 @@ export function useExportPipeline(
     subjects,
     approvedSubjectIds,
     setApprovedSubjectIds,
+    missingBrandEvidenceSubjects,
+    generatedBrandOwnedSubjects,
+    referenceContinueBlocked,
+    referenceContinueMessage,
     regeneratingSubjectIds,
     feedbackSubjectId,
     setFeedbackSubjectId,
