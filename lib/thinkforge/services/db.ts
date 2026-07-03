@@ -1537,6 +1537,39 @@ export async function listScripts(sessionId: string): Promise<Array<{ scriptId: 
   }
 }
 
+/** All of a user's scripts across every session (for the unified content library). */
+export async function listScriptsByUser(
+  userId: string,
+  limit = 100,
+): Promise<Array<{ scriptId: string; sessionId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }>> {
+  try {
+    const { ScriptModel } = await getModels();
+    const docs = (await ScriptModel.find({ userId }).sort({ updatedAt: -1 }).limit(limit * 3).lean()) as any[];
+    const seen = new Set<string>();
+    const items: Array<{ scriptId: string; sessionId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }> = [];
+    for (const doc of docs) {
+      const sid = doc.scriptId || 'default';
+      const key = `${doc.sessionId}:${sid}`;
+      if (seen.has(key)) continue; // keep the latest per (session, script)
+      seen.add(key);
+      items.push({
+        scriptId: sid,
+        sessionId: doc.sessionId,
+        title: doc.title || 'Untitled Script',
+        documentType: doc.documentType || 'screenplay',
+        version: doc.version || 1,
+        updatedAt: doc.updatedAt || doc.createdAt,
+        createdAt: doc.createdAt,
+      });
+      if (items.length >= limit) break;
+    }
+    return items;
+  } catch (error) {
+    console.error('Error listing scripts by user:', error);
+    return [];
+  }
+}
+
 export async function deleteScript(sessionId: string, scriptId: string): Promise<boolean> {
   try {
     const { ScriptModel } = await getModels();
