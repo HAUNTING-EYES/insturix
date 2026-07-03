@@ -591,6 +591,178 @@ function ProductProofPanel(props: {
     );
   }
 
+  if (family === "feature_demo" && props.familyPlan.visualArchetype === "UI_CROP_ZOOM") {
+    const cropIn = progress(props.localFrame, props.duration * 0.16, props.duration * 0.36, EASE_OUT);
+    const spotlight = activeStepProgress(props.localFrame, props.duration, props.activeStep, Math.max(1, props.items.length));
+    const imageScale = interpolate(spotlight, [0, 1], [1.08, 1.16]);
+
+    return (
+      <div
+        data-saas-archetype="UI_CROP_ZOOM"
+        style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateColumns: "0.82fr 1.18fr", gap: 22, padding: 26 }}
+      >
+        <div style={{ alignSelf: "center" }}>
+          <div style={{ color: props.accent, fontSize: 15, fontWeight: 900 }}>FEATURE FOCUS</div>
+          <div style={{ marginTop: 16, color: props.text, fontSize: 28, lineHeight: 1.02, fontWeight: 950 }}>
+            {props.familyPlan.productUiState}
+          </div>
+          <div style={{ marginTop: 16, color: props.muted, fontSize: 18, lineHeight: 1.28 }}>{displayLine}</div>
+          <div style={{ marginTop: 22, color: props.accent, fontSize: 16, fontWeight: 900 }}>
+            Detail window {props.activeStep + 1}
+          </div>
+        </div>
+        <div
+          data-saas-role="crop-window"
+          style={{
+            position: "relative",
+            minHeight: 288,
+            borderRadius: 22,
+            overflow: "hidden",
+            border: `1px solid ${props.accent}66`,
+            background: "rgba(0,0,0,0.28)",
+            boxShadow: `0 0 ${26 + cropIn * 28}px ${props.accent}33`,
+          }}
+        >
+          {props.productImage ? (
+            <Img
+              src={props.productImage.url}
+              alt={props.productImage.label}
+              style={{
+                width: "100%",
+                height: "100%",
+                minHeight: 288,
+                objectFit: "cover",
+                objectPosition: `${42 + props.activeStep * 8}% ${36 + props.activeStep * 5}%`,
+                transform: `scale(${imageScale})`,
+              }}
+            />
+          ) : (
+            <SyntheticProductSurface accent={props.accent} activeStep={props.activeStep} localFrame={props.localFrame} />
+          )}
+          <div
+            style={{
+              position: "absolute",
+              left: "13%",
+              top: `${20 + props.activeStep * 10}%`,
+              width: "58%",
+              height: "28%",
+              borderRadius: 18,
+              border: `2px solid ${props.accent}`,
+              boxShadow: `0 0 ${18 + spotlight * 24}px ${props.accent}88`,
+              background: `${props.accent}14`,
+              opacity: 0.72 + spotlight * 0.22,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: 18,
+              right: 18,
+              bottom: 18,
+              padding: "12px 14px",
+              borderRadius: 14,
+              background: "rgba(0,0,0,0.62)",
+              color: props.text,
+              fontSize: 16,
+              fontWeight: 850,
+            }}
+          >
+            Cropped proof: {props.productImage?.label || props.familyPlan.productUiState}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (family === "feature_demo" && props.familyPlan.visualArchetype === "CURSOR_HERO") {
+    const cursorMove = progress(props.localFrame, props.duration * 0.18, props.duration * 0.72, EASE_BALANCED);
+    const cursorX = interpolate(cursorMove, [0, 0.5, 1], [22, 64, 78]);
+    const cursorY = interpolate(cursorMove, [0, 0.5, 1], [68, 34, 50]);
+
+    return (
+      <div
+        data-saas-archetype="CURSOR_HERO"
+        style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 20, padding: 24 }}
+      >
+        <div
+          data-saas-role="cursor-hero-proof"
+          style={{
+            position: "relative",
+            minHeight: 296,
+            borderRadius: 22,
+            overflow: "hidden",
+            background: "rgba(0,0,0,0.24)",
+            border: `1px solid ${props.accent}55`,
+          }}
+        >
+          {props.productImage ? (
+            <Img
+              src={props.productImage.url}
+              alt={props.productImage.label}
+              style={{ width: "100%", height: "100%", minHeight: 296, objectFit: "cover", opacity: 0.78 }}
+            />
+          ) : (
+            <SyntheticProductSurface accent={props.accent} activeStep={props.activeStep} localFrame={props.localFrame} />
+          )}
+          <div
+            style={{
+              position: "absolute",
+              left: `${cursorX}%`,
+              top: `${cursorY}%`,
+              width: 34,
+              height: 34,
+              transform: "translate(-8px, -8px) rotate(-18deg)",
+              filter: `drop-shadow(0 0 18px ${props.accent}aa)`,
+            }}
+          >
+            <div
+              style={{
+                width: 0,
+                height: 0,
+                borderLeft: "22px solid white",
+                borderTop: "14px solid transparent",
+                borderBottom: "14px solid transparent",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              left: `${Math.max(8, cursorX - 18)}%`,
+              top: `${Math.max(8, cursorY - 24)}%`,
+              padding: "10px 14px",
+              borderRadius: 14,
+              color: props.text,
+              background: "rgba(0,0,0,0.72)",
+              border: `1px solid ${props.accent}66`,
+              fontSize: 15,
+              fontWeight: 850,
+            }}
+          >
+            {props.items[props.activeStep] || props.familyPlan.productUiState}
+          </div>
+        </div>
+        <div style={{ alignSelf: "center" }}>
+          <div style={{ color: props.accent, fontSize: 15, fontWeight: 900 }}>CURSOR-LED DEMO</div>
+          <div style={{ marginTop: 16, color: props.text, fontSize: 28, lineHeight: 1.04, fontWeight: 950 }}>
+            {props.familyPlan.productUiState}
+          </div>
+          <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
+            {["Point", "Select", "Reveal"].map((label, index) => {
+              const active = index === Math.min(2, props.activeStep);
+              return (
+                <div key={label} style={{ display: "grid", gridTemplateColumns: "34px 1fr", gap: 12, alignItems: "center", color: active ? props.text : props.muted }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 10, background: active ? props.accent : "rgba(255,255,255,0.12)" }} />
+                  <div style={{ fontSize: 18, fontWeight: active ? 900 : 720 }}>{label}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const stageItems = props.items.length > 0 ? props.items : DEFAULT_ITEMS;
   const stepPulse = activeStepProgress(props.localFrame, props.duration, props.activeStep, stageItems.length);
   const connector = progress(props.localFrame, props.duration * 0.12, props.duration * 0.86, EASE_BALANCED);
@@ -638,6 +810,45 @@ function ProductProofPanel(props: {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function SyntheticProductSurface(props: { accent: string; activeStep: number; localFrame: number }) {
+  const pulse = progress(props.localFrame, 12, 58, EASE_OUT);
+  const activeIndex = props.activeStep % 4;
+
+  return (
+    <div style={{ position: "absolute", inset: 0, padding: 28, background: "rgba(10,12,14,0.94)" }}>
+      <div style={{ height: 42, borderRadius: 14, background: "rgba(255,255,255,0.08)", marginBottom: 22 }} />
+      <div style={{ display: "grid", gridTemplateColumns: "0.72fr 1.28fr", gap: 18, height: "calc(100% - 64px)" }}>
+        <div style={{ borderRadius: 20, background: "rgba(255,255,255,0.065)", padding: 18 }}>
+          {[0, 1, 2, 3].map((item) => (
+            <div
+              key={item}
+              style={{
+                height: 22,
+                borderRadius: 999,
+                marginBottom: 16,
+                width: `${82 - item * 10}%`,
+                background: item === activeIndex ? props.accent : "rgba(255,255,255,0.16)",
+                opacity: item === activeIndex ? 0.88 : 0.48,
+              }}
+            />
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateRows: "0.82fr 1.18fr", gap: 18 }}>
+          <div
+            style={{
+              borderRadius: 20,
+              background: `${props.accent}22`,
+              border: `1px solid ${props.accent}55`,
+              transform: `scale(${0.98 + pulse * 0.02})`,
+            }}
+          />
+          <div style={{ borderRadius: 20, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }} />
+        </div>
       </div>
     </div>
   );

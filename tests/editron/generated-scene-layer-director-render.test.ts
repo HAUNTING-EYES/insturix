@@ -110,6 +110,33 @@ describe("GeneratedSceneLayerContent director rendering", () => {
     expect(html).toContain("Insturix workspace");
     expect(html).toContain("Live product flow");
   });
+
+  it("renders rotated feature archetypes as distinct proof forms", () => {
+    const renderFeature = (visualArchetype: GeneratedSceneFamilyPlan["visualArchetype"]) =>
+      renderToStaticMarkup(
+        React.createElement(GeneratedSceneLayerContent, {
+          overlay: makeOverlay({
+            family: "feature_demo",
+            visualArchetype,
+            evidenceStatus: "satisfied",
+            productAssetUse: { logo: true, productImage: true, productUrl: true },
+          }),
+        }),
+      );
+
+    const cropHtml = renderFeature("UI_CROP_ZOOM");
+    const framedHtml = renderFeature("UI_FRAMED");
+    const cursorHtml = renderFeature("CURSOR_HERO");
+
+    expect(cropHtml).toContain('data-saas-archetype="UI_CROP_ZOOM"');
+    expect(cropHtml).toContain('data-saas-role="crop-window"');
+    expect(cropHtml).toContain("FEATURE FOCUS");
+    expect(framedHtml).toContain("Live product flow");
+    expect(cursorHtml).toContain('data-saas-archetype="CURSOR_HERO"');
+    expect(cursorHtml).toContain('data-saas-role="cursor-hero-proof"');
+    expect(cursorHtml).toContain("CURSOR-LED DEMO");
+    expect(new Set([cropHtml, framedHtml, cursorHtml]).size).toBe(3);
+  });
 });
 
 function makeOverlay(
