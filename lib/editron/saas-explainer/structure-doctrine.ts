@@ -80,6 +80,8 @@ export function buildSaasStructureDoctrineMetadata(referenceProvided: boolean): 
       "logo_outro",
     ],
     sourceDocuments: [
+      "docs/SAAS_EXPLAINER_CONTENT_BIBLE.md",
+      "lib/editron/data/saas-explainer-knowledge-graph.json",
       "docs/agents/reference/general/phase_f_g_saas_motion.md",
       "lib/editron/data/creative-knowledge-graph.json",
       DEFAULT_SAAS_STYLE_REFERENCE_URL,

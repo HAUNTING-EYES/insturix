@@ -7,6 +7,8 @@
  * 3. Caption scoring: formality drives subtitle vs word-by-word
  */
 
+export {};
+
 let passed = 0;
 let failed = 0;
 

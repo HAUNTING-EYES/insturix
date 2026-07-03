@@ -45,6 +45,7 @@ const AUDITED_VISUAL_TYPES = new Set<string>([
   'sticker',
   'image',
   'html-scene',
+  OverlayType.GENERATED_SCENE,
   'html-sticker',
   'transition',
 ]);
@@ -737,15 +738,16 @@ function activeRenderedOverlayEvidence(
       const box = paintedBox ? { ...fallbackBox, ...paintedBox } : fallbackBox;
       const receipt = buildFrameAwareOverlayReceipt(overlayAtomicReceipt(overlay), overlay, frame, renderEvidence.fps);
       if (!receipt && String(overlay.type) === String(OverlayType.CAPTION)) return [];
+      const family = auditedOverlayEvidenceFamily(overlay, receipt);
       const pixelImage = isolatedImage ?? renderEvidence.fallbackImage;
       const pixels = pixelImage && renderEvidence.baselineImage ? overlayPixelEvidence(pixelImage, renderEvidence.baselineImage, box) : {};
       return [{
         id: overlay.id,
         type: String(overlay.type),
-        family: receipt?.family,
+        family,
         receipt,
         sampleRoles: sampleRolesForOverlay(renderEvidence.sample, overlay),
-        visualIntentStageMode: overlayVisualIntentStageMode(overlay),
+        visualIntentStageMode: overlayVisualIntentStageMode(overlay) ?? fallbackVisualIntentStageMode(overlay),
         box: {
           ...box,
           ...pixels,
@@ -803,6 +805,19 @@ function overlayVisualIntentStageMode(overlay: Overlay): string | undefined {
     : undefined;
   const recipeIntent = isRecord(recipe?.visualIntent) ? recipe.visualIntent : undefined;
   return stringValue(planIntent?.stageMode) ?? stringValue(recipeIntent?.stageMode);
+}
+
+function auditedOverlayEvidenceFamily(
+  overlay: Overlay,
+  receipt: RenderedOverlayEvidence['receipt'],
+): RenderedOverlayEvidence['family'] {
+  if (overlay.type === OverlayType.GENERATED_SCENE) return 'motion-graphic';
+  return receipt?.family;
+}
+
+function fallbackVisualIntentStageMode(overlay: Overlay): string | undefined {
+  if (overlay.type === OverlayType.GENERATED_SCENE) return 'full-frame-graphic-scene';
+  return undefined;
 }
 
 export function changedPixelBounds(fullImage: RawImage, baselineImage: RawImage): RenderedOverlayBox | undefined {

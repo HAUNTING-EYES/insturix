@@ -1,4 +1,4 @@
-﻿import { COLLECTIONS, getDatabase } from "@/lib/editron/db/mongodb";
+import { COLLECTIONS, getDatabase } from "@/lib/editron/db/mongodb";
 import {
   buildSaasExplainerAuthorPrompt,
   buildSaasExplainerProjectSummary,
@@ -25,7 +25,18 @@ import {
   buildSaasStructureDoctrineMetadata,
   resolveSaasStructureStyleBrief,
 } from "@/lib/editron/saas-explainer/structure-doctrine";
+import {
+  buildSaasProductEvidencePack,
+  formatSaasProductEvidencePromptBlock,
+  type SaasProductEvidencePack,
+} from "@/lib/editron/saas-explainer/product-evidence-pack";
+import {
+  buildSaasDirectorContract,
+  formatSaasDirectorPromptBlock,
+  type SaasDirectorContract,
+} from "@/lib/editron/saas-explainer/director-contract";
 import { projectService } from "@/lib/editron/services/project-service";
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { CreditsService } from "@/lib/services/creditsService";
 import { generateVoiceover, isTTSAvailable } from "@/lib/pipeline/tts-service";
 import { isLLMParserAvailable, parseScriptWithLLM } from "@/lib/pipeline/llm-scene-parser";
@@ -75,6 +86,8 @@ export interface SaasExplainerProjectResult {
   generationReadiness: SaasExplainerGenerationReadiness;
   voiceover: SaasExplainerVoiceoverSummary;
   brandContext: SaasExplainerBrandContextMetadata;
+  productEvidencePack: SaasProductEvidencePack;
+  directorContract: SaasDirectorContract;
   warnings?: string[];
 }
 
@@ -124,9 +137,17 @@ export async function createSaasExplainerProject(
   });
   const generationInput = applyBrandDefaults(input, brandContext);
   const brandContextPrompt = brandContext.promptBlock || undefined;
+  const productEvidencePack = buildSaasProductEvidencePack({
+    input: generationInput,
+    originalInput: input,
+    productUrl,
+    brandContext,
+  });
+  const productEvidencePrompt = formatSaasProductEvidencePromptBlock(productEvidencePack);
   const referenceScriptSummary = [
     generationInput.script || generationInput.outcome || buildSaasExplainerProjectSummary(generationInput, productUrl, referenceLabel),
     brandContextPrompt,
+    productEvidencePrompt,
   ].filter(Boolean).join("\n\n");
   const reference = await analyzeSaasExplainerReference({
     input: generationInput,
@@ -143,16 +164,29 @@ export async function createSaasExplainerProject(
   const structureDoctrine = buildSaasStructureDoctrineMetadata(Boolean(reference.analysis?.styleBrief));
   const styleSourceLabel = reference.analysis?.styleBrief ? referenceLabel : DEFAULT_SAAS_STYLE_REFERENCE_LABEL;
   const referenceStyleEvidence = formatReferenceStyleEvidence(effectiveStyleBrief);
+  const directorContract = buildSaasDirectorContract({
+    input: generationInput,
+    productEvidencePack,
+    referenceStyleBrief: effectiveStyleBrief,
+    referenceProvided: Boolean(reference.analysis?.styleBrief),
+  });
+  const directorPrompt = formatSaasDirectorPromptBlock(directorContract);
   const sourceSessionId = `saas_${crypto.randomUUID()}`;
   const sourceScriptId = `script_${sourceSessionId}`;
   const baseProjectSummary = buildSaasExplainerProjectSummary(generationInput, productUrl, styleSourceLabel, referenceStyleEvidence);
-  const projectSummary = [baseProjectSummary, brandContextPrompt].filter(Boolean).join("\n\n");
+  const projectSummary = [baseProjectSummary, brandContextPrompt, productEvidencePrompt, directorPrompt].filter(Boolean).join("\n\n");
   const systemBrief = [
     "Author a production SaaS explainer; keep product UI proof readable and avoid unverifiable claims.",
     brandContextPrompt,
+    productEvidencePrompt,
+    directorPrompt,
   ].filter(Boolean).join("\n\n");
   const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
-    userPrompt: buildSaasExplainerAuthorPrompt(generationInput, productUrl, styleSourceLabel, referenceStyleEvidence),
+    userPrompt: [
+      buildSaasExplainerAuthorPrompt(generationInput, productUrl, styleSourceLabel, referenceStyleEvidence),
+      productEvidencePrompt,
+      directorPrompt,
+    ].filter(Boolean).join("\n\n"),
     sessionId: sourceSessionId,
     brandId: generationInput.brandId,
     generationMode: "manual",
@@ -216,6 +250,7 @@ export async function createSaasExplainerProject(
     brandContext,
     voiceProfile,
     referenceStyleBrief: effectiveStyleBrief,
+    directorContract,
   });
   const voiceoverResult = await generateSaasExplainerVoiceovers({ overlays, userId, voiceProfile });
   const totalFrames = Math.max(scenesToTotalFrames(scenes, FPS), overlaysEndFrame(overlays));
@@ -248,7 +283,13 @@ export async function createSaasExplainerProject(
   const brandWarnings = brandContext.metadata.acceptedProfile
     ? []
     : ["Brand Vault context is missing or not accepted; generation continued without default brand context."];
-  const warnings = [...generationWarnings, ...brandWarnings, ...voiceoverResult.warnings, ...linkWarnings];
+  const evidenceWarnings = productEvidencePack.degradations
+    .filter((degradation) => degradation.severity !== "info")
+    .map((degradation) => `SaaS product evidence: ${degradation.message}`);
+  const directorWarnings = directorContract.evidenceAudit.degradations
+    .filter((degradation) => degradation.severity !== "info")
+    .map((degradation) => `SaaS director: ${degradation.message}`);
+  const warnings = [...generationWarnings, ...brandWarnings, ...evidenceWarnings, ...directorWarnings, ...voiceoverResult.warnings, ...linkWarnings];
   const db = await getDatabase();
   await db.collection(COLLECTIONS.PROJECTS).updateOne(
     { userId, projectId: project.projectId },
@@ -273,6 +314,8 @@ export async function createSaasExplainerProject(
           aspectRatio: generationInput.aspectRatio,
           brandContext: brandContext.metadata,
           brandDefaultsApplied: brandDefaultsApplied(input, generationInput),
+          productEvidencePack,
+          directorContract,
           styleSource: structureDoctrine.source,
           structureDoctrine,
           voiceover: voiceoverResult.summary,
@@ -302,6 +345,8 @@ export async function createSaasExplainerProject(
     generationReadiness,
     voiceover: voiceoverResult.summary,
     brandContext: brandContext.metadata,
+    productEvidencePack,
+    directorContract,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
@@ -344,7 +389,8 @@ async function generateSaasExplainerVoiceovers(input: {
   }
 
   const creditResult = await CreditsService.deductCredits(input.userId, "pipeline", "voiceover_generation", {
-    quantity: slotsWithNarration.length,
+    characterCount: getBillableSaasVoiceoverCharacterCount(slotsWithNarration),
+    requestType: input.voiceProfile.provider,
   });
   if (!creditResult.success) {
     return {
@@ -355,6 +401,7 @@ async function generateSaasExplainerVoiceovers(input: {
 
   const warnings: string[] = [];
   let generatedCount = 0;
+  let failedCharacterCount = 0;
   for (const slot of slotsWithNarration) {
     const narrationText = String(slot.metadata?.narrationText ?? "").trim();
     try {
@@ -372,10 +419,15 @@ async function generateSaasExplainerVoiceovers(input: {
         tts: voiceProfileTtsMetadata(input.voiceProfile),
       };
       const sceneIndex = slot.metadata?.sceneIndex ?? "unknown";
+      failedCharacterCount += getBillableVoiceoverTextLength(narrationText);
       warnings.push(
         `Voiceover generation failed for scene ${sceneIndex}: ${message}`,
       );
     }
+  }
+
+  if (failedCharacterCount > 0) {
+    await refundFailedSaasVoiceoverCredits(input.userId, failedCharacterCount, input.voiceProfile.provider);
   }
 
   const status = generatedCount === voiceSlots.length ? "ready" : generatedCount > 0 ? "partial" : "pending";
@@ -383,6 +435,41 @@ async function generateSaasExplainerVoiceovers(input: {
     summary: { ...baseSummary, generatedCount, status },
     warnings,
   };
+}
+
+function getBillableSaasVoiceoverCharacterCount(slots: any[]): number {
+  const characterCount = slots.reduce((sum, slot) => {
+    return sum + getBillableVoiceoverTextLength(String(slot.metadata?.narrationText ?? ""));
+  }, 0);
+  return Math.max(characterCount, 1);
+}
+
+function getBillableVoiceoverTextLength(text: string): number {
+  return Math.max(text.trim().length, 0);
+}
+
+async function refundFailedSaasVoiceoverCredits(
+  userId: string,
+  failedCharacterCount: number,
+  provider: SaasExplainerVoiceProfile["provider"],
+): Promise<void> {
+  const amount = getCreditCost("pipeline", "voiceover_generation", {
+    characterCount: Math.max(failedCharacterCount, 1),
+    requestType: provider,
+  });
+  if (amount <= 0) return;
+
+  try {
+    await CreditsService.refundCredits(
+      userId,
+      amount,
+      "SaaS explainer voiceover generation failed before producing usable audio.",
+      { service: "pipeline", action: "voiceover_generation" },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown refund error";
+    console.error(`[SaaSExplainer] Voiceover credit refund failed: ${message}`);
+  }
 }
 
 async function generateVoiceoverWithRetry(

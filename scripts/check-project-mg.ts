@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
+import { requireMongoUri } from './utils/mongo-uri';
 
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = requireMongoUri('scripts/check-project-mg.ts');
 const PROJECT_ID = 'proj_K_0-dSCJ76z4';
 
 async function main() {

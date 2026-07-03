@@ -2,6 +2,8 @@
  * Test: Wav2Vec gap detection + partial results (R34)
  */
 
+export {};
+
 let passed = 0;
 let failed = 0;
 

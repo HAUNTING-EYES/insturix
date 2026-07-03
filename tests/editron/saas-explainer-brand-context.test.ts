@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveSaasExplainerBrandContext } from "@/lib/editron/saas-explainer/brand-context";
 import { buildSaasGeneratedSceneOverlays } from "@/lib/editron/saas-explainer/generated-scene";
+import type { BrandSignal, BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 import {
   acceptBrandVaultSignalProfileDraft,
   createBrandVaultWebsiteDraftJob,
@@ -52,6 +53,15 @@ function htmlResponse(): Response {
   });
 }
 
+function signal<T>(value: T): BrandSignal<T> {
+  return {
+    value,
+    confidence: 0.92,
+    trustLevel: "first_party_website",
+    authorityClass: "brand_fact",
+    evidenceIds: [],
+  };
+}
 describe("SaaS explainer Brand Vault context", () => {
   it("builds context from accepted record, review payload, visual identity, uploads, and diagnostics", async () => {
     const store = createInMemoryBrandVaultRefineryStore();
@@ -310,5 +320,86 @@ describe("SaaS explainer Brand Vault context", () => {
       }),
       motionSignalPaths: expect.any(Array),
     });
+  });
+  it("resolves accepted sparse profiles without nested creative signal groups", async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const sparseProfile = {
+      version: 1,
+      brandId: "brand_sparse",
+      userId: "user_sparse",
+      generatedAt: NOW,
+      identity: {
+        brandName: signal("SparseCo"),
+        category: signal("saas"),
+        audience: signal(["ops teams"]),
+        productServices: signal(["workflow automation platform"]),
+        proofStyle: signal("demo"),
+      },
+      palette: {
+        primary: signal("#101820"),
+        accent: signal("#ff6a3d"),
+        neutrals: signal([]),
+        supporting: signal([]),
+        unsafeOnDark: signal([]),
+        unsafeOnLight: signal([]),
+        contrastBias: signal(0.62),
+        harmony: signal("unknown"),
+      },
+      typography: {
+        category: signal("sans"),
+        casingBias: signal("sentence"),
+      },
+      voice: {
+        assertiveness: signal(0.7),
+        warmth: signal(0.45),
+        jargonDensity: signal(0.35),
+        humor: signal(0.1),
+        defaultFormality: signal(0.72),
+        ctaDirectness: signal(0.8),
+        recurringPhrases: signal([]),
+        killList: signal([]),
+        hookArchetypes: signal([]),
+      },
+      evidence: [],
+    } as unknown as BrandSignalProfile;
+
+    store.saveRecord({
+      id: "record_sparse_saas",
+      status: "accepted",
+      profile: sparseProfile,
+      createdAt: NOW,
+      updatedAt: NOW,
+      review: {
+        required: false,
+        reasons: [],
+        acceptedAt: NOW,
+        acceptedBy: "test",
+      },
+    });
+
+    const context = await resolveSaasExplainerBrandContext({
+      userId: "user_sparse",
+      brandId: "brand_sparse",
+      store,
+    });
+
+    expect(context.metadata).toMatchObject({
+      source: "brand_vault",
+      brandId: "brand_sparse",
+      recordId: "record_sparse_saas",
+      acceptedProfile: true,
+      promptContextProvided: true,
+    });
+    expect(context.defaults.brief.productName).toBe("SparseCo");
+    expect(context.defaults.brief.productServices).toEqual(["workflow automation platform"]);
+    expect(context.defaults.visual.colors).toEqual(expect.arrayContaining(["#101820", "#ff6a3d"]));
+    expect(context.defaults.motion.signalPaths).toEqual([]);
+    expect(context.metadata.defaultContract).toMatchObject({
+      productName: "SparseCo",
+      motionSignalPaths: [],
+      outcomeHintProvided: true,
+    });
+    expect(context.missingInputs).toEqual(expect.arrayContaining(["brand_motion_tokens"]));
+    expect(context.promptBlock).toContain("Default product name: SparseCo");
   });
 });

@@ -1,6 +1,6 @@
 import React from "react";
-import { Easing, interpolate, useCurrentFrame } from "remotion";
-import type { GeneratedSceneElement, GeneratedSceneFamilyPlan, GeneratedSceneOverlay } from "../../types";
+import { Easing, Img, interpolate, useCurrentFrame } from "remotion";
+import type { GeneratedSceneAsset, GeneratedSceneElement, GeneratedSceneFamilyPlan, GeneratedSceneOverlay } from "../../types";
 
 type GeneratedSceneLike = GeneratedSceneOverlay & {
   sceneModel?: GeneratedSceneOverlay["sceneModel"] & Record<string, unknown>;
@@ -9,7 +9,17 @@ type GeneratedSceneLike = GeneratedSceneOverlay & {
 const DEFAULT_ITEMS = ["Plan", "Generate", "Review", "Publish"];
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_BALANCED = Easing.bezier(0.45, 0, 0.55, 1);
-
+type DirectorChoreography = {
+  gridTemplateColumns: string;
+  gap: string;
+  shellMinHeight: number;
+  shellRadius: number;
+  gridOpacity: number;
+  cameraScale: [number, number];
+  cameraX: [number, number];
+  cameraY: [number, number];
+  shellShadow: string;
+};
 const FALLBACK_FAMILY_PLAN: GeneratedSceneFamilyPlan = {
   family: "workflow_demo",
   evidenceSource: "scene_descriptor",
@@ -33,9 +43,15 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
   const panel = findElement(elements, "panel");
   const metric = findElement(elements, "metric");
   const cta = findElement(elements, "cta");
+  const sceneAssets = normalizeSceneAssets(model?.assets);
   const familyPlan = normalizeFamilyPlan(model?.familyPlan);
   const caption = model?.captionTracks?.[0]?.text;
-
+  const choreography = resolveDirectorChoreography(familyPlan);
+  const headlineText = safeViewerText(headline?.text || model?.title || overlay.content, 92) ?? familyHeadline(familyPlan);
+  const panelText = safeViewerText(panel?.text, 150) ?? familyDisplayLine(familyPlan);
+  const ctaText = safeViewerText(cta?.text, 76) ?? familyCtaText(familyPlan);
+  const logoAsset = sceneAssets.logos[0];
+  const productImage = familyPlan.productAssetUse?.productImage !== false ? sceneAssets.productImages[0] : undefined;
   const accent = safeColor(brand.accentColor, "#D4A652");
   const background = safeColor(brand.backgroundColor, "#0B0B0A");
   const surface = safeColor(brand.surfaceColor, "#171A1F");
@@ -52,9 +68,9 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
   const proofIn = progress(localFrame, duration * 0.16, duration * 0.34, EASE_OUT);
   const ctaIn = progress(localFrame, duration * 0.62, duration * 0.78, EASE_OUT);
   const exit = progress(localFrame, Math.max(0, duration - 18), duration, Easing.in(Easing.cubic));
-  const cameraScale = interpolate(sceneProgress, [0, 1], [1.01, 1.075]);
-  const cameraX = interpolate(sceneProgress, [0, 1], [26, -34]);
-  const cameraY = interpolate(sceneProgress, [0, 1], [8, -12]);
+  const cameraScale = interpolate(sceneProgress, [0, 1], choreography.cameraScale);
+  const cameraX = interpolate(sceneProgress, [0, 1], choreography.cameraX);
+  const cameraY = interpolate(sceneProgress, [0, 1], choreography.cameraY);
   const gridDrift = interpolate(sceneProgress, [0, 1], [18, -18]);
   const cursor = cursorPosition(sceneProgress);
   const visibleCaption = caption ? revealCaption(caption, localFrame, duration) : "";
@@ -78,7 +94,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
           inset: 0,
           backgroundImage: "linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px), linear-gradient(0deg, rgba(255,255,255,0.045) 1px, transparent 1px)",
           backgroundSize: "72px 72px",
-          opacity: 0.24,
+          opacity: choreography.gridOpacity,
           transform: `translate3d(${gridDrift}px, ${gridDrift * 0.36}px, 0) scale(${1 + sceneProgress * 0.018})`,
         }}
       />
@@ -87,24 +103,15 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
           position: "absolute",
           inset: "7% 8%",
           display: "grid",
-          gridTemplateColumns: "0.84fr 1.42fr",
-          gap: "5%",
+          gridTemplateColumns: choreography.gridTemplateColumns,
+          gap: choreography.gap,
           opacity: enter,
           transform: `translateY(${(1 - enter) * 22}px)`,
         }}
       >
         <section style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 26 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14, opacity: headlineIn }}>
-            <div
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 10,
-                background: accent,
-                boxShadow: `0 0 ${24 + sceneProgress * 20}px ${accent}55`,
-                transform: `scale(${interpolate(headlineIn, [0, 1], [0.72, 1])})`,
-              }}
-            />
+            <BrandMark asset={logoAsset} accent={accent} sceneProgress={sceneProgress} headlineIn={headlineIn} />
             <div style={{ fontSize: 24, color: muted }}>{brand.name || model?.productName || "SaaS product"}</div>
           </div>
           <h1
@@ -119,7 +126,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
               transform: `translateY(${(1 - headlineIn) * 18}px)`,
             }}
           >
-            {headline?.text || model?.title || overlay.content}
+            {headlineText}
           </h1>
           <div
             style={{
@@ -141,18 +148,18 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
               transform: `translateY(${(1 - proofIn) * 14}px)`,
             }}
           >
-            {panel?.text || familyPlan.visualGoal || model?.style?.uiTreatment || "Readable product proof with motion-led UI moments."}
+            {panelText}
           </p>
         </section>
 
         <section
           style={{
             alignSelf: "center",
-            minHeight: 620,
-            borderRadius: 28,
+            minHeight: choreography.shellMinHeight,
+            borderRadius: choreography.shellRadius,
             background: surface,
             border: "1px solid rgba(255,255,255,0.12)",
-            boxShadow: "0 28px 80px rgba(0,0,0,0.38)",
+            boxShadow: choreography.shellShadow,
             overflow: "hidden",
             opacity: shellIn,
             transform: `translate3d(${(1 - shellIn) * 46 + cameraX}px, ${cameraY}px, 0) scale(${cameraScale})`,
@@ -219,7 +226,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
             <main style={{ padding: 30, display: "grid", gridTemplateRows: "108px 74px minmax(0, 1fr) 106px", gap: 16, position: "relative" }}>
               <MetricCards metricLabel={metric?.label} metricValue={metric?.value} familyPlan={familyPlan} activeStep={activeStep} accent={accent} text={text} muted={muted} localFrame={localFrame} />
               <WorkflowStageRail items={items} activeStep={activeStep} accent={accent} text={text} muted={muted} localFrame={localFrame} duration={duration} />
-              <ProductProofPanel accent={accent} text={text} muted={muted} activeStep={activeStep} localFrame={localFrame} duration={duration} familyPlan={familyPlan} items={items} />
+              <ProductProofPanel accent={accent} text={text} muted={muted} activeStep={activeStep} localFrame={localFrame} duration={duration} familyPlan={familyPlan} items={items} panelCopy={panelText} productImage={productImage} logoAsset={logoAsset} />
               <div
                 style={{
                   borderRadius: 18,
@@ -233,7 +240,7 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
                   transform: `translateY(${(1 - ctaIn) * 18}px)`,
                 }}
               >
-                {cta?.text || "Turn brand context into a finished launch asset"}
+                {ctaText}
               </div>
               <div
                 style={{
@@ -279,6 +286,43 @@ export const GeneratedSceneLayerContent: React.FC<{ overlay: GeneratedSceneLike 
   );
 };
 
+function BrandMark(props: { asset?: GeneratedSceneAsset; accent: string; sceneProgress: number; headlineIn: number }) {
+  const size = 42;
+  if (props.asset) {
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 10,
+          background: "rgba(255,255,255,0.92)",
+          boxShadow: `0 0 ${24 + props.sceneProgress * 20}px ${props.accent}44`,
+          transform: `scale(${interpolate(props.headlineIn, [0, 1], [0.72, 1])})`,
+          display: "grid",
+          placeItems: "center",
+          overflow: "hidden",
+          padding: 6,
+        }}
+      >
+        <Img src={props.asset.url} alt={props.asset.label} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 10,
+        background: props.accent,
+        boxShadow: `0 0 ${24 + props.sceneProgress * 20}px ${props.accent}55`,
+        transform: `scale(${interpolate(props.headlineIn, [0, 1], [0.72, 1])})`,
+      }}
+    />
+  );
+}
+
 function MetricCards(props: {
   metricLabel?: string;
   metricValue?: string;
@@ -292,7 +336,7 @@ function MetricCards(props: {
   const values = [
     { label: "Family", value: familyLabel(props.familyPlan.family) },
     { label: props.metricLabel || "Focus", value: props.metricValue || familyFocusValue(props.familyPlan) },
-    { label: "Evidence", value: props.familyPlan.claimMode === "evidence_backed" ? "Sourced" : "Demo" },
+    { label: "Evidence", value: evidenceLabel(props.familyPlan) },
   ];
 
   return (
@@ -375,9 +419,107 @@ function ProductProofPanel(props: {
   duration: number;
   familyPlan: GeneratedSceneFamilyPlan;
   items: string[];
+  panelCopy: string;
+  productImage?: GeneratedSceneAsset;
+  logoAsset?: GeneratedSceneAsset;
 }) {
   const panelPulse = progress(props.localFrame, props.duration * 0.34, props.duration * 0.48, EASE_BALANCED);
   const family = props.familyPlan.family;
+  const displayLine = familyDisplayLine(props.familyPlan);
+
+  if (family === "section_header") {
+    const headerIn = progress(props.localFrame, props.duration * 0.18, props.duration * 0.38, EASE_OUT);
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateColumns: "1fr 120px", gap: 28, alignItems: "center" }}>
+        <div>
+          <div style={{ color: props.accent, fontSize: 16, fontWeight: 900, letterSpacing: 0 }}>NEXT PROOF</div>
+          <div style={{ marginTop: 18, color: props.text, fontSize: 38, lineHeight: 1.02, fontWeight: 950, transform: `translateY(${(1 - headerIn) * 16}px)`, opacity: headerIn }}>
+            {props.familyPlan.productUiState}
+          </div>
+          <div style={{ marginTop: 18, color: props.muted, fontSize: 20, lineHeight: 1.28 }}>{displayLine}</div>
+        </div>
+        <div style={{ width: 108, height: 108, borderRadius: 28, background: `${props.accent}18`, border: `1px solid ${props.accent}55`, display: "grid", placeItems: "center", color: props.accent, fontSize: 34, fontWeight: 950, boxShadow: `0 0 ${28 + panelPulse * 20}px ${props.accent}44` }}>
+          {props.activeStep + 1}
+        </div>
+      </div>
+    );
+  }
+
+  if (family === "promise") {
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateRows: "auto 1fr", gap: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
+          <div style={{ color: props.accent, fontSize: 16, fontWeight: 900 }}>PRODUCT PROMISE</div>
+          <div style={{ color: props.muted, fontSize: 15, fontWeight: 800 }}>{evidenceLabel(props.familyPlan)}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "stretch" }}>
+          {["Current state", "Product promise"].map((label, index) => {
+            const cardIn = progress(props.localFrame, 36 + index * 12, 78 + index * 12, EASE_OUT);
+            return (
+              <div key={label} style={{ borderRadius: 18, background: index === 1 ? `${props.accent}18` : "rgba(255,255,255,0.055)", border: `1px solid ${index === 1 ? `${props.accent}55` : "rgba(255,255,255,0.1)"}`, padding: 22, opacity: cardIn, transform: `translateY(${(1 - cardIn) * 18}px)` }}>
+                <div style={{ color: index === 1 ? props.accent : props.muted, fontSize: 18, fontWeight: 850 }}>{label}</div>
+                <div style={{ marginTop: 24, color: index === 1 ? props.text : props.muted, fontSize: index === 1 ? 27 : 21, lineHeight: 1.12, fontWeight: 900 }}>{index === 1 ? displayLine : props.familyPlan.productUiState}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (family === "ui_proof") {
+    const proofLabels = props.familyPlan.productAssetUse?.productImage
+      ? ["Verified screen", "Readable state", "Action path"]
+      : ["Product state", "UI flow", "Action path"];
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 22 }}>
+        <div style={{ borderRadius: 18, background: "rgba(255,255,255,0.06)", border: `1px solid ${props.accent}4d`, padding: 22, position: "relative", overflow: "hidden" }}>
+          <div style={{ color: props.accent, fontSize: 15, fontWeight: 900 }}>VERIFIED UI EVIDENCE</div>
+          {props.productImage ? (
+            <div style={{ marginTop: 18, borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,255,255,0.14)", background: "rgba(0,0,0,0.24)", height: 178 }}>
+              <Img src={props.productImage.url} alt={props.productImage.label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </div>
+          ) : null}
+          <div style={{ marginTop: 18, color: props.text, fontSize: 25, lineHeight: 1.12, fontWeight: 900 }}>{props.panelCopy || displayLine}</div>
+          {props.productImage ? (
+            <div style={{ marginTop: 12, color: props.muted, fontSize: 14, fontWeight: 750 }}>{props.productImage.label}</div>
+          ) : [0, 1, 2, 3].map((bar) => {
+            const barIn = progress(props.localFrame, 34 + bar * 8, 72 + bar * 8, EASE_OUT);
+            return <div key={bar} style={{ marginTop: 20, width: `${82 - bar * 10 + panelPulse * 8}%`, height: bar === props.activeStep % 4 ? 18 : 13, borderRadius: 999, background: bar === props.activeStep % 4 ? props.accent : "rgba(255,255,255,0.15)", opacity: barIn }} />;
+          })}
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {proofLabels.map((label, index) => {
+            const cardIn = progress(props.localFrame, 42 + index * 10, 78 + index * 10, EASE_OUT);
+            const active = index === Math.min(2, props.activeStep);
+            return (
+              <div key={label} style={{ borderRadius: 16, padding: 18, background: active ? `${props.accent}1f` : "rgba(255,255,255,0.055)", border: `1px solid ${active ? `${props.accent}66` : "rgba(255,255,255,0.1)"}`, color: active ? props.text : props.muted, fontSize: 18, fontWeight: 850, opacity: cardIn, transform: `translateX(${(1 - cardIn) * 18}px)` }}>
+                {label}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (family === "objection_handling") {
+    const rows = ["Concern", "Evidence", "Answer"];
+    return (
+      <div style={{ ...panelBaseStyle(props.accent), padding: 28 }}>
+        {rows.map((label, index) => {
+          const rowIn = progress(props.localFrame, 32 + index * 12, 68 + index * 12, EASE_OUT);
+          const active = index === Math.min(2, props.activeStep);
+          return (
+            <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 20, alignItems: "center", minHeight: 82, marginBottom: 14, padding: "16px 18px", borderRadius: 18, background: active ? `${props.accent}18` : "rgba(255,255,255,0.05)", border: `1px solid ${active ? `${props.accent}55` : "rgba(255,255,255,0.1)"}`, opacity: rowIn, transform: `translateY(${(1 - rowIn) * 16}px)` }}>
+              <div style={{ color: active ? props.accent : props.muted, fontSize: 17, fontWeight: 900 }}>{label}</div>
+              <div style={{ color: active ? props.text : props.muted, fontSize: active ? 24 : 19, fontWeight: active ? 900 : 750, lineHeight: 1.16 }}>{index === 2 ? displayLine : props.familyPlan.productUiState}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   if (family === "problem") {
     return (
@@ -423,7 +565,7 @@ function ProductProofPanel(props: {
           {props.familyPlan.claimMode === "evidence_backed" ? "Proof" : "Demo"}
         </div>
         <div>
-          <div style={{ color: props.text, fontSize: 26, fontWeight: 850 }}>{props.familyPlan.visualGoal}</div>
+          <div style={{ color: props.text, fontSize: 26, fontWeight: 850 }}>{displayLine}</div>
           <div style={{ marginTop: 24, height: 22, width: `${48 + panelPulse * 38}%`, borderRadius: 999, background: `${props.accent}88` }} />
           <div style={{ marginTop: 18, height: 18, width: "62%", borderRadius: 999, background: "rgba(255,255,255,0.13)" }} />
         </div>
@@ -435,9 +577,15 @@ function ProductProofPanel(props: {
     const cardIn = progress(props.localFrame, props.duration * 0.28, props.duration * 0.48, EASE_OUT);
     return (
       <div style={{ ...panelBaseStyle(props.accent), display: "grid", placeItems: "center", textAlign: "center" }}>
-        <div style={{ width: 112, height: 112, borderRadius: 26, background: props.accent, boxShadow: `0 0 ${34 + panelPulse * 26}px ${props.accent}77`, transform: `scale(${0.84 + cardIn * 0.16})` }} />
+        {props.logoAsset ? (
+          <div style={{ width: 112, height: 112, borderRadius: 26, background: "rgba(255,255,255,0.94)", boxShadow: `0 0 ${34 + panelPulse * 26}px ${props.accent}55`, transform: `scale(${0.84 + cardIn * 0.16})`, padding: 18, display: "grid", placeItems: "center", overflow: "hidden" }}>
+            <Img src={props.logoAsset.url} alt={props.logoAsset.label} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          </div>
+        ) : (
+          <div style={{ width: 112, height: 112, borderRadius: 26, background: props.accent, boxShadow: `0 0 ${34 + panelPulse * 26}px ${props.accent}77`, transform: `scale(${0.84 + cardIn * 0.16})` }} />
+        )}
         <div style={{ marginTop: 26, color: props.text, fontSize: 30, fontWeight: 900 }}>{props.familyPlan.productUiState}</div>
-        <div style={{ marginTop: 16, color: props.muted, fontSize: 20, maxWidth: 520 }}>{props.familyPlan.visualGoal}</div>
+        <div style={{ marginTop: 16, color: props.muted, fontSize: 20, maxWidth: 520 }}>{displayLine}</div>
       </div>
     );
   }
@@ -494,6 +642,25 @@ function ProductProofPanel(props: {
   );
 }
 
+function normalizeSceneAssets(assets: GeneratedSceneOverlay["sceneModel"]["assets"] | undefined): {
+  logos: GeneratedSceneAsset[];
+  productImages: GeneratedSceneAsset[];
+} {
+  return {
+    logos: normalizeAssetList(assets?.logos),
+    productImages: normalizeAssetList(assets?.productImages),
+  };
+}
+
+function normalizeAssetList(value: unknown): GeneratedSceneAsset[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((asset): asset is GeneratedSceneAsset => {
+    if (!asset || typeof asset !== "object") return false;
+    const candidate = asset as Partial<GeneratedSceneAsset>;
+    return typeof candidate.url === "string" && candidate.url.length > 0 && typeof candidate.label === "string";
+  });
+}
+
 function normalizeFamilyPlan(plan: GeneratedSceneFamilyPlan | undefined): GeneratedSceneFamilyPlan {
   if (!plan || !isSceneFamily(plan.family)) return FALLBACK_FAMILY_PLAN;
   return {
@@ -504,32 +671,172 @@ function normalizeFamilyPlan(plan: GeneratedSceneFamilyPlan | undefined): Genera
 }
 
 function isSceneFamily(value: unknown): value is GeneratedSceneFamilyPlan["family"] {
-  return ["hook", "problem", "workflow_demo", "feature_demo", "proof_metric", "comparison", "social_proof", "cta", "logo_outro"].includes(String(value));
+  return ["hook", "problem", "promise", "workflow_demo", "feature_demo", "ui_proof", "proof_metric", "comparison", "social_proof", "objection_handling", "cta", "logo_outro", "section_header"].includes(String(value));
 }
 
 function familyLabel(family: GeneratedSceneFamilyPlan["family"]): string {
   const labels: Record<GeneratedSceneFamilyPlan["family"], string> = {
     hook: "Hook",
     problem: "Problem",
+    promise: "Promise",
     workflow_demo: "Workflow",
     feature_demo: "Feature",
+    ui_proof: "UI proof",
     proof_metric: "Proof",
     comparison: "Compare",
     social_proof: "Trust",
+    objection_handling: "Objection",
     cta: "CTA",
     logo_outro: "Outro",
+    section_header: "Section",
   };
   return labels[family];
 }
 
 function familyFocusValue(plan: GeneratedSceneFamilyPlan): string {
   if (plan.family === "problem") return "Friction";
+  if (plan.family === "promise") return "Promise";
   if (plan.family === "feature_demo") return "Focus";
+  if (plan.family === "ui_proof") return "Verified";
   if (plan.family === "proof_metric") return "Proof";
   if (plan.family === "comparison") return "Shift";
+  if (plan.family === "objection_handling") return "Answer";
+  if (plan.family === "section_header") return "Next";
   if (plan.family === "cta") return "Next";
   if (plan.family === "logo_outro") return "Recall";
   return "Flow";
+}
+
+function resolveDirectorChoreography(plan: GeneratedSceneFamilyPlan): DirectorChoreography {
+  const base: DirectorChoreography = {
+    gridTemplateColumns: "0.84fr 1.42fr",
+    gap: "5%",
+    shellMinHeight: 620,
+    shellRadius: 28,
+    gridOpacity: 0.24,
+    cameraScale: [1.01, 1.075],
+    cameraX: [26, -34],
+    cameraY: [8, -12],
+    shellShadow: "0 28px 80px rgba(0,0,0,0.38)",
+  };
+
+  if (plan.visualArchetype === "UI_FULL_BLEED" || plan.visualArchetype === "UI_CROP_ZOOM" || plan.family === "ui_proof") {
+    return {
+      ...base,
+      gridTemplateColumns: "0.56fr 1.62fr",
+      gap: "4%",
+      shellMinHeight: 650,
+      shellRadius: plan.visualArchetype === "UI_CROP_ZOOM" ? 20 : 24,
+      gridOpacity: 0.18,
+      cameraScale: plan.visualArchetype === "UI_CROP_ZOOM" ? [1.08, 1.16] : [1.035, 1.105],
+      cameraX: [8, -42],
+      cameraY: [0, -10],
+      shellShadow: "0 34px 96px rgba(0,0,0,0.44)",
+    };
+  }
+
+  if (plan.visualArchetype === "SPLIT_COMPARE" || plan.family === "comparison") {
+    return {
+      ...base,
+      cameraScale: [1, 1.045],
+      cameraX: [18, -18],
+      cameraY: [4, -4],
+      gridOpacity: 0.2,
+    };
+  }
+
+  if (plan.visualArchetype === "TYPE_ONLY" || plan.family === "section_header" || plan.family === "promise") {
+    return {
+      ...base,
+      gridTemplateColumns: "1fr 1.04fr",
+      gap: "4.5%",
+      shellMinHeight: 560,
+      shellRadius: 26,
+      gridOpacity: 0.3,
+      cameraScale: [1, 1.035],
+      cameraX: [12, -12],
+      cameraY: [0, -6],
+    };
+  }
+
+  if (plan.visualArchetype === "DIAGRAM_SCHEMATIC" || plan.family === "objection_handling") {
+    return {
+      ...base,
+      cameraScale: [1, 1.05],
+      cameraX: [18, -22],
+      cameraY: [4, -6],
+      gridOpacity: 0.28,
+    };
+  }
+
+  return base;
+}
+
+function safeViewerText(value: unknown, maxLength = 120): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (!clean || clean.length < 2) return undefined;
+  if (isPromptLikeViewerText(clean)) return undefined;
+  return clean.length > maxLength ? `${clean.slice(0, Math.max(0, maxLength - 3)).trim()}...` : clean;
+}
+
+function isPromptLikeViewerText(text: string): boolean {
+  return /\b(prompt|scene|shot|overlay|render|animation|camera|visual description|reference video|voiceover|script|caption|concept|director|evidence duty)\b/i.test(text)
+    || /^(create|generate|write|design|show|use|ensure|include|make)\b/i.test(text);
+}
+
+function familyHeadline(plan: GeneratedSceneFamilyPlan): string {
+  const headlines: Record<GeneratedSceneFamilyPlan["family"], string> = {
+    hook: "Product momentum, visible fast",
+    problem: "The old workflow breaks here",
+    promise: "One clear product promise",
+    workflow_demo: "Watch the workflow move",
+    feature_demo: "One capability in focus",
+    ui_proof: "The product proof is on screen",
+    proof_metric: "Proof, held long enough to read",
+    comparison: "Before and after, side by side",
+    social_proof: "Trust signals, made readable",
+    objection_handling: "The concern gets answered",
+    cta: "Ready for the next move",
+    logo_outro: "Brand recall, clean close",
+    section_header: "Next capability",
+  };
+  return headlines[plan.family];
+}
+
+function familyDisplayLine(plan: GeneratedSceneFamilyPlan): string {
+  const lines: Record<GeneratedSceneFamilyPlan["family"], string> = {
+    hook: "A branded product moment opens the story without hiding the interface.",
+    problem: "Scattered work turns into one visible before-state.",
+    promise: "The promise stays simple, sourced, and easy to remember.",
+    workflow_demo: "The viewer can follow the product state from step to step.",
+    feature_demo: "One capability gets the full attention of the frame.",
+    ui_proof: "Verified UI evidence stays large enough to inspect.",
+    proof_metric: "The result is framed as proof, not decoration.",
+    comparison: "The contrast is readable before the scene moves on.",
+    social_proof: "Trust evidence is treated as product context, not filler.",
+    objection_handling: "A real concern is answered with a grounded product state.",
+    cta: "The action resolves into a clear product next step.",
+    logo_outro: "The close lands on brand memory without extra noise.",
+    section_header: "The next beat has to prove the header immediately.",
+  };
+  return lines[plan.family];
+}
+
+function familyCtaText(plan: GeneratedSceneFamilyPlan): string {
+  if (plan.family === "cta" || plan.family === "logo_outro") return "Move from proof to next step";
+  if (plan.family === "ui_proof") return "Keep the product proof visible";
+  if (plan.family === "objection_handling") return "Resolve the concern in-product";
+  return "Turn the workflow into a launch-ready story";
+}
+
+function evidenceLabel(plan: GeneratedSceneFamilyPlan): string {
+  if (plan.evidenceStatus === "disabled") return "Disabled";
+  if (plan.evidenceStatus === "degraded") return "Degraded";
+  if (plan.evidenceStatus === "substituted") return "Substituted";
+  if (plan.claimMode === "claim_locked") return "Locked";
+  if (plan.claimMode === "evidence_backed") return "Sourced";
+  return "Demo";
 }
 
 function panelBaseStyle(accent: string): React.CSSProperties {

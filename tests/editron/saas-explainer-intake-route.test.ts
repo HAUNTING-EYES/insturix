@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   scenesToOverlays: vi.fn(),
   scenesToTotalFrames: vi.fn(),
   deductCredits: vi.fn(),
+  refundCredits: vi.fn(),
   isTTSAvailable: vi.fn(),
   generateVoiceover: vi.fn(),
   updateOne: vi.fn(),
@@ -55,7 +56,7 @@ vi.mock("@/lib/pipeline/tts-service", () => ({
   generateVoiceover: mocks.generateVoiceover,
 }));
 vi.mock("@/lib/services/creditsService", () => ({
-  CreditsService: { deductCredits: mocks.deductCredits },
+  CreditsService: { deductCredits: mocks.deductCredits, refundCredits: mocks.refundCredits },
 }));
 vi.mock("@/lib/editron/db/mongodb", () => ({
   COLLECTIONS: { PROJECTS: "projects" },
@@ -699,7 +700,7 @@ describe("SaaS explainer routes", () => {
       "user_1",
       "pipeline",
       "voiceover_generation",
-      expect.objectContaining({ quantity: 1 }),
+      expect.objectContaining({ characterCount: 41, requestType: "kokoro" }),
     );
     expect(mocks.generateVoiceover).toHaveBeenCalledWith(
       "This is only a reserved narration slot...",
@@ -777,6 +778,39 @@ describe("SaaS explainer routes", () => {
       }),
     }));
   });
+
+  it("refunds SaaS voiceover credits when TTS produces no usable audio", async () => {
+    mocks.isTTSAvailable.mockReturnValueOnce(true);
+    mocks.generateVoiceover.mockRejectedValue(new Error("provider returned no audio"));
+
+    const { POST } = await import("@/app/api/services/editron/saas-explainer/generate/route");
+    const response = await POST(request("/api/services/editron/saas-explainer/generate", {
+      productName: "Insturix",
+      productUrl: "https://insturix.example",
+      outcome: "Show how founders plan launches faster.",
+      durationSec: 45,
+      aspectRatio: "16:9",
+      brandId: "brand_1",
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.voiceover).toMatchObject({
+      requestedCount: 1,
+      generatedCount: 0,
+      status: "pending",
+    });
+    expect(payload.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("Voiceover generation failed for scene 0"),
+    ]));
+    expect(mocks.generateVoiceover).toHaveBeenCalledTimes(2);
+    expect(mocks.refundCredits).toHaveBeenCalledWith(
+      "user_1",
+      0.12,
+      "SaaS explainer voiceover generation failed before producing usable audio.",
+      { service: "pipeline", action: "voiceover_generation" },
+    );
+  });
   it("surfaces missing accepted Brand Vault context instead of pretending it was used", async () => {
     mocks.resolveSaasExplainerBrandContext.mockResolvedValueOnce({
       promptBlock: "",
@@ -839,7 +873,14 @@ describe("SaaS explainer routes", () => {
       overlayCount: 2,
       generationReadiness: { ok: true, issues: [] },
     });
-    expect(payload.warnings).toBeUndefined();
+    expect(payload.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("No public product URL"),
+      expect.stringContaining("No exact numeric proof claim"),
+      expect.stringContaining("No verified customer/logo/testimonial evidence"),
+    ]));
+    expect(payload.warnings).not.toEqual(expect.arrayContaining([
+      expect.stringContaining("Draft ready"),
+    ]));
     expect(mocks.updateOne).toHaveBeenCalledWith(
       { userId: "user_1", projectId: "project_1" },
       { $set: expect.objectContaining({

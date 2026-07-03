@@ -151,6 +151,37 @@ const KIND_MAP: Record<string, string> = {
   'logo-reveal': 'brand',
 };
 
+const DEFAULT_PIPELINE_SIGNALS = {
+  formality: DEFAULT_SIGNALS.formality,
+  enthusiasm: DEFAULT_SIGNALS.enthusiasm,
+  warmth: DEFAULT_SIGNALS.warmth,
+  emotional_arousal: DEFAULT_SIGNALS.emotional_arousal,
+  pacing_velocity: DEFAULT_SIGNALS.pacing_velocity,
+  humor: DEFAULT_SIGNALS.humor,
+  visceral_impact: DEFAULT_SIGNALS.visceral_impact,
+  visual_dependency: DEFAULT_SIGNALS.visual_dependency,
+  speech_energy: 0,
+  motion_intensity: 0,
+  face_present: 0,
+  bpm: 0,
+  music_energy: 0,
+  active_overlay_count: 0,
+  montage_mode: 0,
+  visual_significance: 0,
+} satisfies Record<string, number>;
+
+type PipelineSignals = typeof DEFAULT_PIPELINE_SIGNALS & Record<string, number>;
+
+function normalizePipelineSignals(signals: Record<string, unknown>): PipelineSignals {
+  const normalized: Record<string, number> = { ...DEFAULT_PIPELINE_SIGNALS };
+  for (const [key, value] of Object.entries(signals)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      normalized[key] = value;
+    }
+  }
+  return normalized as PipelineSignals;
+}
+
 // ─── Synthesize signal curves (mirrors motion-graphic-layer-content.tsx) ──
 
 function synthesizeSignalCurves(
@@ -211,7 +242,7 @@ function check(name: string, condition: boolean, context: string) {
 for (const decision of MOCK_DECISIONS) {
   console.log(`\n── ${decision.graphicType} @frame ${decision.frame} (${decision.reason}) ──`);
 
-  const rawSignals = decision.params.signals;
+  const rawSignals = normalizePipelineSignals(decision.params.signals);
   const kind = KIND_MAP[decision.graphicType];
   const content = { ...decision.params } as Record<string, unknown>;
 

@@ -3,7 +3,10 @@
 // and inventory which real projects have MG overlays + their content type, for a real-data sweep.
 import { MongoClient } from 'mongodb';
 
-const uri = process.env.MONGODB_URI || 'mongodb+srv://admin:iWPwpRrZ5Pp9rWEW@main-cluster.glgebdc.mongodb.net/?retryWrites=true&w=majority&appName=main-cluster';
+const uri = process.env.MONGODB_URI ?? '';
+if (!uri) {
+  throw new Error('MONGODB_URI is required to run scripts/mg-probe.ts');
+}
 const FOCUS_PID = 'proj_K_0-dSCJ76z4';
 
 function contentTypeOf(p: any): string {

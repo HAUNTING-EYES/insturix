@@ -355,27 +355,27 @@ function brandVisualDefaultsFromProfile(profile: BrandSignalProfile, visualIdent
     ].slice(0, 8),
     signalPaths: [],
   };
-  copyNumberDefault(profile.visual.minimalism, "visual.minimalism", visual, (value) => { visual.minimalism = value; });
-  copyNumberDefault(profile.visual.densityTolerance, "visual.densityTolerance", visual, (value) => { visual.densityTolerance = value; });
-  copyNumberDefault(profile.visual.dataVizAffinity, "visual.dataVizAffinity", visual, (value) => { visual.dataVizAffinity = value; });
-  copyNumberDefault(profile.visual.expressiveness, "visual.expressiveness", visual, (value) => { visual.expressiveness = value; });
-  copyNumberDefault(profile.visual.cornerRadiusBias, "visual.cornerRadiusBias", visual, (value) => { visual.cornerRadiusBias = value; });
-  copyNumberDefault(profile.visual.layoutSymmetry, "visual.layoutSymmetry", visual, (value) => { visual.layoutSymmetry = value; });
-  copyNumberDefault(profile.visual.contrastPreference, "visual.contrastPreference", visual, (value) => { visual.contrastPreference = value; });
+  copyNumberDefault(profile.visual?.minimalism, "visual.minimalism", visual, (value) => { visual.minimalism = value; });
+  copyNumberDefault(profile.visual?.densityTolerance, "visual.densityTolerance", visual, (value) => { visual.densityTolerance = value; });
+  copyNumberDefault(profile.visual?.dataVizAffinity, "visual.dataVizAffinity", visual, (value) => { visual.dataVizAffinity = value; });
+  copyNumberDefault(profile.visual?.expressiveness, "visual.expressiveness", visual, (value) => { visual.expressiveness = value; });
+  copyNumberDefault(profile.visual?.cornerRadiusBias, "visual.cornerRadiusBias", visual, (value) => { visual.cornerRadiusBias = value; });
+  copyNumberDefault(profile.visual?.layoutSymmetry, "visual.layoutSymmetry", visual, (value) => { visual.layoutSymmetry = value; });
+  copyNumberDefault(profile.visual?.contrastPreference, "visual.contrastPreference", visual, (value) => { visual.contrastPreference = value; });
   return visual;
 }
 
 function brandMotionDefaultsFromProfile(profile: BrandSignalProfile): SaasExplainerBrandMotionDefaults {
   const motion: SaasExplainerBrandMotionDefaults = { signalPaths: [] };
-  copyNumberDefault(profile.motion.motionEnergy, "motion.motionEnergy", motion, (value) => { motion.motionEnergy = value; });
-  copyNumberDefault(profile.motion.overshootTolerance, "motion.overshootTolerance", motion, (value) => { motion.overshootTolerance = value; });
-  copyNumberDefault(profile.motion.transitionSharpness, "motion.transitionSharpness", motion, (value) => { motion.transitionSharpness = value; });
-  copyNumberDefault(profile.motion.rhythmRegularity, "motion.rhythmRegularity", motion, (value) => { motion.rhythmRegularity = value; });
-  copyNumberDefault(profile.motion.anticipationStyle, "motion.anticipationStyle", motion, (value) => { motion.anticipationStyle = value; });
-  copyNumberDefault(profile.motion.easingTaste, "motion.easingTaste", motion, (value) => { motion.easingTaste = value; });
-  copyNumberDefault(profile.narrative.pacePreference, "narrative.pacePreference", motion, (value) => { motion.pacePreference = value; });
-  copyNumberDefault(profile.composition.safeZones, "composition.safeZones", motion, (value) => { motion.safeZones = value; });
-  copyNumberDefault(profile.composition.figureGroundRatio, "composition.figureGroundRatio", motion, (value) => { motion.figureGroundRatio = value; });
+  copyNumberDefault(profile.motion?.motionEnergy, "motion.motionEnergy", motion, (value) => { motion.motionEnergy = value; });
+  copyNumberDefault(profile.motion?.overshootTolerance, "motion.overshootTolerance", motion, (value) => { motion.overshootTolerance = value; });
+  copyNumberDefault(profile.motion?.transitionSharpness, "motion.transitionSharpness", motion, (value) => { motion.transitionSharpness = value; });
+  copyNumberDefault(profile.motion?.rhythmRegularity, "motion.rhythmRegularity", motion, (value) => { motion.rhythmRegularity = value; });
+  copyNumberDefault(profile.motion?.anticipationStyle, "motion.anticipationStyle", motion, (value) => { motion.anticipationStyle = value; });
+  copyNumberDefault(profile.motion?.easingTaste, "motion.easingTaste", motion, (value) => { motion.easingTaste = value; });
+  copyNumberDefault(profile.narrative?.pacePreference, "narrative.pacePreference", motion, (value) => { motion.pacePreference = value; });
+  copyNumberDefault(profile.composition?.safeZones, "composition.safeZones", motion, (value) => { motion.safeZones = value; });
+  copyNumberDefault(profile.composition?.figureGroundRatio, "composition.figureGroundRatio", motion, (value) => { motion.figureGroundRatio = value; });
   return motion;
 }
 

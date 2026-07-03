@@ -1,0 +1,2301 @@
+{
+  "meta": {
+    "name": "saas-explainer-knowledge-graph",
+    "version": "1.2.0",
+    "sourceDoctrine": "saas-explainer-bible v1.2.0",
+    "consumes": [
+      "brand_vault",
+      "product_url",
+      "screenshots",
+      "user_brief",
+      "user_script",
+      "reference_video"
+    ],
+    "consumedBy": [
+      "saas_director",
+      "storyboard_planner",
+      "motion_engine",
+      "audio_engine",
+      "qa_gate"
+    ],
+    "units": {
+      "duration": "seconds",
+      "energy": "0-1",
+      "syncTolerance": "milliseconds"
+    },
+    "changelog": {
+      "1.1.0": "Added narrationModes axis, section_header scene family, repeat-group notation + feature-parade variant of demo_90s; G9 generalized to narration_desync; G5 extended with orphan-header rule; 3 new antiPatterns.",
+      "1.2.0": "Grounding release: 6 narration modes; 15-archetype visual library; legibility formula rebuilt on subtitle reading-speed research; audio constants re-specified from ITU/EBU/W3C/platform standards; sync tiers; FTC legal floor; Sources appendix (Section 12) maps every constant."
+    }
+  },
+  "narrationModes": {
+    "modes": [
+      "vo",
+      "founder_vo",
+      "talking_head",
+      "testimonial_led",
+      "text_driven",
+      "ambient_demo"
+    ],
+    "default": "vo",
+    "axes": {
+      "speaker": [
+        "narrator",
+        "founder_first_person",
+        "presenter_on_camera",
+        "customers",
+        "onscreen_cards",
+        "nobody_product_speaks"
+      ],
+      "masterClock": [
+        "vo_timeline",
+        "music_beat_grid",
+        "beat_grid_plus_interaction_rhythm"
+      ]
+    },
+    "selection": {
+      "userExplicitChoice": "wins",
+      "scriptSupplied": "implies_voiced_mode_unless_stated",
+      "founderOrCustomerFootageSupplied": "implies_talking_head_or_testimonial_led_footage_becomes_evidence",
+      "referenceSuggestion": "text_driven_reference_may_suggest_never_silently_adopt",
+      "midVideoSwitch": "forbidden_talking_head_broll_alternation_is_inside_mode"
+    },
+    "sharedLaw": "claim_rules_identical_regardless_of_speaker_testimonial_modes_add_typicality_5_5",
+    "perMode": {
+      "vo": {
+        "masterClock": "vo_timeline",
+        "captions": "on_default",
+        "cardHoldMultiplier": 1.0,
+        "musicRole": "bed_under_voice",
+        "sfxRegister": "standard"
+      },
+      "founder_vo": {
+        "masterClock": "vo_timeline",
+        "markerDensity": "conversational_fewer_stress_more_pause",
+        "captions": "on_default",
+        "cardHoldMultiplier": 1.0,
+        "musicRole": "bed_calmer_map",
+        "sfxRegister": "quiet",
+        "structureAffinity": "founder_walkthrough_4_5"
+      },
+      "talking_head": {
+        "masterClock": "on_camera_speech",
+        "cameraBrollCutsOn": "sentence_boundaries",
+        "captions": "always_on_burned_in",
+        "cardHoldMultiplier": 1.0,
+        "musicRole": "bed_ducked_harder_untreated_voice",
+        "sfxRegister": "quiet",
+        "brollRule": "product_footage_obeys_8_10",
+        "registers": [
+          "ugc",
+          "linkedin_native",
+          "ai_presenter"
+        ]
+      },
+      "testimonial_led": {
+        "masterClock": "stitched_quote_timeline",
+        "captions": "always_on_names_titles_supered",
+        "cardHoldMultiplier": 1.0,
+        "musicRole": "minimal_bed_authenticity",
+        "sfxRegister": "quiet",
+        "claimAudit": "quotes_vs_ledger_plus_typicality",
+        "structureAffinity": "enterprise_proof_led_4_6"
+      },
+      "text_driven": {
+        "masterClock": "music_beat_grid",
+        "beatTier": "tier_C",
+        "captions": "off_cards_are_the_text",
+        "cardHoldMultiplier": 1.25,
+        "musicRole": "lead_element_no_ducking",
+        "sfxRegister": "standard_to_kinetic",
+        "sectionHeaderFirstClass": true,
+        "canonicalStructure": "demo_90s.featureParadeVariant"
+      },
+      "ambient_demo": {
+        "masterClock": "beat_grid_plus_interaction_rhythm",
+        "captions": "on_interaction_captions_are_narration",
+        "captionHoldMultiplier": 1.25,
+        "musicRole": "lead_or_absent_ui_sounds_foregrounded",
+        "sfxRegister": "ui_native_replaces_designed",
+        "markerBinding": "interaction_beats_click_result_state_change"
+      }
+    }
+  },
+  "visualArchetypes": {
+    "library": [
+      {
+        "id": "TYPE_ONLY",
+        "frame": "statement_or_name_on_clean_brand_field",
+        "nativeEvidence": "claim_or_none_for_headers",
+        "note": "kinetic_type_register_carries_text_driven_narration"
+      },
+      {
+        "id": "TYPE_OVER_MEDIA",
+        "frame": "display_type_over_dimmed_ui_or_footage",
+        "nativeEvidence": "claim_plus_context",
+        "note": "media_max_40pct_visual_weight"
+      },
+      {
+        "id": "UI_FULL_BLEED",
+        "frame": "raw_full_frame_screen_capture",
+        "nativeEvidence": "screenshot_visible",
+        "note": "screencast_register_ui_text_must_pass_8_3"
+      },
+      {
+        "id": "UI_FRAMED",
+        "frame": "capture_in_real_browser_app_device_chrome_on_brand_field",
+        "nativeEvidence": "screenshot_visible",
+        "note": "default_product_frame_chrome_must_be_real_8_10"
+      },
+      {
+        "id": "UI_CROP_ZOOM",
+        "frame": "cropped_ui_region_filling_frame",
+        "nativeEvidence": "screenshot_visible",
+        "note": "feature_demo_workhorse"
+      },
+      {
+        "id": "CURSOR_HERO",
+        "frame": "close_capture_following_live_cursor_smooth_zoom_pan",
+        "nativeEvidence": "screenshot_visible_interaction",
+        "note": "modern_demo_dialect_motion_from_recording_rig_adds_camera_only"
+      },
+      {
+        "id": "UI_FLOAT_STACK",
+        "frame": "multiple_real_panels_floated_in_composed_space",
+        "nativeEvidence": "screenshot_visible_multiple",
+        "note": "exploded_view_only_related_panels_stack"
+      },
+      {
+        "id": "DEVICE_CONTEXT",
+        "frame": "product_on_device_in_physical_scene",
+        "nativeEvidence": "screenshot_visible_plus_staging",
+        "note": "screen_content_still_obeys_8_10"
+      },
+      {
+        "id": "HUMAN_FRAME",
+        "frame": "person_on_camera_founder_presenter_customer",
+        "nativeEvidence": "testimonial_or_delivery",
+        "note": "talking_head_register_full_or_pip"
+      },
+      {
+        "id": "BENTO_GRID",
+        "frame": "composed_grid_of_feature_tiles",
+        "nativeEvidence": "mixed_each_tile_sourced",
+        "note": "max_6_tiles"
+      },
+      {
+        "id": "DIAGRAM_SCHEMATIC",
+        "frame": "declared_abstract_nodes_flows_shapes",
+        "nativeEvidence": "declared_abstraction",
+        "note": "only_home_for_synthetic_product_adjacent_visuals"
+      },
+      {
+        "id": "DATA_VIZ",
+        "frame": "chart_counter_metric_as_subject",
+        "nativeEvidence": "vault_proof_verbatim_number",
+        "note": "axes_honest_baselines_shown_countups_decelerate"
+      },
+      {
+        "id": "SPLIT_COMPARE",
+        "frame": "two_states_or_options_sharing_frame",
+        "nativeEvidence": "per_side_sourcing",
+        "note": "asymmetric_weight_rules_apply"
+      },
+      {
+        "id": "ICON_CONSTELLATION",
+        "frame": "logos_icons_around_hub_or_grid",
+        "nativeEvidence": "verified_integrations_platforms",
+        "note": "every_logo_is_a_verified_claim"
+      },
+      {
+        "id": "LOGO_FIELD",
+        "frame": "brand_mark_on_clean_field",
+        "nativeEvidence": "vault_asset",
+        "note": "max_3s_at_end"
+      }
+    ],
+    "rules": {
+      "evidenceBinding": "archetype_native_evidence_is_a_contract",
+      "registerCoherence": "1_2_11_12_motion_graphics__3_to_7_product_film__8_9_live_action_mix_deliberately",
+      "coverageDuty": "only_1_2_no_product__only_3_to_5_tutorial_not_launch_evidence_bill_forces_mix"
+    }
+  },
+  "sceneFamilies": [
+    {
+      "id": "hook",
+      "purpose": "Earn the next ten seconds via tension or spectacle",
+      "useWhen": [
+        "always_first_scene"
+      ],
+      "duration": {
+        "min": 2,
+        "max": 4
+      },
+      "evidence": {
+        "required": [],
+        "preferred": [
+          "strongest_visual_asset",
+          "admissible_hook_claim"
+        ],
+        "hardFailWithout": null
+      },
+      "visual": {
+        "archetypes": [
+          "TYPE_ONLY",
+          "TYPE_OVER_MEDIA",
+          "CURSOR_HERO",
+          "UI_FULL_BLEED",
+          "HUMAN_FRAME"
+        ],
+        "maxElements": 4,
+        "accentAllowed": true,
+        "logoAllowed": "small_optional",
+        "productRequired": false
+      },
+      "narration": {
+        "role": "hook_line",
+        "maxWords": 12,
+        "anchors": [
+          "STRESS"
+        ]
+      },
+      "motion": {
+        "energy": 0.9,
+        "firstMotionWithinMs": 500,
+        "primaryMoves": [
+          "type_slam",
+          "hard_push",
+          "cut_in_on_action"
+        ],
+        "holdBias": "short"
+      },
+      "mistakes": [
+        "logo_first_open",
+        "slow_fade_in",
+        "stacked_value_props",
+        "generic_category_line"
+      ],
+      "pattern": "cold_open -> tension_line_on_first_stress -> optional_stack -> hard_cut"
+    },
+    {
+      "id": "problem",
+      "purpose": "Make the status-quo cost felt, concretely",
+      "useWhen": [
+        "duration_gte_45s",
+        "audience_not_problem_aware"
+      ],
+      "skipWhen": [
+        "teaser_structure",
+        "hype_aware_audience"
+      ],
+      "duration": {
+        "min": 4,
+        "max": 10
+      },
+      "maxShareOfRuntime": 0.2,
+      "evidence": {
+        "required": [
+          "audience_pain_from_brief_or_vault"
+        ],
+        "forbidden": [
+          "unsourced_statistics"
+        ],
+        "hardFailWithout": null
+      },
+      "visual": {
+        "archetypes": [
+          "TYPE_ONLY",
+          "TYPE_OVER_MEDIA",
+          "SPLIT_COMPARE",
+          "DIAGRAM_SCHEMATIC"
+        ],
+        "palette": "muted_vault_neutrals",
+        "accentAllowed": false,
+        "productRequired": false,
+        "productForbidden": true
+      },
+      "narration": {
+        "role": "concrete_second_person_pain",
+        "maxSentences": 2,
+        "anchors": [
+          "STRESS"
+        ]
+      },
+      "motion": {
+        "energy": 0.5,
+        "texture": "staccato_accumulation",
+        "primaryMoves": [
+          "stack_accumulate",
+          "interrupt_beat"
+        ]
+      },
+      "mistakes": [
+        "over_20pct_runtime",
+        "abstract_global_statements",
+        "product_shown_early",
+        "stock_metaphor_chaos",
+        "fake_statistics"
+      ],
+      "pattern": "pain_artifacts_accumulate -> composition_tightens -> silence_beat -> hard_cut_to_relief"
+    },
+    {
+      "id": "promise",
+      "purpose": "Name the product as the answer in one sentence; the turn",
+      "useWhen": [
+        "always_once",
+        "immediately_after_problem_or_hook"
+      ],
+      "duration": {
+        "min": 4,
+        "max": 7
+      },
+      "evidence": {
+        "required": [
+          "product_name",
+          "logo_asset",
+          "positioning_line"
+        ],
+        "preferred": [
+          "first_real_ui_glimpse"
+        ],
+        "hardFailWithout": "positioning_line"
+      },
+      "visual": {
+        "archetypes": [
+          "TYPE_ONLY",
+          "TYPE_OVER_MEDIA",
+          "UI_FRAMED",
+          "LOGO_FIELD"
+        ],
+        "palette": "full_brand_confidence",
+        "accentAllowed": true,
+        "accentRole": "first_appearance"
+      },
+      "narration": {
+        "role": "name_drop_plus_single_positioning_line",
+        "valueProps": 1,
+        "anchors": [
+          "NAME",
+          "REVEAL"
+        ]
+      },
+      "motion": {
+        "energy": 0.7,
+        "primaryMoves": [
+          "clean_set_into_stillness"
+        ],
+        "character": "tension_release"
+      },
+      "mistakes": [
+        "multiple_value_props",
+        "buried_product_name",
+        "postage_stamp_ui",
+        "hook_energy_reused"
+      ],
+      "pattern": "cut_to_open_field -> name_sets_on_name_drop -> positioning_under -> ui_slides_in_and_settles"
+    },
+    {
+      "id": "workflow_demo",
+      "purpose": "Show the end-to-end job: input -> process -> outcome",
+      "useWhen": [
+        "duration_gte_60s",
+        "value_is_a_flow"
+      ],
+      "duration": {
+        "min": 10,
+        "max": 25
+      },
+      "evidence": {
+        "required": [
+          "real_ui_covering_steps",
+          "verified_step_order"
+        ],
+        "hardFailWithout": "verified_step_order",
+        "disabledWithoutRealUI": true
+      },
+      "visual": {
+        "archetypes": [
+          "UI_FULL_BLEED",
+          "UI_FRAMED",
+          "CURSOR_HERO",
+          "UI_CROP_ZOOM"
+        ],
+        "maxSteps": 4,
+        "dataContinuityRequired": true,
+        "stepMarkers": "label_face"
+      },
+      "narration": {
+        "role": "outcome_framed_procedural",
+        "anchors": [
+          "REVEAL_per_step"
+        ]
+      },
+      "motion": {
+        "energy": 0.65,
+        "primaryMoves": [
+          "lateral_pan",
+          "match_cut_handoff"
+        ],
+        "perStepSettleHold": "legibility_gate"
+      },
+      "mistakes": [
+        "screencap_cursor_feel",
+        "teleporting_data",
+        "over_4_steps",
+        "flat_time_per_step",
+        "narrating_buttons"
+      ],
+      "pattern": "step01_settles -> output_carries_across_transition -> step02_receives -> ... -> outcome_longest_hold"
+    },
+    {
+      "id": "feature_demo",
+      "purpose": "Prove exactly one capability",
+      "useWhen": [
+        "after_promise"
+      ],
+      "countByDuration": {
+        "45": 2,
+        "60": 3,
+        "90": 3
+      },
+      "duration": {
+        "min": 5,
+        "max": 8
+      },
+      "flashVariant": {
+        "allowedIn": [
+          "teaser_30s"
+        ],
+        "duration": {
+          "min": 3,
+          "max": 4
+        },
+        "labelMaxWords": 4
+      },
+      "evidence": {
+        "required": [
+          "screenshot_or_verified_capability"
+        ],
+        "rule": "no_visual_evidence_means_told_not_shown",
+        "hardFailWithout": null
+      },
+      "visual": {
+        "archetypes": [
+          "UI_CROP_ZOOM",
+          "UI_FRAMED",
+          "CURSOR_HERO",
+          "UI_FLOAT_STACK",
+          "TYPE_OVER_MEDIA",
+          "BENTO_GRID"
+        ],
+        "cropToFeatureRegion": true,
+        "highlightTreatments": [
+          "ring_draw",
+          "underline",
+          "dim_rest"
+        ],
+        "highlightAppliesOnce": true,
+        "labelMaxWords": 4
+      },
+      "narration": {
+        "role": "benefit_first_mechanism_second",
+        "anchors": [
+          "REVEAL",
+          "STRESS"
+        ]
+      },
+      "motion": {
+        "energy": 0.65,
+        "primaryMoves": [
+          "wide_to_close_push"
+        ],
+        "microInteractionIfEvidenced": true
+      },
+      "mistakes": [
+        "multiple_features_per_scene",
+        "unreadable_full_app_shot",
+        "highlight_strobing",
+        "ui_too_brief",
+        "asset_driven_feature_choice_unlogged"
+      ],
+      "pattern": "wide_context -> push_to_region -> label_on_stress_verb -> interaction_beat -> hold"
+    },
+    {
+      "id": "ui_proof",
+      "purpose": "The it-is-real beat; credibility via unedited-feeling real product",
+      "useWhen": [
+        "at_least_once_in_product_led_video"
+      ],
+      "duration": {
+        "min": 4,
+        "max": 8
+      },
+      "evidence": {
+        "required": [
+          "real_screenshot_or_recording"
+        ],
+        "syntheticUIDisqualifies": true,
+        "hardFailWithout": "real_ui_asset"
+      },
+      "visual": {
+        "archetypes": [
+          "UI_FULL_BLEED",
+          "UI_FRAMED",
+          "CURSOR_HERO",
+          "DEVICE_CONTEXT"
+        ],
+        "overlays": "minimal",
+        "decorationForbidden": [
+          "glow",
+          "fake_data_sparkle",
+          "composited_elements"
+        ]
+      },
+      "narration": {
+        "role": "single_quiet_line_or_designed_silence",
+        "anchors": [
+          "PAUSE"
+        ]
+      },
+      "motion": {
+        "energy": 0.5,
+        "primaryMoves": [
+          "slow_push_2_4pct",
+          "hold_with_microdrift"
+        ],
+        "holdMinSeconds": 3,
+        "maxDriftPctPerSecond": 4,
+        "holdBias": "longest_in_video"
+      },
+      "mistakes": [
+        "over_decoration",
+        "early_cutaway",
+        "fake_composites",
+        "mockup_substitution"
+      ],
+      "pattern": "hard_cut_to_full_ui -> slow_push -> quiet_line_or_music -> hold_past_comfort -> cut"
+    },
+    {
+      "id": "proof_metric",
+      "purpose": "Quantified believability",
+      "useWhen": [
+        "admissible_metric_exists"
+      ],
+      "duration": {
+        "min": 4,
+        "max": 7
+      },
+      "evidence": {
+        "required": [
+          "ledger_admissible_metric_verbatim"
+        ],
+        "sources": [
+          "vault_proof",
+          "brief",
+          "url_published"
+        ],
+        "hardFailWithout": "admissible_metric"
+      },
+      "visual": {
+        "archetypes": [
+          "DATA_VIZ",
+          "TYPE_ONLY"
+        ],
+        "metricsPerFrame": 1,
+        "sequentialBeatsMax": 2,
+        "contextLineRequired": true,
+        "attributionIfAvailable": true
+      },
+      "narration": {
+        "role": "voice_says_the_number",
+        "screenVoiceExactMatch": true,
+        "anchors": [
+          "NUMBER"
+        ]
+      },
+      "motion": {
+        "energy": 0.8,
+        "countUpAllowedIf": "final_value_holds_gte_1s",
+        "countUpEasing": "decelerate_no_overshoot",
+        "primaryMoves": [
+          "count_up",
+          "scale_settle"
+        ]
+      },
+      "mistakes": [
+        "fake_precision",
+        "unattributed_superlatives",
+        "competing_metrics",
+        "unreadable_count_up",
+        "vo_screen_number_mismatch"
+      ],
+      "pattern": "numeral_counts_decelerating -> lands_on_number_word -> unit_context_under -> hold"
+    },
+    {
+      "id": "comparison",
+      "purpose": "Make the switch from the old way feel obvious",
+      "useWhen": [
+        "recognizable_old_way_exists"
+      ],
+      "optional": true,
+      "duration": {
+        "min": 6,
+        "max": 10
+      },
+      "evidence": {
+        "required": [
+          "honest_defensible_contrast"
+        ],
+        "namedCompetitorRequires": [
+          "explicit_user_instruction",
+          "user_supplied_claims"
+        ],
+        "defaultForm": "old_way_vs_with_product"
+      },
+      "visual": {
+        "archetypes": [
+          "SPLIT_COMPARE",
+          "DATA_VIZ"
+        ],
+        "weightAsymmetryRequired": true,
+        "beforeSide": "muted_accent_free",
+        "afterSide": "brand_lit_owns_accent"
+      },
+      "narration": {
+        "role": "parallel_contrast_clauses",
+        "anchors": [
+          "STRESS_on_pivot_word"
+        ]
+      },
+      "motion": {
+        "energy": 0.7,
+        "afterSideMotionQuality": "superior",
+        "primaryMoves": [
+          "meaning_carrying_wipe",
+          "replace_push"
+        ]
+      },
+      "mistakes": [
+        "strawman_before",
+        "uninstructed_competitor_naming",
+        "fifty_fifty_weight",
+        "indistinct_sides",
+        "defensive_length"
+      ],
+      "pattern": "muted_before_panel -> wipe_on_pivot_word -> brand_lit_after -> after_expands_to_full"
+    },
+    {
+      "id": "social_proof",
+      "purpose": "Borrowed trust from real customers and quotes",
+      "useWhen": [
+        "real_testimonial_or_logo_assets_exist"
+      ],
+      "duration": {
+        "min": 5,
+        "max": 8
+      },
+      "evidence": {
+        "required": [
+          "verbatim_testimonial_or_supplied_logos"
+        ],
+        "zeroFallback": true,
+        "hardFailWithout": "real_social_assets",
+        "logoSource": "vault_assets_only_never_web"
+      },
+      "visual": {
+        "archetypes": [
+          "HUMAN_FRAME",
+          "TYPE_ONLY",
+          "ICON_CONSTELLATION"
+        ],
+        "quoteTypography": true,
+        "attributionLine": "label_face",
+        "logoStrip": "single_row_equal_treatment"
+      },
+      "narration": {
+        "role": "summary_line_or_silence_never_duel_the_quote",
+        "anchors": [
+          "PAUSE"
+        ]
+      },
+      "motion": {
+        "energy": 0.55,
+        "quoteSet": "line_by_line",
+        "karaokeForbidden": true,
+        "holdFrom": "legibility_formula"
+      },
+      "mistakes": [
+        "fabricated_names_or_companies",
+        "logo_soup",
+        "meaning_shifting_trims",
+        "unreadable_quote_holds"
+      ],
+      "pattern": "quote_sets_line_by_line_music_forward -> attribution -> logo_row_resolves -> read_hold"
+    },
+    {
+      "id": "objection_handling",
+      "purpose": "Preempt the single top blocker",
+      "useWhen": [
+        "structure_90s_demo",
+        "structure_enterprise"
+      ],
+      "duration": {
+        "min": 6,
+        "max": 10
+      },
+      "objectionsPerScene": 1,
+      "evidence": {
+        "required": [
+          "verified_counter_fact"
+        ],
+        "complianceClaimsRule": "exact_cert_names_verbatim_from_inputs_only",
+        "securityIconographyRule": "only_when_some_security_claim_exists",
+        "hardFailWithout": "verified_counter_fact"
+      },
+      "visual": {
+        "archetypes": [
+          "TYPE_ONLY",
+          "UI_FRAMED",
+          "DIAGRAM_SCHEMATIC",
+          "ICON_CONSTELLATION"
+        ],
+        "character": "most_restrained_frame_in_video",
+        "grid": "stable"
+      },
+      "narration": {
+        "role": "name_objection_then_dissolve_with_fact",
+        "maxSentences": 2,
+        "anchors": [
+          "REVEAL"
+        ]
+      },
+      "motion": {
+        "energy": 0.5,
+        "character": "near_stillness_stability_is_the_message"
+      },
+      "mistakes": [
+        "invented_certifications",
+        "objection_checklist_spray",
+        "defensive_tone",
+        "placed_after_cta"
+      ],
+      "pattern": "objection_plain_type -> verified_fact_sets_steady -> badge_resolves_once -> long_stable_hold"
+    },
+    {
+      "id": "cta",
+      "purpose": "One action; the funnel's end",
+      "useWhen": [
+        "always_second_to_last_or_merged_with_outro"
+      ],
+      "duration": {
+        "min": 4,
+        "max": 7
+      },
+      "evidence": {
+        "required": [
+          "real_cta_language",
+          "real_destination_url"
+        ],
+        "freeTrialOnlyIfConfirmed": true,
+        "hardFailWithout": "real_destination"
+      },
+      "visual": {
+        "archetypes": [
+          "TYPE_ONLY",
+          "LOGO_FIELD",
+          "UI_FRAMED"
+        ],
+        "actionsPerVideo": 1,
+        "urlMinScale": "body_or_larger",
+        "contrast": "maximum"
+      },
+      "narration": {
+        "role": "imperative_matching_screen_verbatim",
+        "maxWords": 8,
+        "anchors": [
+          "IMPERATIVE"
+        ]
+      },
+      "motion": {
+        "energy": 0.6,
+        "character": "confident_set_then_designed_near_still",
+        "microMotionFloor": "breathing_scale_lte_1pct",
+        "holdRule": "url_readable_twice"
+      },
+      "mistakes": [
+        "multiple_ctas",
+        "fine_print_url",
+        "early_cutaway",
+        "vo_screen_cta_mismatch"
+      ],
+      "pattern": "frame_clears -> verb_phrase_on_imperative -> url_under -> near_still_read_twice_hold"
+    },
+    {
+      "id": "logo_outro",
+      "purpose": "Brand stamp; the last pixel kept",
+      "useWhen": [
+        "always_last"
+      ],
+      "duration": {
+        "min": 2,
+        "max": 3
+      },
+      "evidence": {
+        "required": [
+          "logo_asset_correct_variant"
+        ],
+        "taglineOnlyIfInVault": true,
+        "hardFailWithout": "logo_asset"
+      },
+      "visual": {
+        "archetypes": [
+          "LOGO_FIELD"
+        ],
+        "background": "clean_brand_field",
+        "competingElements": 0
+      },
+      "narration": {
+        "role": "silence_or_brand_name_once",
+        "anchors": [
+          "PAUSE"
+        ]
+      },
+      "motion": {
+        "energy": 0.3,
+        "signatureMoveMaxSeconds": 2.5,
+        "trueStillHoldMinSeconds": 1,
+        "sfx": "optional_single_sting"
+      },
+      "mistakes": [
+        "long_logo_animation",
+        "busy_background",
+        "logo_cta_collision",
+        "ending_on_motion"
+      ],
+      "pattern": "cta_fades -> logo_signature_move -> 1s_true_still -> end"
+    },
+    {
+      "id": "section_header",
+      "purpose": "Chapter title naming the capability the next scene proves; not a hook, promise, or claim",
+      "useWhen": [
+        "feature_parade",
+        "videos_with_3plus_capabilities",
+        "text_driven_first_class"
+      ],
+      "forbiddenIn": [
+        "teaser_30s"
+      ],
+      "duration": {
+        "min": 1.5,
+        "max": 4
+      },
+      "sequencing": "between_promise_and_demo_families_recurs_before_each_demo_group",
+      "evidence": {
+        "required": [],
+        "rule": "evidence_free_by_design_name_only_max_4_words_one_line",
+        "statusTagAllowedIfEvidenced": [
+          "Beta",
+          "New"
+        ],
+        "reclassification": "any_verb_claim_number_or_superlative_makes_it_a_claim_card_full_ledger_rules",
+        "orphanRule": "must_be_immediately_followed_by_feature_demo_workflow_demo_or_ui_proof_proving_the_named_capability_else_reject",
+        "hardFailWithout": "successor_proof_scene"
+      },
+      "visual": {
+        "archetypes": [
+          "TYPE_ONLY"
+        ],
+        "content": "capability_name_on_clean_brand_field_nothing_else",
+        "maxLines": 1,
+        "labelMaxWords": 4
+      },
+      "narration": {
+        "role": "vo_speaks_capability_name_on_card_set_plus_optional_bridge",
+        "anchors": [
+          "NAME"
+        ],
+        "textDriven": "card_is_the_narration_hold_uses_9_0_multiplier"
+      },
+      "motion": {
+        "energy": 0.6,
+        "primaryMoves": [
+          "type_slam",
+          "mask_reveal"
+        ],
+        "exit": "hard_cut_into_proof_scene",
+        "paradeCompression": "late_parade_holds_compress_toward_1_5s_floor"
+      },
+      "mistakes": [
+        "claims_smuggled_into_header",
+        "orphaned_header",
+        "two_line_header",
+        "subtitle_duplicating_demo_label",
+        "overdecorated_card",
+        "header_before_every_scene"
+      ],
+      "pattern": "card_sets_on_beat_or_NAME -> legibility_hold -> hard_cut_to_proof"
+    }
+  ],
+  "storyStructures": [
+    {
+      "id": "teaser_30s",
+      "duration": 30,
+      "audience": "aware",
+      "context": [
+        "paid_social",
+        "launch_hype"
+      ],
+      "scenes": [
+        {
+          "family": "hook",
+          "start": 0,
+          "end": 3
+        },
+        {
+          "family": "promise",
+          "start": 3,
+          "end": 8
+        },
+        {
+          "family": "feature_demo",
+          "variant": "flash",
+          "count": 3,
+          "start": 8,
+          "end": 20
+        },
+        {
+          "family": "ui_proof|proof_metric",
+          "rule": "strongest_evidence_wins",
+          "start": 20,
+          "end": 25
+        },
+        {
+          "family": "cta",
+          "start": 25,
+          "end": 28
+        },
+        {
+          "family": "logo_outro",
+          "start": 28,
+          "end": 30
+        }
+      ],
+      "evidenceBill": [
+        "positioning_line",
+        "one_strong_visual_asset"
+      ],
+      "notes": "floor_structure_all_others_degrade_toward_this"
+    },
+    {
+      "id": "explainer_45s",
+      "duration": 45,
+      "audience": "semi_aware",
+      "context": [
+        "website",
+        "organic_social"
+      ],
+      "scenes": [
+        {
+          "family": "hook",
+          "start": 0,
+          "end": 4
+        },
+        {
+          "family": "problem",
+          "start": 4,
+          "end": 10
+        },
+        {
+          "family": "promise",
+          "start": 10,
+          "end": 16
+        },
+        {
+          "family": "feature_demo",
+          "count": 2,
+          "start": 16,
+          "end": 30
+        },
+        {
+          "family": "proof_metric|social_proof",
+          "fallback": "ui_proof",
+          "start": 30,
+          "end": 36
+        },
+        {
+          "family": "cta",
+          "start": 36,
+          "end": 42
+        },
+        {
+          "family": "logo_outro",
+          "start": 42,
+          "end": 45
+        }
+      ],
+      "evidenceBill": [
+        "positioning_line",
+        "2_evidenced_features",
+        "1_proof_item_or_fallback"
+      ]
+    },
+    {
+      "id": "launch_60s",
+      "duration": 60,
+      "audience": "mixed",
+      "context": [
+        "launch_day",
+        "homepage_hero"
+      ],
+      "flagship": true,
+      "scenes": [
+        {
+          "family": "hook",
+          "start": 0,
+          "end": 4
+        },
+        {
+          "family": "problem",
+          "start": 4,
+          "end": 12
+        },
+        {
+          "family": "promise",
+          "start": 12,
+          "end": 18
+        },
+        {
+          "family": "workflow_demo",
+          "steps": "3-4",
+          "start": 18,
+          "end": 32
+        },
+        {
+          "family": "feature_demo",
+          "count": 2,
+          "start": 32,
+          "end": 44
+        },
+        {
+          "family": "proof_metric+social_proof",
+          "form": "sequential_beats",
+          "fallback": "ui_proof",
+          "start": 44,
+          "end": 52
+        },
+        {
+          "family": "cta",
+          "start": 52,
+          "end": 57
+        },
+        {
+          "family": "logo_outro",
+          "start": 57,
+          "end": 60
+        }
+      ],
+      "evidenceBill": [
+        "positioning_line",
+        "real_ui_3_step_workflow",
+        "2_evidenced_features",
+        "1_proof_item"
+      ],
+      "degradeTo": "explainer_45s_stretched"
+    },
+    {
+      "id": "demo_90s",
+      "duration": 90,
+      "audience": "high_intent",
+      "context": [
+        "pricing_page",
+        "sales_cycle",
+        "onboarding"
+      ],
+      "scenes": [
+        {
+          "family": "hook",
+          "start": 0,
+          "end": 5
+        },
+        {
+          "family": "problem",
+          "start": 5,
+          "end": 12
+        },
+        {
+          "family": "promise",
+          "start": 12,
+          "end": 18
+        },
+        {
+          "family": "workflow_demo",
+          "steps": 4,
+          "start": 18,
+          "end": 40
+        },
+        {
+          "family": "feature_demo",
+          "count": 3,
+          "start": 40,
+          "end": 60
+        },
+        {
+          "family": "ui_proof",
+          "start": 60,
+          "end": 68
+        },
+        {
+          "family": "proof_metric",
+          "start": 68,
+          "end": 75
+        },
+        {
+          "family": "objection_handling",
+          "start": 75,
+          "end": 82
+        },
+        {
+          "family": "cta",
+          "start": 82,
+          "end": 88
+        },
+        {
+          "family": "logo_outro",
+          "start": 88,
+          "end": 90
+        }
+      ],
+      "evidenceBill": [
+        "4_real_ui_assets_spanning_workflow",
+        "3_evidenced_features",
+        "1_metric",
+        "1_verified_objection_fact"
+      ],
+      "missingObjectionEvidence": "cut_slot_extend_product_evidence",
+      "featureParadeVariant": {
+        "useWhen": "version_or_release_launch_3plus_new_capabilities_with_demonstrable_hero_workflow",
+        "narrationModes": [
+          "vo",
+          "text_driven"
+        ],
+        "canonicalFor": "text_driven",
+        "scenes": [
+          {
+            "family": "hook",
+            "variant": "bold_statement_allowed",
+            "start": 0,
+            "end": 7
+          },
+          {
+            "family": "promise",
+            "variant": "compressed_name_plus_version_reveal",
+            "start": 7,
+            "end": 9
+          },
+          {
+            "family": "workflow_demo",
+            "variant": "hero_take_single_continuous_real_capture_longest_hold",
+            "start": 9,
+            "end": 24
+          },
+          {
+            "repeatGroup": {
+              "n": {
+                "min": 4,
+                "max": 6
+              },
+              "unit": [
+                "section_header",
+                "feature_demo"
+              ]
+            },
+            "start": 24,
+            "end": 72
+          },
+          {
+            "family": "cta",
+            "variant": "long_landing_hold_url_read_twice",
+            "start": 72,
+            "end": 82
+          },
+          {
+            "family": "logo_outro",
+            "start": 82,
+            "end": 90
+          }
+        ],
+        "rules": {
+          "heroEarnsParade": "no_hero_demo_means_downgrade_to_standard_demo_90s",
+          "groupAcceleration": "early_pairs_10s_late_pairs_compress_toward_4s_cut_density_rises_toward_cta",
+          "problemScene": "optional_often_cut_version_launch_audience_knows_problem",
+          "groupCeiling": 6,
+          "beyondCeiling": "cut_not_compressed"
+        },
+        "evidenceBill": [
+          "1_hero_workflow_capture",
+          "1_real_evidence_asset_per_group_instance"
+        ]
+      }
+    },
+    {
+      "id": "founder_walkthrough",
+      "duration": {
+        "min": 90,
+        "max": 150,
+        "reference": 120
+      },
+      "audience": "community_and_early_adopters",
+      "register": "conversational_loom_polished",
+      "scenesProportional": [
+        {
+          "family": "hook",
+          "share": 0.05,
+          "note": "personal_insight"
+        },
+        {
+          "family": "problem",
+          "share": 0.12,
+          "note": "told_as_story"
+        },
+        {
+          "family": "promise",
+          "share": 0.08,
+          "note": "understated_reveal"
+        },
+        {
+          "family": "workflow_demo",
+          "share": 0.45,
+          "note": "the_spine_first_person_real_pace"
+        },
+        {
+          "family": "proof_metric|social_proof",
+          "share": 0.12,
+          "note": "plainly_stated"
+        },
+        {
+          "family": "cta",
+          "share": 0.1,
+          "note": "soft"
+        },
+        {
+          "family": "logo_outro",
+          "share": 0.08
+        }
+      ],
+      "registerRules": [
+        "founder_vo_script_is_law_if_supplied",
+        "captions_always_on",
+        "cut_share_rises",
+        "type_scenes_minimal",
+        "ui_proof_discipline_across_whole_workflow"
+      ],
+      "evidenceBill": [
+        "substantial_real_ui_required_else_unavailable"
+      ]
+    },
+    {
+      "id": "enterprise_proof_led",
+      "duration": {
+        "min": 75,
+        "max": 90,
+        "reference": 75
+      },
+      "audience": "buying_committee",
+      "register": "calm_captions_always_on_max_claims_discipline",
+      "scenes": [
+        {
+          "family": "hook",
+          "note": "outcome_first",
+          "start": 0,
+          "end": 5
+        },
+        {
+          "family": "problem",
+          "note": "organizational_cost_risk_coordination",
+          "start": 5,
+          "end": 13
+        },
+        {
+          "family": "promise",
+          "start": 13,
+          "end": 19
+        },
+        {
+          "family": "workflow_demo",
+          "note": "team_scale_multi_user_review_handoff",
+          "start": 19,
+          "end": 33
+        },
+        {
+          "family": "proof_metric",
+          "count": "1-2_sequential",
+          "start": 33,
+          "end": 43
+        },
+        {
+          "family": "social_proof",
+          "note": "logos_plus_one_quote",
+          "start": 43,
+          "end": 52
+        },
+        {
+          "family": "objection_handling",
+          "note": "security_compliance_verified_only",
+          "start": 52,
+          "end": 61
+        },
+        {
+          "family": "cta",
+          "note": "demo_request_language",
+          "start": 61,
+          "end": 70
+        },
+        {
+          "family": "logo_outro",
+          "start": 70,
+          "end": 75
+        }
+      ],
+      "evidenceBill": [
+        "1_metric_AND_1_logo_or_testimonial",
+        "verified_security_facts"
+      ],
+      "unavailableWhenProofThin": true,
+      "degradeTo": "explainer_45s_or_launch_60s_with_logged_notice"
+    }
+  ],
+  "structureSelection": {
+    "steps": [
+      "duration_and_platform_pick_candidates",
+      "audience_awareness_toggles_problem_scene",
+      "evidence_audit_against_bill",
+      "apply_substitution_table",
+      "core_floor_check"
+    ],
+    "substitutionTable": {
+      "proof_metric": [
+        "ui_proof",
+        "extra_feature_demo"
+      ],
+      "social_proof": [
+        "cut_and_extend_product_evidence"
+      ],
+      "objection_handling": [
+        "cut"
+      ],
+      "workflow_demo": [
+        "feature_demo_sequence"
+      ],
+      "comparison": [
+        "cut"
+      ]
+    },
+    "coreFloor": "no_real_product_evidence -> teaser_30s_declared_abstract_only",
+    "rule": "structures_degrade_before_they_fabricate",
+    "sceneFloorRule": "if_scaling_pushes_scene_below_family_floor_cut_a_scene_instead",
+    "repeatGroupNotation": {
+      "syntax": "Nx(scene_a -> scene_b)",
+      "scheduling": "atomic_unit_all_n_instances_must_clear_ledger_before_admission",
+      "shortfall": "evidence_for_only_m_of_n_shrinks_group_to_m_and_logs",
+      "varietyLaw": "applies_across_group_instances_no_rig_family_twice_running"
+    },
+    "paradeTrigger": "version_release_launch_3plus_capabilities_plus_hero_workflow -> demo_90s.featureParadeVariant"
+  },
+  "evidenceRules": {
+    "primeDirective": "witness_not_author_of_facts",
+    "ledger": {
+      "entryFields": [
+        "text",
+        "class",
+        "source",
+        "verbatim_value",
+        "admissible"
+      ],
+      "sources": [
+        "script",
+        "brief",
+        "vault_proof",
+        "url_published",
+        "screenshot_visible"
+      ],
+      "neverSources": [
+        "reference_video",
+        "model_knowledge"
+      ],
+      "renderRule": "claim_renders_on_screen_or_in_vo_only_with_admissible_entry"
+    },
+    "claimClasses": {
+      "customers_logos": {
+        "allowedSources": [
+          "vault_proof",
+          "brief"
+        ],
+        "rules": [
+          "logo_assets_as_supplied_only",
+          "counts_need_source"
+        ],
+        "fallback": "cut_social_proof_no_generic_trusted_by"
+      },
+      "metrics": {
+        "allowedSources": [
+          "vault_proof",
+          "brief",
+          "url_published"
+        ],
+        "rules": [
+          "verbatim_value_and_unit",
+          "no_rounding_up",
+          "no_added_precision",
+          "comparatives_keep_basis"
+        ],
+        "fallback": "replace_with_ui_proof_or_demonstration"
+      },
+      "integrations": {
+        "allowedSources": [
+          "vault_proof",
+          "url_published",
+          "brief"
+        ],
+        "rules": [
+          "named_list_only",
+          "third_party_logos_need_assets",
+          "no_integrates_with_everything"
+        ],
+        "fallback": "text_list_named_few_or_omit"
+      },
+      "capabilities": {
+        "sourceHierarchy": [
+          "screenshot_visible",
+          "url_published",
+          "brief"
+        ],
+        "rules": [
+          "shown_requires_visual_evidence",
+          "brief_only_claims_tagged_and_flagged"
+        ],
+        "fallback": "told_typographically_or_omitted_never_shown_via_invented_ui"
+      },
+      "testimonials": {
+        "allowedSources": [
+          "vault_proof",
+          "brief"
+        ],
+        "rules": [
+          "verbatim",
+          "attribution_as_given",
+          "no_meaning_shifting_trims",
+          "no_synthesis"
+        ],
+        "fallback": "cut_scene"
+      },
+      "security_compliance": {
+        "allowedSources": [
+          "vault_proof",
+          "brief",
+          "url_published"
+        ],
+        "rules": [
+          "exact_cert_names_verbatim_only",
+          "no_implying_iconography_without_claim"
+        ],
+        "fallback": "omit"
+      },
+      "pricing_offer": {
+        "allowedSources": [
+          "vault_proof",
+          "brief",
+          "url_published"
+        ],
+        "rules": [
+          "exact_figures_and_terms",
+          "free_trial_only_if_confirmed",
+          "no_price_superlatives_without_source"
+        ],
+        "fallback": "cta_silent_on_price"
+      }
+    },
+    "languageDowngradeLadder": [
+      "sourced_metric_exact_number",
+      "verified_capability_demonstrative",
+      "brief_asserted_told_and_flagged",
+      "cut_scene"
+    ],
+    "superlativeRule": "requires_explicit_source_stating_exactly_that_else_rewrite_demonstrable",
+    "bannedFillerDefault": [
+      "seamless",
+      "revolutionary",
+      "game-changing",
+      "next-generation",
+      "supercharge",
+      "unleash",
+      "empower",
+      "cutting-edge",
+      "effortless"
+    ],
+    "degradationsListRequired": true
+  },
+  "brandRules": {
+    "roles": {
+      "identity": "law",
+      "taste": "bias",
+      "proof": "inventory"
+    },
+    "logo": {
+      "variantsAsSuppliedOnly": true,
+      "variantByBackgroundLuminance": true,
+      "clearSpaceMinOfLogoHeight": 0.5,
+      "minSizePctFrameHeight": 4,
+      "forbidden": [
+        "recolor",
+        "distort",
+        "outline",
+        "glow",
+        "internal_geometry_animation_without_spec"
+      ],
+      "appearances": {
+        "outro": "mandatory",
+        "hook": "small_optional",
+        "elsewhere": "none_by_default"
+      }
+    },
+    "color": {
+      "roles": [
+        "background_family",
+        "text",
+        "single_accent"
+      ],
+      "accentReservedFor": [
+        "promise_turn",
+        "metric_land",
+        "highlight",
+        "cta"
+      ],
+      "derivation": "tints_shades_of_vault_hues_only",
+      "offVaultHues": "forbidden_including_generic_grays",
+      "contrast": {
+        "bodyMin": 4.5,
+        "displayMin": 3.0
+      }
+    },
+    "fonts": {
+      "roles": [
+        "display",
+        "body",
+        "label_mono"
+      ],
+      "suppliedWeightsOnly": true,
+      "fauxStylesForbidden": true,
+      "missingRoleFallback": "declared_default_pairing_flagged"
+    },
+    "screenshots": {
+      "allowed": [
+        "crop",
+        "zoom",
+        "pan",
+        "highlight"
+      ],
+      "forbidden": [
+        "repaint",
+        "alter_data",
+        "composite_fake_elements"
+      ],
+      "framingConsistencyRequired": true
+    },
+    "taste": {
+      "audience": [
+        "vocabulary_ceiling",
+        "pacing_bias",
+        "scene_mix"
+      ],
+      "positioning": "single_source_of_promise_line_compress_to_one_sentence",
+      "voice": {
+        "register": true,
+        "sentenceLengthBias": true,
+        "adjectiveBudgetPerSentenceDefault": 1,
+        "brandWordListsLayerOverDoctrine": true
+      },
+      "motionTaste": {
+        "type": "calm_kinetic_scalar",
+        "modulates": [
+          "hold_multiplier",
+          "transition_energy",
+          "cut_frequency",
+          "camera_aggression",
+          "type_set_violence"
+        ],
+        "neverOverrides": [
+          "legibility",
+          "safe_areas",
+          "evidence_rules"
+        ]
+      },
+      "ctaLanguage": "verbatim_when_supplied"
+    },
+    "weakVault": {
+      "minimumViable": [
+        "logo_or_wordmark",
+        "one_brand_color",
+        "product_name_plus_one_liner"
+      ],
+      "belowMinimum": "refuse_gracefully_request_inputs",
+      "gapsReportRequired": true,
+      "defaults": {
+        "colors": "ramp_from_single_brand_color_plus_luminance_neutrals",
+        "fonts": "declared_neutral_grotesque_plus_mono_flagged",
+        "voice": "neutral_confident",
+        "motionTaste": "mid_scalar",
+        "audience": "infer_from_url_brief_state_assumption",
+        "positioning": "derive_from_url_hero_tag_url_published_flag_for_confirmation",
+        "proofClaims": "proof_families_disabled"
+      }
+    }
+  },
+  "referenceRules": {
+    "principle": "style_instrument_reading_not_source_material",
+    "extractAsParameters": [
+      {
+        "dimension": "pacing",
+        "params": [
+          "cut_frequency_distribution",
+          "scene_duration_percentiles",
+          "tempo_curve"
+        ]
+      },
+      {
+        "dimension": "ui_density",
+        "params": [
+          "ui_runtime_share",
+          "full_bleed_vs_framed_ratio",
+          "avg_zoom_level"
+        ]
+      },
+      {
+        "dimension": "typography_behavior",
+        "params": [
+          "type_vs_ui_balance",
+          "set_exit_style_enums"
+        ]
+      },
+      {
+        "dimension": "transitions",
+        "params": [
+          "family_shares_cut_wipe_match_morph"
+        ]
+      },
+      {
+        "dimension": "camera_rhythm",
+        "params": [
+          "push_pan_energy_scalar",
+          "hold_length_distribution"
+        ]
+      },
+      {
+        "dimension": "proof_holds",
+        "params": [
+          "evidence_frame_hold_multiplier"
+        ]
+      },
+      {
+        "dimension": "cta_energy",
+        "params": [
+          "hard_sell_quiet_confidence_scalar"
+        ]
+      },
+      {
+        "dimension": "music_sfx_energy",
+        "params": [
+          "bpm_band",
+          "hit_density",
+          "sfx_presence_scalar"
+        ]
+      }
+    ],
+    "contributes": {
+      "words": 0,
+      "layouts": 0,
+      "colors": 0,
+      "assets": 0,
+      "claims": 0
+    },
+    "hardBoundaries": [
+      "no_wording",
+      "no_layout_cloning_swap_test",
+      "no_color_adoption_vault_owns_every_hue",
+      "no_asset_mimicry_logo_mascot_illustration_ui",
+      "no_vo_echo_structure_or_phrasing",
+      "no_music_matching_energy_band_only",
+      "never_an_evidence_source"
+    ],
+    "swapTest": "if_swapping_logos_would_pass_scene_as_reference_scene_delete_and_replan",
+    "precedence": [
+      "vault_identity",
+      "vault_motion_taste",
+      "reference_style_dna",
+      "doctrine_defaults"
+    ]
+  },
+  "motionRules": {
+    "laws": [
+      {
+        "id": "one_owner_per_frame",
+        "displayToBodyScaleMin": 3.0
+      },
+      {
+        "id": "motion_budget",
+        "primaryMovesPerScene": 1,
+        "secondaryMovesMax": 2,
+        "ambientDriftMaxPct": 2,
+        "everyAnimationNeedsReason": [
+          "vo_anchor",
+          "continuity_handoff",
+          "designed_beat"
+        ]
+      },
+      {
+        "id": "legibility_gate",
+        "holdSecondsFormula": "max(1.5, 0.5 + 0.36 * word_count)",
+        "minSizePctFrameHeight": {
+          "display": 5.0,
+          "body": 2.5,
+          "captions": 3.2
+        },
+        "uiTextRule": "legible_after_crop_or_intentionally_defocused_never_middle",
+        "uiTextMinPxAtOutput": 14,
+        "failureFix": "shorten_text_or_lengthen_hold_never_trim_hold_into_legality",
+        "textDrivenMultiplier": 1.25,
+        "derivedFrom": "subtitle_reading_speed_research_17cps_standard_20_ceiling_netflix_6s_rule"
+      },
+      {
+        "id": "safe_areas",
+        "actionSafeMarginPct": 5,
+        "captionBandBottomPct": 20,
+        "designCenterWeighted": true,
+        "aspectVariants": "relayout_not_blind_crop"
+      },
+      {
+        "id": "variety_law",
+        "archetypes": "see_visualArchetypes.library",
+        "consecutiveSameArchetypeMax": 1,
+        "workflowInternalException": true,
+        "singleRigMaxShareOfScenes": 0.4,
+        "uiShotSizeRotation": [
+          "wide_app",
+          "medium_panel",
+          "close_control"
+        ],
+        "repeatGroupPairException": true,
+        "singleArchetypeMaxShare": 0.5,
+        "singleArchetypeShareExemptModes": [
+          "founder_vo",
+          "ambient_demo"
+        ]
+      },
+      {
+        "id": "anchored_reveals",
+        "syncToleranceMs": "per_sync_tier_see_audioRules.syncTiers",
+        "significantEntryDuringUnmarkedSilence": "forbidden_except_designed_beats"
+      },
+      {
+        "id": "momentum_handoff",
+        "exitEntryVectorContinuity": true,
+        "energyCurve": {
+          "hook": 0.9,
+          "problem": 0.5,
+          "promise": 0.7,
+          "demo": 0.65,
+          "proof_peak": 0.8,
+          "cta": 0.6,
+          "logo": 0.3
+        }
+      },
+      {
+        "id": "transition_law",
+        "cutShareMin": 0.6,
+        "nonCutMustEncode": [
+          "contrast",
+          "continuity",
+          "reveal"
+        ],
+        "signatureTransitionStylesPerVideoMax": 1,
+        "cutPriority": "murch_rule_of_six_emotion_story_rhythm_eyetrace_plane_space"
+      },
+      {
+        "id": "proof_holds",
+        "evidenceFramesGet": "top_quartile_hold_durations",
+        "uiProofHoldMinSeconds": 3,
+        "uiProofDriftMaxPctPerSecond": 4
+      },
+      {
+        "id": "real_vs_synthetic",
+        "realScreenshotOps": [
+          "crop",
+          "zoom",
+          "pan",
+          "highlight"
+        ],
+        "realScreenshotForbidden": [
+          "repaint",
+          "inject_fake_data",
+          "composite_invented_elements"
+        ],
+        "syntheticMustBe": "declared_abstraction_flat_simplified_brand_styled_schematic",
+        "syntheticForbidden": [
+          "browser_chrome_costume",
+          "os_chrome_costume",
+          "photographic_fidelity_fake_data"
+        ]
+      },
+      {
+        "id": "micro_motion_timing",
+        "basis": "material_design_interaction_physics_scaled_1_5x_to_2_5x_for_passive_viewing",
+        "microMovesExitsMs": [
+          150,
+          300
+        ],
+        "standardSetsMs": [
+          300,
+          600
+        ],
+        "heroSetsLargeTraversalsMs": [
+          500,
+          900
+        ],
+        "easing": "asymmetric_fast_takeoff_soft_landing_never_linear",
+        "exitsFasterThanEntrances": true,
+        "durationScalesWith": [
+          "travel_distance",
+          "area_change"
+        ],
+        "countUps": "decelerate_into_final_value"
+      }
+    ]
+  },
+  "audioRules": {
+    "masterClockPerMode": "see_narrationModes.perMode",
+    "markers": {
+      "taxonomy": [
+        "REVEAL",
+        "STRESS",
+        "NUMBER",
+        "NAME",
+        "IMPERATIVE",
+        "PAUSE"
+      ],
+      "minRevealPerScene": 1,
+      "stressResponseMenu": [
+        "scale_settle",
+        "accent_flash",
+        "underline_draw"
+      ],
+      "stressResponsePickCount": 1,
+      "numberRule": "screen_and_voice_exact_match",
+      "syncToleranceMs": 120
+    },
+    "wordBudget": {
+      "wpmTarget": [
+        140,
+        160
+      ],
+      "wordsPerSecond": [
+        2.3,
+        2.7
+      ],
+      "rule": "scene_duration_times_wps_is_hard_script_budget_cut_at_script_not_crammed_at_read",
+      "examples": {
+        "hook_4s_max_words": 10,
+        "feature_6s_max_words": 15,
+        "video_60s_max_words": 150
+      }
+    },
+    "captions": {
+      "unit": "phrase_3_to_7_words",
+      "karaoke": "only_if_vault_taste_kinetic",
+      "maxLines": 2,
+      "maxCharsPerLine": 36,
+      "leadInMs": 100,
+      "lingerMs": {
+        "min": 150,
+        "max": 300
+      },
+      "neverStraddleCut": true,
+      "band": "bottom_20pct",
+      "face": "vault_body_or_label",
+      "alwaysOnFor": [
+        "founder_walkthrough",
+        "enterprise_proof_led"
+      ],
+      "readingSpeedBudget": "2x36_at_phrase_durations_stays_at_or_under_17cps_never_approaches_20",
+      "defaultOn": "all_voiced_modes",
+      "nonNegotiableFor": [
+        "talking_head",
+        "testimonial_led"
+      ],
+      "offOnlyIn": "text_driven",
+      "rationale": "muted_viewing_prevalence_plus_caption_engagement_recall_lifts"
+    },
+    "music": {
+      "structureMap": {
+        "hook": "intro",
+        "problem": "tension_texture",
+        "promise": "open_up",
+        "demo": "groove",
+        "proof": "peak",
+        "cta_logo": "resolve"
+      },
+      "mandatoryHits": [
+        "promise_cut",
+        "metric_land"
+      ],
+      "tempoBands": {
+        "slow_editorial_bpm": [
+          70,
+          95
+        ],
+        "standard_launch_bpm": [
+          100,
+          125
+        ],
+        "kinetic_parade_bpm": [
+          120,
+          135
+        ],
+        "basis": "dube_categorization_40_76_slow_77_107_moderate_108plus_fast_arousal_rises_with_tempo",
+        "rule": "tempo_is_taste_knob_vault_over_reference_over_register_default_no_mid_video_bpm_change"
+      },
+      "bedLevelBelowVoiceDb": {
+        "range": [
+          15,
+          20
+        ],
+        "accessibilityFloor": 20,
+        "basis": "w3c_20db_pro_consensus_15_20_bbc_drop_4db_tiebreak"
+      },
+      "ducking": {
+        "gainReductionDb": [
+          6,
+          12
+        ],
+        "attackMs": [
+          100,
+          150
+        ],
+        "releaseMs": [
+          300,
+          500
+        ],
+        "textDriven": "none_music_leads"
+      },
+      "deliverable": {
+        "integratedLufs": -14,
+        "truePeakDbtpMax": -1.0,
+        "basis": "youtube_spotify_normalize_minus14_downward_only"
+      },
+      "resolveOnLogo": true
+    },
+    "sfx": {
+      "densityByRegister": {
+        "quiet_max_per_scene": 0.5,
+        "standard_max_per_scene": 1.0,
+        "kinetic_max_per_scene": 2.0,
+        "kineticCondition": "each_justified_by_tier_A_visual_hit"
+      },
+      "registerAssignment": {
+        "quiet": [
+          "founder_vo",
+          "talking_head",
+          "testimonial_led",
+          "enterprise_proof_led"
+        ],
+        "standard": [
+          "vo"
+        ],
+        "kinetic": [
+          "text_driven_parade",
+          "teaser_30s"
+        ]
+      },
+      "silenceDefault": true,
+      "everySoundMapsToVisibleEvent": true,
+      "whitelistedMoments": [
+        "promise_turn",
+        "one_workflow_interaction_beat",
+        "metric_land",
+        "cta_set",
+        "logo_sting"
+      ],
+      "rigSignatures": {
+        "type_slam": "soft_thud_plus_air",
+        "panel_slide": "low_fabric_whoosh",
+        "zoom_push": "subtle_riser_no_impact",
+        "highlight_draw": "fine_tick",
+        "count_up": "tick_cluster_decelerating_into_single_resolve",
+        "logo_resolve": "brand_sting_or_one_restrained_tonal_hit"
+      },
+      "ambientDemoRule": "ui_native_sounds_are_the_palette_designed_sfx_stand_down"
+    },
+    "syncTiers": {
+      "basis": "itu_r_bt1359_detect_plus45_minus125_accept_plus90_minus185_ebu_r37_minus60_plus40_film_pm22",
+      "tierA_percussive": {
+        "appliesTo": [
+          "NUMBER_land",
+          "NAME_set",
+          "logo_sting",
+          "any_designed_sfx_hit",
+          "lip_sync"
+        ],
+        "toleranceMs": 40
+      },
+      "tierB_word_anchored": {
+        "appliesTo": [
+          "REVEAL",
+          "STRESS",
+          "IMPERATIVE"
+        ],
+        "toleranceMs": 120,
+        "bias": "prefer_on_or_after_syllable"
+      },
+      "tierC_beat_locked": {
+        "appliesTo": [
+          "text_driven_cuts_and_card_sets",
+          "ambient_demo"
+        ],
+        "tolerance": "on_beat_to_2_frames_early"
+      }
+    }
+  },
+  "qualityGates": {
+    "stage1HardGates": [
+      {
+        "id": "G1_prompt_leakage",
+        "rule": "no_generation_artifact_text_on_screen",
+        "detect": "frame_sample_ocr_vs_artifact_token_patterns"
+      },
+      {
+        "id": "G2_static_output",
+        "rule": "no_unintended_stillness_gt_2_5s",
+        "exempt": "designed_holds_with_micromotion_floor",
+        "detect": "per_scene_motion_energy_zero_delta_spans"
+      },
+      {
+        "id": "G3_unreadable_text",
+        "rule": "every_text_element_passes_8_3_reading_speed_derived_gate_incl_text_driven_1_25x",
+        "detect": "layout_timing_computation_plus_ocr_confidence_spotcheck"
+      },
+      {
+        "id": "G4_fake_dashboard",
+        "rule": "no_synthetic_ui_in_real_product_costume",
+        "detect": "asset_provenance_audit_every_ui_region"
+      },
+      {
+        "id": "G5_fabricated_claims",
+        "rule": "every_rendered_claim_resolves_to_admissible_ledger_entry_including_orphan_header_rule",
+        "detect": "ledger_audit_of_final_script_and_onscreen_text_plus_header_successor_check",
+        "orphanHeaderRule": "every_section_header_followed_by_scene_proving_named_capability"
+      },
+      {
+        "id": "G6_product_evidence_floor",
+        "rule": "real_assets_supplied_implies_gte_1_ui_family_scene_uses_them_else_declared_abstract_never_framed_as_demo",
+        "detect": "plan_metadata_asset_usage_map"
+      },
+      {
+        "id": "G7_brand_adherence",
+        "rule": "zero_off_vault_hues_fonts_logo_violations",
+        "tolerances": {
+          "colorDeltaE": 3
+        },
+        "detect": "per_frame_palette_extraction_font_audit"
+      },
+      {
+        "id": "G8_motion_variety",
+        "rule": "archetype_and_rig_caps_respected",
+        "detect": "storyboard_sequence_check"
+      },
+      {
+        "id": "G9_narration_desync",
+        "rule": {
+          "tierA": "pm40ms",
+          "tierB": "pm120ms_prefer_late",
+          "tierC": "on_beat_to_2_frames_early",
+          "captions": "per_9_2",
+          "textDrivenHolds": "1_25x_multiplier"
+        },
+        "detect": "marker_beat_timestamp_diff_per_tier_final_timeline",
+        "aliases": [
+          "G9_vo_desync"
+        ]
+      },
+      {
+        "id": "G10_reference_copying",
+        "rule": "all_section7_boundaries_pass_including_swap_test",
+        "detect": "layout_wording_similarity_vs_reference_plus_manual_swap_test"
+      }
+    ],
+    "stage2Weights": {
+      "story_structure_integrity": 15,
+      "evidence_strength_honesty": 15,
+      "brand_adherence_expression": 15,
+      "motion_craft": 15,
+      "readability": 10,
+      "narration_visual_sync": 10,
+      "pacing_variety": 10,
+      "audio_craft": 5,
+      "cta_effectiveness": 5
+    },
+    "shipBands": {
+      "flagship": [
+        90,
+        100
+      ],
+      "ship": [
+        80,
+        89
+      ],
+      "targetedRevision": [
+        70,
+        79
+      ],
+      "replanAtDirector": [
+        0,
+        69
+      ]
+    },
+    "gatePrecedence": "hard_gate_failure_rejects_regardless_of_score",
+    "renamedFrom": {
+      "narration_visual_sync": "vo_visual_sync",
+      "G9_narration_desync": "G9_vo_desync"
+    }
+  },
+  "antiPatterns": [
+    {
+      "id": "template_slideshow",
+      "description": "Template with brand colors poured in; no structure-specific decisions",
+      "relatedGate": "G7"
+    },
+    {
+      "id": "stock_metaphor_montage",
+      "description": "Gears, handshakes, rockets, timelapses standing in for the product",
+      "relatedGate": "G6"
+    },
+    {
+      "id": "karaoke_over_gradients",
+      "description": "Word-karaoke captions over animated gradients as the whole video",
+      "relatedGate": "G6"
+    },
+    {
+      "id": "fake_dashboard",
+      "description": "Invented UI wearing real-product costume",
+      "relatedGate": "G4"
+    },
+    {
+      "id": "feature_laundry_list",
+      "description": "Constant-energy feature enumeration with no story turn",
+      "relatedGate": "G8"
+    },
+    {
+      "id": "motion_wallpaper",
+      "description": "Everything drifting, nothing meaning; parallax and whoosh on all elements",
+      "relatedGate": "G2_G8"
+    },
+    {
+      "id": "logo_first_open",
+      "description": "Opening on the logo before earning attention",
+      "relatedGate": null
+    },
+    {
+      "id": "fabricated_social_proof",
+      "description": "Invented customers, quotes, counts, or badges",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "invented_compliance",
+      "description": "Certifications or security badges without verbatim source",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "strawman_comparison",
+      "description": "Dishonest before-state built to be knocked down",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "reference_cloning",
+      "description": "Layout, wording, palette, or asset mimicry of the reference video",
+      "relatedGate": "G10"
+    },
+    {
+      "id": "accent_everywhere",
+      "description": "Accent color in every scene until it means nothing",
+      "relatedGate": "G7"
+    },
+    {
+      "id": "dueling_channels",
+      "description": "VO reading a quote while the viewer reads it; screen and voice disagreeing on numbers or CTA",
+      "relatedGate": "G9"
+    },
+    {
+      "id": "nervous_cutaway",
+      "description": "Cutting away from evidence before it can be read; no proof holds",
+      "relatedGate": "G3"
+    },
+    {
+      "id": "silent_degradation",
+      "description": "Missing inputs papered over with invented defaults instead of logged degradations",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "orphan_section_header",
+      "description": "Section header whose named capability is not proven by the immediately following scene — an unproven capability claim",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "claim_stuffed_header",
+      "description": "Verb-claims, numbers, or superlatives smuggled into a section header to dodge Ledger audit",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "off_beat_cards",
+      "description": "text_driven cards drifting off the music beat grid; slideshow-over-playlist feel",
+      "relatedGate": "G9"
+    },
+    {
+      "id": "logo_first_intro",
+      "description": "Opening on a logo/brand animation before value; platform data shows steepest audience loss in the opening seconds",
+      "relatedGate": "structure"
+    },
+    {
+      "id": "atypical_testimonial_undisclosed",
+      "description": "Testimonial states an atypical result without a clear generally-expected-performance disclosure; results-may-vary language is insufficient (FTC)",
+      "relatedGate": "G5"
+    },
+    {
+      "id": "linear_easing",
+      "description": "Elements moving on linear ramps; motion reads mechanical instead of physical",
+      "relatedGate": "G8"
+    }
+  ],
+  "grounding": {
+    "sourceGrades": {
+      "STD": "published_standard_or_regulation",
+      "RES": "peer_reviewed_or_platform_scale_research",
+      "DATA": "named_platform_vendor_data",
+      "PRAC": "documented_practitioner_consensus"
+    },
+    "map": {
+      "legibility_gate": "PRAC/RES subtitle reading speed: 17cps standard, 20cps Netflix adult ceiling, 12-15 relaxed; six-second rule; derived 0.36s/word",
+      "word_budget": "PRAC VO pacing: conversational 120-150 (NCVS), commercial 150-180, explainer 140-160",
+      "sync_tiers": "STD ITU-R BT.1359-1 (+45/-125 detect, +90/-185 accept); EBU R37 (-60/+40); film ±22ms; PRAC beat-cut on-or-early",
+      "cut_priority": "PRAC Murch, In the Blink of an Eye, Rule of Six",
+      "music_bed": "STD W3C >=20dB below speech; PRAC 15-20dB consensus; BBC drop-4dB",
+      "ducking": "PRAC sidechain practice 6-12dB GR, 100-150ms attack, 300-500ms release",
+      "loudness": "DATA YouTube/Spotify normalize ~-14 LUFS downward-only; -1 dBTP convention; broadcast EBU R128 -23 / ATSC A/85 -24 excluded",
+      "tempo_bands": "RES Dube et al. 40-76/77-107/108-208; arousal rises with tempo; PRAC genre practice",
+      "attention": "DATA Wistia: ~30% lost by 30s; hook ~5s; sub-minute ~52% engagement; flat 1-5min then drop; CTA end-placed best <5min",
+      "captions_on": "DATA/PRAC muted-viewing prevalence; caption engagement/recall lifts",
+      "micro_motion": "PRAC Material Design: ~300ms mobile typical, 375 complex, >400 sluggish, 150-200 small; exits faster; scaled 1.5-2.5x for video",
+      "evidence_legal": "STD FTC substantiation doctrine; 16 CFR 255 (2023, AI endorsers, typicality); consumer-review rule 2024",
+      "contrast": "STD WCAG 2.x AA 4.5:1 body / 3:1 large",
+      "archetypes": "PRAC industry explainer-style taxonomies collapsed to 15 scene-level archetypes",
+      "narration_modes": "PRAC/DATA observed shipping registers incl. founder/UGC rise, music-driven text register",
+      "design_decisions_unsourced": "energy curve values, scene-count ceilings, 40% rig cap, 60% cut share, group ceilings — internally consistent taste validated on benchmark teardowns; taste may bias these, never the sourced floors"
+    }
+  }
+}
