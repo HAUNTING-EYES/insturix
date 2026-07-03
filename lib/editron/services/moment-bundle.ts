@@ -375,22 +375,39 @@ function buildMomentRhythm(
 }
 
 function buildMomentScreenContext(signal: ReturnType<typeof signalReader>): MomentScreenContext {
-  const textCoverage = signal.number('visual.text_coverage');
+  const perceptionAvailable = signal.string('visual.perception.status') === 'available';
+  const perceptionTextPressure = perceptionAvailable
+    ? Math.max(signal.number('visual.perception.avg_text_coverage'), signal.number('visual.perception.text_presence_ratio'))
+    : 0;
+  const textCoverage = perceptionFallback(signal.number('visual.text_coverage'), perceptionTextPressure, 0.75);
   const textBoxPressure = clamp01(signal.number('visual.text_box_count') / 4);
-  const objectPressure = clamp01(signal.number('visual.object_count') / 8);
+  const objectPressure = perceptionFallback(
+    clamp01(signal.number('visual.object_count') / 8),
+    perceptionAvailable ? clamp01(signal.number('visual.perception.avg_object_count') / 8) : 0,
+    0.65,
+  );
   const complexity = signal.number('visual.complexity');
-  const faceCount = clamp01(signal.number('visual.face_count') / 3);
+  const perceptionClutter = perceptionAvailable ? signal.number('visual.perception.screen_clutter_ratio') : 0;
+  const faceCount = perceptionFallback(
+    clamp01(signal.number('visual.face_count') / 3),
+    perceptionAvailable ? Math.max(signal.number('visual.perception.face_presence_ratio'), clamp01(signal.number('visual.perception.avg_face_count') / 3)) : 0,
+    0.75,
+  );
   const facePresent = Math.max(signal.number('visual.face_present'), faceCount);
   const eyeContact = signal.number('visual.eye_contact');
-  const visualSalience = Math.max(signal.number('visual.significance'), signal.number('composite.cinematic_moment') * 0.8);
+  const perceptionViewerValue = perceptionAvailable ? signal.number('visual.perception.avg_viewer_value') : 0;
+  const visualSalience = Math.max(signal.number('visual.significance'), signal.number('composite.cinematic_moment') * 0.8, perceptionViewerValue * 0.75);
   const motionX = signal.signedNumber('visual.motion_vector.x');
   const motionY = signal.signedNumber('visual.motion_vector.y');
   const motionMagnitude = clamp01(Math.hypot(motionX, motionY));
-  const motionPressure = Math.max(signal.number('visual.motion_intensity'), motionMagnitude);
+  const motionPressure = Math.max(
+    perceptionFallback(signal.number('visual.motion_intensity'), perceptionAvailable ? signal.number('visual.perception.motion_presence_ratio') : 0, 0.7),
+    motionMagnitude,
+  );
   const negativeSpace = strongestNegativeSpace(signal);
 
   return {
-    busyness: clamp01(Math.max(textCoverage, textBoxPressure, objectPressure, complexity)),
+    busyness: clamp01(Math.max(textCoverage, textBoxPressure, objectPressure, complexity, perceptionClutter * 0.8)),
     legibilityRisk: clamp01(Math.max(textCoverage, textBoxPressure, complexity * 0.75)),
     humanAttention: clamp01(Math.max(facePresent, eyeContact)),
     visualSalience,
@@ -466,6 +483,13 @@ function signalReader(snapshot: SignalSnapshot | Record<string, unknown> | undef
       }
       return 0;
     },
+    string: (...keys: string[]) => {
+      for (const key of keys) {
+        const value = source[key];
+        if (typeof value === 'string' && value.trim().length > 0) return value;
+      }
+      return '';
+    },
   };
 }
 
@@ -477,7 +501,28 @@ function strongestNegativeSpace(signal: ReturnType<typeof signalReader>): Moment
     ['left', signal.number('visual.negative_space.left')],
   ] as const;
   const [region, strength] = regions.reduce((best, candidate) => candidate[1] > best[1] ? candidate : best);
+  if (strength > 0) return { region, strength };
+
+  return strongestTrustedPerceptionNegativeSpace(signal);
+}
+
+function strongestTrustedPerceptionNegativeSpace(signal: ReturnType<typeof signalReader>): MomentScreenContext['negativeSpace'] {
+  if (signal.string('visual.perception.placement_trust') !== 'trusted') {
+    return { region: 'none', strength: 0 };
+  }
+  const regions = [
+    ['top', signal.number('visual.perception.negative_space.top')],
+    ['right', signal.number('visual.perception.negative_space.right')],
+    ['bottom', signal.number('visual.perception.negative_space.bottom')],
+    ['left', signal.number('visual.perception.negative_space.left')],
+  ] as const;
+  const [region, strength] = regions.reduce((best, candidate) => candidate[1] > best[1] ? candidate : best);
   return strength > 0 ? { region, strength } : { region: 'none', strength: 0 };
+}
+
+function perceptionFallback(primary: number, fallback: number, confidence: number): number {
+  if (primary > 0) return primary;
+  return clamp01(fallback * confidence);
 }
 
 function subjectFromSignal(signal: ReturnType<typeof signalReader>): MomentScreenContext['subject'] {
