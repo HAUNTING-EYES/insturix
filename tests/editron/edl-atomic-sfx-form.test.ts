@@ -114,6 +114,46 @@ describe('EDL atomic SFX form wiring', () => {
             text_on_screen: 0.1,
             restraint: 0.15,
           },
+          sfxSyncPlan: {
+            placementAllowed: true,
+            reasonKeys: ['motion-peak', 'beat-anchor'],
+            syncWindow: {
+              anchorFrame: 90,
+              distanceFrames: 2,
+              driftRisk: 0.08,
+              toleranceFrames: 6,
+            },
+            mixSafety: {
+              overmixRisk: 0.12,
+              nearestSoundDistanceFrames: 72,
+              recentSfxCount: 0,
+            },
+            providerGate: {
+              providerRisk: 0.2,
+              qualityFloor: 0.55,
+              expectedQueryStrength: 0.76,
+            },
+            crossFamily: {
+              zoomAnchored: true,
+              mgAnchored: false,
+              transitionAnchored: false,
+              captionConflict: false,
+              syncSource: 'motion_peak',
+            },
+          },
+          unifiedDecisionMerge: {
+            familyPlanner: {
+              version: 'sfx-family-planner-v1',
+              family: 'audio',
+              placementAllowed: true,
+              executionLicense: 'licensed-by-sfx-family-plan',
+              reasonKeys: ['motion-peak', 'provider-ok'],
+              crossFamily: {
+                zoomAnchored: true,
+                syncSource: 'motion_peak',
+              },
+            },
+          },
         },
       }],
       stats: {
@@ -172,6 +212,26 @@ describe('EDL atomic SFX form wiring', () => {
         decision: 'accept',
       }),
     }));
+    expect(sound.metadata.sfxPlannerEvidence).toEqual(expect.objectContaining({
+      version: 'sfx-planner-evidence-v1',
+      placementAllowed: true,
+      executionLicense: 'licensed-by-sfx-family-plan',
+      reasonKeys: expect.arrayContaining(['motion-peak', 'beat-anchor', 'provider-ok']),
+      syncWindow: expect.objectContaining({
+        distanceFrames: 2,
+        driftRisk: 0.08,
+      }),
+      mixSafety: expect.objectContaining({
+        overmixRisk: 0.12,
+      }),
+      providerGate: expect.objectContaining({
+        providerRisk: 0.2,
+      }),
+      crossFamily: expect.objectContaining({
+        zoomAnchored: true,
+        syncSource: 'motion_peak',
+      }),
+    }));
     expect(receipt.payload).toEqual(expect.objectContaining({
       formVersion: 'atomic-sfx-form-v1',
       sfxType: 'whoosh',
@@ -180,6 +240,13 @@ describe('EDL atomic SFX form wiring', () => {
       searchQuery: sound.metadata.sfxQuery,
       assetQualityDecision: 'accept',
       assetTitle: 'Cinematic whoosh sweep transition',
+      sfxPlannerPlacementAllowed: true,
+      sfxPlannerReasonKeys: expect.stringContaining('motion-peak'),
+      sfxPlannerSyncDistanceFrames: 2,
+      sfxPlannerDriftRisk: 0.08,
+      sfxPlannerOvermixRisk: 0.12,
+      sfxPlannerProviderRisk: 0.2,
+      sfxPlannerExecutionLicense: 'licensed-by-sfx-family-plan'
     }));
     expect(receipt.atoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'audio-hit', key: 'sfx.token', value: 'whoosh' }),
