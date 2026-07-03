@@ -24,6 +24,7 @@ import {
   type CreditPackage,
 } from "@/lib/config/creditCosts";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
+import { normalizePlanKey } from "@/lib/config/plan-limits";
 import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -141,11 +142,21 @@ export function PricingPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+  // The signed-in user's current plan key (normalized). null when logged out.
+  const [currentPlanKey, setCurrentPlanKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/user/plans')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.currentPlan?.name) setCurrentPlanKey(normalizePlanKey(d.currentPlan.name)); })
+      .catch(() => {});
+  }, []);
 
   const activePlanId = VOLUME_TIERS[selectedTier].planId;
   const activePlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId);
   const isEnterprise = activePlanId === "enterprise";
   const tierIndex = selectedTier;
+  const activeIsCurrent = !!currentPlanKey && !!activePlan && normalizePlanKey(activePlan.id) === currentPlanKey;
 
   const handleActivatePlan = (planId: string) => {
     setSelectedPlanId(planId);
@@ -294,7 +305,7 @@ export function PricingPage() {
             transition={{ duration: 0.35, ease: EASE }}
             style={{ maxWidth: "min(440px, 100%)", margin: "0 auto 48px" }}
           >
-            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} />}
+            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} isCurrent={activeIsCurrent} />}
           </motion.div>
         </AnimatePresence>
 
@@ -584,7 +595,7 @@ function CostAccumulation() {
 // BADGE CARD — access pass to the production floor
 // =====================================================================
 
-function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void }) {
+function BadgeCard({ plan, tierIndex, billingCycle, onActivate, isCurrent = false }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void; isCurrent?: boolean }) {
   const displayPrice = billingCycle === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.price;
   const totalYearly = plan.yearlyPrice;
   const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
@@ -699,21 +710,36 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate }: { plan: Subscr
         {/* Barcode */}
         <Barcode />
 
-        {/* CTA */}
-        <button
-          onClick={() => onActivate(plan.id)}
-          style={{
-            width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
-            fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
-            border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)",
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-            transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
-        >
-          Activate <ArrowRight size={14} />
-        </button>
+        {/* CTA — or a "current plan" state when this is the user's active plan */}
+        {isCurrent ? (
+          <button
+            disabled
+            style={{
+              width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+              fontSize: 14, fontWeight: 600, fontFamily: "var(--font-sans)", cursor: "default",
+              border: "1px solid var(--status-success, #46A758)",
+              background: "rgba(70,167,88,0.12)", color: "var(--status-success, #46A758)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16,
+            }}
+          >
+            <Check size={14} /> Current Plan
+          </button>
+        ) : (
+          <button
+            onClick={() => onActivate(plan.id)}
+            style={{
+              width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+              fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
+              border: "none", background: "var(--accent-gold)", color: "var(--bg-canvas)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+              transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+          >
+            Activate <ArrowRight size={14} />
+          </button>
+        )}
       </div>
     </div>
   );
