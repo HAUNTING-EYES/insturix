@@ -8,6 +8,7 @@ import { UserType } from "@/types/userTypes";
 import { updateUserPlan, downgradeUserToFreePlan, extendUserPlan, cancelUserPlan } from "@/lib/services/planService";
 import { CreditsService } from "@/lib/services/creditsService";
 import { getPackagePool } from "@/lib/config/creditCosts";
+import { normalizePlanKey } from "@/lib/config/plan-limits";
 
 let _razorpay: Razorpay | null = null;
 function getRazorpay() {
@@ -340,21 +341,63 @@ export async function POST(request: NextRequest) {
             console.error(`Error processing re-upgrade for subscription ${subscription.id}`, error);
           }
         } else {
-          console.log(`User ${user.clerkUserId} is on a paid plan. Extending plan.`);
-          await extendUserPlan(user.clerkUserId, {
-            subscriptionId: subscription.id,
-            latestInvoice: subscription.latest_invoice,
-          });
-          
-          // Grant new subscription credits on renewal (idempotent: Razorpay redelivers subscription.charged).
-          try {
-            const plan = await getRazorpay().plans.fetch(subscription.plan_id);
-            const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
-            const grantKey = `razorpay:subscription_charged:${subscription.id}:${subscription.latest_invoice || subscription.current_start}`;
-            await CreditsService.grantSubscriptionCredits(user.clerkUserId, user.currentPlan.name, planPeriod, { idempotencyKey: grantKey });
-            console.log(`Granted renewal credits to user ${user.clerkUserId}`);
-          } catch (creditError) {
-            console.error(`Error granting renewal credits for subscription ${subscription.id}:`, creditError);
+          // A scheduled plan change (e.g. a downgrade) switches subscription.plan_id AT
+          // cycle end, so the plan Razorpay just charged for may differ from currentPlan.
+          // Resolve the charged plan and, if it changed, SWITCH the plan instead of merely
+          // extending it — otherwise the user keeps the old plan + old credit allocation.
+          const currency = payment.currency;
+          let chargedPlan: any = null;
+          if (currency) {
+            chargedPlan = await Plan.findOne({
+              $or: [
+                { [`pricing.${currency}.monthly.providerPlanIds.razorpay`]: subscription.plan_id },
+                { [`pricing.${currency}.yearly.providerPlanIds.razorpay`]: subscription.plan_id },
+              ],
+            });
+          }
+          const chargedType = chargedPlan?.type ? normalizePlanKey(chargedPlan.type) : null;
+          const currentType = normalizePlanKey(user.currentPlan.name);
+          const grantKey = `razorpay:subscription_charged:${subscription.id}:${subscription.latest_invoice || subscription.current_start}`;
+
+          if (chargedPlan && chargedType && chargedType !== currentType) {
+            console.log(`User ${user.clerkUserId} scheduled plan change applied at renewal: ${currentType} -> ${chargedType}`);
+            try {
+              const plan = await getRazorpay().plans.fetch(subscription.plan_id);
+              await updateUserPlan(user.clerkUserId, chargedType as UserType, {
+                provider: "razorpay",
+                subscriptionId: subscription.id,
+                planId: chargedPlan._id.toString(),
+                amount: Number(plan.item.amount) / 100,
+                currency: payment.currency,
+                paymentMethod: payment.method,
+                latestInvoice: subscription.latest_invoice,
+              });
+              const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
+              await CreditsService.grantSubscriptionCredits(user.clerkUserId, chargedType, planPeriod, { idempotencyKey: grantKey });
+              // Clear the pending marker — the change is now live.
+              if (user.pendingPlanChange) {
+                await User.updateOne({ _id: user._id }, { $set: { pendingPlanChange: null } });
+              }
+              console.log(`User ${user.clerkUserId} plan switched to ${chargedType} and credits granted.`);
+            } catch (error) {
+              console.error(`Error applying scheduled plan change for subscription ${subscription.id}`, error);
+            }
+          } else {
+            console.log(`User ${user.clerkUserId} is on a paid plan. Extending plan.`);
+            await extendUserPlan(user.clerkUserId, {
+              subscriptionId: subscription.id,
+              latestInvoice: subscription.latest_invoice,
+            });
+
+            // Grant new subscription credits on renewal (idempotent: Razorpay redelivers subscription.charged).
+            try {
+              const plan = await getRazorpay().plans.fetch(subscription.plan_id);
+              const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
+              await CreditsService.grantSubscriptionCredits(user.clerkUserId, user.currentPlan.name, planPeriod, { idempotencyKey: grantKey });
+              console.log(`Granted renewal credits to user ${user.clerkUserId}`);
+            } catch (creditError) {
+              console.error(`Error granting renewal credits for subscription ${subscription.id}:`, creditError);
+            }
           }
         }
         break;

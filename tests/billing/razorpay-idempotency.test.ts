@@ -28,13 +28,15 @@ describe("razorpay billing safety", () => {
     expect(src).toMatch(/type:\s*'subscription_grant',\s*'metadata\.idempotencyKey':\s*idempotencyKey/);
   });
 
-  it("webhook passes a stable event key to both subscription grant sites", () => {
+  it("webhook passes a stable event key to every subscription grant site", () => {
     const src = read("app/api/webhooks/razorpay/route.ts");
     expect(src).toContain("razorpay:subscription_activated:");
     expect(src).toContain("razorpay:subscription_charged:");
-    // Both grant calls must forward the idempotencyKey.
+    // Every grant call must forward the idempotencyKey. Sites: (1) subscription_activated,
+    // (2) renewal-extend on subscription_charged, (3) scheduled plan-change on
+    // subscription_charged (a downgrade that Razorpay applies at cycle end).
     const grantCalls = src.match(/grantSubscriptionCredits\([^)]*idempotencyKey/g) || [];
-    expect(grantCalls.length).toBe(2);
+    expect(grantCalls.length).toBe(3);
   });
 
   it("checkout modal routes plan verify to the pending-only subscription route", () => {

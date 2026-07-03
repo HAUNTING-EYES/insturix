@@ -120,6 +120,14 @@ interface IUser extends Document {
   currentPlan: IUserPlan;
   planHistory: IUserPlan[];
   subscriptions: ISubscription[];
+  /** A scheduled plan change (downgrade) that Razorpay applies at cycle end. */
+  pendingPlanChange?: {
+    toPlanType: string; // UserType value, e.g. "agency_growth"
+    toPlanId: string; // Razorpay plan_id the subscription will switch to
+    effectiveAt: Date | null; // when it takes effect (current cycle end)
+    scheduledAt: Date;
+    direction: 'downgrade';
+  } | null;
   uiMessages: IUiMessage[];
   trialUsed: boolean; // Track if user has used their one-time trial
   creditsBalance: ICreditsBalance; // Credits system balance
@@ -377,6 +385,16 @@ const userSchema = new Schema<IUser>({
   subscriptions: {
     type: [subscriptionSchema],
     default: [],
+  },
+  pendingPlanChange: {
+    type: new Schema({
+      toPlanType: { type: String, required: true },
+      toPlanId: { type: String, required: true },
+      effectiveAt: { type: Date, default: null },
+      scheduledAt: { type: Date, required: true },
+      direction: { type: String, enum: ['downgrade'], required: true },
+    }, { _id: false }),
+    default: null,
   },
   uiMessages: {
     type: [new Schema<IUiMessage>({

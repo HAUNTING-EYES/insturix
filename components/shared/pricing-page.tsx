@@ -144,20 +144,79 @@ export function PricingPage() {
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
   // The signed-in user's current plan key (normalized). null when logged out.
   const [currentPlanKey, setCurrentPlanKey] = useState<string | null>(null);
+  // A scheduled downgrade that Razorpay applies at cycle end (null if none).
+  const [pendingPlanChange, setPendingPlanChange] = useState<{ toPlanType: string; effectiveAt: string | null } | null>(null);
+  const [downgradeBusy, setDowngradeBusy] = useState(false);
+
+  const applyPlanData = (d: any, autoJump: boolean) => {
+    const key = d?.currentPlan?.name ? normalizePlanKey(d.currentPlan.name) : null;
+    if (key) {
+      setCurrentPlanKey(key);
+      if (autoJump) {
+        // Auto-jump the tier selector to the user's current plan (mount only).
+        const idx = VOLUME_TIERS.findIndex((t) => normalizePlanKey(t.planId) === key);
+        if (idx >= 0) setSelectedTier(idx);
+      }
+    }
+    setPendingPlanChange(
+      d?.pendingPlanChange
+        ? { toPlanType: normalizePlanKey(d.pendingPlanChange.toPlanType), effectiveAt: d.pendingPlanChange.effectiveAt ?? null }
+        : null
+    );
+  };
 
   useEffect(() => {
     fetch('/api/user/plans')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        const key = d?.currentPlan?.name ? normalizePlanKey(d.currentPlan.name) : null;
-        if (!key) return;
-        setCurrentPlanKey(key);
-        // Auto-jump the tier selector to the user's current plan.
-        const idx = VOLUME_TIERS.findIndex((t) => normalizePlanKey(t.planId) === key);
-        if (idx >= 0) setSelectedTier(idx);
-      })
+      .then((d) => d && applyPlanData(d, true))
       .catch(() => {});
   }, []);
+
+  const reloadPlan = async () => {
+    try {
+      const r = await fetch('/api/user/plans');
+      if (r.ok) applyPlanData(await r.json(), false);
+    } catch {
+      /* keep last-known state */
+    }
+  };
+
+  // Schedule a downgrade — no immediate charge; takes effect at cycle end.
+  const handleScheduleDowngrade = async (toPlanId: string) => {
+    const targetName = SUBSCRIPTION_PLANS.find((p) => p.id === toPlanId)?.name ?? toPlanId;
+    if (!window.confirm(`Schedule a downgrade to ${targetName}? Your current plan stays active until the end of this billing cycle, then switches automatically. You won't be charged now.`)) return;
+    setDowngradeBusy(true);
+    try {
+      const r = await fetch('/api/user/plans/downgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toPlanType: toPlanId }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        window.alert(e.error || 'Could not schedule the downgrade. Please try again.');
+        return;
+      }
+      await reloadPlan();
+    } finally {
+      setDowngradeBusy(false);
+    }
+  };
+
+  const handleCancelDowngrade = async () => {
+    setDowngradeBusy(true);
+    try {
+      const r = await fetch('/api/user/plans/downgrade', { method: 'DELETE' });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        window.alert(e.error || 'Could not cancel the scheduled downgrade. Please try again.');
+        return;
+      }
+      await reloadPlan();
+    } finally {
+      setDowngradeBusy(false);
+    }
+  };
 
   const activePlanId = VOLUME_TIERS[selectedTier].planId;
   const activePlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId);
@@ -318,7 +377,7 @@ export function PricingPage() {
             transition={{ duration: 0.35, ease: EASE }}
             style={{ maxWidth: "min(440px, 100%)", margin: "0 auto 48px" }}
           >
-            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} relation={planRelation} />}
+            {isEnterprise ? <EnterpriseCard /> : activePlan && <BadgeCard plan={activePlan} tierIndex={tierIndex} billingCycle={billingCycle} onActivate={handleActivatePlan} relation={planRelation} pendingPlanChange={pendingPlanChange} onScheduleDowngrade={handleScheduleDowngrade} onCancelDowngrade={handleCancelDowngrade} downgradeBusy={downgradeBusy} />}
           </motion.div>
         </AnimatePresence>
 
@@ -608,12 +667,23 @@ function CostAccumulation() {
 // BADGE CARD — access pass to the production floor
 // =====================================================================
 
-function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none' }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void; relation?: 'none' | 'current' | 'upgrade' | 'downgrade' }) {
+function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none', pendingPlanChange = null, onScheduleDowngrade, onCancelDowngrade, downgradeBusy = false }: { plan: SubscriptionPlan; tierIndex: number; billingCycle: 'monthly' | 'yearly'; onActivate: (planId: string) => void; relation?: 'none' | 'current' | 'upgrade' | 'downgrade'; pendingPlanChange?: { toPlanType: string; effectiveAt: string | null } | null; onScheduleDowngrade?: (planId: string) => void; onCancelDowngrade?: () => void; downgradeBusy?: boolean }) {
   const displayPrice = billingCycle === 'yearly' ? Math.round(plan.yearlyPrice / 12) : plan.price;
   const totalYearly = plan.yearlyPrice;
   const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
   const mediaCredits = getPlanMediaCreditAllocation(plan.id);
   const bundle = PLAN_VALUE_BUNDLES[plan.id];
+
+  // Scheduled-downgrade context for the shown plan.
+  const hasPending = !!pendingPlanChange;
+  const isPendingTarget = hasPending && normalizePlanKey(plan.id) === pendingPlanChange!.toPlanType;
+  const pendingTargetName = hasPending
+    ? SUBSCRIPTION_PLANS.find((p) => normalizePlanKey(p.id) === pendingPlanChange!.toPlanType)?.name ?? pendingPlanChange!.toPlanType
+    : null;
+  const effectiveDate = pendingPlanChange?.effectiveAt
+    ? new Date(pendingPlanChange.effectiveAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+
   return (
     <div style={{
       background: "var(--bg-raised)", border: "1px solid var(--accent-gold)",
@@ -723,27 +793,79 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none
         {/* Barcode */}
         <Barcode />
 
-        {/* CTA — reflects the shown tier's relation to the user's current plan */}
+        {/* CTA — reflects the shown tier's relation to the user's current plan,
+            plus any scheduled downgrade that Razorpay applies at cycle end. */}
         {relation === 'current' ? (
-          <button
-            disabled
-            style={{
-              width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
-              fontSize: 14, fontWeight: 600, fontFamily: "var(--font-sans)", cursor: "default",
-              border: "1px solid var(--status-success, #46A758)",
-              background: "rgba(70,167,88,0.12)", color: "var(--status-success, #46A758)",
-              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16,
-            }}
-          >
-            <Check size={14} /> Current Plan
-          </button>
+          <>
+            <button
+              disabled
+              style={{
+                width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+                fontSize: 14, fontWeight: 600, fontFamily: "var(--font-sans)", cursor: "default",
+                border: "1px solid var(--status-success, #46A758)",
+                background: "rgba(70,167,88,0.12)", color: "var(--status-success, #46A758)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16,
+              }}
+            >
+              <Check size={14} /> Current Plan
+            </button>
+            {hasPending && (
+              <div style={{ marginTop: 12, textAlign: "center" }}>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", lineHeight: 1.5 }}>
+                  Downgrading to <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{pendingTargetName}</span>
+                  {effectiveDate ? <> on <span style={{ color: "var(--text-primary)" }}>{effectiveDate}</span></> : <> at your next billing cycle</>}.
+                </span>
+                <button
+                  onClick={() => onCancelDowngrade?.()}
+                  disabled={downgradeBusy}
+                  style={{
+                    marginTop: 6, background: "none", border: "none", padding: 0,
+                    fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)",
+                    cursor: downgradeBusy ? "default" : "pointer", textDecoration: "underline", opacity: downgradeBusy ? 0.5 : 1,
+                  }}
+                >
+                  {downgradeBusy ? 'Working…' : 'Cancel downgrade'}
+                </button>
+              </div>
+            )}
+          </>
+        ) : isPendingTarget ? (
+          /* The shown plan IS the scheduled downgrade target. */
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <span
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
+                fontSize: 14, fontWeight: 600, fontFamily: "var(--font-sans)",
+                border: "1px solid var(--accent-gold)", background: "rgba(212,166,82,0.10)", color: "var(--accent-gold)",
+              }}
+            >
+              <Check size={14} /> Downgrade scheduled
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginTop: 8, lineHeight: 1.5 }}>
+              Takes effect {effectiveDate ? <span style={{ color: "var(--text-primary)" }}>{effectiveDate}</span> : 'at your next billing cycle'}. You keep your current plan until then.
+            </span>
+            <button
+              onClick={() => onCancelDowngrade?.()}
+              disabled={downgradeBusy}
+              style={{
+                marginTop: 8, background: "none", border: "none", padding: 0,
+                fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--accent-gold)",
+                cursor: downgradeBusy ? "default" : "pointer", textDecoration: "underline", opacity: downgradeBusy ? 0.5 : 1,
+              }}
+            >
+              {downgradeBusy ? 'Working…' : 'Cancel downgrade'}
+            </button>
+          </div>
         ) : (
           <>
             <button
-              onClick={() => onActivate(plan.id)}
+              onClick={() => (relation === 'downgrade' ? onScheduleDowngrade?.(plan.id) : onActivate(plan.id))}
+              disabled={relation === 'downgrade' && downgradeBusy}
               style={{
                 width: "100%", maxWidth: 280, padding: "14px 24px", borderRadius: 7,
-                fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)", cursor: "pointer",
+                fontSize: 14, fontWeight: 500, fontFamily: "var(--font-sans)",
+                cursor: relation === 'downgrade' && downgradeBusy ? "default" : "pointer",
                 display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                 transition: `opacity 0.25s ${EASE_CSS}`, marginTop: 16,
                 ...(relation === 'downgrade'
@@ -753,7 +875,9 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
             >
-              {relation === 'downgrade' ? 'Downgrade' : relation === 'upgrade' ? 'Upgrade' : 'Activate'} <ArrowRight size={14} />
+              {relation === 'downgrade'
+                ? (downgradeBusy ? 'Scheduling…' : 'Downgrade')
+                : relation === 'upgrade' ? 'Upgrade' : 'Activate'} <ArrowRight size={14} />
             </button>
             {relation === 'downgrade' && (
               <span style={{ fontSize: 10, color: "var(--text-dim)", display: "block", textAlign: "center", marginTop: 6, lineHeight: 1.4 }}>
