@@ -26,6 +26,7 @@ function phase0Snapshot(
       qualityScore: rendered ? 82 : null,
       renderedAestheticScore: rendered ? 0.82 : null,
       renderedAestheticIssueCount: 0,
+      renderedAestheticIssueSamples: [],
       renderedAestheticFailFrameCount: 0,
       renderedAestheticWarnFrameCount: 0,
       renderedAestheticSampledFrames: rendered ? 3 : 0,
@@ -154,6 +155,14 @@ describe('build-editron-phase0-fixture cli', () => {
       renderedAestheticIssueCount: 2,
       renderedAestheticFailFrameCount: 0,
       renderedAestheticWarnFrameCount: 2,
+      renderedAestheticIssueSamples: [{
+        frame: 42,
+        dimension: 'contrast',
+        severity: 'warn',
+        overlayId: 'cap-1',
+        message: 'caption contrast is close to floor',
+        evidence: 'contrast=3.2',
+      }],
     });
     const gate = buildPhase0RenderedQualityGate(snapshot);
     const update = buildPhase0PersistUpdate(snapshot, phase0Paths());
@@ -165,6 +174,14 @@ describe('build-editron-phase0-fixture cli', () => {
       qualityScore: 74,
       renderedAestheticIssueCount: 2,
       renderedAestheticFailFrameCount: 0,
+      renderedAestheticIssueSamples: [{
+        frame: 42,
+        dimension: 'contrast',
+        severity: 'warn',
+        overlayId: 'cap-1',
+        message: 'caption contrast is close to floor',
+        evidence: 'contrast=3.2',
+      }],
     });
     expect(gate.warning).toContain('warning issue');
     expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject(gate);

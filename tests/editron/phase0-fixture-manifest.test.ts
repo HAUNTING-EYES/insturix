@@ -735,6 +735,21 @@ describe('phase0 fixture manifest', () => {
       renderedIssueCount: 2,
       renderedIssuesBySeverity: { fail: 1, warn: 1, info: 0 },
       renderedIssuesByDimension: { contrast: 1, 'safe-area': 1 },
+      renderedIssueSamples: [{
+        frame: 30,
+        dimension: 'contrast',
+        severity: 'fail',
+        overlayId: 'cap-1',
+        message: 'rendered text contrast is below accessibility floor',
+        evidence: 'contrast=1.3',
+      }, {
+        frame: 30,
+        dimension: 'safe-area',
+        severity: 'warn',
+        overlayId: 'mg-1',
+        message: 'motion graphic leaves title safe bounds',
+        evidence: 'overflow=22px',
+      }],
       sampledFrames: [{
         frame: 30,
         status: 'fail',
@@ -757,6 +772,21 @@ describe('phase0 fixture manifest', () => {
       renderedAestheticFailFrameCount: 2,
       renderedAestheticWarnFrameCount: 1,
       renderedAestheticSampledFrames: 4,
+      renderedAestheticIssueSamples: [{
+        frame: 30,
+        dimension: 'contrast',
+        severity: 'fail',
+        overlayId: 'cap-1',
+        message: 'rendered text contrast is below accessibility floor',
+        evidence: 'contrast=1.3',
+      }, {
+        frame: 30,
+        dimension: 'safe-area',
+        severity: 'warn',
+        overlayId: 'mg-1',
+        message: 'motion graphic leaves title safe bounds',
+        evidence: 'overflow=22px',
+      }],
       renderedAestheticJson: 'fixtures/proj/rendered-aesthetic/rendered-aesthetic.json',
       renderedAestheticHtml: 'fixtures/proj/rendered-aesthetic/report.html',
     });

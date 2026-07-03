@@ -36,6 +36,7 @@ export interface DirectorRenderedQualityEvidenceSnapshot {
   qualityScore?: unknown;
   renderedAestheticFailFrameCount?: unknown;
   renderedAestheticIssueCount?: unknown;
+  renderedAestheticIssueSamples?: unknown;
   renderedAestheticJson?: unknown;
   renderedAestheticHtml?: unknown;
 }
@@ -62,6 +63,7 @@ export interface Phase0RenderedQualityGate {
   qualityScore: number | null;
   renderedAestheticFailFrameCount: number;
   renderedAestheticIssueCount: number;
+  renderedAestheticIssueSamples: unknown;
   renderedAestheticJson: unknown;
   renderedAestheticHtml: unknown;
   warning: string | null;
@@ -112,6 +114,7 @@ export function buildPhase0RenderedQualityGate(input: {
     qualityScore: decision.qualityScore,
     renderedAestheticFailFrameCount: failFrameCount,
     renderedAestheticIssueCount: issueCount,
+    renderedAestheticIssueSamples: evidence.renderedAestheticIssueSamples,
     renderedAestheticJson: evidence.renderedAestheticJson,
     renderedAestheticHtml: evidence.renderedAestheticHtml,
     warning,

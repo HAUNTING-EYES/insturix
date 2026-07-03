@@ -104,6 +104,15 @@ export interface Phase0RenderedAestheticReportLike {
     };
   }>;
 }
+export interface Phase0RenderedIssueSample {
+  frame: number;
+  dimension: string;
+  severity: 'info' | 'warn' | 'fail';
+  overlayId: string | number | null;
+  message: string;
+  evidence: string | null;
+}
+
 export interface BuildPhase0FixtureManifestOptions {
   capturedAt?: string;
   source?: string;
@@ -172,6 +181,7 @@ export interface Phase0FixtureManifest {
     renderedIssueCount: number;
     renderedIssuesBySeverity: Record<Phase0RenderedIssueSeverity, number>;
     renderedIssuesByDimension: Record<string, number>;
+    renderedIssueSamples: Phase0RenderedIssueSample[];
     sampledFrames: Array<{
       frame: number;
       status: Phase0RenderedAestheticStatus | null;
@@ -206,6 +216,7 @@ export interface Phase0RenderedQualityEvidencePayload {
   renderedAestheticHtml: string | null;
   renderedAestheticArtifactAccess: Phase0RenderedArtifactAccess;
   renderedAestheticArtifactNote: string | null;
+  renderedAestheticIssueSamples: Phase0RenderedIssueSample[];
 }
 
 export function buildPhase0FixtureManifest(
@@ -260,6 +271,7 @@ export function buildPhase0FixtureManifest(
       renderedIssueCount: 0,
       renderedIssuesBySeverity: { fail: 0, warn: 0, info: 0 },
       renderedIssuesByDimension: {},
+      renderedIssueSamples: [],
       sampledFrames: [],
     },
     failureClasses: [],
@@ -297,6 +309,7 @@ export function withPhase0RenderArtifactPack(
       renderedIssueCount: 0,
       renderedIssuesBySeverity: { fail: 0, warn: 0, info: 0 },
       renderedIssuesByDimension: {},
+      renderedIssueSamples: [],
       sampledFrames: [],
     },
   };
@@ -319,6 +332,7 @@ export function withPhase0RenderedAestheticReport(
       renderedIssueCount: evidence.issueCount,
       renderedIssuesBySeverity: evidence.issuesBySeverity,
       renderedIssuesByDimension: evidence.issuesByDimension,
+      renderedIssueSamples: evidence.issueSamples,
       sampledFrames: evidence.sampledFrames,
     },
   };
@@ -347,6 +361,7 @@ export function buildPhase0RenderedQualityEvidencePayload(
     renderedAestheticArtifactNote: hasRenderedEvidence
       ? 'Rendered aesthetic report paths are workspace-local artifact paths for the fixture or current process.'
       : 'Rendered aesthetic report artifacts are missing.',
+    renderedAestheticIssueSamples: hasRenderedEvidence ? manifest.renderArtifacts.renderedIssueSamples.slice(0, 24) : [],
   };
 }
 
@@ -1570,15 +1585,27 @@ function summarizeRenderedAestheticReport(report: Phase0RenderedAestheticReportL
   const frames = Array.isArray(report.frames) ? report.frames : [];
   const issuesBySeverity: Record<Phase0RenderedIssueSeverity, number> = { fail: 0, warn: 0, info: 0 };
   const issuesByDimension: Record<string, number> = {};
+  const issueSamples: Phase0RenderedIssueSample[] = [];
   let issueCount = 0;
 
   for (const frame of frames) {
+    const frameNumber = readPositiveNumber(frame.frame, 0);
     for (const issue of frame.report?.issues ?? []) {
       const severity = readRenderedIssueSeverity(issue.severity);
       const dimension = readString(issue.dimension) || 'unknown';
       issueCount += 1;
       issuesBySeverity[severity] += 1;
       issuesByDimension[dimension] = (issuesByDimension[dimension] ?? 0) + 1;
+      if (issueSamples.length < 24) {
+        issueSamples.push({
+          frame: frameNumber,
+          dimension,
+          severity,
+          overlayId: readIssueOverlayId(issue.overlayId),
+          message: readString(issue.message) || 'Rendered aesthetic issue',
+          evidence: readString(issue.evidence) || null,
+        });
+      }
     }
   }
 
@@ -1595,6 +1622,7 @@ function summarizeRenderedAestheticReport(report: Phase0RenderedAestheticReportL
     issueCount,
     issuesBySeverity,
     issuesByDimension: sortRecordByKey(issuesByDimension),
+    issueSamples,
     sampledFrames: frames.slice(0, 40).map((frame) => ({
       frame: readPositiveNumber(frame.frame, 0),
       status: readRenderedStatus(frame.report?.status),
@@ -1614,6 +1642,10 @@ function readRenderedStatus(value: unknown): Phase0RenderedAestheticStatus | nul
 
 function readRenderedIssueSeverity(value: unknown): Phase0RenderedIssueSeverity {
   return value === 'fail' || value === 'warn' || value === 'info' ? value : 'warn';
+}
+
+function readIssueOverlayId(value: unknown): string | number | null {
+  return typeof value === 'string' || typeof value === 'number' ? value : null;
 }
 
 function readIdArray(value: unknown): Array<string | number> {
