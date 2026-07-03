@@ -223,25 +223,44 @@ export function resolveProductionBrief(signals: IntakeSignals): ProductionBrief 
 }
 
 /**
- * The single field to confirm with the user: the FIRST uncertain inferred field in
- * priority order, or null if everything is confident enough to proceed. "Ask the basics"
- * = ask exactly ONE thing, and only when genuinely unsure.
+ * Every uncertain inferred field, in priority order. The building block for the "ask the
+ * basics" loop: a UI can show how many confirmations remain, or drive them one at a time.
  *
  * Priority order matters: format is UPSTREAM of duration and aspect (it sets their
- * defaults), so when format is shaky we ask it first - the user's answer re-resolves the
- * rest, which may remove the need to ask anything else. `only` is that priority order
- * (default: the material output fields, not free-text intent/style).
+ * defaults), so it leads - the user's answer re-resolves the rest, which may remove the
+ * need to ask anything else. `only` is that priority order (default: the material output
+ * fields, not free-text intent/style).
+ */
+export function pendingConfirmFields(
+  brief: ProductionBrief,
+  opts?: { threshold?: number; only?: BriefField[] },
+): BriefField[] {
+  const threshold = opts?.threshold ?? CONFIRM_CONFIDENCE_THRESHOLD;
+  const consider = opts?.only ?? (['format', 'targetDurationSec', 'aspectRatio'] as BriefField[]);
+  const pending: BriefField[] = [];
+  for (const field of consider) {
+    if (!brief.resolution.inferred.includes(field)) continue;
+    if ((brief.resolution.fieldConfidence[field] ?? 0) < threshold) pending.push(field);
+  }
+  return pending;
+}
+
+/**
+ * The single field to confirm first (highest-priority uncertain field), or null if
+ * everything is confident enough to proceed. "Ask the basics" = ask exactly ONE thing,
+ * and only when genuinely unsure.
  */
 export function nextConfirmField(
   brief: ProductionBrief,
   opts?: { threshold?: number; only?: BriefField[] },
 ): BriefField | null {
-  const threshold = opts?.threshold ?? CONFIRM_CONFIDENCE_THRESHOLD;
-  const consider = opts?.only ?? (['format', 'targetDurationSec', 'aspectRatio'] as BriefField[]);
-  for (const field of consider) {
-    if (!brief.resolution.inferred.includes(field)) continue;
-    const conf = brief.resolution.fieldConfidence[field] ?? 0;
-    if (conf < threshold) return field;
-  }
-  return null;
+  return pendingConfirmFields(brief, opts)[0] ?? null;
+}
+
+/** True when nothing material is left to confirm - the brief is safe to hand the director. */
+export function isBriefReady(
+  brief: ProductionBrief,
+  opts?: { threshold?: number; only?: BriefField[] },
+): boolean {
+  return pendingConfirmFields(brief, opts).length === 0;
 }
