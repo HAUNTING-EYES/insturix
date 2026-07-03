@@ -94,6 +94,21 @@ describe('rendered aesthetic harness helpers', () => {
     expect(overlays.map((overlay) => overlay.id)).toEqual([3, 4, 5]);
   });
 
+  it('samples generated scenes as auditable visual overlays', () => {
+    const generatedScene = generatedSceneOverlay({ id: 21, from: 0, durationInFrames: 90 });
+    const samples = planRenderedAestheticSamples([
+      generatedScene,
+      soundOverlay({ id: 22, from: 0, durationInFrames: 90 }),
+    ], 120, 12);
+    const renderOverlays = buildOverlayOnlyRenderOverlays([
+      generatedScene,
+      soundOverlay({ id: 22, from: 0, durationInFrames: 90 }),
+    ], 1920, 1080);
+
+    expect(samples.some((sample) => sample.sourceOverlayTypes.includes('generated-scene'))).toBe(true);
+    expect(renderOverlays.map((overlay) => overlay.id)).toEqual([21]);
+  });
+
   it('keeps zoom and SFX in the sample plan without adding them to overlay-only still renders', () => {
     const samples = planRenderedAestheticSamples([
       zoomOverlay({ id: 11, from: 20, durationInFrames: 30 }),
@@ -645,6 +660,20 @@ function motionGraphicOverlay(input: OverlayFixtureInput & { id: number }): Over
         { id: 'accent', primitive: 'shape', bind: { color: 'token:color.accent' } },
       ],
     },
+  } as unknown as Overlay;
+}
+
+function generatedSceneOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
+  return {
+    ...baseOverlay({
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      ...input,
+      type: OverlayType.GENERATED_SCENE,
+    }),
+    content: 'Generated SaaS scene',
   } as unknown as Overlay;
 }
 
