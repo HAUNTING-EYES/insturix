@@ -13,6 +13,10 @@ describe('ExportCompletePanel Editron completion contract', () => {
     expect(source).toContain('const showClickatronHandoff = !projectId && !isEditronAiVideoExport && Boolean(clickatronHandoffState);');
     expect(source).not.toContain('Boolean(videosGenerated || storyboardId || projectId)');
     expect(source).toContain('DRAFT IMPORT');
+    expect(source).toContain('scriptImportPreflight');
+    expect(source).toContain('Import preflight verified');
+    expect(source).toContain('Source-session project matched');
+    expect(source).toContain('0 credits');
     expect(source).toContain('{projectId && <button');
     expect(source).toContain('{showClickatronHandoff && (');
     expect(source).toContain('<ClickatronHandoffPanel');
@@ -27,6 +31,10 @@ describe('ExportCompletePanel Editron completion contract', () => {
     expect(source).toContain('throw new Error(errorMsg);');
     expect(source).toContain('setStep(sbId ? "reviewing-storyboard" : "configure");');
     expect(source).toContain('importMode: "draft-script-import"');
+    expect(source).toContain('dryRun: true');
+    expect(source).toContain('Cannot preflight Editron import: ThinkForge session id is missing.');
+    expect(source).toContain('preflightData.creditsDeducted !== 0');
+    expect(source).toContain('preflightData.writeOperationsSkipped !== true');
     expect(source).not.toContain('Storyboard generation timed out. Continuing with what was generated.');
   });
 });

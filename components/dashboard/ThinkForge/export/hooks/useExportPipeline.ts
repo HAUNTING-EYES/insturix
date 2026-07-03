@@ -57,6 +57,18 @@ export interface EditronProductionManifest {
   warnings?: string[];
 }
 
+export interface EditronImportPreflightResult {
+  dryRun: true;
+  projectId: string | null;
+  overlayCount: number;
+  totalDurationFrames: number;
+  totalDurationSeconds: number;
+  creditsDeducted: number;
+  reusedProject: boolean;
+  wouldReuseProject: boolean;
+  writeOperationsSkipped: boolean;
+}
+
 // ─── Hook return type ────────────────────────────────────────────
 export interface UseExportPipelineReturn {
   // ── Pipeline step ──
@@ -110,6 +122,7 @@ export interface UseExportPipelineReturn {
   audioGenerating: boolean;
   storyboardId: string;
   storyboardScenes: any[];
+  scriptImportPreflight: EditronImportPreflightResult | null;
   videoProgress: { done: number; total: number };
   videosGenerated: boolean;
   clickatronCreating: boolean;
@@ -243,6 +256,7 @@ export function useExportPipeline(
   const [storyboardId, setStoryboardId] = useState("");
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
   const [productionManifest, setProductionManifest] = useState<EditronProductionManifest | null>(null);
+  const [scriptImportPreflight, setScriptImportPreflight] = useState<EditronImportPreflightResult | null>(null);
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
   const [clickatronCreating, setClickatronCreating] = useState(false);
@@ -470,6 +484,7 @@ export function useExportPipeline(
     setStoryboardId("");
     setStoryboardScenes([]);
     setProductionManifest(null);
+    setScriptImportPreflight(null);
     setVideoProgress({ done: 0, total: 0 });
     setVideosGenerated(false);
     setClickatronCreating(false);
@@ -574,14 +589,14 @@ export function useExportPipeline(
   // Phase 1: Parse scenes -> Extract subjects -> Gen references
   // ═══════════════════════════════════════════════════════════════
 
-  const runSubjectExtractionAndReferences = async () => {
-    if (generateStoryboard && scenes.length > 0) {
+  const runSubjectExtractionAndReferences = async (parsedScenes: any[] = scenes, projectTitle: string = title) => {
+    if (generateStoryboard && parsedScenes.length > 0) {
       setStep("extracting-subjects");
 
       const extractRes = await fetch("/api/services/pipeline/reference-images/extract-subjects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenes, artStyle }),
+        body: JSON.stringify({ scenes: parsedScenes, artStyle }),
       });
 
       if (extractRes.ok) {
@@ -719,12 +734,13 @@ export function useExportPipeline(
     }
 
     // If no storyboard or reference image extraction failed, go straight to phase 2
-    await handlePhase2(scenes, title);
+    await handlePhase2(parsedScenes, projectTitle);
   };
 
   const handleExport = async () => {
     setStep("exporting");
     setError("");
+    setScriptImportPreflight(null);
 
     try {
       // Step 1: Parse script into scenes
@@ -778,7 +794,7 @@ export function useExportPipeline(
         return;
       }
 
-      await runSubjectExtractionAndReferences();
+      await runSubjectExtractionAndReferences(exportData.scenes || [], projectTitle);
     } catch (err: any) {
       setError(err.message || "Something went wrong");
       setStep("configure");
@@ -1258,7 +1274,46 @@ export function useExportPipeline(
           setError(finalizeData.warnings.join(" | "));
         }
       } else {
-        // No storyboard — import scenes directly
+        // No storyboard — preflight before spending credits or writing project state.
+        if (!sourceSessionId) {
+          throw new Error("Cannot preflight Editron import: ThinkForge session id is missing.");
+        }
+
+        const preflightRes = await fetch("/api/services/editron/projects/import-from-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scenes: currentScenes,
+            title: currentTitle,
+            sourceSessionId,
+            aspectRatio,
+            sourceScriptId: scriptId,
+            brandId: sourceBrandId,
+            importMode: "draft-script-import",
+            dryRun: true,
+          }),
+        });
+
+        if (!preflightRes.ok) {
+          const data = await preflightRes.json().catch(() => ({}));
+          throw new Error(data.error || `Failed to preflight Editron import (${preflightRes.status})`);
+        }
+
+        const preflightData = await preflightRes.json().catch(() => null);
+        if (!preflightData?.success || preflightData.dryRun !== true) {
+          throw new Error("Editron import preflight returned an invalid response.");
+        }
+        if (preflightData.creditsDeducted !== 0 || preflightData.writeOperationsSkipped !== true) {
+          throw new Error("Editron import preflight did not prove zero-credit, no-write behavior.");
+        }
+        if (!Number.isFinite(preflightData.overlayCount) || preflightData.overlayCount <= 0) {
+          throw new Error("Editron import preflight produced no timeline overlays.");
+        }
+        if (!Number.isFinite(preflightData.totalDurationSeconds) || preflightData.totalDurationSeconds <= 0) {
+          throw new Error("Editron import preflight produced an invalid duration.");
+        }
+        setScriptImportPreflight(preflightData as EditronImportPreflightResult);
+
         const importRes = await fetch("/api/services/editron/projects/import-from-script", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1894,6 +1949,7 @@ export function useExportPipeline(
     audioGenerating,
     storyboardId,
     storyboardScenes,
+    scriptImportPreflight,
     videoProgress,
     videosGenerated,
     clickatronCreating,

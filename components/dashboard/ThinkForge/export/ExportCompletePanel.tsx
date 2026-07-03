@@ -21,6 +21,7 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
     aspectRatio,
     storyboardId,
     storyboardScenes,
+    scriptImportPreflight,
     videosGenerated,
     audioGenerating,
     projectId,
@@ -121,6 +122,24 @@ export function ExportCompletePanel({ pipeline }: ExportCompletePanelProps) {
             <p style={{ fontSize: 10, fontWeight: 500, color: "#5CB8CC" }}>Music & Sound Effects generating</p>
             <p style={{ fontSize: 9, color: "rgba(92,184,204,0.55)", marginTop: 1 }}>Audio will appear in your Editor automatically</p>
           </div>
+        </div>
+      )}
+
+      {scriptImportPreflight && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          padding: 10, borderRadius: 4,
+          background: "rgba(94,201,126,0.06)", border: "1px solid rgba(94,201,126,0.14)",
+        }}>
+          <div>
+            <p style={{ fontSize: 10, fontWeight: 600, color: "#5EC97E" }}>Import preflight verified</p>
+            <p style={{ fontSize: 9, color: "rgba(236,233,225,0.58)", marginTop: 1 }}>
+              {scriptImportPreflight.wouldReuseProject ? "Source-session project matched" : "New Editron project expected"}
+            </p>
+          </div>
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#B5B2A8", whiteSpace: "nowrap" }}>
+            {scriptImportPreflight.overlayCount} overlays / {Math.round(scriptImportPreflight.totalDurationSeconds)}s / 0 credits
+          </p>
         </div>
       )}
 
