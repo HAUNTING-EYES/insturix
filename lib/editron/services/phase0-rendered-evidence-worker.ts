@@ -95,6 +95,12 @@ export function buildPhase0RenderedEvidenceClaimFilter(input: {
           { 'intelligence.phase0RenderedStillEvidence.status': { $exists: false } },
           { 'intelligence.phase0RenderedStillEvidence.version': { $ne: PHASE0_RENDERED_STILL_EVIDENCE_VERSION } },
           { 'intelligence.phase0RenderedStillEvidence.status': { $nin: ['completed', 'partial'] } },
+          {
+            $and: [
+              { 'intelligence.phase0RenderedStillEvidence.status': { $in: ['completed', 'partial'] } },
+              { 'intelligence.renderedQualityEvidence.qualityEvidenceSource': { $ne: 'rendered-aesthetic' } },
+            ],
+          },
         ],
       },
     ],

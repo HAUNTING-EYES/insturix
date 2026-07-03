@@ -321,6 +321,12 @@ describe('phase0 rendered evidence worker service', () => {
             { 'intelligence.phase0RenderedStillEvidence.status': { $exists: false } },
             { 'intelligence.phase0RenderedStillEvidence.version': { $ne: 'editron-phase0-rendered-still-evidence-v1' } },
             { 'intelligence.phase0RenderedStillEvidence.status': { $nin: ['completed', 'partial'] } },
+            {
+              $and: [
+                { 'intelligence.phase0RenderedStillEvidence.status': { $in: ['completed', 'partial'] } },
+                { 'intelligence.renderedQualityEvidence.qualityEvidenceSource': { $ne: 'rendered-aesthetic' } },
+              ],
+            },
           ],
         },
       ],
