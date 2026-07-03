@@ -6,7 +6,7 @@ export type AssetAnalysisPolicyEnv = Record<string, string | undefined>;
 
 export interface AssetVideoAnalysisPolicy {
   shouldRunFullAnalysis: boolean;
-  reason: "within-worker-budget" | "non-video" | "duration-over-serverless-ingest-budget";
+  reason: "within-worker-budget" | "non-video" | "unknown-duration-deferred" | "duration-over-serverless-ingest-budget";
   maxDurationSeconds: number;
   durationSeconds: number | null;
 }
@@ -38,7 +38,16 @@ export function resolveAssetVideoAnalysisPolicy(input: {
     };
   }
 
-  if (durationSeconds !== null && durationSeconds > maxDurationSeconds) {
+  if (durationSeconds === null) {
+    return {
+      shouldRunFullAnalysis: false,
+      reason: "unknown-duration-deferred",
+      maxDurationSeconds,
+      durationSeconds,
+    };
+  }
+
+  if (durationSeconds > maxDurationSeconds) {
     return {
       shouldRunFullAnalysis: false,
       reason: "duration-over-serverless-ingest-budget",

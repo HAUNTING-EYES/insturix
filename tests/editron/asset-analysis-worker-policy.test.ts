@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -10,6 +10,20 @@ import {
 const repoRoot = resolve(__dirname, "../..");
 
 describe("asset-analysis worker policy", () => {
+  it("defers full ingest-time video analysis when video duration is unknown", () => {
+    const policy = resolveAssetVideoAnalysisPolicy({
+      type: "video",
+      env: {},
+    });
+
+    expect(policy).toMatchObject({
+      shouldRunFullAnalysis: false,
+      reason: "unknown-duration-deferred",
+      maxDurationSeconds: 120,
+      durationSeconds: null,
+    });
+  });
+
   it("defers full ingest-time video analysis when duration cannot fit the serverless budget", () => {
     const policy = resolveAssetVideoAnalysisPolicy({
       type: "video",

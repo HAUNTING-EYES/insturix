@@ -95,10 +95,10 @@ These are plan amendments, not a new roadmap.
    missing while scoring samples. Root contract: render/judge code must evaluate the same MG
    signal payload that Director persisted. `overlay-atomic-receipts.ts` now treats top-level
    `contentSignals` as receipt evidence and invalidates stale receipts when those signals change.
-3. **Worker reliability side defect: asset-analysis timeout loop.** `asset-analysis` timed out
-   repeatedly on the long upload. It did not block the main edit, but it wastes Vercel time and
-   weakens side metadata. Treat as a separate worker-budget/deduplication slice, not an MG/EDL
-   root-cause detour.
+3. **Worker reliability side defect: asset-analysis timeout loop - PARTIAL FIX IN CODE 2026-07-04.** `asset-analysis` timed out
+   repeatedly on the long upload. Unknown-duration videos now defer full ingest-time 5-Track analysis instead of assuming
+   they fit the 300s worker budget; known long videos were already deferred. Remaining proof is live telemetry that
+   retries stop leaving stale analyzing jobs.
 
 ---
 
