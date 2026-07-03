@@ -1091,6 +1091,7 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
 
 function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimensions?: { width?: number; height?: number }) {
   const captionOverlays = overlays.filter((overlay) => overlay.type === 'caption' || overlay.type === 'text');
+  const sfxOverlays = overlays.filter(isSfxOverlay);
   const captionStats = summarizeCaptionStats(captionOverlays);
   return {
     motionGraphics: overlays
@@ -1137,16 +1138,14 @@ function summarizeOverlayFamilies(overlays: Phase0OverlayLike[], playerDimension
         .filter(Boolean),
     },
     sfx: {
-      count: overlays.filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio').length,
-      roles: unique(overlays
-        .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+      count: sfxOverlays.length,
+      roles: unique(sfxOverlays
         .map((overlay) => readString(overlay.metadata?.role ?? (overlay.metadata?.atomicSfxForm as JsonRecord | undefined)?.role))
         .filter(Boolean)),
-      withAtomicForm: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && overlay.metadata?.atomicSfxForm).length,
-      withTransitionAnchor: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && isTransitionAnchoredSfx(overlay)).length,
-      withTransitionEvidence: overlays.filter((overlay) => (overlay.type === 'sound' || overlay.type === 'audio') && isTransitionAnchoredSfx(overlay) && hasSfxTransitionEvidence(overlay)).length,
-      transitionEvidenceMissing: overlays
-        .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+      withAtomicForm: sfxOverlays.filter((overlay) => overlay.metadata?.atomicSfxForm).length,
+      withTransitionAnchor: sfxOverlays.filter((overlay) => isTransitionAnchoredSfx(overlay)).length,
+      withTransitionEvidence: sfxOverlays.filter((overlay) => isTransitionAnchoredSfx(overlay) && hasSfxTransitionEvidence(overlay)).length,
+      transitionEvidenceMissing: sfxOverlays
         .map(sfxTransitionEvidenceMissing)
         .filter(Boolean),
     },
@@ -1246,6 +1245,25 @@ function hasTransitionBoundaryReason(overlay: Phase0OverlayLike): boolean {
       || kind.includes('boundary')
     ));
   });
+}
+
+function isSfxOverlay(overlay: Phase0OverlayLike): boolean {
+  return isAudioOverlay(overlay) && !isVoiceoverOverlay(overlay);
+}
+
+function isAudioOverlay(overlay: Phase0OverlayLike): boolean {
+  return overlay.type === 'sound' || overlay.type === 'audio';
+}
+
+function isVoiceoverOverlay(overlay: Phase0OverlayLike): boolean {
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : {};
+  return metadata.isVoiceover === true
+    || hasValue(metadata.narrationText)
+    || hasValue(metadata.voiceoverSlotId)
+    || readString(metadata.kind) === 'voiceover'
+    || String(overlay.assetId ?? '').startsWith('voiceover_')
+    || String(overlay.content ?? '').startsWith('VO ready:')
+    || String(overlay.content ?? '').startsWith('VO pending:');
 }
 
 function sfxTransitionEvidenceMissing(overlay: Phase0OverlayLike) {

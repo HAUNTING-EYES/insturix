@@ -110,6 +110,72 @@ describe('phase0 failure taxonomy', () => {
     });
   });
 
+  it('does not false-fail generated SaaS scene timelines with voiceover audio', () => {
+    const project = cleanProject();
+    project.projectId = 'proj_generated_saas';
+    project.durationInFrames = 90;
+    project.rawFootageAnalysis = undefined;
+    project.overlays = [
+      {
+        id: 'gs-1',
+        type: 'generated-scene',
+        from: 0,
+        durationInFrames: 90,
+        content: 'Product workflow scene',
+      },
+      {
+        id: 'vo-1',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 90,
+        assetId: 'voiceover_ready_1',
+        content: 'VO ready: Launch faster with a clear workflow.',
+        metadata: {
+          isVoiceover: true,
+          narrationText: 'Launch faster with a clear workflow.',
+        },
+      },
+    ];
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_generated_saas',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_generated_saas',
+    });
+
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack, {
+      summary: {
+        status: 'pass',
+        score: 1,
+        passFrames: 3,
+        warnFrames: 0,
+        failFrames: 0,
+        sampledFrames: 3,
+        animationSampleFrames: 3,
+      },
+      frames: [],
+    });
+    const classIds = taxonomy.classes.map((item) => item.id);
+
+    expect(manifest.overlayCounts).toMatchObject({ 'generated-scene': 1, sound: 1 });
+    expect(manifest.overlayFamilies.sfx).toMatchObject({
+      count: 0,
+      roles: [],
+      withAtomicForm: 0,
+      withTransitionAnchor: 0,
+      withTransitionEvidence: 0,
+      transitionEvidenceMissing: [],
+    });
+    expect(artifactPack.status).toBe('ready');
+    expect(taxonomy.summary.fail).toBe(0);
+    expect(classIds).not.toEqual(expect.arrayContaining([
+      'cut.no_video_clips',
+      'cut.tail_gap',
+      'timeline.canonical_context_not_safe',
+      'overlay.sfx_form_missing',
+      'timeline.sfx_orphan',
+    ]));
+  });
   it('classifies broken fixture evidence with stable failure ids', () => {
     const project: Phase0FixtureProject = {
       projectId: 'proj_broken',

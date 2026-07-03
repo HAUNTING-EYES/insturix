@@ -64,9 +64,10 @@ export function classifyPhase0Fixture(
   renderedReport?: Phase0RenderedAestheticReportLike,
 ): Phase0FailureTaxonomy {
   const classes: Phase0FailureClass[] = [];
+  const generatedSceneTimeline = isGeneratedSceneTimeline(manifest, artifactPack);
 
-  addCutClasses(classes, manifest);
-  addTimelineClasses(classes, manifest);
+  addCutClasses(classes, manifest, generatedSceneTimeline);
+  addTimelineClasses(classes, manifest, generatedSceneTimeline);
   addDecisionClasses(classes, manifest);
   addVjepaClasses(classes, manifest);
   addOverlayClasses(classes, manifest);
@@ -84,7 +85,21 @@ export function classifyPhase0Fixture(
   };
 }
 
-function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+function isGeneratedSceneTimeline(
+  manifest: Phase0FixtureManifest,
+  artifactPack?: Phase0RenderArtifactPack,
+): boolean {
+  const renderOverlays = artifactPack?.renderInput.overlays ?? [];
+  const hasGeneratedScene = (manifest.overlayCounts['generated-scene'] ?? 0) > 0
+    || renderOverlays.some((overlay) => overlay.type === 'generated-scene');
+  const hasVideo = (manifest.overlayCounts.video ?? 0) > 0
+    || renderOverlays.some((overlay) => overlay.type === 'video');
+  return hasGeneratedScene && !hasVideo;
+}
+
+function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest, generatedSceneTimeline = false): void {
+  if (generatedSceneTimeline) return;
+
   const cut = manifest.cutContinuity;
   const cutPlan = manifest.cutPlan;
   if (cutPlan.status !== 'present') {
@@ -170,7 +185,9 @@ function addCutClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureMan
   }
 }
 
-function addTimelineClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+function addTimelineClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest, generatedSceneTimeline = false): void {
+  if (generatedSceneTimeline) return;
+
   if (!manifest.sourceMapping.hasCompleteSourceMapping) {
     classes.push({
       id: 'timeline.source_mapping_incomplete',
@@ -609,7 +626,7 @@ function addZoomTimingClass(classes: Phase0FailureClass[], overlays: Phase0Overl
 
 function addSfxTimingClasses(classes: Phase0FailureClass[], overlays: Phase0OverlayLike[], fps: number): void {
   const sfx = overlays
-    .filter((overlay) => overlay.type === 'sound' || overlay.type === 'audio')
+    .filter(isSfxOverlay)
     .map((overlay) => ({
       id: overlayId(overlay),
       frame: sfxSyncFrameOf(overlay),
@@ -983,6 +1000,7 @@ function collectZoomEvents(overlays: Phase0OverlayLike[]): Array<{ id: string; f
 function collectVisualSyncAnchors(overlays: Phase0OverlayLike[]): Array<{ frame: number; type: string }> {
   const visualAnchorTypes = new Set([
     'caption',
+    'generated-scene',
     'html-scene',
     'html-sticker',
     'image',
@@ -1076,6 +1094,25 @@ function transitionStyle(overlay: Phase0OverlayLike): string {
       ?? readString(form.job)
       ?? 'unknown',
   );
+}
+
+function isSfxOverlay(overlay: Phase0OverlayLike): boolean {
+  return isAudioOverlay(overlay) && !isVoiceoverOverlay(overlay);
+}
+
+function isAudioOverlay(overlay: Phase0OverlayLike): boolean {
+  return overlay.type === 'sound' || overlay.type === 'audio';
+}
+
+function isVoiceoverOverlay(overlay: Phase0OverlayLike): boolean {
+  const metadata = asRecord(overlay.metadata);
+  return metadata.isVoiceover === true
+    || hasScalarEvidence(metadata.narrationText)
+    || hasScalarEvidence(metadata.voiceoverSlotId)
+    || readString(metadata.kind) === 'voiceover'
+    || String(overlay.assetId ?? '').startsWith('voiceover_')
+    || String(overlay.content ?? '').startsWith('VO ready:')
+    || String(overlay.content ?? '').startsWith('VO pending:');
 }
 
 function sfxRole(overlay: Phase0OverlayLike): string | null {
