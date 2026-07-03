@@ -30,6 +30,7 @@ import {
   useAvatarProfiles,
   useAvatarVaultMutations,
 } from './useAvatarVault';
+import { AvatarVaultRenderPlanner } from './AvatarVaultRenderPlanner';
 
 type AvatarProfileFilter = AvatarProfileStatus | 'all';
 
@@ -656,6 +657,7 @@ function ProfileDetail({
           </div>
         </div>
       )}
+      {record.status === 'accepted' && <AvatarVaultRenderPlanner key={record.id} record={record} />}
     </div>
   );
 }

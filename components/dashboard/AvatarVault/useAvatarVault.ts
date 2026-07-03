@@ -4,6 +4,17 @@ import { useAuth } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AvatarProfileStatus, AvatarReferenceRole } from '@/lib/avatar/avatar-profile';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
+import type {
+  AvatarRenderAudioInput,
+  AvatarRenderRecipe,
+  AvatarRenderTarget,
+  AvatarRenderUseCase,
+} from '@/lib/avatar/avatar-render-recipe';
+import type {
+  AvatarProviderId,
+  AvatarProviderSelection,
+  AvatarProviderSelectionMode,
+} from '@/lib/avatar/avatar-provider-adapter';
 import type { AvatarProfileDraftRequest } from './avatar-vault-form';
 
 interface AvatarVaultApiError {
@@ -31,7 +42,18 @@ interface AvatarVaultUploadSuccess {
   asset: AvatarVaultUploadedReference;
 }
 
-type AvatarVaultApiResult = AvatarVaultApiError | AvatarVaultListSuccess | AvatarVaultRecordSuccess | AvatarVaultUploadSuccess;
+interface AvatarVaultRenderPlanSuccess {
+  ok: true;
+  recipe: AvatarRenderRecipe;
+  providerPlan: AvatarProviderSelection;
+}
+
+type AvatarVaultApiResult =
+  | AvatarVaultApiError
+  | AvatarVaultListSuccess
+  | AvatarVaultRecordSuccess
+  | AvatarVaultUploadSuccess
+  | AvatarVaultRenderPlanSuccess;
 
 export interface AvatarProfileListQuery {
   status?: AvatarProfileStatus;
@@ -48,6 +70,22 @@ export interface ReviewAvatarProfileInput {
 export interface UploadAvatarReferenceInput {
   file: File;
   role: AvatarReferenceRole;
+}
+
+export interface PlanAvatarRenderInput {
+  recordId: string;
+  useCase: AvatarRenderUseCase;
+  prompt: string;
+  script?: string;
+  negativePrompt?: string;
+  audio?: AvatarRenderAudioInput;
+  productImageUrls?: string[];
+  target?: AvatarRenderTarget;
+  provider?: {
+    mode?: AvatarProviderSelectionMode;
+    preferredProviderId?: AvatarProviderId;
+    includeProviderIds?: AvatarProviderId[];
+  };
 }
 
 export interface AvatarVaultUploadedReference {
@@ -117,6 +155,12 @@ export function useAvatarVaultMutations() {
   return { createDraft, reviewDraft, uploadReference };
 }
 
+export function useAvatarRenderPlanMutation() {
+  return useMutation({
+    mutationFn: planAvatarRenderRequest,
+  });
+}
+
 async function fetchAvatarProfiles(query: AvatarProfileListQuery): Promise<AvatarProfileRecord[]> {
   const params = new URLSearchParams();
   if (query.status) params.set('status', query.status);
@@ -170,6 +214,18 @@ async function uploadAvatarReferenceRequest(input: UploadAvatarReferenceInput): 
     method: 'POST',
     body: formData,
   });
+}
+
+async function planAvatarRenderRequest(input: PlanAvatarRenderInput): Promise<AvatarVaultRenderPlanSuccess> {
+  const { recordId, ...body } = input;
+  return avatarVaultFetch<AvatarVaultRenderPlanSuccess>(
+    `/api/avatar-vault/profiles/${encodeURIComponent(recordId)}/render-plan`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 async function avatarVaultFetch<TSuccess extends { ok: true }>(
