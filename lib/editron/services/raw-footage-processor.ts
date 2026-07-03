@@ -60,6 +60,19 @@ export interface SilenceRemovalAction {
       faceCount?: number;
       textCoverage?: number;
       reasons: string[];
+      evidence?: {
+        coverageTrust: number;
+        viewerValue?: number;
+        speechLock?: number;
+        boundaryReadiness?: number;
+        visualContinuityRisk?: number;
+        artifactRisk?: number;
+        brollUsefulness?: number;
+        cutEligibility?: number;
+        boundaryStrength?: number;
+        continuityRisk?: number;
+        missingEvidence: string[];
+      };
     };
   };
 }

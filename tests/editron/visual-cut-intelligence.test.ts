@@ -202,6 +202,11 @@ describe('visual cut intelligence', () => {
         visualCut: expect.objectContaining({
           decision: 'remove-visual-dead-air',
           reasons: expect.arrayContaining(['low-visual-significance', 'low-motion', 'no-face']),
+          evidence: expect.objectContaining({
+            coverageTrust: expect.any(Number),
+            cutEligibility: expect.any(Number),
+            missingEvidence: [],
+          }),
         }),
       }),
     }));
@@ -243,6 +248,14 @@ describe('visual cut intelligence', () => {
         source: 'vjepa-visual-boundary',
         calibrationStatus: 'invented-threshold',
         boundaryReasons: expect.arrayContaining(['visual-state-change', 'visual-motion-change', 'visual-subject-change']),
+        visualCut: expect.objectContaining({
+          decision: 'split-visual-boundary',
+          evidence: expect.objectContaining({
+            boundaryStrength: expect.any(Number),
+            cutEligibility: expect.any(Number),
+            missingEvidence: [],
+          }),
+        }),
       }),
     }));
     expect(result.report.addedSplitCount).toBe(1);

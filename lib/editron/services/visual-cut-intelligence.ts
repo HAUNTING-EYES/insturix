@@ -335,7 +335,7 @@ function buildVisualDeadAirRemoval(segment: VjepaSegmentResult, reasons: string[
       kind: 'visual-cut',
       source: 'vjepa-visual-dead-air',
       calibrationStatus: 'invented-threshold',
-      visualCut: visualCutMetadata('remove-visual-dead-air', segment, reasons, evidence.cutEligibility),
+      visualCut: visualCutMetadata('remove-visual-dead-air', segment, reasons, evidence.cutEligibility, evidence),
     },
   };
 }
@@ -357,7 +357,7 @@ function buildVisualBoundarySplit(
       calibrationStatus: 'invented-threshold',
       boundaryReasons: reasons,
       speechGapMs: Math.max(0, Math.round(next.startMs - previous.endMs)),
-      visualCut: visualCutMetadata('split-visual-boundary', next, reasons, evidence.cutEligibility),
+      visualCut: visualCutMetadata('split-visual-boundary', next, reasons, evidence.cutEligibility, evidence),
     },
   };
 }
@@ -367,6 +367,7 @@ function visualCutMetadata(
   segment: VjepaSegmentResult,
   reasons: string[],
   confidence = confidenceForReasons(reasons),
+  evidence?: VisualEvidenceScore | VisualBoundaryEvidenceScore,
 ): NonNullable<NonNullable<SilenceRemovalAction['metadata']>['visualCut']> {
   return {
     decision,
@@ -381,6 +382,7 @@ function visualCutMetadata(
     faceCount: segment.faceCount,
     textCoverage: round01(segment.textCoverage),
     reasons,
+    ...(evidence && { evidence: summarizeEvidence(evidence) }),
   };
 }
 
