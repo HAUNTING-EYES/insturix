@@ -416,8 +416,17 @@ export async function getUserPlanWithServiceLimits(clerkUserId: string) {
     serviceLimits = {};
   }
   
+  // user.currentPlan is a Mongoose SUBDOCUMENT — spreading it with {...} exposes
+  // internal props, NOT the schema fields, so name/planId came back undefined and
+  // every per-plan limit (storage, retention, service access) silently fell to the
+  // base tier. toObject() returns a plain object with the real fields.
+  const currentPlanObj =
+    user.currentPlan && typeof (user.currentPlan as any).toObject === 'function'
+      ? (user.currentPlan as any).toObject()
+      : (user.currentPlan || {});
+
   const result = {
-    ...user.currentPlan,
+    ...currentPlanObj,
     serviceLimits,
   };
 

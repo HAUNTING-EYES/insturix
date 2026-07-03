@@ -353,7 +353,7 @@ export async function startChapterRender(
   try {
     const { getUserPlanWithServiceLimits } = await import('@/lib/services/planService');
     const plan: any = await getUserPlanWithServiceLimits(userId);
-    planType = plan?.type ?? plan?.planType;
+    planType = plan?.type ?? plan?.planType ?? plan?.name; // currentPlan stores the key in `name`
   } catch { /* plan not resolvable → base retention */ }
   const { renderChapterExpiresAt } = await import('@/lib/editron/services/render-chapter-retention');
   const createdAt = new Date();
