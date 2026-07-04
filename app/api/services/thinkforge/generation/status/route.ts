@@ -46,7 +46,10 @@ export async function GET(req: Request) {
       generation.status === 'completed' &&
       (generation.type === 'script_generate' || generation.type === 'script_edit')
     ) {
-      script = await db.getScript(sessionId);
+      const generationScriptId = typeof generation.scriptId === 'string' && generation.scriptId.trim()
+        ? generation.scriptId
+        : null;
+      script = await db.getScript(sessionId, generationScriptId);
     }
 
     return NextResponse.json({ generation: generation || null, script });

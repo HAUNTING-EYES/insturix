@@ -104,6 +104,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
             content: data.content || null,
             blocks: data.blocks || null,
             version: data.version,
+            metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null,
           };
           setScript(serverScript);
           lastSavedSnapshotRef.current = JSON.stringify(serverScript);
@@ -399,4 +400,3 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     resetSessionState,
   } as const;
 }
-

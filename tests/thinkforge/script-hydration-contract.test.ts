@@ -33,4 +33,18 @@ describe('ThinkForge script hydration contract', () => {
     expect(chatHook).not.toContain('optionsRef.current.onRemoteScriptUpdate(data);');
     expect(chatHook).not.toContain('optionsRef.current.onRemoteScriptUpdate(data.script);');
   });
+  it('keeps AI generation ownership metadata durable through status and script block reloads', () => {
+    const chatService = read('lib/thinkforge/services/chat-service.ts');
+    const statusRoute = read('app/api/services/thinkforge/generation/status/route.ts');
+    const blocksRoute = read('app/api/services/thinkforge/script/blocks/route.ts');
+    const scriptHook = read('app/dashboard/thinkforge/hooks/useThinkForgeScript.ts');
+
+    expect(chatService).toContain("workflow: 'create'");
+    expect(chatService).toContain("source: 'ai'");
+    expect(chatService).toContain('scriptId: effectiveScriptId || undefined');
+    expect(statusRoute).toContain('generation.scriptId');
+    expect(blocksRoute).toContain('metadata: script.metadata || {}');
+    expect(blocksRoute).toContain('metadata: result.script.metadata || {}');
+    expect(scriptHook).toContain("metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null");
+  });
 });

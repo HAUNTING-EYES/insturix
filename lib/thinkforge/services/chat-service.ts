@@ -418,7 +418,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
                 blocks: draft.blocks,
                 richText: draft.richText as any,
                 documentType: docType,
-                ...(draft.signalTrace ? { metadata: { signalTrace: draft.signalTrace } } : {}),
+                metadata: {
+                  workflow: 'blueprint',
+                  source: 'ai',
+                  ...(draft.signalTrace ? { signalTrace: draft.signalTrace } : {}),
+                },
               },
             }, userId);
 
@@ -641,6 +645,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               content: '',
               blocks: [],
               documentType: requestedDocumentType,
+              metadata: {
+                workflow: 'create',
+                source: 'ai',
+                initializing: true,
+              },
             }
           }, userId);
 
@@ -723,6 +732,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             },
             metadata: {
               workflow: 'refine',
+              source: 'ai',
               thoughts: 'Script refined surgically on selection',
               duration_ms: 0,
               agent_steps: [],
@@ -765,6 +775,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
                 content: mergedContent || script!.content || '',
                 blocks: mergedBlocks,
                 richText: finalRichText as any,
+                metadata: {
+                  workflow: 'refine',
+                  source: 'ai',
+                },
               }
             }, userId);
             if (!saveResult.ok) {
@@ -783,6 +797,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             },
             metadata: {
               workflow: 'refine',
+              source: 'ai',
               thoughts: 'Script refined surgically',
               duration_ms: 0,
               agent_steps: []
@@ -833,6 +848,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           await db.setActiveGeneration(sessionId || session._id, {
             id: activeGenerationId,
             type: 'script_generate',
+            scriptId: effectiveScriptId || undefined,
             status: 'running',
             intent: 'draft',
             progress: 0.01,
@@ -1020,12 +1036,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
               blocks: finalBlocks,
               richText: finalRichText as any,
               documentType: generatedDocumentType,
-              ...((signalTrace || writerOutputMetadata) ? {
-                metadata: {
-                  ...(signalTrace ? { signalTrace } : {}),
-                  ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
-                }
-              } : {}),
+              metadata: {
+                workflow: 'create',
+                source: 'ai',
+                documentType: generatedDocumentType,
+                ...(signalTrace ? { signalTrace } : {}),
+                ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
+              },
             }
           }, userId);
           if (!saveResult.ok) {
@@ -1053,6 +1070,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           },
           metadata: {
             workflow: 'create',
+            source: 'ai',
             thoughts: `${contentPath === 'post' ? 'Post' : 'Script'} created directly via Writer API`,
             duration_ms: 0,
             agent_steps: []
@@ -1064,6 +1082,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (session) {
           await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
             status: 'completed',
+            scriptId: effectiveScriptId || undefined,
             progress: 1,
             message: 'Content generated',
           });

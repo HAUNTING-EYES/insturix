@@ -36,7 +36,9 @@ export async function GET(req: Request) {
         blocks: [],
         richText: null,
         title: 'Untitled Script',
-        content: ''
+        content: '',
+        metadata: {},
+        documentType: 'screenplay'
       });
     }
 
@@ -45,7 +47,9 @@ export async function GET(req: Request) {
       richText: script.richText || null, // Tiptap JSON AST
       title: script.title || 'Untitled Script',
       content: script.content || '',
-      version: script.version ?? 1
+      version: script.version ?? 1,
+      metadata: script.metadata || {},
+      documentType: script.documentType || 'screenplay'
     });
   } catch (error: any) {
     console.error('Error getting script blocks:', error);
@@ -133,6 +137,8 @@ export async function POST(req: Request) {
         title: result.script.title,
         content: result.script.content,
         version: result.script.version ?? 1,
+        metadata: result.script.metadata || {},
+        documentType: result.script.documentType || 'screenplay',
       }
     });
   } catch (error: any) {

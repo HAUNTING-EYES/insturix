@@ -148,6 +148,7 @@ const COLL_EVENTS = 'thinkforge_events';
 export interface GenerationState {
   id: string;
   type: 'chat' | 'script_generate' | 'script_edit';
+  scriptId?: string;
   status: 'running' | 'completed' | 'cancelled' | 'failed';
   intent?: string;
   progress?: number;
@@ -3236,4 +3237,3 @@ export async function getRecentInteractionEvents(
     return [];
   }
 }
-
