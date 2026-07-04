@@ -23,6 +23,7 @@ export type BrandReferenceEvidence = {
   referenceProvenanceLabel: 'Brand Vault' | 'Website screenshot';
   source: 'brand-vault-product-image' | 'brand-vault-logo' | 'website-screenshot';
   assetRole: 'logo' | 'product' | 'website-screenshot';
+  matchText?: string;
 };
 
 export type BrandReferenceSubjectInput = {
@@ -82,6 +83,36 @@ const BRAND_OWNED_CUES = [
   'brand system',
 ];
 
+const WEBSITE_REFERENCE_CUES = ['website', 'site', 'landing page', 'homepage', 'web page'];
+const PRODUCT_UI_REFERENCE_CUES = [
+  'product',
+  'platform',
+  'dashboard',
+  'app',
+  'application',
+  'software',
+  'tool',
+  'portal',
+  'console',
+  'interface',
+  'ui',
+  'editor',
+  'workspace',
+  'studio',
+  'screenshot',
+];
+
+const MATCH_STOP_WORDS = new Set([
+  'and',
+  'brand',
+  'image',
+  'official',
+  'reference',
+  'screenshot',
+  'the',
+  'with',
+]);
+
 export function cleanOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -99,6 +130,18 @@ function containsPhrase(text: string, phrase: string): boolean {
   const normalizedPhrase = normalizeForMatch(phrase);
   if (normalizedPhrase.length < 3) return false;
   return normalizedText.includes(` ${normalizedPhrase} `);
+}
+
+function tokensForMatch(value: string): string[] {
+  return normalizeForMatch(value)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !MATCH_STOP_WORDS.has(token));
+}
+
+function combinedSubjectText(subject: BrandReferenceSubjectInput): string {
+  return [subject.name, subject.visualDescription]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
 }
 
 function actionableString(signal: BrandSignal<string> | undefined): string | undefined {
@@ -139,6 +182,18 @@ function visualAssetPreviewUrl(asset: BrandVaultVisualAssetPreview): string | un
     : undefined;
 }
 
+function visualAssetMatchText(asset: BrandVaultVisualAssetPreview): string {
+  return [
+    asset.kind,
+    asset.label,
+    asset.sourceField,
+    asset.sourceUrl,
+    asset.originalUrl,
+    asset.thumbnailUrl,
+    asset.url,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join(' ');
+}
+
 function visualIdentityImageEvidence(
   visualIdentity: BrandVaultVisualIdentitySummary | null | undefined,
   max: number,
@@ -156,6 +211,7 @@ function visualIdentityImageEvidence(
         referenceProvenanceLabel: websiteEvidence ? 'Website screenshot' as const : 'Brand Vault' as const,
         source: websiteEvidence ? 'website-screenshot' as const : 'brand-vault-product-image' as const,
         assetRole: websiteEvidence ? 'website-screenshot' as const : 'product' as const,
+        matchText: visualAssetMatchText(asset),
       }];
     })
     .slice(0, Math.max(0, max));
@@ -174,6 +230,7 @@ export function brandReferenceEvidenceImages(
       referenceProvenanceLabel: 'Brand Vault' as const,
       source: 'brand-vault-logo' as const,
       assetRole: 'logo' as const,
+      matchText: imageUrl,
     }));
   const productImages = actionableImageUrls(profile?.assets?.productImages, max).map((imageUrl) => ({
     imageUrl,
@@ -181,6 +238,7 @@ export function brandReferenceEvidenceImages(
     referenceProvenanceLabel: 'Brand Vault' as const,
     source: 'brand-vault-product-image' as const,
     assetRole: 'product' as const,
+    matchText: imageUrl,
   }));
   const visualIdentityImages = visualIdentityImageEvidence(visualIdentity, max);
   const websiteScreenshots = actionableImageUrls(profile?.assets?.socialPreviewImages, max).map((imageUrl) => ({
@@ -189,6 +247,7 @@ export function brandReferenceEvidenceImages(
     referenceProvenanceLabel: 'Website screenshot' as const,
     source: 'website-screenshot' as const,
     assetRole: 'website-screenshot' as const,
+    matchText: imageUrl,
   }));
   const seen = new Set<string>();
   return [...logoImages, ...productImages, ...visualIdentityImages, ...websiteScreenshots]
@@ -202,10 +261,43 @@ export function brandReferenceEvidenceImages(
 export function isBrandLogoReferenceSubject(subject: BrandReferenceSubjectInput): boolean {
   const category = cleanOptionalString(subject.category)?.toLowerCase();
   if (category === 'logo') return true;
-  const combinedText = [subject.name, subject.visualDescription]
-    .filter((value): value is string => typeof value === 'string')
-    .join(' ');
-  return BRAND_LOGO_CUES.some((cue) => containsPhrase(combinedText, cue));
+  const subjectText = combinedSubjectText(subject);
+  return BRAND_LOGO_CUES.some((cue) => containsPhrase(subjectText, cue));
+}
+
+function commonEvidenceTokens(evidence: BrandReferenceEvidence[]): Set<string> {
+  const evidenceTokenSets = evidence.map((item) => new Set(tokensForMatch(item.matchText ?? item.imageUrl)));
+  const [firstTokenSet, ...restTokenSets] = evidenceTokenSets;
+  if (!firstTokenSet) return new Set();
+  return new Set([...firstTokenSet].filter((token) => restTokenSets.every((tokens) => tokens.has(token))));
+}
+
+function brandReferenceEvidenceScore(
+  subject: BrandReferenceSubjectInput,
+  evidence: BrandReferenceEvidence,
+  commonTokens: Set<string>,
+): number {
+  const subjectText = combinedSubjectText(subject);
+  const evidenceText = evidence.matchText ?? evidence.imageUrl;
+  const subjectTokens = new Set(tokensForMatch(subjectText));
+  const evidenceTokens = new Set(tokensForMatch(evidenceText));
+  let score = 0;
+
+  for (const token of subjectTokens) {
+    if (!commonTokens.has(token) && evidenceTokens.has(token)) score += 8;
+  }
+
+  if (PRODUCT_UI_REFERENCE_CUES.some((cue) => containsPhrase(subjectText, cue)) && evidence.assetRole === 'product') {
+    score += 4;
+  }
+  if (WEBSITE_REFERENCE_CUES.some((cue) => containsPhrase(subjectText, cue)) && evidence.assetRole === 'website-screenshot') {
+    score += 6;
+  }
+  if (subject.category === 'product' && evidence.assetRole === 'product') {
+    score += 2;
+  }
+
+  return score;
 }
 
 export function brandReferenceEvidenceForSubject(
@@ -213,7 +305,18 @@ export function brandReferenceEvidenceForSubject(
   evidence: BrandReferenceEvidence[],
 ): BrandReferenceEvidence[] {
   const logoSubject = isBrandLogoReferenceSubject(subject);
-  return evidence.filter((item) => logoSubject ? item.assetRole === 'logo' : item.assetRole !== 'logo');
+  const eligibleEvidence = evidence.filter((item) => logoSubject ? item.assetRole === 'logo' : item.assetRole !== 'logo');
+  if (logoSubject || eligibleEvidence.length <= 1) return eligibleEvidence;
+
+  const commonTokens = commonEvidenceTokens(eligibleEvidence);
+  const scoredEvidence = eligibleEvidence
+    .map((item, index) => ({ item, index, score: brandReferenceEvidenceScore(subject, item, commonTokens) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const bestScore = scoredEvidence[0]?.score ?? 0;
+
+  return bestScore >= 8
+    ? scoredEvidence.filter((entry) => entry.score === bestScore).map((entry) => entry.item)
+    : eligibleEvidence;
 }
 
 function brandReferenceSubjectHints(

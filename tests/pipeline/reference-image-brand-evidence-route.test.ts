@@ -110,18 +110,18 @@ function acceptedReviewPayloadWithVisualImages() {
       logos: [],
       images: [
         {
+          kind: 'website_preview',
+          label: 'Insturix dashboard website screenshot',
+          url: 'https://brand.example/website-shot.png',
+          confidence: 0.9,
+          sourceType: 'website',
+        },
+        {
           kind: 'uploaded_asset',
           label: 'Uploaded Insturix platform screenshot',
           url: 'https://brand.example/uploaded-platform.png',
           confidence: 0.93,
           sourceType: 'uploaded_asset',
-        },
-        {
-          kind: 'website_preview',
-          label: 'Insturix website screenshot',
-          url: 'https://brand.example/website-shot.png',
-          confidence: 0.9,
-          sourceType: 'website',
         },
       ],
     },
@@ -274,7 +274,6 @@ describe('reference image brand evidence route canary', () => {
     expect(mocks.deductCredits).not.toHaveBeenCalled();
     expect(mocks.createReferenceImageBatch).not.toHaveBeenCalled();
   });
-
 
   it('uses accepted Brand Vault visual identity images for product references without credits', async () => {
     mocks.resolveEffectiveBrandWithProfile.mockResolvedValue({
