@@ -9,8 +9,9 @@
  * default is rules-first. An embedding/vector scorer plugs in later (P3) behind the same
  * interface, with ZERO change here.
  *
- * Determinism (R18N): every sort has an explicit tiebreak on source index; no Date/random.
- * Weights + thresholds are INVENTED-PLACEHOLDER (calibrate from real edits).
+ * Determinism (R18N): every sort uses the shared byScoreDesc / chronological comparator
+ * with an explicit source-index tiebreak; no Date/random. Weights + thresholds are
+ * INVENTED-PLACEHOLDER (calibrate from real edits).
  */
 
 import type { AspectRatio, OutputFormat, ProductionBrief } from '../production-brief/production-brief';
@@ -60,20 +61,23 @@ function tokenize(text: string | undefined): string[] {
     .filter((w) => w.length > 2 && !STOPWORDS.has(w));
 }
 
+/**
+ * A highlight cut (condensed, hook-first) vs a faithful full edit. Single source of truth
+ * for the format's traits - used by ordering, role assignment, and shot scoring so they
+ * can never disagree.
+ */
+function isHighlightFormat(format: OutputFormat): boolean {
+  return format === 'reel';
+}
+
 /** How well a shot type fits a format (0..1). Heuristic, INVENTED-PLACEHOLDER. */
 function shotTypeFit(shotType: Scene['shotType'], format: OutputFormat): number {
   if (!shotType || shotType === 'unknown') return 0.5;
-  switch (format) {
-    case 'talking-head':
-    case 'explainer':
-      return shotType === 'close-up' || shotType === 'medium' ? 1 : 0.4;
-    case 'reel':
-    case 'ugc':
-    case 'ad':
-      return shotType === 'long' || shotType === 'wide' ? 0.6 : 1;
-    default:
-      return 0.6;
+  if (isHighlightFormat(format)) {
+    // a highlight wants punchy, tighter shots; wide/long read as filler
+    return shotType === 'long' || shotType === 'wide' ? 0.6 : 1;
   }
+  return 0.6; // faithful edit: neutral, keep the timeline's own shots
 }
 
 /**
@@ -112,6 +116,11 @@ function effDuration(s: SceneScore): number {
   return effOut(s) - s.scene.startTime;
 }
 
+/** Highest score first, ties broken by original input index (stable, deterministic). */
+function byScoreDesc(a: SceneScore, b: SceneScore): number {
+  return b.score - a.score || a.srcIndex - b.srcIndex;
+}
+
 /**
  * 1. SELECT - hard filter (valid window + min duration) then soft score. Returned in
  * SOURCE order (not sorted); fit/order sort as they need. Invalid/micro scenes dropped.
@@ -133,21 +142,20 @@ export function selectScenes(
 }
 
 /**
- * 2. FIT - choose the best-scoring subset whose total duration fits the budget. A null
- * target means "follow the content" (keep all). Greedy by score, packing smaller scenes
- * after larger ones. If no whole scene fits, the single best is trimmed to the budget so
- * the output is never empty when input is not.
+ * 2. FIT - choose the best-scoring subset whose total duration fits the budget. A null or
+ * non-finite target means "follow the content" (keep all). Greedy by score, packing
+ * smaller scenes after larger ones. If no whole scene fits AND the budget can still hold a
+ * valid (>= minClip) clip, the single best is trimmed to the budget; if the budget is
+ * smaller than minClip there is no viable clip, so the result is empty.
  */
 export function fitToDuration(
   scored: SceneScore[],
   targetSec: number | null,
   opts?: ComposeOptions,
 ): SceneScore[] {
-  if (targetSec === null) return scored.slice();
+  if (targetSec === null || !Number.isFinite(targetSec)) return scored.slice();
   const minClip = opts?.minClipDurationSec ?? MIN_CLIP_DURATION_SEC;
-  const byScore = scored
-    .slice()
-    .sort((a, b) => b.score - a.score || a.srcIndex - b.srcIndex);
+  const byScore = scored.slice().sort(byScoreDesc);
 
   const picked: SceneScore[] = [];
   let used = 0;
@@ -158,36 +166,23 @@ export function fitToDuration(
       used += d;
     }
   }
-  if (picked.length === 0 && byScore.length > 0) {
+  if (picked.length === 0 && byScore.length > 0 && targetSec >= minClip) {
     const best = byScore[0];
-    const trimmedOut = best.scene.startTime + Math.max(minClip, targetSec);
+    const trimmedOut = best.scene.startTime + targetSec; // targetSec >= minClip => a valid clip
     picked.push({ ...best, outOverride: Math.min(trimmedOut, best.scene.endTime) });
   }
   return picked;
 }
 
-type OrderStrategy = 'chronological' | 'score-desc';
-
-function orderStrategyFor(format: OutputFormat): OrderStrategy {
-  switch (format) {
-    case 'reel':
-    case 'ad':
-    case 'ugc':
-      return 'score-desc'; // highlight / hook-first
-    default:
-      return 'chronological'; // auto-edit / explainer / talking-head: faithful timeline
-  }
-}
-
 /**
  * 3. ORDER - sequence the picked scenes into a narrative for the format. Deterministic.
- * Chronological = by asset createdAt, then source, then startTime (the fix for Edit
- * Mind's recency-sort / store-order bug). score-desc = best moment first.
+ * Highlight = best moment first (score-desc). Faithful = by asset createdAt, then source,
+ * then startTime, then endTime (the fix for Edit Mind's recency-sort / store-order bug).
  */
 export function orderScenes(picked: SceneScore[], format: OutputFormat): SceneScore[] {
   const arr = picked.slice();
-  if (orderStrategyFor(format) === 'score-desc') {
-    arr.sort((a, b) => b.score - a.score || a.srcIndex - b.srcIndex);
+  if (isHighlightFormat(format)) {
+    arr.sort(byScoreDesc);
     return arr;
   }
   arr.sort((a, b) => {
@@ -196,6 +191,7 @@ export function orderScenes(picked: SceneScore[], format: OutputFormat): SceneSc
     if (ca !== cb) return ca - cb;
     if (a.scene.source !== b.scene.source) return a.scene.source < b.scene.source ? -1 : 1;
     if (a.scene.startTime !== b.scene.startTime) return a.scene.startTime - b.scene.startTime;
+    if (a.scene.endTime !== b.scene.endTime) return a.scene.endTime - b.scene.endTime;
     return a.srcIndex - b.srcIndex;
   });
   return arr;
@@ -203,8 +199,7 @@ export function orderScenes(picked: SceneScore[], format: OutputFormat): SceneSc
 
 /** Assign a clip role: hook-first for highlight formats, a/b-roll by speech otherwise. */
 function assignRole(index: number, scene: Scene, format: OutputFormat): ClipRole {
-  const highlight = format === 'reel' || format === 'ad' || format === 'ugc';
-  if (highlight && index === 0) return 'hook';
+  if (isHighlightFormat(format) && index === 0) return 'hook';
   return scene.hasSpeech ? 'a-roll' : 'b-roll';
 }
 

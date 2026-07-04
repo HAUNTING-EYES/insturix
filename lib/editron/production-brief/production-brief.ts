@@ -29,11 +29,10 @@ export type Platform =
 
 /**
  * Internal ordering hint DERIVED from the metadata - NOT a user-facing template choice.
- * The resolver only ever derives 'reel' (condensed highlight, hook-first ordering) or
- * 'auto-edit' (faithful full edit, chronological); the remaining values are ordering
- * buckets the composer recognizes. Nobody selects this.
+ * 'reel' = a condensed highlight cut (best moments, hook-first ordering); 'auto-edit' = a
+ * faithful full edit (chronological). Nobody selects this; deriveFormat computes it.
  */
-export type OutputFormat = 'reel' | 'auto-edit' | 'explainer' | 'talking-head' | 'ad' | 'ugc';
+export type OutputFormat = 'reel' | 'auto-edit';
 
 export type IntakeEntryPoint = 'upload' | 'script' | 'thinkforge' | 'generate' | 'idea';
 
@@ -76,10 +75,40 @@ export interface ProductionBrief {
 }
 
 /**
- * Output <= this fraction of the source => a condensed highlight cut, not a full edit.
- * INVENTED-PLACEHOLDER (calibrate).
+ * Platform -> default shape (aspect + a default length; null = follow content). SHAPE only;
+ * vibe/pacing comes from the brand, never the platform. SINGLE SOURCE - both the resolver
+ * and applyUserOutput's platform cascade read this. INVENTED-PLACEHOLDER (calibrate).
  */
+export const PLATFORM_SHAPE: Record<Platform, { aspectRatio: AspectRatio; durationSec: number | null }> = {
+  tiktok: { aspectRatio: '9:16', durationSec: 30 },
+  'instagram-reels': { aspectRatio: '9:16', durationSec: 30 },
+  'youtube-shorts': { aspectRatio: '9:16', durationSec: 45 },
+  'instagram-feed': { aspectRatio: '4:5', durationSec: 30 },
+  youtube: { aspectRatio: '16:9', durationSec: null },
+  linkedin: { aspectRatio: '1:1', durationSec: 60 },
+  x: { aspectRatio: '16:9', durationSec: 45 },
+  unspecified: { aspectRatio: '16:9', durationSec: null },
+};
+
+/** Output <= this fraction of the source => a condensed highlight cut. INVENTED-PLACEHOLDER. */
 export const CONDENSE_RATIO = 0.5;
+
+/**
+ * Normalize a requested/default length to a valid target: `null` (follow content) for
+ * null/undefined/NaN/non-positive input, otherwise capped to the source length (you cannot
+ * cut more than you uploaded). Never returns a negative, NaN, or over-source value.
+ */
+export function clampDuration(
+  durationSec: number | null | undefined,
+  sourceDurationSec?: number | null,
+): number | null {
+  if (durationSec === null || durationSec === undefined) return null;
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return null;
+  if (typeof sourceDurationSec === 'number' && sourceDurationSec > 0 && durationSec > sourceDurationSec) {
+    return sourceDurationSec;
+  }
+  return durationSec;
+}
 
 /**
  * Derive the internal ordering hint from the metadata: a short output relative to the
@@ -112,11 +141,17 @@ const OUTPUT_FIELD_KEYS: readonly BriefField[] = [
   'style',
 ];
 
+/** Shape knobs a platform change re-defaults (unless the same edit sets them explicitly). */
+const PLATFORM_CASCADE_FIELDS: readonly BriefField[] = ['aspectRatio', 'targetDurationSec'];
+
 /**
- * Apply the user's explicit spec-card edits to a brief. Every patched knob becomes
- * confirmed at confidence 1; `format` is always RE-DERIVED from the merged spec so the
- * ordering hint stays consistent (e.g. shortening the duration flips it to a highlight).
- * Never mutates.
+ * Apply the user's explicit spec-card edits to a brief, enforcing the SAME invariants the
+ * resolver does (so the edit path can't drift from the resolve path):
+ *  - changing `platform` (the master knob) re-defaults aspect/duration from PLATFORM_SHAPE,
+ *    unless the same edit set them explicitly;
+ *  - `targetDurationSec` is always clamped to the source (cannot cut more than uploaded);
+ *  - `format` is re-derived from the merged spec.
+ * Edited knobs become confirmed (confidence 1); cascaded knobs stay inferred. Never mutates.
  */
 export function applyUserOutput(
   brief: ProductionBrief,
@@ -125,19 +160,43 @@ export function applyUserOutput(
   const touched = OUTPUT_FIELD_KEYS.filter(
     (k) => (patch as Record<string, unknown>)[k] !== undefined,
   );
-  const confirmed = [...brief.resolution.confirmed];
+  const merged: BriefOutputSpec = { ...brief.output, ...patch };
+
+  if (patch.platform !== undefined) {
+    const shape = PLATFORM_SHAPE[patch.platform];
+    if (patch.aspectRatio === undefined) merged.aspectRatio = shape.aspectRatio;
+    if (patch.targetDurationSec === undefined) merged.targetDurationSec = shape.durationSec;
+  }
+  merged.targetDurationSec = clampDuration(merged.targetDurationSec, brief.sourceDurationSec);
+  merged.format = deriveFormat(merged, brief.sourceDurationSec);
+
+  const confirmed = new Set(brief.resolution.confirmed);
+  const inferred = new Set(brief.resolution.inferred);
   const fieldConfidence = { ...brief.resolution.fieldConfidence };
   for (const f of touched) {
-    if (!confirmed.includes(f)) confirmed.push(f);
+    confirmed.add(f);
+    inferred.delete(f);
     fieldConfidence[f] = 1;
   }
-  const inferred = brief.resolution.inferred.filter((f) => !touched.includes(f));
-  const mergedOutput: BriefOutputSpec = { ...brief.output, ...patch };
-  mergedOutput.format = deriveFormat(mergedOutput, brief.sourceDurationSec);
+  if (patch.platform !== undefined) {
+    const platformConf = fieldConfidence.platform ?? 1;
+    for (const f of PLATFORM_CASCADE_FIELDS) {
+      if (!touched.includes(f)) {
+        confirmed.delete(f); // it was auto-cascaded, not user-set
+        inferred.add(f);
+        fieldConfidence[f] = platformConf;
+      }
+    }
+  }
   return {
     ...brief,
-    output: mergedOutput,
-    resolution: { ...brief.resolution, confirmed, inferred, fieldConfidence },
+    output: merged,
+    resolution: {
+      ...brief.resolution,
+      confirmed: [...confirmed],
+      inferred: [...inferred],
+      fieldConfidence,
+    },
   };
 }
 

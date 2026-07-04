@@ -4,15 +4,19 @@
  * count) so the UI can SHOW an editable spec card, NOT ask a template question. Pure,
  * deterministic, never throws. Explicit user edits always win.
  *
- * The adapter that fills IntakeSignals from Editron's real analysis is the deferred seam.
+ * Shares PLATFORM_SHAPE + clampDuration with production-brief so the resolve path and the
+ * applyUserOutput edit path can never drift. The adapter that fills IntakeSignals from
+ * Editron's real analysis is the deferred seam.
  */
 
 import {
   type AspectRatio,
   type BriefField,
+  clampDuration,
   deriveFormat,
   type IntakeEntryPoint,
   type Platform,
+  PLATFORM_SHAPE,
   type ProductionBrief,
 } from './production-brief';
 
@@ -48,22 +52,6 @@ export const CONFIRM_CONFIDENCE_THRESHOLD = 0.7;
 /** Confidence for a "follow the content" (null) duration - a safe default, not a guess. */
 const FOLLOW_CONTENT_DURATION_CONFIDENCE = 0.85;
 
-/**
- * Platform -> default shape (aspect + a default length; null = follow content). These are
- * the SHAPE only. Vibe/pacing comes from the brand, never from the platform.
- * INVENTED-PLACEHOLDER (calibrate).
- */
-const PLATFORM_DEFAULTS: Record<Platform, { aspectRatio: AspectRatio; durationSec: number | null }> = {
-  tiktok: { aspectRatio: '9:16', durationSec: 30 },
-  'instagram-reels': { aspectRatio: '9:16', durationSec: 30 },
-  'youtube-shorts': { aspectRatio: '9:16', durationSec: 45 },
-  'instagram-feed': { aspectRatio: '4:5', durationSec: 30 },
-  youtube: { aspectRatio: '16:9', durationSec: null },
-  linkedin: { aspectRatio: '1:1', durationSec: 60 },
-  x: { aspectRatio: '16:9', durationSec: 45 },
-  unspecified: { aspectRatio: '16:9', durationSec: null },
-};
-
 interface PlatformInference {
   platform: Platform;
   confidence: number;
@@ -76,13 +64,15 @@ const LONG_FORM_CONTENT = [
 
 /**
  * Infer the destination when the user did not pick one. Connected accounts are the best
- * signal; otherwise default to a faithful long-form destination - the LEAST DESTRUCTIVE
- * default (keep the footage; a short is an explicit switch, never a silent guess).
- * Confidences are INVENTED-PLACEHOLDER.
+ * signal - but if MORE THAN ONE is connected the destination is genuinely ambiguous, so we
+ * lower the confidence below the threshold to make the card flag it rather than silently
+ * cropping for whichever account happened to be first. Otherwise default to a faithful
+ * long-form destination (the least destructive default). Confidences INVENTED-PLACEHOLDER.
  */
 function inferPlatform(signals: IntakeSignals): PlatformInference {
-  if (signals.connectedPlatforms && signals.connectedPlatforms.length > 0) {
-    return { platform: signals.connectedPlatforms[0], confidence: 0.9 };
+  const connected = signals.connectedPlatforms;
+  if (connected && connected.length > 0) {
+    return { platform: connected[0], confidence: connected.length === 1 ? 0.9 : 0.6 };
   }
   const ct = (signals.contentType ?? '').toLowerCase();
   if (LONG_FORM_CONTENT.some((k) => ct.includes(k))) {
@@ -91,11 +81,10 @@ function inferPlatform(signals: IntakeSignals): PlatformInference {
   return { platform: 'unspecified', confidence: 0.45 };
 }
 
-/** Clamp a length to the source: you cannot cut more than you uploaded (founder's rule). */
-function clampToSource(durationSec: number | null, sourceDurationSec: number | null): number | null {
-  if (durationSec === null) return null; // follow content
-  if (sourceDurationSec !== null && durationSec > sourceDurationSec) return sourceDurationSec;
-  return durationSec;
+/** Coerce a possibly-garbage requested count to a valid integer >= 1 (NaN/0/negative -> 1). */
+function normalizeCount(requested: number | undefined): number {
+  if (requested === undefined || !Number.isFinite(requested)) return 1;
+  return Math.max(1, Math.floor(requested));
 }
 
 /**
@@ -126,7 +115,7 @@ export function resolveProductionBrief(signals: IntakeSignals): ProductionBrief 
     inferred.push('platform');
   }
   fieldConfidence.platform = platformConfidence;
-  const defaults = PLATFORM_DEFAULTS[platform];
+  const shape = PLATFORM_SHAPE[platform];
 
   // --- aspectRatio (from platform) ---
   let aspectRatio: AspectRatio;
@@ -135,28 +124,28 @@ export function resolveProductionBrief(signals: IntakeSignals): ProductionBrief 
     fieldConfidence.aspectRatio = 1;
     confirmed.push('aspectRatio');
   } else {
-    aspectRatio = defaults.aspectRatio;
+    aspectRatio = shape.aspectRatio;
     fieldConfidence.aspectRatio = platformConfidence; // aspect is as sure as the platform
     inferred.push('aspectRatio');
   }
 
-  // --- targetDurationSec (from platform, bounded to source) ---
+  // --- targetDurationSec (from platform, bounded/validated by clampDuration) ---
   let targetDurationSec: number | null;
   if (requested.targetDurationSec !== undefined) {
-    targetDurationSec = clampToSource(requested.targetDurationSec, sourceDurationSec);
+    targetDurationSec = clampDuration(requested.targetDurationSec, sourceDurationSec);
     fieldConfidence.targetDurationSec = 1;
     confirmed.push('targetDurationSec');
   } else {
-    targetDurationSec = clampToSource(defaults.durationSec, sourceDurationSec);
+    targetDurationSec = clampDuration(shape.durationSec, sourceDurationSec);
     fieldConfidence.targetDurationSec =
-      defaults.durationSec === null ? FOLLOW_CONTENT_DURATION_CONFIDENCE : platformConfidence;
+      shape.durationSec === null ? FOLLOW_CONTENT_DURATION_CONFIDENCE : platformConfidence;
     inferred.push('targetDurationSec');
   }
 
-  // --- count (default 1; extras are opt-in) ---
+  // --- count (default 1; NaN/0/negative -> 1) ---
   let count: number;
   if (requested.count !== undefined) {
-    count = Math.max(1, Math.floor(requested.count));
+    count = normalizeCount(requested.count);
     fieldConfidence.count = 1;
     confirmed.push('count');
   } else {

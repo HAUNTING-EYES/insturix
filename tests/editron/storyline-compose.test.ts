@@ -48,7 +48,7 @@ describe('selectScenes', () => {
 
   it('scores stay within 0..1', () => {
     const s = scene({ transcription: 'product launch amazing', shotType: 'close-up' });
-    const v = defaultSceneScorer(s, brief({ format: 'explainer', intent: 'product launch amazing' }));
+    const v = defaultSceneScorer(s, brief({ format: 'auto-edit', intent: 'product launch amazing' }));
     expect(v).toBeGreaterThanOrEqual(0);
     expect(v).toBeLessThanOrEqual(1);
   });
