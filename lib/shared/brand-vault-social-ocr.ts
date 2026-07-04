@@ -1,3 +1,7 @@
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 import type { BrandVaultSourcePlatform } from './brand-website-refinery-types';
 
 export interface BrandVaultSocialOcrInput {
@@ -38,6 +42,26 @@ const OCR_PROMPT = [
   'Do not describe the image. Do not infer missing words. If no readable text exists, return NO_TEXT.',
 ].join(' ');
 
+type BrandVaultOcrUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+type BrandVaultGeminiOcrCostInput = {
+  status: ProviderCostEventStatus;
+  modelName: string;
+  sourceKind: NonNullable<BrandVaultSocialOcrInput['sourceKind']>;
+  platform?: BrandVaultSourcePlatform;
+  mediaType?: string;
+  mimeType: string;
+  imageBytes?: number;
+  outputChars?: number;
+  functionMs?: number;
+  usage?: BrandVaultOcrUsage;
+  error?: unknown;
+};
+
 export function createBrandVaultGeminiSocialOcrProvider(
   options: BrandVaultGeminiSocialOcrOptions = {},
 ): BrandVaultSocialOcrProvider | null {
@@ -50,15 +74,47 @@ export function createBrandVaultGeminiSocialOcrProvider(
   const maxImageBytes = options.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES;
   const modelName = options.modelName ?? env.BRAND_VAULT_SOCIAL_OCR_MODEL ?? DEFAULT_MODEL_NAME;
 
-  const runGeminiOcr = async (base64: string, mimeType: string, label: string, ref: string): Promise<BrandVaultSocialOcrResult> => {
+  const runGeminiOcr = async (
+    base64: string,
+    mimeType: string,
+    input: BrandVaultSocialOcrInput,
+    label: string,
+    ref: string,
+  ): Promise<BrandVaultSocialOcrResult> => {
+    const startedAt = Date.now();
+    const imageBytes = approximateBase64Bytes(base64);
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent([OCR_PROMPT, { inlineData: { mimeType, data: base64 } }]);
-      const text = normalizeOcrText(result.response.text());
+      const rawText = result.response.text();
+      const text = normalizeOcrText(rawText);
+      await recordBrandVaultGeminiOcrCost({
+        status: 'success',
+        modelName,
+        sourceKind: input.sourceKind ?? 'social',
+        platform: input.platform,
+        mediaType: input.mediaType,
+        mimeType,
+        imageBytes,
+        outputChars: rawText.length,
+        functionMs: Date.now() - startedAt,
+        usage: readGeminiUsage(result),
+      });
       return text ? { text } : {};
     } catch (error) {
+      await recordBrandVaultGeminiOcrCost({
+        status: 'failed',
+        modelName,
+        sourceKind: input.sourceKind ?? 'social',
+        platform: input.platform,
+        mediaType: input.mediaType,
+        mimeType,
+        imageBytes,
+        functionMs: Date.now() - startedAt,
+        error,
+      });
       return { warning: `Brand Vault skipped ${label} for ${ref}: ${errorMessage(error)}` };
     }
   };
@@ -74,12 +130,12 @@ export function createBrandVaultGeminiSocialOcrProvider(
         if (Math.floor((input.imageBase64.length * 3) / 4) > maxImageBytes) {
           return { warning: `Brand Vault skipped ${sourceLabel}: image exceeded ${maxImageBytes} bytes.` };
         }
-        return runGeminiOcr(input.imageBase64, mimeType, sourceLabel, input.sourceUrl ?? 'upload');
+        return runGeminiOcr(input.imageBase64, mimeType, input, sourceLabel, input.sourceUrl ?? 'upload');
       }
       if (!input.imageUrl) return {};
       const image = await fetchOcrImage({ imageUrl: input.imageUrl, fetchFn, maxImageBytes, sourceLabel });
       if (!image.ok) return { warning: image.warning };
-      return runGeminiOcr(image.base64, image.mimeType, sourceLabel, input.imageUrl);
+      return runGeminiOcr(image.base64, image.mimeType, input, sourceLabel, input.imageUrl);
     },
   };
 }
@@ -121,6 +177,79 @@ async function fetchOcrImage(args: {
   } catch (error) {
     return { ok: false, warning: `Brand Vault skipped ${args.sourceLabel} for ${args.imageUrl}: ${errorMessage(error)}` };
   }
+}
+
+async function recordBrandVaultGeminiOcrCost(input: BrandVaultGeminiOcrCostInput) {
+  const inputTokens = input.usage?.inputTokens ?? estimateTokensFromChars(OCR_PROMPT.length);
+  const outputTokens = input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars);
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'brand_vault',
+    action: 'brand_scan',
+    route: 'lib/shared/brand-vault-social-ocr',
+    provider: 'gemini',
+    model: cleanGeminiModelName(input.modelName),
+    operation: 'image_ocr',
+    units: {
+      requestCount: 1,
+      imageCount: 1,
+      bytesIn: input.imageBytes,
+      inputTokens,
+      outputTokens,
+      totalTokens: input.usage?.totalTokens ?? sumOptional(inputTokens, outputTokens),
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: 'gemini',
+      sourceKind: input.sourceKind,
+      platform: input.platform,
+      mediaType: input.mediaType,
+      mimeType: input.mimeType,
+      imageBytes: input.imageBytes,
+      outputChars: input.outputChars,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function readGeminiUsage(result: unknown): BrandVaultOcrUsage | undefined {
+  const resultRecord = asRecord(result);
+  const responseRecord = asRecord(resultRecord?.response);
+  const usage = asRecord(resultRecord?.usageMetadata) ?? asRecord(responseRecord?.usageMetadata);
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount);
+  const totalTokens = readNumber(usage.totalTokenCount);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === 'number' && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
+function approximateBase64Bytes(value: string): number {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
+}
+
+function cleanGeminiModelName(modelName: string): string {
+  return modelName.replace(/^models\//, '');
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function imageMimeType(value: string | null): string | undefined {
