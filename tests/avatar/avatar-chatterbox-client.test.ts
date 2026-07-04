@@ -155,4 +155,24 @@ describe('Chatterbox client (real API shape)', () => {
 
     await expect(client.synthesize(synthInput())).rejects.toThrow(/did not return an audioUrl/i);
   });
+
+  it('rejects a Google-Drive-style HTML interstitial instead of treating it as audio', async () => {
+    const client = createDefaultChatterboxClient(
+      { CHATTERBOX_TTS_ENDPOINT: 'https://cb.example' },
+      {
+        fetchImpl: (async (url: RequestInfo | URL) => {
+          if (String(url) === SAMPLE_URL) {
+            return new Response('<!DOCTYPE html><html><body>Can’t scan for viruses</body></html>', {
+              status: 200,
+              headers: { 'content-type': 'text/html; charset=utf-8' },
+            });
+          }
+          return new Response(Buffer.from('WAV'), { status: 200, headers: { 'content-type': 'audio/wav' } });
+        }) as unknown as typeof fetch,
+        uploadAudio: async () => ({ audioUrl: 'x' }),
+      },
+    );
+
+    await expect(client.synthesize(synthInput())).rejects.toThrow(/web page, not audio/i);
+  });
 });

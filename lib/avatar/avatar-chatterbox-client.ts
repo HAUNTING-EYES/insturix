@@ -86,7 +86,20 @@ async function synthesizeWithRawChatterbox(
     throw new Error(`Failed to download voice sample (HTTP ${sampleResponse.status}) from ${sampleUrl}.`);
   }
   const sampleBytes = Buffer.from(await sampleResponse.arrayBuffer());
-  const sampleType = sampleResponse.headers.get('content-type')?.split(';')[0]?.trim() || 'audio/wav';
+  const sampleType = (sampleResponse.headers.get('content-type')?.split(';')[0]?.trim() || 'audio/wav').toLowerCase();
+  if (sampleBytes.length === 0) {
+    throw new Error(`Voice sample at ${sampleUrl} was empty.`);
+  }
+  if (sampleBytes.length > MAX_VOICE_SAMPLE_BYTES) {
+    const mb = (sampleBytes.length / 1024 / 1024).toFixed(1);
+    throw new Error(`Voice sample is ${mb}MB; Chatterbox needs a clip under 10MB (10-30s of clean speech).`);
+  }
+  if (sampleType.startsWith('text/') || looksLikeHtml(sampleBytes)) {
+    throw new Error(
+      `Voice sample URL returned a web page, not audio (content-type: ${sampleType}). `
+      + 'A Google Drive share link returns a virus-scan warning page for larger files, use a direct file link.',
+    );
+  }
 
   const form = new FormData();
   form.append('input', input.text.trim());
@@ -187,6 +200,13 @@ const defaultUploadAudio: ChatterboxAudioUploader = async (wav, userId, filename
 function chatterboxSpeechUrl(endpoint: string): string {
   const base = endpoint.replace(/\/+$/, '');
   return base.endsWith('/v1/audio/speech') ? base : `${base}/v1/audio/speech`;
+}
+
+const MAX_VOICE_SAMPLE_BYTES = 10 * 1024 * 1024; // Chatterbox caps clones at ~10MB.
+
+function looksLikeHtml(bytes: Buffer): boolean {
+  const head = bytes.subarray(0, 64).toString('utf8').trimStart().toLowerCase();
+  return head.startsWith('<!doctype html') || head.startsWith('<html');
 }
 
 function voiceSampleFilename(contentType: string): string {
