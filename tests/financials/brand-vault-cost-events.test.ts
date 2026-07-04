@@ -46,6 +46,20 @@ describe('Brand Vault provider cost telemetry contract', () => {
     expect(source).toContain("sourceKind: input.sourceKind ?? 'social'");
   });
 
+  it('records committed-thumbnail Gemini vision attempts as Brand Vault scan spend', () => {
+    const source = readRepoFile('lib/shared/brand-vault-thumbnail-visual.ts');
+
+    expect(source).toContain('recordBrandVaultThumbnailVisionCost({');
+    expect(source).toContain("route: 'lib/shared/brand-vault-thumbnail-visual'");
+    expect(source).toContain("provider: 'gemini'");
+    expect(source).toContain("operation: 'image_vision'");
+    expect(source).toContain('imageCount: 1');
+    expect(source).toContain('bytesIn: input.imageBytes');
+    expect(source).toContain('usage: readGeminiUsage(result)');
+    expect(source).toContain("sourceKind: 'committed_thumbnail'");
+    expect(source).toContain('parseableSignals: Boolean(signals)');
+  });
+
   it('records endpoint, Modal, local Playwright, and Firecrawl browser-render attempts', () => {
     const source = readRepoFile('lib/shared/brand-vault-browser-fallback.ts');
 
@@ -66,21 +80,25 @@ describe('Brand Vault provider cost telemetry contract', () => {
     const social = readRepoFile('lib/shared/brand-vault-connected-social-ingestion.ts');
     const browser = readRepoFile('lib/shared/brand-vault-browser-fallback.ts');
     const ocr = readRepoFile('lib/shared/brand-vault-social-ocr.ts');
+    const thumbnailVision = readRepoFile('lib/shared/brand-vault-thumbnail-visual.ts');
 
     expect(social).toContain("if (!apiKey)");
     expect(social).toContain("if (!apifyActorId)");
     expect(browser).toContain("if (provider === 'off') return undefined;");
     expect(browser).toContain('if (!firecrawlApiKey) return undefined;');
     expect(ocr).toContain('if (!enabled || !apiKey) return null;');
+    expect(thumbnailVision).toContain('if (!apiKey)');
   });
 
   it('keeps Brand Vault provider-cost metadata free of content, URLs, credentials, and payload bodies', () => {
     const social = readRepoFile('lib/shared/brand-vault-connected-social-ingestion.ts');
     const ocr = readRepoFile('lib/shared/brand-vault-social-ocr.ts');
+    const thumbnailVision = readRepoFile('lib/shared/brand-vault-thumbnail-visual.ts');
     const browser = readRepoFile('lib/shared/brand-vault-browser-fallback.ts');
     const helpers = [
       sliceHelper(social, 'async function recordBrandVaultApifyCost', 'function byteLength'),
       sliceHelper(ocr, 'async function recordBrandVaultGeminiOcrCost', 'function readGeminiUsage'),
+      sliceHelper(thumbnailVision, 'async function recordBrandVaultThumbnailVisionCost', 'function readGeminiUsage'),
       sliceHelper(browser, 'async function recordBrandVaultBrowserRenderCost', 'function endpointRenderProvider'),
     ].join('\n');
 
@@ -106,6 +124,6 @@ describe('Brand Vault provider cost telemetry contract', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
     expect(plan).toContain('Partial 2026-07-05: Brand Vault scan provider events are wired');
-    expect(plan).toContain('Apify actor, Gemini OCR, Modal/local Playwright, and Firecrawl pricing remain `pricing_to_be_seen`');
+    expect(plan).toContain('Apify actor, Gemini OCR/vision, Modal/local Playwright, and Firecrawl pricing remain `pricing_to_be_seen`');
   });
 });

@@ -15,7 +15,21 @@ function sliceHelper(source: string, start: string, end: string): string {
   return source.slice(startIndex, endIndex);
 }
 
-describe('CalOS trends provider cost telemetry contract', () => {
+describe('CalOS provider cost telemetry contract', () => {
+  it('records Gemini planner attempts as CalOS AI plan spend', () => {
+    const source = readRepoFile('lib/calos/planner/index.ts');
+
+    expect(source).toContain('recordCalosPlannerCost(input, {');
+    expect(source).toContain('service: "calos"');
+    expect(source).toContain('action: "ai_plan"');
+    expect(source).toContain('route: "lib/calos/planner"');
+    expect(source).toContain('provider: "gemini"');
+    expect(source).toContain('operation: "ai_plan"');
+    expect(source).toContain('usage: readGeminiUsage(result)');
+    expect(source).toContain('slotCount: input.slots.length');
+    expect(source).toContain('trendCount: input.trends.length');
+  });
+
   it('records Apify trend actor attempts as provider spend', () => {
     const source = readRepoFile('lib/calos/trends/apify.ts');
 
@@ -55,10 +69,12 @@ describe('CalOS trends provider cost telemetry contract', () => {
     const apifySource = readRepoFile('lib/calos/trends/apify.ts');
     const perplexitySource = readRepoFile('lib/calos/trends/perplexity.ts');
     const geminiSource = readRepoFile('lib/calos/trends/gemini.ts');
+    const plannerSource = readRepoFile('lib/calos/planner/index.ts');
     const helpers = [
       sliceHelper(apifySource, 'async function recordApifyTrendsCost', 'function byteLength'),
       sliceHelper(perplexitySource, 'async function recordPerplexityTrendsCost', 'function buildPrompt'),
       sliceHelper(geminiSource, 'async function recordGeminiTrendsCost', 'interface GeminiUsage'),
+      sliceHelper(plannerSource, 'async function recordCalosPlannerCost', 'function readGeminiUsage'),
     ].join('\n');
 
     expect(helpers).not.toContain('niche');
@@ -70,13 +86,17 @@ describe('CalOS trends provider cost telemetry contract', () => {
     expect(helpers).not.toContain('refreshToken');
     expect(helpers).not.toContain('sourceUrl');
     expect(helpers).not.toContain('messages:');
+    expect(helpers).not.toContain('prompt:');
+    expect(helpers).not.toContain('brandContext:');
+    expect(helpers).not.toContain('theme:');
+    expect(helpers).not.toContain('goal:');
     expect(helpers).not.toContain('body:');
   });
 
   it('documents the partial T6 CalOS trends telemetry slice in the provider-cost plan', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
-    expect(plan).toContain('Partial 2026-07-05: CalOS trends provider events are wired');
+    expect(plan).toContain('Partial 2026-07-05: CalOS planner and trends provider events are wired');
     expect(plan).toContain('Apify, Perplexity Sonar, and Gemini grounded-search pricing remain `pricing_to_be_seen`');
   });
 });

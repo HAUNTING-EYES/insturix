@@ -1,3 +1,7 @@
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from "@/lib/financials/provider-cost-events";
 import type { PlannerInput, PlannedIdea, PlannerSlot } from "./types";
 import { buildPlannerPrompt } from "./prompt";
 import { formatsFor } from "./playbook";
@@ -8,6 +12,12 @@ import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
 export const DEFAULT_PLANNER_MODEL = "gemini-3.1-flash-lite";
 const PLANNER_MODEL = process.env.LLM_PLANNER_MODEL || DEFAULT_PLANNER_MODEL;
 const DEFAULT_SEED = 42; // Rule 35: always seed - temperature 0 alone is not deterministic.
+
+type CalosPlannerUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
 
 /**
  * Propose a batch of on-brand content ideas, one per cadence slot, repurposing current trends
@@ -35,10 +45,116 @@ export async function proposePlan(
     },
   });
 
+  const modelName = opts.model || PLANNER_MODEL;
   const prompt = buildPlannerPrompt(input);
-  const result = await model.generateContent(prompt);
-  const text = result?.response?.text?.() ?? "";
-  return parsePlan(text, input.slots);
+  const startedAt = Date.now();
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result?.response?.text?.() ?? "";
+    const ideas = parsePlan(text, input.slots);
+    await recordCalosPlannerCost(input, {
+      status: "success",
+      modelName,
+      promptChars: prompt.length,
+      outputChars: text.length,
+      resultCount: ideas.length,
+      functionMs: Date.now() - startedAt,
+      usage: readGeminiUsage(result),
+    });
+    return ideas;
+  } catch (error) {
+    await recordCalosPlannerCost(input, {
+      status: "failed",
+      modelName,
+      promptChars: prompt.length,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
+    throw error;
+  }
+}
+
+async function recordCalosPlannerCost(
+  input: PlannerInput,
+  event: {
+    status: ProviderCostEventStatus;
+    modelName: string;
+    promptChars?: number;
+    outputChars?: number;
+    resultCount?: number;
+    functionMs?: number;
+    usage?: CalosPlannerUsage;
+    error?: unknown;
+  },
+) {
+  const inputTokens = event.usage?.inputTokens ?? estimateTokensFromChars(event.promptChars);
+  const outputTokens = event.usage?.outputTokens ?? estimateTokensFromChars(event.outputChars);
+  await recordProviderCostEvent({
+    status: event.status,
+    service: "calos",
+    action: "ai_plan",
+    route: "lib/calos/planner",
+    provider: "gemini",
+    model: cleanGeminiModelName(event.modelName),
+    operation: "ai_plan",
+    units: {
+      requestCount: 1,
+      inputTokens,
+      outputTokens,
+      totalTokens: event.usage?.totalTokens ?? sumOptional(inputTokens, outputTokens),
+      functionMs: event.functionMs,
+    },
+    metadata: {
+      providerName: "gemini",
+      slotCount: input.slots.length,
+      trendCount: input.trends.length,
+      platformCount: new Set(input.slots.map((slot) => slot.platform)).size,
+      existingIdeaCount: input.existingIdeas?.length,
+      resultCount: event.resultCount,
+      outputChars: event.outputChars,
+      objective: input.objective,
+      hasBrandName: Boolean(input.brandName),
+      hasBrandContext: Boolean(input.brandContext),
+      hasTheme: Boolean(input.theme),
+      hasGoal: Boolean(input.goal),
+      errorClass: event.error instanceof Error ? event.error.name : event.error ? typeof event.error : undefined,
+    },
+  });
+}
+
+function readGeminiUsage(result: unknown): CalosPlannerUsage | undefined {
+  const resultRecord = asRecord(result);
+  const responseRecord = asRecord(resultRecord?.response);
+  const usage = asRecord(resultRecord?.usageMetadata) ?? asRecord(responseRecord?.usageMetadata);
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount);
+  const totalTokens = readNumber(usage.totalTokenCount);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === "number" && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
+function cleanGeminiModelName(modelName: string): string {
+  return modelName.replace(/^models\//, "");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
