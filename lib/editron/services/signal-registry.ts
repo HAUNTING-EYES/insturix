@@ -1253,7 +1253,7 @@ function computeVES(snapshot: SignalSnapshot): number {
 // and delegates to the existing buildSignalTimeline. Avoids duplicating
 // the 600+ lines of signal computation logic.
 
-import type { SegmentAnalysis } from '../types/segment-analysis';
+import type { SegmentAnalysis, SegmentRecord } from '../types/segment-analysis';
 
 export function buildSignalTimelineFromAnalysis(
   segmentAnalysis: SegmentAnalysis,
@@ -1337,7 +1337,51 @@ export function buildSignalTimelineFromAnalysis(
   );
 
   applyVisualSetupGlobalSignals(timeline, segmentAnalysis.globalContext.visualSetup);
+  applySemanticVisualPerceptionSignals(timeline, segmentAnalysis.segments);
   return timeline;
+}
+
+
+function applySemanticVisualPerceptionSignals(
+  timeline: SignalTimeline,
+  segments: SegmentRecord[],
+): void {
+  const semanticSegments = segments.filter(seg => seg.semanticVisual);
+  if (!semanticSegments.length) return;
+
+  timeline.globalSignals['enrichment.visual_semantic_perception_source'] = 'gemini-visual-understanding';
+  timeline.globalSignals['visual.semantic_perception.segment_count'] = semanticSegments.length;
+  timeline.globalSignals['visual.semantic_perception.window_count'] = semanticSegments.reduce(
+    (sum, seg) => sum + (seg.semanticVisual?.windows.length ?? 0),
+    0,
+  );
+
+  const snapshots = Array.from(timeline.gridSignals.values());
+  for (const seg of semanticSegments) {
+    const semantic = seg.semanticVisual;
+    if (!semantic) continue;
+    for (const snapshot of snapshots) {
+      if (snapshot.timestampMs < seg.startMs || snapshot.timestampMs >= seg.endMs) continue;
+      snapshot['enrichment.visual_semantic_perception_source'] = 'gemini-visual-understanding';
+      snapshot['visual.perception.status'] = 'available';
+      snapshot['visual.perception.primary_mode'] = semantic.primaryVisualMode ?? 'unknown';
+      snapshot['visual.perception.visual_explainability'] = semantic.visualExplainability ?? 'unknown';
+      snapshot['visual.perception.visible_explanation_ratio'] = semantic.visuallyExplains ? 1 : 0;
+      snapshot['visual.perception.state_change_count'] = semantic.visibleStateChangeCount;
+      snapshot['visual.perception.screen_clutter_ratio'] = semantic.screenClutter;
+      snapshot['visual.perception.avg_viewer_value'] = semantic.salience;
+      snapshot['visual.perception.avg_coverage_trust'] = semantic.confidence;
+      snapshot['visual.perception.semantic_window_count'] = semantic.windows.length;
+      snapshot['visual.perception.ocr_text_count'] = semantic.ocrText.length;
+      if (semantic.ocrText.length > 0) {
+        snapshot['visual.perception.ocr_text_sample'] = semantic.ocrText.join(' | ').slice(0, 180);
+      }
+      const region = semantic.negativeSpacePreference;
+      if (region && region !== 'none') {
+        snapshot['visual.perception.preferred_overlay_region'] = region;
+      }
+    }
+  }
 }
 
 function applyVisualSetupGlobalSignals(

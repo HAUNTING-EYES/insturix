@@ -7,7 +7,7 @@
  */
 
 import type { RawFootageAnalysis } from './raw-footage-processor';
-import type { SyntheticStoryboard } from './video-understanding-service';
+import type { SyntheticStoryboard, VisualPerceptionWindow } from './video-understanding-service';
 import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
 import type { Wav2VecAnalysisResult, Wav2VecSegmentResult } from './wav2vec-service';
 import type { MomentWeightMap, MomentWeight } from './moment-weight-service';
@@ -61,6 +61,48 @@ function findWeightAt(
   return null;
 }
 
+function findVisualPerceptionWindowsAt(
+  windows: VisualPerceptionWindow[] | undefined,
+  startMs: number,
+  endMs: number,
+): VisualPerceptionWindow[] {
+  if (!windows?.length) return [];
+  const startSec = startMs / 1000;
+  const endSec = endMs / 1000;
+  return windows.filter(window => window.endSec > startSec && window.startSec < endSec);
+}
+
+function buildSemanticVisual(windows: VisualPerceptionWindow[]): SegmentRecord['semanticVisual'] {
+  if (!windows.length) return null;
+  const primary = windows.reduce((best, current) => {
+    const bestScore = best.salience * best.confidence;
+    const currentScore = current.salience * current.confidence;
+    return currentScore > bestScore ? current : best;
+  }, windows[0]);
+  const ocrText = uniqueStrings(windows.flatMap(window => window.ocrText));
+  const visibleStateChangeCount = windows.reduce((sum, window) => sum + window.visibleStateChanges.length, 0);
+  return {
+    windows,
+    primaryVisualMode: primary.visualMode,
+    visualExplainability: primary.visualExplainability,
+    visuallyExplains: windows.some(window => window.visuallyExplains),
+    ocrText,
+    visibleStateChangeCount,
+    screenClutter: average(windows.map(window => window.screenClutter)),
+    salience: average(windows.map(window => window.salience)),
+    confidence: average(windows.map(window => window.confidence)),
+    negativeSpacePreference: primary.negativeSpacePreference,
+  };
+}
+
+function average(values: number[]): number {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + clamp01(value), 0) / values.length;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map(value => value.trim()).filter(Boolean))).slice(0, 12);
+}
 // ─── Global Context Builder ────────────────────────────────────
 
 function buildGlobalContext(
@@ -70,6 +112,7 @@ function buildGlobalContext(
   const ged = storyboard?.globalEditDirections;
   return {
     visualSetup: storyboard?.visualSetup ?? null,
+    visualPerceptionWindows: storyboard?.visualPerceptionWindows ?? [],
     contentType: rawFootage.contentTypeDetection?.contentType
       ?? storyboard?.contentType
       ?? 'unknown',
@@ -143,6 +186,7 @@ export function buildSegmentAnalysis(
     const vjepaSeg = findVjepaAt(vjepa?.segments, seg.startMs, seg.endMs);
     const wav2vecSeg = findWav2VecAt(wav2vec?.segments, seg.startMs, seg.endMs);
     const weightSeg = findWeightAt(momentWeights?.weights, seg.startMs, seg.endMs);
+    const semanticWindows = findVisualPerceptionWindowsAt(storyboard?.visualPerceptionWindows, seg.startMs, seg.endMs);
 
     return {
       index: i,
@@ -182,6 +226,8 @@ export function buildSegmentAnalysis(
         negativeSpaceLeft: vjepaSeg.negativeSpaceLeft,
         primitivePresence: vjepaSeg.primitivePresence,
       } : null,
+
+      semanticVisual: buildSemanticVisual(semanticWindows),
 
       vocal: wav2vecSeg ? {
         emotionIntensity: wav2vecSeg.emotionIntensity,

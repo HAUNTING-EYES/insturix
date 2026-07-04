@@ -22,7 +22,7 @@ import type {
   VjepaTextBox,
 } from '../services/vjepa-service';
 import type { EmotionalValence } from '../services/wav2vec-service';
-import type { VisualSetup } from '../services/video-understanding-service';
+import type { VisualPerceptionWindow, VisualSetup } from '../services/video-understanding-service';
 
 // ─── Per-Segment Record ────────────────────────────────────────
 
@@ -65,6 +65,19 @@ export interface SegmentRecord {
     primitivePresence: VjepaPrimitivePresence;
   } | null;
 
+  semanticVisual: {
+    windows: VisualPerceptionWindow[];
+    primaryVisualMode: VisualPerceptionWindow['visualMode'] | null;
+    visualExplainability: VisualPerceptionWindow['visualExplainability'] | null;
+    visuallyExplains: boolean;
+    ocrText: string[];
+    visibleStateChangeCount: number;
+    screenClutter: number;
+    salience: number;
+    confidence: number;
+    negativeSpacePreference: VisualPerceptionWindow['negativeSpacePreference'] | null;
+  } | null;
+
   vocal: {
     emotionIntensity: number;
     emotionalValence: EmotionalValence;
@@ -92,6 +105,7 @@ export interface SegmentRecord {
 
 export interface SegmentAnalysisGlobalContext {
   visualSetup: VisualSetup | null;
+  visualPerceptionWindows: VisualPerceptionWindow[];
   contentType: string;
   platform: string;
   colorGrade: string;

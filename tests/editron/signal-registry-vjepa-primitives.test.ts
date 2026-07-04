@@ -444,4 +444,142 @@ describe('signal registry V-JEPA primitive bridge', () => {
       visual_complexity: 0.74,
     }));
   });
+  it('projects semantic VU perception windows through SegmentAnalysis into per-moment signals', () => {
+    const rawFootage = {
+      originalDurationMs: 3_000,
+      estimatedCleanDurationMs: 3_000,
+      transcription: { segments: [], words: [] },
+      silenceGaps: [],
+      contentTypeDetection: { contentType: 'product-demo', confidence: 0.8 },
+      segments: [
+        {
+          startMs: 0,
+          endMs: 1_500,
+          text: 'the dashboard shows the export status',
+          wordCount: 6,
+          fillerCount: 0,
+          silenceGapCount: 0,
+          avgWordGapMs: 120,
+        },
+        {
+          startMs: 1_500,
+          endMs: 3_000,
+          text: 'then the shot holds too long',
+          wordCount: 6,
+          fillerCount: 0,
+          silenceGapCount: 0,
+          avgWordGapMs: 120,
+        },
+      ],
+    } as any;
+
+    const segmentAnalysis = buildSegmentAnalysis(
+      rawFootage,
+      {
+        sourceVideoUrl: 'https://example.com/demo.mp4',
+        contentType: 'product-demo',
+        platform: 'youtube',
+        title: 'Demo',
+        overallMusicPrompt: '',
+        globalEditDirections: {
+          colorGrade: 'neutral',
+          pacing: 'medium',
+          graphicsDensity: 'moderate',
+          musicMood: '',
+          narrativeArc: 'hook-value-cta',
+        },
+        visualSetup: undefined,
+        visualPerceptionWindows: [
+          {
+            startSec: 0.2,
+            endSec: 1.4,
+            visualMode: 'screen-share',
+            subjects: ['dashboard'],
+            actions: ['export progress visible'],
+            visibleStateChanges: ['export status changes'],
+            ocrText: ['Export complete'],
+            visuallyExplains: true,
+            visualExplainability: 'high',
+            screenClutter: 0.42,
+            salience: 0.86,
+            confidence: 0.91,
+            negativeSpacePreference: 'right',
+            issues: [],
+          },
+          {
+            startSec: 1.6,
+            endSec: 2.8,
+            visualMode: 'visual-dead-air',
+            subjects: ['static dashboard'],
+            actions: [],
+            visibleStateChanges: [],
+            ocrText: [],
+            visuallyExplains: false,
+            visualExplainability: 'low',
+            screenClutter: 0.24,
+            salience: 0.18,
+            confidence: 0.77,
+            negativeSpacePreference: 'none',
+            issues: ['repetitive'],
+          },
+        ],
+        scenes: [],
+        analyzedAt: '2026-07-04T00:00:00.000Z',
+      },
+      null,
+      null,
+      null,
+    );
+
+    expect(segmentAnalysis?.globalContext.visualPerceptionWindows).toHaveLength(2);
+    expect(segmentAnalysis?.segments[0].semanticVisual).toEqual(expect.objectContaining({
+      primaryVisualMode: 'screen-share',
+      visualExplainability: 'high',
+      visuallyExplains: true,
+      visibleStateChangeCount: 1,
+      ocrText: ['Export complete'],
+    }));
+    expect(segmentAnalysis?.segments[1].semanticVisual).toEqual(expect.objectContaining({
+      primaryVisualMode: 'visual-dead-air',
+      visualExplainability: 'low',
+      visuallyExplains: false,
+      visibleStateChangeCount: 0,
+    }));
+
+    const timeline = buildSignalTimelineFromAnalysis(segmentAnalysis!, [], rawFootage, [], 30);
+    const firstMoment = timeline.gridSignals.get(15);
+    const secondMoment = timeline.gridSignals.get(60);
+
+    expect(timeline.globalSignals).toEqual(expect.objectContaining({
+      'enrichment.visual_semantic_perception_source': 'gemini-visual-understanding',
+      'visual.semantic_perception.segment_count': 2,
+      'visual.semantic_perception.window_count': 2,
+    }));
+    expect(firstMoment).toEqual(expect.objectContaining({
+      'enrichment.visual_semantic_perception_source': 'gemini-visual-understanding',
+      'visual.perception.status': 'available',
+      'visual.perception.primary_mode': 'screen-share',
+      'visual.perception.visual_explainability': 'high',
+      'visual.perception.visible_explanation_ratio': 1,
+      'visual.perception.state_change_count': 1,
+      'visual.perception.screen_clutter_ratio': 0.42,
+      'visual.perception.avg_viewer_value': 0.86,
+      'visual.perception.avg_coverage_trust': 0.91,
+      'visual.perception.semantic_window_count': 1,
+      'visual.perception.ocr_text_count': 1,
+      'visual.perception.ocr_text_sample': 'Export complete',
+      'visual.perception.preferred_overlay_region': 'right',
+    }));
+    expect(secondMoment).toEqual(expect.objectContaining({
+      'visual.perception.primary_mode': 'visual-dead-air',
+      'visual.perception.visual_explainability': 'low',
+      'visual.perception.visible_explanation_ratio': 0,
+      'visual.perception.state_change_count': 0,
+      'visual.perception.screen_clutter_ratio': 0.24,
+      'visual.perception.avg_viewer_value': 0.18,
+      'visual.perception.avg_coverage_trust': 0.77,
+      'visual.perception.semantic_window_count': 1,
+      'visual.perception.ocr_text_count': 0,
+    }));
+  });
 });
