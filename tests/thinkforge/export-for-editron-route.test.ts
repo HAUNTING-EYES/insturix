@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  getSession: vi.fn(),
+  getScript: vi.fn(),
   isLLMParserAvailable: vi.fn(),
   parseScriptWithLLM: vi.fn(),
 }));
@@ -12,6 +14,10 @@ vi.mock('@/lib/pipeline/llm-scene-parser', () => ({
   isLLMParserAvailable: mocks.isLLMParserAvailable,
   parseScriptWithLLM: mocks.parseScriptWithLLM,
 }));
+vi.mock('@/lib/thinkforge/services/db', () => ({
+  getSession: mocks.getSession,
+  getScript: mocks.getScript,
+}));
 
 function request(body: Record<string, unknown>): Request {
   return new Request('http://localhost/api/services/thinkforge/script/export-for-editron', {
@@ -20,9 +26,18 @@ function request(body: Record<string, unknown>): Request {
   });
 }
 
+function block(id: string, kind: string, text: string) {
+  return {
+    id,
+    kind,
+    content: [{ type: 'text', text, styles: {} }],
+  };
+}
 describe('export-for-editron route', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
+    mocks.getSession.mockReset();
+    mocks.getScript.mockReset();
     mocks.isLLMParserAvailable.mockReset();
     mocks.parseScriptWithLLM.mockReset();
     mocks.auth.mockResolvedValue({ userId: 'user_1' });
@@ -104,6 +119,53 @@ describe('export-for-editron route', () => {
     });
     expect(payload.productionManifest.warnings).toEqual([]);
     expect(JSON.stringify(payload)).not.toContain('product launch film');
+  });
+  it('recovers the stored script when the request is a stale one-block title snapshot', async () => {
+    mocks.isLLMParserAvailable.mockReturnValue(false);
+    mocks.getSession.mockResolvedValue({ _id: 'tf_session_stale', userId: 'user_1' });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_1',
+      sessionId: 'tf_session_stale',
+      scriptId: 'script_1',
+      title: 'Scene 1: The Missed Future',
+      content: '',
+      blocks: [
+        block('blk_scene_1', 'header', 'Scene 1: The Missed Future'),
+        block('blk_scene_1_narration', 'paragraph', 'A designer stares at a fragmented workflow and loses time to scattered tools.'),
+        block('blk_scene_1_visual', 'action', 'A desk is covered with disconnected dashboards, message threads, and duplicated exports.'),
+        block('blk_scene_2', 'header', 'Scene 2: Insturix Platform'),
+        block('blk_scene_2_narration', 'paragraph', 'Insturix turns scattered approvals into one connected production pipeline.'),
+        block('blk_scene_2_visual', 'action', 'The product dashboard brings briefs, assets, reviews, and delivery status into a single workspace.'),
+      ],
+      metadata: {},
+      version: 2,
+      createdAt: new Date('2026-07-04T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T00:00:00.000Z'),
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_stale',
+      scriptId: 'script_1',
+      plainText: 'Scene 1: The Missed Future',
+      blocks: [block('blk_stale_title', 'header', 'Scene 1: The Missed Future')],
+      aspectRatio: '16:9',
+      artStyle: 'cinematic',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.sceneCount).toBe(2);
+    expect(payload.title).toBe('Scene 1: The Missed Future');
+    expect(payload.productionManifest.parser).toMatchObject({
+      llmAvailable: false,
+      fallbackUsed: true,
+      source: 'stored-script',
+      storedScriptRecovered: true,
+    });
+    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_stale', 'user_1');
+    expect(mocks.getScript).toHaveBeenCalledWith('tf_session_stale', 'script_1');
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
   it('fails loudly instead of returning parser sentinel scenes', async () => {
     mocks.parseScriptWithLLM.mockResolvedValueOnce({
