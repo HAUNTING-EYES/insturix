@@ -519,7 +519,7 @@ async function dispatchReadyChatterboxJob(
     return job;
   }
 
-  const synthesizeInput = toChatterboxSynthesizeInput(voiceStage);
+  const synthesizeInput = toChatterboxSynthesizeInput(voiceStage, job.userId);
   if (!synthesizeInput) return job;
 
   const now = dependencies.now?.() ?? new Date().toISOString();
@@ -784,7 +784,10 @@ function failOmniHumanJob(job: AvatarPipelineJobSnapshot, now: string, reason: s
   };
 }
 
-function toChatterboxSynthesizeInput(stageSnapshot: AvatarPipelineStageSnapshot): ChatterboxSynthesizeInput | null {
+function toChatterboxSynthesizeInput(
+  stageSnapshot: AvatarPipelineStageSnapshot,
+  userId?: string,
+): ChatterboxSynthesizeInput | null {
   const text = stringValue(stageSnapshot.input.text);
   const voiceReference = asRecord(stageSnapshot.input.voiceReference);
   const sourceType = stringValue(voiceReference?.sourceType);
@@ -801,6 +804,7 @@ function toChatterboxSynthesizeInput(stageSnapshot: AvatarPipelineStageSnapshot)
       url: stringValue(voiceReference?.url),
     },
     output: asRecord(stageSnapshot.input.output),
+    ...(userId ? { userId } : {}),
   };
 }
 
