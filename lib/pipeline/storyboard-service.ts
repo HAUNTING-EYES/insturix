@@ -15,8 +15,10 @@ import { falRetry } from './fal-retry';
 import {
   hasStrictLogoReferenceForScene,
   prioritizeStoryboardReferencesForScene,
+  selectBrandEvidenceReferencesForScene,
 } from './storyboard-reference-priority';
 import type {
+  ApprovedStoryboardReference,
   SceneDescriptor,
   StyleGuide,
   Storyboard,
@@ -138,15 +140,10 @@ async function falSubscribeWithTimeout(
   );
 }
 
-interface ReferenceImageInput {
+type ReferenceImageInput = Partial<ApprovedStoryboardReference> & {
   subjectId: string;
   imageUrl: string;
-  weight?: number;
-  /** Subject name for prompt enrichment */
-  name?: string;
-  /** Visual description of the subject for prompt enrichment when IP-adapter is unavailable */
-  visualDescription?: string;
-}
+};
 
 /**
  * Scene-type-aware cap on reference image count (Rule 19N domain-expert check).
@@ -490,14 +487,7 @@ export async function generateFullStoryboard(
     /** Map of sceneIndex → reference images for IP-adapter consistency */
     referenceImageMap?: Record<number, ReferenceImageInput[]>;
     /** Approved reference subjects to persist on the storyboard for later regeneration */
-    approvedReferences?: Array<{
-      subjectId: string;
-      name: string;
-      category?: string;
-      visualDescription?: string;
-      imageUrl: string;
-      scenesAppearingIn: number[];
-    }>;
+    approvedReferences?: ApprovedStoryboardReference[];
     refSetId?: string;
     /** Run Gemini Vision consistency check after generation (default: true) */
     checkConsistency?: boolean;
@@ -631,6 +621,8 @@ export async function generateFullStoryboard(
                 videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
               };
 
+              const subShotReferenceImages = selectBrandEvidenceReferencesForScene(subDescriptor, sceneRefs);
+
               const subResult = await generateStoryboardImage(
                 subDescriptor,
                 options.userId,
@@ -642,7 +634,7 @@ export async function generateFullStoryboard(
                   aspectRatio: options.aspectRatio,
                   sceneIndex: sbScene.sceneIndex,
                   totalScenes,
-                  referenceImages: undefined, // No IP-adapter — sub-shots must look DIFFERENT
+                  referenceImages: subShotReferenceImages,
                 },
               );
 
@@ -816,6 +808,8 @@ export async function generateFullStoryboard(
                   videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
                 };
 
+                const subShotReferenceImages = selectBrandEvidenceReferencesForScene(subDescriptor, sceneRefs);
+
                 const subResult = await generateStoryboardImage(
                   subDescriptor,
                   options.userId,
@@ -827,9 +821,8 @@ export async function generateFullStoryboard(
                     aspectRatio: options.aspectRatio,
                     sceneIndex: sbScene.sceneIndex,
                     totalScenes,
-                    // Intentionally NO referenceImages — sub-shots must look DIFFERENT
-                    // from each other (that's the point of the montage).
-                    referenceImages: undefined,
+                    // Generic sub-shots stay text-only for variety; owned logo/product sub-shots keep real brand evidence.
+                    referenceImages: subShotReferenceImages,
                   },
                 );
 

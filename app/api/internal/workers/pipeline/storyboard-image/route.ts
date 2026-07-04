@@ -31,6 +31,7 @@ import {
   type StoryboardImageWorkerPayload,
 } from '@/lib/pipeline/storyboard-image-queue';
 import { generateStoryboardImage } from '@/lib/pipeline/storyboard-service';
+import { selectBrandEvidenceReferencesForScene } from '@/lib/pipeline/storyboard-reference-priority';
 import { updateStoryboardScene, updateSubShot, getStoryboard } from '@/lib/pipeline/storyboard-db';
 import { scoreStoryboardConsistency } from '@/lib/pipeline/consistency-scoring-service';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
@@ -157,14 +158,16 @@ async function handler(request: NextRequest) {
             videoMotionPrompt: sub.videoMotionPrompt || descriptor.videoMotionPrompt,
           };
 
+          const subShotReferenceImages = selectBrandEvidenceReferencesForScene(subDescriptor, referenceImages);
+
           const subResult = await generateStoryboardImage(subDescriptor, userId, {
             styleGuide,
             modelId,
             aspectRatio,
             sceneIndex,
             totalScenes,
-            // NO referenceImages — sub-shots need visual variety (different era/subject)
-            referenceImages: undefined,
+            // Generic sub-shots stay text-only for variety; owned logo/product sub-shots keep real brand evidence.
+            referenceImages: subShotReferenceImages,
           });
 
           await updateSubShot(storyboardId, sceneIndex, idx, {

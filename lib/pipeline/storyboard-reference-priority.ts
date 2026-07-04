@@ -1,5 +1,6 @@
 type SceneReferenceIntent = {
   logo: boolean;
+  product: boolean;
 };
 
 export type StoryboardReferencePriorityInput = {
@@ -23,6 +24,23 @@ const LOGO_CUES = [
   'brand mark',
   'brand signature',
   'brand emblem',
+];
+
+const PRODUCT_CUES = [
+  'product',
+  'platform',
+  'interface',
+  'dashboard',
+  'app',
+  'application',
+  'software',
+  'website',
+  'portal',
+  'console',
+  'ui',
+  'brand identity',
+  'brand system',
+  'visual identity',
 ];
 
 function normalize(value: unknown): string {
@@ -63,6 +81,7 @@ function getSceneReferenceIntent(scene: unknown): SceneReferenceIntent {
   const text = sceneText(scene);
   return {
     logo: LOGO_CUES.some((cue) => containsCue(text, cue)),
+    product: PRODUCT_CUES.some((cue) => containsCue(text, cue)),
   };
 }
 
@@ -71,6 +90,29 @@ export function isLogoReference(reference: StoryboardReferencePriorityInput): bo
   if (category === 'logo') return true;
   const text = referenceText(reference);
   return LOGO_CUES.some((cue) => containsCue(text, cue));
+}
+
+export function isProductReference(reference: StoryboardReferencePriorityInput): boolean {
+  const category = normalize(reference.category);
+  if (category === 'product') return true;
+  const text = referenceText(reference);
+  return PRODUCT_CUES.some((cue) => containsCue(text, cue));
+}
+
+function hasResolvedReferenceEvidence(reference: StoryboardReferencePriorityInput): boolean {
+  const provenance = normalize(reference.referenceProvenance);
+  const source = normalize(reference.source);
+
+  return Boolean(
+    reference.brandEvidenceStatus === 'resolved'
+      || provenance === 'uploaded'
+      || provenance === 'brand vault'
+      || provenance === 'website screenshot'
+      || source === 'user upload'
+      || source === 'brand vault'
+      || source === 'brand vault logo'
+      || source === 'website screenshot',
+  );
 }
 
 function referencePriorityScore(
@@ -114,4 +156,23 @@ export function hasStrictLogoReferenceForScene(
 ): boolean {
   const intent = getSceneReferenceIntent(scene);
   return Boolean(intent.logo && references.some(isLogoReference));
+}
+
+export function selectBrandEvidenceReferencesForScene<T extends StoryboardReferencePriorityInput>(
+  scene: unknown,
+  references?: T[],
+): T[] | undefined {
+  if (!references?.length) return undefined;
+
+  const intent = getSceneReferenceIntent(scene);
+  if (!intent.logo && !intent.product) return undefined;
+
+  const selected = references.filter((reference) => {
+    if (!hasResolvedReferenceEvidence(reference)) return false;
+    return (intent.logo && isLogoReference(reference))
+      || (intent.product && isProductReference(reference));
+  });
+
+  if (selected.length === 0) return undefined;
+  return prioritizeStoryboardReferencesForScene(scene, selected);
 }

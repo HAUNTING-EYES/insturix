@@ -21,7 +21,7 @@
 
 import { nanoid } from 'nanoid';
 import { getDatabase } from '@/lib/editron/db/mongodb';
-import type { SceneDescriptor } from './schemas/storyboard';
+import type { ApprovedStoryboardReference, SceneDescriptor } from './schemas/storyboard';
 
 export const STORYBOARD_IMAGE_BATCHES_COLLECTION = 'pipeline_storyboard_image_batches';
 export const STORYBOARD_IMAGE_JOBS_COLLECTION = 'pipeline_storyboard_image_jobs';
@@ -220,13 +220,7 @@ export interface StoryboardImageWorkerPayload {
   /** Full scene descriptor — the worker uses visualDescription + subShots */
   descriptor: SceneDescriptor;
   /** Reference images for IP-adapter (from the caller's referenceImageMap[sceneIndex]) */
-  referenceImages?: Array<{
-    subjectId: string;
-    imageUrl: string;
-    weight?: number;
-    name?: string;
-    visualDescription?: string;
-  }>;
+  referenceImages?: ApprovedStoryboardReference[];
   /** Optional style anchor URL from scene 0 (for cross-scene consistency).
    *  Dropped in Bundle 4 because it required serialization; kept as optional
    *  for future re-enablement. */
