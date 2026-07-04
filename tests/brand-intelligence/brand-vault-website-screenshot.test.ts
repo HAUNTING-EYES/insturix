@@ -3,6 +3,7 @@ import {
   applyWebsiteScreenshotToProfile,
   createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
   extractScreenshotUrl,
+  parseCapturedScreenshot,
 } from '@/lib/shared/brand-vault-website-screenshot';
 import { isBrandSignalActionable, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
@@ -39,8 +40,8 @@ describe('brand-vault website screenshot capture', () => {
     const capture = createBrandVaultWebsiteScreenshotCaptureFromEnvironment({ FIRECRAWL_API_KEY: 'fc-test' }, fetchFn);
     expect(capture).toBeDefined();
 
-    const url = await capture!('https://insturix.com');
-    expect(url).toBe('https://cdn.firecrawl.dev/shot-abc.png');
+    const captured = await capture!('https://insturix.com');
+    expect(captured).toEqual({ source: 'url', url: 'https://cdn.firecrawl.dev/shot-abc.png' });
 
     // Requests the screenshot format with bearer auth against the Firecrawl scrape endpoint.
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -98,6 +99,62 @@ describe('brand-vault website screenshot capture', () => {
       expect(extractScreenshotUrl({ data: { screenshot: 'data:image/png;base64,AAAA' } })).toBeUndefined();
       expect(extractScreenshotUrl({ data: {} })).toBeUndefined();
       expect(extractScreenshotUrl(null)).toBeUndefined();
+    });
+  });
+
+  describe('endpoint (Modal) provider', () => {
+    it('is selected when a render endpoint is configured, with no Firecrawl key', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ screenshotUrl: 'https://cdn.insturix.com/s.png' }));
+      const capture = createBrandVaultWebsiteScreenshotCaptureFromEnvironment(
+        { BRAND_VAULT_MODAL_RENDER_ENDPOINT: 'https://modal.example/render', BRAND_VAULT_MODAL_RENDER_TOKEN: 'tok' },
+        fetchFn,
+      );
+      expect(capture).toBeDefined();
+      const captured = await capture!('https://insturix.com');
+      expect(captured).toEqual({ source: 'url', url: 'https://cdn.insturix.com/s.png' });
+      const [endpoint, init] = fetchFn.mock.calls[0];
+      expect(endpoint).toBe('https://modal.example/render');
+      expect((init as RequestInit).headers).toMatchObject({ authorization: 'Bearer tok' });
+      const body = JSON.parse(String((init as RequestInit).body));
+      expect(body.mode).toBe('screenshot');
+      expect(body.url).toBe('https://insturix.com/');
+    });
+
+    it('accepts a base64 screenshot from the endpoint as a bytes source', async () => {
+      const b64 = 'A'.repeat(48);
+      const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ data: { screenshotBase64: b64, contentType: 'image/png' } }));
+      const capture = createBrandVaultWebsiteScreenshotCaptureFromEnvironment(
+        { BRAND_VAULT_SCREENSHOT_ENDPOINT: 'https://modal.example/render' },
+        fetchFn,
+      );
+      expect(await capture!('https://insturix.com')).toEqual({ source: 'bytes', base64: b64, contentType: 'image/png' });
+    });
+
+    it('prefers the endpoint over Firecrawl when both are configured', () => {
+      const capture = createBrandVaultWebsiteScreenshotCaptureFromEnvironment(
+        { BRAND_VAULT_BROWSER_RENDER_ENDPOINT: 'https://modal.example/render', FIRECRAWL_API_KEY: 'fc' },
+        vi.fn(),
+      );
+      expect(capture).toBeDefined();
+    });
+  });
+
+  describe('parseCapturedScreenshot', () => {
+    it('reads a public screenshotUrl', () => {
+      expect(parseCapturedScreenshot({ screenshotUrl: 'https://x.dev/a.png' })).toEqual({ source: 'url', url: 'https://x.dev/a.png' });
+    });
+    it('reads a data:image base64 URI in screenshot', () => {
+      const b64 = 'B'.repeat(40);
+      expect(parseCapturedScreenshot({ data: { screenshot: `data:image/jpeg;base64,${b64}` } })).toEqual({ source: 'bytes', base64: b64, contentType: 'image/jpeg' });
+    });
+    it('reads screenshotBase64 with a default png content type', () => {
+      const b64 = 'C'.repeat(64);
+      expect(parseCapturedScreenshot({ screenshotBase64: b64 })).toEqual({ source: 'bytes', base64: b64, contentType: 'image/png' });
+    });
+    it('returns undefined for an empty / too-short / missing screenshot', () => {
+      expect(parseCapturedScreenshot({ data: { screenshotBase64: 'tooShort' } })).toBeUndefined();
+      expect(parseCapturedScreenshot({})).toBeUndefined();
+      expect(parseCapturedScreenshot(null)).toBeUndefined();
     });
   });
 

@@ -34,8 +34,24 @@ export type BrandVaultVisualAssetMirrorResult =
       reason: string;
     };
 
+/** Raw image bytes to persist directly (e.g. a base64 screenshot returned by a render endpoint). */
+export interface BrandVaultVisualAssetBytesInput {
+  assetId: string;
+  base64: string;
+  contentType: string;
+  kind: BrandVaultVisualAssetPreview['kind'];
+  label: string;
+  jobId: string;
+  userId: string;
+  brandId?: string;
+  sourceUrl?: string;
+  signalPath?: string;
+}
+
 export interface BrandVaultVisualAssetStorageProvider {
   mirrorAsset(input: BrandVaultVisualAssetMirrorInput): Promise<BrandVaultVisualAssetMirrorResult>;
+  /** Persist raw image bytes (optional — providers that only mirror URLs may omit it). */
+  storeImageBytes?(input: BrandVaultVisualAssetBytesInput): Promise<BrandVaultVisualAssetMirrorResult>;
 }
 
 export interface BrandVaultVisualIdentityStorageResult {
@@ -247,6 +263,62 @@ class BrandVaultR2VisualAssetStorageProvider implements BrandVaultVisualAssetSto
       publicUrl: `${this.publicBaseUrl}/${storageKey}`,
       contentType: fetched.contentType,
       sizeBytes: fetched.body.length,
+      storedAt: this.clock?.() ?? new Date().toISOString(),
+    };
+  }
+
+  async storeImageBytes(input: BrandVaultVisualAssetBytesInput): Promise<BrandVaultVisualAssetMirrorResult> {
+    const contentType = input.contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+    if (!IMAGE_CONTENT_TYPE_RE.test(contentType)) {
+      return { ok: false, reason: 'unsupported screenshot content type' };
+    }
+
+    let body: Buffer;
+    try {
+      body = Buffer.from(input.base64.replace(/\s+/g, ''), 'base64');
+    } catch {
+      return { ok: false, reason: 'screenshot bytes were not valid base64' };
+    }
+    if (body.length === 0) return { ok: false, reason: 'screenshot bytes were empty' };
+    if (body.length > this.maxBytes) {
+      return { ok: false, reason: `screenshot is larger than ${Math.round(this.maxBytes / 1024 / 1024)}MB` };
+    }
+
+    const storageKey = brandVaultVisualAssetStorageKey(
+      {
+        assetId: input.assetId,
+        url: `bytes:${input.assetId}`,
+        kind: input.kind,
+        label: input.label,
+        jobId: input.jobId,
+        userId: input.userId,
+        brandId: input.brandId,
+        sourceUrl: input.sourceUrl,
+        signalPath: input.signalPath,
+      },
+      contentType,
+    );
+    await this.client.send(new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: storageKey,
+      Body: body,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+      Metadata: {
+        brandVaultJobId: safeMetadataValue(input.jobId),
+        brandVaultAssetId: safeMetadataValue(input.assetId),
+        visualKind: safeMetadataValue(input.kind),
+        sourceHash: hashText(input.sourceUrl ?? input.assetId).slice(0, 24),
+      },
+    }));
+
+    return {
+      ok: true,
+      provider: 'cloudflare_r2',
+      storageKey,
+      publicUrl: `${this.publicBaseUrl}/${storageKey}`,
+      contentType,
+      sizeBytes: body.length,
       storedAt: this.clock?.() ?? new Date().toISOString(),
     };
   }

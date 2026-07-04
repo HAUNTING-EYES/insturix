@@ -553,24 +553,33 @@ export async function createBrandVaultWebsiteDraftJob(
     }
     // Capture a live screenshot of the site and attach it as first-party "Website screenshot" evidence
     // (assets.socialPreviewImages), so brand-owned storyboard subjects auto-resolve from Brand Vault
-    // instead of dead-ending on a manual upload. Mirror to durable storage FIRST so the saved profile
-    // holds a permanent URL (the Firecrawl screenshot URL is temporary). Fail-soft: any capture/storage
-    // error leaves the draft untouched and never blocks the scan.
+    // instead of dead-ending on a manual upload. Persist to durable storage FIRST so the saved profile
+    // holds a permanent URL (a provider screenshot URL is temporary; bytes go straight to R2). Fail-soft:
+    // any capture/storage error leaves the draft untouched and never blocks the scan.
     if (dependencies.captureWebsiteScreenshot && dependencies.visualAssetStorage) {
       try {
-        const screenshotUrl = await dependencies.captureWebsiteScreenshot(snapshot.normalizedUrl);
-        if (screenshotUrl) {
-          const stored = await dependencies.visualAssetStorage.mirrorAsset({
+        const captured = await dependencies.captureWebsiteScreenshot(snapshot.normalizedUrl);
+        if (captured) {
+          const storageMeta = {
             assetId: `${jobId}_website_screenshot`,
-            url: screenshotUrl,
-            kind: 'website_preview',
+            kind: 'website_preview' as const,
             label: 'Website screenshot',
             jobId,
             userId: input.userId,
             brandId: input.brandId,
             sourceUrl: snapshot.normalizedUrl,
             signalPath: 'assets.socialPreviewImages',
-          });
+          };
+          const stored =
+            captured.source === 'url'
+              ? await dependencies.visualAssetStorage.mirrorAsset({ ...storageMeta, url: captured.url })
+              : dependencies.visualAssetStorage.storeImageBytes
+                ? await dependencies.visualAssetStorage.storeImageBytes({
+                    ...storageMeta,
+                    base64: captured.base64,
+                    contentType: captured.contentType,
+                  })
+                : { ok: false as const, reason: 'storage provider cannot persist screenshot bytes' };
           if (stored.ok) {
             draft.record.profile = applyWebsiteScreenshotToProfile(draft.record.profile, {
               screenshotUrl: stored.publicUrl,
