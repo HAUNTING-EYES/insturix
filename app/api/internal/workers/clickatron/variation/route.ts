@@ -8,7 +8,16 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
-import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
+import {
+  CLICKATRON_MODELS,
+  fitClickatronPromptToModelLimit,
+  generateModelPayload,
+  modelSupportsAspectRatio,
+  modelSupportsSeed,
+  processParentVariationImage,
+  processReferenceImages,
+  resolveClickatronModelForGeneration,
+} from '@/lib/config/clickatron-models';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
@@ -468,8 +477,7 @@ async function handler(req: Request) {
       console.log('Worker: Starting image generation with params:', generationParams);
 
       // Get the model configuration from the variation
-      let selectedModelId = variation.modelId;
-      const modelConfig = CLICKATRON_MODELS[selectedModelId];
+      let selectedModelId = variation.modelId || job.modelId || '';
 
       // Validate URLs before passing to Fal AI (especially for inpainting)
       if (generationParams.image_url) {
@@ -510,34 +518,39 @@ async function handler(req: Request) {
         referenceImageCount = generationParams.image_urls.length;
       }
 
-      // Validate that the selected model supports the number of reference images
-      const minImages = modelConfig.constraints?.minImages ?? 0;
-      const maxImages = modelConfig.constraints?.maxImages ?? 0;
 
-      if (referenceImageCount < minImages || referenceImageCount > maxImages) {
-        console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
-        await failJob(jobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
+      const resolverReferenceImageCount = body.parentVariationId
+        ? Math.max(0, referenceImageCount - 1)
+        : referenceImageCount;
+      const resolutionContext = body.parentVariationId ? 'edit' : 'newVariation';
+      const resolvedModel = !maskUrl
+        ? resolveClickatronModelForGeneration({
+            requestedModelId: selectedModelId,
+            context: resolutionContext,
+            referenceImageCount: resolverReferenceImageCount,
+            hasParentImage: Boolean(body.parentVariationId),
+            aspectRatio: ratio,
+          })
+        : undefined;
 
-        // Ensure variation is updated with failed status
-        try {
-          variation.status = 'failed';
-          variation.updatedAt = new Date();
-
-          task.markModified('details');
-          await task.save();
-          console.log('Worker: Updated variation status to failed due to invalid model');
-        } catch (saveError) {
-          console.error('Worker: Failed to save variation status:', saveError);
-        }
-
-        return NextResponse.json({ error: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` }, { status: 400 });
+      if (resolvedModel && resolvedModel.modelId !== selectedModelId) {
+        console.warn('Worker: Model switched for generation compatibility:', {
+          requestedModelId: selectedModelId,
+          selectedModelId: resolvedModel.modelId,
+          aspectRatio: ratio,
+          referenceImageCount,
+          reason: resolvedModel.reason,
+        });
+        selectedModelId = resolvedModel.modelId;
+        variation.modelId = selectedModelId;
       }
+
+      const modelConfig = CLICKATRON_MODELS[selectedModelId];
 
       if (!modelConfig) {
         console.error('Worker: Model configuration not found for modelId:', selectedModelId);
         await failJob(jobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
 
-        // Ensure variation is updated with failed status
         try {
           variation.status = 'failed';
           variation.updatedAt = new Date();
@@ -550,6 +563,33 @@ async function handler(req: Request) {
         }
 
         return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
+      }
+
+      if (!modelSupportsAspectRatio(modelConfig, ratio)) {
+        console.error('Worker: Selected model does not support aspect ratio:', { modelId: selectedModelId, ratio });
+        throw new Error(`${modelConfig.name} does not support aspect ratio ${ratio}`);
+      }
+
+      // Validate that the selected model supports the number of reference images
+      const minImages = modelConfig.constraints?.minImages ?? 0;
+      const maxImages = modelConfig.constraints?.maxImages ?? 0;
+
+      if (referenceImageCount < minImages || referenceImageCount > maxImages) {
+        console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
+        await failJob(jobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
+
+        try {
+          variation.status = 'failed';
+          variation.updatedAt = new Date();
+
+          task.markModified('details');
+          await task.save();
+          console.log('Worker: Updated variation status to failed due to invalid model');
+        } catch (saveError) {
+          console.error('Worker: Failed to save variation status:', saveError);
+        }
+
+        return NextResponse.json({ error: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` }, { status: 400 });
       }
 
       // Use the model ID directly (already includes 'fal-ai/' prefix)
@@ -671,6 +711,20 @@ async function handler(req: Request) {
           console.error('Worker: Failed to access image URLs:', error);
           throw new Error(`Cannot access reference images: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+      }
+
+      const originalPromptLength = job.prompt.length;
+      const fittedPrompt = fitClickatronPromptToModelLimit(modelConfig.id, job.prompt);
+      if (fittedPrompt.length !== originalPromptLength) {
+        console.warn('Worker: Prompt compacted for selected model provider limit:', {
+          modelId: modelConfig.id,
+          originalPromptLength,
+          fittedPromptLength: fittedPrompt.length,
+        });
+        job.prompt = fittedPrompt;
+        generationParams.promptCompactedForModel = true;
+        generationParams.originalPromptLength = originalPromptLength;
+        generationParams.finalPromptLength = fittedPrompt.length;
       }
 
       // Construct the payload dynamically based on the model configuration

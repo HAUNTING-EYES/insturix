@@ -11,7 +11,7 @@ import { nanoid } from 'nanoid';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
-import { getDefaultClickatronModelIdForInput } from '@/lib/config/clickatron-models';
+import { resolveClickatronModelForGeneration } from '@/lib/config/clickatron-models';
 
 // Hard upper bound on carousel slides we will fan out into variations/jobs.
 // Source: product spec (max 7 slides per carousel). The ThinkForge writers and
@@ -126,22 +126,32 @@ export async function POST(request: Request) {
     // intentionally left as-is for P7 to reconcile.
     const carouselSlides = parseCarouselSlides(formData.get('metadata'));
     const quantity = carouselSlides.length > 0 ? carouselSlides.length : 1;
+    const referenceImages = formData.getAll('referenceImage') as File[];
+    const rawAspectRatio = formData.get('aspectRatio') || '16:9';
+    const resolvedModel = resolveClickatronModelForGeneration({
+      requestedModelId: formData.get('modelId') as string | null,
+      context: 'newVariation',
+      referenceImageCount: referenceImages.length,
+      aspectRatio: typeof rawAspectRatio === 'string' ? rawAspectRatio : String(rawAspectRatio),
+    });
+    if (resolvedModel.reason === 'aspect-ratio-fallback') {
+      console.warn('[Clickatron] Model switched for aspect-ratio compatibility:', {
+        requestedModelId: resolvedModel.requestedModelId,
+        selectedModelId: resolvedModel.modelId,
+        aspectRatio: rawAspectRatio,
+      });
+    }
 
     // Check credits (3 credits per variation, multiplied by the slide quantity)
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', { quantity });
+    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', { quantity, model: resolvedModel.modelId });
     if (!creditCheck.allowed) {
       return creditCheck.errorResponse;
     }
 
-    const referenceImages = formData.getAll('referenceImage') as File[];
-    const defaultModelId = getDefaultClickatronModelIdForInput({
-      context: 'newVariation',
-      referenceImageCount: referenceImages.length,
-    });
     const validatedData = CreateSessionRequestSchema.parse({
       prompt: formData.get('prompt') || '',
-      aspectRatio: formData.get('aspectRatio') || '16:9',
-      modelId: formData.get('modelId') || defaultModelId,
+      aspectRatio: rawAspectRatio,
+      modelId: resolvedModel.modelId,
       brandId: formData.get('brandId'),
       projectId: formData.get('projectId'),
       universalId: formData.get('universalId'),
@@ -150,7 +160,6 @@ export async function POST(request: Request) {
       sourceScriptId: formData.get('sourceScriptId'),
       metadata: formData.get('metadata'),
     });
-
     const isBlankProject = !validatedData.prompt || validatedData.prompt.trim() === '';
     const sourceContext = Object.fromEntries(
       Object.entries({

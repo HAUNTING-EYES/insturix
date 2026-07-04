@@ -69,6 +69,34 @@ export type ClickatronDefaultGenerationType = Extract<ModelType, 'text-to-image'
 export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/imagen4/preview';
 export const DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID = 'fal-ai/flux-kontext/dev';
 export const IMAGEN4_PREVIEW_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
+const CLICKATRON_PROMPT_TRUNCATION_NOTICE = '\n\n[Prompt compacted to fit the selected image model provider limit. Preserve the core visual request, brand constraints, and generation rules.]\n\n';
+
+function compactTextToLength(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  if (maxLength <= CLICKATRON_PROMPT_TRUNCATION_NOTICE.length + 40) {
+    return text.slice(0, maxLength);
+  }
+
+  const available = maxLength - CLICKATRON_PROMPT_TRUNCATION_NOTICE.length;
+  const headLength = Math.ceil(available * 0.65);
+  const tailLength = available - headLength;
+  return `${text.slice(0, headLength)}${CLICKATRON_PROMPT_TRUNCATION_NOTICE}${text.slice(-tailLength)}`;
+}
+
+export function getClickatronModelPromptMaxLength(modelId: string | undefined | null): number | undefined {
+  if (!modelId) return undefined;
+  return CLICKATRON_MODELS[modelId]?.constraints.promptMaxLength;
+}
+
+export function fitClickatronPromptToModelLimit(
+  modelId: string | undefined | null,
+  prompt: string,
+  fallbackMaxLength = 5000,
+): string {
+  const normalizedPrompt = prompt.trim();
+  const maxLength = getClickatronModelPromptMaxLength(modelId) ?? fallbackMaxLength;
+  return compactTextToLength(normalizedPrompt, maxLength);
+}
 
 /**
  * A map of all available models, keyed by their unique ID.
@@ -87,7 +115,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       resolution: 'resolution'
     },
     constraints: {
-      promptMaxLength: 2048,
+      promptMaxLength: 5000,
       allowedAspectRatios: [...IMAGEN4_PREVIEW_ASPECT_RATIOS],
       minImages: 0,
       maxImages: 0,
@@ -236,7 +264,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       seed: 'seed'
     },
     constraints: {
-      promptMaxLength: 2048,
+      promptMaxLength: 5000,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 0,
       maxImages: 0,
@@ -525,6 +553,99 @@ export function getDefaultClickatronModelIdForInput({
   );
 }
 
+export interface ClickatronModelResolution {
+  modelId: string;
+  model: ModelConfig;
+  requestedModelId?: string;
+  reason: 'requested' | 'default' | 'aspect-ratio-fallback' | 'missing-model-fallback';
+}
+
+export function modelSupportsAspectRatio(model: ModelConfig | undefined, aspectRatio?: string | null): boolean {
+  if (!model || !aspectRatio) return Boolean(model);
+  const allowedAspectRatios = model.constraints.allowedAspectRatios;
+  return !allowedAspectRatios || allowedAspectRatios.includes(aspectRatio);
+}
+
+export function resolveClickatronModelForGeneration({
+  requestedModelId,
+  context = 'newVariation',
+  referenceImageCount = 0,
+  hasParentImage = false,
+  aspectRatio,
+}: {
+  requestedModelId?: string | null;
+  context?: ClickatronModelContext;
+  referenceImageCount?: number;
+  hasParentImage?: boolean;
+  aspectRatio?: string | null;
+} = {}): ClickatronModelResolution {
+  const generationType: ClickatronDefaultGenerationType =
+    referenceImageCount > 0 || hasParentImage ? 'image-to-image' : 'text-to-image';
+  const availableModels = getAvailableModels(context, referenceImageCount);
+  const modelCanHandleRequest = (model: ModelConfig | undefined): model is ModelConfig =>
+    Boolean(
+      model &&
+      model.types.includes(generationType) &&
+      availableModels.some((availableModel) => availableModel.id === model.id) &&
+      modelSupportsAspectRatio(model, aspectRatio)
+    );
+
+  const requestedModel: ModelConfig | undefined = requestedModelId ? CLICKATRON_MODELS[requestedModelId] : undefined;
+  if (modelCanHandleRequest(requestedModel)) {
+    return {
+      modelId: requestedModel.id,
+      model: requestedModel,
+      requestedModelId: requestedModelId ?? undefined,
+      reason: 'requested',
+    };
+  }
+
+  const defaultModelId = getDefaultClickatronModelIdForInput({
+    context,
+    referenceImageCount,
+    hasParentImage,
+  });
+  const defaultModel: ModelConfig | undefined = CLICKATRON_MODELS[defaultModelId];
+  if (modelCanHandleRequest(defaultModel)) {
+    return {
+      modelId: defaultModel.id,
+      model: defaultModel,
+      requestedModelId: requestedModelId ?? undefined,
+      reason: requestedModel ? 'aspect-ratio-fallback' : 'default',
+    };
+  }
+
+  const compatibleModel = availableModels.find((model) =>
+    model.types.includes(generationType) && modelSupportsAspectRatio(model, aspectRatio)
+  );
+  if (compatibleModel) {
+    return {
+      modelId: compatibleModel.id,
+      model: compatibleModel,
+      requestedModelId: requestedModelId ?? undefined,
+      reason: requestedModel ? 'aspect-ratio-fallback' : 'default',
+    };
+  }
+
+  const fallbackCandidates: Array<ModelConfig | undefined> = [
+    defaultModel,
+    availableModels.find((model) => model.types.includes(generationType)),
+    CLICKATRON_MODELS[getDefaultClickatronModelId(generationType)],
+    Object.values(CLICKATRON_MODELS)[0],
+  ];
+  const fallbackModel = fallbackCandidates.find((model): model is ModelConfig => Boolean(model));
+
+  if (!fallbackModel) {
+    throw new Error('No Clickatron generation models are configured');
+  }
+
+  return {
+    modelId: fallbackModel.id,
+    model: fallbackModel,
+    requestedModelId: requestedModelId ?? undefined,
+    reason: requestedModel ? 'aspect-ratio-fallback' : 'missing-model-fallback',
+  };
+}
 /**
  * Get available models for a specific context
  * @param context - The context ('ideation' | 'newVariation' | 'edit' | 'generativeFill' | 'sketchToEdit')
@@ -590,7 +711,7 @@ export function generateImagen4PreviewPayload(
   }
 
   return {
-    prompt: job.prompt,
+    prompt: fitClickatronPromptToModelLimit('fal-ai/imagen4/preview', job.prompt),
     aspect_ratio: ratio,
     num_images: numImages,
     resolution: "1K"
