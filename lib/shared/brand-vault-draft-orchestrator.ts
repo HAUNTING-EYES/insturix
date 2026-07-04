@@ -38,6 +38,10 @@ import {
   mirrorBrandVaultVisualIdentityAssets,
   type BrandVaultVisualAssetStorageProvider,
 } from './brand-vault-visual-asset-storage';
+import {
+  applyWebsiteScreenshotToProfile,
+  type CaptureBrandVaultWebsiteScreenshot,
+} from './brand-vault-website-screenshot';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -297,6 +301,12 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   websiteOcrProvider?: BrandVaultSocialOcrProvider | null;
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
+  /**
+   * Captures a live screenshot of the scanned site. When set (and visualAssetStorage is configured), the
+   * screenshot is mirrored to durable storage and attached as first-party assets.socialPreviewImages
+   * evidence so brand-owned storyboard subjects auto-resolve. Fail-soft — never blocks the scan.
+   */
+  captureWebsiteScreenshot?: CaptureBrandVaultWebsiteScreenshot | null;
   clock?: () => string;
 }
 
@@ -539,6 +549,41 @@ export async function createBrandVaultWebsiteDraftJob(
           sourceExcerpt: audienceCopy,
           sourceUrl: snapshot.normalizedUrl,
         });
+      }
+    }
+    // Capture a live screenshot of the site and attach it as first-party "Website screenshot" evidence
+    // (assets.socialPreviewImages), so brand-owned storyboard subjects auto-resolve from Brand Vault
+    // instead of dead-ending on a manual upload. Mirror to durable storage FIRST so the saved profile
+    // holds a permanent URL (the Firecrawl screenshot URL is temporary). Fail-soft: any capture/storage
+    // error leaves the draft untouched and never blocks the scan.
+    if (dependencies.captureWebsiteScreenshot && dependencies.visualAssetStorage) {
+      try {
+        const screenshotUrl = await dependencies.captureWebsiteScreenshot(snapshot.normalizedUrl);
+        if (screenshotUrl) {
+          const stored = await dependencies.visualAssetStorage.mirrorAsset({
+            assetId: `${jobId}_website_screenshot`,
+            url: screenshotUrl,
+            kind: 'website_preview',
+            label: 'Website screenshot',
+            jobId,
+            userId: input.userId,
+            brandId: input.brandId,
+            sourceUrl: snapshot.normalizedUrl,
+            signalPath: 'assets.socialPreviewImages',
+          });
+          if (stored.ok) {
+            draft.record.profile = applyWebsiteScreenshotToProfile(draft.record.profile, {
+              screenshotUrl: stored.publicUrl,
+              observedAt: snapshot.fetchedAt,
+              sourceUrl: snapshot.normalizedUrl,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(
+          '[BrandVault:screenshot] website screenshot capture skipped:',
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
     const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {

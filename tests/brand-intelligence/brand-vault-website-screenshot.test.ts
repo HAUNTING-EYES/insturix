@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  applyWebsiteScreenshotToProfile,
   createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
   extractScreenshotUrl,
 } from '@/lib/shared/brand-vault-website-screenshot';
+import { isBrandSignalActionable, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+
+function profileStub(overrides: Partial<BrandSignalProfile> = {}): BrandSignalProfile {
+  return { evidence: [], ...overrides } as unknown as BrandSignalProfile;
+}
 
 function jsonResponse(body: unknown, ok = true): Response {
   return {
@@ -92,6 +98,54 @@ describe('brand-vault website screenshot capture', () => {
       expect(extractScreenshotUrl({ data: { screenshot: 'data:image/png;base64,AAAA' } })).toBeUndefined();
       expect(extractScreenshotUrl({ data: {} })).toBeUndefined();
       expect(extractScreenshotUrl(null)).toBeUndefined();
+    });
+  });
+
+  describe('applyWebsiteScreenshotToProfile', () => {
+    const args = { screenshotUrl: 'https://cdn.insturix.com/shot.png', observedAt: '2026-07-04T00:00:00.000Z', sourceUrl: 'https://insturix.com' };
+
+    it('adds an ACTIONABLE socialPreviewImages signal the storyboard gate will resolve', () => {
+      const next = applyWebsiteScreenshotToProfile(profileStub(), args);
+      const signal = next.assets?.socialPreviewImages;
+      expect(signal?.value).toEqual(['https://cdn.insturix.com/shot.png']);
+      expect(signal?.trustLevel).toBe('first_party_website');
+      expect(signal?.authorityClass).toBe('brand_fact');
+      expect(signal && isBrandSignalActionable(signal)).toBe(true);
+    });
+
+    it('seeds a non-actionable empty productImages so it never fakes product evidence (Clickatron-safe)', () => {
+      const next = applyWebsiteScreenshotToProfile(profileStub(), args);
+      const productImages = next.assets?.productImages;
+      expect(productImages?.value).toEqual([]);
+      expect(productImages && isBrandSignalActionable(productImages)).toBe(false);
+    });
+
+    it('preserves existing product images and appends the screenshot to existing previews (deduped)', () => {
+      const seeded = profileStub({
+        assets: {
+          productImages: { value: ['https://x.dev/p.png'], confidence: 0.56, trustLevel: 'first_party_website', authorityClass: 'brand_fact', evidenceIds: [] },
+          socialPreviewImages: { value: ['https://x.dev/og.png'], confidence: 0.62, trustLevel: 'first_party_website', authorityClass: 'brand_fact', evidenceIds: [] },
+        },
+      } as unknown as Partial<BrandSignalProfile>);
+      const next = applyWebsiteScreenshotToProfile(seeded, args);
+      expect(next.assets?.productImages.value).toEqual(['https://x.dev/p.png']);
+      expect(next.assets?.socialPreviewImages?.value).toEqual(['https://cdn.insturix.com/shot.png', 'https://x.dev/og.png']);
+    });
+
+    it('records one evidence entry referenced by the signal, and is idempotent', () => {
+      const once = applyWebsiteScreenshotToProfile(profileStub(), args);
+      const evidenceId = once.assets?.socialPreviewImages?.evidenceIds[0];
+      expect(evidenceId).toBeTruthy();
+      expect(once.evidence.filter((item) => item.id === evidenceId)).toHaveLength(1);
+      const twice = applyWebsiteScreenshotToProfile(once, args);
+      expect(twice.evidence.filter((item) => item.id === evidenceId)).toHaveLength(1);
+    });
+
+    it('is a no-op for a non-http screenshot url and never mutates the input', () => {
+      const input = profileStub();
+      const next = applyWebsiteScreenshotToProfile(input, { ...args, screenshotUrl: 'not-a-url' });
+      expect(next).toBe(input);
+      expect(input.assets).toBeUndefined();
     });
   });
 });
