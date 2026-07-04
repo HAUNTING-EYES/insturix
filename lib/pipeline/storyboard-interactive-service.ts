@@ -17,6 +17,7 @@ import {
   updateSceneStatus,
   saveStoryboard,
 } from './storyboard-db';
+import { prioritizeStoryboardReferencesForScene } from './storyboard-reference-priority';
 import type { Storyboard, StoryboardScene, StyleGuide } from './schemas/storyboard';
 
 // Configure fal.ai
@@ -92,14 +93,15 @@ export async function generateSceneSequential(
     let usedIpAdapter = false;
 
     // ─── Try IP-adapter with approved reference images first ──────
-    const seqSceneRefs = storyboard.approvedReferences?.filter(
-      (ref) => ref.scenesAppearingIn.includes(sceneIndex),
+    const seqSceneRefs = prioritizeStoryboardReferencesForScene(
+      scene.descriptor,
+      storyboard.approvedReferences?.filter((ref) => ref.scenesAppearingIn.includes(sceneIndex)) ?? [],
     );
 
     // Build reference subject descriptions for prompt enrichment.
     // Ensures fallback images still describe the reference subjects textually.
     let refDescriptionSuffix = '';
-    if (seqSceneRefs && seqSceneRefs.length > 0) {
+    if (seqSceneRefs.length > 0) {
       const refDescs = seqSceneRefs
         .filter((r) => r.visualDescription || r.name)
         .map((r) => {
@@ -112,7 +114,7 @@ export async function generateSceneSequential(
     }
     const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
 
-    if (seqSceneRefs && seqSceneRefs.length > 0) {
+    if (seqSceneRefs.length > 0) {
       const primaryRef = seqSceneRefs[0];
       // Use reference weight from the reference object, default 0.7 for stronger product consistency
       const seqIpWeight = primaryRef.weight ?? 0.7;
@@ -280,10 +282,11 @@ export async function regenerateWithContext(
 
     // Also check if any approved reference name appears in the feedback — if the user
     // mentions a reference subject by name + a consistency word, that's a match signal.
-    const sceneRefsForDetection = storyboard.approvedReferences?.filter(
-      (ref) => ref.scenesAppearingIn.includes(sceneIndex),
+    const sceneRefsForDetection = prioritizeStoryboardReferencesForScene(
+      scene.descriptor,
+      storyboard.approvedReferences?.filter((ref) => ref.scenesAppearingIn.includes(sceneIndex)) ?? [],
     );
-    const refNameMentioned = sceneRefsForDetection?.some(
+    const refNameMentioned = sceneRefsForDetection.some(
       (ref) => ref.name && feedback.toLowerCase().includes(ref.name.toLowerCase()),
     );
 
@@ -307,7 +310,7 @@ export async function regenerateWithContext(
       // User wants stricter adherence to the approved reference image.
       // Use HIGHER IP-adapter weight (0.85) and explicit matching language.
       // Subject names come from the storyboard's approved references — never hardcoded.
-      const refNames = sceneRefsForDetection?.map((r) => r.name).filter(Boolean) || [];
+      const refNames = sceneRefsForDetection.map((r) => r.name).filter(Boolean);
       const refSubjectLabel = refNames.length > 0 ? refNames.join(', ') : 'the main subject';
 
       console.log(`[StoryboardRegen] Scene ${sceneIndex}: REFERENCE_MATCH mode (ipWeight=${ipAdapterWeight}, subjects=[${refSubjectLabel}]) — "${feedback.substring(0, 80)}"`);
@@ -396,7 +399,7 @@ export async function regenerateWithContext(
     // for visual consistency. Falls back to REPLACE/EDIT img2img if IP-adapter fails.
     // Re-use the refs already fetched for intent detection above.
     const sceneRefs = sceneRefsForDetection;
-    const hasApprovedRefs = sceneRefs && sceneRefs.length > 0;
+    const hasApprovedRefs = sceneRefs.length > 0;
     let ipAdapterSucceeded = false;
 
     // Enrich prompt with reference subject descriptions for consistency.
