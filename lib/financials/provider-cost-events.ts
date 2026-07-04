@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { getDatabase } from '@/lib/editron/db/mongodb';
 import {
   estimateProviderCost,
   estimateRevenueUsdFromCredits,
@@ -141,6 +140,7 @@ export async function recordProviderCostEvent(input: ProviderCostEventInput): Pr
   const doc = normalizeProviderCostEvent(input);
 
   try {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
     const collection = db.collection<ProviderCostEventDocument>(PROVIDER_COST_EVENTS_COLLECTION);
 
