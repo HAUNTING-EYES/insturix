@@ -212,6 +212,7 @@ function looksLikeHtml(bytes: Buffer): boolean {
 function voiceSampleFilename(contentType: string): string {
   const type = contentType.toLowerCase();
   if (type.includes('mpeg') || type.includes('mp3')) return 'voice-sample.mp3';
+  if (type.includes('webm')) return 'voice-sample.webm';
   if (type.includes('ogg')) return 'voice-sample.ogg';
   if (type.includes('mp4') || type.includes('m4a') || type.includes('aac')) return 'voice-sample.m4a';
   return 'voice-sample.wav';
