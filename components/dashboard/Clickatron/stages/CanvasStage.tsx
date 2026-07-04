@@ -10,6 +10,7 @@ import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import { Input } from "@/components/ui/input";
 import { Grid, Sliders, X, Loader2, Square, Pencil } from "lucide-react";
 import useClickatronStore from "@/stores/useCanvasStore";
+import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
 import { useDebounce } from "use-debounce";
@@ -39,7 +40,7 @@ interface CanvasStageProps {
 }
 
 // OLD: local fadeIn (y:20, 0.4s, 'easeOut')
-// NEW: shared SPREAD.fadeUp (y:20, 0.5s, expo.out — brand easing)
+// NEW: shared SPREAD.fadeUp (y:20, 0.5s, expo.out â€” brand easing)
 const fadeIn = SPREAD.fadeUp;
 
 // Helper function to get aspect ratio dimensions
@@ -413,7 +414,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       currentCanvasString !== lastSyncedCanvasRef.current;
 
     if (isDifferentFromLastSync) {
-      console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!", {
+      console.log("ðŸš€ TRIGGERING AUTOSAVE - Canvas has changed!", {
         taskId: task._id,
         variationsCount: debouncedCanvas.variations?.length,
       });
@@ -497,7 +498,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         "fineTuning",
         JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }),
       );
-      formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
+      const generationBrandId = task.brandId || getActiveBrandIdFromStorage();
+      const generationMetadata = {
+        aspectRatio,
+        ...(generationBrandId ? { sourceContext: { brandId: generationBrandId } } : {}),
+      };
+      formData.append("metadata", JSON.stringify(generationMetadata));
       formData.append("aspectRatio", aspectRatio);
 
       // If the active variation is blank, indicate that we want to update it
@@ -1289,8 +1295,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           <div className="text-[10px] font-medium text-[#7A776E] tracking-widest uppercase mb-2">Tools</div>
           <div className="flex gap-1.5 flex-wrap">
             {([
-              { tool: "pencil" as const, label: "Pencil", icon: "✏️" },
-              { tool: "eraser" as const, label: "Eraser", icon: "◯" },
+              { tool: "pencil" as const, label: "Pencil", icon: "âœï¸" },
+              { tool: "eraser" as const, label: "Eraser", icon: "â—¯" },
             ] as const).map(({ tool, label, icon }) => (
               <button
                 key={tool}

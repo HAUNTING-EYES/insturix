@@ -26,7 +26,7 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from '@/lib/clickatron/brand-prompt-context';
-import { resolveClickatronBrandReferenceImages } from '@/lib/clickatron/brand-reference-images';
+import { resolveClickatronBrandReferenceEvidence } from '@/lib/clickatron/brand-reference-images';
 import sharp from 'sharp';
 
 // Configure Fal AI client
@@ -255,18 +255,18 @@ async function handler(req: Request) {
     jobId = body.jobId;
 
     const { jobId: parsedJobId, sessionId, variationId } = workerRequestSchema.parse(body);
-    jobId = parsedJobId; // Update jobId with parsed value
-    jobId = parsedJobId; // Update jobId with parsed value
-    console.log('Worker: Parsed data - jobId:', jobId, 'sessionId:', sessionId, 'variationId:', variationId);
+    const activeJobId: string = parsedJobId;
+    jobId = activeJobId; // Preserve for outer error handling.
+    console.log('Worker: Parsed data - jobId:', activeJobId, 'sessionId:', sessionId, 'variationId:', variationId);
 
-    const job = await getJob(jobId);
+    const job = await getJob(activeJobId);
     if (!job) {
-      console.error('Worker: Job not found for jobId:', jobId);
+      console.error('Worker: Job not found for jobId:', activeJobId);
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
     // Mark job as running
-    await startJob(jobId, 'generating');
+    await startJob(activeJobId, 'generating');
     console.log('Worker: Marked job as running');
 
     await getClickatronDb();
@@ -276,14 +276,14 @@ async function handler(req: Request) {
 
     if (!task || !task.details.canvas) {
       console.error('Worker: Task or canvas not found for sessionId:', sessionId);
-      await failJob(jobId, { code: 'TASK_NOT_FOUND', message: 'Task or canvas not found' });
+      await failJob(activeJobId, { code: 'TASK_NOT_FOUND', message: 'Task or canvas not found' });
       return NextResponse.json({ error: 'Task or canvas not found' }, { status: 404 });
     }
 
     // Validate job ownership
     if (job.userId !== task.clerkUserId) {
       console.error('Worker: Job ownership validation failed', { jobUserId: job.userId, taskUserId: task.clerkUserId });
-      await failJob(jobId, { code: 'UNAUTHORIZED', message: 'Job ownership validation failed' });
+      await failJob(activeJobId, { code: 'UNAUTHORIZED', message: 'Job ownership validation failed' });
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -292,14 +292,14 @@ async function handler(req: Request) {
 
     if (!variation) {
       console.error('Worker: Variation not found - likely deleted');
-      await failJob(jobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
+      await failJob(activeJobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
       return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
     }
 
     // Check if Fal AI is configured
     if (!process.env.FAL_AI_API_KEY) {
       console.error('Worker: Fal AI API key not configured');
-      await failJob(jobId, { code: 'FAL_AI_NOT_CONFIGURED', message: 'Fal AI API key not configured. Please set FAL_AI_API_KEY in environment variables.' });
+      await failJob(activeJobId, { code: 'FAL_AI_NOT_CONFIGURED', message: 'Fal AI API key not configured. Please set FAL_AI_API_KEY in environment variables.' });
 
       // Ensure variation is updated with failed status even if Fal AI is not configured
       try {
@@ -386,7 +386,8 @@ async function handler(req: Request) {
         ...asPromptMetadataRecord(variation.metadata),
       };
       const promptBrandId = resolveClickatronPromptBrandId(task.brandId, promptMetadata);
-      // Org-scope the brand resolution (Phase A.3) — task carries orgId on ClickatronTask.
+      const rawGenerationPrompt = job.prompt;
+      // Org-scope the brand resolution (Phase A.3) â€” task carries orgId on ClickatronTask.
       const brandContextBlock = await resolveClickatronBrandContextBlock(
         job.userId,
         promptBrandId,
@@ -394,7 +395,7 @@ async function handler(req: Request) {
         task.orgId ?? null,
       );
       const enrichedPrompt = buildClickatronGenerationPrompt({
-        prompt: job.prompt,
+        prompt: rawGenerationPrompt,
         metadata: promptMetadata,
         brandContextBlock,
         // C2: the picked model decides in-image text rendering on the default text policy.
@@ -430,28 +431,60 @@ async function handler(req: Request) {
         }
       }
 
-      // Combine parent image and reference images into generation parameters
-      // Always use image_urls internally for consistency
+      // Combine parent image and reference images into generation parameters.
+      // Always use image_urls internally for consistency.
       const imageUrls: string[] = [];
       if (parentImageUrl) {
         imageUrls.push(parentImageUrl);
         console.log('Worker: Added parent image URL:', parentImageUrl);
       }
       imageUrls.push(...referenceImageUrls);
-      // #4 (brand asset island): an explicit product mockup with NO parent/user image seeds the brand's
-      // own scanned product imagery as reference, so the output is brand-faithful. Intent-gated
-      // (product_mockup only — Rule 29) and never overrides a user's parent/reference images. Fail-soft.
-      if (!parentImageUrl && referenceImageUrls.length === 0) {
-        const brandReferenceImages = await resolveClickatronBrandReferenceImages({
-          userId: job.userId,
-          brandId: promptBrandId,
-          metadata: promptMetadata,
-          orgId: task.orgId ?? null,
-        });
-        if (brandReferenceImages.length > 0) {
-          imageUrls.push(...brandReferenceImages);
-          console.log('[Worker] Clickatron brand product reference images added:', brandReferenceImages.length);
+
+      const shouldSeedProductImages = !parentImageUrl && referenceImageUrls.length === 0;
+      const brandReferenceResolution = await resolveClickatronBrandReferenceEvidence({
+        userId: job.userId,
+        brandId: promptBrandId,
+        metadata: promptMetadata,
+        prompt: rawGenerationPrompt,
+        orgId: task.orgId ?? null,
+      });
+
+      if (brandReferenceResolution.needsUserInput) {
+        const message = brandReferenceResolution.needsUserInputReason
+          ?? 'needs_user_input: Brand Vault logo evidence is required before generation.';
+        variation.metadata = {
+          ...(variation.metadata ?? {}),
+          needsUserInput: {
+            code: 'missing_brand_logo_evidence',
+            assetRole: 'logo',
+            message,
+          },
+          brandReferenceEvidence: {
+            intent: brandReferenceResolution.intent,
+            evidence: [],
+          },
+        };
+        const needsInputError = new Error(message) as Error & { code?: string };
+        needsInputError.code = 'NEEDS_USER_INPUT';
+        throw needsInputError;
+      }
+
+      const brandReferenceEvidence = brandReferenceResolution.evidence.filter(
+        (item) => item.assetRole === 'logo' || (shouldSeedProductImages && item.assetRole === 'product'),
+      );
+
+      if (brandReferenceEvidence.length > 0) {
+        imageUrls.push(...brandReferenceEvidence.map((item) => item.url));
+        generationParams.brandReferenceEvidence = brandReferenceEvidence;
+        if (brandReferenceEvidence.some((item) => item.assetRole === 'logo')) {
+          job.prompt = `${job.prompt}\n\nUse the supplied Brand Vault logo reference as the only brand mark. Preserve its shape, colors, and proportions; do not invent, redesign, or spell a logo from text. Keep the logo placement overlay-safe for a locked Brand Vault mark.`;
+          generationParams.logoReferencePolicy = 'brand_vault_reference_required';
         }
+        console.log('[Worker] Clickatron Brand Vault reference evidence added:', {
+          total: brandReferenceEvidence.length,
+          logos: brandReferenceEvidence.filter((item) => item.assetRole === 'logo').length,
+          products: brandReferenceEvidence.filter((item) => item.assetRole === 'product').length,
+        });
       }
       console.log('Worker: Total image URLs:', imageUrls.length);
 
@@ -549,7 +582,7 @@ async function handler(req: Request) {
 
       if (!modelConfig) {
         console.error('Worker: Model configuration not found for modelId:', selectedModelId);
-        await failJob(jobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
+        await failJob(activeJobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
 
         try {
           variation.status = 'failed';
@@ -576,7 +609,7 @@ async function handler(req: Request) {
 
       if (referenceImageCount < minImages || referenceImageCount > maxImages) {
         console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
-        await failJob(jobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
+        await failJob(activeJobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
 
         try {
           variation.status = 'failed';
@@ -814,7 +847,7 @@ async function handler(req: Request) {
       task.markModified('details');
       await task.save();
 
-      await completeJob(jobId, rawR2Url);
+      await completeJob(activeJobId, rawR2Url);
       await recordClickatronFalProviderCost({
         job,
         variation,
@@ -824,7 +857,7 @@ async function handler(req: Request) {
       });
       falCostRecorded = true;
 
-      // CalOS completion callback (isolated — can never fail the Clickatron job): if this image was
+      // CalOS completion callback (isolated â€” can never fail the Clickatron job): if this image was
       // generated for a CalOS deliverable (ThinkForge handoff today, or a CalOS kickoff later), land
       // the finished image on the card and advance it drafting -> generated.
       const calosSuccessMeta = { ...asPromptMetadataRecord(task.metadata), ...asPromptMetadataRecord(job.metadata) };
@@ -839,7 +872,7 @@ async function handler(req: Request) {
             ownerUserId: job.userId,
             brandId: task.brandId,
             assetUrl: rawR2Url,
-            serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
+            serviceRef: { service: 'clickatron', jobId: activeJobId, sessionId: job.sessionId, variationId: job.variationId },
           });
         } catch (e) {
           // TODO(CALOS_LOUD): revert to warn once stable. Image generated but never lands on the card.
@@ -865,7 +898,10 @@ async function handler(req: Request) {
       let errorCode = 'GENERATION_FAILED';
 
       // Handle different error types with specific messages
-      if (generationError.status === 422) {
+      if (generationError.code === 'NEEDS_USER_INPUT') {
+        errorCode = 'NEEDS_USER_INPUT';
+        errorMessage = generationError.message || 'needs_user_input: Brand Vault evidence is required before generation.';
+      } else if (generationError.status === 422) {
         errorCode = 'INVALID_PARAMETERS';
 
         // Check for specific 422 error patterns
@@ -933,7 +969,7 @@ async function handler(req: Request) {
             ownerUserId: job.userId,
             brandId: task.brandId,
             errorMessage,
-            serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
+            serviceRef: { service: 'clickatron', jobId: activeJobId, sessionId: job.sessionId, variationId: job.variationId },
           });
         } catch (e) {
           // TODO(CALOS_LOUD): revert to warn once stable.
@@ -941,7 +977,7 @@ async function handler(req: Request) {
         }
       }
 
-      await failJob(jobId, {
+      await failJob(activeJobId, {
         code: errorCode,
         message: errorMessage,
         details: generationError

@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import {
   IClickatronTask,
@@ -8,6 +8,7 @@ import {
   Variation,
 } from '@/types/clickatron';
 import { produce } from 'immer';
+import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 
 const useClickatronStore = create<ClickatronStore>()(
   devtools(
@@ -61,6 +62,11 @@ const useClickatronStore = create<ClickatronStore>()(
 
       createSession: async (formData: FormData) => {
         try {
+          const activeBrandId = getActiveBrandIdFromStorage();
+          if (activeBrandId && !formData.has('brandId')) {
+            formData.append('brandId', activeBrandId);
+          }
+
           const response = await fetch('/api/services/clickatron/session', {
             method: 'POST',
             body: formData,
@@ -108,7 +114,7 @@ const useClickatronStore = create<ClickatronStore>()(
         set({ isSaving: true, saveError: null });
 
         try {
-          console.log('🚀 Syncing canvas with session:', sessionId);
+          console.log('ðŸš€ Syncing canvas with session:', sessionId);
           const response = await fetch(`/api/services/clickatron/session/${sessionId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -117,7 +123,7 @@ const useClickatronStore = create<ClickatronStore>()(
           
           if (!response.ok) {
             const errorText = await response.text();
-            console.error('❌ Sync failed with status:', response.status, 'and body:', errorText);
+            console.error('âŒ Sync failed with status:', response.status, 'and body:', errorText);
             throw new Error(`Failed to sync canvas: ${response.status} ${errorText}`);
           }
 
@@ -131,7 +137,7 @@ const useClickatronStore = create<ClickatronStore>()(
             }
           }));
         } catch (error) {
-          console.error('💥 Sync error:', error);
+          console.error('ðŸ’¥ Sync error:', error);
           set({ saveError: error instanceof Error ? error.message : "Unknown error" });
         } finally {
           set({ isSaving: false });

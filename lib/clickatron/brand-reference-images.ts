@@ -1,25 +1,59 @@
-/**
- * Intent-gated brand reference images for Clickatron image generation (#4 — wire the asset island).
+﻿/**
+ * Intent-gated brand reference images for Clickatron image generation (#4 - wire the asset island).
  *
- * The Brand Vault scan populates `assets.productImages` on the accepted profile, but no generator
- * consumed them — they were an island. This module feeds the brand's OWN product imagery into the
- * image model as reference (`image_urls`) so a product mockup is visually faithful to the real brand.
- *
- * Rule 29 (adversarial): brand product images are injected ONLY when the structured creative spec
- * asks for a product mockup (`userIntent.visualMode === 'product_mockup'`). We never guess from the
- * free-text prompt and never inject for any other visual mode — a product shot forced into an
- * unrelated quote card is a damage-8 false positive, so the gate is the explicit intent, full stop.
+ * The Brand Vault scan populates accepted product and logo evidence. This module feeds the brand's
+ * OWN visual evidence into image generation as references, and refuses logo-bearing generations when
+ * no accepted logo evidence exists. Text-only prompts are not allowed to become invented brand marks.
  */
 
-import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-resolver';
-import { isBrandSignalActionable, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+import { resolveEffectiveBrandWithProfile, type EffectiveBrandResolution } from '@/lib/shared/brand-effective-resolver';
+import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+import type { BrandVaultVisualAssetPreview, BrandVaultVisualIdentitySummary } from '@/lib/shared/brand-vault-visual-identity';
 
 /** The one visual mode that unambiguously wants the brand's product imagery. */
 const VISUAL_MODE_PRODUCT_MOCKUP = 'product_mockup';
 /** Cap so reference images steer, not swamp, the model. */
 const MAX_BRAND_REFERENCE_IMAGES = 3;
+const MIN_ACTIONABLE_ASSET_CONFIDENCE = 0.55;
+
+export const CLICKATRON_MISSING_LOGO_EVIDENCE_REASON =
+  'needs_user_input: Add or accept a real Brand Vault logo asset before generating Clickatron creative that requires a logo.';
+
+export type ClickatronBrandImageIntent = 'product' | 'logo' | 'logo_and_product' | 'none';
+export type ClickatronBrandReferenceAssetRole = 'product' | 'logo';
+export type ClickatronBrandReferenceSource =
+  | 'brand-vault-product-image'
+  | 'brand-vault-logo'
+  | 'brand-vault-logo-candidate';
+
+export interface ClickatronBrandReferenceEvidence {
+  url: string;
+  assetRole: ClickatronBrandReferenceAssetRole;
+  source: ClickatronBrandReferenceSource;
+  confidence?: number;
+  status?: 'available' | 'unknown';
+}
+
+export interface ClickatronBrandReferenceIntent {
+  requiresProduct: boolean;
+  requiresLogo: boolean;
+}
+
+export interface ClickatronBrandReferenceResolution {
+  intent: ClickatronBrandReferenceIntent;
+  evidence: ClickatronBrandReferenceEvidence[];
+  needsUserInput: boolean;
+  needsUserInputReason?: string;
+}
 
 type Maybe = Record<string, unknown> | null | undefined;
+type BrandSignalProfileAssets = NonNullable<BrandSignalProfile['assets']>;
+type BrandSignalProfileWithLogoCandidates = BrandSignalProfile & {
+  assets?: BrandSignalProfileAssets & {
+    logoCandidates?: BrandSignal<string[]>;
+  };
+};
+type AcceptedBrandEvidence = Pick<EffectiveBrandResolution, 'acceptedProfile' | 'acceptedReviewPayload'>;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -27,21 +61,169 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/**
- * Read the STRUCTURED creative intent from generation metadata. Returns 'product' only for an explicit
- * product-mockup spec; 'none' for everything else (including missing/free-text prompts). Navigates the
- * handoff shape (`metadata.clickatron.creativeSpec.userIntent.visualMode`) plus the flatter fallbacks a
- * direct session may carry. Never inspects the free-text prompt (Rule 29).
- */
-export function clickatronBrandImageIntentFromMetadata(metadata: Maybe): 'product' | 'none' {
+function cleanString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function httpUrl(value: unknown): string | undefined {
+  const url = cleanString(value);
+  return url && /^https?:\/\/\S+/i.test(url) ? url : undefined;
+}
+
+function normalizeForMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function textHasLogoIntent(value: unknown): boolean {
+  const text = cleanString(value);
+  if (!text) return false;
+
+  const normalized = normalizeForMatch(text);
+  const hasLogoCue = /\b(?:logos?|logomarks?|wordmarks?|brandmarks?|brand marks?)\b/.test(normalized);
+  if (!hasLogoCue) return false;
+
+  const negativeLogoCue = /\b(?:no|without|avoid|never|dont|don t|do not|must not|should not)\b(?: [a-z0-9]+){0,8} \b(?:logos?|logomarks?|wordmarks?|brandmarks?|brand marks?)\b/.test(normalized);
+  return !negativeLogoCue;
+}
+
+function metadataIntentParts(metadata: Maybe): ClickatronBrandReferenceIntent {
   const root = record(metadata);
-  if (!root) return 'none';
+  if (!root) return { requiresProduct: false, requiresLogo: false };
+
   const spec =
     record(record(root.clickatron)?.creativeSpec) ??
     record(root.creativeSpec) ??
     root;
   const userIntent = record(spec.userIntent) ?? spec;
-  return userIntent.visualMode === VISUAL_MODE_PRODUCT_MOCKUP ? 'product' : 'none';
+
+  const visualMode = cleanString(userIntent.visualMode);
+  const requiresProduct = visualMode === VISUAL_MODE_PRODUCT_MOCKUP;
+  const requiresLogo = [
+    visualMode,
+    userIntent.assetRole,
+    userIntent.assetKind,
+    userIntent.subject,
+    userIntent.placement,
+    userIntent.composition,
+    spec.assetRole,
+    spec.assetKind,
+    spec.subject,
+    root.assetRole,
+    root.assetKind,
+    root.subject,
+  ].some(textHasLogoIntent) || [
+    userIntent.requiresLogo,
+    userIntent.logoRequired,
+    userIntent.useBrandLogo,
+    spec.requiresLogo,
+    spec.logoRequired,
+    root.requiresLogo,
+    root.logoRequired,
+  ].some((value) => value === true);
+
+  return { requiresProduct, requiresLogo };
+}
+
+function referenceIntentFromInputs(metadata: Maybe, prompt?: string | null): ClickatronBrandReferenceIntent {
+  const metadataIntent = metadataIntentParts(metadata);
+  return {
+    requiresProduct: metadataIntent.requiresProduct,
+    requiresLogo: metadataIntent.requiresLogo || textHasLogoIntent(prompt),
+  };
+}
+
+/**
+ * Read the STRUCTURED creative intent from generation metadata. Returns 'product' only for an explicit
+ * product-mockup spec, and returns logo intents only for explicit logo cues/flags. Product intent never
+ * comes from free text; logo intent may come from the worker prompt via resolveClickatronBrandReferenceEvidence.
+ */
+export function clickatronBrandImageIntentFromMetadata(metadata: Maybe): ClickatronBrandImageIntent {
+  const intent = metadataIntentParts(metadata);
+  if (intent.requiresProduct && intent.requiresLogo) return 'logo_and_product';
+  if (intent.requiresProduct) return 'product';
+  if (intent.requiresLogo) return 'logo';
+  return 'none';
+}
+
+function actionableSignalEvidence(
+  signal: BrandSignal<string[]> | undefined,
+  max: number,
+  assetRole: ClickatronBrandReferenceAssetRole,
+  source: ClickatronBrandReferenceSource,
+): ClickatronBrandReferenceEvidence[] {
+  if (!signal || !isBrandSignalActionable(signal)) return [];
+  const urls = Array.isArray(signal.value) ? signal.value : [];
+  return urls
+    .flatMap((url) => {
+      const normalized = httpUrl(url);
+      return normalized
+        ? [{ url: normalized, assetRole, source, confidence: signal.confidence, status: 'unknown' as const }]
+        : [];
+    })
+    .slice(0, Math.max(0, max));
+}
+
+function visualAssetUrl(asset: BrandVaultVisualAssetPreview): string | undefined {
+  const storedUrl = asset.storage?.status === 'stored' ? asset.storage.publicUrl : undefined;
+  return httpUrl(storedUrl) ?? httpUrl(asset.url);
+}
+
+function visualIdentityLogoEvidence(
+  visualIdentity: BrandVaultVisualIdentitySummary | null | undefined,
+  max: number,
+): ClickatronBrandReferenceEvidence[] {
+  return (visualIdentity?.logos ?? [])
+    .flatMap((logo) => {
+      if (logo.availability?.status === 'unavailable') return [];
+      if (typeof logo.confidence === 'number' && logo.confidence <= MIN_ACTIONABLE_ASSET_CONFIDENCE) return [];
+      const url = visualAssetUrl(logo);
+      if (!url) return [];
+      return [{
+        url,
+        assetRole: 'logo' as const,
+        source: 'brand-vault-logo' as const,
+        confidence: logo.confidence,
+        status: logo.availability?.status === 'available' ? 'available' as const : 'unknown' as const,
+      }];
+    })
+    .slice(0, Math.max(0, max));
+}
+
+function dedupeEvidence(
+  evidence: ClickatronBrandReferenceEvidence[],
+  max = MAX_BRAND_REFERENCE_IMAGES,
+): ClickatronBrandReferenceEvidence[] {
+  const seen = new Set<string>();
+  return evidence
+    .filter((item) => {
+      if (seen.has(item.url)) return false;
+      seen.add(item.url);
+      return true;
+    })
+    .slice(0, Math.max(0, max));
+}
+
+export function brandProductReferenceEvidence(
+  profile: BrandSignalProfile | null | undefined,
+  max = MAX_BRAND_REFERENCE_IMAGES,
+): ClickatronBrandReferenceEvidence[] {
+  return actionableSignalEvidence(profile?.assets?.productImages, max, 'product', 'brand-vault-product-image');
+}
+
+export function brandLogoReferenceEvidence(
+  profile: BrandSignalProfile | null | undefined,
+  visualIdentity: BrandVaultVisualIdentitySummary | null | undefined,
+  max = MAX_BRAND_REFERENCE_IMAGES,
+): ClickatronBrandReferenceEvidence[] {
+  const logoSignal = (profile as BrandSignalProfileWithLogoCandidates | null | undefined)?.assets?.logoCandidates;
+  return dedupeEvidence([
+    ...visualIdentityLogoEvidence(visualIdentity, max),
+    ...actionableSignalEvidence(logoSignal, max, 'logo', 'brand-vault-logo-candidate'),
+  ], max);
 }
 
 /**
@@ -52,19 +234,14 @@ export function brandProductReferenceImages(
   profile: BrandSignalProfile | null | undefined,
   max = MAX_BRAND_REFERENCE_IMAGES,
 ): string[] {
-  const signal = profile?.assets?.productImages;
-  if (!signal || !isBrandSignalActionable(signal)) return [];
-  const urls = Array.isArray(signal.value) ? signal.value : [];
-  return urls
-    .filter((u): u is string => typeof u === 'string' && /^https?:\/\/\S+/i.test(u.trim()))
-    .map((u) => u.trim())
-    .slice(0, Math.max(0, max));
+  return brandProductReferenceEvidence(profile, max).map((item) => item.url);
 }
 
 export interface ResolveClickatronBrandReferenceImagesInput {
   userId: string;
   brandId: string | undefined;
   metadata: Maybe;
+  prompt?: string | null;
   orgId?: string | null;
   max?: number;
   /** Test seam: override the accepted-profile read (defaults to the shared effective-brand resolver). */
@@ -73,32 +250,87 @@ export interface ResolveClickatronBrandReferenceImagesInput {
     brandId: string,
     orgId?: string | null,
   ) => Promise<BrandSignalProfile | null>;
+  /** Test seam for accepted review payloads, including visualIdentity.logo previews. */
+  resolveBrandEvidence?: (
+    userId: string,
+    brandId: string,
+    orgId?: string | null,
+  ) => Promise<AcceptedBrandEvidence>;
+}
+
+function missingLogoResolution(intent: ClickatronBrandReferenceIntent): ClickatronBrandReferenceResolution {
+  return {
+    intent,
+    evidence: [],
+    needsUserInput: true,
+    needsUserInputReason: CLICKATRON_MISSING_LOGO_EVIDENCE_REASON,
+  };
+}
+
+async function readAcceptedBrandEvidence(
+  input: ResolveClickatronBrandReferenceImagesInput,
+  brandId: string,
+): Promise<AcceptedBrandEvidence> {
+  if (input.resolveBrandEvidence) return input.resolveBrandEvidence(input.userId, brandId, input.orgId);
+  if (input.resolveProfile) {
+    return {
+      acceptedProfile: await input.resolveProfile(input.userId, brandId, input.orgId),
+      acceptedReviewPayload: null,
+    };
+  }
+  return resolveEffectiveBrandWithProfile(input.userId, brandId, {
+    service: 'clickatron',
+    strict: true,
+    ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+  });
+}
+
+export async function resolveClickatronBrandReferenceEvidence(
+  input: ResolveClickatronBrandReferenceImagesInput,
+): Promise<ClickatronBrandReferenceResolution> {
+  const intent = referenceIntentFromInputs(input.metadata, input.prompt);
+  if (!intent.requiresProduct && !intent.requiresLogo) {
+    return { intent, evidence: [], needsUserInput: false };
+  }
+
+  const brandId = input.brandId?.trim();
+  if (!brandId) {
+    return intent.requiresLogo ? missingLogoResolution(intent) : { intent, evidence: [], needsUserInput: false };
+  }
+
+  try {
+    const { acceptedProfile, acceptedReviewPayload } = await readAcceptedBrandEvidence(input, brandId);
+    const max = input.max ?? MAX_BRAND_REFERENCE_IMAGES;
+    const logoEvidence = intent.requiresLogo
+      ? brandLogoReferenceEvidence(acceptedProfile, acceptedReviewPayload?.visualIdentity, max)
+      : [];
+
+    if (intent.requiresLogo && logoEvidence.length === 0) {
+      return missingLogoResolution(intent);
+    }
+
+    const productEvidence = intent.requiresProduct
+      ? brandProductReferenceEvidence(acceptedProfile, max)
+      : [];
+
+    return {
+      intent,
+      evidence: dedupeEvidence([...logoEvidence, ...productEvidence], max),
+      needsUserInput: false,
+    };
+  } catch (err) {
+    console.error('[Clickatron] brand reference evidence resolution failed', err);
+    return intent.requiresLogo ? missingLogoResolution(intent) : { intent, evidence: [], needsUserInput: false };
+  }
 }
 
 /**
- * Intent-gated brand reference images for a Clickatron generation. Returns [] unless the creative spec
- * asks for a product mockup AND the brand has actionable product imagery. The intent check runs BEFORE
- * any DB read, so non-product generations pay nothing. Fail-soft: any resolution error → [].
+ * Back-compat wrapper for existing callers that only need image_urls. New generation code should use
+ * resolveClickatronBrandReferenceEvidence so missing required logo evidence can block explicitly.
  */
 export async function resolveClickatronBrandReferenceImages(
   input: ResolveClickatronBrandReferenceImagesInput,
 ): Promise<string[]> {
-  const brandId = input.brandId?.trim();
-  if (!brandId) return [];
-  if (clickatronBrandImageIntentFromMetadata(input.metadata) !== 'product') return [];
-
-  try {
-    const profile = input.resolveProfile
-      ? await input.resolveProfile(input.userId, brandId, input.orgId)
-      : (
-          await resolveEffectiveBrandWithProfile(input.userId, brandId, {
-            service: 'clickatron',
-            ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
-          })
-        ).acceptedProfile;
-    return brandProductReferenceImages(profile, input.max);
-  } catch (err) {
-    console.error('[Clickatron] brand reference image resolution failed (non-fatal)', err);
-    return [];
-  }
+  const resolution = await resolveClickatronBrandReferenceEvidence(input);
+  return resolution.evidence.map((item) => item.url);
 }
