@@ -7,6 +7,7 @@ import {
 import { createInMemoryAvatarProfileRepository } from '../../lib/avatar/avatar-repository';
 import type { AvatarProfileRecord } from '../../lib/avatar/avatar-lifecycle';
 import type { AvatarProfile } from '../../lib/avatar/avatar-profile';
+import type { ChatterboxClient, ChatterboxSynthesizeInput } from '../../lib/avatar/avatar-chatterbox-client';
 import type { OmniHumanFalClient, OmniHumanFalSubmitInput } from '../../lib/avatar/avatar-omnihuman-fal';
 
 const NOW = '2026-07-04T00:00:00.000Z';
@@ -172,6 +173,120 @@ describe('Avatar pipeline-job API', () => {
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_2')).toEqual(result.body.job);
   });
 
+  it('synthesizes avatar voice from the saved voice sample before queuing OmniHuman', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_pipeline_voice_clone', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const chatterboxInputs: ChatterboxSynthesizeInput[] = [];
+    const omniHumanInputs: OmniHumanFalSubmitInput[] = [];
+    const chatterboxClient: ChatterboxClient = {
+      async synthesize(input) {
+        chatterboxInputs.push(input);
+        return {
+          audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
+          audioAssetId: 'asset_generated_chatterbox_voiceover',
+          providerRequestId: 'chatterbox_request_1',
+          raw: {},
+        };
+      },
+    };
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        omniHumanInputs.push(input);
+        return {
+          modelId: 'fal-ai/bytedance/omnihuman/v1.5',
+          requestId: 'fal_request_from_chatterbox',
+          input: {
+            image_url: input.imageUrl,
+            audio_url: input.audioUrl,
+          },
+        };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_pipeline_voice_clone',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi appears as a natural talking head in a clean room background.',
+          script: 'Hey, this is a quick avatar pipeline test.',
+          audio: { mode: 'tts_voiceover' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_pipeline_job_voice_clone',
+        chatterboxClient,
+        omniHumanClient,
+        env: {
+          CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
+          FAL_AI_API_KEY: 'fal_test_key',
+        },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(result.body.job).toEqual(
+      expect.objectContaining({
+        status: 'queued',
+        dispatchCode: 'omnihuman_queued',
+      }),
+    );
+    expect(chatterboxInputs).toEqual([
+      expect.objectContaining({
+        text: 'Hey, this is a quick avatar pipeline test.',
+        language: 'en',
+        voiceReference: {
+          sourceType: 'uploaded_voice_sample',
+          assetId: 'asset_voice_sample',
+          voiceProfileId: undefined,
+          url: undefined,
+        },
+      }),
+    ]);
+    expect(omniHumanInputs).toEqual([
+      expect.objectContaining({
+        imageUrl: 'https://cdn.example.test/avatar/full-body.png',
+        audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
+      }),
+    ]);
+    expect(result.body.job.stages[0]).toEqual(
+      expect.objectContaining({
+        status: 'succeeded',
+        dispatchCode: 'chatterbox_succeeded',
+        providerRequestId: 'chatterbox_request_1',
+        output: expect.objectContaining({
+          audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
+          audioAssetId: 'asset_generated_chatterbox_voiceover',
+        }),
+      }),
+    );
+    expect(result.body.job.stages[1]).toEqual(
+      expect.objectContaining({
+        status: 'running',
+        dispatchCode: 'omnihuman_queued',
+        providerRequestId: 'fal_request_from_chatterbox',
+        input: expect.objectContaining({
+          audio: {
+            sourceUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
+            sourceAssetId: 'asset_generated_chatterbox_voiceover',
+            generatedByStageId: 'voice_chatterbox',
+          },
+        }),
+      }),
+    );
+  });
   it('refreshes an OmniHuman fal request into a raw face video output', async () => {
     const profileStore = createInMemoryAvatarProfileRepository({
       records: [acceptedRecord('avatar_pipeline_refresh', { userId: 'user_avatar' })],

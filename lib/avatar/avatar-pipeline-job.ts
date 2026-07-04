@@ -16,6 +16,12 @@ import type {
   AvatarVaultProfileStore,
 } from './avatar-mongo-store';
 import {
+  createDefaultChatterboxClient,
+  type ChatterboxClient,
+  type ChatterboxSynthesizeInput,
+  type ChatterboxSynthesizeResult,
+} from './avatar-chatterbox-client';
+import {
   createDefaultOmniHumanFalClient,
   OMNIHUMAN_FAL_MODEL_ID,
   type OmniHumanFalClient,
@@ -29,6 +35,8 @@ export type AvatarPipelineJobDispatchCode =
   | 'pipeline_not_configured'
   | 'pipeline_input_blocked'
   | 'pipeline_adapter_not_implemented'
+  | 'chatterbox_succeeded'
+  | 'chatterbox_failed'
   | 'omnihuman_queued'
   | 'omnihuman_running'
   | 'omnihuman_succeeded'
@@ -53,6 +61,8 @@ export type AvatarPipelineStageDispatchCode =
   | 'missing_chatterbox_text'
   | 'missing_chatterbox_voice_reference'
   | 'external_audio_supplied'
+  | 'chatterbox_succeeded'
+  | 'chatterbox_failed'
   | 'missing_fal_key'
   | 'missing_human_image'
   | 'missing_omnihuman_audio'
@@ -114,6 +124,7 @@ export interface CreateAvatarPipelineJobDependencies {
   now?: () => string;
   idGenerator?: () => string;
   env?: Record<string, string | undefined>;
+  chatterboxClient?: ChatterboxClient;
   omniHumanClient?: OmniHumanFalClient;
 }
 
@@ -121,6 +132,7 @@ export interface RefreshAvatarPipelineJobDependencies {
   pipelineJobStore?: AvatarPipelineJobStore;
   now?: () => string;
   env?: Record<string, string | undefined>;
+  chatterboxClient?: ChatterboxClient;
   omniHumanClient?: OmniHumanFalClient;
 }
 
@@ -296,7 +308,7 @@ export async function createAvatarPipelineJobFromRequest(
   };
 
   const store = dependencies.pipelineJobStore ?? getDefaultAvatarPipelineJobStore();
-  const dispatchedJob = await dispatchReadyOmniHumanJob(job, dependencies);
+  const dispatchedJob = await dispatchReadyAvatarPipelineJob(job, dependencies);
   await store.savePipelineJobSnapshot(dispatchedJob);
   return {
     status: 201,
@@ -481,11 +493,122 @@ function resolvePipelineDispatch(stages: AvatarPipelineStageSnapshot[]): {
   };
 }
 
+async function dispatchReadyAvatarPipelineJob(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'chatterboxClient' | 'omniHumanClient'>,
+): Promise<AvatarPipelineJobSnapshot> {
+  const voicePreparedJob = await dispatchReadyChatterboxJob(job, dependencies);
+  if (voicePreparedJob.status === 'failed') return voicePreparedJob;
+  return dispatchReadyOmniHumanJob(voicePreparedJob, dependencies);
+}
+
+async function dispatchReadyChatterboxJob(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'chatterboxClient'>,
+): Promise<AvatarPipelineJobSnapshot> {
+  if (job.dispatchCode !== 'pipeline_adapter_not_implemented') return job;
+  const voiceStage = findPipelineStage(job, 'voice_chatterbox');
+  const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
+  const omniHumanAudio = asRecord(omniHumanStage?.input.audio);
+  if (
+    !voiceStage
+    || !omniHumanStage
+    || voiceStage.status !== 'ready'
+    || omniHumanAudio?.dependsOnStageId !== 'voice_chatterbox'
+  ) {
+    return job;
+  }
+
+  const synthesizeInput = toChatterboxSynthesizeInput(voiceStage);
+  if (!synthesizeInput) return job;
+
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  try {
+    const client = dependencies.chatterboxClient ?? createDefaultChatterboxClient(dependencies.env ?? process.env);
+    const synthesized = await client.synthesize(synthesizeInput);
+    return applyChatterboxSynthesis(job, voiceStage, omniHumanStage, synthesized, now);
+  } catch (error) {
+    return failChatterboxJob(job, now, `Chatterbox voice synthesis failed: ${errorMessage(error)}`);
+  }
+}
+
+function applyChatterboxSynthesis(
+  job: AvatarPipelineJobSnapshot,
+  voiceStage: AvatarPipelineStageSnapshot,
+  omniHumanStage: AvatarPipelineStageSnapshot,
+  synthesized: ChatterboxSynthesizeResult,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'running',
+    dispatchCode: 'chatterbox_succeeded',
+    statusReason: 'Chatterbox generated the avatar voiceover from the saved voice reference. OmniHuman dispatch is next.',
+    stages: job.stages.map((pipelineStage) => {
+      if (pipelineStage.id === voiceStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'chatterbox_succeeded',
+          statusReason: 'Chatterbox generated the avatar voiceover from the saved voice reference.',
+          providerRequestId: synthesized.providerRequestId,
+          output: {
+            ...(pipelineStage.output ?? {}),
+            audioUrl: synthesized.audioUrl,
+            audioAssetId: synthesized.audioAssetId,
+            providerRequestId: synthesized.providerRequestId,
+          },
+        };
+      }
+      if (pipelineStage.id === omniHumanStage.id) {
+        return {
+          ...pipelineStage,
+          input: {
+            ...pipelineStage.input,
+            audio: {
+              sourceUrl: synthesized.audioUrl,
+              sourceAssetId: synthesized.audioAssetId,
+              generatedByStageId: 'voice_chatterbox',
+            },
+          },
+        };
+      }
+      return pipelineStage;
+    }),
+    updatedAt: now,
+  };
+}
+
+function failChatterboxJob(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'failed',
+    dispatchCode: 'chatterbox_failed',
+    statusReason: reason,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'voice_chatterbox'
+      ? {
+          ...pipelineStage,
+          status: 'failed',
+          dispatchCode: 'chatterbox_failed',
+          statusReason: reason,
+          output: {
+            ...(pipelineStage.output ?? {}),
+            errorMessage: reason,
+          },
+        }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
 async function dispatchReadyOmniHumanJob(
   job: AvatarPipelineJobSnapshot,
   dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'omniHumanClient'>,
 ): Promise<AvatarPipelineJobSnapshot> {
-  if (job.dispatchCode !== 'pipeline_adapter_not_implemented') return job;
+  if (
+    job.dispatchCode !== 'pipeline_adapter_not_implemented'
+    && job.dispatchCode !== 'chatterbox_succeeded'
+  ) return job;
   const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
   if (!omniHumanStage || omniHumanStage.status !== 'ready') return job;
 
@@ -658,6 +781,26 @@ function failOmniHumanJob(job: AvatarPipelineJobSnapshot, now: string, reason: s
         }
       : pipelineStage),
     updatedAt: now,
+  };
+}
+
+function toChatterboxSynthesizeInput(stageSnapshot: AvatarPipelineStageSnapshot): ChatterboxSynthesizeInput | null {
+  const text = stringValue(stageSnapshot.input.text);
+  const voiceReference = asRecord(stageSnapshot.input.voiceReference);
+  const sourceType = stringValue(voiceReference?.sourceType);
+  if (!text || !sourceType) return null;
+
+  return {
+    model: stringValue(stageSnapshot.input.model),
+    text,
+    language: stringValue(stageSnapshot.input.language),
+    voiceReference: {
+      sourceType,
+      assetId: stringValue(voiceReference?.assetId),
+      voiceProfileId: stringValue(voiceReference?.voiceProfileId),
+      url: stringValue(voiceReference?.url),
+    },
+    output: asRecord(stageSnapshot.input.output),
   };
 }
 
