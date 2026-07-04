@@ -87,10 +87,46 @@ describe('ThinkForge provider cost telemetry contract', () => {
     expect(helper).not.toContain('apiKey');
   });
 
+  it('records direct ThinkForge route calls outside BaseAgent', () => {
+    const enhance = readRepoFile('app/api/services/thinkforge/enhance/route.ts');
+    const observer = readRepoFile('app/api/services/thinkforge/events/observe/route.ts');
+
+    expect(enhance).toContain('recordThinkForgeDirectCost({');
+    expect(enhance).toContain("action: 'prompt_enhance'");
+    expect(enhance).toContain("route: 'app/api/services/thinkforge/enhance'");
+    expect(enhance).toContain("operation: 'llm_stream_direct'");
+    expect(enhance).toContain('usage: await readAiSdkUsage(usage)');
+    expect(enhance).toContain("sourceKind: 'prompt_panel_enhance'");
+
+    expect(observer).toContain('recordThinkForgeDirectCost({');
+    expect(observer).toContain("action: 'observer_extraction'");
+    expect(observer).toContain("route: 'app/api/services/thinkforge/events/observe'");
+    expect(observer).toContain("operation: 'llm_structured_direct'");
+    expect(observer).toContain('usage = await readAiSdkUsage((result as { usage?: unknown }).usage)');
+    expect(observer).toContain('outputChars: safeJsonLength(object)');
+    expect(observer).toContain('acceptedCount: highConfidence.length');
+  });
+
+  it('keeps direct ThinkForge provider-cost helper metadata free of prompts, outputs, and content', () => {
+    const source = readRepoFile('lib/thinkforge/services/provider-cost-telemetry.ts');
+    const helper = sliceHelper(source, 'export async function recordThinkForgeDirectCost', 'export async function readAiSdkUsage');
+
+    expect(helper).toContain("service: 'thinkforge'");
+    expect(helper).toContain('inputTokens');
+    expect(helper).toContain('outputTokens');
+    expect(helper).not.toContain('prompt:');
+    expect(helper).not.toContain('text:');
+    expect(helper).not.toContain('content:');
+    expect(helper).not.toContain('body:');
+    expect(helper).not.toContain('url:');
+    expect(helper).not.toContain('apiKey');
+    expect(helper).not.toContain('error.message');
+  });
+
   it('documents the partial T6 ThinkForge telemetry slice in the provider-cost plan', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
-    expect(plan).toContain('Partial 2026-07-05: ThinkForge BaseAgent and writing-context cache provider events are wired');
+    expect(plan).toContain('Partial 2026-07-05: ThinkForge BaseAgent, writing-context cache, prompt-enhance, and observer provider events are wired');
     expect(plan).toContain('Gemini/OpenRouter-style ThinkForge token pricing remains `pricing_to_be_seen` until exact model-rate tables are seeded');
   });
 });
