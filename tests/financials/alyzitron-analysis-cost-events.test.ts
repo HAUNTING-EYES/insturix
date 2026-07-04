@@ -49,10 +49,37 @@ describe('Alyzitron analysis provider cost telemetry contract', () => {
     expect(helper).not.toContain('analysisContext');
   });
 
+  it('records Gemini File API upload and polling provider spend without attaching analysis revenue', () => {
+    const processor = readRepoFile('app/api/services/alyzitron/processor/route.ts');
+    const helper = readRepoFile('lib/services/geminiFileService.ts');
+
+    expect(processor).toContain('const geminiFileCostContext = {');
+    expect(processor).toContain('uploadUrlToGeminiFileAPI(downloadUrl, updatedMimeType, `task-${taskId}`, geminiFileCostContext)');
+    expect(processor).toContain('uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}-video`, geminiFileCostContext)');
+    expect(helper).toContain('recordGeminiFileProviderCost({');
+    expect(helper).toContain('provider: "gemini-file-api"');
+    expect(helper).toContain('model: "files-api"');
+    expect(helper).toContain('operation: "file_upload"');
+    expect(helper).toContain('requestCount: 1 + input.pollCount');
+    expect(helper).toContain('bytesIn: input.bytesIn');
+    expect(helper).not.toContain('chargedCredits');
+  });
+
+  it('keeps Gemini File API provider-cost metadata free of media URLs, temp paths, and file URIs', () => {
+    const helper = readRepoFile('lib/services/geminiFileService.ts');
+    const helperBody = helper.slice(helper.indexOf('async function recordGeminiFileProviderCost'));
+
+    expect(helperBody).not.toContain('url');
+    expect(helperBody).not.toContain('tempFilePath');
+    expect(helperBody).not.toContain('fileUri');
+    expect(helperBody).not.toContain('uri');
+    expect(helperBody).not.toContain('path');
+  });
   it('documents the partial T6 Alyzitron analysis telemetry slice in the provider-cost plan', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
     expect(plan).toContain('Partial 2026-07-04: Alyzitron Gemini video-analysis provider events are wired');
     expect(plan).toContain('Gemini video-analysis pricing remains `pricing_to_be_seen`');
+    expect(plan).toContain('Gemini File API upload/poll provider events are wired');
   });
 });

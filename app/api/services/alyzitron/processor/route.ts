@@ -290,6 +290,13 @@ async function handler(request: NextRequest) {
       const analysisMediaSeconds = isDirectImageUpload
         ? 0
         : (cleanNumber(task.videoDuration) ?? analysisUsageMinutes * 60);
+      const geminiFileCostContext = {
+        userId,
+        orgId: cleanString(task.orgId),
+        taskId,
+        mediaSourceKind,
+        route: ALYZITRON_ANALYSIS_ROUTE,
+      };
       const runGeminiAnalysis = async (
         mediaUri: string,
         context: any,
@@ -351,7 +358,7 @@ async function handler(request: NextRequest) {
         }
 
         logger.info("Uploading R2 media to Gemini File API");
-        const { fileUri } = await uploadUrlToGeminiFileAPI(downloadUrl, updatedMimeType, `task-${taskId}`);
+        const { fileUri } = await uploadUrlToGeminiFileAPI(downloadUrl, updatedMimeType, `task-${taskId}`, geminiFileCostContext);
 
         logger.info("Starting Gemini Analysis for R2 Path");
         const gem = await runGeminiAnalysis(fileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
@@ -398,7 +405,7 @@ async function handler(request: NextRequest) {
           if (extracted.mediaType === "image") {
             updatedMimeType = "image/jpeg";
 
-            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
+            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`, geminiFileCostContext);
             updatedVideoUrl = extracted.downloadUrl;
             await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
             analysisResults = await runGeminiAnalysis(fileUri, analysisContext, analysisMetadata);
@@ -408,12 +415,12 @@ async function handler(request: NextRequest) {
             updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
 
             logger.info("Uploading extracted media to Gemini File API");
-            const { fileUri: videoFileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}-video`);
+            const { fileUri: videoFileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}-video`, geminiFileCostContext);
 
             let audioFileUri: string | undefined;
             if (extracted.audioUrl) {
               logger.info("Separate audio track detected, uploading audio to Gemini File API");
-              const { fileUri: uploadedAudioUri } = await uploadUrlToGeminiFileAPI(extracted.audioUrl, 'audio/mpeg', `task-${taskId}-audio`);
+              const { fileUri: uploadedAudioUri } = await uploadUrlToGeminiFileAPI(extracted.audioUrl, 'audio/mpeg', `task-${taskId}-audio`, geminiFileCostContext);
               audioFileUri = uploadedAudioUri;
               logger.info("Audio upload complete", { data: { audioFileUri } });
             }
