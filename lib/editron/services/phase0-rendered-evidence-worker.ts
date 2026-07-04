@@ -444,10 +444,35 @@ export function buildPhase0RenderedStillEvidenceFailure(input: {
   };
 }
 
+function buildMissingPhase0RenderedQualityEvidence(
+  evidence: Phase0RenderedStillEvidence,
+): Phase0RenderedQualityEvidencePayload {
+  const firstFailure = evidence.failedFrames[0]?.error;
+  const firstIssue = evidence.artifactPackIssues[0];
+  const reason = firstFailure ?? firstIssue ?? `phase0-worker-status:${evidence.status}`;
+  return {
+    qualityEvidenceSource: 'metadata-only',
+    renderedAestheticStatus: 'missing',
+    renderedQualityStatus: 'missing',
+    artifactStatus: 'missing',
+    qualityScore: null,
+    renderedAestheticScore: null,
+    renderedAestheticIssueCount: 0,
+    renderedAestheticFailFrameCount: 0,
+    renderedAestheticWarnFrameCount: 0,
+    renderedAestheticSampledFrames: 0,
+    renderedAestheticJson: null,
+    renderedAestheticHtml: null,
+    renderedAestheticArtifactAccess: 'missing',
+    renderedAestheticArtifactNote: `Rendered aesthetic report artifacts are missing; ${reason}`.slice(0, 240),
+    renderedAestheticIssueSamples: [],
+  };
+}
+
 export function buildPhase0RenderedStillEvidencePersistSet(
   evidence: Phase0RenderedStillEvidence,
 ): Record<string, unknown> {
-  const renderedQualityEvidence = evidence.renderedQualityEvidence;
+  const renderedQualityEvidence = evidence.renderedQualityEvidence ?? buildMissingPhase0RenderedQualityEvidence(evidence);
   const setPayload: Record<string, unknown> = {
     'intelligence.phase0RenderedStillEvidence': evidence,
     'intelligence.phase0FixtureArtifact.materialization': evidence.renderedFrames.length > 0

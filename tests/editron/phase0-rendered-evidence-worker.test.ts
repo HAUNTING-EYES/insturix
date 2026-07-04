@@ -33,7 +33,16 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.requestedSampleFrames.length).toBeGreaterThan(0);
 
     const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
-    expect(set).not.toHaveProperty('intelligence.phase0RenderedQualityGate');
+    expect(set['intelligence.renderedQualityEvidence']).toMatchObject({
+      qualityEvidenceSource: 'metadata-only',
+      renderedAestheticStatus: 'missing',
+      renderedAestheticArtifactAccess: 'missing',
+    });
+    expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject({
+      status: 'missing_rendered_evidence',
+      reason: 'missing_quality_review',
+      qualityEvidenceSource: 'metadata-only',
+    });
     expect(set).not.toHaveProperty('autoEditStatus');
   });
 
