@@ -72,8 +72,9 @@ export function ReferenceImagePanel({ pipeline }: ReferenceImagePanelProps) {
         </p>
       </div>
       <p className="text-[11px] text-[#5F5E5A]">
-        These reference images guide AI for visual consistency. Approve, reject,
-        regenerate, or add more from script suggestions below.
+        These reference images guide AI for visual consistency. Brand-owned
+        subjects need uploaded, website, or Brand Vault evidence; generic
+        subjects can be regenerated or added from script suggestions below.
       </p>
 
       {referenceContinueBlocked && (

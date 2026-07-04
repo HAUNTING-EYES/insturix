@@ -138,10 +138,15 @@ describe('storyboard source session lineage contract', () => {
     expect(exportHook).toContain('Brand-owned references cannot use generated/fake or legacy-unverified imagery');
     expect(referencePanel).toContain('referenceActionDisabled');
     expect(referencePanel).toContain('referenceContinueMessage');
+    expect(referencePanel).toContain('Brand-owned');
+    expect(referencePanel).toContain('Brand Vault evidence');
     expect(subjectTypes).toContain('referenceProvenance?: ReferenceImageProvenance;');
     expect(subjectCard).toContain('isBrandEvidenceLocked');
+    expect(subjectCard).toContain('canUseAiRegeneration');
     expect(subjectCard).toContain('Upload brand evidence');
+    expect(subjectCard).toContain('Upload evidence');
     expect(subjectCard).toContain('Brand-owned references need real evidence');
+    expect(subjectCard).toContain('AI regeneration is unavailable for brand-owned subjects.');
     expect(subjectCard).toContain('referenceProvenanceLabel');
     expect(subjectCard).toContain('Website screenshot');
     expect(subjectCard).toContain('Generated');
