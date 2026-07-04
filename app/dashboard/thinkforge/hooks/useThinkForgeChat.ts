@@ -41,18 +41,42 @@ function normalizeMessage(m: any): ChatMessage {
   };
 }
 
-function normalizeRemoteScriptUpdate(script: any, metadata?: Record<string, any> | null, fallbackWorkflow = 'create') {
+type RemoteScriptUpdateContext = {
+  sessionId?: string | null;
+  scriptId?: string | null;
+  generationId?: string | null;
+  forceSource?: 'ai' | 'editor';
+};
+
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeRemoteScriptUpdate(
+  script: any,
+  metadata?: Record<string, any> | null,
+  fallbackWorkflow = 'create',
+  context: RemoteScriptUpdateContext = {},
+) {
   const mergedMetadata = {
     ...(script?.metadata && typeof script.metadata === 'object' ? script.metadata : {}),
     ...(metadata && typeof metadata === 'object' ? metadata : {}),
   };
+  const remoteScriptId = toOptionalString(script?.scriptId) || toOptionalString(mergedMetadata.scriptId) || toOptionalString(context.scriptId);
+  const remoteSessionId = toOptionalString(script?.sessionId) || toOptionalString(mergedMetadata.sessionId) || toOptionalString(context.sessionId);
+  const remoteGenerationId = toOptionalString(mergedMetadata.generationId) || toOptionalString(context.generationId);
 
   return {
     ...script,
+    ...(remoteScriptId ? { scriptId: remoteScriptId } : {}),
+    ...(remoteSessionId ? { sessionId: remoteSessionId } : {}),
     metadata: {
       ...mergedMetadata,
-      workflow: mergedMetadata.workflow || fallbackWorkflow,
-      source: mergedMetadata.source || 'ai',
+      ...(remoteScriptId ? { scriptId: remoteScriptId } : {}),
+      ...(remoteSessionId ? { sessionId: remoteSessionId } : {}),
+      ...(remoteGenerationId ? { generationId: remoteGenerationId } : {}),
+      workflow: toOptionalString(mergedMetadata.workflow) || fallbackWorkflow,
+      source: context.forceSource || 'ai',
     },
   };
 }
@@ -357,7 +381,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             setGenerationMessage(data.message);
           }
         } else if (data?.type === 'script_update') {
-          const remoteScript = normalizeRemoteScriptUpdate(data.script, data.metadata, data?.metadata?.workflow || 'create');
+          const remoteScript = normalizeRemoteScriptUpdate(data.script, data.metadata, data?.metadata?.workflow || 'create', {
+            sessionId,
+            scriptId: data?.script?.scriptId || data?.metadata?.scriptId || data?.scriptId,
+            generationId: data?.metadata?.generationId || generationIdRef.current,
+            forceSource: 'ai',
+          });
           if (options?.onScriptUpdate) {
             options.onScriptUpdate(remoteScript);
           }
@@ -426,7 +455,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             if (res.ok) {
               const data = await res.json();
               const fallbackWorkflow = intentRef.current === 'edit' ? 'edit' : 'create';
-              optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow));
+              optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow, {
+                sessionId,
+                scriptId: options.scriptId,
+                generationId: generationIdRef.current,
+                forceSource: 'ai',
+              }));
             }
           } catch (e) {
             console.error('[useThinkForgeChat] fallbackResync script fetch failed:', e);
@@ -575,7 +609,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         setGenerationMessage(null);
         if (data.script && optionsRef.current?.onRemoteScriptUpdate) {
           const fallbackWorkflow = gen.type === 'script_edit' ? 'edit' : 'create';
-          optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data.script, data.script?.metadata, fallbackWorkflow));
+          optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data.script, data.script?.metadata, fallbackWorkflow, {
+            sessionId,
+            scriptId: gen.scriptId || data.script?.scriptId,
+            generationId: gen.id,
+            forceSource: 'ai',
+          }));
         }
         await refreshMessages();
       } else if (gen.status === 'cancelled') {

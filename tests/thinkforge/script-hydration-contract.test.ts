@@ -1,11 +1,22 @@
 import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
+import { detectContentPath, resolveThinkForgeDocumentIntent } from '@/lib/thinkforge/agents/prompt-utils';
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 }
 
 describe('ThinkForge script hydration contract', () => {
+  it('routes explicit post requests by the latest user prompt, not stale session format', () => {
+    expect(detectContentPath('make a post creating fomo in my brand ICP', 'video_script')).toBe('post');
+    expect(detectContentPath('Write a LinkedIn post about video production workflows.', 'video_script')).toBe('post');
+    expect(detectContentPath('Write an Instagram reel script with camera direction.', 'post')).toBe('script');
+    expect(resolveThinkForgeDocumentIntent('make an Instagram carousel for this campaign', 'video_script')).toMatchObject({
+      contentPath: 'post',
+      source: 'user_prompt',
+    });
+  });
+
   it('does not convert completed AI generation into an editor-owned autosave', () => {
     const source = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
     const notifyHydratedScript = source.slice(
@@ -29,7 +40,9 @@ describe('ThinkForge script hydration contract', () => {
     expect(page).toContain("const isRemoteAiUpdate = metadata.source === 'ai';");
     expect(page).toContain('scriptHook.setScriptWithoutSave(model);');
     expect(chatHook).toContain('function normalizeRemoteScriptUpdate');
-    expect(chatHook).toContain("source: mergedMetadata.source || 'ai'");
+    expect(chatHook).toContain('scriptId: data?.script?.scriptId');
+    expect(chatHook).toContain('scriptId: gen.scriptId || data.script?.scriptId');
+    expect(chatHook).toContain("source: context.forceSource || 'ai'");
     expect(chatHook).not.toContain('optionsRef.current.onRemoteScriptUpdate(data);');
     expect(chatHook).not.toContain('optionsRef.current.onRemoteScriptUpdate(data.script);');
   });
@@ -42,9 +55,13 @@ describe('ThinkForge script hydration contract', () => {
     expect(chatService).toContain("workflow: 'create'");
     expect(chatService).toContain("source: 'ai'");
     expect(chatService).toContain('scriptId: effectiveScriptId || undefined');
+    expect(chatService).toContain('scriptId: effectiveScriptId');
+    expect(chatService).toContain('generationId: activeGenerationId');
     expect(statusRoute).toContain('generation.scriptId');
     expect(blocksRoute).toContain('metadata: script.metadata || {}');
     expect(blocksRoute).toContain('metadata: result.script.metadata || {}');
     expect(scriptHook).toContain("metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null");
+    expect(scriptHook).toContain('Server remains the source of truth');
+    expect(scriptHook).toContain('Ignoring remote script update for inactive script');
   });
 });

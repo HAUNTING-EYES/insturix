@@ -48,7 +48,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     setIsSaving(false);
   }, []);
 
-  // Load script from local storage (then server) when sessionId/scriptId changes
+  // Load script from the server when sessionId/scriptId changes; cache is offline fallback only
   useEffect(() => {
     sessionIdRef.current = sessionId;
     scriptIdRef.current = scriptId;
@@ -67,56 +67,52 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     resetPendingSaves();
 
     const effectiveScriptId = scriptId || 'default';
-    let foundLocal = false;
+    let cachedScript: ScriptModel | null = null;
 
-    // Try to load script from local storage first
     try {
       const key = `${LS_SESSION_PREFIX}${sessionId}_${effectiveScriptId}`;
       const raw = localStorage.getItem(key);
       if (raw) {
         const cached = JSON.parse(raw);
         if (cached?.script && cached.script.title && cached.script.title !== 'Untitled Script') {
-          setScript(cached.script);
-          setIsLoading(false);
-          lastSavedSnapshotRef.current = JSON.stringify(cached.script);
-          foundLocal = true;
+          cachedScript = cached.script as ScriptModel;
         }
       }
     } catch {
-      // Ignore errors
+      // Ignore cache errors. Server remains the source of truth.
     }
 
-    // If no valid local cache, fetch from server to get the real title & content
-    if (!foundLocal) {
-      let cancelled = false;
-      (async () => {
-        try {
-          const url = `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(effectiveScriptId)}`;
-          const res = await fetch(url, { cache: 'no-store' });
-          if (!res.ok || cancelled) return;
-          const data = await res.json();
-          if (cancelled) return;
-          if (sessionIdRef.current !== sessionId || scriptIdRef.current !== scriptId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(effectiveScriptId)}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (sessionIdRef.current !== sessionId || scriptIdRef.current !== scriptId) return;
 
-          const serverScript: ScriptModel = {
-            title: data.title || null,
-            outline: null,
-            content: data.content || null,
-            blocks: data.blocks || null,
-            version: data.version,
-            metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null,
-          };
-          setScript(serverScript);
-          lastSavedSnapshotRef.current = JSON.stringify(serverScript);
-          saveLocal(sessionId, effectiveScriptId, { script: serverScript });
-        } catch {
-          // Silent - ScriptEditor will also try to load from API
-        } finally {
-          if (!cancelled) setIsLoading(false);
+        const serverScript: ScriptModel = {
+          title: data.title || null,
+          outline: null,
+          content: data.content || null,
+          blocks: data.blocks || null,
+          version: data.version,
+          metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null,
+        };
+        setScript(serverScript);
+        lastSavedSnapshotRef.current = JSON.stringify(serverScript);
+        saveLocal(sessionId, effectiveScriptId, { script: serverScript });
+      } catch {
+        if (!cancelled && cachedScript && sessionIdRef.current === sessionId && scriptIdRef.current === scriptId) {
+          setScript(cachedScript);
+          lastSavedSnapshotRef.current = JSON.stringify(cachedScript);
         }
-      })();
-      return () => { cancelled = true; };
-    }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [sessionId, scriptId, resetPendingSaves]);
 
   const performSave = useCallback(async (
@@ -281,10 +277,21 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
   const setScriptWithoutSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
       const next = typeof updater === "function" ? (updater as any)(prev) : updater;
+      const incomingScriptId = typeof (next as any)?.metadata?.scriptId === 'string'
+        ? (next as any).metadata.scriptId
+        : typeof (next as any)?.scriptId === 'string'
+          ? (next as any).scriptId
+          : null;
+      const activeScriptId = scriptId || 'default';
+
+      if (incomingScriptId && incomingScriptId !== activeScriptId) {
+        console.warn('[useThinkForgeScript] Ignoring remote script update for inactive script', { incomingScriptId, activeScriptId });
+        return prev;
+      }
       
       // Save to local storage for consistency
       if (sessionId) {
-        saveLocal(sessionId, scriptId || 'default', { script: next });
+        saveLocal(sessionId, activeScriptId, { script: next });
       }
       
       // Update lastSavedSnapshot to prevent autosave from saving again

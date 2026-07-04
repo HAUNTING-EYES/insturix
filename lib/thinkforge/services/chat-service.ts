@@ -29,7 +29,7 @@ import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
-import { detectContentPath } from '../agents/prompt-utils';
+import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import {
   resolveContentSignalProfile,
@@ -606,11 +606,13 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const isGenerateIntent = intentResult.intent === 'draft';
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
       const shouldRunEdit = intentResult.intent === 'edit' || intentResult.intent === 'hybrid';
-      const requestedContentPath = shouldRunGeneration
-        ? detectContentPath(effectivePrompt, sessionState.metadata.format)
+      const requestedDocumentIntent = shouldRunGeneration
+        ? resolveThinkForgeDocumentIntent(effectivePrompt, sessionState.metadata.format)
         : null;
-      const requestedDocumentType = requestedContentPath === 'post' ? 'post' : 'screenplay';
-      const requestedDocumentLabel = requestedContentPath === 'post' ? 'post' : 'script';
+      const requestedContentPath = requestedDocumentIntent?.contentPath ?? null;
+      const requestedDocumentType = requestedDocumentIntent?.documentType ?? 'screenplay';
+      const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'script';
+      const eventSessionId = sessionId || session?._id;
 
       const isCanvasEmpty = (() => {
         if (!script) return true;
@@ -661,7 +663,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
 
           effectiveScriptId = newScriptId;
-          await emitEvent('script_created', { scriptId: newScriptId, title: initialTitle, documentType: requestedDocumentType });
+          await emitEvent('script_created', { scriptId: newScriptId, sessionId: eventSessionId, title: initialTitle, documentType: requestedDocumentType });
         }
       }
 
@@ -725,6 +727,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
           // Include selection metadata for surgical application
           const scriptUpdate = {
             script: {
+              scriptId: effectiveScriptId,
+              sessionId: eventSessionId,
               title: script!.title,
               blocks: finalBlocks,
               richText: finalRichText,
@@ -733,6 +737,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
             metadata: {
               workflow: 'refine',
               source: 'ai',
+              scriptId: effectiveScriptId,
+              sessionId: eventSessionId,
               thoughts: 'Script refined surgically on selection',
               duration_ms: 0,
               agent_steps: [],
@@ -789,6 +795,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           const scriptUpdate = {
             script: {
+              scriptId: effectiveScriptId,
+              sessionId: eventSessionId,
               title: refined.title || script!.title,
               blocks: mergedBlocks,
               richText: finalRichText,
@@ -798,6 +806,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
             metadata: {
               workflow: 'refine',
               source: 'ai',
+              scriptId: effectiveScriptId,
+              sessionId: eventSessionId,
               thoughts: 'Script refined surgically',
               duration_ms: 0,
               agent_steps: []
@@ -820,9 +830,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!(await emitEvent('token', { content: workingMsg }))) return;
 
         // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
-        const contentPath = requestedContentPath || detectContentPath(effectivePrompt, sessionState.metadata.format);
-        const generatedDocumentType = contentPath === 'post' ? 'post' : 'screenplay';
-        const generatedDocumentLabel = contentPath === 'post' ? 'post' : 'script';
+        const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(effectivePrompt, sessionState.metadata.format);
+        const contentPath = documentIntent.contentPath;
+        const generatedDocumentType = documentIntent.documentType;
+        const generatedDocumentLabel = documentIntent.documentLabel;
         
         // FEATURE FLAG: Only run Thinking Agent for scripts, skip for posts to reduce latency
         if (contentPath !== 'post') {
@@ -879,7 +890,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
-            documentType: sessionState.metadata.format,
+            documentType: documentIntent.documentType,
             brandId: sessionState.metadata.brandId,
             sessionId: sessionState.sessionId,
             retrievedContext: retrievedCtx || undefined,
@@ -1058,6 +1069,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // Send script update as SSE event
         const scriptUpdate = {
           script: {
+            scriptId: effectiveScriptId,
+            sessionId: eventSessionId,
             title: finalTitle,
             blocks: finalBlocks,
             richText: finalRichText,
@@ -1071,6 +1084,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
           metadata: {
             workflow: 'create',
             source: 'ai',
+            scriptId: effectiveScriptId,
+            sessionId: eventSessionId,
+            generationId: activeGenerationId,
+            documentType: generatedDocumentType,
             thoughts: `${contentPath === 'post' ? 'Post' : 'Script'} created directly via Writer API`,
             duration_ms: 0,
             agent_steps: []
