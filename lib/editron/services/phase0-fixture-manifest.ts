@@ -898,7 +898,8 @@ function summarizeCandidateVisualSetupSignalKeys(candidate: JsonRecord): string[
 }
 
 function isVisualSetupSignalKey(key: string): boolean {
-  return key === 'visual_complexity'
+  return key.startsWith('visual.perception.')
+    || key === 'visual_complexity'
     || key === 'enrichment.visual_setup_source'
     || key === 'visual.environment'
     || key === 'visual.scene_type'
