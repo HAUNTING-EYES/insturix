@@ -36,6 +36,16 @@ export interface Phase0RenderedEvidenceDispatchResult {
   messageId?: string;
 }
 
+export interface Phase0RenderedEvidenceDispatchRecord {
+  version: 'editron-phase0-rendered-evidence-dispatch-v1';
+  status: 'dispatched' | 'not_dispatched';
+  requestedAt: string;
+  updatedAt: string;
+  workerPath: '/api/internal/workers/phase0-rendered-evidence';
+  messageId: string | null;
+  reason: string | null;
+}
+
 export interface Phase0RenderedStillFrameEvidence {
   frame: number;
   url: string;
@@ -186,6 +196,34 @@ export async function dispatchPhase0RenderedEvidenceJob(
   return {
     dispatched: true,
     messageId: (result as { messageId?: string })?.messageId,
+  };
+}
+
+export function buildPhase0RenderedEvidenceDispatchPersistSet(
+  result: Phase0RenderedEvidenceDispatchResult,
+  input: { requestedAt?: string; updatedAt?: string } = {},
+): Record<string, unknown> {
+  const updatedAt = input.updatedAt ?? new Date().toISOString();
+  const requestedAt = input.requestedAt ?? updatedAt;
+  const status: Phase0RenderedEvidenceDispatchRecord['status'] = result.dispatched
+    ? 'dispatched'
+    : 'not_dispatched';
+  const record: Phase0RenderedEvidenceDispatchRecord = {
+    version: 'editron-phase0-rendered-evidence-dispatch-v1',
+    status,
+    requestedAt,
+    updatedAt,
+    workerPath: '/api/internal/workers/phase0-rendered-evidence',
+    messageId: result.messageId ?? null,
+    reason: result.dispatched ? null : String(result.reason ?? 'unknown').slice(0, 240),
+  };
+
+  return {
+    'intelligence.phase0RenderedEvidenceDispatch': record,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': status,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchReason': record.reason,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchMessageId': record.messageId,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceRequestedAt': requestedAt,
   };
 }
 

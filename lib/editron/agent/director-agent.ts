@@ -54,7 +54,11 @@ import { buildPersistedQualityReview } from '@/lib/editron/services/quality-revi
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
-import { dispatchPhase0RenderedEvidenceJob } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import {
+  buildPhase0RenderedEvidenceDispatchPersistSet,
+  dispatchPhase0RenderedEvidenceJob,
+  type Phase0RenderedEvidenceDispatchResult,
+} from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -358,6 +362,25 @@ async function persistFinalPhase0LiveTruth(options: {
 
   return snapshot;
 }
+
+async function persistPhase0RenderedEvidenceDispatchState(
+  projectId: string,
+  dispatchResult: Phase0RenderedEvidenceDispatchResult,
+  requestedAt: string,
+): Promise<void> {
+  try {
+    const dispatchDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+    await dispatchDb.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: buildPhase0RenderedEvidenceDispatchPersistSet(dispatchResult, { requestedAt }),
+      },
+    );
+  } catch (err: unknown) {
+    console.warn('[Director] non-fatal Phase0 rendered evidence dispatch persistence:', err instanceof Error ? err.message : err);
+  }
+}
+
 function buildLivePhase0ArtifactDir(projectId: string, capturedAt: string): string {
   const safeProjectId = safePhase0PathSegment(projectId || 'unknown-project');
   const safeRunId = safePhase0PathSegment(capturedAt);
@@ -2627,7 +2650,26 @@ export async function executeDirectorPlan(
         `fail=${phase0Truth.summary.fail}, warn=${phase0Truth.summary.warn}, ` +
         `qualityEvidence=${phase0Truth.qualityEvidence.qualityEvidenceSource}/${phase0Truth.qualityEvidence.renderedAestheticStatus}`,
       );
-      const renderedEvidenceDispatch = await dispatchPhase0RenderedEvidenceJob({ projectId, userId });
+      const renderedEvidenceRequestedAt = new Date().toISOString();
+      let renderedEvidenceDispatch: Phase0RenderedEvidenceDispatchResult;
+      try {
+        renderedEvidenceDispatch = await dispatchPhase0RenderedEvidenceJob({
+          projectId,
+          userId,
+          requestedAt: renderedEvidenceRequestedAt,
+        });
+      } catch (dispatchErr: unknown) {
+        const reason = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
+        renderedEvidenceDispatch = {
+          dispatched: false,
+          reason: `dispatch_error:${reason}`,
+        };
+      }
+      await persistPhase0RenderedEvidenceDispatchState(
+        projectId,
+        renderedEvidenceDispatch,
+        renderedEvidenceRequestedAt,
+      );
       if (renderedEvidenceDispatch.dispatched) {
         console.log(
           `[Director] Phase0 rendered evidence dispatched` +

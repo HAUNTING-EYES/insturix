@@ -6,6 +6,7 @@ import {
   buildPhase0RenderedEvidenceClaimFilter,
   buildPhase0RenderedEvidenceClaimRelease,
   buildPhase0RenderedEvidenceClaimUpdate,
+  buildPhase0RenderedEvidenceDispatchPersistSet,
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidence,
   buildPhase0RenderedStillEvidencePersistSet,
@@ -302,6 +303,38 @@ describe('phase0 rendered evidence worker service', () => {
     expect(source).not.toContain("from 'remotion'");
     expect(source).not.toContain('from "remotion"');
     expect(source).toContain('evaluateScoringKeyframeTracks');
+  });
+
+  it('builds durable dispatch breadcrumbs for Phase 0 rendered evidence requests', () => {
+    expect(buildPhase0RenderedEvidenceDispatchPersistSet(
+      { dispatched: true, messageId: 'msg_123' },
+      { requestedAt: '2026-07-03T12:00:00.000Z', updatedAt: '2026-07-03T12:00:01.000Z' },
+    )).toMatchObject({
+      'intelligence.phase0RenderedEvidenceDispatch': {
+        version: 'editron-phase0-rendered-evidence-dispatch-v1',
+        status: 'dispatched',
+        requestedAt: '2026-07-03T12:00:00.000Z',
+        updatedAt: '2026-07-03T12:00:01.000Z',
+        workerPath: '/api/internal/workers/phase0-rendered-evidence',
+        messageId: 'msg_123',
+        reason: null,
+      },
+      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': 'dispatched',
+      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchMessageId': 'msg_123',
+    });
+
+    expect(buildPhase0RenderedEvidenceDispatchPersistSet(
+      { dispatched: false, reason: 'missing_qstash_token' },
+      { requestedAt: '2026-07-03T12:00:00.000Z', updatedAt: '2026-07-03T12:00:02.000Z' },
+    )).toMatchObject({
+      'intelligence.phase0RenderedEvidenceDispatch': {
+        status: 'not_dispatched',
+        reason: 'missing_qstash_token',
+        messageId: null,
+      },
+      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': 'not_dispatched',
+      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchReason': 'missing_qstash_token',
+    });
   });
 
   it('builds a project-level claim for the expensive rendered-evidence worker', () => {
