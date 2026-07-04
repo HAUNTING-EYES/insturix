@@ -28,6 +28,7 @@ import {
 } from '@/lib/pipeline/reference-image-queue';
 import {
   BRAND_EVIDENCE_REQUIRED_REASON,
+  brandReferenceEvidenceForSubject,
   cleanOptionalString,
   resolveBrandReferenceContext,
   requiresBrandReferenceEvidence,
@@ -91,13 +92,14 @@ export async function POST(
     const brandContext = await resolveBrandReferenceContext(userId, normalizedBrandId, {
       logScope: 'reference-images/add-subject',
     });
-    const requiresBrandEvidence = requiresBrandReferenceEvidence({
+    const subjectForBrandEvidence = {
       name: subjectName,
       category: resolvedCategory,
       visualDescription: subjectDescription,
-    }, brandContext);
-    const evidence = requiresBrandEvidence && brandContext.evidence.length > 0
-      ? brandContext.evidence[0]
+    };
+    const requiresBrandEvidence = requiresBrandReferenceEvidence(subjectForBrandEvidence, brandContext);
+    const evidence = requiresBrandEvidence
+      ? brandReferenceEvidenceForSubject(subjectForBrandEvidence, brandContext.evidence)[0]
       : undefined;
 
     if (requiresBrandEvidence) {

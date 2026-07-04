@@ -4,6 +4,7 @@ import {
   type BrandSignal,
   type BrandSignalProfile,
 } from '@/lib/shared/brand-signal-profile';
+import type { BrandVaultVisualIdentitySummary } from '@/lib/shared/brand-vault-visual-identity';
 
 export type ReferenceProvenance =
   | 'brand-vault'
@@ -17,7 +18,8 @@ export type BrandReferenceEvidence = {
   imageUrl: string;
   referenceProvenance: Extract<ReferenceProvenance, 'brand-vault' | 'website-screenshot'>;
   referenceProvenanceLabel: 'Brand Vault' | 'Website screenshot';
-  source: 'brand-vault-product-image' | 'website-screenshot';
+  source: 'brand-vault-product-image' | 'brand-vault-logo' | 'website-screenshot';
+  assetRole: 'logo' | 'product' | 'website-screenshot';
 };
 
 export type BrandReferenceSubjectInput = {
@@ -35,8 +37,23 @@ export type BrandReferenceContext = {
 
 const MAX_BRAND_REFERENCE_IMAGES = 4;
 
+type BrandSignalProfileWithLogoCandidates = BrandSignalProfile & {
+  assets?: BrandSignalProfile['assets'] & {
+    logoCandidates?: BrandSignal<string[]>;
+  };
+};
+
 export const BRAND_EVIDENCE_REQUIRED_REASON =
-  'Brand-owned product/platform references require Brand Vault, website screenshot, or uploaded evidence before storyboard generation.';
+  'Brand-owned product/platform/logo references require Brand Vault, website screenshot, or uploaded evidence before storyboard generation.';
+
+const BRAND_LOGO_CUES = [
+  'logo',
+  'logomark',
+  'wordmark',
+  'brandmark',
+  'brand mark',
+  'brand logo',
+];
 
 const BRAND_OWNED_CUES = [
   'product',
@@ -98,30 +115,70 @@ function actionableImageUrls(
     .slice(0, Math.max(0, max));
 }
 
+function visualIdentityLogoUrls(
+  visualIdentity: BrandVaultVisualIdentitySummary | null | undefined,
+  max: number,
+): string[] {
+  return (visualIdentity?.logos ?? [])
+    .filter((logo) => logo.availability?.status !== 'unavailable')
+    .filter((logo) => typeof logo.url === 'string' && /^https?:\/\/\S+/i.test(logo.url.trim()))
+    .filter((logo) => typeof logo.confidence !== 'number' || logo.confidence >= 0.55)
+    .map((logo) => logo.url.trim())
+    .slice(0, Math.max(0, max));
+}
+
 export function brandReferenceEvidenceImages(
   profile: BrandSignalProfile | null | undefined,
   max = MAX_BRAND_REFERENCE_IMAGES,
+  visualIdentity?: BrandVaultVisualIdentitySummary | null,
 ): BrandReferenceEvidence[] {
+  const logoSignal = (profile as BrandSignalProfileWithLogoCandidates | null | undefined)?.assets?.logoCandidates;
+  const logoImages = [...actionableImageUrls(logoSignal, max), ...visualIdentityLogoUrls(visualIdentity, max)]
+    .map((imageUrl) => ({
+      imageUrl,
+      referenceProvenance: 'brand-vault' as const,
+      referenceProvenanceLabel: 'Brand Vault' as const,
+      source: 'brand-vault-logo' as const,
+      assetRole: 'logo' as const,
+    }));
   const productImages = actionableImageUrls(profile?.assets?.productImages, max).map((imageUrl) => ({
     imageUrl,
     referenceProvenance: 'brand-vault' as const,
     referenceProvenanceLabel: 'Brand Vault' as const,
     source: 'brand-vault-product-image' as const,
+    assetRole: 'product' as const,
   }));
   const websiteScreenshots = actionableImageUrls(profile?.assets?.socialPreviewImages, max).map((imageUrl) => ({
     imageUrl,
     referenceProvenance: 'website-screenshot' as const,
     referenceProvenanceLabel: 'Website screenshot' as const,
     source: 'website-screenshot' as const,
+    assetRole: 'website-screenshot' as const,
   }));
   const seen = new Set<string>();
-  return [...productImages, ...websiteScreenshots]
+  return [...logoImages, ...productImages, ...websiteScreenshots]
     .filter((evidence) => {
       if (seen.has(evidence.imageUrl)) return false;
       seen.add(evidence.imageUrl);
       return true;
-    })
-    .slice(0, Math.max(0, max));
+    });
+}
+
+export function isBrandLogoReferenceSubject(subject: BrandReferenceSubjectInput): boolean {
+  const category = cleanOptionalString(subject.category)?.toLowerCase();
+  if (category === 'logo') return true;
+  const combinedText = [subject.name, subject.visualDescription]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+  return BRAND_LOGO_CUES.some((cue) => containsPhrase(combinedText, cue));
+}
+
+export function brandReferenceEvidenceForSubject(
+  subject: BrandReferenceSubjectInput,
+  evidence: BrandReferenceEvidence[],
+): BrandReferenceEvidence[] {
+  const logoSubject = isBrandLogoReferenceSubject(subject);
+  return evidence.filter((item) => logoSubject ? item.assetRole === 'logo' : item.assetRole !== 'logo');
 }
 
 function brandReferenceSubjectHints(
@@ -146,7 +203,7 @@ export async function resolveBrandReferenceContext(
   }
 
   try {
-    const { brand, acceptedProfile } = await resolveEffectiveBrandWithProfile(userId, brandId, {
+    const { brand, acceptedProfile, acceptedReviewPayload } = await resolveEffectiveBrandWithProfile(userId, brandId, {
       service: 'editron',
       strict: true,
     });
@@ -154,7 +211,7 @@ export async function resolveBrandReferenceContext(
       brandId,
       brandName: cleanOptionalString(brand?.name),
       subjectHints: brandReferenceSubjectHints(acceptedProfile, brand?.name),
-      evidence: brandReferenceEvidenceImages(acceptedProfile),
+      evidence: brandReferenceEvidenceImages(acceptedProfile, MAX_BRAND_REFERENCE_IMAGES, acceptedReviewPayload?.visualIdentity),
     };
   } catch (err) {
     console.error(`[${options.logScope ?? 'reference-brand-evidence'}] Brand Vault evidence resolution failed`, err);
