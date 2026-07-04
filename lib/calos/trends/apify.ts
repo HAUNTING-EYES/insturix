@@ -1,3 +1,7 @@
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from "@/lib/financials/provider-cost-events";
 import type { Trend, TrendQuery, TrendsProvider } from "./types";
 
 /**
@@ -46,26 +50,94 @@ export class ApifyTrendsProvider implements TrendsProvider {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 50_000);
-    let items: unknown;
+    const startedAt = Date.now();
+    let responseStatus: number | undefined;
     try {
+      const body = JSON.stringify(input);
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body,
         signal: controller.signal,
       });
+      responseStatus = res.status;
       if (!res.ok) throw new Error(`Apify trends actor failed (${res.status})`);
-      items = await res.json();
+      const items = await res.json();
+      const raw: unknown[] = Array.isArray(items) ? items : [];
+      const trends = raw
+        .slice(0, limit)
+        .map((item) => normalizeApifyTrend(item, query))
+        .filter((t): t is Trend => t !== null && t.title.length > 0);
+
+      await recordApifyTrendsCost(query, {
+        status: "success",
+        limit,
+        responseStatus,
+        resultCount: trends.length,
+        rawItemCount: raw.length,
+        bytesIn: byteLength(body),
+        functionMs: Date.now() - startedAt,
+      });
+
+      return trends;
+    } catch (error) {
+      await recordApifyTrendsCost(query, {
+        status: "failed",
+        limit,
+        responseStatus,
+        functionMs: Date.now() - startedAt,
+        error,
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
     }
-
-    const raw: unknown[] = Array.isArray(items) ? items : [];
-    return raw
-      .slice(0, limit)
-      .map((item) => normalizeApifyTrend(item, query))
-      .filter((t): t is Trend => t !== null && t.title.length > 0);
   }
+}
+
+async function recordApifyTrendsCost(
+  query: TrendQuery,
+  input: {
+    status: ProviderCostEventStatus;
+    limit: number;
+    responseStatus?: number;
+    resultCount?: number;
+    rawItemCount?: number;
+    bytesIn?: number;
+    functionMs?: number;
+    error?: unknown;
+  },
+) {
+  await recordProviderCostEvent({
+    status: input.status,
+    projectId: query.brandId,
+    service: "calos",
+    action: "trend_discovery",
+    route: "lib/calos/trends/apify",
+    provider: "apify",
+    model: "actor-run",
+    operation: "actor_run",
+    units: {
+      requestCount: 1,
+      bytesIn: input.bytesIn,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: "apify",
+      limit: input.limit,
+      platformCount: query.platforms?.length,
+      hasBrandId: Boolean(query.brandId),
+      hasLocation: Boolean(query.location),
+      responseStatus: input.responseStatus,
+      resultCount: input.resultCount,
+      rawItemCount: input.rawItemCount,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
 }
 
 function parseInputTemplate(json?: string): Record<string, unknown> {

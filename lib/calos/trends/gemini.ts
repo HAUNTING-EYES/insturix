@@ -1,3 +1,7 @@
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from "@/lib/financials/provider-cost-events";
 import type { Trend, TrendQuery, TrendsProvider } from "./types";
 import { extractJsonArray } from "../llm-json";
 import { getGenAI } from "@/lib/editron/utils/gemini-model-factory";
@@ -67,18 +71,107 @@ export class GeminiTrendsProvider implements TrendsProvider {
       .join("\n");
 
     let text = "";
+    const startedAt = Date.now();
     try {
       const result = await model.generateContent(prompt);
       text = result?.response?.text?.() ?? "";
+      const trends = parseTrends(text, limit);
+      await recordGeminiTrendsCost(query, {
+        status: "success",
+        model: process.env.LLM_TRENDS_MODEL || "gemini-2.5-flash",
+        limit,
+        resultCount: trends.length,
+        responseChars: text.length,
+        functionMs: Date.now() - startedAt,
+        usage: readGeminiUsage(result),
+      });
+
+      return trends;
     } catch (err) {
-      // Fail loud (R18N) — surface the real error so a broken key/grounding call is obvious,
+      await recordGeminiTrendsCost(query, {
+        status: "failed",
+        model: process.env.LLM_TRENDS_MODEL || "gemini-2.5-flash",
+        limit,
+        functionMs: Date.now() - startedAt,
+        error: err,
+      });
+      // Fail loud (R18N): surface the real error so a broken key/grounding call is obvious,
       // rather than silently returning [] and masking it as "no trends".
       console.error("[GeminiTrendsProvider] grounded trends request failed:", err);
       throw err instanceof Error ? err : new Error(String(err));
     }
-
-    return parseTrends(text, limit);
   }
+}
+
+async function recordGeminiTrendsCost(
+  query: TrendQuery,
+  input: {
+    status: ProviderCostEventStatus;
+    model: string;
+    limit: number;
+    resultCount?: number;
+    responseChars?: number;
+    functionMs?: number;
+    usage?: GeminiUsage;
+    error?: unknown;
+  },
+) {
+  await recordProviderCostEvent({
+    status: input.status,
+    projectId: query.brandId,
+    service: "calos",
+    action: "trend_discovery",
+    route: "lib/calos/trends/gemini",
+    provider: "gemini",
+    model: input.model,
+    operation: "trend_search_grounded",
+    units: {
+      requestCount: 1,
+      inputTokens: input.usage?.inputTokens,
+      outputTokens: input.usage?.outputTokens,
+      totalTokens: input.usage?.totalTokens,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: "gemini-grounded-search",
+      limit: input.limit,
+      platformCount: query.platforms?.length,
+      hasBrandId: Boolean(query.brandId),
+      hasLocation: Boolean(query.location),
+      groundingEnabled: true,
+      resultCount: input.resultCount,
+      responseChars: input.responseChars,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+interface GeminiUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+function readGeminiUsage(result: unknown): GeminiUsage | undefined {
+  const resultRecord = asRecord(result);
+  const responseRecord = asRecord(resultRecord?.response);
+  const usage = asRecord(resultRecord?.usageMetadata) ?? asRecord(responseRecord?.usageMetadata);
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount);
+  const totalTokens = readNumber(usage.totalTokenCount);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
