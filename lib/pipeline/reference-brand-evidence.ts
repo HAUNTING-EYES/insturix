@@ -186,6 +186,7 @@ function visualAssetMatchText(asset: BrandVaultVisualAssetPreview): string {
   return [
     asset.kind,
     asset.label,
+    asset.assetRole,
     asset.sourceField,
     asset.sourceUrl,
     asset.originalUrl,
@@ -204,17 +205,38 @@ function visualIdentityImageEvidence(
     .flatMap((asset) => {
       const imageUrl = visualAssetPreviewUrl(asset);
       if (!imageUrl) return [];
-      const websiteEvidence = asset.kind === 'website_preview';
+      const assetRole = referenceEvidenceRoleForVisualAsset(asset);
+      if (!assetRole) return [];
+      const websiteEvidence = assetRole === 'website-screenshot';
       return [{
         imageUrl,
         referenceProvenance: websiteEvidence ? 'website-screenshot' as const : 'brand-vault' as const,
         referenceProvenanceLabel: websiteEvidence ? 'Website screenshot' as const : 'Brand Vault' as const,
         source: websiteEvidence ? 'website-screenshot' as const : 'brand-vault-product-image' as const,
-        assetRole: websiteEvidence ? 'website-screenshot' as const : 'product' as const,
+        assetRole,
         matchText: visualAssetMatchText(asset),
       }];
     })
     .slice(0, Math.max(0, max));
+}
+
+function referenceEvidenceRoleForVisualAsset(asset: BrandVaultVisualAssetPreview): BrandReferenceEvidence['assetRole'] | null {
+  if (asset.kind === 'website_preview' || asset.assetRole === 'website_screenshot') return 'website-screenshot';
+  if (asset.kind === 'product' || asset.assetRole === 'product_ui') return 'product';
+  if (
+    asset.assetRole === 'team' ||
+    asset.assetRole === 'abstract_reference' ||
+    asset.assetRole === 'creative_reference' ||
+    asset.assetRole === 'prior_work' ||
+    asset.assetRole === 'other'
+  ) {
+    return null;
+  }
+
+  const matchText = visualAssetMatchText(asset);
+  if (WEBSITE_REFERENCE_CUES.some((cue) => containsPhrase(matchText, cue))) return 'website-screenshot';
+  if (PRODUCT_UI_REFERENCE_CUES.some((cue) => containsPhrase(matchText, cue))) return 'product';
+  return null;
 }
 
 export function brandReferenceEvidenceImages(
