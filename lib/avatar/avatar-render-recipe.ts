@@ -39,6 +39,8 @@ export interface AvatarRenderAudioInput {
   mode?: AvatarRenderAudioMode;
   sourceAssetId?: string;
   sourceUrl?: string;
+  voiceReferenceAssetId?: string;
+  voiceReferenceUrl?: string;
   voiceoverText?: string;
   description?: string;
   copyAllowed?: boolean;
@@ -112,6 +114,8 @@ export interface AvatarRenderRecipe {
     voiceoverText?: string;
     sourceAssetId?: string;
     sourceUrl?: string;
+    voiceReferenceAssetId?: string;
+    voiceReferenceUrl?: string;
     description?: string;
     copiedReference: boolean;
     soundCues: AvatarRenderResolvedSoundCue[];
@@ -189,6 +193,8 @@ export function buildAvatarRenderRecipe(input: BuildAvatarRenderRecipeInput): Av
       voiceoverText: optionalTrim(input.audio?.voiceoverText) ?? optionalTrim(input.script),
       sourceAssetId: optionalTrim(input.audio?.sourceAssetId),
       sourceUrl: optionalTrim(input.audio?.sourceUrl),
+      voiceReferenceAssetId: optionalTrim(input.audio?.voiceReferenceAssetId),
+      voiceReferenceUrl: optionalTrim(input.audio?.voiceReferenceUrl),
       description: optionalTrim(input.audio?.description),
       copiedReference: audioMode === 'copied_reference_audio',
       soundCues,
@@ -225,7 +231,7 @@ export function evaluateAvatarRenderReadiness(input: BuildAvatarRenderRecipeInpu
     issues.push(error('commercial_use_disallowed', 'profile.rights.commercialUseAllowed', 'Commercial use must be allowed before avatar video generation.'));
   }
   if (requiresSpeech(input.useCase, input.audio, input.script) && !hasSpeechAudio(profile, input.audio)) {
-    issues.push(error('missing_speech_audio', 'audio', 'Speech avatars need TTS voice, uploaded voiceover audio, imported voice profile, or authorized copied reference audio.'));
+    issues.push(error('missing_speech_audio', 'audio', 'Speech avatars need TTS voice, uploaded voiceover audio, imported voice profile, Chatterbox voice reference, or authorized copied reference audio.'));
   }
   if (audioMode === 'copied_reference_audio' && !isCopyAuthorized(input.audio)) {
     issues.push(error('audio_copy_not_authorized', 'audio.copyAllowed', 'Copied reference audio requires explicit copy permission and consent confirmation.'));
@@ -301,6 +307,7 @@ function buildSoundCues(soundCues: AvatarRenderSoundCueInput[] | undefined): Ava
 function resolveAudioMode(audio: AvatarRenderAudioInput | undefined, profile: AvatarProfile): AvatarRenderAudioMode {
   if (audio?.mode) return audio.mode;
   if (isNonEmptyString(audio?.sourceAssetId) || isNonEmptyString(audio?.sourceUrl)) return 'uploaded_voiceover';
+  if (hasVoiceReferenceInput(audio)) return 'tts_voiceover';
   if (isNonEmptyString(profile.voice.ttsVoiceId)) return 'tts_voiceover';
   if (isNonEmptyString(profile.voice.sampleAssetId) || isNonEmptyString(profile.voice.voiceProfileId)) return 'uploaded_voiceover';
   return 'silent';
@@ -324,9 +331,14 @@ function requiresSpeech(
 function hasSpeechAudio(profile: AvatarProfile, audio: AvatarRenderAudioInput | undefined): boolean {
   if (isNonEmptyString(audio?.voiceoverText) && profile.voice.sourceType === 'selected_tts_voice' && isNonEmptyString(profile.voice.ttsVoiceId)) return true;
   if (isNonEmptyString(audio?.sourceAssetId) || isNonEmptyString(audio?.sourceUrl)) return true;
+  if ((audio?.mode === undefined || audio.mode === 'tts_voiceover') && hasVoiceReferenceInput(audio)) return true;
   if (isNonEmptyString(profile.voice.ttsVoiceId)) return true;
   if (isNonEmptyString(profile.voice.sampleAssetId)) return true;
   return isNonEmptyString(profile.voice.voiceProfileId);
+}
+
+function hasVoiceReferenceInput(audio: AvatarRenderAudioInput | undefined): boolean {
+  return isNonEmptyString(audio?.voiceReferenceAssetId) || isNonEmptyString(audio?.voiceReferenceUrl);
 }
 
 function hasIdentityReference(profile: AvatarProfile): boolean {

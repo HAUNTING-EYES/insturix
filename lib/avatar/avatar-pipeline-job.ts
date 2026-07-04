@@ -895,10 +895,12 @@ function resolveVoiceReference(recipe: AvatarRenderRecipe): {
   voiceProfileId?: string;
   url?: string;
 } {
+  const explicitVoiceReference = recipe.audio.voiceReferenceAssetId || recipe.audio.voiceReferenceUrl;
   return {
-    sourceType: recipe.audio.voiceSource.sourceType,
-    assetId: recipe.audio.voiceSource.sampleAssetId,
-    voiceProfileId: recipe.audio.voiceSource.voiceProfileId,
+    sourceType: explicitVoiceReference ? 'uploaded_voice_sample' : recipe.audio.voiceSource.sourceType,
+    assetId: recipe.audio.voiceReferenceAssetId ?? recipe.audio.voiceSource.sampleAssetId,
+    voiceProfileId: explicitVoiceReference ? undefined : recipe.audio.voiceSource.voiceProfileId,
+    url: recipe.audio.voiceReferenceUrl,
   };
 }
 

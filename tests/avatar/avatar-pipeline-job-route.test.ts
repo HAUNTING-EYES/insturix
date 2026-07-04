@@ -287,6 +287,126 @@ describe('Avatar pipeline-job API', () => {
       }),
     );
   });
+  it('synthesizes avatar voice from a request voice reference URL before queuing OmniHuman', async () => {
+    const voiceReferenceUrl = 'https://cdn.example.test/audio/rishi-sample.wav';
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [
+        acceptedRecord('avatar_pipeline_request_voice_reference', {
+          userId: 'user_avatar',
+          voice: {
+            sourceType: 'uploaded_voice_sample',
+            sampleAssetId: '',
+            ttsVoiceId: '',
+            voiceProfileId: '',
+            language: 'en',
+          },
+        }),
+      ],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const chatterboxInputs: ChatterboxSynthesizeInput[] = [];
+    const omniHumanInputs: OmniHumanFalSubmitInput[] = [];
+    const chatterboxClient: ChatterboxClient = {
+      async synthesize(input) {
+        chatterboxInputs.push(input);
+        return {
+          audioUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
+          audioAssetId: 'asset_generated_from_request_reference',
+          providerRequestId: 'chatterbox_request_reference_url',
+          raw: {},
+        };
+      },
+    };
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        omniHumanInputs.push(input);
+        return {
+          modelId: 'fal-ai/bytedance/omnihuman/v1.5',
+          requestId: 'fal_request_from_reference_url',
+          input: {
+            image_url: input.imageUrl,
+            audio_url: input.audioUrl,
+          },
+        };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_pipeline_request_voice_reference',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi appears as a natural talking head in a clean room background.',
+          script: 'Hey, this is a quick avatar pipeline test.',
+          audio: {
+            mode: 'tts_voiceover',
+            voiceoverText: 'Hey, this is a quick avatar pipeline test.',
+            voiceReferenceUrl,
+          },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_pipeline_job_reference_url',
+        chatterboxClient,
+        omniHumanClient,
+        env: {
+          CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
+          FAL_AI_API_KEY: 'fal_test_key',
+        },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(result.body.recipe.audio.sourceUrl).toBeUndefined();
+    expect(result.body.recipe.audio.voiceReferenceUrl).toBe(voiceReferenceUrl);
+    expect(chatterboxInputs).toEqual([
+      expect.objectContaining({
+        text: 'Hey, this is a quick avatar pipeline test.',
+        language: 'en',
+        voiceReference: {
+          sourceType: 'uploaded_voice_sample',
+          assetId: undefined,
+          voiceProfileId: undefined,
+          url: voiceReferenceUrl,
+        },
+      }),
+    ]);
+    expect(omniHumanInputs).toEqual([
+      expect.objectContaining({
+        imageUrl: 'https://cdn.example.test/avatar/full-body.png',
+        audioUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
+      }),
+    ]);
+    expect(result.body.job).toEqual(
+      expect.objectContaining({
+        status: 'queued',
+        dispatchCode: 'omnihuman_queued',
+      }),
+    );
+    expect(result.body.job.stages[1]).toEqual(
+      expect.objectContaining({
+        status: 'running',
+        dispatchCode: 'omnihuman_queued',
+        input: expect.objectContaining({
+          audio: {
+            sourceUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
+            sourceAssetId: 'asset_generated_from_request_reference',
+            generatedByStageId: 'voice_chatterbox',
+          },
+        }),
+      }),
+    );
+  });
   it('refreshes an OmniHuman fal request into a raw face video output', async () => {
     const profileStore = createInMemoryAvatarProfileRepository({
       records: [acceptedRecord('avatar_pipeline_refresh', { userId: 'user_avatar' })],
