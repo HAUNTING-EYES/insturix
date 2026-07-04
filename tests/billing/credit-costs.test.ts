@@ -11,6 +11,8 @@ import {
   creditsForUsd,
   getCreditCost,
   getPlanCreditAllocation,
+  getCheapestVideoCreditsPerSecond,
+  getPlanMediaCapacity,
 } from "@/lib/config/creditCosts";
 
 const readRoute = (relativePath: string) =>
@@ -462,5 +464,28 @@ describe("credit pricing", () => {
       expect(SERVICE_PRICING_CONFIGS[planId].USD.monthly.amount).toBe(monthlyPrice);
       expect(SERVICE_PRICING_CONFIGS[planId].USD.yearly.amount).toBe(monthlyPrice * 10);
     }
+  });
+});
+
+describe("media capacity shown on the pricing card", () => {
+  it("derives the cheapest video rate from the real credit costs", () => {
+    // Cheapest current video model is kling-2.1 at 5 credits/sec. If a reprice makes
+    // something cheaper, this updates automatically — the pricing card follows it.
+    expect(getCheapestVideoCreditsPerSecond()).toBe(5);
+  });
+
+  it("computes plan media capacity (images + video seconds) from real prices", () => {
+    // Images are 1 credit each, so image ceiling == the plan's media allocation.
+    // Video seconds == allocation / cheapest-per-second. These are exactly what the
+    // upgrade page renders, so the shown '~N min' can never drift from what we charge.
+    const perSec = getCheapestVideoCreditsPerSecond();
+    for (const planId of ["agency_starter", "agency_growth", "agency_scale"]) {
+      const cap = getPlanMediaCapacity(planId);
+      expect(cap.videoSeconds).toBe(Math.round(cap.images / perSec));
+    }
+    // Concrete anchors matching the live allocations (300 / 900 / 1500).
+    expect(getPlanMediaCapacity("agency_starter")).toEqual({ images: 300, videoSeconds: 60 });
+    expect(getPlanMediaCapacity("agency_growth")).toEqual({ images: 900, videoSeconds: 180 });
+    expect(getPlanMediaCapacity("agency_scale")).toEqual({ images: 1500, videoSeconds: 300 });
   });
 });

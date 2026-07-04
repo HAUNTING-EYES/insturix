@@ -777,3 +777,28 @@ export function getPlanMediaCreditAllocation(planType: string): number {
     .replace(/\s+/g, '_');
   return PLAN_MEDIA_CREDIT_ALLOCATIONS[normalized] ?? 0;
 }
+
+/**
+ * Cheapest per-second video rate we ACTUALLY charge (credits/sec), read from the
+ * live CREDIT_COSTS config — so any "N min of video" shown to users is derived from
+ * the real price and auto-updates when models are repriced. Uses the cheapest model
+ * because the pricing card frames media as an "up to ... mix freely" ceiling.
+ */
+export function getCheapestVideoCreditsPerSecond(): number {
+  const cfg = CREDIT_COSTS['pipeline']?.find((c) => c.action === 'video_generation');
+  const base = cfg?.baseCost ?? 1;
+  const mults = cfg?.modelMultipliers ? Object.values(cfg.modelMultipliers) : [];
+  const perSec = mults.length ? Math.min(...mults.map((m) => base * m)) : base;
+  return perSec > 0 ? perSec : 1;
+}
+
+/**
+ * "Up to" media capacity for a plan, derived from the real credit costs: how many
+ * standard images (1 credit each) OR how many seconds of the cheapest video the
+ * plan's media allocation buys. One shared pool — these are ceilings, not a bundle.
+ */
+export function getPlanMediaCapacity(planType: string): { images: number; videoSeconds: number } {
+  const alloc = getPlanMediaCreditAllocation(planType);
+  const perSec = getCheapestVideoCreditsPerSecond();
+  return { images: alloc, videoSeconds: Math.round(alloc / perSec) };
+}
