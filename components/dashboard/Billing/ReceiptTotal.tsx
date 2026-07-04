@@ -52,6 +52,13 @@ export function ReceiptTotal({ balance }: ReceiptTotalProps) {
   const animTotal = useCountUp(balance.totalCredits, 1500, 1600);
   const expiry = formatExpiry(balance.subscriptionCreditsExpiry);
 
+  // AI media is a SEPARATE pay-as-you-go wallet (image/video/audio generation).
+  // Always surfaced so users can see it and recharge — even at zero balance.
+  const animMediaSub = useCountUp(balance.mediaCredits, 1200, 1700);
+  const animMediaTop = useCountUp(balance.mediaTopupCredits, 1200, 1800);
+  const animMediaTotal = useCountUp(balance.totalMediaCredits, 1500, 1900);
+  const mediaExpiry = formatExpiry(balance.mediaCreditsExpiry);
+
   return (
     <>
       <style>{`
@@ -166,6 +173,76 @@ export function ReceiptTotal({ balance }: ReceiptTotalProps) {
           >
             {animTotal}
           </span>
+        </div>
+
+        {/* ── AI MEDIA WALLET — separate pay-as-you-go pool (image/video/audio) ── */}
+        <div style={{ borderTop: "2px dashed #282724", marginTop: 12, paddingTop: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              padding: "4px 0",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 2,
+              textTransform: "uppercase",
+              color: "#D4A652",
+            }}
+          >
+            <span>AI Media Wallet</span>
+            <span style={{ fontSize: 9, color: "#7A776E", fontWeight: 400, letterSpacing: 1 }}>
+              image &middot; video &middot; audio
+            </span>
+          </div>
+
+          {/* Monthly allowance (subscription sample) */}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: "#7A776E", marginTop: 4 }}>
+            <span>MONTHLY ALLOWANCE</span>
+            <span style={{ fontWeight: 700 }}>{animMediaSub}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: "#7A776E" }}>
+            <span
+              style={{
+                paddingLeft: 8,
+                animation: mediaExpiry.daysLeft >= 0 && mediaExpiry.daysLeft <= 30
+                  ? "expiryColorPulse 2s ease-in-out infinite"
+                  : undefined,
+                color: mediaExpiry.daysLeft >= 0 && mediaExpiry.daysLeft <= 30 ? undefined : "#7A776E",
+              }}
+            >
+              {mediaExpiry.text}
+            </span>
+            <span style={{ color: "#7A776E", fontWeight: 400, fontSize: 10 }}>monthly</span>
+          </div>
+
+          {/* Recharge (pay-as-you-go top-up) */}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: "#7A776E", marginTop: 4 }}>
+            <span>RECHARGE</span>
+            <span style={{ fontWeight: 700 }}>{animMediaTop}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: "#7A776E" }}>
+            <span style={{ paddingLeft: 8 }}>no expiry</span>
+            <span style={{ color: "#7A776E", fontWeight: 400, fontSize: 10 }}>permanent</span>
+          </div>
+
+          <div style={{ borderTop: "1px solid #282724", marginTop: 8 }} />
+
+          {/* Media balance total */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "10px 0 4px",
+              fontSize: 15,
+              fontWeight: 700,
+              color: "#D4A652",
+            }}
+          >
+            <span>MEDIA BALANCE</span>
+            <span style={{ fontSize: 18 }}>{animMediaTotal}</span>
+          </div>
         </div>
       </div>
     </>
