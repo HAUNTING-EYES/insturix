@@ -64,8 +64,8 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
   const maxCredits = Math.max(balance.subscriptionCredits + balance.topupCredits, 100);
   const expiryText = formatExpiry(balance.subscriptionCreditsExpiry);
   const mediaExpiryText = formatExpiry(balance.mediaCreditsExpiry);
-  // Media pool is granted on top of the plan; only surface it when the plan includes it.
-  const hasMediaPool = balance.totalMediaCredits > 0 || balance.mediaCreditsExpiry != null;
+  // AI media is a separate pay-as-you-go wallet available on every plan — always
+  // shown (even at 0) so users can see the balance and recharge.
 
   return (
     <div className={cn("relative", className)}>
@@ -113,19 +113,17 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
               )}
             </div>
 
-            {/* AI media pool (image/video/audio generation) — separate wallet */}
-            {hasMediaPool && (
-              <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--accent-gold, #D4A652)" }}>
-                <span className="tabular-nums font-medium">{balance.totalMediaCredits.toLocaleString()}</span>
-                <span className="opacity-80">AI media</span>
-                {mediaExpiryText && (
-                  <>
-                    <span className="opacity-50">·</span>
-                    <span className="opacity-80">{mediaExpiryText}</span>
-                  </>
-                )}
-              </div>
-            )}
+            {/* AI media pool (image/video/audio generation) — separate wallet, always shown */}
+            <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: "var(--accent-gold, #D4A652)" }}>
+              <span className="tabular-nums font-medium">{balance.totalMediaCredits.toLocaleString()}</span>
+              <span className="opacity-80">AI media</span>
+              {mediaExpiryText && (
+                <>
+                  <span className="opacity-50">·</span>
+                  <span className="opacity-80">{mediaExpiryText}</span>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Expand/collapse */}
@@ -195,31 +193,29 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
                   )}
                 </div>
 
-                {/* Media pool: image / video / audio generation */}
-                {hasMediaPool && (
-                  <div className="space-y-2 pt-3 border-t border-border/60">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--accent-gold, #D4A652)" }}>
-                        AI media credits
-                      </h4>
-                      <span className="text-sm font-semibold tabular-nums" style={{ color: "var(--accent-gold, #D4A652)" }}>
-                        {balance.totalMediaCredits.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">Plan Credits</span>
-                      <span className="font-medium tabular-nums">{balance.mediaCredits}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">Top-up Credits</span>
-                      <span className="font-medium tabular-nums">{balance.mediaTopupCredits}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Spent only on image, video &amp; audio generation.
-                      {mediaExpiryText ? ` Resets: ${mediaExpiryText}` : ""}
-                    </p>
+                {/* Media pool: image / video / audio generation — always shown */}
+                <div className="space-y-2 pt-3 border-t border-border/60">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--accent-gold, #D4A652)" }}>
+                      AI media credits
+                    </h4>
+                    <span className="text-sm font-semibold tabular-nums" style={{ color: "var(--accent-gold, #D4A652)" }}>
+                      {balance.totalMediaCredits.toLocaleString()}
+                    </span>
                   </div>
-                )}
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Plan Credits</span>
+                    <span className="font-medium tabular-nums">{balance.mediaCredits}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Top-up Credits</span>
+                    <span className="font-medium tabular-nums">{balance.mediaTopupCredits}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Spent only on image, video &amp; audio generation.
+                    {mediaExpiryText ? ` Resets: ${mediaExpiryText}` : ""}
+                  </p>
+                </div>
               </div>
 
               {/* Recent Transactions */}
@@ -288,8 +284,6 @@ export function CreditsBadge({ className }: { className?: string }) {
 
   if (isLoading || !balance) return null;
 
-  const showMedia = balance.totalMediaCredits > 0 || balance.mediaCreditsExpiry != null;
-
   return (
     <div className="inline-flex items-center gap-1.5">
       <div className={cn(
@@ -317,16 +311,14 @@ export function CreditsBadge({ className }: { className?: string }) {
         </motion.span>
         <span className="opacity-70">cr</span>
       </div>
-      {showMedia && (
-        <div
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium"
-          style={{ backgroundColor: "rgba(212, 166, 82, 0.12)", color: "var(--accent-gold, #D4A652)" }}
-          title="AI media credits (image/video/audio generation)"
-        >
-          <span className="tabular-nums">{balance.totalMediaCredits.toLocaleString()}</span>
-          <span className="opacity-70">media</span>
-        </div>
-      )}
+      <div
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium"
+        style={{ backgroundColor: "rgba(212, 166, 82, 0.12)", color: "var(--accent-gold, #D4A652)" }}
+        title="AI media credits (image/video/audio generation)"
+      >
+        <span className="tabular-nums">{balance.totalMediaCredits.toLocaleString()}</span>
+        <span className="opacity-70">media</span>
+      </div>
     </div>
   );
 }
