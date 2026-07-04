@@ -9,6 +9,10 @@ import {
 } from "@/lib/alyzitron/chat/contextManager";
 import { CreditsService } from "@/lib/services/creditsService";
 import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from "@/lib/financials/provider-cost-events";
+import {
   findTranscription,
   findChatSession,
   findChatSessionById,
@@ -28,6 +32,7 @@ function ownershipErrorResponse(error: AlyzitronTaskOwnershipError) {
 
 const ALYZITRON_CHAT_MODEL = "gemini-2.5-flash";
 const MINIMUM_CHAT_TOKENS = 1000;
+const ALYZITRON_CHAT_PROVIDER = "gemini";
 
 /**
  * POST /api/alyzitron/chat
@@ -111,6 +116,8 @@ export async function POST(req: NextRequest) {
     }
 
     let chatCreditsFinalized = false;
+    let additionalTransactionId: string | undefined;
+    let chatProviderStarted = false;
 
     // Load or create session — ownership-scoped to the authenticated user.
     let session: ChatSessionDoc | null = null;
@@ -154,11 +161,44 @@ export async function POST(req: NextRequest) {
             const { toSummarize } = splitMessagesForSummarization(unsummarized);
 
             if (toSummarize.length > 0) {
-              newSummary = await summarizeMessages(
-                toSummarize,
-                activeSession.summary,
-                videoTitle
+              const summaryInputTokens = estimateTokens(
+                [
+                  activeSession.summary ?? "",
+                  videoTitle ?? "",
+                  toSummarize.map((m) => `${m.role}:${m.content}`).join("\n\n"),
+                ].filter(Boolean).join("\n\n")
               );
+              try {
+                newSummary = await summarizeMessages(
+                  toSummarize,
+                  activeSession.summary,
+                  videoTitle
+                );
+                await recordAlyzitronChatProviderCost({
+                  status: "success",
+                  operation: "chat_summarization",
+                  userId,
+                  taskId,
+                  sessionId: activeSession._id?.toString(),
+                  inputTokens: summaryInputTokens,
+                  outputTokens: estimateTokens(newSummary ?? ""),
+                  totalTokens: summaryInputTokens + estimateTokens(newSummary ?? ""),
+                  summaryMessageCount: toSummarize.length,
+                  didSummarize: true,
+                });
+              } catch (summaryErr) {
+                await recordAlyzitronChatProviderCost({
+                  status: "failed",
+                  operation: "chat_summarization",
+                  userId,
+                  taskId,
+                  sessionId: activeSession._id?.toString(),
+                  inputTokens: summaryInputTokens,
+                  summaryMessageCount: toSummarize.length,
+                  error: summaryErr,
+                });
+                throw summaryErr;
+              }
               newSummarizedUpToIndex = activeSession.summarizedUpToIndex + toSummarize.length;
               didSummarize = true;
               send({ type: "summarized" });
@@ -185,6 +225,7 @@ export async function POST(req: NextRequest) {
             videoTitle,
           });
 
+          chatProviderStarted = true;
           for await (const chunk of generator) {
             fullAssistantResponse += chunk;
             send({ type: "chunk", text: chunk });
@@ -227,9 +268,24 @@ export async function POST(req: NextRequest) {
             if (!additionalDeduct.success) {
               throw new Error(`Unable to deduct remaining chat credits: ${additionalDeduct.error}`);
             }
+            additionalTransactionId = additionalDeduct.transactionId;
             creditsConsumed += additionalDeduct.creditsDeducted;
           }
           chatCreditsFinalized = true;
+          await recordAlyzitronChatProviderCost({
+            status: "success",
+            operation: "chat_completion",
+            userId,
+            taskId,
+            sessionId: activeSession._id?.toString(),
+            creditTransactionId: initialDeduct.transactionId,
+            additionalCreditTransactionId: additionalTransactionId,
+            chargedCredits: creditsConsumed,
+            inputTokens: Math.max(0, estimatedTokensUsed - estimateTokens(fullAssistantResponse)),
+            outputTokens: estimateTokens(fullAssistantResponse),
+            totalTokens: estimatedTokensUsed,
+            didSummarize,
+          });
 
           send({
             type: "done",
@@ -242,6 +298,21 @@ export async function POST(req: NextRequest) {
           controller.close();
         } catch (err: any) {
           console.error("[Alyzitron/chat] Streaming error:", err);
+          if (chatProviderStarted) {
+            await recordAlyzitronChatProviderCost({
+              status: "failed",
+              operation: "chat_completion",
+              userId,
+              taskId,
+              sessionId: activeSession._id?.toString(),
+              creditTransactionId: initialDeduct.transactionId,
+              inputTokens: estimateTokens(message),
+              outputTokens: estimateTokens(fullAssistantResponse),
+              totalTokens: estimateTokens(message) + estimateTokens(fullAssistantResponse),
+              didSummarize,
+              error: err,
+            });
+          }
           if (!chatCreditsFinalized) {
             await CreditsService.refundCredits(
               userId,
@@ -275,4 +346,52 @@ export async function POST(req: NextRequest) {
     console.error("[Alyzitron/chat] Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+async function recordAlyzitronChatProviderCost(input: {
+  status: ProviderCostEventStatus;
+  operation: "chat_completion" | "chat_summarization";
+  userId: string;
+  taskId: string;
+  sessionId?: string;
+  creditTransactionId?: string;
+  additionalCreditTransactionId?: string;
+  chargedCredits?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  summaryMessageCount?: number;
+  didSummarize?: boolean;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.operation === "chat_completion" && input.creditTransactionId
+        ? `alyzitron:chat:${input.taskId}:${input.creditTransactionId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    taskId: input.taskId,
+    assetId: input.taskId,
+    creditTransactionId: input.creditTransactionId,
+    service: "alyzitron",
+    action: "chat_message",
+    route: "/api/services/alyzitron/chat",
+    provider: ALYZITRON_CHAT_PROVIDER,
+    model: ALYZITRON_CHAT_MODEL,
+    operation: input.operation,
+    chargedCredits: input.chargedCredits,
+    units: {
+      requestCount: 1,
+      inputTokens: input.inputTokens,
+      outputTokens: input.outputTokens,
+      totalTokens: input.totalTokens,
+    },
+    metadata: {
+      sessionId: input.sessionId,
+      didSummarize: input.didSummarize,
+      summaryMessageCount: input.summaryMessageCount,
+      additionalCreditTransactionId: input.additionalCreditTransactionId,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }
