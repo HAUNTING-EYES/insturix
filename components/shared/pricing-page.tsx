@@ -20,10 +20,13 @@ import {
   SUBSCRIPTION_PLANS,
   CREDIT_PACKAGES,
   getPlanMediaCreditAllocation,
+  getPlanMediaCapacity,
   type SubscriptionPlan,
   type CreditPackage,
 } from "@/lib/config/creditCosts";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
+import { CreditsBadge } from "@/components/shared/CreditsCard";
+import { useCredits } from "@/hooks/useCredits";
 import { normalizePlanKey } from "@/lib/config/plan-limits";
 import { FRAMER_VARIANTS } from "@/lib/animation/presets";
 
@@ -68,7 +71,9 @@ const VOLUME_TIERS = [
 // analysis 8cr/min, script 5, calendar 20, scan 15, post 1. Media (separate wallet)
 // after the 2026-07-04 reprice: image 1cr, video 5cr/sec.
 type ValueItem = { tool: string; n: string; unit: string };
-type PlanBundle = { workflow: ValueItem[]; media: ValueItem[] };
+// Media rows are NOT hand-typed — they're computed from the real credit costs
+// (getPlanMediaCapacity) so the shown images/video always match what we charge.
+type PlanBundle = { workflow: ValueItem[] };
 
 const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
   agency_starter: {
@@ -80,10 +85,6 @@ const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
       { tool: "Distribute", n: "3,000", unit: "social posts" },
       { tool: "Vault", n: "200", unit: "brand scans" },
     ],
-    media: [
-      { tool: "Design", n: "300", unit: "AI images" },
-      { tool: "Video", n: "~1 min", unit: "of AI video" },
-    ],
   },
   agency_growth: {
     workflow: [
@@ -94,10 +95,6 @@ const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
       { tool: "Distribute", n: "15,000", unit: "social posts" },
       { tool: "Vault", n: "1,000", unit: "brand scans" },
     ],
-    media: [
-      { tool: "Design", n: "900", unit: "AI images" },
-      { tool: "Video", n: "~3 min", unit: "of AI video" },
-    ],
   },
   agency_scale: {
     workflow: [
@@ -107,10 +104,6 @@ const PLAN_VALUE_BUNDLES: Record<string, PlanBundle> = {
       { tool: "Plan", n: "1,500", unit: "content calendars" },
       { tool: "Distribute", n: "30,000", unit: "social posts" },
       { tool: "Vault", n: "2,000", unit: "brand scans" },
-    ],
-    media: [
-      { tool: "Design", n: "1,500", unit: "AI images" },
-      { tool: "Video", n: "~5 min", unit: "of AI video" },
     ],
   },
 };
@@ -147,6 +140,9 @@ export function PricingPage() {
   // A scheduled downgrade that Razorpay applies at cycle end (null if none).
   const [pendingPlanChange, setPendingPlanChange] = useState<{ toPlanType: string; effectiveAt: string | null } | null>(null);
   const [downgradeBusy, setDowngradeBusy] = useState(false);
+  // Live wallet — shown on this page so users see what they currently have while
+  // choosing a plan. null when logged out (hook returns no balance) → strip hidden.
+  const { balance: walletBalance } = useCredits();
 
   const applyPlanData = (d: any, autoJump: boolean) => {
     const key = d?.currentPlan?.name ? normalizePlanKey(d.currentPlan.name) : null;
@@ -279,6 +275,16 @@ export function PricingPage() {
           style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 24 }}>
           Every plan unlocks all six rooms. Pick the monthly credit budget that fits your output — one shared wallet, spend it any way.
         </motion.p>
+
+        {/* Live wallet — your current workflow + AI-media balance (signed-in only) */}
+        {walletBalance && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, marginBottom: 28 }}>
+            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-dim)" }}>
+              Your balance
+            </span>
+            <CreditsBadge />
+          </div>
+        )}
 
         {/* Billing cycle toggle */}
         <motion.div initial="hidden" whileInView="visible" viewport={{ margin: "-32px" }} variants={fadeUp}
@@ -673,6 +679,15 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none
   const monthlySavings = billingCycle === 'yearly' ? plan.price - displayPrice : 0;
   const mediaCredits = getPlanMediaCreditAllocation(plan.id);
   const bundle = PLAN_VALUE_BUNDLES[plan.id];
+  // Media capacity — computed from the REAL credit costs (images at 1cr, video at
+  // the cheapest per-second rate we charge), so it always matches what we bill and
+  // auto-updates on any reprice. "Up to" ceilings, consistent with the pool framing.
+  const mediaCap = getPlanMediaCapacity(plan.id);
+  const fmtVideoSecs = (s: number) => (s >= 60 ? `~${Math.round(s / 60)} min` : `~${s} sec`);
+  const mediaRows: ValueItem[] = [
+    { tool: "Design", n: mediaCap.images.toLocaleString(), unit: "AI images" },
+    { tool: "Video", n: fmtVideoSecs(mediaCap.videoSeconds), unit: "of AI video" },
+  ];
 
   // Scheduled-downgrade context for the shown plan.
   const hasPending = !!pendingPlanChange;
@@ -775,7 +790,7 @@ function BadgeCard({ plan, tierIndex, billingCycle, onActivate, relation = 'none
             <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", color: "var(--accent-gold)", display: "block", margin: "12px 0 8px" }}>
               AI MEDIA · PAY AS YOU GO
             </span>
-            {bundle.media.map((ex) => (
+            {mediaRows.map((ex) => (
               <div key={ex.tool} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 8, fontSize: 12 }}>
                 <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 62 }}>{ex.tool}</span>
                 <span style={{ textAlign: "right", flex: 1, color: "var(--text-secondary)" }}>
