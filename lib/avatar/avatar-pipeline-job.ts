@@ -121,7 +121,7 @@ interface AvatarPipelineJobMongoDocument extends AvatarPipelineJobSnapshot {
 
 const AVATAR_PIPELINE_JOB_COLLECTION = 'avatar_pipeline_jobs';
 const CHATTERBOX_ENDPOINT_KEYS = ['CHATTERBOX_TTS_ENDPOINT'];
-const FAL_ENDPOINT_KEYS = ['FAL_KEY'];
+const FAL_ENDPOINT_KEYS = ['FAL_AI_API_KEY', 'FAL_KEY'];
 
 let cachedPipelineJobMongoClient: Promise<MongoClient> | null = null;
 
@@ -370,7 +370,7 @@ function buildOmniHumanStage(
     return blockedOmniHumanStage('omnihuman_duration_limit', 'OmniHuman v1.5 limits 1080p jobs to 30s and 720p jobs to 60s.', input);
   }
   if (!hasAnyEnv(env, FAL_ENDPOINT_KEYS)) {
-    return blockedOmniHumanStage('missing_fal_key', 'FAL_KEY is not configured, so OmniHuman cannot be dispatched.', input);
+    return blockedOmniHumanStage('missing_fal_key', 'FAL_AI_API_KEY or FAL_KEY is not configured, so OmniHuman cannot be dispatched.', input);
   }
 
   return stage({

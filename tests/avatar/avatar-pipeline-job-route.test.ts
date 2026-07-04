@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import {
   createAvatarPipelineJobFromRequest,
   createInMemoryAvatarPipelineJobStore,
@@ -66,7 +66,7 @@ describe('Avatar pipeline-job API', () => {
         providerId: 'fal_omnihuman_v1_5',
         status: 'blocked',
         dispatchCode: 'missing_fal_key',
-        requiredEnvKeys: ['FAL_KEY'],
+        requiredEnvKeys: ['FAL_AI_API_KEY', 'FAL_KEY'],
       }),
     );
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_1')).toEqual(result.body.job);
@@ -97,7 +97,7 @@ describe('Avatar pipeline-job API', () => {
         idGenerator: () => 'avatar_pipeline_job_2',
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
-          FAL_KEY: 'fal_test_key',
+          FAL_AI_API_KEY: 'fal_test_key',
         },
       },
     );
