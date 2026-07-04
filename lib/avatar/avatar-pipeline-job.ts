@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { MongoClient, type Db, type Filter, type IndexDescription } from 'mongodb';
 import {
   evaluateAvatarProfileRenderReadiness,
@@ -15,13 +15,24 @@ import type {
   AvatarVaultMongoCollection,
   AvatarVaultProfileStore,
 } from './avatar-mongo-store';
+import {
+  createDefaultOmniHumanFalClient,
+  OMNIHUMAN_FAL_MODEL_ID,
+  type OmniHumanFalClient,
+  type OmniHumanFalRefreshResult,
+  type OmniHumanFalSubmitInput,
+} from './avatar-omnihuman-fal';
 
 export type AvatarPipelineJobStatus = 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
 
 export type AvatarPipelineJobDispatchCode =
   | 'pipeline_not_configured'
   | 'pipeline_input_blocked'
-  | 'pipeline_adapter_not_implemented';
+  | 'pipeline_adapter_not_implemented'
+  | 'omnihuman_queued'
+  | 'omnihuman_running'
+  | 'omnihuman_succeeded'
+  | 'omnihuman_failed';
 
 export type AvatarPipelineStageId =
   | 'voice_chatterbox'
@@ -46,6 +57,10 @@ export type AvatarPipelineStageDispatchCode =
   | 'missing_human_image'
   | 'missing_omnihuman_audio'
   | 'omnihuman_duration_limit'
+  | 'omnihuman_queued'
+  | 'omnihuman_running'
+  | 'omnihuman_succeeded'
+  | 'omnihuman_failed'
   | 'stage_ready'
   | 'waiting_for_face_video';
 
@@ -58,6 +73,7 @@ export interface AvatarPipelineStageSnapshot {
   dispatchCode: AvatarPipelineStageDispatchCode;
   statusReason: string;
   requiredEnvKeys: string[];
+  providerRequestId?: string;
   input: Record<string, unknown>;
   output?: Record<string, unknown>;
 }
@@ -98,12 +114,25 @@ export interface CreateAvatarPipelineJobDependencies {
   now?: () => string;
   idGenerator?: () => string;
   env?: Record<string, string | undefined>;
+  omniHumanClient?: OmniHumanFalClient;
+}
+
+export interface RefreshAvatarPipelineJobDependencies {
+  pipelineJobStore?: AvatarPipelineJobStore;
+  now?: () => string;
+  env?: Record<string, string | undefined>;
+  omniHumanClient?: OmniHumanFalClient;
 }
 
 export interface CreateAvatarPipelineJobSuccessBody {
   ok: true;
   job: AvatarPipelineJobSnapshot;
   recipe: AvatarRenderRecipe;
+}
+
+export interface RefreshAvatarPipelineJobSuccessBody {
+  ok: true;
+  job: AvatarPipelineJobSnapshot;
 }
 
 export interface AvatarPipelineJobErrorBody {
@@ -267,17 +296,38 @@ export async function createAvatarPipelineJobFromRequest(
   };
 
   const store = dependencies.pipelineJobStore ?? getDefaultAvatarPipelineJobStore();
-  await store.savePipelineJobSnapshot(job);
+  const dispatchedJob = await dispatchReadyOmniHumanJob(job, dependencies);
+  await store.savePipelineJobSnapshot(dispatchedJob);
   return {
     status: 201,
     body: {
       ok: true,
-      job,
+      job: dispatchedJob,
       recipe,
     },
   };
 }
 
+export async function refreshAvatarPipelineJobFromRequest(
+  input: AvatarVaultActorInput & { jobId: string },
+  dependencies: RefreshAvatarPipelineJobDependencies = {},
+): Promise<AvatarVaultApiResult<RefreshAvatarPipelineJobSuccessBody | AvatarPipelineJobErrorBody>> {
+  const store = dependencies.pipelineJobStore ?? getDefaultAvatarPipelineJobStore();
+  const job = await store.getPipelineJobSnapshot(input.jobId);
+  if (!job || !canReadPipelineJob(job, input)) {
+    return fail(404, 'pipeline_job_not_found', 'Avatar pipeline job was not found.');
+  }
+
+  const refreshedJob = await refreshQueuedOmniHumanJob(job, dependencies);
+  await store.savePipelineJobSnapshot(refreshedJob);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      job: refreshedJob,
+    },
+  };
+}
 export function buildAvatarPipelineStages(
   recipe: AvatarRenderRecipe,
   env: Record<string, string | undefined> = process.env,
@@ -351,7 +401,7 @@ function buildOmniHumanStage(
   const image = selectHumanImage(recipe.visual.referenceImages);
   const audio = resolveOmniHumanAudio(recipe, voiceStage);
   const input = {
-    model: 'fal-ai/bytedance/omnihuman/v1.5',
+    model: OMNIHUMAN_FAL_MODEL_ID,
     prompt: recipe.creative.prompt,
     image,
     audio,
@@ -431,6 +481,221 @@ function resolvePipelineDispatch(stages: AvatarPipelineStageSnapshot[]): {
   };
 }
 
+async function dispatchReadyOmniHumanJob(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'omniHumanClient'>,
+): Promise<AvatarPipelineJobSnapshot> {
+  if (job.dispatchCode !== 'pipeline_adapter_not_implemented') return job;
+  const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
+  if (!omniHumanStage || omniHumanStage.status !== 'ready') return job;
+
+  const submitInput = toOmniHumanSubmitInput(omniHumanStage);
+  if (!submitInput) return job;
+
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  try {
+    const client = dependencies.omniHumanClient ?? createDefaultOmniHumanFalClient(dependencies.env ?? process.env);
+    const submitted = await client.submit(submitInput);
+    return {
+      ...job,
+      status: 'queued',
+      dispatchCode: 'omnihuman_queued',
+      statusReason: `fal OmniHuman v1.5 queued request ${submitted.requestId}. Poll this pipeline job until the raw face video is available.`,
+      stages: job.stages.map((pipelineStage) => pipelineStage.id === 'face_omnihuman_fal'
+        ? {
+            ...pipelineStage,
+            status: 'running',
+            dispatchCode: 'omnihuman_queued',
+            statusReason: `fal OmniHuman v1.5 request ${submitted.requestId} is queued.`,
+            providerRequestId: submitted.requestId,
+            input: {
+              ...pipelineStage.input,
+              fal: {
+                modelId: submitted.modelId,
+                input: submitted.input,
+              },
+            },
+            output: {
+              requestId: submitted.requestId,
+              modelId: submitted.modelId,
+            },
+          }
+        : pipelineStage),
+      updatedAt: now,
+    };
+  } catch (error) {
+    return failOmniHumanJob(job, now, `fal OmniHuman dispatch failed: ${errorMessage(error)}`);
+  }
+}
+
+async function refreshQueuedOmniHumanJob(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: RefreshAvatarPipelineJobDependencies,
+): Promise<AvatarPipelineJobSnapshot> {
+  const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
+  const requestId = omniHumanStage?.providerRequestId ?? stringValue(asRecord(omniHumanStage?.output)?.requestId);
+  if (!omniHumanStage || !requestId || omniHumanStage.status === 'succeeded' || omniHumanStage.status === 'failed') {
+    return job;
+  }
+
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  try {
+    const client = dependencies.omniHumanClient ?? createDefaultOmniHumanFalClient(dependencies.env ?? process.env);
+    const refresh = await client.refresh(requestId);
+    return applyOmniHumanRefresh(job, omniHumanStage, refresh, now);
+  } catch (error) {
+    return failOmniHumanJob(job, now, `fal OmniHuman status refresh failed: ${errorMessage(error)}`);
+  }
+}
+
+function applyOmniHumanRefresh(
+  job: AvatarPipelineJobSnapshot,
+  omniHumanStage: AvatarPipelineStageSnapshot,
+  refresh: OmniHumanFalRefreshResult,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  if (refresh.status === 'failed') {
+    return failOmniHumanJob(
+      job,
+      now,
+      refresh.errorMessage
+        ? `fal OmniHuman failed: ${refresh.errorMessage}`
+        : `fal OmniHuman request ${refresh.requestId} failed with status ${refresh.providerStatus}.`,
+    );
+  }
+
+  if (refresh.status !== 'succeeded') {
+    const dispatchCode: AvatarPipelineStageDispatchCode = refresh.status === 'queued'
+      ? 'omnihuman_queued'
+      : 'omnihuman_running';
+    return {
+      ...job,
+      status: refresh.status === 'queued' ? 'queued' : 'running',
+      dispatchCode: dispatchCode === 'omnihuman_queued' ? 'omnihuman_queued' : 'omnihuman_running',
+      statusReason: `fal OmniHuman request ${refresh.requestId} is ${refresh.providerStatus || refresh.status}.`,
+      stages: job.stages.map((pipelineStage) => pipelineStage.id === omniHumanStage.id
+        ? {
+            ...pipelineStage,
+            status: 'running',
+            dispatchCode,
+            statusReason: `fal OmniHuman request ${refresh.requestId} is ${refresh.providerStatus || refresh.status}.`,
+            providerRequestId: refresh.requestId,
+            output: {
+              ...(pipelineStage.output ?? {}),
+              requestId: refresh.requestId,
+              modelId: refresh.modelId,
+              providerStatus: refresh.providerStatus,
+            },
+          }
+        : pipelineStage),
+      updatedAt: now,
+    };
+  }
+
+  if (!refresh.videoUrl) {
+    return failOmniHumanJob(job, now, `fal OmniHuman request ${refresh.requestId} completed without a video URL.`);
+  }
+
+  return {
+    ...job,
+    status: 'running',
+    dispatchCode: 'omnihuman_succeeded',
+    statusReason: 'fal OmniHuman returned the raw face video. Remotion composition is still pending.',
+    stages: job.stages.map((pipelineStage) => {
+      if (pipelineStage.id === omniHumanStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'omnihuman_succeeded',
+          statusReason: 'fal OmniHuman returned the raw face video.',
+          providerRequestId: refresh.requestId,
+          output: {
+            ...(pipelineStage.output ?? {}),
+            requestId: refresh.requestId,
+            modelId: refresh.modelId,
+            providerStatus: refresh.providerStatus,
+            videoUrl: refresh.videoUrl,
+            durationSeconds: refresh.durationSeconds,
+          },
+        };
+      }
+      if (pipelineStage.id === 'composition_remotion') {
+        return {
+          ...pipelineStage,
+          input: {
+            ...pipelineStage.input,
+            faceVideo: {
+              providerId: 'fal_omnihuman_v1_5',
+              requestId: refresh.requestId,
+              videoUrl: refresh.videoUrl,
+              durationSeconds: refresh.durationSeconds,
+            },
+          },
+        };
+      }
+      return pipelineStage;
+    }),
+    updatedAt: now,
+  };
+}
+
+function failOmniHumanJob(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'failed',
+    dispatchCode: 'omnihuman_failed',
+    statusReason: reason,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'face_omnihuman_fal'
+      ? {
+          ...pipelineStage,
+          status: 'failed',
+          dispatchCode: 'omnihuman_failed',
+          statusReason: reason,
+          output: {
+            ...(pipelineStage.output ?? {}),
+            errorMessage: reason,
+          },
+        }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+function toOmniHumanSubmitInput(stageSnapshot: AvatarPipelineStageSnapshot): OmniHumanFalSubmitInput | null {
+  const image = asRecord(stageSnapshot.input.image);
+  const audio = asRecord(stageSnapshot.input.audio);
+  const imageUrl = stringValue(image?.imageUrl);
+  const audioUrl = stringValue(audio?.sourceUrl);
+  if (!imageUrl || !audioUrl) return null;
+
+  return {
+    imageUrl,
+    audioUrl,
+    prompt: stringValue(stageSnapshot.input.prompt),
+    resolution: stringValue(stageSnapshot.input.resolution),
+    turboMode: false,
+  };
+}
+
+function findPipelineStage(
+  job: AvatarPipelineJobSnapshot,
+  stageId: AvatarPipelineStageId,
+): AvatarPipelineStageSnapshot | undefined {
+  return job.stages.find((pipelineStage) => pipelineStage.id === stageId);
+}
+
+function canReadPipelineJob(job: AvatarPipelineJobSnapshot, actor: AvatarVaultActorInput): boolean {
+  if (job.userId === actor.userId) return true;
+  return Boolean(actor.orgId && job.orgId && actor.orgId === job.orgId);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 function blockedChatterboxStage(
   dispatchCode: AvatarPipelineStageDispatchCode,
   statusReason: string,

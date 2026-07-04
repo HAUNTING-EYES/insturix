@@ -1,11 +1,13 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   createAvatarPipelineJobFromRequest,
   createInMemoryAvatarPipelineJobStore,
+  refreshAvatarPipelineJobFromRequest,
 } from '../../lib/avatar/avatar-pipeline-job';
 import { createInMemoryAvatarProfileRepository } from '../../lib/avatar/avatar-repository';
 import type { AvatarProfileRecord } from '../../lib/avatar/avatar-lifecycle';
 import type { AvatarProfile } from '../../lib/avatar/avatar-profile';
+import type { OmniHumanFalClient, OmniHumanFalSubmitInput } from '../../lib/avatar/avatar-omnihuman-fal';
 
 const NOW = '2026-07-04T00:00:00.000Z';
 
@@ -72,11 +74,31 @@ describe('Avatar pipeline-job API', () => {
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_1')).toEqual(result.body.job);
   });
 
-  it('marks Chatterbox and OmniHuman ready when env exists while keeping execution blocked for adapters', async () => {
+  it('queues OmniHuman on fal when env and uploaded voiceover audio exist', async () => {
     const profileStore = createInMemoryAvatarProfileRepository({
       records: [acceptedRecord('avatar_pipeline_ready', { userId: 'user_avatar' })],
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const submittedInputs: OmniHumanFalSubmitInput[] = [];
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return {
+          modelId: 'fal-ai/bytedance/omnihuman/v1.5',
+          requestId: 'fal_request_123',
+          input: {
+            image_url: input.imageUrl,
+            audio_url: input.audioUrl,
+            prompt: input.prompt,
+            resolution: input.resolution,
+            turbo_mode: false,
+          },
+        };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
 
     const result = await createAvatarPipelineJobFromRequest(
       {
@@ -87,7 +109,10 @@ describe('Avatar pipeline-job API', () => {
           useCase: 'speech_delivery',
           prompt: 'Rishi appears as a presenter in a clean room background.',
           script: 'This avatar pipeline is now decoupled.',
-          audio: { mode: 'tts_voiceover' },
+          audio: {
+            mode: 'uploaded_voiceover',
+            sourceUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
+          },
         },
       },
       {
@@ -95,6 +120,7 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_2',
+        omniHumanClient,
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -105,32 +131,143 @@ describe('Avatar pipeline-job API', () => {
     expect(result.status).toBe(201);
     expect(result.body.ok).toBe(true);
     if (!result.body.ok) throw new Error('Expected pipeline job.');
-    expect(result.body.job.dispatchCode).toBe('pipeline_adapter_not_implemented');
+    expect(result.body.job).toEqual(
+      expect.objectContaining({
+        status: 'queued',
+        dispatchCode: 'omnihuman_queued',
+      }),
+    );
     expect(result.body.job.stages[0]).toEqual(
       expect.objectContaining({
-        status: 'ready',
-        dispatchCode: 'stage_ready',
+        status: 'skipped',
+        dispatchCode: 'external_audio_supplied',
         input: expect.objectContaining({
-          model: 'chatterbox_turbo',
-          voiceReference: expect.objectContaining({
-            sourceType: 'uploaded_voice_sample',
-            assetId: 'asset_voice_sample',
-          }),
+          existingAudio: { sourceUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav' },
         }),
       }),
     );
     expect(result.body.job.stages[1]).toEqual(
       expect.objectContaining({
-        status: 'ready',
-        dispatchCode: 'stage_ready',
+        status: 'running',
+        dispatchCode: 'omnihuman_queued',
+        providerRequestId: 'fal_request_123',
         input: expect.objectContaining({
           model: 'fal-ai/bytedance/omnihuman/v1.5',
-          audio: { dependsOnStageId: 'voice_chatterbox' },
+          audio: { sourceUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav' },
+          fal: expect.objectContaining({
+            modelId: 'fal-ai/bytedance/omnihuman/v1.5',
+          }),
         }),
       }),
     );
+    expect(submittedInputs).toEqual([
+      {
+        imageUrl: 'https://cdn.example.test/avatar/full-body.png',
+        audioUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
+        prompt: 'Rishi appears as a presenter in a clean room background.',
+        resolution: '720p',
+        turboMode: false,
+      },
+    ]);
+    expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_2')).toEqual(result.body.job);
   });
 
+  it('refreshes an OmniHuman fal request into a raw face video output', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_pipeline_refresh', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        return {
+          modelId: 'fal-ai/bytedance/omnihuman/v1.5',
+          requestId: 'fal_request_done',
+          input: {
+            image_url: input.imageUrl,
+            audio_url: input.audioUrl,
+          },
+        };
+      },
+      async refresh(requestId) {
+        return {
+          modelId: 'fal-ai/bytedance/omnihuman/v1.5',
+          requestId,
+          status: 'succeeded',
+          providerStatus: 'COMPLETED',
+          raw: {},
+          videoUrl: 'https://fal.example.test/omnihuman/rishi.mp4',
+          durationSeconds: 8,
+        };
+      },
+    };
+
+    const created = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_pipeline_refresh',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the product update in a room.',
+          audio: {
+            mode: 'uploaded_voiceover',
+            sourceUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
+          },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_pipeline_job_3',
+        omniHumanClient,
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+    expect(created.body.ok).toBe(true);
+
+    const refreshed = await refreshAvatarPipelineJobFromRequest(
+      { userId: 'user_avatar', orgId: null, jobId: 'avatar_pipeline_job_3' },
+      {
+        pipelineJobStore,
+        omniHumanClient,
+        now: () => '2026-07-04T00:01:00.000Z',
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.ok).toBe(true);
+    if (!refreshed.body.ok) throw new Error('Expected refreshed pipeline job.');
+    expect(refreshed.body.job).toEqual(
+      expect.objectContaining({
+        status: 'running',
+        dispatchCode: 'omnihuman_succeeded',
+        updatedAt: '2026-07-04T00:01:00.000Z',
+      }),
+    );
+    expect(refreshed.body.job.stages[1]).toEqual(
+      expect.objectContaining({
+        status: 'succeeded',
+        dispatchCode: 'omnihuman_succeeded',
+        output: expect.objectContaining({
+          requestId: 'fal_request_done',
+          videoUrl: 'https://fal.example.test/omnihuman/rishi.mp4',
+          durationSeconds: 8,
+        }),
+      }),
+    );
+    expect(refreshed.body.job.stages[2].input).toEqual(
+      expect.objectContaining({
+        faceVideo: {
+          providerId: 'fal_omnihuman_v1_5',
+          requestId: 'fal_request_done',
+          videoUrl: 'https://fal.example.test/omnihuman/rishi.mp4',
+          durationSeconds: 8,
+        },
+      }),
+    );
+  });
   it('refuses to create a pipeline job when Avatar Vault readiness fails', async () => {
     const profileStore = createInMemoryAvatarProfileRepository({
       records: [
