@@ -4,7 +4,10 @@ import {
   type BrandSignal,
   type BrandSignalProfile,
 } from '@/lib/shared/brand-signal-profile';
-import type { BrandVaultVisualIdentitySummary } from '@/lib/shared/brand-vault-visual-identity';
+import type {
+  BrandVaultVisualAssetPreview,
+  BrandVaultVisualIdentitySummary,
+} from '@/lib/shared/brand-vault-visual-identity';
 
 export type ReferenceProvenance =
   | 'brand-vault'
@@ -127,6 +130,37 @@ function visualIdentityLogoUrls(
     .slice(0, Math.max(0, max));
 }
 
+function visualAssetPreviewUrl(asset: BrandVaultVisualAssetPreview): string | undefined {
+  const imageUrl = asset.mediaType === 'video'
+    ? asset.thumbnailUrl ?? asset.sampledFrameUrls?.[0]
+    : asset.thumbnailUrl ?? asset.url;
+  return typeof imageUrl === 'string' && /^https?:\/\/\S+/i.test(imageUrl.trim())
+    ? imageUrl.trim()
+    : undefined;
+}
+
+function visualIdentityImageEvidence(
+  visualIdentity: BrandVaultVisualIdentitySummary | null | undefined,
+  max: number,
+): BrandReferenceEvidence[] {
+  return (visualIdentity?.images ?? [])
+    .filter((asset) => asset.availability?.status !== 'unavailable')
+    .filter((asset) => typeof asset.confidence !== 'number' || asset.confidence >= 0.55)
+    .flatMap((asset) => {
+      const imageUrl = visualAssetPreviewUrl(asset);
+      if (!imageUrl) return [];
+      const websiteEvidence = asset.kind === 'website_preview';
+      return [{
+        imageUrl,
+        referenceProvenance: websiteEvidence ? 'website-screenshot' as const : 'brand-vault' as const,
+        referenceProvenanceLabel: websiteEvidence ? 'Website screenshot' as const : 'Brand Vault' as const,
+        source: websiteEvidence ? 'website-screenshot' as const : 'brand-vault-product-image' as const,
+        assetRole: websiteEvidence ? 'website-screenshot' as const : 'product' as const,
+      }];
+    })
+    .slice(0, Math.max(0, max));
+}
+
 export function brandReferenceEvidenceImages(
   profile: BrandSignalProfile | null | undefined,
   max = MAX_BRAND_REFERENCE_IMAGES,
@@ -148,6 +182,7 @@ export function brandReferenceEvidenceImages(
     source: 'brand-vault-product-image' as const,
     assetRole: 'product' as const,
   }));
+  const visualIdentityImages = visualIdentityImageEvidence(visualIdentity, max);
   const websiteScreenshots = actionableImageUrls(profile?.assets?.socialPreviewImages, max).map((imageUrl) => ({
     imageUrl,
     referenceProvenance: 'website-screenshot' as const,
@@ -156,7 +191,7 @@ export function brandReferenceEvidenceImages(
     assetRole: 'website-screenshot' as const,
   }));
   const seen = new Set<string>();
-  return [...logoImages, ...productImages, ...websiteScreenshots]
+  return [...logoImages, ...productImages, ...visualIdentityImages, ...websiteScreenshots]
     .filter((evidence) => {
       if (seen.has(evidence.imageUrl)) return false;
       seen.add(evidence.imageUrl);
