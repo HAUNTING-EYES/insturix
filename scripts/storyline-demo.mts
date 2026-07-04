@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 /**
  * storyline-demo - runnable end-to-end demo of the intent spine + storyline composer.
  *
