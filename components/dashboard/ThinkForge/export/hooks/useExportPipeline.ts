@@ -267,6 +267,7 @@ export function useExportPipeline(
     visualMode: "text_forward_graphic",
     textDensity: "medium",
   });
+  const [resolvedClickatronContext, setResolvedClickatronContext] = useState<{ key: string; context: ThinkToClickContext } | null>(null);
   const createClickatronSession = useClickatronStore((state) => state.createSession);
   const sourceSessionId = sessionId || undefined;
   const sourceBrandId = useMemo(() => {
@@ -398,7 +399,76 @@ export function useExportPipeline(
     }));
   }, []);
 
-  const clickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
+  const clickatronContextRequestBody = useMemo(() => ({
+    sessionId,
+    scriptId,
+    projectId: projectId || undefined,
+    title: title || undefined,
+    kind: clickatronVisualChoices.kind,
+    platform: clickatronVisualChoices.platform,
+    aspectRatio: clickatronVisualChoices.aspectRatio || aspectRatio,
+    visualMode: clickatronVisualChoices.visualMode,
+    textDensity: clickatronVisualChoices.textDensity,
+    vibe: clickatronVisualChoices.vibe,
+    imageStyle: clickatronVisualChoices.imageStyle,
+    notes: clickatronVisualChoices.notes,
+    scenesCount: scenes.length,
+  }), [
+    aspectRatio,
+    clickatronVisualChoices.aspectRatio,
+    clickatronVisualChoices.imageStyle,
+    clickatronVisualChoices.kind,
+    clickatronVisualChoices.notes,
+    clickatronVisualChoices.platform,
+    clickatronVisualChoices.textDensity,
+    clickatronVisualChoices.vibe,
+    clickatronVisualChoices.visualMode,
+    projectId,
+    scenes.length,
+    scriptId,
+    sessionId,
+    title,
+  ]);
+
+  const clickatronContextRequestKey = useMemo(
+    () => JSON.stringify(clickatronContextRequestBody),
+    [clickatronContextRequestBody],
+  );
+
+  useEffect(() => {
+    if (!sessionId) {
+      setResolvedClickatronContext(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const requestKey = clickatronContextRequestKey;
+
+    fetch("/api/services/thinkforge/clickatron-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(clickatronContextRequestBody),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.context) {
+          throw new Error(data.error || `Failed to resolve ThinkForge context (${res.status})`);
+        }
+        if (!controller.signal.aborted) {
+          setResolvedClickatronContext({ key: requestKey, context: data.context as ThinkToClickContext });
+        }
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setResolvedClickatronContext(null);
+      });
+
+    return () => controller.abort();
+  }, [clickatronContextRequestBody, clickatronContextRequestKey, sessionId]);
+
+  const localClickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
     if (!sessionId) return null;
 
     try {
@@ -426,6 +496,22 @@ export function useExportPipeline(
     }
   }, [aspectRatio, blocks, clickatronVisualChoices, projectId, projectMeta, scenes.length, scriptId, sessionId, title]);
 
+  const clickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
+    const resolvedContext = resolvedClickatronContext?.key === clickatronContextRequestKey
+      ? resolvedClickatronContext.context
+      : null;
+    if (!resolvedContext) return localClickatronHandoffState;
+
+    try {
+      return buildThinkToClickHandoffState({
+        context: resolvedContext,
+        blocks: blocks as ThinkForgeBlock[],
+        userVisualChoices: clickatronVisualChoices,
+      });
+    } catch {
+      return localClickatronHandoffState;
+    }
+  }, [blocks, clickatronContextRequestKey, clickatronVisualChoices, localClickatronHandoffState, resolvedClickatronContext]);
   // ─── Request notification permission on mount ──────────────────
   useEffect(() => {
     if (open && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
@@ -836,21 +922,7 @@ export function useExportPipeline(
       const contextRes = await fetch("/api/services/thinkforge/clickatron-context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          scriptId,
-          projectId: projectId || undefined,
-          title: title || undefined,
-          kind: clickatronVisualChoices.kind,
-          platform: clickatronVisualChoices.platform,
-          aspectRatio: clickatronVisualChoices.aspectRatio || aspectRatio,
-          visualMode: clickatronVisualChoices.visualMode,
-          textDensity: clickatronVisualChoices.textDensity,
-          vibe: clickatronVisualChoices.vibe,
-          imageStyle: clickatronVisualChoices.imageStyle,
-          notes: clickatronVisualChoices.notes,
-          scenesCount: scenes.length,
-        }),
+        body: JSON.stringify(clickatronContextRequestBody),
       });
       const contextData = await contextRes.json().catch(() => ({}));
       if (!contextRes.ok || !contextData.context) {

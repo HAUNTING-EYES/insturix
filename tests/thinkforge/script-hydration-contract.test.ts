@@ -64,4 +64,22 @@ describe('ThinkForge script hydration contract', () => {
     expect(scriptHook).toContain('Server remains the source of truth');
     expect(scriptHook).toContain('Ignoring remote script update for inactive script');
   });
+  it('does not auto-send draft prompts when the chat panel mounts', () => {
+    const chatPanel = read('components/dashboard/ThinkForge/ChatPanel.tsx');
+
+    expect(chatPanel).not.toContain('auto_start');
+    expect(chatPanel).not.toContain('autoPrompt');
+    expect(chatPanel).not.toContain('Auto-starter');
+    expect(chatPanel).not.toContain('Write a ${prefix} from the original user brief');
+  });
+
+  it('resolves Clickatron export preview through the server context route', () => {
+    const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
+
+    expect(exportHook).toContain('const [resolvedClickatronContext');
+    expect(exportHook).toContain('const clickatronContextRequestBody = useMemo');
+    expect(exportHook).toContain('fetch("/api/services/thinkforge/clickatron-context"');
+    expect(exportHook).toContain('body: JSON.stringify(clickatronContextRequestBody)');
+    expect(exportHook).toContain('resolvedClickatronContext?.key === clickatronContextRequestKey');
+  });
 });
