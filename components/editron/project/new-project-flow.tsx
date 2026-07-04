@@ -54,6 +54,12 @@ const CSS = `
 .enp .status{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--border);border-radius:5px}
 .enp .status .led{width:6px;height:6px;border-radius:50%;background:var(--gold)}
 .enp .status.air{border-color:var(--red)}.enp .status.air .led{background:var(--red);animation:enpPl 1.4s infinite}
+.enp .beta{display:inline-flex;align-items:center;padding:4px 10px;border:1px solid var(--gold);border-radius:999px;background:rgba(212,166,82,.10);color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;line-height:1}
+.enp .betabar{max-width:1120px;margin:0 auto 12px;display:flex;align-items:center;gap:10px;padding:9px 16px;border:1px solid rgba(212,166,82,.22);border-radius:10px;background:rgba(212,166,82,.07)}
+.enp .betabar .tag{flex:0 0 auto;display:inline-flex;align-items:center;padding:2px 8px;border:1px solid var(--gold);border-radius:999px;color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;line-height:1}
+.enp .betabar .msg{font-size:12px;color:var(--soft);line-height:1.4}
+.enp .betabar .x{margin-left:auto;flex:0 0 auto;background:transparent;border:none;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:0 2px;transition:color .2s}
+.enp .betabar .x:hover{color:var(--text)}
 @keyframes enpPl{0%,100%{opacity:1}50%{opacity:.3}}
 .enp .body{position:absolute;inset:0;padding:74px 40px 40px;display:flex;flex-direction:column;z-index:4}
 .enp .hero{flex:0 0 auto}
@@ -158,6 +164,18 @@ export default function NewProjectFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+
+  // Beta notice — dismissible, remembered per browser. Starts hidden until the
+  // effect confirms it wasn't dismissed (SSR-safe: no localStorage read on render).
+  const [betaBar, setBetaBar] = useState(false);
+  useEffect(() => {
+    try { setBetaBar(localStorage.getItem('editron_beta_dismissed') !== '1'); }
+    catch { setBetaBar(true); }
+  }, []);
+  const dismissBeta = useCallback(() => {
+    setBetaBar(false);
+    try { localStorage.setItem('editron_beta_dismissed', '1'); } catch { /* ignore */ }
+  }, []);
 
   const working = busy || footage.running;
 
@@ -269,6 +287,13 @@ export default function NewProjectFlow() {
   return (
     <div className="enp">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      {betaBar && (
+        <div className="betabar" role="status">
+          <span className="tag">Beta</span>
+          <span className="msg">Editron is in beta — output quality is still improving. Tell us what breaks.</span>
+          <button type="button" className="x" aria-label="Dismiss beta notice" onClick={dismissBeta}>&times;</button>
+        </div>
+      )}
       <div className="screen" data-s={screen}>
         <div className="wm" style={{ opacity: m.wm ? undefined : 0 }}>{m.wm}</div>
 
@@ -276,6 +301,7 @@ export default function NewProjectFlow() {
           <div className="bc" dangerouslySetInnerHTML={{ __html: m.bc }} />
           <div className="topr">
             <button type="button" className="projlink" onClick={goProjects}>Projects</button>
+            <span className="beta" title="Editron is in beta — output quality is still improving.">Beta</span>
             <div className={m.air ? 'status air' : 'status'}>
               <span className="led" />
               <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: m.air ? 'var(--red)' : 'var(--gold)' }}>{m.st}</span>
