@@ -1,5 +1,16 @@
 import { Client } from '@upstash/qstash';
 
+const CLICKATRON_QSTASH_ENQUEUE_TIMEOUT_MS = 15_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
 /**
  * Enqueue job with QStash
  */
@@ -52,23 +63,32 @@ export async function enqueueClickatronJob(jobData: any) {
   }
 
   // Production: Use QStash
+  const qstashToken = process.env.QSTASH_TOKEN;
+  if (!qstashToken) {
+    throw new Error('QSTASH_TOKEN is not configured; cannot enqueue Clickatron generation job');
+  }
+
   const qstashBaseUrl = process.env.QSTASH_URL;
   const qstashClient = new Client({
-    token: process.env.QSTASH_TOKEN!,
+    token: qstashToken,
     baseUrl: qstashBaseUrl,
   });
 
   const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
   const workerUrl = `${baseUrl}/api/internal/workers/clickatron/variation`;
 
-  const result = await qstashClient.publishJSON({
-    url: workerUrl,
-    body: jobData,
-    retries: 3,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  const result = await withTimeout(
+    qstashClient.publishJSON({
+      url: workerUrl,
+      body: jobData,
+      retries: 3,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }),
+    CLICKATRON_QSTASH_ENQUEUE_TIMEOUT_MS,
+    `QStash enqueue timed out after ${CLICKATRON_QSTASH_ENQUEUE_TIMEOUT_MS / 1000}s for ${workerUrl}`,
+  );
 
   return result;
 }

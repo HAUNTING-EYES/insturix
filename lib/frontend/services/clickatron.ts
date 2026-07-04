@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CreateVariationRequest, ChatMessage } from '@/types/clickatron';
 
+const DEFAULT_VARIATION_POLL_TIMEOUT_MS = 12 * 60 * 1000;
+
 // Polling utility for variation completion
 export const pollVariationCompletion = async (
   sessionId: string,
@@ -9,9 +11,12 @@ export const pollVariationCompletion = async (
   getTask: () => any,
   refreshUsageLimits?: () => void,
   pollInterval: number = 2000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  maxWaitMs: number = DEFAULT_VARIATION_POLL_TIMEOUT_MS,
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+
     // Helper function to check if variation is complete with image/thumbnail
     const isVariationComplete = (variation: any): boolean => {
       if (!variation) return false;
@@ -35,6 +40,11 @@ export const pollVariationCompletion = async (
       if (signal?.aborted) {
         clearInterval(poll);
         reject(new Error('Polling aborted'));
+        return;
+      }
+      if (Date.now() - startedAt > maxWaitMs) {
+        clearInterval(poll);
+        reject(new Error(`Image generation timed out after ${Math.round(maxWaitMs / 60000)} minutes`));
         return;
       }
       try {

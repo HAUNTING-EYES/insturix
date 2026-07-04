@@ -117,6 +117,32 @@ function getClickatronVariationRefundAmount(modelId?: string): number {
 
 type ClickatronCostJob = NonNullable<Awaited<ReturnType<typeof getJob>>>;
 
+async function markVariationFailedForJob(job: ClickatronCostJob, errorMessage: string): Promise<void> {
+  try {
+    if (!Types.ObjectId.isValid(job.sessionId)) {
+      console.error('Worker: Cannot mark variation failed; invalid sessionId on job:', job.sessionId);
+      return;
+    }
+
+    await getClickatronDb();
+    const task = await ClickatronTask.findById(new Types.ObjectId(job.sessionId));
+    const variation = task?.details?.canvas?.variations?.find((v: Variation) => v.id === job.variationId);
+    if (!task || !variation) {
+      console.error('Worker: Cannot mark variation failed; task or variation missing for job:', job.id);
+      return;
+    }
+
+    variation.status = 'failed';
+    variation.error = errorMessage;
+    variation.updatedAt = new Date();
+    task.markModified('details');
+    await task.save();
+    console.log('Worker: Marked Clickatron variation failed for job:', job.id);
+  } catch (error) {
+    console.error('Worker: Failed to mark Clickatron variation failed for job:', job.id, error);
+  }
+}
+
 function getFalProviderJobId(result: any): string | undefined {
   return result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId;
 }
@@ -961,32 +987,41 @@ export const POST = async (req: Request) => {
       console.error('Worker: Failed to parse request body for error reporting:', bodyError);
     }
 
-    // If we have a jobId, try to fail the job
+    // If we have a jobId, fail the job and mirror that terminal state to Mongo.
     if (jobId) {
       try {
+        const job = await getJob(jobId);
+        const shouldRefund = Boolean(job && !['completed', 'failed', 'canceled'].includes(job.status));
+
         await failJob(jobId, {
           code: 'SIGNATURE_VERIFICATION_FAILED',
           message: 'Failed to verify QStash signature. Check your UPSTASH_QSTASH keys.',
-          details: error
+          details: error,
         });
         console.log('Worker: Marked job as failed due to signature verification failure');
 
-        // Try to get job info for refund
-        try {
-          const job = await getJob(jobId);
-          if (job) {
-            try {
-              await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(job.modelId), 'QStash signature verification failed in worker', {
+        if (job && shouldRefund) {
+          await markVariationFailedForJob(
+            job,
+            'Generation worker signature verification failed before image generation could start.',
+          );
+
+          try {
+            await CreditsService.refundCredits(
+              job.userId,
+              getClickatronVariationRefundAmount(job.modelId),
+              'QStash signature verification failed in worker',
+              {
                 service: 'clickatron',
                 action: 'variation',
-              });
-              console.log('Refund processed successfully for user:', job.userId);
-            } catch (refundError) {
-              console.error('Failed to process refund for user:', job.userId, refundError);
-            }
+              },
+            );
+            console.log('Refund processed successfully for user:', job.userId);
+          } catch (refundError) {
+            console.error('Failed to process refund for user:', job.userId, refundError);
           }
-        } catch (jobError) {
-          console.error('Worker: Failed to get job info for refund:', jobError);
+        } else if (job) {
+          console.log('Worker: Signature failure saw already-terminal job, skipping duplicate refund:', jobId);
         }
       } catch (failError) {
         console.error('Worker: Failed to mark job as failed after signature verification:', failError);
