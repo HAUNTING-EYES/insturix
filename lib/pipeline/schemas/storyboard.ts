@@ -290,6 +290,34 @@ export interface EditronProductionManifest {
   warnings: string[];
 }
 
+export type ApprovedStoryboardReferenceProvenance =
+  | 'brand-vault'
+  | 'website-screenshot'
+  | 'uploaded'
+  | 'generated'
+  | 'missing-brand-evidence';
+
+export type ApprovedStoryboardBrandEvidenceStatus = 'resolved' | 'missing' | 'not-required';
+
+export interface ApprovedStoryboardReference {
+  subjectId: string;
+  name: string;
+  category?: string;
+  visualDescription?: string;
+  imageUrl: string;
+  imageAssetId?: string;
+  imageGcsPath?: string;
+  scenesAppearingIn: number[];
+  weight?: number;
+  source?: string;
+  assetRole?: string;
+  referenceProvenance?: ApprovedStoryboardReferenceProvenance;
+  referenceProvenanceLabel?: string;
+  requiresBrandEvidence?: boolean;
+  brandEvidenceStatus?: ApprovedStoryboardBrandEvidenceStatus;
+  evidenceRequiredReason?: string;
+}
+
 export interface Storyboard {
   storyboardId: string;
   /** Real Editron project id after finalize. Legacy pre-finalize rows may contain the ThinkForge session id. */
@@ -298,6 +326,8 @@ export interface Storyboard {
   sourceSessionId?: string;
   userId: string;
   sourceScriptId?: string;
+  /** Brand Vault brand id used to resolve approved reference evidence. */
+  brandId?: string;
   title?: string;
   styleGuide?: StyleGuide;
   scenes: StoryboardScene[];
@@ -311,15 +341,7 @@ export interface Storyboard {
   /** Reference image set used for visual consistency (IP-adapter) */
   refSetId?: string;
   /** Approved reference images used during storyboard generation + video prompting */
-  approvedReferences?: Array<{
-    subjectId: string;
-    name: string;
-    category?: string;
-    visualDescription?: string;
-    imageUrl: string;
-    scenesAppearingIn: number[];
-    weight?: number;
-  }>;
+  approvedReferences?: ApprovedStoryboardReference[];
   /** Visual consistency report from Gemini Vision analysis of sequential scenes */
   consistencyReport?: ConsistencyReport;
   /** Global editing instructions for the entire video (from LLM parser or user brief) */

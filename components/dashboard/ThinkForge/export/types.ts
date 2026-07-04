@@ -28,10 +28,15 @@ export interface SubjectRef {
   name: string;
   category: string;
   imageUrl?: string;
+  imageAssetId?: string;
+  imageGcsPath?: string;
   status: string;
   scenesAppearingIn: number[];
   visualDescription?: string;
   priority?: "hero" | "suggested";
+  weight?: number;
+  source?: string;
+  assetRole?: string;
   referenceProvenance?: ReferenceImageProvenance;
   referenceProvenanceLabel?: string;
   requiresBrandEvidence?: boolean;
