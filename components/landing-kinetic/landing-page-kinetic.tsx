@@ -181,14 +181,14 @@ function StartupBaseBadges() {
         />
       </a>
       <a
-        href="https://www.producthunt.com/products/insturix/launches/insturix?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-insturix"
+        href="https://www.producthunt.com/products/insturix?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-insturix-3"
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Insturix featured on Product Hunt"
       >
         <img
-          src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=955716&theme=dark&t=1783148985786"
-          alt="Insturix - End to End solution for creators | Product Hunt"
+          src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1184782&theme=light&t=1783150182251"
+          alt="Insturix - Your Entire Studio | Product Hunt"
           width={250}
           height={54}
           loading="lazy"
