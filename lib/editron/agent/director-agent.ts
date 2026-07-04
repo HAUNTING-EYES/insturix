@@ -550,6 +550,7 @@ export async function executeDirectorPlan(
         const sb = await getStoryboardForProjectContext({
           projectId,
           sourceStoryboardId: projectDoc?.sourceStoryboardId,
+          sourceSessionId: projectDoc?.sourceSessionId,
         }, userId);
         if (sb) {
           // Path A: ThinkForge storyboard (Mode 1: script -> AI video)
