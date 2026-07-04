@@ -610,7 +610,7 @@ function licensePrimaryProducerDecisions(
 
   for (const decision of decisions) {
     const license = resolvePrimaryCreativeDecisionLicense(decision, {
-      requireFamilyAtoms: isPrimarySemanticContextDecision(decision),
+      requireFamilyAtoms: isCreativeBriefFamilyCandidate(decision),
     });
     if (license.executable) {
       accepted.push(decision);
