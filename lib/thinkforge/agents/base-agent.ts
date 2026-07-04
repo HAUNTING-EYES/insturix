@@ -16,6 +16,10 @@ import type { LanguageModel } from 'ai';
 import type { z } from 'zod';
 import { createThinkForgeModel, ModelTier, validateTierForTask } from './model-factory';
 import { parseJsonLenient } from '@/lib/thinkforge/json';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 
 // Global constraints for SCRIPT agents — adapted by document type.
 // Technical docs (VFX briefs, budgets, shot lists) get strict mechanical constraints.
@@ -65,6 +69,118 @@ import type {
   AgentMetadata,
   AgentType
 } from './types';
+
+type ThinkForgeUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+type ThinkForgeCostOperation = 'llm_stream' | 'llm_structured' | 'llm_structured_fallback';
+
+async function recordThinkForgeAgentCost(input: {
+  status: ProviderCostEventStatus;
+  agentType: AgentType;
+  modelName: string;
+  operation: ThinkForgeCostOperation;
+  route: string;
+  promptChars?: number;
+  outputChars?: number;
+  functionMs?: number;
+  usage?: ThinkForgeUsage;
+  sourceInput?: AgentInput;
+  maxTokens?: number;
+  temperature?: number;
+  modelTier?: ModelTier;
+  documentType?: string;
+  fallback?: string;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'thinkforge',
+    action: 'agent_generation',
+    route: input.route,
+    provider: inferThinkForgeProvider(input.modelName),
+    model: cleanModelName(input.modelName),
+    operation: input.operation,
+    projectId: input.sourceInput?.brandId,
+    taskId: input.sourceInput?.sessionId,
+    units: {
+      requestCount: 1,
+      inputTokens: input.usage?.inputTokens ?? estimateTokensFromChars(input.promptChars),
+      outputTokens: input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars),
+      totalTokens:
+        input.usage?.totalTokens ??
+        sumOptional(
+          input.usage?.inputTokens ?? estimateTokensFromChars(input.promptChars),
+          input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars),
+        ),
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      agentType: input.agentType,
+      modelTier: input.modelTier,
+      documentType: input.documentType || undefined,
+      generationMode: input.sourceInput?.generationMode,
+      hasSessionId: Boolean(input.sourceInput?.sessionId),
+      hasBrandId: Boolean(input.sourceInput?.brandId),
+      maxTokens: input.maxTokens,
+      temperature: input.temperature,
+      fallback: input.fallback,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+async function readAiSdkUsage(value: unknown): Promise<ThinkForgeUsage | undefined> {
+  const resolved = await Promise.resolve(value);
+  const usage = asRecord(resolved);
+  if (!usage) return undefined;
+  const inputTokens = readNumber(usage.promptTokens ?? usage.inputTokens ?? usage.prompt_tokens);
+  const outputTokens = readNumber(usage.completionTokens ?? usage.outputTokens ?? usage.completion_tokens);
+  const totalTokens = readNumber(usage.totalTokens ?? usage.total_tokens);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function safeJsonLength(value: unknown): number | undefined {
+  try {
+    return JSON.stringify(value ?? {}).length;
+  } catch {
+    return undefined;
+  }
+}
+
+function inferThinkForgeProvider(modelName: string): string {
+  const normalized = modelName.toLowerCase();
+  if (normalized.includes('/') && !normalized.startsWith('gemini') && !normalized.startsWith('models/gemini')) {
+    return 'openrouter';
+  }
+  return 'gemini';
+}
+
+function cleanModelName(modelName: string): string {
+  return modelName.replace(/^models\//, '');
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === 'number' && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
 
 /**
  * Configuration for agent instantiation
@@ -176,14 +292,33 @@ export abstract class BaseAgent {
       const textStream = result.textStream;
       const agentType = this.config.agentType;
       const modelName = this.config.modelName;
+      const modelTier = this.config.modelTier;
+      const documentType = this.config.documentType;
 
       const streamGenerator = async function* (): AsyncGenerator<string, void, unknown> {
-        let chunkCount = 0;
+        let outputChars = 0;
         try {
           for await (const chunk of textStream) {
-            chunkCount++;
+            outputChars += chunk.length;
             yield chunk;
           }
+
+          await recordThinkForgeAgentCost({
+            status: 'success',
+            agentType,
+            modelName,
+            operation: 'llm_stream',
+            route: 'lib/thinkforge/agents/base-agent.run',
+            sourceInput: input,
+            promptChars: prompt.length,
+            outputChars,
+            functionMs: Date.now() - startTime,
+            usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+            maxTokens: gen.maxTokens,
+            temperature: gen.temperature,
+            modelTier,
+            documentType,
+          });
 
           // Log successful invocation
           logInvocation({
@@ -195,6 +330,22 @@ export abstract class BaseAgent {
             success: true,
           });
         } catch (error) {
+          await recordThinkForgeAgentCost({
+            status: 'failed',
+            agentType,
+            modelName,
+            operation: 'llm_stream',
+            route: 'lib/thinkforge/agents/base-agent.run',
+            sourceInput: input,
+            promptChars: prompt.length,
+            outputChars,
+            functionMs: Date.now() - startTime,
+            maxTokens: gen.maxTokens,
+            temperature: gen.temperature,
+            modelTier,
+            documentType,
+            error,
+          });
           logInvocation({
             type: 'ai_invocation',
             agent: agentType,
@@ -207,7 +358,6 @@ export abstract class BaseAgent {
           throw error;
         }
       };
-
       return {
         stream: streamGenerator(),
         metadata: {
@@ -285,6 +435,23 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         abortSignal: signal,
       });
 
+      await recordThinkForgeAgentCost({
+        status: 'success',
+        agentType: this.config.agentType,
+        modelName: this.config.modelName,
+        operation: 'llm_structured',
+        route: 'lib/thinkforge/agents/base-agent.runStructured',
+        sourceInput: input,
+        promptChars: prompt.length,
+        outputChars: safeJsonLength(result.object),
+        functionMs: Date.now() - startTime,
+        usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+        maxTokens: gen.maxTokens,
+        temperature: gen.temperature,
+        modelTier: this.config.modelTier,
+        documentType: this.config.documentType,
+      });
+
       logInvocation({
         type: 'ai_invocation',
         agent: this.config.agentType,
@@ -305,23 +472,79 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
       const isStructuredFailure = message?.toLowerCase().includes('_zod') || message?.toLowerCase().includes('structured');
 
       if (isStructuredFailure) {
-        // Fallback: ask model to return JSON manually and parse it
-        const fallback = await generateText({
-          model: this.model,
-          prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
-          temperature: gen.temperature,
-          // @ts-ignore
+        await recordThinkForgeAgentCost({
+          status: 'failed',
+          agentType: this.config.agentType,
+          modelName: this.config.modelName,
+          operation: 'llm_structured',
+          route: 'lib/thinkforge/agents/base-agent.runStructured',
+          sourceInput: input,
+          promptChars: prompt.length,
+          functionMs: Date.now() - startTime,
           maxTokens: gen.maxTokens,
-          seed: 42,
-          abortSignal: signal,
+          temperature: gen.temperature,
+          modelTier: this.config.modelTier,
+          documentType: this.config.documentType,
+          error,
         });
 
+        // Fallback: ask model to return JSON manually and parse it.
+        let fallback: Awaited<ReturnType<typeof generateText>>;
+        try {
+          fallback = await generateText({
+            model: this.model,
+            prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
+            temperature: gen.temperature,
+            // @ts-ignore
+            maxTokens: gen.maxTokens,
+            seed: 42,
+            abortSignal: signal,
+          });
+        } catch (fallbackError) {
+          await recordThinkForgeAgentCost({
+            status: 'failed',
+            agentType: this.config.agentType,
+            modelName: this.config.modelName,
+            operation: 'llm_structured_fallback',
+            route: 'lib/thinkforge/agents/base-agent.runStructured',
+            sourceInput: input,
+            promptChars: prompt.length,
+            functionMs: Date.now() - startTime,
+            maxTokens: gen.maxTokens,
+            temperature: gen.temperature,
+            modelTier: this.config.modelTier,
+            documentType: this.config.documentType,
+            fallback: 'manual_json',
+            error: fallbackError,
+          });
+          throw fallbackError;
+        }
+
         const jsonText = fallback.text.trim();
+        const fallbackUsage = await readAiSdkUsage((fallback as { usage?: unknown }).usage);
         try {
           const parsed = parseJsonLenient(jsonText);
           if (!parsed) {
             throw new Error('Failed to parse fallback JSON');
           }
+
+          await recordThinkForgeAgentCost({
+            status: 'success',
+            agentType: this.config.agentType,
+            modelName: this.config.modelName,
+            operation: 'llm_structured_fallback',
+            route: 'lib/thinkforge/agents/base-agent.runStructured',
+            sourceInput: input,
+            promptChars: prompt.length,
+            outputChars: jsonText.length,
+            functionMs: Date.now() - startTime,
+            usage: fallbackUsage,
+            maxTokens: gen.maxTokens,
+            temperature: gen.temperature,
+            modelTier: this.config.modelTier,
+            documentType: this.config.documentType,
+            fallback: 'manual_json',
+          });
 
           logInvocation({
             type: 'ai_invocation',
@@ -338,6 +561,25 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             metadata: { model: this.config.modelName },
           };
         } catch (parseError) {
+          await recordThinkForgeAgentCost({
+            status: 'failed',
+            agentType: this.config.agentType,
+            modelName: this.config.modelName,
+            operation: 'llm_structured_fallback',
+            route: 'lib/thinkforge/agents/base-agent.runStructured',
+            sourceInput: input,
+            promptChars: prompt.length,
+            outputChars: jsonText.length,
+            functionMs: Date.now() - startTime,
+            usage: fallbackUsage,
+            maxTokens: gen.maxTokens,
+            temperature: gen.temperature,
+            modelTier: this.config.modelTier,
+            documentType: this.config.documentType,
+            fallback: 'manual_json',
+            error: parseError,
+          });
+
           logInvocation({
             type: 'ai_invocation',
             agent: this.config.agentType,
@@ -350,6 +592,22 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           throw parseError;
         }
       }
+
+      await recordThinkForgeAgentCost({
+        status: 'failed',
+        agentType: this.config.agentType,
+        modelName: this.config.modelName,
+        operation: 'llm_structured',
+        route: 'lib/thinkforge/agents/base-agent.runStructured',
+        sourceInput: input,
+        promptChars: prompt.length,
+        functionMs: Date.now() - startTime,
+        maxTokens: gen.maxTokens,
+        temperature: gen.temperature,
+        modelTier: this.config.modelTier,
+        documentType: this.config.documentType,
+        error,
+      });
 
       logInvocation({
         type: 'ai_invocation',
