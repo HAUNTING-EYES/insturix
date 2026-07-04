@@ -1,123 +1,114 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  CONFIRM_CONFIDENCE_THRESHOLD,
   type IntakeSignals,
-  nextConfirmField,
+  isBriefReady,
+  lowConfidenceFields,
   resolveProductionBrief,
+  topFieldToConfirm,
 } from '@/lib/editron/production-brief/intake-resolver';
 
-function signals(overrides: Partial<IntakeSignals> = {}): IntakeSignals {
+function signals(over: Partial<IntakeSignals> = {}): IntakeSignals {
   return {
     entryPoint: 'upload',
     assetCount: 1,
-    totalDurationSec: 600,
+    totalDurationSec: 3600,
     contentType: null,
     speechCoverage: null,
     hasBrand: false,
-    ...overrides,
+    ...over,
   };
 }
 
-describe('resolveProductionBrief - the founder podcast ambiguity', () => {
-  it('a podcast upload defaults to a faithful edit but stays uncertain, so it asks about FORMAT', () => {
-    const brief = resolveProductionBrief(
-      signals({ contentType: 'podcast', totalDurationSec: 3600 }),
-    );
+describe('resolveProductionBrief - platform is the master knob', () => {
+  it('an explicit platform sets aspect + a default duration; format is derived', () => {
+    const b = resolveProductionBrief(signals({ requested: { platform: 'tiktok' } }));
+    expect(b.output.platform).toBe('tiktok');
+    expect(b.output.aspectRatio).toBe('9:16');
+    expect(b.output.targetDurationSec).toBe(30);
+    expect(b.resolution.confirmed).toContain('platform');
+    expect(b.output.format).toBe('reel'); // 30s of 3600 => condensed
+  });
 
-    expect(brief.output.format).toBe('auto-edit');
-    expect(brief.resolution.fieldConfidence.format).toBeLessThan(CONFIRM_CONFIDENCE_THRESHOLD);
-    expect(brief.resolution.inferred).toContain('format');
-    expect(brief.resolution.confirmed).toHaveLength(0);
-    // The whole point: don't silently commit "reel" or "full edit" - ask the one question.
-    expect(nextConfirmField(brief)).toBe('format');
+  it('connected accounts are the best platform signal (high confidence, no highlight)', () => {
+    const b = resolveProductionBrief(signals({ connectedPlatforms: ['instagram-reels'] }));
+    expect(b.output.platform).toBe('instagram-reels');
+    expect(b.output.aspectRatio).toBe('9:16');
+    expect(lowConfidenceFields(b)).not.toContain('platform');
   });
 });
 
-describe('resolveProductionBrief - explicit requests always win', () => {
-  it('an explicit reel request is confirmed, drives 9:16, and only the guessed length is asked', () => {
-    const brief = resolveProductionBrief(
-      signals({ contentType: 'podcast', requested: { format: 'reel' } }),
-    );
-
-    expect(brief.output.format).toBe('reel');
-    expect(brief.output.aspectRatio).toBe('9:16');
-    expect(brief.output.targetDurationSec).toBe(30);
-    expect(brief.resolution.confirmed).toContain('format');
-    expect(brief.resolution.fieldConfidence.format).toBe(1);
-    // Format is settled; the derived 30s length is the only thing worth confirming.
-    expect(nextConfirmField(brief)).toBe('targetDurationSec');
+describe('resolveProductionBrief - the podcast case: infer, do NOT ask a type', () => {
+  it('a podcast defaults to a faithful YouTube edit, but flags platform for a glance', () => {
+    const b = resolveProductionBrief(signals({ contentType: 'podcast', totalDurationSec: 5400 }));
+    expect(b.output.platform).toBe('youtube');
+    expect(b.output.aspectRatio).toBe('16:9');
+    expect(b.output.targetDurationSec).toBeNull(); // follow content = full edit
+    expect(b.output.format).toBe('auto-edit');
+    // NOT two buttons: platform is just highlighted as low-confidence in the spec card.
+    expect(lowConfidenceFields(b)).toContain('platform');
+    expect(topFieldToConfirm(b)).toBe('platform');
   });
 
-  it('an explicit duration overrides the format default', () => {
-    const brief = resolveProductionBrief(
-      signals({ requested: { format: 'reel', targetDurationSec: 12 } }),
+  it('switching that podcast to TikTok makes it a short vertical reel - a knob change, no menu', () => {
+    const b = resolveProductionBrief(
+      signals({ contentType: 'podcast', totalDurationSec: 5400, requested: { platform: 'tiktok' } }),
     );
-    expect(brief.output.targetDurationSec).toBe(12);
-    expect(brief.resolution.confirmed).toEqual(expect.arrayContaining(['format', 'targetDurationSec']));
-    expect(nextConfirmField(brief)).toBeNull();
+    expect(b.output.aspectRatio).toBe('9:16');
+    expect(b.output.targetDurationSec).toBe(30);
+    expect(b.output.format).toBe('reel');
   });
 });
 
-describe('resolveProductionBrief - confident inputs proceed without questions', () => {
-  it('a vlog upload is confidently a faithful edit and asks nothing', () => {
-    const brief = resolveProductionBrief(signals({ contentType: 'vlog' }));
-    expect(brief.output.format).toBe('auto-edit');
-    expect(brief.output.targetDurationSec).toBeNull(); // follow the content
-    expect(nextConfirmField(brief)).toBeNull();
+describe('resolveProductionBrief - duration is bounded to the source', () => {
+  it('never proposes a longer output than the footage uploaded', () => {
+    const b = resolveProductionBrief(signals({ totalDurationSec: 12, requested: { platform: 'linkedin' } }));
+    expect(b.output.targetDurationSec).toBe(12); // linkedin wants 60s, only 12s exists
   });
 
-  it('a talking-head upload proceeds without questions', () => {
-    const brief = resolveProductionBrief(signals({ contentType: 'talking-head' }));
-    expect(brief.output.format).toBe('talking-head');
-    expect(nextConfirmField(brief)).toBeNull();
-  });
-
-  it('a script entry with explainer content is a high-confidence explainer, asks only the length', () => {
-    const brief = resolveProductionBrief(
-      signals({ entryPoint: 'script', assetCount: 0, totalDurationSec: null, contentType: 'saas-explainer' }),
-    );
-    expect(brief.output.format).toBe('explainer');
-    expect(brief.resolution.fieldConfidence.format).toBeGreaterThanOrEqual(CONFIRM_CONFIDENCE_THRESHOLD);
-    expect(brief.output.targetDurationSec).toBe(60);
-    expect(nextConfirmField(brief)).toBe('targetDurationSec');
+  it('clamps an explicit over-long request down to the source length', () => {
+    const b = resolveProductionBrief(signals({ totalDurationSec: 40, requested: { targetDurationSec: 300 } }));
+    expect(b.output.targetDurationSec).toBe(40);
   });
 });
 
-describe('resolveProductionBrief - genuinely unknown inputs ask FORMAT first', () => {
-  it('an unrecognized content type falls to a faithful edit but asks what to make', () => {
-    const brief = resolveProductionBrief(
-      signals({ contentType: 'screencast-mystery', assetCount: 2, totalDurationSec: 300 }),
-    );
-    expect(brief.output.format).toBe('auto-edit');
-    expect(brief.resolution.fieldConfidence.format).toBeLessThan(CONFIRM_CONFIDENCE_THRESHOLD);
-    expect(nextConfirmField(brief)).toBe('format');
+describe('resolveProductionBrief - count and misc contracts', () => {
+  it('count defaults to 1', () => {
+    expect(resolveProductionBrief(signals()).output.count).toBe(1);
   });
-
-  it('a tiny single clip leans reel but still confirms format before anything else', () => {
-    const brief = resolveProductionBrief(
-      signals({ contentType: null, assetCount: 1, totalDurationSec: 18 }),
-    );
-    expect(brief.output.format).toBe('reel');
-    expect(nextConfirmField(brief)).toBe('format');
+  it('honors an explicit count, floored to >= 1', () => {
+    expect(resolveProductionBrief(signals({ requested: { count: 3 } })).output.count).toBe(3);
+    expect(resolveProductionBrief(signals({ requested: { count: 0 } })).output.count).toBe(1);
   });
-});
-
-describe('resolveProductionBrief - misc contracts', () => {
-  it('sets a brand ref only when the intake reports a brand', () => {
+  it('sets a brand ref only when a brand is present', () => {
     expect(resolveProductionBrief(signals({ hasBrand: true })).brand).toEqual({});
     expect(resolveProductionBrief(signals({ hasBrand: false })).brand).toBeNull();
   });
-
-  it('never throws and always returns a usable format on empty-ish signals', () => {
-    const brief = resolveProductionBrief(signals({ contentType: null, totalDurationSec: null, assetCount: 0 }));
-    expect(brief.output.format).toBeTruthy();
-    expect(brief.entryPoint).toBe('upload');
+  it('carries sourceDurationSec through for the duration bound', () => {
+    expect(resolveProductionBrief(signals({ totalDurationSec: 900 })).sourceDurationSec).toBe(900);
   });
+  it('never throws on empty-ish signals and still returns a usable platform', () => {
+    const b = resolveProductionBrief(signals({ contentType: null, totalDurationSec: null, assetCount: 0 }));
+    expect(b.output.platform).toBeTruthy();
+    expect(b.output.count).toBe(1);
+  });
+});
 
-  it('respects a raised threshold by asking about an otherwise-settled field', () => {
-    const brief = resolveProductionBrief(signals({ contentType: 'vlog' }));
-    // format is 0.72 here; demanding 0.9 makes it uncertain again.
-    expect(nextConfirmField(brief, { threshold: 0.9 })).toBe('format');
+describe('lowConfidenceFields / isBriefReady', () => {
+  it('a confident platform (from connected accounts) leaves nothing to glance at', () => {
+    const b = resolveProductionBrief(signals({ connectedPlatforms: ['tiktok'] }));
+    expect(lowConfidenceFields(b)).toEqual([]);
+    expect(isBriefReady(b)).toBe(true);
+    expect(topFieldToConfirm(b)).toBeNull();
+  });
+  it('a low-confidence inferred platform is flagged (not blocking)', () => {
+    const b = resolveProductionBrief(signals({ contentType: 'mystery-thing', totalDurationSec: 300, assetCount: 2 }));
+    expect(b.output.platform).toBe('unspecified');
+    expect(isBriefReady(b)).toBe(false);
+    expect(topFieldToConfirm(b)).toBe('platform');
+  });
+  it('respects a raised threshold', () => {
+    const b = resolveProductionBrief(signals({ connectedPlatforms: ['tiktok'] })); // platform 0.9
+    expect(topFieldToConfirm(b, { threshold: 0.95 })).toBe('platform');
   });
 });

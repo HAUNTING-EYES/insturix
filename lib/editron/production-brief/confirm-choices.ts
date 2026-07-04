@@ -1,40 +1,41 @@
 /**
- * confirm-choices - the OPTIONS to present when asking the user to confirm a field.
- * Logic only (which values are plausible), no UI copy. Pairs with pendingConfirmFields /
- * nextConfirmField in intake-resolver: those decide WHAT to ask; this decides the CHOICES
- * to show. Pure and isolated, like the rest of the spine.
+ * confirm-choices - the option lists + bounds for the editable SPEC CARD. These are
+ * concrete METADATA editors (where it's going, how long, what shape), NOT a menu of
+ * creative "types". Picking your destination or a duration is legitimate; picking
+ * "reel vs full edit" is templatization and does not exist here.
  */
 
-import type { AspectRatio, OutputFormat, ProductionBrief } from './production-brief';
+import type { AspectRatio, Platform, ProductionBrief } from './production-brief';
 
-/**
- * Plausible sibling formats to offer alongside the current inference. Keyed by the
- * inferred format; the founder's case lives here: a talky auto-edit is offered next to a
- * reel ("keep it a full edit, or cut a short reel?"). Domain-curated adjacency, not a
- * template list - every format resolves to a small, sensible alternative set.
- */
-const FORMAT_SIBLINGS: Record<OutputFormat, OutputFormat[]> = {
-  'auto-edit': ['reel'],
-  reel: ['auto-edit'],
-  explainer: ['talking-head'],
-  'talking-head': ['explainer'],
-  ad: ['ugc'],
-  ugc: ['ad'],
-};
+/** Destination options for the platform picker (often pre-filled from connected accounts). */
+export const PLATFORM_CHOICES: readonly Platform[] = [
+  'tiktok',
+  'instagram-reels',
+  'youtube-shorts',
+  'instagram-feed',
+  'youtube',
+  'linkedin',
+  'x',
+];
 
-/**
- * The format options to present when confirming `format`: the current inference first
- * (the default choice), then its plausible siblings, deduped. A UI renders these as the
- * choice buttons.
- */
-export function formatChoicesFor(brief: ProductionBrief): OutputFormat[] {
-  const current = brief.output.format;
-  const siblings = FORMAT_SIBLINGS[current] ?? [];
-  return [current, ...siblings.filter((f) => f !== current)];
-}
+/** Supported aspect ratios for the shape control. */
+export const ASPECT_CHOICES: readonly AspectRatio[] = ['9:16', '16:9', '1:1', '4:5'];
 
-/** Common target-length presets (seconds) to offer when confirming duration. */
+/** Common duration presets (seconds) for the length control. */
 export const DURATION_PRESET_SECONDS: readonly number[] = [15, 30, 60, 90];
 
-/** The supported aspect ratios to offer when confirming aspect. */
-export const ASPECT_CHOICES: readonly AspectRatio[] = ['9:16', '16:9', '1:1', '4:5'];
+/** Smallest sensible output length (seconds). INVENTED-PLACEHOLDER (calibrate). */
+export const MIN_TARGET_DURATION_SEC = 5;
+
+/**
+ * Duration bounds for the length control: at least MIN, at most the total source length -
+ * you cannot cut more than you uploaded (the founder's constraint). `max` is null when the
+ * source length is unknown (no cap yet).
+ */
+export function durationBounds(brief: ProductionBrief): { min: number; max: number | null } {
+  const src = brief.sourceDurationSec;
+  return {
+    min: MIN_TARGET_DURATION_SEC,
+    max: typeof src === 'number' && src > 0 ? src : null,
+  };
+}

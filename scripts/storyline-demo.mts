@@ -1,20 +1,19 @@
 /**
  * storyline-demo - runnable end-to-end demo of the intent spine + storyline composer.
  *
- * Shows the founder's motivating case: ONE podcast upload, and how "full edit" vs "reel"
- * produce two different storylines from the SAME footage, driven purely by the resolved
- * ProductionBrief. Deterministic (fixed createdAt, no Date/random).
+ * Shows the metadata model (NO template menu): one podcast upload -> we INFER a spec
+ * (platform + duration + aspect), show it as an editable card, and the cut falls out.
+ * Switch the platform and the SAME footage becomes a different cut. Deterministic.
  *
  * Run:  npx tsx scripts/storyline-demo.mts
  */
 
-import { formatChoicesFor } from '../lib/editron/production-brief/confirm-choices';
 import {
   type IntakeSignals,
-  nextConfirmField,
   resolveProductionBrief,
+  topFieldToConfirm,
 } from '../lib/editron/production-brief/intake-resolver';
-import { applyUserOutput, type ProductionBrief } from '../lib/editron/production-brief/production-brief';
+import type { ProductionBrief } from '../lib/editron/production-brief/production-brief';
 import { composeStoryline } from '../lib/editron/storyline/compose';
 import { makeScene, type Scene } from '../lib/editron/storyline/scene';
 import { type Storyline, validateStoryline } from '../lib/editron/storyline/storyline';
@@ -37,36 +36,37 @@ function pad(n: number): string {
   return n.toFixed(1).padStart(5);
 }
 
-function printStoryline(title: string, brief: ProductionBrief, s: Storyline): void {
+function printSpecAndStoryline(title: string, brief: ProductionBrief, s: Storyline): void {
+  const o = brief.output;
+  const glance = topFieldToConfirm(brief);
   const rt = s.renderTarget;
   const v = validateStoryline(s);
   console.log(`\n=== ${title} ===`);
-  console.log(`  brief:  format=${brief.output.format}  target=${brief.output.targetDurationSec ?? 'follow content'}  aspect=${brief.output.aspectRatio}`);
-  console.log(`  render: ${rt.width}x${rt.height} @${rt.fps}fps ${rt.container}   total=${s.totalDurationSec.toFixed(1)}s   clips=${s.clips.length}   valid=${v.valid}`);
+  console.log(
+    `  spec card:  platform=${o.platform}  duration=${o.targetDurationSec ?? 'full'}  aspect=${o.aspectRatio}  count=${o.count}` +
+      (glance ? `   -> glance at: ${glance}` : '   (confident, just run)'),
+  );
+  console.log(`  render:     ${rt.width}x${rt.height} @${rt.fps}fps   total=${s.totalDurationSec.toFixed(1)}s   clips=${s.clips.length}   valid=${v.valid}`);
   for (const c of s.clips) {
-    console.log(`   [${c.order}] ${c.role.padEnd(7)} ${c.source} ${pad(c.in)}-${pad(c.out)}s (${c.durationSec.toFixed(1)}s) fit=${c.fit}`);
+    console.log(`   [${c.order}] ${c.role.padEnd(7)} ${pad(c.in)}-${pad(c.out)}s (${c.durationSec.toFixed(1)}s)`);
   }
 }
 
-// --- 1. resolve intent from a podcast upload ---
 const signals: IntakeSignals = {
-  entryPoint: 'upload', assetCount: 1, totalDurationSec: 360,
+  entryPoint: 'upload', assetCount: 1, totalDurationSec: 110,
   contentType: 'podcast', speechCoverage: 0.85, hasBrand: false,
 };
-const brief0 = resolveProductionBrief(signals);
-console.log('# Intake: a ~6-minute podcast upload, understood as 8 scenes');
-console.log(`  resolved format: "${brief0.output.format}" (confidence ${brief0.resolution.fieldConfidence.format})`);
-console.log(`  ask the basics -> confirm "${nextConfirmField(brief0)}"; offer [${formatChoicesFor(brief0).join(', ')}]`);
-console.log('  (the founder\'s case: a podcast is ambiguous, so we ASK instead of guessing)');
 
-// --- 2a. user picks the faithful full edit ---
-const fullBrief = applyUserOutput(brief0, { format: 'auto-edit' });
-printStoryline('User picks: FULL EDIT (auto-edit)', fullBrief, composeStoryline(scenes, fullBrief));
+console.log('# Intake: a short podcast upload (8 scenes, ~110s), no platform signal yet');
 
-// --- 2b. user picks a 30s vertical reel ---
-const reelBrief = applyUserOutput(brief0, {
-  format: 'reel', targetDurationSec: 30, aspectRatio: '9:16', intent: 'punchy growth highlights',
-});
-printStoryline('User picks: REEL (30s, 9:16, "punchy growth highlights")', reelBrief, composeStoryline(scenes, reelBrief));
+// 1. We INFER a spec - no "reel vs full edit" menu. A podcast defaults to a faithful
+//    long-form edit; the card just flags "platform" as a guess worth a glance.
+const inferred = resolveProductionBrief(signals);
+printSpecAndStoryline('Inferred default (editable - change if wrong)', inferred, composeStoryline(scenes, inferred));
 
-console.log('\nSame 8 scenes in. Two different storylines out, driven purely by the resolved brief.\n');
+// 2. User sets the destination to TikTok in the card. Platform cascades to 9:16 + a
+//    short duration, and the SAME footage becomes a hook-first vertical cut. No template.
+const tiktok = resolveProductionBrief({ ...signals, requested: { platform: 'tiktok' } });
+printSpecAndStoryline('User switches platform -> TikTok', tiktok, composeStoryline(scenes, tiktok));
+
+console.log('\nSame 8 scenes. The cut falls out of the metadata (platform/duration/aspect), not a type menu.\n');

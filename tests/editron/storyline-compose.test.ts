@@ -21,7 +21,7 @@ function scene(over: Partial<SceneInput> = {}): Scene {
 
 function brief(output: Partial<ProductionBrief['output']> = {}): ProductionBrief {
   return {
-    output: { format: 'auto-edit', aspectRatio: '16:9', targetDurationSec: null, ...output },
+    output: { platform: 'youtube', format: 'auto-edit', count: 1, aspectRatio: '16:9', targetDurationSec: null, ...output },
     brand: null,
     entryPoint: 'upload',
     resolution: { fieldConfidence: {}, confirmed: [], inferred: [] },

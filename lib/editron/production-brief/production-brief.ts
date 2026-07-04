@@ -1,86 +1,122 @@
 /**
- * ProductionBrief - the resolved INTENT for a video job: what the user wants MADE.
+ * ProductionBrief - the resolved OUTPUT SPEC for a video job, as METADATA, not a template
+ * type. The user never picks "reel vs full edit" - that is templatization (Motion Graphics
+ * Rule 11). Instead we capture concrete knobs (platform, duration, aspect, count), infer
+ * their defaults, and let the user edit them in a spec card before the cut runs. "Reel" is
+ * not a choice; it is just what you GET from short + vertical.
  *
- * This is distinct from `lib/editron/services/creative-brief.ts`, which is the Path-E
- * DIRECTOR brief (the edit-intent the LLM authors WHILE cutting). This object sits one
- * layer UP: it is the OUTPUT SPECIFICATION (format, duration, aspect, intent) resolved
- * at intake, BEFORE the director runs, and handed to the director as an input constraint.
+ * `format` survives ONLY as an internal, DERIVED ordering hint (condensed highlight vs
+ * faithful full edit) computed from the metadata - never asked, never shown.
  *
- * Design (Editron-Creative-Brief-Spine-Plan, D1-D5):
- *  - D2 per-field confidence: every resolved field carries how sure we are (0..1).
- *  - D3 brief overrides inferred: a field the user explicitly stated is `confirmed`
- *    and must never be silently overridden by inference downstream.
- *  - D4 rules-first: resolution is a pure function over normalized signals; no LLM.
+ * Vibe/energy (punchy vs calm, animation density) is BRAND-driven: not captured here, not
+ * platform-derived, applied downstream from the brand and editable before the final edit.
  *
- * It intentionally does NOT import Editron's churning perception/analysis types. The
- * adapter that maps real signals -> IntakeSignals (see intake-resolver) is the single
- * DEFERRED integration point; keeping this module dependency-free lets it ship and be
- * tested in isolation while the rest of Editron is under active work.
+ * Isolated from Editron WIP: the adapter that fills IntakeSignals is the deferred seam.
  */
-
-/** The kind of thing to produce. A parameter, never a template name (Motion Graphics Rule 11). */
-export type OutputFormat =
-  | 'auto-edit' // clean up / edit the source as-is (podcast -> edited podcast, vlog -> edited vlog)
-  | 'reel' // short vertical highlight cut, heavy motion
-  | 'explainer' // structured explainer / SaaS walkthrough
-  | 'talking-head' // single-speaker piece to camera
-  | 'ad' // paid ad spot
-  | 'ugc'; // creator-style UGC ad
 
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5';
 
-/** Where the job entered from - a strong prior for format inference. */
+/** Distribution destination. The MASTER shape knob: sets aspect + a default duration. */
+export type Platform =
+  | 'tiktok'
+  | 'instagram-reels'
+  | 'youtube-shorts'
+  | 'instagram-feed'
+  | 'youtube'
+  | 'linkedin'
+  | 'x'
+  | 'unspecified';
+
+/**
+ * Internal ordering hint DERIVED from the metadata - NOT a user-facing template choice.
+ * The resolver only ever derives 'reel' (condensed highlight, hook-first ordering) or
+ * 'auto-edit' (faithful full edit, chronological); the remaining values are ordering
+ * buckets the composer recognizes. Nobody selects this.
+ */
+export type OutputFormat = 'reel' | 'auto-edit' | 'explainer' | 'talking-head' | 'ad' | 'ugc';
+
 export type IntakeEntryPoint = 'upload' | 'script' | 'thinkforge' | 'generate' | 'idea';
 
-/** Fields whose resolution we track confidence for (the ones an intake could get wrong). */
-export type BriefField = 'format' | 'targetDurationSec' | 'aspectRatio' | 'style' | 'intent';
+/** The user-editable knobs we track confidence for (the spec-card fields). */
+export type BriefField = 'platform' | 'targetDurationSec' | 'aspectRatio' | 'count' | 'intent' | 'style';
 
 export interface BriefOutputSpec {
-  format: OutputFormat;
-  /** Free-text "what it's for" (e.g. "clip for LinkedIn"), if the user said. */
-  intent?: string;
-  /** Desired final length. `null` = explicitly "let the director decide from content". */
+  /** Where it's going. Master knob - drives aspect + default duration. */
+  platform: Platform;
+  /** Final length (seconds). `null` = follow the content (full length). Bounded <= source. */
   targetDurationSec?: number | null;
   aspectRatio?: AspectRatio;
-  /**
-   * Style as PARAMETERS, never a mode name (Motion Graphics Rule 11: no template
-   * library). e.g. { energy: 0.8, motionDensity: 0.6 }. Free-form; director consumes.
-   */
+  /** How many distinct cuts to make. Default 1; extras are opt-in (render cost). */
+  count: number;
+  /** Free-text "what it's for", if the user said it. */
+  intent?: string;
+  /** Style params (never a mode name). Vibe mainly comes from the brand, not here. */
   style?: Record<string, number | string>;
+  /** DERIVED internal ordering hint (condensed vs faithful). Never asked/shown. */
+  format: OutputFormat;
 }
 
 export interface BriefResolution {
-  /** 0..1 confidence per field. Absent field = not resolved / not applicable. */
+  /** 0..1 confidence per knob. Low-confidence knobs get highlighted in the card. */
   fieldConfidence: Partial<Record<BriefField, number>>;
-  /** Fields the user explicitly stated (confidence 1; never override downstream). */
+  /** Knobs the user explicitly set (confidence 1; never silently overridden). */
   confirmed: BriefField[];
-  /** Fields we inferred from signals (may be low-confidence -> candidate to confirm). */
+  /** Knobs we inferred (may be low-confidence -> highlight in the card). */
   inferred: BriefField[];
 }
 
 export interface ProductionBrief {
   output: BriefOutputSpec;
-  /** Optional brand context ref. Brand-optional, user-primary (founder decision). */
+  /** Optional brand context ref (brand drives vibe). Brand-optional, user-primary. */
   brand?: { brandId?: string | null } | null;
   resolution: BriefResolution;
-  /** Where the job entered from - affects defaults. */
   entryPoint: IntakeEntryPoint;
+  /** Total source seconds available - caps output length + drives the format derivation. */
+  sourceDurationSec?: number | null;
 }
 
-/** The output keys that are also tracked BriefFields (used to type patch application). */
+/**
+ * Output <= this fraction of the source => a condensed highlight cut, not a full edit.
+ * INVENTED-PLACEHOLDER (calibrate).
+ */
+export const CONDENSE_RATIO = 0.5;
+
+/**
+ * Derive the internal ordering hint from the metadata: a short output relative to the
+ * source is a condensed highlight ('reel'); otherwise a faithful full edit ('auto-edit').
+ * Pure; never a user choice.
+ */
+export function deriveFormat(
+  output: Pick<BriefOutputSpec, 'targetDurationSec'>,
+  sourceDurationSec?: number | null,
+): OutputFormat {
+  const t = output.targetDurationSec;
+  if (
+    typeof t === 'number' &&
+    t > 0 &&
+    typeof sourceDurationSec === 'number' &&
+    sourceDurationSec > 0 &&
+    t <= sourceDurationSec * CONDENSE_RATIO
+  ) {
+    return 'reel';
+  }
+  return 'auto-edit';
+}
+
 const OUTPUT_FIELD_KEYS: readonly BriefField[] = [
-  'format',
+  'platform',
   'targetDurationSec',
   'aspectRatio',
-  'style',
+  'count',
   'intent',
+  'style',
 ];
 
 /**
- * Apply the user's explicit output choices to a brief. Every patched field becomes
- * `confirmed` at confidence 1 (D3: the brief overrides inferred values). Returns a new
- * brief; never mutates. Use this when the user answers a confirm question or edits the
- * spec directly.
+ * Apply the user's explicit spec-card edits to a brief. Every patched knob becomes
+ * confirmed at confidence 1; `format` is always RE-DERIVED from the merged spec so the
+ * ordering hint stays consistent (e.g. shortening the duration flips it to a highlight).
+ * Never mutates.
  */
 export function applyUserOutput(
   brief: ProductionBrief,
@@ -96,17 +132,16 @@ export function applyUserOutput(
     fieldConfidence[f] = 1;
   }
   const inferred = brief.resolution.inferred.filter((f) => !touched.includes(f));
+  const mergedOutput: BriefOutputSpec = { ...brief.output, ...patch };
+  mergedOutput.format = deriveFormat(mergedOutput, brief.sourceDurationSec);
   return {
     ...brief,
-    output: { ...brief.output, ...patch },
+    output: mergedOutput,
     resolution: { ...brief.resolution, confirmed, inferred, fieldConfidence },
   };
 }
 
-/**
- * Promote an already-set field to confirmed WITHOUT changing its value - e.g. the user
- * accepted the inferred default ("yes, a full edit is fine"). Returns a new brief.
- */
+/** Promote an already-set knob to confirmed without changing its value. */
 export function markConfirmed(brief: ProductionBrief, field: BriefField): ProductionBrief {
   if (brief.resolution.confirmed.includes(field)) return brief;
   return {
