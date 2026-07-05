@@ -29,7 +29,7 @@ describe('avatar composition props', () => {
     expect(props.inputProps.overlays).toHaveLength(1);
 
     const overlay = props.inputProps.overlays[0];
-    expect(overlay.type).toBe('video');
+    if (overlay.type !== 'video') throw new Error('expected a video overlay');
     expect(overlay.src).toBe(FACE_URL);
     expect(overlay.hasNativeAudio).toBe(true);
     expect(overlay.width).toBe(720);
@@ -39,6 +39,27 @@ describe('avatar composition props', () => {
 
   it('computes even landscape dimensions for 16:9 1080p', () => {
     expect(compositionDimensions('1080p', '16:9')).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('lays caption overlays over the face clip when a script is present', () => {
+    const props = buildAvatarCompositionProps({
+      faceVideoUrl: FACE_URL,
+      durationSeconds: 8,
+      aspectRatio: '9:16',
+      resolution: '720p',
+      script: 'Hey, welcome to Insturix. Let me show you what we can do today.',
+    });
+    const captions = props.inputProps.overlays.filter((o) => o.type === 'text');
+    expect(captions.length).toBeGreaterThan(1);
+    expect(props.inputProps.overlays[0].type).toBe('video'); // face stays the base layer
+    expect(captions[0].from).toBe(0);
+    const last = captions[captions.length - 1];
+    expect(last.from + last.durationInFrames).toBeLessThanOrEqual(props.inputProps.durationInFrames);
+  });
+
+  it('omits captions when there is no script', () => {
+    const props = buildAvatarCompositionProps({ faceVideoUrl: FACE_URL, durationSeconds: 8, aspectRatio: '9:16', resolution: '720p' });
+    expect(props.inputProps.overlays.every((o) => o.type === 'video')).toBe(true);
   });
 });
 

@@ -34,6 +34,37 @@ interface AvatarVideoOverlay {
   styles: { objectFit: 'cover' };
 }
 
+interface AvatarTextOverlay {
+  id: number;
+  type: 'text';
+  content: string;
+  from: number;
+  durationInFrames: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  row: number;
+  isDragging: boolean;
+  rotation: number;
+  styles: {
+    fontSize: string;
+    fontWeight: string;
+    color: string;
+    backgroundColor: string;
+    fontFamily: string;
+    fontStyle: string;
+    textDecoration: string;
+    textAlign: 'center';
+    textShadow: string;
+    padding: string;
+    borderRadius: string;
+    lineHeight: string;
+  };
+}
+
+type AvatarOverlay = AvatarVideoOverlay | AvatarTextOverlay;
+
 // Mirrors the region union the /cloudrun/render route casts to.
 type RemotionRegion =
   | 'us-east-1' | 'us-east-2' | 'us-west-1' | 'us-west-2'
@@ -48,12 +79,13 @@ export interface AvatarCompositionInput {
   aspectRatio: string; // '9:16' | '16:9' | '1:1' | '4:5'
   resolution: string; // '720p' | '1080p'
   displayName?: string;
+  script?: string;
 }
 
 export interface AvatarCompositionRenderProps {
   compositionId: string;
   inputProps: {
-    overlays: AvatarVideoOverlay[];
+    overlays: AvatarOverlay[];
     durationInFrames: number;
     fps: number;
     width: number;
@@ -98,10 +130,73 @@ export function buildAvatarCompositionProps(input: AvatarCompositionInput): Avat
     styles: { objectFit: 'cover' },
   };
 
+  const captions = buildCaptionOverlays(input.script, durationInFrames, width, height);
   return {
     compositionId: REMOTION_COMPOSITION_ID,
-    inputProps: { overlays: [faceOverlay], durationInFrames, fps, width, height },
+    inputProps: { overlays: [faceOverlay, ...captions], durationInFrames, fps, width, height },
   };
+}
+
+// Captions from the spoken script. Chatterbox gives us no word-level timings yet, so
+// cues are timed by proportional length across the clip — approximate but deterministic.
+// TODO: forced alignment (whisper) for exact word sync.
+const CAPTION_WORDS_PER_CUE = 5; // heuristic — readable phrase length
+const MIN_CAPTION_FRAMES = 18; // ~0.6s at 30fps
+
+function buildCaptionOverlays(
+  script: string | undefined,
+  durationInFrames: number,
+  width: number,
+  height: number,
+): AvatarTextOverlay[] {
+  const text = script?.trim();
+  if (!text) return [];
+  const words = text.split(/\s+/).filter(Boolean);
+  const cues: string[] = [];
+  for (let i = 0; i < words.length; i += CAPTION_WORDS_PER_CUE) {
+    cues.push(words.slice(i, i + CAPTION_WORDS_PER_CUE).join(' '));
+  }
+  if (cues.length === 0) return [];
+  const totalChars = cues.reduce((sum, cue) => sum + cue.length, 0) || 1;
+  const fontSize = Math.max(20, Math.round(width * 0.045));
+
+  const overlays: AvatarTextOverlay[] = [];
+  let frame = 0;
+  cues.forEach((cue, index) => {
+    if (frame >= durationInFrames) return;
+    const raw = Math.round(durationInFrames * (cue.length / totalChars));
+    const dur = Math.max(1, Math.min(Math.max(raw, MIN_CAPTION_FRAMES), durationInFrames - frame));
+    overlays.push({
+      id: 100 + index,
+      type: 'text',
+      content: cue,
+      from: frame,
+      durationInFrames: dur,
+      left: Math.round(width * 0.08),
+      top: Math.round(height * 0.72),
+      width: Math.round(width * 0.84),
+      height: Math.round(height * 0.2),
+      row: 1,
+      isDragging: false,
+      rotation: 0,
+      styles: {
+        fontSize: `${fontSize}px`,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        textAlign: 'center',
+        textShadow: '0 2px 8px rgba(0,0,0,0.6)',
+        padding: '8px 14px',
+        borderRadius: '10px',
+        lineHeight: '1.25',
+      },
+    });
+    frame += dur;
+  });
+  return overlays;
 }
 
 /** Even-numbered W/H (h264 requires even dimensions) for the target format. */

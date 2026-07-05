@@ -384,6 +384,7 @@ async function advanceCompositionStage(
           aspectRatio: job.recipe.target.aspectRatio,
           resolution: job.recipe.target.resolution,
           displayName: job.recipe.visual.displayName,
+          script: job.recipe.creative?.script,
         },
         compositionDeps,
       );
