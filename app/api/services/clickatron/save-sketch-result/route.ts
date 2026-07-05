@@ -70,13 +70,20 @@ export async function POST(request: Request) {
     const { db } = await connectToDatabase();
     const collectionName = process.env.CLICKATRON_MONGO_COLLECTION || 'clickatrontasks';
     
-    await db.collection(collectionName).updateOne(
-      { _id: new ObjectId(sessionId) },
-      { 
+    // Owner-scope the write: a user may only save a sketch result into their OWN session.
+    // Without clerkUserId in the filter this is an IDOR — any authed user who knows a
+    // sessionId could push a variation into another user's canvas.
+    const updateResult = await db.collection(collectionName).updateOne(
+      { _id: new ObjectId(sessionId), clerkUserId: userId },
+      {
         $push: { "details.canvas.variations": { $each: [newVar], $position: 0 } } as any,
         $set: { updatedAt: now }
       }
     );
+
+    if (updateResult.matchedCount === 0) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true, variation: newVar });
 
