@@ -1,8 +1,68 @@
 import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
+import { loadFont as loadInter } from "@remotion/google-fonts/Inter";
+import { loadFont as loadMerriweather } from "@remotion/google-fonts/Merriweather";
+import { loadFont as loadRobotoMono } from "@remotion/google-fonts/RobotoMono";
+import { loadFont as loadVT323 } from "@remotion/google-fonts/VT323";
+import { loadFont as loadLeagueSpartan } from "@remotion/google-fonts/LeagueSpartan";
+import { loadFont as loadBungeeInline } from "@remotion/google-fonts/BungeeInline";
 import { Caption, CaptionOverlay, CaptionWord, HighlightEffect, HighlightAnimation, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
 import type { AtomicOverlayForm, AtomicTextGlyphRole } from "@/lib/editron/engine/atomic-overlay-core";
+
+const { fontFamily: interFontFamily } = loadInter("normal", {
+  weights: ["700"],
+});
+
+const { fontFamily: merriweatherFontFamily } = loadMerriweather("normal", {
+  weights: ["700"],
+  subsets: ["latin"],
+});
+
+const { fontFamily: robotoMonoFontFamily } = loadRobotoMono("normal", {
+  weights: ["400"],
+  subsets: ["latin"],
+});
+
+const { fontFamily: vt323FontFamily } = loadVT323("normal", {
+  weights: ["400"],
+  subsets: ["latin"],
+});
+
+const { fontFamily: leagueSpartanFontFamily } = loadLeagueSpartan("normal", {
+  weights: ["400", "700"],
+  subsets: ["latin"],
+});
+
+const { fontFamily: bungeeInlineFontFamily } = loadBungeeInline("normal", {
+  weights: ["400"],
+  subsets: ["latin"],
+});
+
+export function getCaptionFontFamily(fontClass?: string): string {
+  switch (fontClass) {
+    case "font-sans":
+    case "Inter":
+      return interFontFamily;
+    case "font-serif":
+    case "Merriweather":
+      return merriweatherFontFamily;
+    case "font-mono":
+    case "Roboto Mono":
+      return robotoMonoFontFamily;
+    case "font-retro":
+    case "VT323":
+      return vt323FontFamily;
+    case "font-league-spartan":
+    case "League Spartan":
+      return leagueSpartanFontFamily;
+    case "font-bungee-inline":
+    case "Bungee Inline":
+      return bungeeInlineFontFamily;
+    default:
+      return fontClass || interFontFamily;
+  }
+}
 
 /**
  * Props for the CaptionLayerContent component
@@ -189,10 +249,10 @@ function atomicGlyphFontFamily(
   const role = glyph?.visual?.fontRole;
   if (!role) return undefined;
   const fonts = atomicText?.fontPlan?.roles;
-  if (role === "accent") return fonts?.accent ?? fonts?.primary;
+  if (role === "accent") return getCaptionFontFamily(fonts?.accent ?? fonts?.primary);
   if (role === "mono") return fonts?.mono ?? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
-  if (role === "secondary") return fonts?.secondary ?? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  return fonts?.primary;
+  if (role === "secondary") return fonts?.secondary ? getCaptionFontFamily(fonts.secondary) : 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  return fonts?.primary ? getCaptionFontFamily(fonts.primary) : undefined;
 }
 
 function shouldBreakAfter(
@@ -435,9 +495,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
             return `${Math.round(basePx * scale)}px`;
           })(),
           fontWeight: styles.fontWeight,
-          fontFamily: styles.fontFamily?.startsWith('font-') 
-            ? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-            : styles.fontFamily,
+          fontFamily: getCaptionFontFamily(styles.fontFamily),
           letterSpacing: styles.letterSpacing || '0.025em',
           lineHeight: styles.lineHeight,
           textAlign: styles.textAlign,
