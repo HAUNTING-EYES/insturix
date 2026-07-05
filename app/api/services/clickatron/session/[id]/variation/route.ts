@@ -67,12 +67,19 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
+    const parentVariation = parentVariationId
+      ? task.details.canvas?.variations?.find((v: any) => v.id === parentVariationId)
+      : undefined;
+    const parentVariationForGenerationId = parentVariation?.imageRef
+      ? parentVariationId
+      : undefined;
+
     const effectiveAspectRatio = aspectRatio || task.details.aspectRatio;
     const resolvedModel = resolveClickatronModelForGeneration({
       requestedModelId: modelId,
-      context: parentVariationId ? 'edit' : 'newVariation',
+      context: parentVariationForGenerationId ? 'edit' : 'newVariation',
       referenceImageCount: referenceImages.length,
-      hasParentImage: Boolean(parentVariationId),
+      hasParentImage: Boolean(parentVariationForGenerationId),
       aspectRatio: effectiveAspectRatio,
     });
     if (resolvedModel.reason === 'aspect-ratio-fallback') {
@@ -143,9 +150,9 @@ export async function POST(
     let imageRef = '';
     let thumbnailRef = '';
 
-    if (validatedData.parentVariationId) {
+    if (parentVariationForGenerationId) {
       const parent = task.details.canvas.variations.find(
-        (v: any) => v.id === validatedData.parentVariationId
+        (v: any) => v.id === parentVariationForGenerationId
       );
       if (parent) {
         imageRef = parent.imageRef || '';
@@ -167,7 +174,7 @@ export async function POST(
       },
       createdAt: now,
       updatedAt: now,
-      parentVariationId: validatedData.parentVariationId,
+      parentVariationId: parentVariationForGenerationId,
       referenceImageRefs: referenceImageRefs || [], // Use referenceImageRefs instead of referenceImages
       metadata: validatedData.metadata || {},
       modelId: selectedModelId, // Add modelId to variation
@@ -204,7 +211,7 @@ export async function POST(
       variationId: variationId,
       prompt: validatedData.prompt,
       userId,
-      parentVariationId: validatedData.parentVariationId,
+      parentVariationId: parentVariationForGenerationId,
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
         contrast: 100,
@@ -238,7 +245,7 @@ export async function POST(
         variationId: variationId,
         prompt: validatedData.prompt,
         userId,
-        parentVariationId: validatedData.parentVariationId,
+        parentVariationId: parentVariationForGenerationId,
         fineTuning: validatedData.fineTuning || {
           brightness: 100,
           contrast: 100,

@@ -552,16 +552,17 @@ async function handler(req: Request) {
       }
 
 
-      const resolverReferenceImageCount = body.parentVariationId
+      const hasParentImageForGeneration = Boolean(parentImageUrl);
+      const resolverReferenceImageCount = hasParentImageForGeneration
         ? Math.max(0, referenceImageCount - 1)
         : referenceImageCount;
-      const resolutionContext = body.parentVariationId ? 'edit' : 'newVariation';
+      const resolutionContext = hasParentImageForGeneration ? 'edit' : 'newVariation';
       const resolvedModel = !maskUrl
         ? resolveClickatronModelForGeneration({
             requestedModelId: selectedModelId,
             context: resolutionContext,
             referenceImageCount: resolverReferenceImageCount,
-            hasParentImage: Boolean(body.parentVariationId),
+            hasParentImage: hasParentImageForGeneration,
             aspectRatio: ratio,
           })
         : undefined;

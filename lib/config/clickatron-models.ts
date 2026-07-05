@@ -50,6 +50,7 @@ export interface ModelConfig {
   name: string;
   types: ModelType[];
   isDefault?: boolean;
+  isDeprecated?: boolean;
   isInpaintingCapable?: boolean;
   /** Marks this model as suitable for sketch-to-edit (annotation-guided editing) */
   isSketchToEdit?: boolean;
@@ -66,7 +67,7 @@ export type ClickatronModelContext =
 
 export type ClickatronDefaultGenerationType = Extract<ModelType, 'text-to-image' | 'image-to-image'>;
 
-export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/imagen4/preview';
+export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/bytedance/seedream/v4.5/text-to-image';
 export const DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID = 'fal-ai/flux-kontext/dev';
 export const IMAGEN4_PREVIEW_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 const CLICKATRON_PROMPT_TRUNCATION_NOTICE = '\n\n[Prompt compacted to fit the selected image model provider limit. Preserve the core visual request, brand constraints, and generation rules.]\n\n';
@@ -107,7 +108,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     id: 'fal-ai/imagen4/preview',
     name: 'Google Imagen4',
     types: ['text-to-image'],
-    isDefault: true,
+    isDeprecated: true,
     parameterMapping: {
       prompt: 'prompt',
       aspect_ratio: 'aspect_ratio',
@@ -169,7 +170,6 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     id: 'fal-ai/bytedance/seedream/v4/text-to-image',
     name: 'Seedream V4',
     types: ['text-to-image'],
-    isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
@@ -357,6 +357,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     id: 'fal-ai/bytedance/seedream/v4.5/text-to-image',
     name: 'Seedream 4.5',
     types: ['text-to-image'],
+    isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
@@ -515,13 +516,13 @@ export function getDefaultClickatronModelId(type: ClickatronDefaultGenerationTyp
       : DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID;
   const preferredModel = CLICKATRON_MODELS[preferredModelId];
 
-  if (preferredModel?.types.includes(type)) {
+  if (preferredModel && !preferredModel.isDeprecated && preferredModel.types.includes(type)) {
     return preferredModelId;
   }
 
   return (
-    Object.values(CLICKATRON_MODELS).find((model) => model.isDefault && model.types.includes(type))?.id ||
-    Object.values(CLICKATRON_MODELS).find((model) => model.types.includes(type))?.id ||
+    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated && model.isDefault && model.types.includes(type))?.id ||
+    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated && model.types.includes(type))?.id ||
     preferredModelId
   );
 }
@@ -585,6 +586,7 @@ export function resolveClickatronModelForGeneration({
   const modelCanHandleRequest = (model: ModelConfig | undefined): model is ModelConfig =>
     Boolean(
       model &&
+      !model.isDeprecated &&
       model.types.includes(generationType) &&
       availableModels.some((availableModel) => availableModel.id === model.id) &&
       modelSupportsAspectRatio(model, aspectRatio)
@@ -631,7 +633,7 @@ export function resolveClickatronModelForGeneration({
     defaultModel,
     availableModels.find((model) => model.types.includes(generationType)),
     CLICKATRON_MODELS[getDefaultClickatronModelId(generationType)],
-    Object.values(CLICKATRON_MODELS)[0],
+    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated),
   ];
   const fallbackModel = fallbackCandidates.find((model): model is ModelConfig => Boolean(model));
 
@@ -656,7 +658,7 @@ export function getAvailableModels(
   context: ClickatronModelContext,
   userAttachedImages: number = 0
 ): ModelConfig[] {
-  const allModels = Object.values(CLICKATRON_MODELS);
+  const allModels = Object.values(CLICKATRON_MODELS).filter(model => !model.isDeprecated);
 
   // For sketch-to-edit, return only models flagged for sketch-to-edit
   if (context === 'sketchToEdit') {
