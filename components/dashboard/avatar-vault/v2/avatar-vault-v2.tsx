@@ -5,6 +5,7 @@ import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
 import { C, SANS } from './av-tokens';
 import { Mono, Btn } from './av-atoms';
 import { AvatarVaultGallery } from './av-vault-gallery';
+import { AvatarForge } from './av-forge';
 
 /* ═══ Avatar Vault v2 · shell ═════════════════════════════════════════
    The founder's avatar-vault.jsx, wired to the real avatar types/hook.
@@ -63,7 +64,7 @@ export default function AvatarVaultV2() {
         {screen === 'vault' && (
           <AvatarVaultGallery onCreate={() => goCreate(null)} onRender={goRender} onEdit={goCreate} />
         )}
-        {screen === 'create' && <Placeholder title={active ? `Edit · ${active.profile.displayName}` : 'Create virtual person'} />}
+        {screen === 'create' && <AvatarForge record={active} onDone={() => { setActive(null); setScreen('vault'); }} />}
         {screen === 'render' && <Placeholder title={active ? `Render · ${active.profile.displayName}` : 'Render'} />}
       </div>
     </div>
