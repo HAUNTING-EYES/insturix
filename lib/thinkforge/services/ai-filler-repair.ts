@@ -11,6 +11,7 @@
 import { generateText } from 'ai';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import { createThinkForgeModel } from '../agents/model-factory';
+import { readAiSdkUsage, recordThinkForgeDirectCost } from './provider-cost-telemetry';
 
 const FILLER_PATTERNS = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
   regex: new RegExp(pattern.pattern, 'i'),
@@ -33,23 +34,44 @@ export async function repairAiFillerContent(
   const hits = detectAiFiller(content);
   if (hits.length === 0) return content;
 
+  const prompt = [
+    `The copy below contains banned AI-filler phrases: ${hits.join(', ')}.`,
+    'Rewrite it to REMOVE every one of those phrases, replacing each with plain, specific language a real practitioner would use.',
+    'Preserve ALL facts, numbers, dates, prices, names, URLs, hashtags, structure, markdown, and approximate length. Do NOT add new claims, do NOT change meaning, do NOT add commentary.',
+    'Return ONLY the rewritten copy.',
+    '',
+    'COPY:',
+    content,
+  ].join('\n');
+  const startedAt = Date.now();
+
   try {
     const model = createThinkForgeModel(modelName);
-    const { text } = await generateText({
+    const result = await generateText({
       model,
-      prompt: [
-        `The copy below contains banned AI-filler phrases: ${hits.join(', ')}.`,
-        'Rewrite it to REMOVE every one of those phrases, replacing each with plain, specific language a real practitioner would use.',
-        'Preserve ALL facts, numbers, dates, prices, names, URLs, hashtags, structure, markdown, and approximate length. Do NOT add new claims, do NOT change meaning, do NOT add commentary.',
-        'Return ONLY the rewritten copy.',
-        '',
-        'COPY:',
-        content,
-      ].join('\n'),
+      prompt,
       temperature: 0.3,
-      // @ts-ignore — seed is supported by the provider; matches base-agent usage.
+      // @ts-ignore - seed is supported by the provider; matches base-agent usage.
       seed: 42,
       abortSignal,
+    });
+    const { text } = result;
+    await recordThinkForgeDirectCost({
+      status: 'success',
+      action: 'filler_repair',
+      route: 'lib/thinkforge/services/ai-filler-repair',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_text_direct',
+      promptChars: prompt.length,
+      outputChars: text?.length,
+      functionMs: Date.now() - startedAt,
+      usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+      routePurpose: 'creative_authoring',
+      privacyClass: 'business_confidential',
+      temperature: 0.3,
+      sourceKind: 'post_generation_filler_repair',
+      resultCount: hits.length,
     });
 
     const repaired = text.trim();
@@ -59,6 +81,22 @@ export async function repairAiFillerContent(
     }
     return content;
   } catch (error) {
+    await recordThinkForgeDirectCost({
+      status: 'failed',
+      action: 'filler_repair',
+      route: 'lib/thinkforge/services/ai-filler-repair',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_text_direct',
+      promptChars: prompt.length,
+      functionMs: Date.now() - startedAt,
+      routePurpose: 'creative_authoring',
+      privacyClass: 'business_confidential',
+      temperature: 0.3,
+      sourceKind: 'post_generation_filler_repair',
+      resultCount: hits.length,
+      error,
+    });
     console.warn('[ThinkForge:FillerRepair] rewrite failed; keeping original:', error);
     return content;
   }

@@ -107,6 +107,30 @@ describe('ThinkForge provider cost telemetry contract', () => {
     expect(observer).toContain('acceptedCount: highConfidence.length');
   });
 
+  it('records direct ThinkForge generateText helpers outside BaseAgent', () => {
+    const intentClassifier = readRepoFile('lib/thinkforge/protocol/intent-classifier.ts');
+    const fillerRepair = readRepoFile('lib/thinkforge/services/ai-filler-repair.ts');
+    const thinkingAgent = readRepoFile('lib/thinkforge/agents/thinking-agent.ts');
+
+    expect(intentClassifier).toContain('recordThinkForgeDirectCost({');
+    expect(intentClassifier).toContain("action: 'intent_classification'");
+    expect(intentClassifier).toContain("route: 'lib/thinkforge/protocol/intent-classifier'");
+    expect(intentClassifier).toContain("sourceKind: 'edit_blocks_intent_classifier'");
+    expect(intentClassifier).toContain('usage: await readAiSdkUsage((result as { usage?: unknown }).usage)');
+
+    expect(fillerRepair).toContain('recordThinkForgeDirectCost({');
+    expect(fillerRepair).toContain("action: 'filler_repair'");
+    expect(fillerRepair).toContain("route: 'lib/thinkforge/services/ai-filler-repair'");
+    expect(fillerRepair).toContain("sourceKind: 'post_generation_filler_repair'");
+    expect(fillerRepair).toContain('usage: await readAiSdkUsage((result as { usage?: unknown }).usage)');
+
+    expect(thinkingAgent).toContain('recordThinkForgeDirectCost({');
+    expect(thinkingAgent).toContain("action: 'thinking_agent'");
+    expect(thinkingAgent).toContain("route: 'lib/thinkforge/agents/thinking-agent'");
+    expect(thinkingAgent).toContain("sourceKind: 'pre_generation_reasoning'");
+    expect(thinkingAgent).toContain('usage: await readAiSdkUsage((result as { usage?: unknown }).usage)');
+  });
+
   it('keeps direct ThinkForge provider-cost helper metadata free of prompts, outputs, and content', () => {
     const source = readRepoFile('lib/thinkforge/services/provider-cost-telemetry.ts');
     const helper = sliceHelper(source, 'export async function recordThinkForgeDirectCost', 'export async function readAiSdkUsage');
@@ -126,7 +150,7 @@ describe('ThinkForge provider cost telemetry contract', () => {
   it('documents the partial T6 ThinkForge telemetry slice in the provider-cost plan', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
-    expect(plan).toContain('Partial 2026-07-05: ThinkForge BaseAgent, writing-context cache, prompt-enhance, and observer provider events are wired');
+    expect(plan).toContain('Partial 2026-07-05: ThinkForge BaseAgent, writing-context cache, prompt-enhance, observer, intent-classifier, filler-repair, and thinking-agent provider events are wired');
     expect(plan).toContain('Gemini/OpenRouter-style ThinkForge token pricing remains `pricing_to_be_seen` until exact model-rate tables are seeded');
   });
 });

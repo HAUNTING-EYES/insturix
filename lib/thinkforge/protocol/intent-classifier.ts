@@ -1,5 +1,6 @@
 import { generateText } from 'ai';
 import { createThinkForgeModel } from '../agents/model-factory';
+import { readAiSdkUsage, recordThinkForgeDirectCost } from '../services/provider-cost-telemetry';
 import { ScriptIntent } from './intent';
 
 // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
@@ -30,19 +31,54 @@ export async function classifyIntent(input: {
 }): Promise<ScriptIntent> {
   const message = input.userMessage || '';
 
+  const modelName = 'gemini-2.5-flash';
+  const prompt = `${CLASSIFIER_PROMPT}\n\nUser: ${message}`;
+  const startedAt = Date.now();
+
   try {
-    const { text } = await generateText({
-      model: createThinkForgeModel('gemini-2.5-flash'),
+    const result = await generateText({
+      model: createThinkForgeModel(modelName),
       temperature: 0,
-      prompt: `${CLASSIFIER_PROMPT}\n\nUser: ${message}`,
+      prompt,
     });
 
-    const intent = normalizeIntent(text || '');
+    const intent = normalizeIntent(result.text || '');
+    await recordThinkForgeDirectCost({
+      status: 'success',
+      action: 'intent_classification',
+      route: 'lib/thinkforge/protocol/intent-classifier',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_text_direct',
+      promptChars: prompt.length,
+      outputChars: result.text?.length,
+      functionMs: Date.now() - startedAt,
+      usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      temperature: 0,
+      sourceKind: 'edit_blocks_intent_classifier',
+      resultCount: intent ? 1 : 0,
+    });
     if (intent) return intent;
   } catch (error) {
+    await recordThinkForgeDirectCost({
+      status: 'failed',
+      action: 'intent_classification',
+      route: 'lib/thinkforge/protocol/intent-classifier',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_text_direct',
+      promptChars: prompt.length,
+      functionMs: Date.now() - startedAt,
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      temperature: 0,
+      sourceKind: 'edit_blocks_intent_classifier',
+      error,
+    });
     console.error('[IntentClassifier] Failed to classify intent:', error);
   }
-
   // Default to CONTINUE (non-destructive) when classification fails.
   // EDIT was the prior default but it rewrites content — dangerous as a silent fallback.
   return ScriptIntent.CONTINUE;
