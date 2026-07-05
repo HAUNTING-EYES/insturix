@@ -24,7 +24,13 @@ import {
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
 import { resolveBrandSignalEditLearningWeight } from './brand-signal-edit-weighting';
-import { inferAudience, inferCategory, inferIndustry, parseWebsiteHtml } from './brand-website-refinery-utils';
+import {
+  extractSocialProfileLinks,
+  inferAudience,
+  inferCategory,
+  inferIndustry,
+  parseWebsiteHtml,
+} from './brand-website-refinery-utils';
 import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
@@ -437,7 +443,8 @@ export async function createBrandVaultWebsiteDraftJob(
   dependencies: BrandVaultWebsiteDraftJobDependencies,
 ): Promise<BrandVaultWebsiteDraftJobResult> {
   const startedAt = resolveNow(input.now, dependencies.clock);
-  const socialLinks = input.socialLinks ?? [];
+  // Reassigned after the snapshot is fetched to fold in socials auto-discovered from the page HTML.
+  let socialLinks = input.socialLinks ?? [];
   const sourceEvidence = input.sourceEvidence ?? [];
   const jobId = input.jobId ?? createDefaultJobId(input, input.websiteUrl, startedAt);
 
@@ -499,6 +506,14 @@ export async function createBrandVaultWebsiteDraftJob(
       provider: resolveWebsiteOcrProvider(dependencies),
     });
     snapshot = websiteOcr.snapshot;
+    // Auto-discover the brand's own social profiles from the page (footer icons, rel=me, twitter:site) and
+    // fold them into the scan's social links, so a plain website scan produces social evidence without the
+    // user typing anything. Feeds the staged social-evidence path + persists into job.inputs.socialLinks
+    // (so rescans re-surface them). Connected-account pulls still key off typed links only.
+    const discoveredSocialLinks = extractSocialProfileLinks(snapshot.html, snapshot.normalizedUrl);
+    if (discoveredSocialLinks.length > 0) {
+      socialLinks = Array.from(new Set([...socialLinks, ...discoveredSocialLinks]));
+    }
     const crawl = await fetchCrawlSnapshots({
       root: snapshot,
       sourceEvidence,
@@ -1960,10 +1975,20 @@ function enqueueDefaultBrandPages(
     '/services',
     '/solutions',
     '/product',
+    '/products',
+    '/platform',
+    '/features',
+    '/how-it-works',
+    '/use-cases',
+    '/pricing',
+    '/pricing-plans',
+    '/plans',
     '/customers',
     '/case-studies',
     '/work',
     '/portfolio',
+    '/docs',
+    '/integrations',
     '/press',
     '/media-kit',
     '/resources',

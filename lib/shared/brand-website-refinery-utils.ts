@@ -560,12 +560,69 @@ function extractProductImages($: ReturnType<typeof load>, normalizedUrl: string)
     .slice(0, 16);
 }
 
+// Third-party review / social-proof / badge hosts. Their embed images carry "product" in the alt or host
+// (e.g. a Product Hunt badge alt="Product Hunt") but are NEVER the brand's own product — including them
+// pollutes assets.productImages (fed to Clickatron's product-mockup reference + the storyboard evidence gate).
+const THIRD_PARTY_BADGE_HOST_PATTERN =
+  /(?:^|\.)(?:producthunt\.com|g2(?:crowd)?\.com|capterra\.com|trustpilot\.com|getapp\.com|softwareadvice\.com|sourceforge\.net|slashdot\.org|clutch\.co|gartner\.com|trustradius\.com|shields\.io|badgen\.net)$/i;
+// Badge / widget path or subdomain segments on any host (word-boundaried so it won't hit e.g. /embedded-x).
+const THIRD_PARTY_BADGE_SEGMENT_PATTERN = /(?:^|[./-])(?:badge|badges|widget|widgets)(?:[./-]|$)/i;
+
 function isProductImageCandidate(url: string, context: string): boolean {
   const parsed = new URL(url);
+  const host = parsed.hostname.toLowerCase();
   const path = parsed.pathname.toLowerCase();
+  if (THIRD_PARTY_BADGE_HOST_PATTERN.test(host)) return false;
+  if (THIRD_PARTY_BADGE_SEGMENT_PATTERN.test(host) || THIRD_PARTY_BADGE_SEGMENT_PATTERN.test(path)) return false;
   if (!IMAGE_ASSET_EXTENSIONS.has(pathExtension(path))) return false;
   if (SOCIAL_PREVIEW_ASSET_PATTERN.test(path) || STRONG_LOGO_CONTEXT_PATTERN.test(context) || isLogoAssetCandidate(url, context)) return false;
   return PRODUCT_IMAGE_CONTEXT_PATTERN.test(`${path} ${context}`);
+}
+
+// Own-profile social hosts. A website scan should discover the brand's socials from the page itself
+// (footer icons, rel=me, twitter:site) instead of forcing the user to type them.
+const SOCIAL_PROFILE_HOST_PATTERN =
+  /(?:^|\.)(?:instagram\.com|linkedin\.com|facebook\.com|fb\.com|twitter\.com|x\.com|youtube\.com|youtu\.be|tiktok\.com|pinterest\.com|threads\.net)$/i;
+
+/**
+ * Harvest the brand's OWN social profile URLs from the page HTML — footer/nav links, `<link rel="me">`,
+ * and the `twitter:site` meta handle. Skips share/intent links and bare domains (not profiles). Deduped by
+ * origin+path and capped. Enables social evidence on a plain website scan (see brand-vault-social-evidence).
+ */
+export function extractSocialProfileLinks(html: string, baseUrl: string, max = 10): string[] {
+  let base: URL | undefined;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    base = undefined;
+  }
+  const $ = load(html);
+  const found = new Set<string>();
+
+  const consider = (raw: string | null | undefined): void => {
+    if (!raw || found.size >= max) return;
+    let url: URL;
+    try {
+      url = new URL(raw, base);
+    } catch {
+      return;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
+    if (!SOCIAL_PROFILE_HOST_PATTERN.test(url.hostname.toLowerCase())) return;
+    const path = url.pathname.replace(/\/+$/, '');
+    // Must point at a profile (a path), not a bare domain or a share/intent/sharer/dialog endpoint.
+    if (!path || /\/(?:share|sharer|intent|dialog|home|login|signup)\b/i.test(path)) return;
+    found.add(`${url.origin}${path}`);
+  };
+
+  $('a[href]').each((_, el) => consider($(el).attr('href')));
+  $('link[rel="me"]').each((_, el) => consider($(el).attr('href')));
+  const twitterSite = $('meta[name="twitter:site"]').attr('content')?.trim();
+  if (twitterSite) {
+    const handle = twitterSite.replace(/^@/, '');
+    if (/^[a-z0-9_]{1,15}$/i.test(handle)) consider(`https://x.com/${handle}`);
+  }
+  return Array.from(found).slice(0, max);
 }
 
 function confidenceForProductImage(url: string, context: string, altText: string | undefined): number {
