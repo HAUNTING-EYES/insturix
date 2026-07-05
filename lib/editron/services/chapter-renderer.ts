@@ -61,8 +61,6 @@ interface Chapter {
   startFrame: number;
   endFrame: number;
   durationFrames: number;
-  /** Overlays that fall within this chapter's frame range */
-  overlays: Overlay[];
   /** Render ID from Lambda (set after render starts) */
   renderId?: string;
   /** Real Remotion bucket for this chapter render. */
@@ -82,6 +80,8 @@ interface ChapterRenderJob {
   chapters: Chapter[];
   status: 'splitting' | 'rendering' | 'concatenating' | 'completed' | 'failed';
   totalFrames: number;
+  /** Full absolute composition overlays. Chapters crop by frameRange instead of rebasing overlay time. */
+  overlays: Overlay[];
   fps: number;
   width: number;
   height: number;
@@ -167,32 +167,6 @@ export function detectChapterBoundaries(
   return chapters;
 }
 
-/**
- * Get overlays that fall within a chapter's frame range.
- * Adjusts overlay.from to be relative to chapter start (0-based).
- */
-function getChapterOverlays(
-  allOverlays: Overlay[],
-  chapterStart: number,
-  chapterEnd: number,
-): Overlay[] {
-  return allOverlays
-    .filter(o => {
-      const overlayEnd = o.from + o.durationInFrames;
-      // Include if overlay overlaps with chapter range
-      return overlayEnd > chapterStart && o.from < chapterEnd;
-    })
-    .map(o => {
-      const adjustedFrom = Math.max(0, o.from - chapterStart);
-      const adjustedEnd = Math.min(chapterEnd - chapterStart, o.from + o.durationInFrames - chapterStart);
-      return {
-        ...o,
-        from: adjustedFrom,
-        durationInFrames: Math.max(1, adjustedEnd - adjustedFrom),
-      };
-    });
-}
-
 // ─── Render Orchestration ─────────────────────────────────────────
 
 /**
@@ -224,7 +198,7 @@ async function startSingleChapterRender(
   db: Awaited<ReturnType<typeof getDatabase>>,
   jobId: string,
   chapter: Chapter,
-  ctx: { serveUrl: string; functionName: string; fps: number; width: number; height: number },
+  ctx: { serveUrl: string; functionName: string; fps: number; width: number; height: number; totalFrames: number; overlays: Overlay[] },
 ): Promise<void> {
   // Atomic claim: only proceed if this chapter is still pending (prevents a racing poll double-starting it).
   const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
@@ -241,8 +215,8 @@ async function startSingleChapterRender(
       serveUrl: ctx.serveUrl,
       composition: REMOTION_COMPOSITION_ID,
       inputProps: {
-        overlays: chapter.overlays,
-        durationInFrames: chapter.durationFrames,
+        overlays: ctx.overlays,
+        durationInFrames: ctx.totalFrames,
         fps: ctx.fps,
         width: ctx.width,
         height: ctx.height,
@@ -256,6 +230,7 @@ async function startSingleChapterRender(
       privacy: 'public',
       timeoutInMilliseconds: 600000, // 10 min per chapter
       audioCodec: 'mp3',
+      frameRange: [chapter.startFrame, Math.max(chapter.startFrame, chapter.endFrame - 1)],
     });
     await db.collection(CHAPTERS_COLLECTION).updateOne(
       { _id: jobId, 'chapters.index': chapter.index } as any,
@@ -313,7 +288,15 @@ export async function startPendingChapters(
     return;
   }
 
-  const ctx = { serveUrl, functionName, fps: job.fps, width: job.width, height: job.height };
+  const ctx = {
+    serveUrl,
+    functionName,
+    fps: job.fps,
+    width: job.width,
+    height: job.height,
+    totalFrames: job.totalFrames,
+    overlays: (job.overlays ?? []) as Overlay[],
+  };
   for (const chapter of pending) {
     await startSingleChapterRender(db, jobId, chapter, ctx);
   }
@@ -342,7 +325,6 @@ export async function startChapterRender(
     startFrame: b.startFrame,
     endFrame: b.endFrame,
     durationFrames: b.endFrame - b.startFrame,
-    overlays: getChapterOverlays(overlays, b.startFrame, b.endFrame),
     status: 'pending' as const,
   }));
 
@@ -366,6 +348,7 @@ export async function startChapterRender(
     chapters,
     status: 'rendering',
     totalFrames,
+    overlays,
     fps,
     width,
     height,
