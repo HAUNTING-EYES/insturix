@@ -40,6 +40,7 @@ import {
 } from './brand-vault-visual-asset-storage';
 import {
   applyWebsiteScreenshotToProfile,
+  buildWebsiteScreenshotCandidate,
   type CaptureBrandVaultWebsiteScreenshot,
 } from './brand-vault-website-screenshot';
 import type {
@@ -556,6 +557,7 @@ export async function createBrandVaultWebsiteDraftJob(
     // instead of dead-ending on a manual upload. Persist to durable storage FIRST so the saved profile
     // holds a permanent URL (a provider screenshot URL is temporary; bytes go straight to R2). Fail-soft:
     // any capture/storage error leaves the draft untouched and never blocks the scan.
+    let screenshotTileCandidate: BrandEvidenceCandidate | null = null;
     if (dependencies.captureWebsiteScreenshot && dependencies.visualAssetStorage) {
       try {
         const captured = await dependencies.captureWebsiteScreenshot(snapshot.normalizedUrl);
@@ -583,6 +585,15 @@ export async function createBrandVaultWebsiteDraftJob(
           if (stored.ok) {
             draft.record.profile = applyWebsiteScreenshotToProfile(draft.record.profile, {
               screenshotUrl: stored.publicUrl,
+              observedAt: snapshot.fetchedAt,
+              sourceUrl: snapshot.normalizedUrl,
+            });
+            // Also emit it as a candidate so it renders as a "Website preview" tile in the review board
+            // (the board draws tiles from candidates; the profile signal alone is invisible there).
+            screenshotTileCandidate = buildWebsiteScreenshotCandidate({
+              screenshotUrl: stored.publicUrl,
+              jobId,
+              brandId: input.brandId,
               observedAt: snapshot.fetchedAt,
               sourceUrl: snapshot.normalizedUrl,
             });
@@ -632,7 +643,11 @@ export async function createBrandVaultWebsiteDraftJob(
       now: snapshot.fetchedAt,
       actorId: input.actorId,
     });
-    const candidates = withCandidateTrustLevels([...baseCandidates, ...compiled.candidates]);
+    const candidates = withCandidateTrustLevels([
+      ...baseCandidates,
+      ...compiled.candidates,
+      ...(screenshotTileCandidate ? [screenshotTileCandidate] : []),
+    ]);
     const baseWarnings = mergeWarnings(
       draft.warnings,
       stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),

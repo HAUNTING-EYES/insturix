@@ -21,6 +21,7 @@
  * screenshot is enrichment, never a gate — a failed capture must never fail or block the scan (R18N).
  */
 import type { BrandSignal, BrandSignalEvidence, BrandSignalProfile } from './brand-signal-profile';
+import type { BrandEvidenceCandidate } from './brand-website-refinery-types';
 
 export interface BrandVaultScreenshotEnvironment {
   [key: string]: string | undefined;
@@ -370,6 +371,40 @@ export function applyWebsiteScreenshotToProfile(
     ...profile,
     assets,
     evidence: alreadyRecorded ? profile.evidence : [...profile.evidence, evidence],
+  };
+}
+
+/**
+ * Build a review-visible candidate for the captured screenshot so it renders as a "Website preview" tile in
+ * the Brand Vault visual board. The board draws tiles from candidates (createBrandVaultVisualIdentitySummary),
+ * and the profile signal alone is invisible there — the visual-identity engine already has a
+ * assets.socialPreviewImages candidate branch that yields a 'website_preview' tile; it just needs a candidate.
+ * Mirrors the existing convention (sourceType 'website', authorityClass 'owned').
+ */
+export function buildWebsiteScreenshotCandidate(input: {
+  screenshotUrl: string;
+  jobId: string;
+  brandId?: string;
+  observedAt: string;
+  sourceUrl?: string;
+}): BrandEvidenceCandidate {
+  const url = input.screenshotUrl.trim();
+  return {
+    id: `candidate_website_screenshot_${stableHash(url)}`,
+    brandId: input.brandId,
+    jobId: input.jobId,
+    sourceType: 'website',
+    sourceUrl: input.sourceUrl?.trim() || url,
+    sourceField: 'website.screenshot',
+    signalPath: 'assets.socialPreviewImages',
+    rawValue: url,
+    normalizedValue: url,
+    excerpt: 'Live website screenshot captured during the Brand Vault scan.',
+    confidence: SCREENSHOT_SIGNAL_CONFIDENCE,
+    trustLevel: 'first_party_website',
+    authorityClass: 'owned',
+    observedAt: input.observedAt,
+    extractorId: SCREENSHOT_EXTRACTOR,
   };
 }
 

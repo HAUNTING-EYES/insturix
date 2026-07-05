@@ -290,6 +290,16 @@ export function BrandVaultReview() {
     if (latestScanUrl) setWebsiteUrl(latestScanUrl);
   }, [brandScans.data, websiteUrl]);
 
+  // Same for social links. On brand switch the socials field is blank, and a rescan with empty socials
+  // DROPS the brand's social evidence entirely (the scan gates connected-account evidence on a non-empty
+  // socialLinks list). Seed it from the most recent scan that actually HAD socials — skipping an empty
+  // website-only rescan — so Rescan re-pulls them. Only fills an empty field (guard also stops re-run loops).
+  useEffect(() => {
+    if (socialLinksText.trim()) return;
+    const priorSocials = brandScans.data?.find((scan) => scan.socialLinks.length > 0)?.socialLinks;
+    if (priorSocials?.length) setSocialLinksText(priorSocials.join('\n'));
+  }, [brandScans.data, socialLinksText]);
+
   const signals = useMemo(() => collectSignals(snapshot.record?.profile), [snapshot.record]);
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
   const editedSignalCount = Object.keys(signalEdits).length;
@@ -749,6 +759,14 @@ export function BrandVaultReview() {
             disabled={busy}
             className="hidden"
           />
+          {canReview && (
+            <div className="mt-5 flex items-center gap-2.5 rounded-[10px] border border-[rgba(212,166,82,0.3)] bg-[rgba(212,166,82,0.08)] px-4 py-3 text-[13px] text-[#D4A652]">
+              <AlertTriangle size={15} className="flex-none" />
+              <span>
+                You&apos;re reviewing a <strong>new scan draft</strong> — not your accepted brand yet. Check the details below, then hit <strong>Accept profile</strong> to make it your brand memory.
+              </span>
+            </div>
+          )}
           {snapshot.reviewPayload && (
             <BrandVisualBoard visualIdentity={snapshot.reviewPayload.visualIdentity ?? null} />
           )}

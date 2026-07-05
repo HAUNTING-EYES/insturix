@@ -93,6 +93,7 @@ export interface BrandVaultBrandScanSummary {
   status: 'queued' | 'running' | 'needs_review' | 'accepted' | 'rejected' | 'failed';
   websiteUrl: string | null;
   companyName: string | null;
+  socialLinks: string[];
   normalizedUrl: string | null;
   candidateCount: number;
   warningCount: number;

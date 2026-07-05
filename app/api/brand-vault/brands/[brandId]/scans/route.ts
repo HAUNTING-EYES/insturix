@@ -23,6 +23,8 @@ export interface BrandVaultBrandScanSummary {
   status: BrandVaultRefineryJobSnapshot['job']['status'];
   websiteUrl: string | null;
   companyName: string | null;
+  /** The social profile URLs the user supplied for this scan (their own inputs, not scraped evidence). */
+  socialLinks: string[];
   normalizedUrl: string | null;
   candidateCount: number;
   warningCount: number;
@@ -132,6 +134,7 @@ function toScanSummary(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultBrand
     status: snapshot.job.status,
     websiteUrl: snapshot.job.inputs.websiteUrl ?? null,
     companyName: snapshot.job.inputs.companyName ?? null,
+    socialLinks: Array.isArray(snapshot.job.inputs.socialLinks) ? snapshot.job.inputs.socialLinks : [],
     normalizedUrl: snapshot.normalizedUrl ?? null,
     candidateCount: snapshot.candidates.length,
     warningCount: snapshot.job.warnings.length,

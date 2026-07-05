@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyWebsiteScreenshotToProfile,
+  buildWebsiteScreenshotCandidate,
   createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
   extractScreenshotUrl,
   parseCapturedScreenshot,
@@ -203,6 +204,26 @@ describe('brand-vault website screenshot capture', () => {
       const next = applyWebsiteScreenshotToProfile(input, { ...args, screenshotUrl: 'not-a-url' });
       expect(next).toBe(input);
       expect(input.assets).toBeUndefined();
+    });
+  });
+
+  describe('buildWebsiteScreenshotCandidate', () => {
+    it('builds a socialPreviewImages candidate the visual board renders as a tile', () => {
+      const candidate = buildWebsiteScreenshotCandidate({
+        screenshotUrl: 'https://cdn.insturix.com/shot.png',
+        jobId: 'job_1',
+        brandId: 'brand_x',
+        observedAt: '2026-07-04T00:00:00.000Z',
+        sourceUrl: 'https://insturix.com',
+      });
+      expect(candidate.signalPath).toBe('assets.socialPreviewImages');
+      // The visual-identity engine reads the URL off normalizedValue/rawValue to make the tile.
+      expect(candidate.normalizedValue).toBe('https://cdn.insturix.com/shot.png');
+      expect(candidate.rawValue).toBe('https://cdn.insturix.com/shot.png');
+      expect(candidate.sourceField).toBe('website.screenshot');
+      expect(candidate.jobId).toBe('job_1');
+      expect(candidate.brandId).toBe('brand_x');
+      expect(candidate.confidence).toBeGreaterThan(0.55);
     });
   });
 });
