@@ -156,6 +156,20 @@ describe('ThinkForge provider cost telemetry contract', () => {
     expect(postMortemAgent).toContain('usage: await readAiSdkUsage((result as { usage?: unknown }).usage)');
   });
 
+  it('records ThinkForge search-grounded research provider spend outside BaseAgent', () => {
+    const researchAgent = readRepoFile('lib/thinkforge/agents/research-agent.ts');
+    const telemetry = readRepoFile('lib/thinkforge/services/provider-cost-telemetry.ts');
+
+    expect(telemetry).toContain("'llm_search_grounded_direct'");
+    expect(researchAgent).toContain('recordThinkForgeDirectCost({');
+    expect(researchAgent).toContain("action: 'research_grounded_search'");
+    expect(researchAgent).toContain("route: 'lib/thinkforge/agents/research-agent.runResearchAgent'");
+    expect(researchAgent).toContain("operation: 'llm_search_grounded_direct'");
+    expect(researchAgent).toContain("sourceKind: 'gemini_search_grounded_research'");
+    expect(researchAgent).toContain('resultCount: sources.length');
+    expect(researchAgent).toContain('usage: await readAiSdkUsage((result as { usage?: unknown }).usage)');
+  });
+
   it('keeps direct ThinkForge provider-cost helper metadata free of prompts, outputs, and content', () => {
     const source = readRepoFile('lib/thinkforge/services/provider-cost-telemetry.ts');
     const helper = sliceHelper(source, 'export async function recordThinkForgeDirectCost', 'export async function readAiSdkUsage');
@@ -175,7 +189,7 @@ describe('ThinkForge provider cost telemetry contract', () => {
   it('documents the partial T6 ThinkForge telemetry slice in the provider-cost plan', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
-    expect(plan).toContain('Partial 2026-07-05: ThinkForge BaseAgent, writing-context cache, prompt-enhance, observer, intent-classifier, filler-repair, thinking-agent, intent-gate fallback, stylist rewrite, and post-mortem compression provider events are wired');
-    expect(plan).toContain('Gemini/OpenRouter-style ThinkForge token pricing remains `pricing_to_be_seen` until exact model-rate tables are seeded');
+    expect(plan).toContain('Partial 2026-07-05: ThinkForge BaseAgent, writing-context cache, prompt-enhance, observer, intent-classifier, filler-repair, thinking-agent, intent-gate fallback, stylist rewrite, post-mortem compression, and search-grounded research provider events are wired');
+    expect(plan).toContain('Gemini/OpenRouter-style ThinkForge token pricing and Gemini search-grounding pricing remain `pricing_to_be_seen` until exact model-rate tables are seeded');
   });
 });

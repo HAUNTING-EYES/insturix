@@ -4,7 +4,11 @@ import {
 } from '@/lib/financials/provider-cost-events';
 import type { ThinkForgeModelProvider } from '@/lib/thinkforge/agents/model-factory';
 
-export type ThinkForgeDirectOperation = 'llm_stream_direct' | 'llm_structured_direct' | 'llm_text_direct';
+export type ThinkForgeDirectOperation =
+  | 'llm_stream_direct'
+  | 'llm_structured_direct'
+  | 'llm_text_direct'
+  | 'llm_search_grounded_direct';
 
 export type ThinkForgeProviderUsage = {
   inputTokens?: number;
