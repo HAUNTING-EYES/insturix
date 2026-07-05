@@ -121,11 +121,11 @@ function deriveVisualMode(input: DeriveCarouselInput, rationale: string[]): { mo
     rationale.push(`visualMode=${overrides.visualMode} (user override)`);
     return { mode: overrides.visualMode, confident: true };
   }
-  // Product-led goals want the real product on screen.
-  if (goal === 'conversion' && input.brandHasLogo) {
-    rationale.push('visualMode=product_mockup (conversion goal + brand assets available)');
-    return { mode: 'product_mockup', confident: true };
-  }
+  // NOTE: product_mockup is deliberately NOT auto-derived. "Show the product" cannot be
+  // inferred from goal+logo — most conversion content is conceptual/editorial, not a
+  // product-on-display render (battle test: the SaaS "production floor" narrative was
+  // wrongly forced to product_mockup). The user picks product_mockup explicitly via the
+  // chip UI (an override); a future signal for true product-shot intent could re-add it.
   // Data/proof-heavy → typographic/stat-forward.
   if (has(signals.logos_load) || proofPoints.length >= 2) {
     rationale.push(`visualMode=text_forward_graphic (logos_load present or ${proofPoints.length} proof points → data-forward)`);
@@ -166,9 +166,14 @@ function deriveSlideCount(input: DeriveCarouselInput, rationale: string[]): { co
   return { count, confident: Boolean(platformDefault) };
 }
 
-function assignRole(index: number, count: number, hasProof: boolean): CarouselSlideRole {
+// Goals that actually end on a call to action. For education / connection / etc. the
+// closing slide is just the final content point, not a CTA — labeling it 'cta' would force
+// a cta-focus layout onto a content slide (battle test: a tutorial's "Step 4" became a CTA).
+const PERSUASIVE_GOALS = new Set(['conversion', 'announcement']);
+
+function assignRole(index: number, count: number, hasProof: boolean, goal?: string): CarouselSlideRole {
   if (index === 0) return 'hook';
-  if (index === count - 1) return 'cta';
+  if (index === count - 1) return goal && PERSUASIVE_GOALS.has(goal) ? 'cta' : 'context';
   return hasProof ? 'proof' : 'context';
 }
 
@@ -182,19 +187,21 @@ function layoutForRole(role: CarouselSlideRole): DerivedCarouselSlide['layoutTok
 }
 
 function deriveSlides(input: DeriveCarouselInput, count: number): DerivedCarouselSlide[] {
-  const { blocks, proofPoints = [] } = input;
+  const { blocks, proofPoints = [], goal } = input;
   const hasProof = proofPoints.length > 0;
   const slides: DerivedCarouselSlide[] = [];
   for (let index = 0; index < count; index++) {
-    const role = assignRole(index, count, hasProof);
+    const role = assignRole(index, count, hasProof, goal);
     const block = blocks[index];
-    // overlayCopy = REAL copy: block title, else its first line. CTA falls back to nothing
-    // (the CTA copy is brand/goal-owned and applied on the overlay layer downstream).
-    const overlayCopy = block ? (block.title?.trim() || firstLine(block.text)) : null;
+    // overlayCopy = REAL extracted copy: block title, else its first line. A cta slide's
+    // copy is the call-to-action itself (goal/brand-owned, applied downstream) — never a
+    // content block, which would mislabel a content point as the CTA.
+    const extracted = block ? (block.title?.trim() || firstLine(block.text)) : null;
+    const overlayCopy = role === 'cta' ? null : (extracted && extracted.length > 0 ? extracted : null);
     slides.push({
       index,
       role,
-      overlayCopy: overlayCopy && overlayCopy.length > 0 ? overlayCopy : null,
+      overlayCopy,
       layoutToken: layoutForRole(role),
       sourceBlockIndex: block ? index : null,
     });

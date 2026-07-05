@@ -37,9 +37,13 @@ describe('deriveCarouselVisualSpec — visual mode', () => {
     expect(spec.visualMode).toBe('illustration');
   });
 
-  it('conversion goal + brand assets → product_mockup', () => {
+  it('conversion + brand assets does NOT auto-pick product_mockup (only via override)', () => {
+    // "Show the product" can't be inferred from goal+logo — most conversion content is
+    // conceptual, not a product render. The deriver must not force product_mockup.
     const spec = deriveCarouselVisualSpec({ ...base, goal: 'conversion', brandHasLogo: true });
-    expect(spec.visualMode).toBe('product_mockup');
+    expect(spec.visualMode).not.toBe('product_mockup');
+    const overridden = deriveCarouselVisualSpec({ ...base, overrides: { visualMode: 'product_mockup' } });
+    expect(overridden.visualMode).toBe('product_mockup');
   });
 
   it('no signals → photo default, flagged low-confidence', () => {
@@ -79,11 +83,23 @@ describe('deriveCarouselVisualSpec — slide count (platform decides, override w
 });
 
 describe('deriveCarouselVisualSpec — slide roles + real overlay copy', () => {
-  it('first is hook, last is cta, middle is proof when proof points exist', () => {
-    const spec = deriveCarouselVisualSpec({ ...base, proofPoints: ['stat'] });
+  it('persuasive goal: first hook, last cta, middle proof when proof points exist', () => {
+    const spec = deriveCarouselVisualSpec({ ...base, goal: 'conversion', proofPoints: ['stat'] });
     expect(spec.slides[0].role).toBe('hook');
     expect(spec.slides[spec.slides.length - 1].role).toBe('cta');
     expect(spec.slides[1].role).toBe('proof');
+  });
+
+  it('non-persuasive goal (education): last slide is closing context, not a cta', () => {
+    const spec = deriveCarouselVisualSpec({ ...base, goal: 'education' });
+    expect(spec.slides[spec.slides.length - 1].role).toBe('context');
+  });
+
+  it('a cta slide carries no content copy — the CTA is goal/brand-owned', () => {
+    const spec = deriveCarouselVisualSpec({ ...base, goal: 'conversion' });
+    const cta = spec.slides[spec.slides.length - 1];
+    expect(cta.role).toBe('cta');
+    expect(cta.overlayCopy).toBeNull();
   });
 
   it('middle is context when there are no proof points', () => {
