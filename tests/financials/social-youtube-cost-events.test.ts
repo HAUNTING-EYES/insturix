@@ -25,6 +25,28 @@ describe('YouTube social provider cost telemetry contract', () => {
     expect(route).toContain('requestType: "youtube"');
   });
 
+  it('records the legacy UploaderX YouTube GCS upload route without fake revenue', () => {
+    const route = readRepoFile('app/api/services/uploaderx/youtube/upload/route.ts');
+
+    expect(route).toContain('recordUploaderXLegacyYouTubeUploadCost({');
+    expect(route).toContain('UPLOADERX_LEGACY_YOUTUBE_UPLOAD_ROUTE = "/api/services/uploaderx/youtube/upload"');
+    expect(route).toContain('provider: UPLOADERX_LEGACY_YOUTUBE_PROVIDER');
+    expect(route).toContain('model: UPLOADERX_LEGACY_YOUTUBE_MODEL');
+    expect(route).toContain('operation: UPLOADERX_LEGACY_YOUTUBE_OPERATION');
+    expect(route).toContain('routeMode: "legacy_gcs_upload"');
+    expect(route).toContain('if (providerCallStarted && !providerCostRecorded)');
+
+    const helper = route.slice(route.indexOf('async function recordUploaderXLegacyYouTubeUploadCost'));
+    expect(helper).not.toContain('chargedCredits');
+    expect(helper).not.toContain('creditTransactionId');
+    expect(helper).not.toContain('title');
+    expect(helper).not.toContain('description');
+    expect(helper).not.toContain('email');
+    expect(helper).not.toContain('tokens');
+    expect(helper).not.toContain('gcsPath');
+    expect(helper).not.toContain('body:');
+  });
+
   it('keeps completed video spend visible if a later YouTube step fails', () => {
     const route = readRepoFile('app/api/services/uploaderx/youtube/route.ts');
 
@@ -52,6 +74,7 @@ describe('YouTube social provider cost telemetry contract', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
     expect(plan).toContain('Partial 2026-07-04: UploaderX YouTube provider events are wired');
+    expect(plan).toContain('legacy GCS upload route provider events are wired');
     expect(plan).toContain('YouTube Data API pricing remains `pricing_to_be_seen`');
   });
 });
