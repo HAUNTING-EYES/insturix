@@ -108,6 +108,30 @@ export interface ClickatronCreativeValidation {
   needsUserInput?: string[];
 }
 
+export const CLICKATRON_PALETTE_TEMPERATURES = ['warm', 'cool', 'neutral'] as const;
+export type ClickatronPaletteTemperature = typeof CLICKATRON_PALETTE_TEMPERATURES[number];
+
+/**
+ * Derived visual language for the spec — produced by deriveCarouselVisualSpec from the
+ * ThinkForge atoms (signals/goal/proofPoints/platform), NOT by the writer. Optional and
+ * additive: absent for legacy specs; the handoff dialog reads it to show pre-filled vibe/
+ * style chips, a confidence indicator, and which fields to confirm. [R6 / atomization]
+ */
+export interface ClickatronVisualLanguage {
+  vibe: string[];
+  imageStyle: string[];
+  paletteTemperature: ClickatronPaletteTemperature;
+  /** 0–1 — share of decisions backed by atoms vs. defaults. */
+  confidence: number;
+  /** Fields that fell back to a default — the UI highlights these for one-tap confirm. */
+  lowConfidenceFields: string[];
+  /** Per-slide role (hook/context/proof/cta), aligned to renderPlan.slides order. */
+  slideRoles?: string[];
+  rationale?: string[];
+  /** Marks this as deriver-produced (never a writer field). */
+  derived: true;
+}
+
 export interface ClickatronCreativeSpec {
   schemaVersion: typeof CLICKATRON_CREATIVE_SPEC_VERSION;
   kind: ClickatronCreativeKind;
@@ -121,6 +145,7 @@ export interface ClickatronCreativeSpec {
   brand?: ClickatronCreativeBrandContext;
   renderPlan: ClickatronCreativeRenderPlan;
   validation: ClickatronCreativeValidation;
+  visualLanguage?: ClickatronVisualLanguage;
 }
 
 export interface ThinkForgeBlockExportMeta {
@@ -452,6 +477,36 @@ export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreat
     ...(normalizeBrand(value.brand) ? { brand: normalizeBrand(value.brand) } : {}),
     renderPlan,
     validation,
+    ...(normalizeVisualLanguage(value.visualLanguage) ? { visualLanguage: normalizeVisualLanguage(value.visualLanguage) } : {}),
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim())
+    : [];
+}
+
+// Optional + fail-soft: a malformed visualLanguage is dropped, never throws — it is an
+// enrichment, and the spec must remain valid without it.
+function normalizeVisualLanguage(value: unknown): ClickatronVisualLanguage | undefined {
+  if (!isRecord(value)) return undefined;
+  const slideRoles = normalizeStringArray(value.slideRoles);
+  const rationale = normalizeStringArray(value.rationale);
+  const paletteTemperature: ClickatronPaletteTemperature =
+    CLICKATRON_PALETTE_TEMPERATURES.includes(value.paletteTemperature as ClickatronPaletteTemperature)
+      ? (value.paletteTemperature as ClickatronPaletteTemperature)
+      : 'neutral';
+  const rawConfidence = typeof value.confidence === 'number' && Number.isFinite(value.confidence) ? value.confidence : 0;
+  return {
+    vibe: normalizeStringArray(value.vibe),
+    imageStyle: normalizeStringArray(value.imageStyle),
+    paletteTemperature,
+    confidence: Math.max(0, Math.min(1, rawConfidence)),
+    lowConfidenceFields: normalizeStringArray(value.lowConfidenceFields),
+    ...(slideRoles.length ? { slideRoles } : {}),
+    ...(rationale.length ? { rationale } : {}),
+    derived: true,
   };
 }
 
