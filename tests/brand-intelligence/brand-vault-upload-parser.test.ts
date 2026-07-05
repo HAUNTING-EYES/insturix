@@ -79,6 +79,28 @@ describe('Brand Vault server upload parser', () => {
     expect(result.source.dominantColors).toEqual(['#123abc']);
     expect(result.warnings).toEqual([]);
   });
+
+  it('classifies uploaded visual evidence into production-safe asset roles', async () => {
+    const cases: Array<[string, string]> = [
+      ['insturix-dashboard-screenshot.svg', 'product_ui'],
+      ['homepage-screenshot.svg', 'website_screenshot'],
+      ['founder-team-photo.svg', 'team'],
+      ['fragmented-workflow-background.svg', 'abstract_reference'],
+    ];
+
+    for (const [name, assetRole] of cases) {
+      const result = await extractBrandVaultUploadEvidenceFromBuffer({
+        name,
+        mimeType: 'image/svg+xml',
+        buffer: Buffer.from('<svg><rect fill="#102033"/></svg>'),
+      });
+
+      expect(result.source).toMatchObject({
+        kind: 'uploaded_asset',
+        assetRole,
+      });
+    }
+  });
 });
 
 describe('Brand Vault upload allowlist (isSupportedBrandVaultUpload)', () => {

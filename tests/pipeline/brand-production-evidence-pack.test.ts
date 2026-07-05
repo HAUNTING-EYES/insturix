@@ -110,11 +110,12 @@ function visualIdentityWithUploadedLogo(): BrandVaultVisualIdentitySummary {
     images: [
       {
         id: 'uploaded_product_ref',
-        kind: 'uploaded_asset',
+        kind: 'product',
         label: 'Uploaded product reference',
         url: 'https://brand.example/uploaded-product-reference.png',
         confidence: 0.9,
         sourceType: 'uploaded_asset',
+        assetRole: 'product_ui',
         evidenceOrigin: 'user_supplied',
       },
     ],
@@ -176,7 +177,7 @@ describe('BrandProductionEvidencePack', () => {
     expect(pack.assets.productEvidence.map((asset) => [asset.role, asset.url, asset.provenance])).toEqual([
       ['product', 'https://brand.example/insturix-product.png', 'brand-vault'],
       ['website-screenshot', 'https://brand.example/insturix-site.png', 'website-screenshot'],
-      ['uploaded-reference', 'https://brand.example/uploaded-product-reference.png', 'uploaded'],
+      ['product', 'https://brand.example/uploaded-product-reference.png', 'uploaded'],
     ]);
     expect(pack.coverage).toMatchObject({
       acceptedProfile: true,
@@ -190,6 +191,78 @@ describe('BrandProductionEvidencePack', () => {
     expect(pack.creativeSignalDefaults?.signals.visual_dependency).toBeTruthy();
   });
 
+  it('does not treat team, abstract, or creative reference uploads as owned product proof', () => {
+    const profile = profileWithAssets();
+    delete profile.assets;
+    const baseVisualIdentity = visualIdentityWithUploadedLogo();
+    const pack = buildBrandProductionEvidencePack({
+      brandId: 'brand_insturix',
+      generatedAt: '2026-07-04T12:00:00.000Z',
+      resolution: {
+        brand: legacyBrand(),
+        acceptedProfile: profile,
+        acceptedRecord: { id: 'record_insturix', status: 'accepted', profile } as any,
+        acceptedReviewPayload: {
+          visualIdentity: {
+            ...baseVisualIdentity,
+            images: [
+              {
+                id: 'team_photo',
+                kind: 'uploaded_asset',
+                label: 'Insturix team photo',
+                url: 'https://brand.example/team-photo.png',
+                confidence: 0.93,
+                sourceType: 'uploaded_asset',
+                assetRole: 'team',
+                evidenceOrigin: 'user_supplied',
+              },
+              {
+                id: 'workflow_abstract',
+                kind: 'uploaded_asset',
+                label: 'Fragmented workflow environment',
+                url: 'https://brand.example/fragmented-workflow.png',
+                confidence: 0.91,
+                sourceType: 'uploaded_asset',
+                assetRole: 'abstract_reference',
+                evidenceOrigin: 'user_supplied',
+              },
+              {
+                id: 'moodboard',
+                kind: 'uploaded_asset',
+                label: 'Moodboard reference',
+                url: 'https://brand.example/moodboard.png',
+                confidence: 0.9,
+                sourceType: 'uploaded_asset',
+                assetRole: 'creative_reference',
+                evidenceOrigin: 'user_supplied',
+              },
+            ],
+          },
+        } as any,
+        source: 'brand_vault',
+      },
+    });
+
+    expect(pack.assets.productEvidence).toEqual([]);
+    expect(pack.assets.allVisualEvidence.map((asset) => [asset.role, asset.url])).toEqual([
+      ['logo', 'https://brand.example/insturix-logo.svg'],
+      ['uploaded-reference', 'https://brand.example/team-photo.png'],
+      ['uploaded-reference', 'https://brand.example/fragmented-workflow.png'],
+      ['uploaded-reference', 'https://brand.example/moodboard.png'],
+    ]);
+    expect(pack.coverage.canShowOwnedProduct).toBe(false);
+    expect(pack.coverage.syntheticModeRequired).toBe(true);
+    expect(pack.coverage.missingInputs).toContain('product_evidence');
+    expect(evaluateBrandSubjectEvidence({
+      name: 'Insturix Platform',
+      category: 'product',
+      visualDescription: 'A real Insturix platform interface.',
+    }, pack)).toMatchObject({
+      required: true,
+      status: 'missing',
+      role: 'product',
+    });
+  });
   it('fails closed when no accepted Brand Vault profile is available', () => {
     const pack = buildBrandProductionEvidencePack({
       brandId: 'brand_insturix',

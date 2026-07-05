@@ -167,7 +167,11 @@ export function buildBrandProductionEvidencePack(
   const visualIdentity = input.visualIdentity ?? input.resolution.acceptedReviewPayload?.visualIdentity ?? null;
   const logos = collectLogoAssets(profile, visualIdentity);
   const productEvidence = collectProductEvidenceAssets(profile, visualIdentity);
-  const allVisualEvidence = dedupeAssets([...logos, ...productEvidence]);
+  const allVisualEvidence = dedupeAssets([
+    ...logos,
+    ...productEvidence,
+    ...collectVisualIdentityImageAssets(visualIdentity),
+  ]);
   const colors = collectColors(profile, visualIdentity);
   const fonts = collectFonts(visualIdentity);
   const motionInputs = brandInputsFromBrandSignalProfile(profile, input.resolution.brand);
@@ -304,8 +308,14 @@ function collectProductEvidenceAssets(
   return dedupeAssets([
     ...assetsFromSignal(profile?.assets?.productImages, 'product', 'Brand Vault product image', 'brand-vault', 'assets.productImages'),
     ...assetsFromSignal(profile?.assets?.socialPreviewImages, 'website-screenshot', 'Website screenshot', 'website-screenshot', 'assets.socialPreviewImages'),
-    ...(visualIdentity?.images ?? []).flatMap((asset) => assetFromVisualIdentity(asset, roleForVisualIdentityImage(asset))),
+    ...collectVisualIdentityImageAssets(visualIdentity).filter(isOwnedProductEvidenceAsset),
   ]);
+}
+
+function collectVisualIdentityImageAssets(
+  visualIdentity: BrandVaultVisualIdentitySummary | null | undefined,
+): BrandProductionEvidenceAsset[] {
+  return (visualIdentity?.images ?? []).flatMap((asset) => assetFromVisualIdentity(asset, roleForVisualIdentityImage(asset)));
 }
 
 function assetsFromSignal(
@@ -358,12 +368,33 @@ function assetFromVisualIdentity(
 }
 
 function roleForVisualIdentityImage(asset: BrandVaultVisualAssetPreview): BrandProductionEvidenceAssetRole {
-  if (asset.kind === 'product' || asset.signalPath === 'assets.productImages') return 'product';
-  if (asset.kind === 'website_preview') return 'website-screenshot';
-  if (asset.kind === 'social_media' || asset.kind === 'video' || asset.signalPath === 'assets.socialPreviewImages') {
+  if (
+    asset.assetRole === 'team' ||
+    asset.assetRole === 'abstract_reference' ||
+    asset.assetRole === 'creative_reference' ||
+    asset.assetRole === 'prior_work' ||
+    asset.assetRole === 'other'
+  ) {
+    return 'uploaded-reference';
+  }
+  if (asset.kind === 'website_preview' || asset.assetRole === 'website_screenshot' || asset.signalPath === 'assets.socialPreviewImages') {
+    return 'website-screenshot';
+  }
+  if (asset.kind === 'product' || asset.assetRole === 'product_ui' || asset.signalPath === 'assets.productImages') return 'product';
+  if (asset.kind === 'social_media' || asset.kind === 'video') {
     return 'social-preview';
   }
+  const matchText = [asset.kind, asset.label, asset.sourceField, asset.sourceUrl, asset.url]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+  if (/\b(?:website|site|homepage|landing page|web page)\b/.test(matchText)) return 'website-screenshot';
+  if (/\b(?:product|platform|dashboard|app|application|software|interface|ui|editor|workspace|console|portal|screenshot)\b/.test(matchText)) return 'product';
   return 'uploaded-reference';
+}
+
+function isOwnedProductEvidenceAsset(asset: BrandProductionEvidenceAsset): boolean {
+  return asset.role === 'product' || asset.role === 'website-screenshot';
 }
 
 function provenanceForVisualAsset(asset: BrandVaultVisualAssetPreview): BrandProductionEvidenceProvenance {

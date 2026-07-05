@@ -62,6 +62,22 @@ describe('Brand Vault upload extraction helpers', () => {
     });
   });
 
+  it('classifies uploaded visual evidence by role before server extraction returns', () => {
+    expect(inferBrandVaultUploadedAssetRole('insturix-dashboard-screenshot.png', 'image/png')).toBe('product_ui');
+    expect(inferBrandVaultUploadedAssetRole('homepage-screenshot.png', 'image/png')).toBe('website_screenshot');
+    expect(inferBrandVaultUploadedAssetRole('founder-team-photo.jpg', 'image/jpeg')).toBe('team');
+    expect(inferBrandVaultUploadedAssetRole('fragmented-workflow-background.webp', 'image/webp')).toBe('abstract_reference');
+
+    expect(createBrandVaultUploadSourceFromMetadata({
+      name: 'insturix-dashboard-screenshot.png',
+      mimeType: 'image/png',
+      sizeBytes: 42_000,
+    })).toMatchObject({
+      kind: 'uploaded_asset',
+      assetRole: 'product_ui',
+    });
+  });
+
   it('stages binary guideline files without pretending text was extracted', () => {
     const source = createBrandVaultUploadSourceFromMetadata({
       name: 'approved-guidelines.docx',
