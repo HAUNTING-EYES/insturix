@@ -77,7 +77,7 @@ const CSS = `
 .ikin .acts{display:flex;gap:13px;margin-top:34px;flex-wrap:wrap}
 .ikin .sb-badges{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
 .ikin .sb-badges a{display:inline-flex;line-height:0;cursor:pointer}
-.ikin .sb-badges img{display:block;height:55px;width:auto;max-width:min(44vw,260px)}
+.ikin .sb-badges img{display:block;height:55px;width:auto;max-width:min(44vw,240px)}
 .ikin .btn{font-weight:800;font-size:14px;padding:14px 26px;border-radius:8px;cursor:pointer;border:1px solid transparent;display:inline-flex;gap:9px;align-items:center;transition:.22s var(--ease)}
 .ikin .go{background:var(--gold);color:var(--bg)}.ikin .go:hover{background:#E0B868}
 .ikin .ghost{color:var(--soft);border-color:var(--borderL)}.ikin .ghost:hover{color:var(--text);border-color:rgba(212,166,82,.4)}
@@ -165,7 +165,7 @@ const TEXT_LENS_TARGET_SELECTOR = [
 
 function StartupBaseBadges() {
   return (
-    <div className="sb-badges" aria-label="Featured badges">
+    <div className="sb-badges" aria-label="StartupBase badges">
       <a
         href="https://startupbase.io/products/insturix?utm_source=startupbase&utm_medium=badge&utm_campaign=featured-badge-dark"
         target="_blank"
@@ -176,21 +176,6 @@ function StartupBaseBadges() {
           src="https://statics.startupbase.io/site/badges/featured-on-sb-dark.svg"
           alt="Featured on StartupBase"
           height={55}
-          loading="lazy"
-          fetchPriority="low"
-        />
-      </a>
-      <a
-        href="https://www.producthunt.com/products/insturix?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-insturix-3"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="Insturix featured on Product Hunt"
-      >
-        <img
-          src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1184782&theme=light&t=1783150182251"
-          alt="Insturix - Your Entire Studio | Product Hunt"
-          width={250}
-          height={54}
           loading="lazy"
           fetchPriority="low"
         />
