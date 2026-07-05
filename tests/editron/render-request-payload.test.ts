@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderVideo } from "@/components/editron/editor/version-7.0.0/lambda-helpers/api";
 import {
   buildChapterRenderApiData,
+  buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
   shouldHydrateRenderInputFromProject,
 } from "@/lib/editron/shared/render-request-payload";
@@ -137,5 +138,37 @@ describe("Editron render request payloads", () => {
     expect(hydrated.fps).toBe(24);
     expect(hydrated.width).toBe(1080);
     expect(hydrated.height).toBe(1920);
+  });
+
+  it("keeps render-owned overlay metadata while stripping audit freight before Lambda", () => {
+    const compact = buildLambdaRenderInputProps({
+      overlays: [
+        {
+          id: 1,
+          type: "caption",
+          from: 0,
+          durationInFrames: 90,
+          content: "hello",
+          metadata: {
+            atomicOverlayForm: { version: "overlay-atomic-form-v1" },
+            atomicOverlayReceipt: { form: { version: "overlay-atomic-form-v1" } },
+            nativeAudioEvidence: { hasNativeAudio: true, speechRegions: [] },
+            atomicMomentBundle: { semanticAtoms: ["x".repeat(20_000)] },
+            semanticMgCandidateLedger: { candidates: ["x".repeat(20_000)] },
+            decisionAuthority: { candidates: ["x".repeat(20_000)] },
+          },
+        },
+      ],
+      durationInFrames: 90,
+      fps: 30,
+    } as any);
+
+    const metadata = (compact.overlays?.[0] as any).metadata;
+    expect(metadata).toEqual({
+      atomicOverlayForm: { version: "overlay-atomic-form-v1" },
+      atomicOverlayReceipt: { form: { version: "overlay-atomic-form-v1" } },
+      nativeAudioEvidence: { hasNativeAudio: true, speechRegions: [] },
+    });
+    expect(JSON.stringify(compact)).not.toContain("x".repeat(1000));
   });
 });

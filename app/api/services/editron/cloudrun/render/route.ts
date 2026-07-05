@@ -6,6 +6,7 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
   buildChapterRenderApiData,
+  buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
   shouldHydrateRenderInputFromProject,
 } from '@/lib/editron/shared/render-request-payload';
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
     const renderFps = Math.max(Number(resolvedProps.fps) || 30, 1);
     const { shouldUseChapterRendering, startChapterRender } = await import('@/lib/editron/services/chapter-renderer');
     const usesChapterRendering = shouldUseChapterRendering(totalFrames);
+    const lambdaRenderProps = buildLambdaRenderInputProps({ ...resolvedProps, isRendering: true });
 
     renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
       durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
@@ -111,7 +113,7 @@ export async function POST(request: Request) {
       const { jobId, chapters } = await startChapterRender(
         projectId || 'unknown',
         userId,
-        resolvedProps.overlays || [],
+        lambdaRenderProps.overlays || [],
         totalFrames,
         fps,
         width,
@@ -140,7 +142,7 @@ export async function POST(request: Request) {
       composition: compositionId || REMOTION_COMPOSITION_ID,
       // isRendering=true → composition uses OffthreadVideo (ffmpeg) not Html5Video; without it a
       // large/slow-proxied clip hangs delayRender on the browser <video> element → 598s render timeout.
-      inputProps: { ...resolvedProps, isRendering: true },
+      inputProps: lambdaRenderProps,
       codec: 'h264',
       audioCodec: 'mp3', // Faster audio processing than AAC
       privacy: 'public', // Make the video publicly accessible
