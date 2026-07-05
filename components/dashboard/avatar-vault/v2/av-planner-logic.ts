@@ -104,6 +104,10 @@ export function useCaseOptionsForRecord(record: AvatarProfileRecord): Array<{ id
 /** Returns a blocking message when the chosen speech setup has no usable voice, else null. */
 export function speechInputProblem(record: AvatarProfileRecord, state: PlannerState): string | null {
   if (!isSpeechUseCase(state.useCase)) return null;
+  // A "generate voice" (TTS/clone) render synthesizes speech from text, so it needs a script.
+  if (state.audioMode === 'tts_voiceover' && !state.script.trim()) {
+    return 'Add a Script — type what the avatar should say.';
+  }
   if (state.voiceReferenceUrl.trim() && state.audioMode !== 'copied_reference_audio') return null;
   const hasAudioUrl = Boolean(state.audioSourceUrl.trim());
   if (state.audioMode === 'tts_voiceover' && !hasTtsVoice(record)) {
