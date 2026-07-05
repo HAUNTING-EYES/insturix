@@ -2715,6 +2715,34 @@ describe('unified decision bundle merge', () => {
     expect(bundle.edl.stats.speedChangeCount).toBe(1);
   });
 
+  it('does not invent a speed value for legacy slow-motion without explicit speed evidence', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'signal-driven',
+      edl: edl([
+        decision({
+          type: 'slow-motion' as any,
+          frame: 180,
+          durationFrames: 60,
+          source: 'signal-executor:legacy',
+          signal: 'legacy_slow_motion',
+          params: {},
+          confidence: 0.95,
+        }),
+      ] as any),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0]).toEqual(expect.objectContaining({
+      type: 'speed-change',
+      frame: 180,
+    }));
+    expect(bundle.edl.decisions[0].params).toEqual(expect.objectContaining({
+      legacyDecisionType: 'slow-motion',
+    }));
+    expect(bundle.edl.decisions[0].params).not.toHaveProperty('speedMultiplier');
+    expect(bundle.edl.stats.speedChangeCount).toBe(1);
+  });
+
   it('drops legacy filter decisions instead of emitting inert filter-change decisions', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'creative-brief',

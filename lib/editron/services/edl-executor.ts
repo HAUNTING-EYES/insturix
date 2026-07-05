@@ -2942,7 +2942,29 @@ function applySpeedChange(
   const localFrame = decision.frame - videoOverlay.from;
   const duration = decision.durationFrames || 30;
   const clipDuration = videoOverlay.durationInFrames;
-  const { speedFrom = 1.0, speedTo = 0.5, speedBack = 1.0 } = decision.params;
+  const params = decision.params ?? {};
+  const speedFrom = numberParam(params, 'speedFrom') ?? 1.0;
+  const speedTo = numberParam(params, 'speedTo')
+    ?? numberParam(params, 'speedMultiplier')
+    ?? numberParam(params, 'speed');
+  const speedBack = numberParam(params, 'speedBack') ?? 1.0;
+  if (speedTo == null) {
+    console.warn(`[EDL-Exec] Speed-change at frame ${decision.frame}: SKIPPED - no explicit speedTo/speedMultiplier/speed parameter`);
+    return null;
+  }
+
+  const signals = decisionSignals(decision);
+  const speechEnergy = readNumber(signals, 'speech_energy', 'speech.energy', 'speech_energy_ema', 'speech.energy_ema') ?? 0;
+  const speechCoverage = readNumber(signals, 'speech_coverage', 'speech.coverage') ?? 0;
+  const silenceDurationMs = readNumber(signals, 'silence_duration_ms', 'speech.silence_duration_ms', 'speechGapMs', 'speech_gap_ms') ?? 0;
+  const montageMode = (readBoolean(signals, 'montage_mode', 'composite.montage_mode') ?? 0) >= 1;
+  const activeSpeech = !montageMode
+    && silenceDurationMs < 200
+    && (speechEnergy > 0.3 || speechCoverage > 0.45);
+  if (activeSpeech) {
+    console.warn(`[EDL-Exec] Speed-change at frame ${decision.frame}: SKIPPED - active speech detected (speechEnergy=${speechEnergy.toFixed(2)}, speechCoverage=${speechCoverage.toFixed(2)})`);
+    return null;
+  }
 
   // Phase A3.5.6 fix: build keyframes then validate them — clamp frames to clip bounds,
   // dedupe same-frame entries (last wins), enforce monotonic order. Previous version

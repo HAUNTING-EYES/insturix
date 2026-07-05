@@ -92,6 +92,49 @@ describe('EDL param contract normalization', () => {
     expect(speedCurve.map((point: any) => point.value)).not.toContain(0.5);
   });
 
+  it('refuses speed-change decisions that do not carry an explicit speed value', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'speed-change',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: {},
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-speed-missing-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(0);
+    expect(result.decisionsSkipped).toBe(1);
+    expect((overlays[0] as any).speedCurve).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('no explicit speedTo/speedMultiplier/speed'));
+  });
+
+  it('refuses speed-change decisions during active speech', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'speed-change',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: {
+        speedMultiplier: 0.6,
+        signals: {
+          speech_energy: 0.72,
+          speech_coverage: 0.86,
+          silence_duration_ms: 40,
+        },
+      },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-speed-speech-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(0);
+    expect(result.decisionsSkipped).toBe(1);
+    expect((overlays[0] as any).speedCurve).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('active speech detected'));
+  });
+
   it('keeps dissolve transition ownership in the transition tile without mutating clip timing', async () => {
     const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, videoStartTime: 300 } as any);
     const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, videoStartTime: 900 } as any);

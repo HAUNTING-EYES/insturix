@@ -4582,13 +4582,15 @@ function normalizeLegacyDecisionType(decision: CompatibleEditDecision): Compatib
   const params = { ...(decision.params ?? {}) };
 
   if (decision.type === 'slow-motion') {
-    const speedMultiplier = numberParam(params.speedMultiplier) ?? numberParam(params.speed) ?? 0.3;
+    const speedMultiplier = numberParam(params.speedMultiplier)
+      ?? numberParam(params.speed)
+      ?? numberParam(params.speedTo);
     return {
       ...decision,
       type: 'speed-change',
       params: {
         ...params,
-        speedMultiplier,
+        ...(speedMultiplier == null ? {} : { speedMultiplier }),
         legacyDecisionType: 'slow-motion',
       },
     };
