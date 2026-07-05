@@ -152,6 +152,50 @@ async function markVariationFailedForJob(job: ClickatronCostJob, errorMessage: s
   }
 }
 
+/**
+ * Unified inline failure for an already-loaded worker task/variation.
+ * Every early-return rejection in the handler routes through this so a failure
+ * ALWAYS (a) fails the job, (b) persists variation.error (so the UI can show the
+ * real reason), and (c) refunds the model-aware credit cost. This closes the old
+ * gap [R3] where early returns marked the variation failed but set no error and
+ * issued no refund => silent credit loss + an undiagnosable "Image generation
+ * failed". The refund mirrors the deduction (same getCreditCost model multiplier)
+ * and is idempotent: it is skipped when the variation was already terminal, so a
+ * QStash redelivery re-entering the same deterministic reject cannot double-refund.
+ */
+async function failVariationInline(
+  activeJobId: string,
+  task: any,
+  variation: Variation,
+  job: ClickatronCostJob,
+  { code, message, refund = true }: { code: string; message: string; refund?: boolean },
+): Promise<void> {
+  const alreadyTerminal = variation.status === 'failed' || variation.status === 'completed';
+  await failJob(activeJobId, { code, message });
+  try {
+    variation.status = 'failed';
+    variation.error = message;
+    variation.updatedAt = new Date();
+    task.markModified('details');
+    await task.save();
+  } catch (saveError) {
+    console.error('Worker: Failed to persist inline variation failure:', saveError);
+  }
+  if (refund && !alreadyTerminal) {
+    try {
+      await CreditsService.refundCredits(
+        job.userId,
+        getClickatronVariationRefundAmount(variation.modelId || job.modelId),
+        `Variation generation failed: ${message}`,
+        { service: 'clickatron', action: 'variation' },
+      );
+      console.log('Worker: Refund processed for inline failure, user:', job.userId);
+    } catch (refundError) {
+      console.error('Worker: Failed to refund after inline failure, user:', job.userId, refundError);
+    }
+  }
+}
+
 function getFalProviderJobId(result: any): string | undefined {
   return result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId;
 }
@@ -299,20 +343,10 @@ async function handler(req: Request) {
     // Check if Fal AI is configured
     if (!process.env.FAL_AI_API_KEY) {
       console.error('Worker: Fal AI API key not configured');
-      await failJob(activeJobId, { code: 'FAL_AI_NOT_CONFIGURED', message: 'Fal AI API key not configured. Please set FAL_AI_API_KEY in environment variables.' });
-
-      // Ensure variation is updated with failed status even if Fal AI is not configured
-      try {
-        variation.status = 'failed';
-        variation.updatedAt = new Date();
-
-        task.markModified('details');
-        await task.save();
-        console.log('Worker: Updated variation status to failed due to missing API key');
-      } catch (saveError) {
-        console.error('Worker: Failed to save variation status:', saveError);
-      }
-
+      await failVariationInline(activeJobId, task, variation, job, {
+        code: 'FAL_AI_NOT_CONFIGURED',
+        message: 'Image generation is temporarily unavailable (provider not configured).',
+      });
       return NextResponse.json({ error: 'Fal AI not configured' }, { status: 500 });
     }
 
@@ -598,19 +632,10 @@ async function handler(req: Request) {
 
       if (!modelConfig) {
         console.error('Worker: Model configuration not found for modelId:', selectedModelId);
-        await failJob(activeJobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
-
-        try {
-          variation.status = 'failed';
-          variation.updatedAt = new Date();
-
-          task.markModified('details');
-          await task.save();
-          console.log('Worker: Updated variation status to failed due to missing model config');
-        } catch (saveError) {
-          console.error('Worker: Failed to save variation status:', saveError);
-        }
-
+        await failVariationInline(activeJobId, task, variation, job, {
+          code: 'MODEL_NOT_FOUND',
+          message: `Selected image model is unavailable (${selectedModelId}).`,
+        });
         return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
       }
 
@@ -625,19 +650,10 @@ async function handler(req: Request) {
 
       if (referenceImageCount < minImages || referenceImageCount > maxImages) {
         console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
-        await failJob(activeJobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
-
-        try {
-          variation.status = 'failed';
-          variation.updatedAt = new Date();
-
-          task.markModified('details');
-          await task.save();
-          console.log('Worker: Updated variation status to failed due to invalid model');
-        } catch (saveError) {
-          console.error('Worker: Failed to save variation status:', saveError);
-        }
-
+        await failVariationInline(activeJobId, task, variation, job, {
+          code: 'INVALID_MODEL',
+          message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference image(s).`,
+        });
         return NextResponse.json({ error: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` }, { status: 400 });
       }
 
