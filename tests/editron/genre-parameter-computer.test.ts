@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { computeGenreParameters } from '../../lib/editron/services/genre-parameter-computer';
+import { buildSignalTimeline } from '../../lib/editron/services/signal-registry';
 
 function makeWords(count: number, startMs: number, endMs: number) {
   const step = (endMs - startMs) / count;
@@ -41,6 +42,77 @@ function musicSections(count: number) {
 }
 
 describe('computeGenreParameters BGM source-music detection', () => {
+  it('derives lower formality from energetic prosody even when transcript fillers are stripped', () => {
+    const energetic = computeGenreParameters({
+      rawFootage: makeRawFootage(90_000, 260, 80_000, 0) as any,
+      analyses: [
+        {
+          audio: { energyCurve: [{ timestampMs: 0, energy: 0.75 }] },
+          subjectTracks: [{ subjectId: 'person-1', category: 'person', totalScreenTimeMs: 80_000 }],
+        } as any,
+      ],
+      wav2vecAnalysis: {
+        segments: [
+          { energy: 0.82, emotionIntensity: 0.76, pitchVariability: 0.88, stressDetected: true, fillerConfidence: 0 },
+          { energy: 0.78, emotionIntensity: 0.72, pitchVariability: 0.8, stressDetected: true, fillerConfidence: 0 },
+        ],
+      },
+      videoDurationSec: 90,
+    });
+
+    expect(energetic.genreParams.formality).toBeLessThan(0.45);
+    expect(energetic.computedFrom).toContain('wav2vec_prosody');
+  });
+
+  it('derives higher formality from calm prosody without relying on low filler count', () => {
+    const calm = computeGenreParameters({
+      rawFootage: makeRawFootage(90_000, 135, 80_000, 0) as any,
+      analyses: [
+        {
+          audio: { energyCurve: [{ timestampMs: 0, energy: 0.22 }] },
+          subjectTracks: [{ subjectId: 'person-1', category: 'person', totalScreenTimeMs: 80_000 }],
+        } as any,
+      ],
+      wav2vecAnalysis: {
+        segments: [
+          { energy: 0.22, emotionIntensity: 0.16, pitchVariability: 0.12, stressDetected: false, fillerConfidence: 0 },
+          { energy: 0.24, emotionIntensity: 0.18, pitchVariability: 0.1, stressDetected: false, fillerConfidence: 0 },
+        ],
+      },
+      videoDurationSec: 90,
+    });
+
+    expect(calm.genreParams.formality).toBeGreaterThan(0.62);
+    expect(calm.computedFrom).toContain('wav2vec_prosody');
+  });
+
+  it('uses the same prosody source for signal timeline formality aliases', () => {
+    const rawFootage = makeRawFootage(90_000, 260, 80_000, 0) as any;
+    const timeline = buildSignalTimeline(
+      [
+        {
+          audio: { energyCurve: [{ timestampMs: 0, energy: 0.75 }] },
+          subjectTracks: [{ subjectId: 'person-1', category: 'person', totalScreenTimeMs: 80_000 }],
+        } as any,
+      ],
+      rawFootage,
+      [],
+      30,
+      null,
+      {
+        segments: [
+          { startMs: 0, endMs: 40_000, energy: 0.82, emotionIntensity: 0.76, emotionalValence: 'positive', pitchVariability: 0.88, stressDetected: true, fillerConfidence: 0 },
+          { startMs: 40_000, endMs: 80_000, energy: 0.78, emotionIntensity: 0.72, emotionalValence: 'positive', pitchVariability: 0.8, stressDetected: true, fillerConfidence: 0 },
+        ],
+        modelVersion: 'test',
+        processingTimeMs: 0,
+      },
+    );
+
+    expect(timeline.globalSignals['content.formality_source']).toBe('wav2vec_prosody');
+    expect(timeline.globalSignals['content.formality']).toBeLessThan(0.45);
+    expect(timeline.globalSignals.formality).toBe(timeline.globalSignals['content.formality']);
+  });
   it('does not treat speech-derived BPM as source music in speech-heavy footage', () => {
     const params = computeGenreParameters({
       rawFootage: makeRawFootage(100_000, 320, 90_000, 25) as any,
