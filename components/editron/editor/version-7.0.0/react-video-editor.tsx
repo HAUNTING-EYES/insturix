@@ -288,7 +288,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
             <EditorProvider value={editorContextValue}>
               <LocalMediaProvider>
                 <AssetLoadingProvider>
-                  <AppSidebar />
+                  {variant !== "v2" && <AppSidebar />}
                   <SidebarInset className="relative">
                     <VideoRegenBanner
                       projectId={projectId}
