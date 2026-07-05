@@ -28,6 +28,12 @@ import {
   type OmniHumanFalRefreshResult,
   type OmniHumanFalSubmitInput,
 } from './avatar-omnihuman-fal';
+import {
+  dispatchAvatarComposition,
+  pollAvatarComposition,
+  type AvatarCompositionDeps,
+  type AvatarCompositionRenderRef,
+} from './avatar-composition';
 
 export type AvatarPipelineJobStatus = 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -40,7 +46,10 @@ export type AvatarPipelineJobDispatchCode =
   | 'omnihuman_queued'
   | 'omnihuman_running'
   | 'omnihuman_succeeded'
-  | 'omnihuman_failed';
+  | 'omnihuman_failed'
+  | 'remotion_composition_queued'
+  | 'remotion_composition_succeeded'
+  | 'remotion_composition_failed';
 
 export type AvatarPipelineStageId =
   | 'voice_chatterbox'
@@ -72,7 +81,10 @@ export type AvatarPipelineStageDispatchCode =
   | 'omnihuman_succeeded'
   | 'omnihuman_failed'
   | 'stage_ready'
-  | 'waiting_for_face_video';
+  | 'waiting_for_face_video'
+  | 'remotion_composition_queued'
+  | 'remotion_composition_succeeded'
+  | 'remotion_composition_failed';
 
 export interface AvatarPipelineStageSnapshot {
   id: AvatarPipelineStageId;
@@ -134,6 +146,7 @@ export interface RefreshAvatarPipelineJobDependencies {
   env?: Record<string, string | undefined>;
   chatterboxClient?: ChatterboxClient;
   omniHumanClient?: OmniHumanFalClient;
+  compositionDeps?: AvatarCompositionDeps;
 }
 
 export interface CreateAvatarPipelineJobSuccessBody {
@@ -330,7 +343,13 @@ export async function refreshAvatarPipelineJobFromRequest(
     return fail(404, 'pipeline_job_not_found', 'Avatar pipeline job was not found.');
   }
 
-  const refreshedJob = await refreshQueuedOmniHumanJob(job, dependencies);
+  const afterOmniHuman = await refreshQueuedOmniHumanJob(job, dependencies);
+  // Advance composition only when OmniHuman did NOT transition this cycle (it already
+  // succeeded on a prior refresh). refreshQueuedOmniHumanJob returns the same job ref
+  // when OmniHuman is already terminal — keeps this to one stage-transition per poll.
+  const refreshedJob = afterOmniHuman === job
+    ? await advanceCompositionStage(afterOmniHuman, dependencies)
+    : afterOmniHuman;
   await store.savePipelineJobSnapshot(refreshedJob);
   return {
     status: 200,
@@ -340,6 +359,131 @@ export async function refreshAvatarPipelineJobFromRequest(
     },
   };
 }
+// After OmniHuman produces the raw face video, render it into a finished
+// Editron-owned MP4 via the existing Remotion Lambda path, then poll to completion.
+async function advanceCompositionStage(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: RefreshAvatarPipelineJobDependencies,
+): Promise<AvatarPipelineJobSnapshot> {
+  const composition = findPipelineStage(job, 'composition_remotion');
+  if (!composition) return job;
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  const compositionDeps = dependencies.compositionDeps ?? {};
+
+  const omniHuman = findPipelineStage(job, 'face_omnihuman_fal');
+  const faceVideoUrl = stringValue(asRecord(composition.input.faceVideo)?.videoUrl);
+
+  // 1) Dispatch once the face video exists and composition has not started.
+  if (composition.status === 'waiting' && omniHuman?.status === 'succeeded' && faceVideoUrl) {
+    try {
+      const ref = await dispatchAvatarComposition(
+        {
+          faceVideoUrl,
+          durationSeconds: job.recipe.target.durationSeconds,
+          aspectRatio: job.recipe.target.aspectRatio,
+          resolution: job.recipe.target.resolution,
+          displayName: job.recipe.visual.displayName,
+        },
+        compositionDeps,
+      );
+      return applyCompositionDispatched(job, ref, now);
+    } catch (error) {
+      return failCompositionJob(job, now, `Avatar composition dispatch failed: ${errorMessage(error)}`);
+    }
+  }
+
+  // 2) Poll a running composition render until it produces the final video URL.
+  if (composition.status === 'running' && composition.dispatchCode === 'remotion_composition_queued') {
+    const ref = compositionRenderRef(composition);
+    if (!ref) return job;
+    try {
+      const status = await pollAvatarComposition(ref, compositionDeps);
+      if (status.errorMessage) return failCompositionJob(job, now, `Avatar composition render failed: ${status.errorMessage}`);
+      if (status.done && status.outputUrl) return applyCompositionSucceeded(job, status.outputUrl, now);
+      return job; // still rendering
+    } catch (error) {
+      return failCompositionJob(job, now, `Avatar composition status refresh failed: ${errorMessage(error)}`);
+    }
+  }
+
+  return job;
+}
+
+function compositionRenderRef(stageSnapshot: AvatarPipelineStageSnapshot): AvatarCompositionRenderRef | null {
+  const output = asRecord(stageSnapshot.output);
+  const renderId = stringValue(output?.renderId);
+  const bucketName = stringValue(output?.bucketName);
+  const region = stringValue(output?.region);
+  if (!renderId || !bucketName || !region) return null;
+  return { renderId, bucketName, region };
+}
+
+function applyCompositionDispatched(
+  job: AvatarPipelineJobSnapshot,
+  ref: AvatarCompositionRenderRef,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'running',
+    dispatchCode: 'remotion_composition_queued',
+    statusReason: `Avatar composition render queued (${ref.renderId}). Poll until the final video is ready.`,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'composition_remotion'
+      ? {
+          ...pipelineStage,
+          status: 'running',
+          dispatchCode: 'remotion_composition_queued',
+          statusReason: `Remotion composition render queued (${ref.renderId}).`,
+          providerRequestId: ref.renderId,
+          output: { ...(pipelineStage.output ?? {}), renderId: ref.renderId, bucketName: ref.bucketName, region: ref.region },
+        }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+function applyCompositionSucceeded(
+  job: AvatarPipelineJobSnapshot,
+  outputUrl: string,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'succeeded',
+    dispatchCode: 'remotion_composition_succeeded',
+    statusReason: 'Avatar video is composed and ready.',
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'composition_remotion'
+      ? {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'remotion_composition_succeeded',
+          statusReason: 'Remotion composition render completed.',
+          output: { ...(pipelineStage.output ?? {}), videoUrl: outputUrl },
+        }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+function failCompositionJob(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'failed',
+    dispatchCode: 'remotion_composition_failed',
+    statusReason: reason,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'composition_remotion'
+      ? {
+          ...pipelineStage,
+          status: 'failed',
+          dispatchCode: 'remotion_composition_failed',
+          statusReason: reason,
+          output: { ...(pipelineStage.output ?? {}), errorMessage: reason },
+        }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
 export function buildAvatarPipelineStages(
   recipe: AvatarRenderRecipe,
   env: Record<string, string | undefined> = process.env,
