@@ -21,6 +21,30 @@ describe('Alyzitron analysis provider cost telemetry contract', () => {
     expect(route).toContain('chargedCredits: analysisChargedCredits');
   });
 
+  it('records Apify media extraction attempts before downstream analysis without fake revenue', () => {
+    const extractor = readRepoFile('lib/alyzitron/extraction/apify.ts');
+
+    expect(extractor).toContain('recordAlyzitronApifyExtractionCost({');
+    expect(extractor).toContain('service: "alyzitron"');
+    expect(extractor).toContain('action: "media_extraction"');
+    expect(extractor).toContain('route: "lib/alyzitron/extraction/apify"');
+    expect(extractor).toContain('provider: "apify"');
+    expect(extractor).toContain('operation: "actor_run"');
+    expect(extractor).toContain('requestCount: input.requestCount');
+    expect(extractor).toContain('pollCount: input.pollCount');
+    expect(extractor).toContain('if (providerCallStarted)');
+
+    const helper = extractor.slice(extractor.indexOf('async function recordAlyzitronApifyExtractionCost'));
+    expect(helper).not.toContain('chargedCredits');
+    expect(helper).not.toContain('token');
+    expect(helper).not.toContain('cleanUrl');
+    expect(helper).not.toContain('downloadUrl');
+    expect(helper).not.toContain('audioUrl');
+    expect(helper).not.toContain('requestBody');
+    expect(helper).not.toContain('input,');
+    expect(helper).not.toContain('items');
+  });
+
   it('records Gemini analysis provider spend from the processor only after final completion for revenue', () => {
     const processor = readRepoFile('app/api/services/alyzitron/processor/route.ts');
 
@@ -81,5 +105,6 @@ describe('Alyzitron analysis provider cost telemetry contract', () => {
     expect(plan).toContain('Partial 2026-07-04: Alyzitron Gemini video-analysis provider events are wired');
     expect(plan).toContain('Gemini video-analysis pricing remains `pricing_to_be_seen`');
     expect(plan).toContain('Gemini File API upload/poll provider events are wired');
+    expect(plan).toContain('Alyzitron Apify media extraction provider events are wired');
   });
 });
