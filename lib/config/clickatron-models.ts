@@ -665,12 +665,18 @@ export function getAvailableModels(
     return allModels.filter(model => model.isSketchToEdit === true);
   }
 
-  // For generative fill, return specific approved models
+  // For generative fill (mask-based inpainting), return ONLY models whose live Fal
+  // endpoint actually accepts a mask_url. The previous list (seedream v5 lite/edit,
+  // nano-banana-pro/edit, gemini-3-pro-image) are natural-language EDIT endpoints that
+  // accept NO mask — so the mask was silently dropped and "fill" regenerated the whole
+  // image instead of the masked region. [R2] These inpainting models take
+  // image_url + mask_url and honor the masked region (verified against Fal API docs +
+  // the generateFluxDevInpaintingPayload/FluxProFill/FluxKontextInpainting builders).
   if (context === 'generativeFill') {
     const allowedModels = [
-      'fal-ai/bytedance/seedream/v5/lite/edit',
-      'fal-ai/nano-banana-pro/edit',
-      'fal-ai/gemini-3-pro-image-preview'
+      'fal-ai/flux-pro/v1/fill',
+      'fal-ai/flux/dev/inpainting',
+      'fal-ai/flux-kontext/dev/inpainting',
     ];
     return allModels.filter(model => allowedModels.includes(model.id));
   }

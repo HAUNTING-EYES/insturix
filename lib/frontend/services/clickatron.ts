@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CreateVariationRequest, ChatMessage } from '@/types/clickatron';
+import { ChatMessage } from '@/types/clickatron';
 
 const DEFAULT_VARIATION_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
@@ -107,35 +107,9 @@ export const pollVariationCompletion = async (
   });
 };
 
-// React Query hooks for Clickatron API
-export const useCreateVariation = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ sessionId, ...data }: CreateVariationRequest & { sessionId: string }) => {
-      const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-      
-      const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create variation');
-      }
-
-      return response.json();
-    },
-    onSuccess: (data, variables) => {
-      // Invalidate session query to refetch latest state
-      queryClient.invalidateQueries({ queryKey: ['clickatron-session', variables.sessionId] });
-    },
-  });
-};
+// Note: the variation route reads request.formData(); creation is done directly in
+// CanvasStage via FormData. A dead JSON-body useCreateVariation hook was removed here
+// (zero importers) — it would have failed against the formData route if ever wired.
 
 export const useAddChatMessage = () => {
   const queryClient = useQueryClient();
