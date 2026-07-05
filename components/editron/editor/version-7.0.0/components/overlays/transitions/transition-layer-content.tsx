@@ -54,10 +54,10 @@ export const TransitionLayerContent: React.FC<{
   }
 
   const clipAStartFrom = clipA
-    ? ((clipA as any).videoStartTime || 0) + (overlay.from - clipA.from)
+    ? resolveTransitionClipStartFrom(clipA, overlay.from)
     : 0;
   const clipBStartFrom = clipB
-    ? ((clipB as any).videoStartTime || 0) + Math.max(0, overlay.from - clipB.from)
+    ? resolveTransitionClipStartFrom(clipB, overlay.from)
     : 0;
 
   const VideoComponent = isRendering ? OffthreadVideo : Video;
@@ -100,6 +100,18 @@ function resolveVideoSrc(clip: ClipOverlay | undefined): string | null {
   if (!src) return null;
   if (src.startsWith('/')) return toAbsoluteUrl(src);
   return src;
+}
+
+export function resolveTransitionClipStartFrom(
+  clip: Pick<ClipOverlay, 'from'> & { sourceStartFrame?: number; videoStartTime?: number },
+  transitionFrom: number,
+): number {
+  const sourceStart = typeof clip.sourceStartFrame === 'number' && Number.isFinite(clip.sourceStartFrame)
+    ? clip.sourceStartFrame
+    : typeof clip.videoStartTime === 'number' && Number.isFinite(clip.videoStartTime)
+      ? clip.videoStartTime
+      : 0;
+  return Math.max(0, sourceStart + (transitionFrom - clip.from));
 }
 
 const ABS: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%' };
