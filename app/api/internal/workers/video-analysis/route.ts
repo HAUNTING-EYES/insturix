@@ -445,6 +445,30 @@ async function handler(request: NextRequest) {
       }
     }
 
+    if (rawFootageAnalysis) {
+      try {
+        const { deriveNativeAudioEvidence } = await import('@/lib/editron/services/native-audio-evidence');
+        const nativeAudioEvidence = deriveNativeAudioEvidence(rawFootageAnalysis, 30);
+        await db.collection('projects').updateOne(
+          { projectId },
+          {
+            $set: {
+              'overlays.$[vid].hasNativeAudio': nativeAudioEvidence.hasNativeAudio,
+              'overlays.$[vid].metadata.nativeAudioEvidence': nativeAudioEvidence,
+            },
+          },
+          { arrayFilters: [{ 'vid.type': 'video', 'vid.assetId': assetId }] },
+        );
+        console.log(
+          `[VideoAnalysisWorker] Native audio evidence: speech=${nativeAudioEvidence.hasSpeech}, ` +
+          `regions=${nativeAudioEvidence.regionCount}, words=${nativeAudioEvidence.wordCount}`
+        );
+      } catch (nativeAudioErr: unknown) {
+        const msg = nativeAudioErr instanceof Error ? nativeAudioErr.message : String(nativeAudioErr);
+        console.warn(`[VideoAnalysisWorker] Native audio evidence persistence failed (non-fatal): ${msg}`);
+      }
+    }
+
     // Step 1.58: Visual cut intelligence runs once for every raw-footage plan.
     // Speech-heavy footage remains transcript-led; visual evidence can only protect/refine it.
     // Low/no-speech footage is visual-led and may add visual removals/splits.

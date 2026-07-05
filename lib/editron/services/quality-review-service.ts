@@ -8,6 +8,7 @@
  */
 
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { getNativeAudioDuckRegions } from './native-audio-evidence';
 import type { AssetAnalysis } from './five-track-analysis';
 
 export interface QualityIssue {
@@ -396,15 +397,18 @@ function checkMissingCaptions(overlays: AnalyzableOverlay[]): QualityIssue[] {
 
 function checkBGMDucking(overlays: AnalyzableOverlay[]): QualityIssue[] {
   const bgm = overlays.find(o => o.type === 'sound' && o.row === ROW.BGM);
-  const hasVO = overlays.some(o => o.type === 'sound' && o.row === ROW.VOICEOVER);
-  if (!bgm || !hasVO) return [];
+  const hasSpeechSource = overlays.some(o => (
+    (o.type === 'sound' && o.row === ROW.VOICEOVER)
+    || getNativeAudioDuckRegions(o).length > 0
+  ));
+  if (!bgm || !hasSpeechSource) return [];
 
   const duckingConfig = bgm.styles?.duckingConfig;
   if (!duckingConfig?.enabled) {
     return [{
       type: 'bgm_not_ducking',
       severity: 'warning',
-      description: 'BGM not ducking under voiceover. Audio will compete and sound unprofessional.',
+      description: 'BGM not ducking under speech/native source audio. Audio will compete and sound unprofessional.',
       overlayId: bgm.id,
       autoFixable: true,
       suggestedFix: 'Enable audio ducking on BGM overlay',
