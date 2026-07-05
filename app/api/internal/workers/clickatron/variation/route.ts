@@ -469,8 +469,23 @@ async function handler(req: Request) {
         throw needsInputError;
       }
 
+      // A logo must NOT be seeded as a generation reference on a fresh text-to-image job.
+      // Doing so inflates the reference-image count, which forces the model resolver into
+      // image-to-image mode (models.ts: referenceImageCount > 0 => 'image-to-image') and makes
+      // the model "edit the logo" — or get rejected against a maxImages:0 text-to-image model.
+      // This is a top cause of branded "no image". The locked brand mark belongs on the
+      // editable overlay layer, so only pass the logo to the model when there is already an
+      // image context (parent or user reference images) that resolves to a reference-accepting
+      // edit/compose model. Product seeding on a blank canvas is intentional (product-mockup
+      // i2i) and is left unchanged.
+      // TODO(Phase 2): when the model roster/adapters land, route fresh brand-reference
+      // composition to a compose model (nano-banana-pro/edit, seedream edit) instead of
+      // dropping the logo to an overlay.
+      const canUseLogoAsGenerationReference = Boolean(parentImageUrl) || referenceImageUrls.length > 0;
       const brandReferenceEvidence = brandReferenceResolution.evidence.filter(
-        (item) => item.assetRole === 'logo' || (shouldSeedProductImages && item.assetRole === 'product'),
+        (item) =>
+          (item.assetRole === 'logo' && canUseLogoAsGenerationReference) ||
+          (shouldSeedProductImages && item.assetRole === 'product'),
       );
 
       if (brandReferenceEvidence.length > 0) {

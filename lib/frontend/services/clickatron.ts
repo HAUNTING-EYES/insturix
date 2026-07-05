@@ -82,9 +82,12 @@ export const pollVariationCompletion = async (
           if (refreshUsageLimits) {
             refreshUsageLimits();
           }
-          // Reject if the variation failed
+          // Reject if the variation failed — surface the worker's real error
+          // (deprecated model, 0-reference rejection, provider 4xx, brand-logo gating,
+          // watchdog timeout) instead of a generic string, so failures are diagnosable
+          // end-to-end. The worker persists this on variation.error; the UI was discarding it.
           if (variation.status === 'failed') {
-            reject(new Error('Image generation failed'));
+            reject(new Error(variation.error || 'Image generation failed'));
           } else {
             resolve();
           }
