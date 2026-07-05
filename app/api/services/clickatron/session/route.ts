@@ -26,6 +26,18 @@ interface ParsedCarouselSlide {
   imagePrompt?: string;
 }
 
+interface CarouselParseResult {
+  slides: ParsedCarouselSlide[];
+  /**
+   * True ONLY when the handoff explicitly declared kind:"carousel" but carried no
+   * usable renderPlan.slides — an unambiguous broken carousel. The caller fails this
+   * loud (422, no charge) instead of silently billing + generating a single image [R8].
+   * A JSON-parse failure is NOT flagged here: we can't know a malformed blob was meant
+   * to be a carousel, and a single-image request with junk metadata must still generate.
+   */
+  carouselWithoutSlides: boolean;
+}
+
 /**
  * Extract carousel slides from the session `metadata` form field.
  *
@@ -34,38 +46,42 @@ interface ParsedCarouselSlide {
  * prompts live at renderPlan.slides. Returns the slides clamped to
  * MAX_CAROUSEL_SLIDES, or [] when this is not a carousel (single-image path).
  *
- * This is intentionally defensive: malformed/oversized metadata degrades to the
- * single-image path rather than throwing, so a bad handoff can never 500 here.
+ * Never throws (a bad handoff can never 500 here). It surfaces an explicitly-broken
+ * carousel via carouselWithoutSlides so the caller can fail loud rather than degrade
+ * silently; all other malformed inputs fall back to the single-image path.
  */
-function parseCarouselSlides(metadataField: FormDataEntryValue | null): ParsedCarouselSlide[] {
-  if (typeof metadataField !== 'string' || metadataField.trim() === '') return [];
+function parseCarouselSlides(metadataField: FormDataEntryValue | null): CarouselParseResult {
+  if (typeof metadataField !== 'string' || metadataField.trim() === '') return { slides: [], carouselWithoutSlides: false };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(metadataField);
   } catch (parseErr) {
-    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
+    // Ambiguous: we don't know this was a carousel, so degrade to single (still generates).
     console.error('[LOUDFAIL][Clickatron][CAROUSEL-PARSE-DEGRADED] session metadata failed to JSON.parse — falling back to SINGLE-image billing:', parseErr);
-    return [];
+    return { slides: [], carouselWithoutSlides: false };
   }
 
   const creativeSpec = (parsed as any)?.clickatron?.creativeSpec;
-  if (!creativeSpec || creativeSpec.kind !== 'carousel') return [];
+  if (!creativeSpec || creativeSpec.kind !== 'carousel') return { slides: [], carouselWithoutSlides: false };
 
   const rawSlides = creativeSpec?.renderPlan?.slides;
   if (!Array.isArray(rawSlides) || rawSlides.length === 0) {
-    // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md)
-    console.error('[LOUDFAIL][Clickatron][CAROUSEL-EMPTY] spec.kind=carousel but renderPlan.slides missing/empty — billing + generating as a SINGLE image:', { slides: rawSlides });
-    return [];
+    // Unambiguous broken carousel: declared kind:"carousel" but no slides to fan out.
+    console.error('[LOUDFAIL][Clickatron][CAROUSEL-EMPTY] spec.kind=carousel but renderPlan.slides missing/empty — failing loud (no charge):', { slides: rawSlides });
+    return { slides: [], carouselWithoutSlides: true };
   }
 
-  return rawSlides
-    .slice(0, MAX_CAROUSEL_SLIDES)
-    .map((slide: any): ParsedCarouselSlide => ({
-      id: typeof slide?.id === 'string' ? slide.id : undefined,
-      title: typeof slide?.title === 'string' ? slide.title : undefined,
-      imagePrompt: typeof slide?.imagePrompt === 'string' ? slide.imagePrompt : undefined,
-    }));
+  return {
+    slides: rawSlides
+      .slice(0, MAX_CAROUSEL_SLIDES)
+      .map((slide: any): ParsedCarouselSlide => ({
+        id: typeof slide?.id === 'string' ? slide.id : undefined,
+        title: typeof slide?.title === 'string' ? slide.title : undefined,
+        imagePrompt: typeof slide?.imagePrompt === 'string' ? slide.imagePrompt : undefined,
+      })),
+    carouselWithoutSlides: false,
+  };
 }
 
 // POST /api/services/clickatron/session - Create new session and generate the first variation (or N carousel slides)
@@ -124,7 +140,20 @@ export async function POST(request: Request) {
     // ONLY this fan-out + the per-slide `quantity` charge. P7 owns credit
     // idempotency/refund/watchdog — the deduct()/refund() semantics below are
     // intentionally left as-is for P7 to reconcile.
-    const carouselSlides = parseCarouselSlides(formData.get('metadata'));
+    const carouselParse = parseCarouselSlides(formData.get('metadata'));
+    if (carouselParse.carouselWithoutSlides) {
+      // Loud fail instead of silently billing + generating ONE image for a carousel
+      // whose slide plan was empty. Returns before the credit check => no charge. The
+      // ThinkForge handoff dialog surfaces this error to the user. [R8]
+      return NextResponse.json(
+        {
+          error: 'This carousel could not be built because its slide plan was empty, so no images were generated and you were not charged. Please re-send the carousel from ThinkForge.',
+          code: 'CAROUSEL_NO_SLIDES',
+        },
+        { status: 422 },
+      );
+    }
+    const carouselSlides = carouselParse.slides;
     const quantity = carouselSlides.length > 0 ? carouselSlides.length : 1;
     const referenceImages = formData.getAll('referenceImage') as File[];
     const rawAspectRatio = formData.get('aspectRatio') || '16:9';
