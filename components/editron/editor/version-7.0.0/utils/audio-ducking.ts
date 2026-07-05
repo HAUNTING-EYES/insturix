@@ -29,6 +29,8 @@ interface OverlayTimeRange {
   durationInFrames: number;
 }
 
+type VolumeCallback = (frame: number) => number;
+
 /**
  * Create a volume callback that ducks BGM under voiceover.
  *
@@ -101,5 +103,33 @@ export function createDuckingVolume(
     }
 
     return minVolume;
+  };
+}
+export function createTailFadeVolume(
+  baseVolume: number | VolumeCallback,
+  durationInFrames: number,
+  fadeOutFrames: number,
+): VolumeCallback {
+  const baseVolumeAt = typeof baseVolume === 'function'
+    ? baseVolume
+    : () => baseVolume;
+  const duration = Math.max(1, Math.floor(durationInFrames));
+  const fadeFrames = Math.max(1, Math.min(duration, Math.floor(fadeOutFrames)));
+  const fadeStart = Math.max(0, duration - fadeFrames);
+  const fadeEnd = Math.max(fadeStart, duration - 1);
+
+  return (frame: number): number => {
+    const base = baseVolumeAt(frame);
+    if (frame < fadeStart) return base;
+    if (fadeEnd === fadeStart) return 0;
+
+    const multiplier = interpolate(
+      frame,
+      [fadeStart, fadeEnd],
+      [1, 0],
+      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.in(Easing.quad) },
+    );
+
+    return base * multiplier;
   };
 }

@@ -5,6 +5,7 @@ import {
   getNativeAudioDuckRegions,
 } from '@/lib/editron/services/native-audio-evidence';
 import { runQualityReview } from '@/lib/editron/services/quality-review-service';
+import { createTailFadeVolume } from '@/components/editron/editor/version-7.0.0/utils/audio-ducking';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 describe('native audio evidence', () => {
@@ -137,5 +138,31 @@ describe('native audio evidence', () => {
     expect(report.issues).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'bgm_not_ducking', overlayId: 2 }),
     ]));
+  });
+
+  it('renders an explicit BGM tail fade to silence at the overlay end', () => {
+    const volume = createTailFadeVolume(0.75, 90, 30);
+
+    expect(volume(0)).toBeCloseTo(0.75);
+    expect(volume(60)).toBeCloseTo(0.75);
+    expect(volume(89)).toBeCloseTo(0);
+  });
+
+  it('does not flag BGM no-fade when the overlay declares a rendered tail fade', () => {
+    const report = runQualityReview([
+      {
+        id: 10,
+        type: 'sound',
+        row: ROW.BGM,
+        from: 0,
+        durationInFrames: 180,
+        styles: {
+          volume: 0.75,
+          animation: { exit: 'fade', duration: 1 },
+        },
+      },
+    ] as any, 30, 180);
+
+    expect(report.issues.some((issue) => issue.type === 'bgm_no_fade')).toBe(false);
   });
 });
