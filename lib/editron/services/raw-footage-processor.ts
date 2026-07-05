@@ -19,6 +19,7 @@ import { FILLER_WORDS } from '@/lib/editron/services/media/types';
 import type { TranscriptionData, TranscriptionWord, SilenceGap, DetectedFiller } from '@/lib/editron/services/media/types';
 import { detectContentType, type ContentTypeDetection } from '@/lib/editron/services/content-type-detector';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
+import { classifyRepetitionIntent, type RepetitionDecision } from '@/lib/editron/services/repetition-intent-discriminator';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -114,6 +115,8 @@ export interface BestTakeSelection {
   keptSegment: TranscriptSegment;
   /** Segments that lost (will be removed) */
   inferiorSegments: TranscriptSegment[];
+  /** Intent classifier evidence that licensed the inferior-take removal. */
+  repetitionIntent?: RepetitionDecision;
   /** Jaccard similarity between the repeated phrases */
   similarity: number;
   /** Composite quality score of the kept take */
@@ -494,6 +497,11 @@ function detectBestTakes(
     }
 
     if (group.length > 1) {
+      const repetitionIntent = classifyRepetitionIntent(group);
+      if (repetitionIntent.verdict !== 'RETAKE') {
+        continue;
+      }
+
       // Score each take and pick the best (longest complete take wins)
       const scored = group.map(seg => ({ seg, score: scoreSegmentQuality(seg) }));
       scored.sort((a, b) => b.score - a.score);
@@ -504,6 +512,7 @@ function detectBestTakes(
       selections.push({
         keptSegment: best.seg,
         inferiorSegments: inferior,
+        repetitionIntent,
         similarity: jaccardSimilarity(tokenize(best.seg.text), tokenize(inferior[0].text)),
         keptScore: best.score,
       });
