@@ -33,6 +33,7 @@ export default function AvatarVaultV2() {
         .av-forge{display:grid;grid-template-columns:214px minmax(0,1fr) 300px;gap:20px;align-items:start}
         .av-vaultgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
         .av-rendergrid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+        .av-spin{animation:av-spin-rot .8s linear infinite}@keyframes av-spin-rot{to{transform:rotate(360deg)}}
         @media(max-width:1080px){.av-forge{grid-template-columns:1fr}.av-forge-side,.av-forge-rail{display:none}.av-rendergrid{grid-template-columns:1fr}}
       `}</style>
 

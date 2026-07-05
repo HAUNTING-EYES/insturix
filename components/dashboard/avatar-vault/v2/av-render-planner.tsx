@@ -23,9 +23,6 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
   const set = <K extends keyof PlannerState>(k: K, v: PlannerState[K]) => { setS((cur) => ({ ...cur, [k]: v })); setClientError(null); };
   const useCaseOpts = useMemo(() => renderUseCaseOptions(record).map((o) => [o.id, o.label] as [PlannerState['useCase'], string]), [record]);
 
-  const togglePick = (id: AvatarProviderId) =>
-    setS((cur) => ({ ...cur, picked: cur.providerMode === 'single' ? [id] : cur.picked.includes(id) ? cur.picked.filter((x) => x !== id) : [...cur.picked, id] }));
-
   const validated = () => {
     if (!s.prompt.trim()) { setClientError('Scene prompt is required.'); return null; }
     const speech = speechInputProblem(record, s);
@@ -84,21 +81,17 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
             )}
           </div>
 
-          {/* provider */}
+          {/* provider — single choice */}
           <div style={{ background: C.raised, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-              <Mono s={9} c={C.muted}>Provider</Mono>
-              <Seg opts={[['single', 'Single'], ['benchmark', 'Benchmark (A/B)']]} val={s.providerMode} on={(m) => setS((cur) => ({ ...cur, providerMode: m, picked: m === 'single' ? cur.picked.slice(0, 1) : cur.picked }))} />
-            </div>
+            <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 12 }}>Provider</Mono>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>
-              {PROVIDER_IDS.map((id) => { const meta = PROVIDER_META[id]; const on = s.picked.includes(id); return (
-                <button key={id} type="button" className="av-fr" onClick={() => togglePick(id)} style={{ cursor: 'pointer', textAlign: 'left', padding: 13, borderRadius: 9, background: on ? 'rgba(212,166,82,.08)' : C.surface, border: `1px solid ${on ? C.gold : C.border}` }}>
+              {PROVIDER_IDS.map((id) => { const meta = PROVIDER_META[id]; const on = s.providerId === id; return (
+                <button key={id} type="button" className="av-fr" onClick={() => set('providerId', id)} style={{ cursor: 'pointer', textAlign: 'left', padding: 13, borderRadius: 9, background: on ? 'rgba(212,166,82,.08)' : C.surface, border: `1px solid ${on ? C.gold : C.border}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: on ? C.gold : C.faint }} /><Mono s={7.5} c={on ? C.gold : C.dim}>{meta.tag}</Mono></div>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{meta.name}</div><Mono s={8.5} c={C.muted} st={{ display: 'block', marginTop: 3 }}>{meta.note}</Mono>
                 </button>
               ); })}
             </div>
-            {s.providerMode === 'benchmark' && <Mono s={8.5} c={C.dim} st={{ display: 'block', marginTop: 10 }}>A/B — renders on every selected provider to compare.</Mono>}
           </div>
         </div>
 
@@ -141,16 +134,27 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
                 )}
 
                 {hasSelection && (
-                  <Btn variant="primary" onClick={doRender} disabled={createRenderJob.isPending} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>{createRenderJob.isPending ? 'Starting…' : `Render${s.providerMode === 'benchmark' ? ` · ${s.picked.length} providers` : ''} →`}</Btn>
+                  <Btn variant="primary" onClick={doRender} disabled={createRenderJob.isPending} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>{createRenderJob.isPending ? 'Starting…' : 'Render →'}</Btn>
                 )}
 
-                {job && (
-                  <div style={{ marginTop: 12, padding: '10px 12px', background: C.bg, border: `1px solid ${job.status === 'failed' ? 'rgba(212,106,92,.4)' : job.status === 'blocked' ? 'rgba(212,166,82,.4)' : C.border}`, borderRadius: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: job.status === 'failed' ? C.coral : C.soft }}>Render job · {job.status}</div>
-                    <Mono s={8} c={C.dim} st={{ display: 'block', marginTop: 4, wordBreak: 'break-all' }}>{PROVIDER_META[job.providerId]?.name ?? job.providerId} · {job.id}</Mono>
-                    {job.statusReason && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{job.statusReason}</div>}
-                  </div>
-                )}
+                {job && (() => {
+                  const inFlight = job.status === 'queued' || job.status === 'running';
+                  const tone = job.status === 'failed' ? C.coral : job.status === 'succeeded' ? C.green : C.gold;
+                  return (
+                    <div style={{ marginTop: 12, padding: '11px 13px', background: C.bg, border: `1px solid ${job.status === 'succeeded' ? 'rgba(94,201,126,.4)' : job.status === 'failed' ? 'rgba(212,106,92,.4)' : 'rgba(212,166,82,.4)'}`, borderRadius: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <span className={inFlight ? 'av-spin' : undefined} style={{ width: 9, height: 9, borderRadius: inFlight ? '50%' : 2, border: inFlight ? `1.5px solid ${C.gold}` : 'none', borderTopColor: inFlight ? 'transparent' : undefined, background: inFlight ? 'transparent' : tone, flexShrink: 0 }} />
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: tone, textTransform: 'capitalize' }}>{job.status === 'blocked' ? 'Waiting to render' : job.status}</div>
+                        <span style={{ marginLeft: 'auto' }}><Mono s={8} c={C.dim}>{PROVIDER_META[job.providerId]?.name ?? job.providerId}</Mono></span>
+                      </div>
+                      {job.statusReason && <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>{job.statusReason}</div>}
+                      {job.status === 'succeeded' && job.resultUrl && (
+                        <a href={job.resultUrl} target="_blank" rel="noreferrer" className="av-fr" style={{ display: 'inline-block', marginTop: 8 }}><Mono s={9} c={C.green}>▸ View result</Mono></a>
+                      )}
+                      <Mono s={8} c={C.faint} st={{ display: 'block', marginTop: 8, wordBreak: 'break-all' }}>{job.id}</Mono>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>

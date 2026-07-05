@@ -1,5 +1,5 @@
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
-import type { AvatarProviderId, AvatarProviderSelection, AvatarProviderSelectionMode, AvatarProviderReadinessIssue } from '@/lib/avatar/avatar-provider-adapter';
+import type { AvatarProviderId, AvatarProviderSelection, AvatarProviderReadinessIssue } from '@/lib/avatar/avatar-provider-adapter';
 import type { AvatarRenderAudioMode, AvatarRenderIssue, AvatarRenderUseCase } from '@/lib/avatar/avatar-render-recipe';
 import type { PlanAvatarRenderInput } from '@/components/dashboard/AvatarVault/useAvatarVault';
 
@@ -20,8 +20,7 @@ export interface PlannerState {
   voiceReferenceUrl: string;
   audioRightsConfirmed: boolean;
   productImageUrls: string;
-  providerMode: AvatarProviderSelectionMode;
-  picked: AvatarProviderId[];
+  providerId: AvatarProviderId;
   aspectRatio: string;
   durationSeconds: string;
   resolution: string;
@@ -55,8 +54,7 @@ export function initialPlannerState(record: AvatarProfileRecord): PlannerState {
     voiceReferenceUrl: '',
     audioRightsConfirmed: false,
     productImageUrls: '',
-    providerMode: 'single',
-    picked: ['d_id'],
+    providerId: 'd_id',
     aspectRatio: '9:16',
     durationSeconds: '8',
     resolution: '720p',
@@ -69,7 +67,6 @@ export function buildPlanInput(recordId: string, state: PlannerState, prompt: st
   const script = state.script.trim();
   const negativePrompt = state.negativePrompt.trim();
   const durationSeconds = Number(state.durationSeconds);
-  const picked = state.picked;
   return {
     recordId,
     useCase: state.useCase,
@@ -91,9 +88,9 @@ export function buildPlanInput(recordId: string, state: PlannerState, prompt: st
       ...(Number.isFinite(durationSeconds) && durationSeconds > 0 ? { durationSeconds } : {}),
     },
     provider: {
-      mode: state.providerMode,
-      ...(state.providerMode === 'single' && picked[0] ? { preferredProviderId: picked[0] } : {}),
-      ...(picked.length ? { includeProviderIds: picked } : {}),
+      mode: 'single',
+      preferredProviderId: state.providerId,
+      includeProviderIds: [state.providerId],
     },
   };
 }
