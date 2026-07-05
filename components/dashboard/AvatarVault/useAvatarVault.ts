@@ -16,6 +16,7 @@ import type {
   AvatarProviderSelectionMode,
 } from '@/lib/avatar/avatar-provider-adapter';
 import type { AvatarRenderJobSnapshot } from '@/lib/avatar/avatar-render-job';
+import type { AvatarPipelineJobSnapshot } from '@/lib/avatar/avatar-pipeline-job';
 import type { AvatarProfileDraftRequest } from './avatar-vault-form';
 
 interface AvatarVaultApiError {
@@ -53,13 +54,20 @@ interface AvatarVaultRenderJobSuccess extends AvatarVaultRenderPlanSuccess {
   job: AvatarRenderJobSnapshot;
 }
 
+interface AvatarPipelineJobSuccess {
+  ok: true;
+  job: AvatarPipelineJobSnapshot;
+  recipe?: AvatarRenderRecipe;
+}
+
 type AvatarVaultApiResult =
   | AvatarVaultApiError
   | AvatarVaultListSuccess
   | AvatarVaultRecordSuccess
   | AvatarVaultUploadSuccess
   | AvatarVaultRenderPlanSuccess
-  | AvatarVaultRenderJobSuccess;
+  | AvatarVaultRenderJobSuccess
+  | AvatarPipelineJobSuccess;
 
 export interface AvatarProfileListQuery {
   status?: AvatarProfileStatus;
@@ -175,6 +183,27 @@ export function useAvatarRenderJobMutation() {
   });
 }
 
+/** Create a job on the PROVEN pipeline path: Chatterbox voice → OmniHuman face → Remotion composite. */
+export function useAvatarPipelineJobMutation() {
+  return useMutation({
+    mutationFn: createAvatarPipelineJobRequest,
+  });
+}
+
+/** Poll a pipeline job; each fetch advances its stages until the job is terminal. */
+export function useAvatarPipelineJob(jobId: string | null) {
+  const { isSignedIn } = useAuth();
+  return useQuery({
+    queryKey: [...AVATAR_VAULT_KEYS.all, 'pipeline-job', jobId ?? 'none'],
+    queryFn: () => fetchAvatarPipelineJob(jobId as string),
+    enabled: Boolean(isSignedIn && jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'succeeded' || status === 'failed' ? false : 3000;
+    },
+  });
+}
+
 async function fetchAvatarProfiles(query: AvatarProfileListQuery): Promise<AvatarProfileRecord[]> {
   const params = new URLSearchParams();
   if (query.status) params.set('status', query.status);
@@ -252,6 +281,25 @@ async function createAvatarRenderJobRequest(input: CreateAvatarRenderJobInput): 
       body: JSON.stringify(body),
     },
   );
+}
+
+async function createAvatarPipelineJobRequest(input: CreateAvatarRenderJobInput): Promise<AvatarPipelineJobSuccess> {
+  const { recordId, ...body } = input;
+  return avatarVaultFetch<AvatarPipelineJobSuccess>(
+    `/api/avatar-vault/profiles/${encodeURIComponent(recordId)}/pipeline-jobs`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+async function fetchAvatarPipelineJob(jobId: string): Promise<AvatarPipelineJobSnapshot> {
+  const payload = await avatarVaultFetch<AvatarPipelineJobSuccess>(
+    `/api/avatar-vault/pipeline-jobs/${encodeURIComponent(jobId)}`,
+  );
+  return payload.job;
 }
 
 async function avatarVaultFetch<TSuccess extends { ok: true }>(
