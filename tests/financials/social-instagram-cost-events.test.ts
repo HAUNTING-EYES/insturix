@@ -28,6 +28,30 @@ describe('Instagram social provider cost telemetry contract', () => {
     expect(route).toContain('pollAttempts: input.pollAttempts');
   });
 
+  it('records CalOS Instagram container and publish provider events without fake revenue', () => {
+    const publisher = readRepoFile('lib/calos/publish/instagram.ts');
+
+    expect(publisher).toContain('recordCalosInstagramPublishCost(params, {');
+    expect(publisher).toContain('route: "lib/calos/publish/instagram"');
+    expect(publisher).toContain('provider: "instagram-graph-api"');
+    expect(publisher).toContain('operation: input.operation');
+    expect(publisher).toContain('let phase: CalosInstagramCostPhase = "container_create"');
+    expect(publisher).toContain('let operation: CalosInstagramCostOperation = "social_media_upload"');
+    expect(publisher).toContain('phase = "publish"');
+    expect(publisher).toContain('operation = "social_publish"');
+    expect(publisher).toContain('units: { requestCount: 1 }');
+
+    const helper = publisher.slice(publisher.indexOf('async function recordCalosInstagramPublishCost'));
+    expect(helper).not.toContain('chargedCredits');
+    expect(helper).not.toContain('creditTransactionId');
+    expect(helper).not.toContain('caption');
+    expect(helper).not.toContain('imageUrl');
+    expect(helper).not.toContain('userAccessToken');
+    expect(helper).not.toContain('access_token');
+    expect(helper).not.toContain('postUrl');
+    expect(helper).not.toContain('body:');
+  });
+
   it('attaches Instagram publish revenue only after credit deduction returns a transaction', () => {
     const route = readRepoFile('app/api/services/uploaderx/instagram/route.ts');
 
@@ -60,6 +84,7 @@ describe('Instagram social provider cost telemetry contract', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
     expect(plan).toContain('Partial 2026-07-05: UploaderX Instagram main-route provider events are wired');
+    expect(plan).toContain('CalOS Facebook, Instagram, LinkedIn, and YouTube publisher events are wired');
     expect(plan).toContain('Instagram Graph API pricing remains `pricing_to_be_seen`');
   });
 });
