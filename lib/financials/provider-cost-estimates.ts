@@ -1,8 +1,33 @@
 import { CREDITS_PER_USD } from '@/lib/config/creditCosts';
 
-export const PROVIDER_COST_PRICING_VERSION = '2026-07-01.phase1';
+export const PROVIDER_COST_PRICING_VERSION = '2026-07-06.gemini-rates';
 
 const GB = 1024 * 1024 * 1024;
+const GEMINI_PRICING_SOURCE = 'https://ai.google.dev/gemini-api/docs/pricing';
+const GEMINI_2_5_FLASH_INPUT_USD_PER_TOKEN = 0.3 / 1_000_000;
+const GEMINI_2_5_FLASH_OUTPUT_USD_PER_TOKEN = 2.5 / 1_000_000;
+const GEMINI_2_5_FLASH_LITE_INPUT_USD_PER_TOKEN = 0.1 / 1_000_000;
+const GEMINI_2_5_FLASH_LITE_OUTPUT_USD_PER_TOKEN = 0.4 / 1_000_000;
+const GEMINI_3_1_PRO_PREVIEW_INPUT_USD_PER_TOKEN = 2 / 1_000_000;
+const GEMINI_3_1_PRO_PREVIEW_OUTPUT_USD_PER_TOKEN = 12 / 1_000_000;
+const GEMINI_EMBEDDING_INPUT_USD_PER_TOKEN = 0.15 / 1_000_000;
+
+const GEMINI_TEXT_IMAGE_VIDEO_OPERATIONS = [
+  'agent_generation',
+  'ai_plan',
+  'asset_analysis',
+  'auto_edit_analysis',
+  'brand_scan',
+  'chat_completion',
+  'image_analysis',
+  'llm_completion_cached_context',
+  'llm_completion_inline_context',
+  'llm_text_direct',
+  'summary_generation',
+  'trend_search_grounded',
+  'video_analysis',
+  'video_understanding',
+] as const;
 
 export type ProviderCostBasis =
   | 'estimated_table'
@@ -16,6 +41,8 @@ export type ProviderCostRateUnit =
   | 'media_minute'
   | 'image'
   | 'audio_character'
+  | 'input_token'
+  | 'output_token'
   | 'token'
   | 'storage_gb_month'
   | 'email';
@@ -76,6 +103,41 @@ export interface ProviderCostEstimateOptions {
 }
 
 export const PROVIDER_COST_RATES: readonly ProviderCostRate[] = [
+  ...GEMINI_TEXT_IMAGE_VIDEO_OPERATIONS.flatMap((operation) =>
+    geminiInputOutputTokenRates({
+      operation,
+      model: 'gemini-2.5-flash',
+      inputUsdPerToken: GEMINI_2_5_FLASH_INPUT_USD_PER_TOKEN,
+      outputUsdPerToken: GEMINI_2_5_FLASH_OUTPUT_USD_PER_TOKEN,
+      source: `${GEMINI_PRICING_SOURCE}: Gemini 2.5 Flash Standard $0.30/M input text/image/video tokens, $2.50/M output tokens`,
+    }),
+  ),
+  ...GEMINI_TEXT_IMAGE_VIDEO_OPERATIONS.flatMap((operation) =>
+    geminiInputOutputTokenRates({
+      operation,
+      model: 'gemini-2.5-flash-lite',
+      inputUsdPerToken: GEMINI_2_5_FLASH_LITE_INPUT_USD_PER_TOKEN,
+      outputUsdPerToken: GEMINI_2_5_FLASH_LITE_OUTPUT_USD_PER_TOKEN,
+      source: `${GEMINI_PRICING_SOURCE}: Gemini 2.5 Flash-Lite Standard $0.10/M input text/image/video tokens, $0.40/M output tokens`,
+    }),
+  ),
+  ...['llm_completion_cached_context', 'llm_completion_inline_context', 'video_understanding'].flatMap((operation) =>
+    geminiInputOutputTokenRates({
+      operation,
+      model: 'gemini-3.1-pro-preview',
+      inputUsdPerToken: GEMINI_3_1_PRO_PREVIEW_INPUT_USD_PER_TOKEN,
+      outputUsdPerToken: GEMINI_3_1_PRO_PREVIEW_OUTPUT_USD_PER_TOKEN,
+      source: `${GEMINI_PRICING_SOURCE}: Gemini 3.1 Pro Preview Standard $2/M input and $12/M output for prompts <=200k tokens`,
+    }),
+  ),
+  {
+    provider: 'gemini',
+    operation: 'embedding',
+    model: 'gemini-embedding-001',
+    unit: 'input_token',
+    usdPerUnit: GEMINI_EMBEDDING_INPUT_USD_PER_TOKEN,
+    source: `${GEMINI_PRICING_SOURCE}: Gemini Embedding $0.15/M input tokens`,
+  },
   {
     provider: 'fal-ai',
     operation: 'video_generation',
@@ -141,9 +203,9 @@ export function estimateProviderCost(
   const operation = normalizeSegment(input.operation);
   const model = input.model ? normalizeModel(input.model) : undefined;
   const rates = options.rates ?? PROVIDER_COST_RATES;
-  const rate = findRate({ provider, operation, model }, rates);
+  const matchedRates = findRates({ provider, operation, model }, rates);
 
-  if (!rate) {
+  if (matchedRates.length === 0) {
     return {
       provider,
       operation,
@@ -158,20 +220,28 @@ export function estimateProviderCost(
     };
   }
 
-  const quantity = quantityForRateUnit(rate.unit, input.units);
-  if (quantity === null) {
+  const pricedRates = matchedRates.map((rate) => ({
+    rate,
+    quantity: quantityForRateUnit(rate.unit, input.units),
+  }));
+  const availableRates = pricedRates.filter(
+    (entry): entry is { rate: ProviderCostRate; quantity: number } => entry.quantity !== null,
+  );
+  const missingRequiredQuantity = availableRates.length !== pricedRates.length;
+
+  if (availableRates.length === 0) {
     return {
       provider,
       operation,
       model,
       estimatedCostUsd: null,
       costBasis: 'pricing_to_be_seen',
-      pricingVersion: rate.pricingVersion ?? pricingVersion,
+      pricingVersion: pricingVersionForRates(matchedRates, pricingVersion),
       missingPricing: true,
       quantity: null,
-      unit: rate.unit,
-      usdPerUnit: rate.usdPerUnit,
-      source: rate.source,
+      unit: summarizeRateUnit(matchedRates),
+      usdPerUnit: summarizeUsdPerUnit(matchedRates),
+      source: summarizeSources(matchedRates),
     };
   }
 
@@ -179,14 +249,16 @@ export function estimateProviderCost(
     provider,
     operation,
     model,
-    estimatedCostUsd: roundUsd(quantity * rate.usdPerUnit),
-    costBasis: 'estimated_table',
-    pricingVersion: rate.pricingVersion ?? pricingVersion,
-    missingPricing: false,
-    quantity,
-    unit: rate.unit,
-    usdPerUnit: rate.usdPerUnit,
-    source: rate.source,
+    estimatedCostUsd: roundUsd(
+      availableRates.reduce((sum, entry) => sum + entry.quantity * entry.rate.usdPerUnit, 0),
+    ),
+    costBasis: missingRequiredQuantity ? 'pricing_to_be_seen' : 'estimated_table',
+    pricingVersion: pricingVersionForRates(matchedRates, pricingVersion),
+    missingPricing: missingRequiredQuantity,
+    quantity: roundQuantity(availableRates.reduce((sum, entry) => sum + entry.quantity, 0)),
+    unit: summarizeRateUnit(availableRates.map((entry) => entry.rate)),
+    usdPerUnit: summarizeUsdPerUnit(availableRates.map((entry) => entry.rate)),
+    source: summarizeSources(matchedRates),
   };
 }
 
@@ -204,13 +276,22 @@ export function normalizeProvider(provider: string): string {
     r2: 'cloudflare-r2',
     cloudflare: 'cloudflare-r2',
     cloudflare_r2: 'cloudflare-r2',
+    'google-gemini': 'gemini',
+    google_gemini: 'gemini',
+    google: 'gemini',
+    google_genai: 'gemini',
+    'google-generative-ai': 'gemini',
     ses: 'aws-ses',
   };
   return aliases[normalized] ?? normalized;
 }
 
 export function normalizeModel(model: string): string {
-  return normalizeSegment(model);
+  const normalized = normalizeSegment(model).replace(/^models\//, '');
+  const aliases: Record<string, string> = {
+    'creative-doc-model': 'gemini-3.1-pro-preview',
+  };
+  return aliases[normalized] ?? normalized;
 }
 
 export function roundUsd(value: number): number {
@@ -218,10 +299,10 @@ export function roundUsd(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-function findRate(
+function findRates(
   input: { provider: string; operation: string; model?: string },
   rates: readonly ProviderCostRate[],
-): ProviderCostRate | undefined {
+): ProviderCostRate[] {
   const normalizedRates = rates.map((rate) => ({
     ...rate,
     provider: normalizeProvider(rate.provider),
@@ -229,20 +310,20 @@ function findRate(
     model: rate.model ? normalizeModel(rate.model) : undefined,
   }));
 
-  return (
-    normalizedRates.find(
-      (rate) =>
-        rate.provider === input.provider &&
-        rate.operation === input.operation &&
-        !!input.model &&
-        rate.model === input.model,
-    ) ??
-    normalizedRates.find(
-      (rate) =>
-        rate.provider === input.provider &&
-        rate.operation === input.operation &&
-        !rate.model,
-    )
+  const exactModelRates = normalizedRates.filter(
+    (rate) =>
+      rate.provider === input.provider &&
+      rate.operation === input.operation &&
+      !!input.model &&
+      rate.model === input.model,
+  );
+  if (exactModelRates.length > 0) return exactModelRates;
+
+  return normalizedRates.filter(
+    (rate) =>
+      rate.provider === input.provider &&
+      rate.operation === input.operation &&
+      !rate.model,
   );
 }
 
@@ -258,6 +339,10 @@ function quantityForRateUnit(unit: ProviderCostRateUnit, units: ProviderCostUnit
       return cleanQuantity(units.imageCount);
     case 'audio_character':
       return cleanQuantity(units.audioCharacters);
+    case 'input_token':
+      return cleanQuantity(units.inputTokens);
+    case 'output_token':
+      return cleanQuantity(units.outputTokens);
     case 'token': {
       const tokenTotal =
         units.totalTokens ??
@@ -273,6 +358,64 @@ function quantityForRateUnit(unit: ProviderCostRateUnit, units: ProviderCostUnit
     default:
       return null;
   }
+}
+
+function geminiInputOutputTokenRates(input: {
+  operation: string;
+  model: string;
+  inputUsdPerToken: number;
+  outputUsdPerToken: number;
+  source: string;
+}): ProviderCostRate[] {
+  return [
+    {
+      provider: 'gemini',
+      operation: input.operation,
+      model: input.model,
+      unit: 'input_token',
+      usdPerUnit: input.inputUsdPerToken,
+      source: input.source,
+    },
+    {
+      provider: 'gemini',
+      operation: input.operation,
+      model: input.model,
+      unit: 'output_token',
+      usdPerUnit: input.outputUsdPerToken,
+      source: input.source,
+    },
+  ];
+}
+
+function summarizeRateUnit(rates: readonly ProviderCostRate[]): ProviderCostRateUnit | null {
+  if (rates.length === 0) return null;
+  const units = [...new Set(rates.map((rate) => rate.unit))];
+  if (units.length === 1) return units[0];
+  if (units.every((unit) => unit === 'input_token' || unit === 'output_token' || unit === 'token')) {
+    return 'token';
+  }
+  return null;
+}
+
+function summarizeUsdPerUnit(rates: readonly ProviderCostRate[]): number | null {
+  if (rates.length === 0) return null;
+  const values = [...new Set(rates.map((rate) => rate.usdPerUnit))];
+  return values.length === 1 ? values[0] : null;
+}
+
+function summarizeSources(rates: readonly ProviderCostRate[]): string | undefined {
+  const sources = [...new Set(rates.map((rate) => rate.source).filter(Boolean))];
+  return sources.length > 0 ? sources.join('; ') : undefined;
+}
+
+function pricingVersionForRates(rates: readonly ProviderCostRate[], fallback: string): string {
+  const versions = [...new Set(rates.map((rate) => rate.pricingVersion).filter(Boolean))];
+  return versions.length === 1 ? (versions[0] as string) : fallback;
+}
+
+function roundQuantity(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 function inferPrimaryQuantity(units: ProviderCostUnits = {}): number | null {

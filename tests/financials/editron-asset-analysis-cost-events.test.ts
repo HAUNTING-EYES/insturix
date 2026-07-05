@@ -22,6 +22,11 @@ describe("Editron asset-analysis provider cost events", () => {
     expect(source).toContain("recordProviderCostEvent");
     expect(source).toContain("editron:asset-analysis:${payload.assetId}:${event.stage}:${event.status}");
     expect(source).toContain("stage: 'video_5_track'");
+    expect(source).toContain("provider: 'google-gemini'");
+    expect(source).toContain('model: ANALYSIS_MODEL_NAME');
+    expect(source).toContain("analysisPipeline: 'five-track-analysis'");
+    expect(source).not.toContain("provider: 'editron-five-track'");
+    expect(source).not.toContain("model: 'five-track-analysis'");
     expect(source).toContain("stage: 'image_gemini_vision'");
     expect(source).toContain("stage: 'gemini_embedding'");
     expect(source).toContain("stage: 'audio_metadata'");

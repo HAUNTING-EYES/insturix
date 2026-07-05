@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { EDITRON_EMBEDDING_MODEL, generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
+import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import {
   buildAssetAnalysisClaimFilter,
   buildAssetAnalysisClaimUpdate,
@@ -146,8 +147,8 @@ async function handler(request: NextRequest) {
         await recordAssetAnalysisCostEvent(payload, {
           stage: 'video_5_track',
           status: videoPolicy.shouldRunFullAnalysis ? 'success' : 'skipped',
-          provider: 'editron-five-track',
-          model: 'five-track-analysis',
+          provider: 'google-gemini',
+          model: ANALYSIS_MODEL_NAME,
           operation: 'video_analysis',
           includeRevenue: true,
           units: { mediaSeconds: duration || undefined, requestCount: 1 },
@@ -156,6 +157,7 @@ async function handler(request: NextRequest) {
             analysisReturned: !!analysis,
             tagsCount: tags.length,
             fullVideoAnalysisPolicy: videoPolicy,
+            analysisPipeline: 'five-track-analysis',
           },
         });
       } catch (analysisErr: any) {
@@ -164,8 +166,8 @@ async function handler(request: NextRequest) {
         await recordAssetAnalysisCostEvent(payload, {
           stage: 'video_5_track',
           status: 'failed',
-          provider: 'editron-five-track',
-          model: 'five-track-analysis',
+          provider: 'google-gemini',
+          model: ANALYSIS_MODEL_NAME,
           operation: 'video_analysis',
           includeRevenue: true,
           units: { mediaSeconds: duration || undefined, requestCount: 1 },
@@ -173,6 +175,7 @@ async function handler(request: NextRequest) {
             durationSeconds: duration || null,
             errorClass: analysisErr?.name || 'Error',
             fullVideoAnalysisPolicy: videoPolicy,
+            analysisPipeline: 'five-track-analysis',
           },
         });
       }
