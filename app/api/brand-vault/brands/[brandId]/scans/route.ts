@@ -78,6 +78,61 @@ export async function GET(request: Request, { params }: Params) {
   });
 }
 
+/**
+ * DELETE /api/brand-vault/brands/[brandId]/scans?jobId=...
+ *
+ * Remove a scan from the brand's history. Owner-scoped (only the user who ran the scan can delete it).
+ * Deletes the job snapshot only — the accepted brand profile is a separate record and is never touched.
+ */
+export async function DELETE(request: Request, { params }: Params) {
+  const { userId, orgId, has } = await auth();
+  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+
+  const { brandId: rawBrandId } = await params;
+  const brandId = rawBrandId.trim();
+  if (!brandId) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'invalid_brand', message: 'Missing brand id.' } },
+      { status: 400 },
+    );
+  }
+
+  const jobId = new URL(request.url).searchParams.get('jobId')?.trim();
+  if (!jobId) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'invalid_request', message: 'Missing jobId.' } },
+      { status: 400 },
+    );
+  }
+
+  const store = getDefaultBrandVaultRefineryStore();
+  if (!store.deleteJobSnapshot) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'unsupported_store', message: 'Brand Vault store cannot delete scans.' } },
+      { status: 500 },
+    );
+  }
+
+  const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
+  const access = await canReadBrandScanHistory(store, { orgId: orgId ?? null, userId, brandId, isOrgAdmin });
+  if (!access) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'forbidden', message: 'You do not have access to this brand.' } },
+      { status: 403 },
+    );
+  }
+
+  const deleted = await store.deleteJobSnapshot(jobId, { userId, orgId: orgId ?? null });
+  if (!deleted) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'not_found', message: 'Scan not found, or not yours to delete.' } },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json({ ok: true, jobId, deleted: true });
+}
+
 async function canReadBrandScanHistory(
   store: BrandVaultRefineryStore,
   args: { orgId: string | null; userId: string; brandId: string; isOrgAdmin: boolean },

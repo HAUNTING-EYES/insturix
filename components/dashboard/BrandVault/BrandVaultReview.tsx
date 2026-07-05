@@ -61,6 +61,7 @@ import {
   useBrandVaultMutations,
   useBrandVaultProfile,
   useBrandVaultScans,
+  useDeleteBrandVaultScan,
   useLatestAcceptedBrandVaultRecordId,
 } from './useBrandVault';
 
@@ -202,6 +203,7 @@ export function BrandVaultReview() {
   const latestAccepted = useLatestAcceptedBrandVaultRecordId(activeBrandId);
   const acceptedBrands = useAcceptedBrandVaultBrands();
   const brandScans = useBrandVaultScans(activeBrandId);
+  const deleteScan = useDeleteBrandVaultScan();
   const guidanceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const signalTableRef = useRef<HTMLDivElement | null>(null);
   const decisionControlsRef = useRef<HTMLDivElement | null>(null);
@@ -348,7 +350,8 @@ export function BrandVaultReview() {
     errorMessage(jobQuery.error) ??
     errorMessage(profileQuery.error) ??
     errorMessage(latestAccepted.error) ??
-    errorMessage(acceptedBrands.error);
+    errorMessage(acceptedBrands.error) ??
+    errorMessage(deleteScan.error);
   const statusLabel = snapshot.record?.status ?? snapshot.job?.status ?? 'draft';
   const needsCount = activeConflicts.length;
   const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';
@@ -804,6 +807,10 @@ export function BrandVaultReview() {
             onRescan={() => void createDraftFromCurrentInputs()}
             onScanNew={scanNewClient}
             onOpenScan={openScan}
+            onDeleteScan={(jobId) => {
+              if (activeBrandId) void deleteScan.mutateAsync({ brandId: activeBrandId, jobId }).catch(() => undefined);
+            }}
+            deletingJobId={deleteScan.isPending ? deleteScan.variables?.jobId ?? null : null}
           />
 
           {!snapshot.record && (
@@ -2093,6 +2100,12 @@ const baseStyles = `
   align-items: center;
   gap: 3px;
   color: #D4A652;
+}
+.bv-c1-scan-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .bv-c1-scan-time {
   font-family: 'JetBrains Mono', ui-monospace, monospace;

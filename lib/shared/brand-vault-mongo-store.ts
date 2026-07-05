@@ -92,6 +92,7 @@ export interface BrandVaultMongoCollection<TDocument extends { _id: string }> {
     update: { $set?: Partial<TDocument>; $setOnInsert?: Partial<TDocument> },
     options?: { upsert?: boolean },
   ): Promise<unknown>;
+  deleteOne(filter: Filter<TDocument>): Promise<{ deletedCount?: number }>;
 }
 
 export interface BrandVaultMongoCursor<TDocument> {
@@ -247,6 +248,13 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     const collections = await this.getCollections();
     const doc = await collections.jobs.findOne({ recordId } as Filter<BrandVaultMongoJobDocument>);
     return doc ? clone(doc.snapshot) : null;
+  }
+
+  async deleteJobSnapshot(jobId: string, scope: { userId: string; orgId: string | null }): Promise<boolean> {
+    const collections = await this.getCollections();
+    // Owner-scoped: only the user who ran the scan can delete its history entry. Never touches profiles.
+    const result = await collections.jobs.deleteOne({ _id: jobId, userId: scope.userId } as Filter<BrandVaultMongoJobDocument>);
+    return (result.deletedCount ?? 0) > 0;
   }
 
   async listJobSnapshots(filter: BrandVaultRefineryJobListFilter = {}): Promise<BrandVaultRefineryJobSnapshot[]> {

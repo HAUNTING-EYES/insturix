@@ -131,6 +131,23 @@ async function fetchBrandScans(brandId: string): Promise<BrandVaultBrandScanSumm
   return Array.isArray(payload.scans) ? payload.scans : [];
 }
 
+/** Delete a scan from a brand's history (owner-scoped server-side). Fail-loud on a non-ok envelope. */
+async function deleteBrandScanRequest(brandId: string, jobId: string): Promise<void> {
+  const response = await fetch(
+    `/api/brand-vault/brands/${encodeURIComponent(brandId)}/scans?jobId=${encodeURIComponent(jobId)}`,
+    { method: 'DELETE', credentials: 'include' },
+  );
+  const payload = (await response.json().catch(() => null)) as
+    | { ok: true }
+    | { ok: false; error?: { message?: string } }
+    | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload && 'error' in payload ? payload.error?.message ?? 'Could not delete the scan.' : 'Could not delete the scan.',
+    );
+  }
+}
+
 async function reviewDraftRequest(
   recordId: string,
   action: 'accept' | 'reject',
@@ -225,6 +242,17 @@ export function useBrandVaultScans(brandId: string | null | undefined) {
     queryFn: () => fetchBrandScans(brandId as string),
     enabled: Boolean(isSignedIn && brandId),
     staleTime: 30 * 1000,
+  });
+}
+
+/** Delete a scan from a brand's history; refreshes that brand's scan list on success. */
+export function useDeleteBrandVaultScan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ brandId, jobId }: { brandId: string; jobId: string }) => deleteBrandScanRequest(brandId, jobId),
+    onSuccess: (_data, { brandId }) => {
+      queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.scans(brandId) });
+    },
   });
 }
 
