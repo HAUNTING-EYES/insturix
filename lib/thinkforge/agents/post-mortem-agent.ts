@@ -24,6 +24,7 @@ import {
   type ThinkForgeEvent,
 } from '../services/db';
 import { embedDataBankEntry } from '../services/embedding-service';
+import { readAiSdkUsage, recordThinkForgeDirectCost, safeJsonLength } from '../services/provider-cost-telemetry';
 
 export interface PostMortemInput {
   userId: string;
@@ -136,12 +137,9 @@ export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMo
   }
 
   const model = createModelByTier(ModelTier.Structural);
-
-  const { object } = await generateObject({
-    model,
-    schema: compressionSchema,
-    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
-    prompt: `<role>You are a Post-Mortem agent for ThinkForge, a content creation tool.</role>
+  const modelName = 'gemini-2.5-flash';
+  // Prompt: XML-structured per Rule 35 (2026-05-14)
+  const prompt = `<role>You are a Post-Mortem agent for ThinkForge, a content creation tool.</role>
 
 <task>
 A user finished a project${projectTitle ? ` called "${projectTitle}"` : ''}. Extract:
@@ -163,9 +161,60 @@ ${entriesToText(projectEntries)}${brandEventsText ? `
 
 Cross-service brand events (overrides, style changes, quality scores):
 ${brandEventsText}` : ''}
-</input_data>`,
-    temperature: 0.2,
-  });
+</input_data>`;
+  const startedAt = Date.now();
+  let object: z.infer<typeof compressionSchema>;
+
+  try {
+    const result = await generateObject({
+      model,
+      schema: compressionSchema,
+      prompt,
+      temperature: 0.2,
+    });
+    object = result.object;
+    await recordThinkForgeDirectCost({
+      status: 'success',
+      action: 'post_mortem_compression',
+      route: 'lib/thinkforge/agents/post-mortem-agent',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_structured_direct',
+      userId,
+      projectId: brandId ?? projectId,
+      taskId: sessionId,
+      promptChars: prompt.length,
+      outputChars: safeJsonLength(object),
+      functionMs: Date.now() - startedAt,
+      usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      temperature: 0.2,
+      sourceKind: 'post_mortem_memory_compression',
+      resultCount: object.lessons.length,
+      acceptedCount: object.lessons.length + (object.projectSummary ? 1 : 0),
+    });
+  } catch (error) {
+    await recordThinkForgeDirectCost({
+      status: 'failed',
+      action: 'post_mortem_compression',
+      route: 'lib/thinkforge/agents/post-mortem-agent',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_structured_direct',
+      userId,
+      projectId: brandId ?? projectId,
+      taskId: sessionId,
+      promptChars: prompt.length,
+      functionMs: Date.now() - startedAt,
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      temperature: 0.2,
+      sourceKind: 'post_mortem_memory_compression',
+      error,
+    });
+    throw error;
+  }
 
   let summaryEntryId: string | null = null;
   let lessonsExtracted = 0;
