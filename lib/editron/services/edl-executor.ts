@@ -11,7 +11,7 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/data/transition-templates';
+import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
 import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -2592,21 +2592,6 @@ function applyTransition(
   (transitionOverlay.metadata as any).atomicOverlayForms = [(transitionOverlay.metadata as any).atomicOverlayReceipt.form];
 
   overlays.push(transitionOverlay as any);
-
-  // For dissolve: apply keyframe-based opacity crossfade to the two clips.
-  // The Remotion renderer (transition-layer-content.tsx:78-90) already returns
-  // { opacity: 0 } for dissolve — the visual comes from clip opacity keyframes,
-  // not an HTML overlay. The transition tile exists for timeline visualization only.
-  if (transType === 'dissolve') {
-    const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);
-    // Apply keyframe tracks back to the live overlays
-    clipA.keyframeTracks = outgoing.keyframeTracks;
-    clipB.keyframeTracks = incoming.keyframeTracks;
-    clipB.from = incoming.from;
-    clipB.durationInFrames = incoming.durationInFrames;
-    console.log(`[EDL-Exec] True dissolve applied: clipA opacity fade-out over ${durationFrames} frames, clipB overlap + fade-in`);
-    return { created: 1, modified: 2 };
-  }
 
   // Clean up clip-overlap opacity keyframes that edit-direction-applier may
   // have placed on the adjacent clips at this boundary. Without this, both

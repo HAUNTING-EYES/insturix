@@ -61,7 +61,7 @@ describe('resolveAtomicTransitionForm', () => {
     expect(form.intent).toBe('continuity-blend');
     expect(form.compatibilityType).toBe('dissolve');
     expect(form.durationFrames).toBeGreaterThanOrEqual(30);
-    expect(form.keyframeBased).toBe(true);
+    expect(form.keyframeBased).toBe(false);
   });
 
   it('uses subject position as a weak fallback direction when no motion vector exists', () => {

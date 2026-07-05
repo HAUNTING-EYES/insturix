@@ -127,7 +127,7 @@ const TRANSITION_FACTORIES: Record<string, (frames: number, w: number, h: number
 
   // DEAD CODE: TRANSITION_FACTORIES are unused — EDL executor creates transitions directly,
   // Remotion renderer (transition-layer-content.tsx) handles visuals via switch/case.
-  // Dissolve visual comes from clip opacity keyframes (createTrueDissolve in edl-executor).
+  // Dissolve visual is owned by the Remotion transition tile; do not add clip opacity keyframes.
   'dissolve': (frames, w, h) => `
 <div style="position:absolute;inset:0;background:#000;animation:softDip ${frames / 30}s ease-in-out forwards;">
 </div>

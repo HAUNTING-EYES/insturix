@@ -92,6 +92,42 @@ describe('EDL param contract normalization', () => {
     expect(speedCurve.map((point: any) => point.value)).not.toContain(0.5);
   });
 
+  it('keeps dissolve transition ownership in the transition tile without mutating clip timing', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, videoStartTime: 300 } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, videoStartTime: 900 } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 36,
+      confidence: 0.95,
+      params: { transitionType: 'dissolve', topicShift: 0.82 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-dissolve-owner-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const transition = overlays.find((overlay: any) => overlay.type === 'transition') as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(1);
+    expect(transition).toEqual(expect.objectContaining({
+      transitionStyle: 'dissolve',
+      clipAId: 'clip-a',
+      clipBId: 'clip-b',
+      from: 82,
+      durationInFrames: 36,
+    }));
+    expect((clipA as any).from).toBe(0);
+    expect((clipA as any).durationInFrames).toBe(100);
+    expect((clipB as any).from).toBe(100);
+    expect((clipB as any).durationInFrames).toBe(120);
+    expect((clipB as any).videoStartTime).toBe(900);
+    expect(((clipA as any).keyframeTracks ?? []).some((track: any) => track.property === 'opacity')).toBe(false);
+    expect(((clipB as any).keyframeTracks ?? []).some((track: any) => track.property === 'opacity')).toBe(false);
+    expect(transition.metadata.atomicTransitionForm).toEqual(expect.objectContaining({
+      compatibilityType: 'dissolve',
+      keyframeBased: false,
+    }));
+  });
   it('executes graph-produced camera shake through the producer and EDL path', async () => {
     const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
     const { loadGraph } = await import('../../lib/editron/services/graph-query');
