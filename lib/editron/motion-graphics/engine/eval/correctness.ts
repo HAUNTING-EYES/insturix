@@ -44,6 +44,13 @@ const FORM_FAMILY_TO_KIND: Record<string, string[]> = {
 
 const norm = (s: string): string => s.replace(/\s+/g, '').toLowerCase();
 
+function recipeKind(recipe: Recipe): string {
+  const kind = recipe.id.replace('composed-', '');
+  if (kind.startsWith('structured')) return 'structured';
+  if (kind.startsWith('numeric') || /(^|[+])(literal|length|sweep|emphasis)([+]|$)/.test(kind)) return 'numeric';
+  return kind;
+}
+
 /** The strings a recipe's TEXT elements actually display, resolving their "content:<key>" bindings
  *  against the content map (mirrors the renderer + mg-eval's bound()). Token/literal binds ignored. */
 function displayedStrings(recipe: Recipe, content: Record<string, unknown>): string[] {
@@ -79,7 +86,7 @@ export function scoreCorrectness(
   const fails: string[] = [];
 
   if (gt!.formFamily != null) {
-    const kind = recipe.id.replace('composed-', '');
+    const kind = recipeKind(recipe);
     const ok = (FORM_FAMILY_TO_KIND[gt!.formFamily] ?? []).includes(kind);
     checks.push(ok);
     if (!ok) fails.push(`form: "${gt!.formFamily}" → got "${kind}"`);

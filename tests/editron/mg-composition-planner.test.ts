@@ -135,6 +135,36 @@ describe('numeric encoding law', () => {
 
     expect(primary?.bind.minSize).toBe(48);
   });
+
+  it('attaches deterministic eval evidence to final non-numeric recipes', () => {
+    const quoteText = 'Small teams can still build serious leverage.';
+    const recipe = planComposition(
+      { content: { quote: quoteText } },
+      tokens,
+      {
+        recent_mg_recipe_ids: 'composed-quotation|composed-quotation',
+        recent_mg_positions: 'center,center',
+      } as never,
+    );
+    const layers = Object.fromEntries(
+      recipe.qualityEval?.layers.map((layer) => [layer.layer, layer]) ?? [],
+    );
+
+    expect(recipe.id).toBe('composed-quotation');
+    expect(recipe.qualityEval).toMatchObject({
+      source: 'mg-eval-v1',
+      correctnessGroundTruth: {
+        value: quoteText,
+        formFamily: 'quote',
+        source: 'extraction',
+      },
+    });
+    expect(layers.legibility).toMatchObject({ status: 'scored' });
+    expect(layers.correctness).toMatchObject({ status: 'scored', score: 1, groundTruthSource: 'extraction' });
+    expect(layers.aesthetic).toMatchObject({ status: 'scored' });
+    expect(layers.aesthetic.score).toBeLessThan(1);
+    expect(recipe.qualityEval?.composite).toEqual(expect.any(Number));
+  });
 });
 
 // ---------------------------------------------------------------------------
