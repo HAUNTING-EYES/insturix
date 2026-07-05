@@ -223,17 +223,18 @@ export async function POST(
       aspectRatio: effectiveAspectRatio, // Use per-variation aspect ratio or fall back to global
     });
 
-    // Set idempotency key if provided
+    // Set idempotency key if provided. Best-effort dedup optimization only: it runs AFTER
+    // deduct() and AFTER the job/variation were created, and real duplicate submissions were
+    // already short-circuited by getIdempotencyKey at the top of this handler. A failure here
+    // must NOT fail the request — throwing would strand a paid, in-flight generation (the old
+    // MONEY-LOSS bug: charged, no image, no refund). We log and continue to enqueue so the user
+    // keeps the generation they paid for; the only cost of a missed key is that a later client
+    // retry wouldn't be deduped, which is rare since this request still returns 200. [R5]
     if (idempotencyKey) {
       try {
         await setIdempotencyKey(idempotencyKey, jobId);
       } catch (idemError) {
-        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
-        // Runs AFTER deduct() but BEFORE enqueue — a throw here 500s the request with credits
-        // already deducted, no job, and NO refund. Logged loud + re-thrown (behavior preserved);
-        // the real fix (guard/refund) is in the audit doc's "Design fixes for later".
-        console.error('[LOUDFAIL][Clickatron][VARIATION][IDEMPOTENCY-AFTER-DEDUCT][MONEY-LOSS] setIdempotencyKey threw after charge, before enqueue — user charged, no job, no refund:', { userId, sessionId: id, jobId, idempotencyKey, idemError });
-        throw idemError;
+        console.error('[Clickatron][VARIATION][IDEMPOTENCY-AFTER-DEDUCT] setIdempotencyKey failed after charge — continuing to enqueue so the paid generation is not stranded:', { userId, sessionId: id, jobId, idempotencyKey, idemError });
       }
     }
 
