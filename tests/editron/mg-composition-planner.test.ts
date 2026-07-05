@@ -128,6 +128,13 @@ describe('numeric encoding law', () => {
     expect(dataViz!.bind.encodingChannel).toBe('sweep');
     expect(dataViz!.role).not.toMatch(/bar|ring|percentage/);
   });
+
+  it('runs the CRG repair gate before returning the recipe', () => {
+    const recipe = planComposition({ content: {} }, tokens);
+    const primary = recipe.elements.find((element) => element.primitive === 'text' && element.role === 'primary');
+
+    expect(primary?.bind.minSize).toBe(48);
+  });
 });
 
 // ---------------------------------------------------------------------------

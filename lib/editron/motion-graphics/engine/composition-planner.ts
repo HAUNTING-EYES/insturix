@@ -29,6 +29,7 @@ import {
 import { scoreAesthetic } from './eval/aesthetic';
 import { combineLayers } from './eval/composite';
 import { scoreLegibility } from './eval/legibility';
+import { validateRecipeConstraints } from './crg-constraint-validator';
 
 export type MgOverlayScores = Record<string, { score: number; values: Record<string, number | string | boolean> }>;
 
@@ -294,12 +295,12 @@ export function planComposition(
     : 'vertical-stack' as const;
   layout = { ...layout, arrangement };
 
-  return {
+  return validateRecipeConstraints({
     id: compositionRecipeId(strategy, intent.content),
     elements,
     layout,
     exitStyle: strategy.suggestedExitStyle,
-  };
+  }).recipe;
 }
 
 function compositionRecipeId(
