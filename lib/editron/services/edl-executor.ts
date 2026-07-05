@@ -178,6 +178,189 @@ export function findClipAtFrame(
 
 // ─── Types ───────────────────────────────────────────────────────
 
+
+type AudioBoundaryTransitionKind = 'j-cut' | 'l-cut';
+
+const AUDIO_BOUNDARY_FPS = 30;
+const MIN_AUDIO_BOUNDARY_OFFSET_FRAMES = 10;
+const MAX_AUDIO_BOUNDARY_OFFSET_FRAMES = 90;
+
+function resolveAudioBoundaryTransitionKind(decision: EditDecision): AudioBoundaryTransitionKind | null {
+  const params = decision.params ?? {};
+  const candidates = [
+    params.transitionType,
+    params.transitionCompatibilityHint,
+    params.transitionStyle,
+    params.creativeDecisionType,
+    params.transitionRelation,
+    params.transitionIntent,
+    params.type,
+    decision.type,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.toLowerCase().replace(/_/g, '-'));
+
+  if (candidates.some((value) => value.includes('j-cut') || value === 'audio-leads-picture')) return 'j-cut';
+  if (candidates.some((value) => value.includes('l-cut') || value === 'audio-trails-picture')) return 'l-cut';
+  return null;
+}
+
+function resolveAudioBoundaryOffsetFrames(decision: EditDecision): number {
+  const params = decision.params ?? {};
+  const offsetMs = readAudioBoundaryNumber(
+    params.offsetMs,
+    params.audioOffsetMs,
+    params.audioLeadMs,
+    params.audioTailMs,
+    params.incomingAudioLeadMs,
+    params.outgoingAudioTailMs,
+  ) ?? 500;
+  const offsetFrames = Math.round((offsetMs / 1000) * AUDIO_BOUNDARY_FPS);
+  return Math.max(MIN_AUDIO_BOUNDARY_OFFSET_FRAMES, Math.min(MAX_AUDIO_BOUNDARY_OFFSET_FRAMES, offsetFrames));
+}
+
+function readAudioBoundaryNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric;
+    }
+  }
+  return undefined;
+}
+
+function sourceStartFrameForClip(clip: Record<string, any>): number {
+  return readAudioBoundaryNumber(clip.sourceStartFrame, clip.videoStartTime) ?? 0;
+}
+
+function applyAudioBoundaryTransition(
+  kind: AudioBoundaryTransitionKind,
+  decision: EditDecision,
+  overlays: Overlay[],
+  boundaryMatch: ClipBoundaryMatch,
+  idEpoch: number,
+  decisionIndex: number,
+): { created: number; modified: number } | null {
+  const offsetFrames = resolveAudioBoundaryOffsetFrames(decision);
+  const targetClip = kind === 'j-cut' ? boundaryMatch.clipB as any : boundaryMatch.clipA as any;
+  const sourceUrl = targetClip.src || targetClip.content;
+  if (!sourceUrl) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no audio source URL`);
+    return null;
+  }
+  if (targetClip.hasNativeAudio !== true) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no native-audio evidence`);
+    return null;
+  }
+
+  const existing = overlays.find((overlay: any) =>
+    overlay.type === 'sound'
+    && overlay.metadata?.source === 'edl-native-audio-boundary'
+    && overlay.metadata?.audioBoundaryKind === kind
+    && overlay.metadata?.sourceClipId === targetClip.id
+  );
+  if (existing) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - native-audio boundary already exists for clip ${targetClip.id}`);
+    return null;
+  }
+
+  const originalVolume = typeof targetClip.styles?.volume === 'number' ? targetClip.styles.volume : 1;
+  const sourceStart = sourceStartFrameForClip(targetClip);
+  const visualStart = targetClip.from;
+  const visualEnd = targetClip.from + targetClip.durationInFrames;
+  const audioStartFrame = kind === 'j-cut'
+    ? Math.max(0, visualStart - offsetFrames)
+    : visualStart;
+  const audioLeadFrames = visualStart - audioStartFrame;
+  const audioEndFrame = kind === 'l-cut'
+    ? visualEnd + offsetFrames
+    : visualEnd;
+  const sourceOffsetFrames = kind === 'j-cut'
+    ? Math.max(0, sourceStart - audioLeadFrames)
+    : sourceStart;
+  const durationFrames = Math.max(1, audioEndFrame - audioStartFrame);
+  const soundId = deterministicOverlayId(idEpoch, `native-audio-${kind}`, decision.frame, decisionIndex);
+  const atomicOverlayReceipt = buildOverlayAtomicReceipt({
+    family: 'sound',
+    intent: kind === 'j-cut' ? 'audio-leads-picture' : 'audio-trails-picture',
+    frame: boundaryMatch.boundaryFrame,
+    durationFrames,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: {
+      overlayId: soundId,
+      clipAId: (boundaryMatch.clipA as any).id,
+      clipBId: (boundaryMatch.clipB as any).id,
+      sourceClipId: targetClip.id,
+      boundaryFrame: boundaryMatch.boundaryFrame,
+    },
+    payload: {
+      audioBoundaryKind: kind,
+      sourceClipId: targetClip.id,
+      sourceOffsetFrames,
+      offsetFrames,
+      audioStartFrame,
+      audioEndFrame,
+    },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.boundary_frame', boundaryMatch.boundaryFrame, 1, 'edl'),
+      overlayAtom('transition-relation', 'audio.boundary_kind', kind, decision.confidence, 'edl'),
+      overlayAtom('start-frame', 'audio.start_frame', audioStartFrame, 1, 'derived-signal'),
+      overlayAtom('end-frame', 'audio.end_frame', audioEndFrame, 1, 'derived-signal'),
+      overlayAtom('duration', 'audio.duration_frames', durationFrames, decision.confidence, 'derived-signal'),
+    ],
+  });
+
+  targetClip.styles = { ...(targetClip.styles ?? {}), volume: 0 };
+  targetClip.metadata = {
+    ...(targetClip.metadata ?? {}),
+    nativeAudioBoundaryMutedBy: kind,
+    nativeAudioBoundaryCloneId: soundId,
+  };
+
+  overlays.push({
+    id: soundId,
+    type: 'sound',
+    from: audioStartFrame,
+    durationInFrames: durationFrames,
+    startFromSound: sourceOffsetFrames,
+    audioStartFrame,
+    audioEndFrame,
+    row: ROW.VOICEOVER,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    isDragging: false,
+    rotation: 0,
+    content: sourceUrl,
+    src: sourceUrl,
+    assetId: `native-audio-${targetClip.id}-${kind}`,
+    styles: { volume: originalVolume, opacity: 1 },
+    metadata: {
+      source: 'edl-native-audio-boundary',
+      audioBoundaryKind: kind,
+      sourceClipId: targetClip.id,
+      clipAId: (boundaryMatch.clipA as any).id,
+      clipBId: (boundaryMatch.clipB as any).id,
+      boundaryFrame: boundaryMatch.boundaryFrame,
+      sourceOffsetFrames,
+      offsetFrames,
+      ...atomicMomentBundleMetadata(decision),
+      atomicOverlayReceipt,
+      atomicOverlayReceipts: [atomicOverlayReceipt],
+      atomicOverlayForm: atomicOverlayReceipt.form,
+      atomicOverlayForms: [atomicOverlayReceipt.form],
+      atomicPlanObserveMode: true,
+    },
+  } as any);
+
+  console.log(`[EDL-Exec] ${kind} APPLIED: native audio clone for clip ${targetClip.id} at boundary ${boundaryMatch.boundaryFrame}`);
+  return { created: 1, modified: 1 };
+}
+
 export interface RejectedDecision {
   type: string;
   frame: number;
@@ -2449,6 +2632,7 @@ function applyTransition(
 ): { created: number; modified: number } | null {
   decision.params = decision.params || {};
   const requestedTransType = (decision.params.transitionType || decision.params.transitionCompatibilityHint || 'soft-cut') as string;
+  const audioBoundaryKind = resolveAudioBoundaryTransitionKind(decision);
   // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
   // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
   const transitionForm = resolveAtomicTransitionForm({
@@ -2464,7 +2648,7 @@ function applyTransition(
   // hard-cut and editorial cuts don't produce visual transitions. Use the
   // resolved atomic form, not the upstream hint, so strong motion/beat atoms can
   // promote a default hard-cut into a motivated visual transition.
-  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
+  if (!audioBoundaryKind && ['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
     return null;
   }
 
@@ -2483,6 +2667,10 @@ function applyTransition(
   const clipA = boundaryMatch.clipA;
   const clipB = boundaryMatch.clipB;
   const anchorFrame = boundaryMatch.boundaryFrame;
+
+  if (audioBoundaryKind) {
+    return applyAudioBoundaryTransition(audioBoundaryKind, decision, overlays, boundaryMatch, idEpoch, decisionIndex);
+  }
 
   // Check if a transition already exists for this clip pair. Clip-pair match
   // is the authoritative dedup key — a pair of clips has exactly one boundary,

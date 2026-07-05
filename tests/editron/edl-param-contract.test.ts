@@ -171,6 +171,109 @@ describe('EDL param contract normalization', () => {
       keyframeBased: false,
     }));
   });
+
+  it('executes J-cut decisions as native-audio boundary overlays, not visual transition tiles', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, sourceStartFrame: 300, videoStartTime: 300, hasNativeAudio: true } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, sourceStartFrame: 900, videoStartTime: 900, hasNativeAudio: true, styles: { opacity: 1, volume: 0.82 } } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 0,
+      confidence: 0.95,
+      params: { transitionRelation: 'audio-leads-picture', offsetMs: 500 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-j-cut-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const sound = overlays.find((overlay: any) => overlay.type === 'sound') as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(overlays.some((overlay: any) => overlay.type === 'transition')).toBe(false);
+    expect(sound).toEqual(expect.objectContaining({
+      type: 'sound',
+      from: 85,
+      durationInFrames: 135,
+      startFromSound: 885,
+      audioStartFrame: 85,
+      audioEndFrame: 220,
+      row: 3,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+    }));
+    expect(sound.metadata).toEqual(expect.objectContaining({
+      source: 'edl-native-audio-boundary',
+      audioBoundaryKind: 'j-cut',
+      sourceClipId: 'clip-b',
+      clipAId: 'clip-a',
+      clipBId: 'clip-b',
+      boundaryFrame: 100,
+      sourceOffsetFrames: 885,
+      offsetFrames: 15,
+    }));
+    expect(sound.metadata.atomicOverlayReceipt.payload).toEqual(expect.objectContaining({
+      audioBoundaryKind: 'j-cut',
+      sourceClipId: 'clip-b',
+      sourceOffsetFrames: 885,
+      audioStartFrame: 85,
+      audioEndFrame: 220,
+    }));
+    expect((clipB as any).styles.volume).toBe(0);
+    expect((clipB as any).metadata).toEqual(expect.objectContaining({
+      nativeAudioBoundaryMutedBy: 'j-cut',
+      nativeAudioBoundaryCloneId: sound.id,
+    }));
+  });
+
+  it('executes L-cut decisions as native-audio boundary overlays, not visual transition tiles', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, sourceStartFrame: 300, videoStartTime: 300, hasNativeAudio: true, styles: { opacity: 1, volume: 0.7 } } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, sourceStartFrame: 900, videoStartTime: 900, hasNativeAudio: true } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 0,
+      confidence: 0.95,
+      params: { creativeDecisionType: 'transition_l_cut', offsetMs: 500 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-l-cut-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const sound = overlays.find((overlay: any) => overlay.type === 'sound') as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(overlays.some((overlay: any) => overlay.type === 'transition')).toBe(false);
+    expect(sound).toEqual(expect.objectContaining({
+      type: 'sound',
+      from: 0,
+      durationInFrames: 115,
+      startFromSound: 300,
+      audioStartFrame: 0,
+      audioEndFrame: 115,
+      row: 3,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+    }));
+    expect(sound.styles.volume).toBe(0.7);
+    expect(sound.metadata).toEqual(expect.objectContaining({
+      source: 'edl-native-audio-boundary',
+      audioBoundaryKind: 'l-cut',
+      sourceClipId: 'clip-a',
+      clipAId: 'clip-a',
+      clipBId: 'clip-b',
+      boundaryFrame: 100,
+      sourceOffsetFrames: 300,
+      offsetFrames: 15,
+    }));
+    expect((clipA as any).styles.volume).toBe(0);
+    expect((clipA as any).metadata).toEqual(expect.objectContaining({
+      nativeAudioBoundaryMutedBy: 'l-cut',
+      nativeAudioBoundaryCloneId: sound.id,
+    }));
+  });
+
   it('executes graph-produced camera shake through the producer and EDL path', async () => {
     const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
     const { loadGraph } = await import('../../lib/editron/services/graph-query');
