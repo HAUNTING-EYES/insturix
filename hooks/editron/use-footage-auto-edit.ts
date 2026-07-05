@@ -20,11 +20,26 @@ import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron
 import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 
+/** Auto-edit config from the dialog. Forwarded verbatim to /auto-edit/from-asset,
+    which already reads these fields (they were previously dropped here). */
+export interface FootageAutoEditOptions {
+  aspectRatio?: string;
+  platform?: string;
+  userIntent?: string;
+  script?: string;
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
+}
+
 export interface FootageAutoEditState {
   running: boolean;
   progress: string;
   error: string | null;
-  start: (file: File) => void;
+  start: (file: File, options?: FootageAutoEditOptions) => void;
 }
 
 const POLL_STATUS_LABELS: Record<string, string> = {
@@ -48,7 +63,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const run = useCallback(async (file: File) => {
+  const run = useCallback(async (file: File, options: FootageAutoEditOptions = {}) => {
     setRunning(true);
     setError(null);
     try {
@@ -114,6 +129,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
           assetId,
           title: file.name.replace(/\.[^.]+$/, ''),
           brandId: getActiveBrandIdFromStorage(),
+          ...options, // aspectRatio/platform/captions/pacing/… from the dialog
         }),
       });
       if (!editRes.ok) {
@@ -188,7 +204,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     }
   }, [router, toast]);
 
-  const start = useCallback((file: File) => { void run(file); }, [run]);
+  const start = useCallback((file: File, options?: FootageAutoEditOptions) => { void run(file, options); }, [run]);
 
   return { running, progress, error, start };
 }
