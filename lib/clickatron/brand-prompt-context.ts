@@ -2,6 +2,7 @@ import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-reso
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 import { modelSupportsTextRendering } from "@/lib/config/clickatron-models";
+import { sanitizeVisualPrompt } from "@/lib/clickatron/sanitize-visual-prompt";
 
 type MetadataRecord = Record<string, unknown>;
 
@@ -92,7 +93,8 @@ function summarizeSlides(value: unknown): string | undefined {
     .map((entry) => {
       const slide = asRecord(entry);
       const index = typeof slide?.index === "number" ? slide.index + 1 : undefined;
-      const prompt = cleanText(slide?.imagePrompt);
+      const rawPrompt = cleanText(slide?.imagePrompt);
+      const prompt = rawPrompt ? sanitizeVisualPrompt(rawPrompt).clean : undefined;
       if (!prompt) return undefined;
       const title = cleanText(slide?.title);
       return `Slide ${index ?? "?"}${title ? ` (${title})` : ""}: ${prompt}`;
@@ -307,7 +309,7 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushGroundingList(lines, "Brand style preferences", brand?.softPreferences);
   pushField(lines, "Visual mode", userIntent?.visualMode);
   pushField(lines, "Text density", userIntent?.textDensity);
-  pushField(lines, "Image prompt", renderPlan?.imagePrompt);
+  pushField(lines, "Image prompt", typeof renderPlan?.imagePrompt === "string" ? sanitizeVisualPrompt(renderPlan.imagePrompt).clean : renderPlan?.imagePrompt);
   pushField(lines, "Layout intent", renderPlan?.layoutIntent);
   pushField(lines, "Text policy", renderPlan?.textPolicy);
   const textLayerSummary = summarizeTextLayers(renderPlan?.textLayers, renderPlan?.textPolicy);
@@ -353,7 +355,10 @@ function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): 
 }
 
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
-  const prompt = input.prompt.trim();
+  // Enforce the visual-only contract: strip any brief metadata the writer leaked into the
+  // scene prompt (Brand:/Overlay text:/CTA:/…) so the model never bakes brand text or
+  // invents a logo from it. [R6]
+  const prompt = sanitizeVisualPrompt(input.prompt).clean.trim();
   const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
   const brandContextBlock = input.brandContextBlock?.trim() || "";
   const contextBlocks = [sourceContextBlock, brandContextBlock].filter(Boolean);
