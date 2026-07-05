@@ -5,7 +5,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { Mono } from '@/components/primitives';
 import { useEditorContext } from '../contexts/editor-context';
 import { DISABLE_MOBILE_LAYOUT } from '../constants';
-import Timeline from '../components/timeline/timeline';
+import { V2Timeline } from './timeline/v2-timeline';
 import { V2Header } from './shell/v2-header';
 import { V2Canvas } from './shell/v2-canvas';
 import { V2Transport } from './shell/v2-transport';
@@ -122,8 +122,9 @@ export function V2Editor() {
         {aiOpen && <Placeholder label="Editron AI" className="w-[300px] border-l" />}
       </div>
 
-      {/* Real timeline until Phase 4 re-skins it. */}
-      <Timeline
+      {/* Phase 4: v2-skinned timeline (re-skins the real Timeline's chrome;
+          reuses the same drag/trim/snap/zoom hooks + TimelineGrid engine). */}
+      <V2Timeline
         currentFrame={currentFrame}
         overlays={overlays}
         durationInFrames={durationInFrames}
