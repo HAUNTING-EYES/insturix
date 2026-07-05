@@ -16,6 +16,7 @@ import {
 import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
 import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './phase0-live-truth';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
+import { resolveRemotionSiteFreshness } from './remotion-site-version';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
@@ -146,6 +147,10 @@ export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) 
   const serveUrl = env.REMOTION_LAMBDA_SERVE_URL || '';
   const region = env.REMOTION_AWS_REGION || 'us-east-1';
   const sampleLimit = clampSampleLimit(env.EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES);
+  const remotionSiteFreshness = serveUrl
+    ? resolveRemotionSiteFreshness({ serveUrl, env })
+    : null;
+  const remotionSiteReady = !serveUrl || remotionSiteFreshness?.ok === true;
 
   return {
     enabled,
@@ -153,17 +158,19 @@ export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) 
     serveUrl,
     region,
     sampleLimit,
-    configured: enabled && Boolean(functionName && serveUrl),
+    remotionSiteFreshness,
+    configured: enabled && Boolean(functionName && serveUrl) && remotionSiteReady,
     reason: !enabled
       ? 'disabled'
       : !functionName
         ? 'missing_remotion_lambda_function_name'
         : !serveUrl
           ? 'missing_remotion_lambda_serve_url'
-          : null,
+          : !remotionSiteReady
+            ? `remotion_site_${remotionSiteFreshness?.reason ?? 'unverified'}`
+            : null,
   };
 }
-
 export async function dispatchPhase0RenderedEvidenceJob(
   payload: Phase0RenderedEvidenceDispatchPayload,
   env: EnvLike = process.env,

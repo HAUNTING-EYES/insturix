@@ -2,6 +2,7 @@ import { Redis } from '@upstash/redis';
 import { countActiveRenders, createJob } from './render-job-service';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
+import { assertRemotionSiteFresh } from './remotion-site-version';
 
 // Maximum concurrent renders (based on AWS Lambda account limits)
 export const MAX_CONCURRENT_RENDERS = 3; // Conservative limit for 10 concurrent Lambdas
@@ -98,6 +99,7 @@ async function startRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
 }> {
   const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME!;
   const serveUrl = process.env.REMOTION_LAMBDA_SERVE_URL!;
+  assertRemotionSiteFresh({ serveUrl, env: process.env });
   const region = (process.env.REMOTION_AWS_REGION || 'us-east-1') as any;
   
   // Set AWS credentials

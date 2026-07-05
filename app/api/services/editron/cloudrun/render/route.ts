@@ -11,6 +11,7 @@ import {
   shouldHydrateRenderInputFromProject,
 } from '@/lib/editron/shared/render-request-payload';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
+import { assertRemotionSiteFresh } from '@/lib/editron/services/remotion-site-version';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export async function POST(request: Request) {
@@ -42,6 +43,10 @@ export async function POST(request: Request) {
     }
     if (!serveUrl) {
       throw new Error('REMOTION_LAMBDA_SERVE_URL is not defined');
+    }
+    const remotionSiteFreshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
+    if (remotionSiteFreshness.reason === 'unverified_no_app_commit') {
+      console.warn('[Render] Remotion site version could not be verified because app commit metadata is missing');
     }
 
     // Phase D W5: Use STS AssumeRole for short-lived credentials
