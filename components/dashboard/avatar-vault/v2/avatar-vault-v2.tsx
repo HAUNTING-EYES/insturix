@@ -6,6 +6,7 @@ import { C, SANS } from './av-tokens';
 import { Mono, Btn } from './av-atoms';
 import { AvatarVaultGallery } from './av-vault-gallery';
 import { AvatarForge } from './av-forge';
+import { AvatarRenderPlanner } from './av-render-planner';
 
 /* ═══ Avatar Vault v2 · shell ═════════════════════════════════════════
    The founder's avatar-vault.jsx, wired to the real avatar types/hook.
@@ -14,15 +15,6 @@ import { AvatarForge } from './av-forge';
    Vault gallery on a preview route so nothing on the live vault changes. */
 
 type Screen = 'vault' | 'create' | 'render';
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div style={{ border: `1px dashed ${C.bs}`, borderRadius: 16, padding: '72px 24px', textAlign: 'center' }}>
-      <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '-0.02em' }}>{title}</div>
-      <div style={{ color: C.soft, marginTop: 8, fontSize: 14 }}>Landing in the next build pass.</div>
-    </div>
-  );
-}
 
 export default function AvatarVaultV2() {
   const [screen, setScreen] = useState<Screen>('vault');
@@ -65,7 +57,7 @@ export default function AvatarVaultV2() {
           <AvatarVaultGallery onCreate={() => goCreate(null)} onRender={goRender} onEdit={goCreate} />
         )}
         {screen === 'create' && <AvatarForge record={active} onDone={() => { setActive(null); setScreen('vault'); }} />}
-        {screen === 'render' && <Placeholder title={active ? `Render · ${active.profile.displayName}` : 'Render'} />}
+        {screen === 'render' && active && <AvatarRenderPlanner record={active} />}
       </div>
     </div>
   );
