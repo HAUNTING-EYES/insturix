@@ -121,7 +121,7 @@ describe('X social provider cost telemetry contract', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
     expect(plan).toContain('Partial 2026-07-03: UploaderX and CalOS X social provider events are wired');
-    expect(plan).toContain('CalOS Facebook, LinkedIn, and YouTube publisher events are wired');
+    expect(plan).toContain('CalOS Facebook, Instagram, LinkedIn, and YouTube publisher events are wired');
     expect(plan).toContain('X API pricing remains `pricing_to_be_seen`');
   });
 });
