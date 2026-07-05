@@ -4,6 +4,7 @@
 import { SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/sidebar/app-sidebar";
 import { Editor } from "./components/core/editor";
+import { V2Editor } from "./v2/v2-editor";
 import { VideoRegenBanner } from "./components/core/video-regen-banner";
 import { SidebarProvider as UISidebarProvider } from "@/components/ui/sidebar";
 import { SidebarProvider as EditorSidebarProvider } from "./contexts/sidebar-context";
@@ -40,7 +41,7 @@ import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
 
-export default function ReactVideoEditor({ projectId }: { projectId: string }) {
+export default function ReactVideoEditor({ projectId, variant = "v1" }: { projectId: string; variant?: "v1" | "v2" }) {
   // Autosave state
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [autosaveTimestamp, setAutosaveTimestamp] = useState<number | null>(
@@ -301,7 +302,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
                         } catch {}
                       }}
                     />
-                    <Editor />
+                    {variant === "v2" ? <V2Editor /> : <Editor />}
                     {/* AI Processing Overlay */}
                     <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm transition-opacity duration-300 ${isAIProcessing ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                       <div className="flex flex-col items-center gap-4 rounded-lg bg-card p-8 shadow-lg border border-border">
