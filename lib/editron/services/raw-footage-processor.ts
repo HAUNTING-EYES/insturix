@@ -492,7 +492,6 @@ function detectBestTakes(
 
       if (isMatch) {
         group.push(segments[j]);
-        consumed.add(j);
       }
     }
 

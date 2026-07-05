@@ -108,6 +108,34 @@ describe('P5 signal-owned decisions', () => {
     expect(result.silenceRemovalPlan.some(action => action.reason === 'inferior-take')).toBe(false);
   });
 
+  it('keeps preserved repetition candidates eligible for later retake matching', async () => {
+    const words = [
+      ...transcriptWords('This exact point.', 0),
+      ...transcriptWords('This exact point.', 500),
+    ];
+
+    for (let index = 0; index < 28; index++) {
+      words.push(...transcriptWords(`filler${index}.`, 1000 + index * 250, 250));
+    }
+
+    words.push(...transcriptWords('This exact point', 8000));
+
+    transcriptionMock.getTranscription.mockResolvedValue({
+      words,
+      transcript: words.map(word => word.word).join(' '),
+      language: 'en',
+      confidence: 0.99,
+      generatedAt: new Date('2026-07-06T00:00:00Z'),
+    });
+
+    const result = await processRawFootage('asset_repeat_then_retake', 'user_1', 12);
+
+    expect(result.editMethod).toBe('fragment-pipeline');
+    expect(result.bestTakeSelections).toHaveLength(1);
+    expect(result.bestTakeSelections[0].repetitionIntent).toEqual(expect.objectContaining({ verdict: 'RETAKE' }));
+    expect(result.silenceRemovalPlan.some(action => action.reason === 'inferior-take')).toBe(true);
+  });
+
   it('infers BPM from script/mood signals and ignores profile/content labels', () => {
     expect(inferBPMFromHints({ profileId: 'tiktok-fast', contentType: 'fitness' })).toBe(120);
     expect(inferBPMFromHints({ profileId: 'documentary', contentType: 'cinematic', mood: 'calm reflective' })).toBe(85);
