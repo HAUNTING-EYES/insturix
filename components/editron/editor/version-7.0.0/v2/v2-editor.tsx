@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { Mono } from '@/components/primitives';
 import { useEditorContext } from '../contexts/editor-context';
 import { DISABLE_MOBILE_LAYOUT } from '../constants';
 import { V2Timeline } from './timeline/v2-timeline';
@@ -12,30 +11,21 @@ import { V2Transport } from './shell/v2-transport';
 import { V2ToolRail } from './shell/v2-tool-rail';
 import { V2ToolPanel } from './shell/v2-tool-panel';
 import { V2PropsPanel } from './shell/v2-props-panel';
+import { V2AiPanel } from './ai/v2-ai-panel';
+import { V2Modals, type V2ModalKind } from './modals/v2-modals';
 
 /* ═══ Editron editor · v2 shell ═══════════════════════════════════════
    The redesigned editor (editron-editor-v6.jsx) over the real providers —
-   a re-skin, no logic forked. Reproduces the real Editor's viewport effects
-   + hotkeys + context wiring; lays out the v6 grid (header / tool-rail ·
-   tool-panel · canvas+transport · props · ai / timeline).
-
-   PHASE 2 (this commit): header + canvas (real player) + transport are the
-   real v6 chrome. The tool-rail, tool/props/ai panels are labelled
-   placeholders (Phase 3), and the timeline is the real <Timeline/> until
-   Phase 4 re-skins it. */
-
-function Placeholder({ label, className }: { label: string; className?: string }) {
-  return (
-    <div className={`flex shrink-0 flex-col items-center justify-center gap-2 border-ds-subtle bg-surface-canvas ${className ?? ''}`}>
-      <Mono size="9" className="text-ds-dim">{label}</Mono>
-      <Mono size="8" className="text-ds-faint">Phase 3</Mono>
-    </div>
-  );
-}
+   a re-skin, no logic forked. Header · tool-rail · tool-panel ·
+   canvas+transport · props · AI panel · timeline, plus render / recovery /
+   quality / mobile modals. Reproduces the real Editor's viewport effects,
+   hotkeys and context wiring. v1 stays the source of truth; this mounts at
+   /v2 until the founder swaps it in. */
 
 export function V2Editor() {
   const [isMobile, setIsMobile] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [modal, setModal] = useState<V2ModalKind>(null);
 
   // Mobile detect (mirrors Editor).
   useEffect(() => {
@@ -62,8 +52,14 @@ export function V2Editor() {
   const {
     overlays, selectedOverlayId, setSelectedOverlayId, currentFrame, playerRef,
     togglePlayPause, handleOverlayChange, handleTimelineClick, seekTo,
-    deleteOverlay, duplicateOverlay, splitOverlay, durationInFrames, setOverlays, projectId,
+    deleteOverlay, duplicateOverlay, splitOverlay, durationInFrames, setOverlays, projectId, state,
   } = useEditorContext();
+
+  // Surface the render modal automatically once a render leaves 'init'.
+  useEffect(() => {
+    const s = (state as { status?: string } | undefined)?.status;
+    if (s && s !== 'init') setModal((m) => m ?? 'render');
+  }, [state]);
 
   useHotkeys('space', (e) => {
     const t = e.target as HTMLElement | null;
@@ -103,9 +99,9 @@ export function V2Editor() {
         projectName={projectId ?? 'Project'}
         aiOpen={aiOpen}
         onToggleAi={() => setAiOpen((o) => !o)}
-        onOpenRecovery={() => { /* TODO(Phase 5): recovery modal */ }}
-        onOpenQuality={() => { /* TODO(Phase 5): quality modal */ }}
-        onOpenMobilePreview={() => { /* TODO(Phase 5): mobile preview */ }}
+        onOpenRecovery={() => setModal('recovery')}
+        onOpenQuality={() => setModal('quality')}
+        onOpenMobilePreview={() => setModal('mobile')}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -118,8 +114,7 @@ export function V2Editor() {
         </div>
 
         <V2PropsPanel />
-        {/* Phase 4: real Editron AI panel (Chat / Suggestions / Activity). */}
-        {aiOpen && <Placeholder label="Editron AI" className="w-[300px] border-l" />}
+        {aiOpen && <V2AiPanel />}
       </div>
 
       {/* Phase 4: v2-skinned timeline (re-skins the real Timeline's chrome;
@@ -139,6 +134,8 @@ export function V2Editor() {
         onTimelineClick={handleTimelineClick}
         playerRef={playerRef}
       />
+
+      <V2Modals modal={modal} onClose={() => setModal(null)} />
     </div>
   );
 }
