@@ -855,7 +855,8 @@ describe('Brand Vault draft orchestrator', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.error.message);
     const crawled = result.candidates.filter((candidate) => candidate.sourceField === 'crawl.page');
-    expect(fetchCalls).toEqual([
+    // robots.txt is a discovery probe (for sitemap declarations), not a crawled page — exclude it here.
+    expect(fetchCalls.filter((url) => !url.endsWith('/robots.txt'))).toEqual([
       'https://signal.example/',
       'https://signal.example/about',
       'https://signal.example/sitemap_index.xml',
@@ -1023,7 +1024,10 @@ describe('Brand Vault draft orchestrator', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.error.message);
-    expect(fetchCalls).toEqual(['https://signal.example/', 'https://www.signal.example/about']);
+    expect(fetchCalls.filter((url) => !url.endsWith('/robots.txt'))).toEqual([
+      'https://signal.example/',
+      'https://www.signal.example/about',
+    ]);
     expect(fetchCalls).not.toContain('https://www.signal.example/signal.example/about');
     expect(result.candidates.find((candidate) => candidate.sourceField === 'crawl.page')?.sourceUrl).toBe(
       'https://www.signal.example/about',
@@ -1607,7 +1611,7 @@ describe('Brand Vault draft orchestrator', () => {
               fetchedAt: NOW,
             };
           }
-          crawlRequests.push(url);
+          if (!url.endsWith('/robots.txt')) crawlRequests.push(url);
           throw new Error('simulated crawl failure');
         },
       },

@@ -1901,6 +1901,15 @@ async function fetchCrawlSnapshots(args: {
     if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, 'seed');
   }
   enqueueSitemapUrls(queue, args.root.html, rootUrl, policy, args.root.normalizedUrl);
+  await enqueueRobotsSitemaps({
+    queue,
+    rootUrl,
+    policy,
+    fetchSnapshot: args.fetchSnapshot,
+    fetchOptions: args.fetchOptions,
+    now: args.now,
+    discoveredFrom: args.root.normalizedUrl,
+  });
   if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
 
   let attempts = 0;
@@ -1941,6 +1950,11 @@ async function fetchCrawlSnapshots(args: {
 
   if (snapshots.length > 0) {
     warnings.push(`Crawled ${snapshots.length} additional brand page${snapshots.length === 1 ? '' : 's'} for draft evidence.`);
+  } else {
+    warnings.push(
+      'Brand Vault crawler found no crawlable pages beyond the homepage — the site may be a single-page/JS app whose ' +
+        'nav links are not plain anchors, or it blocks crawling. Brand evidence for this scan is homepage-only.',
+    );
   }
   return { snapshots, warnings };
 }
@@ -2024,6 +2038,39 @@ function enqueueSitemapUrls(
     if (href) candidates.add(href);
   });
   for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, 'seed');
+}
+
+/**
+ * Discover sitemaps declared in robots.txt. Many sites host their sitemap at a custom path and only
+ * announce it via a `Sitemap:` line in robots.txt (never at the predictable /sitemap.xml), so this is
+ * often the only way to find the authoritative page list. Fail-soft: a missing/blocked/empty robots.txt
+ * simply yields no extra seeds and never breaks the scan.
+ */
+async function enqueueRobotsSitemaps(args: {
+  queue: Map<string, CrawlQueueItem>;
+  rootUrl: URL;
+  policy: CrawlPolicy;
+  fetchSnapshot: (websiteUrl: string, options?: FetchWebsiteBrandSnapshotOptions) => Promise<BrandWebsiteSnapshot>;
+  fetchOptions?: FetchWebsiteBrandSnapshotOptions;
+  now: string;
+  discoveredFrom: string;
+}): Promise<void> {
+  try {
+    const snapshot = await args.fetchSnapshot(`${args.rootUrl.origin}/robots.txt`, {
+      ...args.fetchOptions,
+      now: args.now,
+    });
+    const text = typeof snapshot.html === 'string' ? snapshot.html : '';
+    if (!text) return;
+    for (const line of text.split(/\r?\n/)) {
+      const match = /^\s*sitemap:\s*(\S+)/i.exec(line);
+      if (match?.[1]) {
+        enqueueCrawlUrl(args.queue, match[1], args.rootUrl, args.policy, 1, args.discoveredFrom, 'seed');
+      }
+    }
+  } catch {
+    // robots.txt is optional; ignore fetch/parse failures.
+  }
 }
 
 function enqueueCrawlUrl(
