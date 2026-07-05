@@ -6,6 +6,42 @@ import { CreditsService } from "@/lib/services/creditsService";
 import { getCreditCost } from "@/lib/config/creditCosts";
 import { Storage } from "@google-cloud/storage";
 import { fal } from "@fal-ai/client"; // Note: named import instead of default import
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
+
+async function recordMusitronProviderCost(input: {
+  status: ProviderCostEventStatus;
+  userId?: string;
+  taskId?: string;
+  model?: string;
+  durationSec?: number;
+  bytesOut?: number;
+  functionMs?: number;
+  error?: unknown;
+}): Promise<void> {
+  await recordProviderCostEvent({
+    eventId: `pce_musitron_${input.taskId ?? "unknown"}_${input.status}`,
+    idempotencyKey: input.taskId ? `musitron:music:${input.taskId}:${input.status}` : undefined,
+    status: input.status,
+    userId: input.userId,
+    taskId: input.taskId,
+    service: "musitron",
+    action: "music_generation",
+    route: "/api/services/musitron/processor",
+    provider: "fal-ai",
+    model: input.model,
+    operation: "music_generation",
+    units: {
+      mediaSeconds: input.durationSec,
+      bytesOut: input.bytesOut,
+      requestCount: 1,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      requestedDurationSeconds: input.durationSec,
+      errorClass: input.error instanceof Error ? input.error.name : undefined,
+    },
+  });
+}
 
 async function handler(request: Request) {
   console.log("[Musitron Processor] Handler called!");
@@ -16,7 +52,11 @@ async function handler(request: Request) {
 
   try {
     const body = await request.json();
-    console.log("[Musitron Processor] Received body:", body);
+    console.log("[Musitron Processor] Received body:", {
+      taskId: body?.taskId,
+      userId: body?.userId,
+      model: body?.model,
+    });
     ({ taskId, userId } = body);
     model = body.model;
 
@@ -73,6 +113,8 @@ async function handler(request: Request) {
     );
 
     // 3. Generate music with Fal AI
+    const providerCostStartMs = Date.now();
+    let requestedDurationSec: number | undefined;
     try {
       // ⬇️ ADD THIS CONFIGURATION LINE ⬇️
       fal.config({
@@ -130,32 +172,37 @@ async function handler(request: Request) {
         };
       }
 
-      console.log("[Musitron Processor] Final Fal AI input:", falInput);
+      requestedDurationSec =
+        typeof falInput.duration === "number"
+          ? falInput.duration
+          : typeof falInput.seconds_total === "number"
+            ? falInput.seconds_total
+            : typeof task.duration === "number"
+              ? task.duration
+              : undefined;
+
+      console.log("[Musitron Processor] Final Fal AI input summary:", {
+        model,
+        duration: requestedDurationSec,
+        instrumental: falInput.instrumental ?? task.instrumental_only,
+        hasLyricsPrompt: Boolean(falInput.lyrics_prompt),
+      });
 
       const falResult = await fal.subscribe(model, {
         input: falInput,
       });
-      console.log(
-        "[Musitron Processor] Fal AI SDK response received:",
-        falResult
-      );
+      console.log("[Musitron Processor] Fal AI SDK response received");
 
       // Get audio URL from Fal AI response
       // Some models return a single object, others (like Sonauto) return an array
       const audioUrl = falResult.data?.audio?.url || falResult.data?.audio?.[0]?.url;
 
       if (!audioUrl) {
-        throw new Error(
-          "No audio URL in Fal AI response. Response: " +
-            JSON.stringify(falResult)
-        );
+        throw new Error("No audio URL in Fal AI response");
       }
 
       // 4. Upload to GCS
-      console.log(
-        "[Musitron Processor] Starting GCS upload. Audio URL:",
-        audioUrl
-      );
+      console.log("[Musitron Processor] Starting GCS upload for generated audio");
 
       // Download audio from Fal AI with timeout on the entire operation
       const downloadWithTimeout = async (
@@ -257,10 +304,7 @@ async function handler(request: Request) {
         action: "read",
         expires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
       });
-      console.log(
-        "[Musitron Processor] Signed URL generated:",
-        signedUrl.substring(0, 100) + "..."
-      );
+      console.log("[Musitron Processor] Signed URL generated");
 
       // 5. Update task as completed
       await musicGenerations.updateOne(
@@ -278,6 +322,15 @@ async function handler(request: Request) {
         }
       );
 
+      await recordMusitronProviderCost({
+        status: "success",
+        userId,
+        taskId,
+        model,
+        durationSec: requestedDurationSec,
+        bytesOut: audioBuffer.length,
+        functionMs: Date.now() - providerCostStartMs,
+      });
       return NextResponse.json({
         success: true,
         taskId,
@@ -337,6 +390,15 @@ async function handler(request: Request) {
         }
       );
 
+      await recordMusitronProviderCost({
+        status: "failed",
+        userId,
+        taskId,
+        model,
+        durationSec: requestedDurationSec,
+        functionMs: Date.now() - providerCostStartMs,
+        error: generationError,
+      });
       // Refund the same model-aware Musitron generation cost that was charged.
       try {
         await CreditsService.refundCredits(userId, refundAmount, "Music generation failed", {

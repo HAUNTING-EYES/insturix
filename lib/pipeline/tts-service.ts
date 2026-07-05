@@ -10,6 +10,7 @@ import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import { TTS_VOICES, TTS_SPEED_MAP, TTS_PAUSE_CONFIG } from './config/tts-config';
+import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 export type { TTSVoice } from './config/tts-config';
 export { TTS_VOICES };
 
@@ -98,6 +99,51 @@ interface TTSResult {
   r2Key: string | null;
 }
 
+async function recordPipelineTTSProviderCost(input: {
+  status: ProviderCostEventStatus;
+  userId?: string;
+  action: 'voiceover_generation' | 'voice_preview';
+  provider: 'fal-ai' | 'deepgram';
+  model: string;
+  voiceId?: string;
+  audioCharacters: number;
+  mediaSeconds?: number;
+  bytesOut?: number;
+  requestCount?: number;
+  segmentCount?: number;
+  functionMs?: number;
+  error?: unknown;
+}): Promise<void> {
+  await recordProviderCostEvent({
+    eventId: `pce_pipeline_tts_${input.action}_${input.provider}_${nanoid(10)}`,
+    status: input.status,
+    userId: input.userId,
+    service: 'pipeline',
+    action: input.action,
+    route: input.action === 'voice_preview' ? '/api/services/pipeline/voices' : undefined,
+    provider: input.provider,
+    model: input.model,
+    operation: 'voiceover_generation',
+    units: {
+      audioCharacters: input.audioCharacters,
+      mediaSeconds: input.mediaSeconds,
+      bytesOut: input.bytesOut,
+      requestCount: input.requestCount ?? 1,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      voiceId: input.voiceId,
+      segmentCount: input.segmentCount,
+      errorClass: input.error instanceof Error ? input.error.name : undefined,
+    },
+  });
+}
+
+function mediaSecondsFromDurationMs(durationMs: number): number | undefined {
+  return Number.isFinite(durationMs) && durationMs > 0
+    ? Math.round((durationMs / 1000) * 100) / 100
+    : undefined;
+}
 /**
  * Generate voiceover audio from text.
  * Primary: Kokoro via fal.ai. Fallback: Deepgram Aura.
@@ -115,7 +161,7 @@ export async function generateVoiceover(
   const voiceConfig = TTS_VOICES.find(v => v.id === voiceId);
   const provider = voiceConfig?.provider || (voiceId.startsWith('kokoro-') ? 'kokoro' : 'deepgram');
 
-  console.log(`[TTS] Generating: provider=${provider}, voice=${voiceId}, text="${text.substring(0, 80)}..." (${text.length} chars)`);
+  console.log(`[TTS] Generating: provider=${provider}, voice=${voiceId}, chars=${text.length}`);
 
   // Determine TTS speed based on content type (default 1.0)
   const contentType = options.contentType?.toLowerCase();
@@ -140,11 +186,13 @@ async function generateWithKokoro(
   kokoroVoice: string,
   ttsSpeedOverride?: number,
 ): Promise<TTSResult> {
+  const costStartMs = Date.now();
+  let requestCount = 0;
   const key = process.env.FAL_AI_API_KEY;
   if (!key) throw new Error('FAL_AI_API_KEY not set');
   fal.config({ credentials: key });
 
-  // Pacing-aware TTS speed — defaults to 1.0
+  // Pacing-aware TTS speed - defaults to 1.0
   const ttsSpeed = ttsSpeedOverride || 1.0;
 
   // Split text by punctuation to inject precise pauses
@@ -153,71 +201,102 @@ async function generateWithKokoro(
 
   console.log(`[TTS] Kokoro processing ${segments.length} segments for precise pauses`);
 
-  for (const { segment, pauseType } of segments) {
-    if (!segment.trim()) {
-      // Just add silence if segment is empty but has a pause type
+  try {
+    for (const { segment, pauseType } of segments) {
+      if (!segment.trim()) {
+        // Just add silence if segment is empty but has a pause type
+        if (pauseType) {
+          const pause = TTS_PAUSE_CONFIG[pauseType];
+          audioChunks.push(generateSilence(getRandomInRange(pause.min, pause.max)));
+        }
+        continue;
+      }
+
+      requestCount += 1;
+      const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
+        input: {
+          prompt: segment,
+          voice: kokoroVoice as any,
+          speed: ttsSpeed,
+        },
+        logs: false,
+      });
+
+      const data = (result as any).data || result;
+      const audioUrl = data?.audio?.url || data?.audio_file?.url || data?.output?.url;
+      if (audioUrl) {
+        const response = await fetch(audioUrl);
+        if (response.ok) {
+          audioChunks.push(Buffer.from(await response.arrayBuffer()));
+        }
+      }
+
+      // Inject silence after segment if mapped
       if (pauseType) {
         const pause = TTS_PAUSE_CONFIG[pauseType];
         audioChunks.push(generateSilence(getRandomInRange(pause.min, pause.max)));
       }
-      continue;
     }
 
-    const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
-      input: {
-        prompt: segment,
-        voice: kokoroVoice as any,
-        speed: ttsSpeed,
-      },
-      logs: false,
+    if (audioChunks.length === 0) throw new Error('Kokoro returned no audio for any segment');
+
+    const audioBuffer = mergeWavBuffers(audioChunks);
+
+    if (audioBuffer.length === 0) throw new Error('Kokoro returned empty audio');
+    console.log(`[TTS] Kokoro audio: ${audioBuffer.length} bytes`);
+
+    // Estimate duration from WAV (linear16, assumed 24kHz mono)
+    // Kokoro outputs WAV - check actual sample rate from header
+    const pcmBytes = Math.max(0, audioBuffer.length - 44);
+    const bytesPerSecond = 24000 * 2; // 24kHz, 16-bit
+    const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
+
+    const assetId = `voiceover_${nanoid(12)}`;
+    const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
+
+    await recordPipelineTTSProviderCost({
+      status: 'success',
+      userId,
+      action: 'voiceover_generation',
+      provider: 'fal-ai',
+      model: 'fal-ai/kokoro/american-english',
+      voiceId: kokoroVoice,
+      audioCharacters: text.length,
+      mediaSeconds: mediaSecondsFromDurationMs(durationMs),
+      bytesOut: audioBuffer.length,
+      requestCount,
+      segmentCount: segments.length,
+      functionMs: Date.now() - costStartMs,
     });
 
-    const data = (result as any).data || result;
-    const audioUrl = data?.audio?.url || data?.audio_file?.url || data?.output?.url;
-    if (audioUrl) {
-      const response = await fetch(audioUrl);
-      if (response.ok) {
-        audioChunks.push(Buffer.from(await response.arrayBuffer()));
-      }
-    }
-
-    // Inject silence after segment if mapped
-    if (pauseType) {
-      const pause = TTS_PAUSE_CONFIG[pauseType];
-      audioChunks.push(generateSilence(getRandomInRange(pause.min, pause.max)));
-    }
+    return {
+      audioBuffer,
+      durationMs,
+      ...uploaded,
+    };
+  } catch (err) {
+    await recordPipelineTTSProviderCost({
+      status: 'failed',
+      userId,
+      action: 'voiceover_generation',
+      provider: 'fal-ai',
+      model: 'fal-ai/kokoro/american-english',
+      voiceId: kokoroVoice,
+      audioCharacters: text.length,
+      requestCount,
+      segmentCount: segments.length,
+      functionMs: Date.now() - costStartMs,
+      error: err,
+    });
+    throw err;
   }
-
-  if (audioChunks.length === 0) throw new Error('Kokoro returned no audio for any segment');
-
-  const audioBuffer = mergeWavBuffers(audioChunks);
-
-  if (audioBuffer.length === 0) throw new Error('Kokoro returned empty audio');
-  console.log(`[TTS] Kokoro audio: ${audioBuffer.length} bytes`);
-
-  // Estimate duration from WAV (linear16, assumed 24kHz mono)
-  // Kokoro outputs WAV — check actual sample rate from header
-  const pcmBytes = Math.max(0, audioBuffer.length - 44);
-  const bytesPerSecond = 24000 * 2; // 24kHz, 16-bit
-  const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
-
-  const assetId = `voiceover_${nanoid(12)}`;
-  const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
-
-  return {
-    audioBuffer,
-    durationMs,
-    ...uploaded,
-  };
 }
-
-// ─── Deepgram Aura TTS (fallback) ───────────────────────────────
-
 async function generateWithDeepgram(
   text: string,
   userId: string,
   deepgramVoice: string,
 ): Promise<TTSResult> {
+  const costStartMs = Date.now();
   const { createClient } = await import('@deepgram/sdk');
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) throw new Error('DEEPGRAM_API_KEY not set');
@@ -236,46 +315,77 @@ async function generateWithDeepgram(
     }
   }
 
-  const response = await deepgram.speak.request(
-    { text: `<speak>${ssml}</speak>` },
-    {
+  try {
+    const response = await deepgram.speak.request(
+      { text: `<speak>${ssml}</speak>` },
+      {
+        model: deepgramVoice,
+        encoding: 'linear16',
+        container: 'wav',
+        sample_rate: 24000,
+      },
+    );
+
+    const stream = await response.getStream();
+    if (!stream) throw new Error('No audio stream from Deepgram');
+
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let done = false;
+    while (!done) {
+      const result = await reader.read();
+      done = result.done;
+      if (result.value) chunks.push(result.value);
+    }
+    const audioBuffer = Buffer.concat(chunks);
+
+    if (audioBuffer.length === 0) throw new Error('Deepgram returned empty audio');
+    console.log(`[TTS] Deepgram audio: ${audioBuffer.length} bytes`);
+
+    const pcmBytes = Math.max(0, audioBuffer.length - 44);
+    const bytesPerSecond = 24000 * 2;
+    const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
+
+    const assetId = `voiceover_${nanoid(12)}`;
+    const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
+
+    await recordPipelineTTSProviderCost({
+      status: 'success',
+      userId,
+      action: 'voiceover_generation',
+      provider: 'deepgram',
       model: deepgramVoice,
-      encoding: 'linear16',
-      container: 'wav',
-      sample_rate: 24000,
-    },
-  );
+      voiceId: deepgramVoice,
+      audioCharacters: text.length,
+      mediaSeconds: mediaSecondsFromDurationMs(durationMs),
+      bytesOut: audioBuffer.length,
+      requestCount: 1,
+      segmentCount: segments.length,
+      functionMs: Date.now() - costStartMs,
+    });
 
-  const stream = await response.getStream();
-  if (!stream) throw new Error('No audio stream from Deepgram');
-
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let done = false;
-  while (!done) {
-    const result = await reader.read();
-    done = result.done;
-    if (result.value) chunks.push(result.value);
+    return {
+      audioBuffer,
+      durationMs,
+      ...uploaded,
+    };
+  } catch (err) {
+    await recordPipelineTTSProviderCost({
+      status: 'failed',
+      userId,
+      action: 'voiceover_generation',
+      provider: 'deepgram',
+      model: deepgramVoice,
+      voiceId: deepgramVoice,
+      audioCharacters: text.length,
+      requestCount: 1,
+      segmentCount: segments.length,
+      functionMs: Date.now() - costStartMs,
+      error: err,
+    });
+    throw err;
   }
-  const audioBuffer = Buffer.concat(chunks);
-
-  if (audioBuffer.length === 0) throw new Error('Deepgram returned empty audio');
-  console.log(`[TTS] Deepgram audio: ${audioBuffer.length} bytes`);
-
-  const pcmBytes = Math.max(0, audioBuffer.length - 44);
-  const bytesPerSecond = 24000 * 2;
-  const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
-
-  const assetId = `voiceover_${nanoid(12)}`;
-  const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
-
-  return {
-    audioBuffer,
-    durationMs,
-    ...uploaded,
-  };
 }
-
 async function uploadVoiceoverAudio(
   audioBuffer: Buffer,
   userId: string,
@@ -331,56 +441,115 @@ export async function generateVoicePreview(
   const text = voice?.previewText || 'This is a preview of the selected voice for your narration.';
 
   if (voice?.provider === 'kokoro' || voiceId.startsWith('kokoro-')) {
+    const costStartMs = Date.now();
     const key = process.env.FAL_AI_API_KEY;
     if (!key) throw new Error('FAL_AI_API_KEY not set');
     fal.config({ credentials: key });
 
-    const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
-      input: { prompt: text, voice: (voice?.providerVoiceId || 'af_heart') as any, speed: 1.0 },
-      logs: false,
-    });
+    try {
+      const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
+        input: { prompt: text, voice: (voice?.providerVoiceId || 'af_heart') as any, speed: 1.0 },
+        logs: false,
+      });
 
-    const data = (result as any).data || result;
-    const audioUrl = data?.audio?.url || data?.audio_file?.url || data?.output?.url;
-    if (!audioUrl) throw new Error('Kokoro preview failed');
+      const data = (result as any).data || result;
+      const audioUrl = data?.audio?.url || data?.audio_file?.url || data?.output?.url;
+      if (!audioUrl) throw new Error('Kokoro preview failed');
 
-    const response = await fetch(audioUrl);
-    const audioBuffer = Buffer.from(await response.arrayBuffer());
-    const pcmBytes = Math.max(0, audioBuffer.length - 44);
-    const durationMs = Math.round((pcmBytes / (24000 * 2)) * 1000);
+      const response = await fetch(audioUrl);
+      const audioBuffer = Buffer.from(await response.arrayBuffer());
+      const pcmBytes = Math.max(0, audioBuffer.length - 44);
+      const durationMs = Math.round((pcmBytes / (24000 * 2)) * 1000);
 
-    return { audioBuffer, durationMs };
+      await recordPipelineTTSProviderCost({
+        status: 'success',
+        action: 'voice_preview',
+        provider: 'fal-ai',
+        model: 'fal-ai/kokoro/american-english',
+        voiceId,
+        audioCharacters: text.length,
+        mediaSeconds: mediaSecondsFromDurationMs(durationMs),
+        bytesOut: audioBuffer.length,
+        requestCount: 1,
+        functionMs: Date.now() - costStartMs,
+      });
+
+      return { audioBuffer, durationMs };
+    } catch (err) {
+      await recordPipelineTTSProviderCost({
+        status: 'failed',
+        action: 'voice_preview',
+        provider: 'fal-ai',
+        model: 'fal-ai/kokoro/american-english',
+        voiceId,
+        audioCharacters: text.length,
+        requestCount: 1,
+        functionMs: Date.now() - costStartMs,
+        error: err,
+      });
+      throw err;
+    }
   }
 
   // Deepgram fallback
+  const costStartMs = Date.now();
   const { createClient } = await import('@deepgram/sdk');
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) throw new Error('DEEPGRAM_API_KEY not set');
 
   const deepgram = createClient(apiKey);
-  const response = await deepgram.speak.request(
-    { text },
-    { model: voice?.providerVoiceId || voiceId, encoding: 'linear16', container: 'wav', sample_rate: 24000 },
-  );
+  const model = voice?.providerVoiceId || voiceId;
 
-  const stream = await response.getStream();
-  if (!stream) throw new Error('No stream from Deepgram');
+  try {
+    const response = await deepgram.speak.request(
+      { text },
+      { model, encoding: 'linear16', container: 'wav', sample_rate: 24000 },
+    );
 
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let done = false;
-  while (!done) {
-    const result = await reader.read();
-    done = result.done;
-    if (result.value) chunks.push(result.value);
+    const stream = await response.getStream();
+    if (!stream) throw new Error('No stream from Deepgram');
+
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let done = false;
+    while (!done) {
+      const result = await reader.read();
+      done = result.done;
+      if (result.value) chunks.push(result.value);
+    }
+    const audioBuffer = Buffer.concat(chunks);
+    const pcmBytes = Math.max(0, audioBuffer.length - 44);
+    const durationMs = Math.round((pcmBytes / (24000 * 2)) * 1000);
+
+    await recordPipelineTTSProviderCost({
+      status: 'success',
+      action: 'voice_preview',
+      provider: 'deepgram',
+      model,
+      voiceId,
+      audioCharacters: text.length,
+      mediaSeconds: mediaSecondsFromDurationMs(durationMs),
+      bytesOut: audioBuffer.length,
+      requestCount: 1,
+      functionMs: Date.now() - costStartMs,
+    });
+
+    return { audioBuffer, durationMs };
+  } catch (err) {
+    await recordPipelineTTSProviderCost({
+      status: 'failed',
+      action: 'voice_preview',
+      provider: 'deepgram',
+      model,
+      voiceId,
+      audioCharacters: text.length,
+      requestCount: 1,
+      functionMs: Date.now() - costStartMs,
+      error: err,
+    });
+    throw err;
   }
-  const audioBuffer = Buffer.concat(chunks);
-  const pcmBytes = Math.max(0, audioBuffer.length - 44);
-  const durationMs = Math.round((pcmBytes / (24000 * 2)) * 1000);
-
-  return { audioBuffer, durationMs };
 }
-
 /**
  * Check if TTS is available (either Kokoro via fal.ai or Deepgram).
  */
