@@ -126,27 +126,60 @@ function getClickatronVariationRefundAmount(modelId?: string): number {
 
 type ClickatronCostJob = NonNullable<Awaited<ReturnType<typeof getJob>>>;
 
+/**
+ * Persist fields onto ONE variation atomically (positional $ + $elemMatch), never by
+ * saving the whole task document. [R7]
+ *
+ * WHY: carousel fan-out runs N workers concurrently against the SAME session document.
+ * Each used to load the doc at start, mutate its own variation, and task.save() the
+ * whole doc — a classic lost-update race: the last writer's stale copy overwrote every
+ * sibling's completion (verified in prod logs 2026-07-05: 6/6 slides generated and
+ * uploaded to R2, but only the LAST worker's save survived; 5 completed slides were
+ * reverted to 'generating' and later watchdog-failed). Single images never trip this
+ * (one writer). This mirrors the already-correct pattern in
+ * app/api/cron/check-task-timeouts (updateOne + $elemMatch + positional $).
+ *
+ * Returns false (and logs loud) when nothing matched — e.g. the variation was deleted
+ * mid-generation; callers decide whether that is fatal.
+ */
+async function persistVariationFieldsAtomic(
+  sessionId: string,
+  variationId: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
+  if (!Types.ObjectId.isValid(sessionId)) {
+    console.error('Worker: atomic variation update skipped; invalid sessionId:', sessionId);
+    return false;
+  }
+  const $set: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) $set[`details.canvas.variations.$.${key}`] = value;
+  }
+  const result = await ClickatronTask.updateOne(
+    {
+      _id: new Types.ObjectId(sessionId),
+      'details.canvas.variations': { $elemMatch: { id: variationId } },
+    },
+    { $set },
+  );
+  if (result.matchedCount === 0) {
+    console.error('Worker: atomic variation update matched nothing (variation deleted mid-run?):', { sessionId, variationId });
+    return false;
+  }
+  return true;
+}
+
 async function markVariationFailedForJob(job: ClickatronCostJob, errorMessage: string): Promise<void> {
   try {
-    if (!Types.ObjectId.isValid(job.sessionId)) {
-      console.error('Worker: Cannot mark variation failed; invalid sessionId on job:', job.sessionId);
-      return;
-    }
-
     await getClickatronDb();
-    const task = await ClickatronTask.findById(new Types.ObjectId(job.sessionId));
-    const variation = task?.details?.canvas?.variations?.find((v: Variation) => v.id === job.variationId);
-    if (!task || !variation) {
-      console.error('Worker: Cannot mark variation failed; task or variation missing for job:', job.id);
-      return;
+    const persisted = await persistVariationFieldsAtomic(job.sessionId, job.variationId, {
+      status: 'failed',
+      error: errorMessage,
+      updatedAt: new Date(),
+    });
+    if (persisted) {
+      console.log('Worker: Marked Clickatron variation failed for job:', job.id);
     }
-
-    variation.status = 'failed';
-    variation.error = errorMessage;
-    variation.updatedAt = new Date();
-    task.markModified('details');
-    await task.save();
-    console.log('Worker: Marked Clickatron variation failed for job:', job.id);
   } catch (error) {
     console.error('Worker: Failed to mark Clickatron variation failed for job:', job.id, error);
   }
@@ -173,11 +206,16 @@ async function failVariationInline(
   const alreadyTerminal = variation.status === 'failed' || variation.status === 'completed';
   await failJob(activeJobId, { code, message });
   try {
+    // Keep the in-memory copy consistent for downstream reads, but persist atomically
+    // (positional $) — never task.save(), which loses sibling carousel slides. [R7]
     variation.status = 'failed';
     variation.error = message;
     variation.updatedAt = new Date();
-    task.markModified('details');
-    await task.save();
+    await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+      status: 'failed',
+      error: message,
+      modelId: variation.modelId,
+    });
   } catch (saveError) {
     console.error('Worker: Failed to persist inline variation failure:', saveError);
   }
@@ -863,7 +901,11 @@ async function handler(req: Request) {
         thumbnailBytes: thumbnailBuffer.length,
       });
 
-      // Update variation with generated image
+      // Update variation with generated image. In-memory mutation is kept for the
+      // downstream reads in this handler (cost recording, CalOS callback), but
+      // persistence is ATOMIC on this one variation — never task.save(). Six carousel
+      // workers saving the whole doc concurrently was the lost-update race that wiped
+      // 5 of 6 completed slides (prod logs 2026-07-05). [R7]
       variation.status = 'completed';
       variation.imageRef = rawR2Url;
       variation.thumbnailRef = thumbnailR2Url;
@@ -875,9 +917,19 @@ async function handler(req: Request) {
       }
       variation.generationParams = generationParams;
 
-
-      task.markModified('details');
-      await task.save();
+      const completionPersisted = await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+        status: 'completed',
+        imageRef: rawR2Url,
+        thumbnailRef: thumbnailR2Url,
+        modelId: selectedModelId,
+        seed: modelSupportsSeed(selectedModelId) ? generationParams.seed : undefined,
+        generationParams,
+      });
+      if (!completionPersisted) {
+        // Variation vanished mid-run (e.g. deleted by the user). The image exists in R2
+        // and was paid for — do NOT throw into the failure/refund path; just log loud.
+        console.error('Worker: generated image could not be attached — variation missing at completion:', { sessionId: job.sessionId, variationId: variation.id, rawR2Url });
+      }
 
       await completeJob(activeJobId, rawR2Url);
       await recordClickatronFalProviderCost({
@@ -973,14 +1025,21 @@ async function handler(req: Request) {
         });
       }
 
-      // Ensure variation is updated with failed status
+      // Ensure variation is updated with failed status — atomically on this ONE
+      // variation (never task.save(): sibling carousel slides must not be clobbered).
+      // metadata is included because the NEEDS_USER_INPUT path writes
+      // variation.metadata.needsUserInput in-memory before throwing into this catch;
+      // the old whole-doc save persisted it implicitly, so carry it explicitly now. [R7]
       try {
         variation.status = 'failed';
         variation.error = errorMessage; // Save the specific error message
         variation.updatedAt = new Date();
-
-        task.markModified('details');
-        await task.save();
+        await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+          status: 'failed',
+          error: errorMessage,
+          modelId: variation.modelId,
+          metadata: variation.metadata,
+        });
         console.log('Worker: Updated variation status to failed with message:', errorMessage);
       } catch (saveError) {
         console.error('Worker: Failed to save variation status:', saveError);
@@ -1059,11 +1118,11 @@ async function handler(req: Request) {
           if (task && task.details.canvas) {
             const variation = task.details.canvas.variations.find((v: Variation) => v.id === job.variationId);
             if (variation) {
-              variation.status = 'failed';
-              variation.updatedAt = new Date();
-
-              task.markModified('details');
-              await task.save();
+              // Atomic per-variation write — never task.save() (sibling-slide clobber). [R7]
+              await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+                status: 'failed',
+                error: error instanceof Error ? error.message : 'Unknown error occurred in worker',
+              });
               console.log('Worker: Updated variation status to failed in outer catch block');
             }
 
