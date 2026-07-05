@@ -243,7 +243,11 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("Creative kind: carousel");
     expect(prompt).toContain("Asset intent: carousel");
     expect(prompt).toContain("Image prompt: Editorial carousel system");
-    expect(prompt).toContain("Core message concepts:");
+    // Copy (coreMessage/hook/cta) must NOT be injected as a keyword bag — a text-capable
+    // model bakes it into the image as word-salad. [R6]
+    expect(prompt).not.toContain("Core message concepts:");
+    expect(prompt).not.toContain("Hook concepts:");
+    expect(prompt).not.toContain("CTA concepts:");
     expect(prompt).toContain("Text layers: headline layer planned");
     expect(prompt).toContain("exact copy withheld from raster prompt");
     expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");

@@ -39,48 +39,6 @@ const PROJECT_META_FIELDS = [
   ["calendarItemId", "Calendar item"],
   ["contentCardId", "Content card"],
 ] as const;
-const PROMPT_CONTEXT_KEYWORD_STOPWORDS = new Set([
-  "about",
-  "after",
-  "again",
-  "against",
-  "all",
-  "and",
-  "are",
-  "because",
-  "been",
-  "but",
-  "can",
-  "current",
-  "every",
-  "for",
-  "from",
-  "has",
-  "have",
-  "how",
-  "into",
-  "just",
-  "more",
-  "not",
-  "now",
-  "one",
-  "our",
-  "out",
-  "that",
-  "the",
-  "their",
-  "this",
-  "was",
-  "what",
-  "when",
-  "where",
-  "which",
-  "while",
-  "with",
-  "without",
-  "you",
-  "your",
-]);
 
 function asRecord(value: unknown): MetadataRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -107,32 +65,6 @@ function pushField(lines: string[], label: string, value: unknown): void {
 
 function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
-}
-
-function conceptKeywords(value: unknown, limit = 12): string | undefined {
-  const text = cleanText(value);
-  if (!text) return undefined;
-
-  const counts = new Map<string, number>();
-  for (const match of text.toLowerCase().matchAll(/\b[a-z][a-z0-9-]{2,}\b/g)) {
-    const word = match[0];
-    if (PROMPT_CONTEXT_KEYWORD_STOPWORDS.has(word)) continue;
-    counts.set(word, (counts.get(word) || 0) + 1);
-  }
-
-  const keywords = [...counts.entries()]
-    .sort(([leftWord, leftCount], [rightWord, rightCount]) =>
-      rightCount - leftCount || leftWord.localeCompare(rightWord),
-    )
-    .slice(0, limit)
-    .map(([word]) => word);
-
-  return keywords.length > 0 ? keywords.join(", ") : undefined;
-}
-
-function pushConceptField(lines: string[], label: string, value: unknown): void {
-  const keywords = conceptKeywords(value);
-  if (keywords) lines.push(`${label}: ${keywords}`);
 }
 
 function summarizeTextLayers(value: unknown, textPolicy: unknown): string | undefined {
@@ -358,11 +290,14 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Platform", creativeSpec?.platform);
   pushField(lines, "Validation status", validation?.status);
   pushField(lines, "Creative objective", creativeBrief?.objective);
-  pushConceptField(lines, "Core message concepts", creativeBrief?.coreMessage);
-  pushConceptField(lines, "Hook concepts", creativeBrief?.hook);
   pushField(lines, "Audience", creativeBrief?.audience);
-  pushConceptField(lines, "CTA concepts", creativeBrief?.cta);
   pushField(lines, "Visual metaphor", creativeBrief?.visualMetaphor);
+  // NOTE: coreMessage / hook / cta are COPY (words), not scene direction. They used to be
+  // pushed as frequency-sorted keyword bags ("Core message concepts: businesses, campaigns,
+  // …"), which a text-capable model then baked into the image as literal word-salad (prod
+  // 2026-07-05). Copy belongs on the editable overlay layer / real text-layers, never as a
+  // keyword bag in the raster prompt. The scene is driven by Image prompt + Visual metaphor +
+  // Key claims (evoke, do not render). [R6]
   // Grounding fields the contract carries but the prompt builder used to drop:
   // keyClaims = proof points the image should EVOKE as concept (image stays text-free);
   // brand.hardConstraints/softPreferences = brand rules. See clickatron-creative-contract.ts:193-202.
