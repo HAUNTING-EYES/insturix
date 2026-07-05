@@ -651,5 +651,109 @@ For implementation phases, do not mark complete until:
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | NOT_APPLICABLE | Backend/financial telemetry plan only |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | NOT_APPLICABLE | Not requested |
 
+## Vendor Pricing Assumptions Refresh - 2026-07-06
+
+Status: docs-only pricing refresh. This section updates the operating assumptions used for margin analysis; it does not change Razorpay, customer credit pricing, plan allocations, or live provider calls.
+
+Core rule:
+
+- Treat current SaaS bills as fixed monthly overhead until their usage meters cross included limits.
+- Treat AI generation, model calls, social API calls, storage, queues, render compute, and Modal jobs as usage-based COGS.
+- Do not blend fixed overhead into per-action provider events unless the report is explicitly doing an allocation view.
+- If a provider price is behind a portal, invoice, or actor-specific usage export, keep the provider-cost event as `pricing_to_be_seen`.
+
+### Current Fixed Commitments / Known Monthly Bills
+
+| Vendor | Current assumption | How it can scale | Cost-event handling |
+|--------|--------------------|------------------|---------------------|
+| Vercel | User-reported current bill: `$40/month` | Pro/usage overages: edge requests, data transfer, functions, Blob/storage, seats | Do not attach to each customer action yet. Add daily infra allocation/reporting later. |
+| Apify | User-reported current plan: `$29/month` | Actor compute, proxy, storage, dataset usage, and plan-credit overage depend on Apify usage export | Record actor run events now, but exact actor cost remains `pricing_to_be_seen` until invoice/export-backed. |
+| Cloudflare | User-reported current bill: free today | R2 storage and operation usage increases with uploaded assets and reads | R2 has public unit rates; still reconcile with invoice for actual region/bucket usage. |
+| GCP | User-reported current bill: effectively free/low today | GCS storage, operations, network, Pub/Sub/Vertex/other GCP meters can grow | Record bytes/ops where callsites know them; exact non-GCS services need invoice reconciliation. |
+| AWS | User-reported current bill: effectively free/low today | Lambda/Remotion render, S3/SES, request count, GB-seconds, email volume | Seed public SES/Lambda/S3 assumptions only where units are available. |
+
+### Usage-Based Vendor Rates To Use For Estimates
+
+| Area | Provider/model | Public/current price signal | Unit to record | Cost basis |
+|------|----------------|-----------------------------|----------------|------------|
+| Fal platform | Fal model APIs | Fal says model APIs are billed by output unit, either per second, per video, per image, or per megapixel depending on model | `mediaSeconds`, `imageCount`, `requestCount`, or MP when supported | `estimated_table` only for exact model IDs; otherwise `pricing_to_be_seen` |
+| Fal sample video rates | Wan 2.5, Kling 2.5 Turbo Pro, Veo 3, Ovi | `$0.05/sec`, `$0.07/sec`, `$0.40/sec`, `$0.20/video` examples from Fal pricing page | `mediaSeconds` or `requestCount` | Use only when the code calls that exact model; do not map old Kling/Seedance IDs by guess |
+| Fal sample image rates | Seedream V4, Flux Kontext Pro, Nanobanana, Qwen | `$0.03/image`, `$0.04/image`, `$0.0398/image`, `$0.02/MP` examples from Fal pricing page | `imageCount` or MP | Use exact model page/catalog match only |
+| Fal TTS | `fal-ai/kokoro/american-english` | `$0.02 / 1,000 characters` | `audioCharacters` | Already seedable as `estimated_table` |
+| Fal BGM | `cassetteai/music-generator` | `$0.02 / output minute` | `mediaMinutes` | Seedable for BGM/music events |
+| Fal music | `fal-ai/minimax-music/v2` | `$0.03 / generation` | `requestCount` | Seedable for Musitron events |
+| Fal SFX | `mirelo-ai/sfx-v1.5/video-to-audio` | Fal page now shows `$0.01 / second`; older internal doc had `$0.007/sec/sample` | `mediaSeconds` plus `sampleCount` if added | Update estimator only after choosing invoice/current page as source of truth |
+| Modal | GPU/CPU/memory/volume usage | GPU examples: T4 `$0.000164/sec`, L4 `$0.000222/sec`, A10 `$0.000306/sec`, L40S `$0.000542/sec`, A100 40GB `$0.000583/sec`, A100 80GB `$0.000694/sec`, H100 `$0.001097/sec`, H200 `$0.001261/sec`, B200 `$0.001736/sec`; CPU `$0.0000131/core/sec`; memory `$0.00000222/GiB/sec`; volumes `$0.09/GiB-month` with 1 TiB/month included | `gpuSeconds`, `functionMs`, CPU core seconds, GiB seconds, storage bytes | Current events can remain `pricing_to_be_seen` unless GPU type and resource units are captured |
+| Deepgram STT | Flux/Nova-3 | Pay-as-you-go examples: Flux English `$0.0065/min streaming`, `$0.0077/min prerecorded`; Nova-3 Monolingual `$0.0048/min streaming`, `$0.0077/min prerecorded`; Nova-3 Multilingual `$0.0058/min streaming`, `$0.0092/min prerecorded` | `mediaMinutes`, streaming/prerecorded flag, model | Seed exact code model only; if code still says Nova-2, mark `pricing_to_be_seen` until invoice/legacy model rate is known |
+| Deepgram STT add-ons | Redaction, keyterm prompting, diarization | Redaction `$0.0020/min`, keyterm `$0.0013/min`, speaker diarization `$0.0020/min`, smart formatting included | `mediaMinutes`, add-on flags | Add to estimator only if route enables the add-on |
+| Deepgram TTS | Aura | Aura-2 `$0.030/1k characters`; Aura-1 `$0.0150/1k characters` | `audioCharacters`, model | Seed when `deepgramVoice` identifies Aura-1 vs Aura-2 |
+| Deepgram Voice Agent | Voice Agent API | Standard `$0.075/min`, Standard BYO TTS `$0.065/min`, Custom BYO LLM+TTS `$0.050/min`, Advanced `$0.163/min`, Advanced BYO TTS `$0.122/min` | websocket minutes | Only relevant if we actually use Deepgram Voice Agent |
+| Gemini image/TTS/audio | Gemini API | Gemini 2.5 Flash Image/Nano Banana output `$0.039/image`; Gemini 2.5 Flash Preview TTS input `$0.50/M text tokens`, output `$10/M audio tokens`; Gemini 2.5 Pro Preview TTS input `$1/M`, output `$20/M`; Gemini 2.5 Flash Native Audio input `$0.50/M text tokens`, `$3/M audio/video tokens`, output `$2/M text`, `$12/M audio` | input/output tokens, image count, audio tokens | Seed by exact configured Gemini model and modality only |
+| Gemini deprecated models | `gemini-2.0-flash`, `gemini-2.0-flash-lite` | Google marks both shut down/deprecated as of June 1, 2026 | model ID | Any code/docs still referencing these need migration, not just pricing |
+| Gemini Search grounding | Google Search grounding | Gemini page lists grounding with Google Search as free up to 1,500 RPD, then `$35 / 1,000 grounded prompts` for Gemini 2.0 Flash section | grounded request count | Use exact current model terms before seeding; ThinkForge grounded research remains `pricing_to_be_seen` |
+| Cloudflare R2 | Standard storage | `$0.015/GB-month`, Class A `$4.50/million`, Class B `$0.36/million`, egress free, 10 GB-month + 1M Class A + 10M Class B monthly free tier | storage GB-month, Class A/B operation counts, egress bytes | Storage already seedable; operation classes need units added |
+| GCP Cloud Storage | Standard single-region | Standard storage varies by location; US example around `$0.020/GiB-month`; Class A `$0.005/1k`, Class B `$0.0004/1k` in single-region standard storage | storage bytes, Class A/B operations, network bytes | Seed only when bucket location and operation class are known |
+| AWS Lambda | Lambda functions | Free tier includes 1M requests and 400k GB-seconds/month; examples show `$0.20/M requests` and `$0.0000166667/GB-second` compute | request count, GB-seconds, function ms, memory | Useful for Remotion/Lambda allocation if units are captured |
+| AWS S3 | S3 | AWS bills storage plus request types such as PUT/COPY/POST/LIST/GET and retrievals; exact storage rate depends on region/storage class | storage GB-month, request class, retrieval bytes | Keep `pricing_to_be_seen` without region/storage class |
+| AWS SES | SES outbound email | `$0.10/1,000 emails` plus attachment data and optional features | `emailCount`, attachment bytes | Already seedable for outbound mail |
+| YouTube Data API | YouTube posting | Public docs show quota units, not direct dollar price: every request costs at least one quota point; default includes 100 `videos.insert` calls/day and 10,000 combined units/day for other endpoints; `thumbnails.set` is 50 units, `videos.update` is 50 units | request count, quota method, quota units | Keep vendor dollars as `pricing_to_be_seen`; report quota burn separately |
+| LinkedIn API | LinkedIn posting | Official docs say daily limits exist but standard rate limits are not published; look up endpoint limits in Developer Portal analytics | request count, endpoint, 429/rate-limit status | No public dollar rate found; keep `pricing_to_be_seen` unless LinkedIn contract/invoice says otherwise |
+| Meta Graph / Instagram Graph | Facebook/Instagram posting | Public cost is generally rate/permission constrained, not a direct per-post dollar price in this pass | request count, endpoint, media bytes, rate-limit status | Keep `pricing_to_be_seen` unless paid Meta contract/invoice appears |
+| X API | X posting/media upload | User confirms X is usage-based; official exact pricing is behind X Developer Portal/login in this pass | request count, media upload bytes, endpoint, response status | Keep `pricing_to_be_seen` until X portal usage export/invoice is available |
+
+### Source Links Checked
+
+- Fal pricing: https://fal.ai/pricing
+- Fal Kokoro TTS: https://fal.ai/models/fal-ai/kokoro/american-english
+- Fal CassetteAI music: https://fal.ai/models/cassetteai/music-generator
+- Fal MiniMax music v2: https://fal.ai/models/fal-ai/minimax-music/v2
+- Fal Mirelo SFX: https://fal.ai/models/mirelo-ai/sfx-v1.5/video-to-audio
+- Modal pricing: https://modal.com/pricing
+- Vercel pricing: https://vercel.com/pricing
+- Cloudflare R2 pricing: https://developers.cloudflare.com/r2/pricing/
+- Google Cloud Storage pricing: https://cloud.google.com/storage/pricing
+- AWS Lambda pricing: https://aws.amazon.com/lambda/pricing/
+- AWS S3 pricing: https://aws.amazon.com/s3/pricing/
+- AWS SES pricing: https://aws.amazon.com/ses/pricing/
+- Apify pricing: https://apify.com/pricing
+- Deepgram pricing: https://deepgram.com/pricing
+- Gemini API pricing: https://ai.google.dev/gemini-api/docs/pricing
+- YouTube Data API quota costs: https://developers.google.com/youtube/v3/determine_quota_cost
+- LinkedIn API rate limits: https://learn.microsoft.com/en-us/linkedin/shared/api-guide/concepts/rate-limits
+- X API product page: https://developer.x.com/en/products/x-api
+- X API portal products page: https://developer.x.com/en/portal/products
+
+Meta Graph/Instagram Graph exact public pricing was not source-confirmed in this pass; keep it `pricing_to_be_seen` unless a Meta contract, invoice, or accessible official portal page confirms a dollar rate.
+
+### Pricing Implications For Our Current Credit Model
+
+- `CREDITS_PER_USD = 30`, so 1 credit is about `$0.033333` revenue.
+- UploaderX currently charges X/Twitter posting at 3 credits, about `$0.10` revenue per final publish.
+- UploaderX currently charges YouTube, Facebook, Instagram, and LinkedIn at 1 credit, about `$0.033333` revenue per final publish.
+- These customer charges do not prove margin by themselves. They only become margin once joined against provider events and actual/estimated COGS.
+- AI video/image generation should keep its separate quota because Fal/video/image costs can move from cents to dollars per action very quickly.
+- Low-time "normal" actions still need COGS because LLM/search/social/background analysis can quietly accumulate at scale.
+
+### Immediate Follow-Up For Estimator Seeding
+
+Seed these next, in a separate code phase, because the public/current price is now specific enough:
+
+1. `cassetteai/music-generator` BGM at `$0.02/output minute`.
+2. `fal-ai/minimax-music/v2` at `$0.03/generation`.
+3. Deepgram Aura-1/Aura-2 TTS by character count.
+4. Deepgram Nova-3 STT by media minute only if code confirms Nova-3; keep Nova-2 as `pricing_to_be_seen`.
+5. Gemini 2.5 Flash Image/Nano Banana at `$0.039/image` only for exact configured model IDs.
+6. Cloudflare R2 Class A/Class B operations once events capture operation class.
+7. AWS Lambda request/GB-second estimates once Remotion/Lambda events capture memory and duration.
+
+Do not seed these yet without provider/invoice export:
+
+- X API per-post or media-upload cost.
+- Apify actor-specific run cost.
+- LinkedIn/Meta per-post dollar pricing.
+- GCP non-storage services.
+- Modal GPU events that do not include GPU type and seconds.
+- Fal model aliases where the code model ID does not match the public model page exactly.
+
 - UNRESOLVED: exact current vendor prices and invoice reconciliation are intentionally deferred; missing prices must be marked `pricing_to_be_seen`.
 - VERDICT: CEO + ENG plan review complete enough to implement Phase 1 provider-cost telemetry. Razorpay remains out of scope for Claude handoff.
