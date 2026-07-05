@@ -9,6 +9,9 @@ import Timeline from '../components/timeline/timeline';
 import { V2Header } from './shell/v2-header';
 import { V2Canvas } from './shell/v2-canvas';
 import { V2Transport } from './shell/v2-transport';
+import { V2ToolRail } from './shell/v2-tool-rail';
+import { V2ToolPanel } from './shell/v2-tool-panel';
+import { V2PropsPanel } from './shell/v2-props-panel';
 
 /* ═══ Editron editor · v2 shell ═══════════════════════════════════════
    The redesigned editor (editron-editor-v6.jsx) over the real providers —
@@ -106,15 +109,16 @@ export function V2Editor() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <Placeholder label="Tools" className="w-[72px] border-r" />
-        <Placeholder label="Tool panel" className="w-[244px] border-r" />
+        <V2ToolRail aiOpen={aiOpen} onToggleAi={() => setAiOpen((o) => !o)} />
+        <V2ToolPanel />
 
         <div className="flex min-w-0 flex-1 flex-col">
           <V2Canvas />
           <V2Transport />
         </div>
 
-        <Placeholder label="Properties" className="w-[264px] border-l" />
+        <V2PropsPanel />
+        {/* Phase 4: real Editron AI panel (Chat / Suggestions / Activity). */}
         {aiOpen && <Placeholder label="Editron AI" className="w-[300px] border-l" />}
       </div>
 
