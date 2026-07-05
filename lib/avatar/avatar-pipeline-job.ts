@@ -9,6 +9,7 @@ import type {
   AvatarRenderAudioMode,
   AvatarRenderRecipe,
   AvatarRenderReferenceImage,
+  AvatarRenderUseCase,
 } from './avatar-render-recipe';
 import type {
   AvatarStoreResult,
@@ -554,7 +555,7 @@ function buildOmniHumanStage(
   env: Record<string, string | undefined>,
   voiceStage: AvatarPipelineStageSnapshot,
 ): AvatarPipelineStageSnapshot {
-  const image = selectHumanImage(recipe.visual.referenceImages);
+  const image = selectHumanImage(recipe.visual.referenceImages, recipe.useCase);
   const audio = resolveOmniHumanAudio(recipe, voiceStage);
   const input = {
     model: OMNIHUMAN_FAL_MODEL_ID,
@@ -1057,11 +1058,20 @@ function resolveChatterboxModel(recipe: AvatarRenderRecipe): 'chatterbox_turbo' 
   return !language || language === 'en' ? 'chatterbox_turbo' : 'chatterbox_multilingual_v3';
 }
 
-function selectHumanImage(refs: AvatarRenderReferenceImage[]): AvatarRenderReferenceImage | undefined {
-  return refs.find((ref) => ref.role === 'full_body_front' && ref.imageUrl)
-    ?? refs.find((ref) => ref.role === 'full_body_side' && ref.imageUrl)
-    ?? refs.find((ref) => ref.role === 'portrait' && ref.imageUrl)
-    ?? refs.find((ref) => ref.imageUrl);
+// Talking-head use cases read best framed head-and-shoulders. Feeding OmniHuman a
+// face/portrait reference makes it generate a close presenter shot; a full-body ref
+// yields a tiny figure lost in the frame.
+const CLOSE_FRAME_USE_CASES = new Set<AvatarRenderUseCase>(['speech_delivery', 'explainer_host', 'social_presenter']);
+
+function selectHumanImage(
+  refs: AvatarRenderReferenceImage[],
+  useCase: AvatarRenderUseCase,
+): AvatarRenderReferenceImage | undefined {
+  const byRole = (role: AvatarRenderReferenceImage['role']) => refs.find((ref) => ref.role === role && ref.imageUrl);
+  const face = byRole('face_front') ?? byRole('portrait') ?? byRole('face_side');
+  const fullBody = byRole('full_body_front') ?? byRole('full_body_side');
+  const any = refs.find((ref) => ref.imageUrl);
+  return CLOSE_FRAME_USE_CASES.has(useCase) ? (face ?? fullBody ?? any) : (fullBody ?? face ?? any);
 }
 
 function resolveOmniHumanAudio(

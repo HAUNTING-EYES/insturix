@@ -163,7 +163,7 @@ describe('Avatar pipeline-job API', () => {
     );
     expect(submittedInputs).toEqual([
       {
-        imageUrl: 'https://cdn.example.test/avatar/full-body.png',
+        imageUrl: 'https://cdn.example.test/avatar/face.png',
         audioUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
         prompt: 'Rishi appears as a presenter in a clean room background.',
         resolution: '720p',
@@ -257,7 +257,7 @@ describe('Avatar pipeline-job API', () => {
     ]);
     expect(omniHumanInputs).toEqual([
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/full-body.png',
+        imageUrl: 'https://cdn.example.test/avatar/face.png',
         audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
       }),
     ]);
@@ -383,7 +383,7 @@ describe('Avatar pipeline-job API', () => {
     ]);
     expect(omniHumanInputs).toEqual([
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/full-body.png',
+        imageUrl: 'https://cdn.example.test/avatar/face.png',
         audioUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
       }),
     ]);
