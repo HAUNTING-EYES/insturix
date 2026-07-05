@@ -8,12 +8,77 @@
  */
 
 import { getDatabase, COLLECTIONS } from '../../db/mongodb';
+import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 import type { MediaAsset } from '../asset-resolver';
 import type { 
   TranscriptionData, 
   TranscriptionWord, 
   TranscriptionOptions 
 } from './types';
+
+type TranscriptionProviderCostInput = {
+  status: ProviderCostEventStatus;
+  userId?: string;
+  provider: string;
+  model: string;
+  strategy: string;
+  operation?: string;
+  requestCount?: number;
+  retryCount?: number;
+  responseStatus?: number;
+  bytesIn?: number;
+  mediaSeconds?: number;
+  functionMs?: number;
+  wordCount?: number;
+  segmentCount?: number;
+  speakerCount?: number;
+  language?: string;
+  preferWordLevel?: boolean;
+  error?: unknown;
+};
+
+function getErrorClass(error: unknown): string | undefined {
+  if (!error) return undefined;
+  return error instanceof Error ? error.name : typeof error;
+}
+
+async function recordEditronTranscriptionProviderCost(
+  asset: MediaAsset,
+  input: TranscriptionProviderCostInput,
+): Promise<void> {
+  await recordProviderCostEvent({
+    status: input.status,
+    userId: input.userId,
+    assetId: asset.assetId,
+    taskId: asset.assetId,
+    service: 'editron',
+    action: 'media_transcription',
+    route: 'lib/editron/services/media/transcription-service',
+    provider: input.provider,
+    model: input.model,
+    operation: input.operation ?? 'transcription',
+    units: {
+      requestCount: input.requestCount,
+      retryCount: input.retryCount,
+      bytesIn: input.bytesIn,
+      mediaSeconds: input.mediaSeconds,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      strategy: input.strategy,
+      assetType: asset.type,
+      assetSource: asset.source,
+      hasGcsPath: Boolean(asset.gcsPath),
+      preferWordLevel: Boolean(input.preferWordLevel),
+      languageProvided: Boolean(input.language),
+      responseStatus: input.responseStatus,
+      wordCount: input.wordCount,
+      segmentCount: input.segmentCount,
+      speakerCount: input.speakerCount,
+      errorClass: getErrorClass(input.error),
+    },
+  });
+}
 
 /**
  * Get transcription for an asset (cached or fresh)
@@ -53,7 +118,10 @@ export async function getTranscription(
   }
   
   // Generate new transcription
-  const transcription = await generateTranscription(asset, options.language, { preferWordLevel: options.preferWordLevel });
+  const transcription = await generateTranscription(asset, options.language, {
+    preferWordLevel: options.preferWordLevel,
+    userId,
+  });
   
   // Cache to database
   await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -85,35 +153,40 @@ export async function hasTranscription(
 
 /**
  * Generate transcription.
- * Priority: 1) Synthetic from narration text (ThinkForge projects — instant, free, always accurate)
- *           2) Whisper Large V3 on fal.ai (best ASR — word timestamps, ~$0.006/min)
- *           3) Gemma 4 (free fallback — less accurate for speech)
+ * Priority: 1) Synthetic from narration text (ThinkForge projects - instant, free, always accurate)
+ *           2) Whisper Large V3 on fal.ai (best ASR - word timestamps, ~$0.006/min)
+ *           3) Gemma 4 (free fallback - less accurate for speech)
  *           4) Deepgram Nova-2 (final fallback)
  */
 async function generateTranscription(
   asset: MediaAsset,
   language?: string,
-  options?: { preferWordLevel?: boolean }
+  options?: { preferWordLevel?: boolean; userId?: string }
 ): Promise<TranscriptionData> {
   const { refreshSignedUrl } = await import('../gcs-service');
 
-  // ─── Strategy 1: Synthetic timings from known narration text ────
+  // --- Strategy 1: Synthetic timings from known narration text ----
   // For ThinkForge-generated voiceovers, we already know the exact text.
-  // No transcription needed — instant, free, always accurate.
+  // No transcription needed - instant, free, always accurate.
   const narrationText = await getNarrationTextForAsset(asset.assetId);
   if (narrationText) {
     console.log(`[Transcription] Using synthetic timings from narration text for ${asset.assetId}`);
     return generateSyntheticTimings(narrationText, asset);
   }
 
-  // ─── Mode 2: Grok STT for real footage (word-level timestamps) ──
+  // --- Mode 2: Grok STT for real footage (word-level timestamps) --
   // Grok STT: $0.10/hr (3.6x cheaper than Deepgram), word-level timestamps,
   // accepts URL directly (no download), 500MB max, speaker diarization.
-  // Per v3 constraint:overlay.caption_timing_drift — "max 0.5s before speech onset."
-  // Wizper only returns segment-level → 10-30s drift on long videos.
+  // Per v3 constraint:overlay.caption_timing_drift - "max 0.5s before speech onset."
+  // Wizper only returns segment-level -> 10-30s drift on long videos.
   if (options?.preferWordLevel) {
     const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY;
     if (xaiKey) {
+      let grokProviderAttempted = false;
+      let grokRequestCount = 0;
+      let grokResponseStatus: number | undefined;
+      let grokBytesIn: number | undefined;
+      const grokStartedAt = Date.now();
       try {
         let mediaUrl = asset.cachedUrl;
         if (!mediaUrl && asset.gcsPath) {
@@ -144,6 +217,7 @@ async function generateTranscription(
         clearTimeout(dlTimer);
         if (!dlResponse.ok) throw new Error(`File download failed: ${dlResponse.status}`);
         const fileBuffer = await dlResponse.arrayBuffer();
+        grokBytesIn = fileBuffer.byteLength;
         const fileBlob = new Blob([fileBuffer], { type: 'video/mp4' });
         console.log(`[Transcription] Grok STT: downloaded ${(fileBuffer.byteLength / 1024 / 1024).toFixed(1)}MB, uploading to xAI...`);
 
@@ -158,6 +232,8 @@ async function generateTranscription(
 
           const grokController = new AbortController();
           const grokTimer = setTimeout(() => grokController.abort(), 90_000);
+          grokProviderAttempted = true;
+          grokRequestCount += 1;
           response = await fetch('https://api.x.ai/v1/stt', {
             method: 'POST',
             headers: {
@@ -167,6 +243,7 @@ async function generateTranscription(
             signal: grokController.signal,
           });
           clearTimeout(grokTimer);
+          grokResponseStatus = response.status;
 
           if (response.ok) break;
 
@@ -200,6 +277,23 @@ async function generateTranscription(
           const speakerIds = new Set(words.filter(w => w.speaker !== undefined).map(w => w.speaker));
           const speakerCount = speakerIds.size;
           console.log(`[Transcription] Grok STT: ${words.length} words, ${speakerCount} speakers, duration=${data.duration?.toFixed(1)}s for ${asset.assetId}`);
+          await recordEditronTranscriptionProviderCost(asset, {
+            status: 'success',
+            userId: options?.userId,
+            provider: 'xai',
+            model: 'grok-stt',
+            strategy: 'grok_stt',
+            requestCount: grokRequestCount,
+            retryCount: Math.max(grokRequestCount - 1, 0),
+            responseStatus: grokResponseStatus,
+            bytesIn: grokBytesIn,
+            mediaSeconds: typeof data.duration === 'number' ? data.duration : undefined,
+            functionMs: Date.now() - grokStartedAt,
+            wordCount: words.length,
+            speakerCount,
+            language,
+            preferWordLevel: options?.preferWordLevel,
+          });
           return {
             words,
             transcript: data.text || words.map((w: any) => w.word).join(' '),
@@ -211,12 +305,29 @@ async function generateTranscription(
         }
         console.warn(`[Transcription] Grok STT returned 0 words for ${asset.assetId}, falling through`);
       } catch (grokErr: any) {
+        if (grokProviderAttempted) {
+          await recordEditronTranscriptionProviderCost(asset, {
+            status: 'failed',
+            userId: options?.userId,
+            provider: 'xai',
+            model: 'grok-stt',
+            strategy: 'grok_stt',
+            requestCount: grokRequestCount || 1,
+            retryCount: Math.max(grokRequestCount - 1, 0),
+            responseStatus: grokResponseStatus,
+            bytesIn: grokBytesIn,
+            functionMs: Date.now() - grokStartedAt,
+            language,
+            preferWordLevel: options?.preferWordLevel,
+            error: grokErr,
+          });
+        }
         console.warn(`[Transcription] Grok STT failed for ${asset.assetId}: ${grokErr.message}, falling through to Wizper`);
       }
     }
   }
 
-  // ─── Get accessible URL for external transcription ──────────────
+  // --- Get accessible URL for external transcription --------------
   let mediaUrl: string;
 
   if (asset.gcsPath) {
@@ -236,16 +347,19 @@ async function generateTranscription(
   }
 
   if (!mediaUrl) {
-    throw new Error(`Empty URL for asset ${asset.assetId} — gcsPath: ${asset.gcsPath || 'none'}, source: ${asset.source}`);
+    throw new Error(`Empty URL for asset ${asset.assetId} - gcsPath: ${asset.gcsPath || 'none'}, source: ${asset.source}`);
   }
 
-  // ─── Strategy 2: Whisper Large V3 on fal.ai ─────────────────────
+  // --- Strategy 2: Whisper Large V3 on fal.ai ---------------------
   // Industry-standard ASR. Accurate word timestamps. ~$0.006/min.
   // Better than Gemma/Gemini for transcription (dedicated speech model).
+  let falProviderAttempted = false;
+  const falStartedAt = Date.now();
   try {
     const { fal } = await import('@fal-ai/client');
     const falKey = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
     if (falKey) fal.config({ credentials: falKey });
+    falProviderAttempted = true;
     const whisperResult = await Promise.race([
       fal.subscribe('fal-ai/wizper', {
         input: {
@@ -284,7 +398,25 @@ async function generateTranscription(
         }
       }
 
+      const mediaSeconds = data.chunks.reduce(
+        (max: number, chunk: any) => Math.max(max, Number(chunk.timestamp?.[1] || 0)),
+        0,
+      ) || undefined;
       console.log(`[Transcription] Whisper: ${words.length} words (from ${data.chunks.length} segments) for ${asset.assetId}`);
+      await recordEditronTranscriptionProviderCost(asset, {
+        status: 'success',
+        userId: options?.userId,
+        provider: 'fal-ai',
+        model: 'fal-ai/wizper',
+        strategy: 'fal_wizper',
+        requestCount: 1,
+        mediaSeconds,
+        functionMs: Date.now() - falStartedAt,
+        wordCount: words.length,
+        segmentCount: data.chunks.length,
+        language,
+        preferWordLevel: options?.preferWordLevel,
+      });
       return {
         words,
         transcript: data.text || words.map((w: any) => w.word).join(' '),
@@ -293,15 +425,44 @@ async function generateTranscription(
         generatedAt: new Date(),
       };
     }
+    await recordEditronTranscriptionProviderCost(asset, {
+      status: 'failed',
+      userId: options?.userId,
+      provider: 'fal-ai',
+      model: 'fal-ai/wizper',
+      strategy: 'fal_wizper',
+      requestCount: 1,
+      functionMs: Date.now() - falStartedAt,
+      segmentCount: 0,
+      language,
+      preferWordLevel: options?.preferWordLevel,
+      error: new Error('Fal Wizper returned 0 chunks'),
+    });
     console.warn(`[Transcription] Whisper returned 0 chunks for ${asset.assetId}, trying Gemini`);
   } catch (whisperErr: any) {
+    if (falProviderAttempted) {
+      await recordEditronTranscriptionProviderCost(asset, {
+        status: 'failed',
+        userId: options?.userId,
+        provider: 'fal-ai',
+        model: 'fal-ai/wizper',
+        strategy: 'fal_wizper',
+        requestCount: 1,
+        functionMs: Date.now() - falStartedAt,
+        language,
+        preferWordLevel: options?.preferWordLevel,
+        error: whisperErr,
+      });
+    }
     console.warn(`[Transcription] Whisper failed for ${asset.assetId}: ${whisperErr.message}, trying Gemini`);
   }
-
-  // ─── Strategy 3: Gemma 4 transcription (fallback) ──────────────
+  // --- Strategy 3: Gemma 4 transcription (fallback) --------------
   // Free but less accurate for speech-to-text than Whisper.
   try {
-    const result = await transcribeWithGemini(mediaUrl, asset, language);
+    const result = await transcribeWithGemini(mediaUrl, asset, language, {
+      userId: options?.userId,
+      preferWordLevel: options?.preferWordLevel,
+    });
     if (result.words.length > 0) {
       console.log(`[Transcription] Gemma/Gemini: ${result.words.length} words for ${asset.assetId}`);
       return result;
@@ -311,11 +472,22 @@ async function generateTranscription(
     console.warn(`[Transcription] Gemma/Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
   }
 
-  // ─── Strategy 4: Deepgram Nova-2 (final fallback) ──────────────
+  // --- Strategy 4: Deepgram Nova-2 (final fallback) --------------
   try {
     const { transcribeMedia } = await import('../deepgram-service');
     const result = await transcribeMedia(mediaUrl, {
       language: language || undefined,
+      telemetry: {
+        userId: options?.userId,
+        assetId: asset.assetId,
+        taskId: asset.assetId,
+        route: 'lib/editron/services/media/transcription-service',
+        strategy: 'deepgram_fallback',
+        assetType: asset.type,
+        assetSource: asset.source,
+        hasGcsPath: Boolean(asset.gcsPath),
+        preferWordLevel: options?.preferWordLevel,
+      },
     });
 
     const words: TranscriptionWord[] = result.words.map(w => ({
@@ -346,6 +518,7 @@ async function transcribeWithGemini(
   mediaUrl: string,
   asset: MediaAsset,
   language?: string,
+  telemetry?: { userId?: string; preferWordLevel?: boolean },
 ): Promise<TranscriptionData> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('No Gemini API key for transcription');
@@ -361,17 +534,21 @@ async function transcribeWithGemini(
   // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
+  const geminiStartedAt = Date.now();
+  let geminiProviderAttempted = false;
 
-  const result = await Promise.race([
-    model.generateContent([
-    {
-      inlineData: {
-        data: buffer.toString('base64'),
-        mimeType,
-      },
-    },
-    {
-      text: `Transcribe this audio with precise word-level timestamps.
+  try {
+    geminiProviderAttempted = true;
+    const result = await Promise.race([
+      model.generateContent([
+        {
+          inlineData: {
+            data: buffer.toString('base64'),
+            mimeType,
+          },
+        },
+        {
+          text: `Transcribe this audio with precise word-level timestamps.
 
 Return a JSON array where each element is: {"word": "the_word", "start": 0.123, "end": 0.456}
 - "start" and "end" are in SECONDS (decimal)
@@ -381,38 +558,69 @@ ${language ? `- Language: ${language}` : '- Auto-detect language'}
 
 Return ONLY the JSON array, no other text. Example:
 [{"word":"Hello,","start":0.1,"end":0.4},{"word":"world.","start":0.5,"end":0.9}]`,
-    },
-  ]),
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini transcription timeout (90s)')), 90_000)),
-  ]);
+        },
+      ]),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini transcription timeout (90s)')), 90_000)),
+    ]);
 
-  const text = result.response.text()?.trim() || '';
+    const text = result.response.text()?.trim() || '';
 
-  // Parse JSON response — handle markdown code blocks
-  let jsonStr = text;
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    // Parse JSON response - handle markdown code blocks
+    let jsonStr = text;
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    }
+
+    const parsed = JSON.parse(jsonStr);
+    if (!Array.isArray(parsed)) throw new Error('Gemini did not return a JSON array');
+
+    const words: TranscriptionWord[] = parsed.map((w: any) => ({
+      word: String(w.word || ''),
+      startMs: Math.round((w.start || 0) * 1000),
+      endMs: Math.round((w.end || 0) * 1000),
+      confidence: 0.9,
+    })).filter((w: TranscriptionWord) => w.word.length > 0);
+
+    const transcript = words.map(w => w.word).join(' ');
+    await recordEditronTranscriptionProviderCost(asset, {
+      status: words.length > 0 ? 'success' : 'failed',
+      userId: telemetry?.userId,
+      provider: 'google-gemini',
+      model: 'editron-analysis-model',
+      strategy: 'gemini_transcription',
+      requestCount: 1,
+      bytesIn: buffer.byteLength,
+      functionMs: Date.now() - geminiStartedAt,
+      wordCount: words.length,
+      language,
+      preferWordLevel: telemetry?.preferWordLevel,
+    });
+
+    return {
+      words,
+      transcript,
+      language: language || 'en',
+      confidence: 0.9,
+      generatedAt: new Date(),
+    };
+  } catch (geminiErr: unknown) {
+    if (geminiProviderAttempted) {
+      await recordEditronTranscriptionProviderCost(asset, {
+        status: 'failed',
+        userId: telemetry?.userId,
+        provider: 'google-gemini',
+        model: 'editron-analysis-model',
+        strategy: 'gemini_transcription',
+        requestCount: 1,
+        bytesIn: buffer.byteLength,
+        functionMs: Date.now() - geminiStartedAt,
+        language,
+        preferWordLevel: telemetry?.preferWordLevel,
+        error: geminiErr,
+      });
+    }
+    throw geminiErr;
   }
-
-  const parsed = JSON.parse(jsonStr);
-  if (!Array.isArray(parsed)) throw new Error('Gemini did not return a JSON array');
-
-  const words: TranscriptionWord[] = parsed.map((w: any) => ({
-    word: String(w.word || ''),
-    startMs: Math.round((w.start || 0) * 1000),
-    endMs: Math.round((w.end || 0) * 1000),
-    confidence: 0.9,
-  })).filter((w: TranscriptionWord) => w.word.length > 0);
-
-  const transcript = words.map(w => w.word).join(' ');
-
-  return {
-    words,
-    transcript,
-    language: language || 'en',
-    confidence: 0.9,
-    generatedAt: new Date(),
-  };
 }
 
 /**
@@ -440,7 +648,7 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
     console.log(`[Transcription] Strategy 1: no storyboard found with voiceover.audioAssetId=${assetId}`);
   }
 
-  // Strategy 2: Find via project → sourceStoryboardId → match by time position
+  // Strategy 2: Find via project -> sourceStoryboardId -> match by time position
   // This handles cases where the assetId format doesn't match exactly
   if (assetId.startsWith('voiceover_') || assetId.startsWith('vo_')) {
     // Find any project that references this asset
@@ -457,7 +665,7 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
         // Find the overlay with this assetId to get its time position
         const overlay = (project.overlays || []).find((o: any) => o.assetId === assetId);
         if (overlay) {
-          // Match by time position — find the scene that covers this overlay's start frame
+          // Match by time position - find the scene that covers this overlay's start frame
           const fps = project.fps || 30;
           const overlayStartSec = overlay.from / fps;
           let cumulativeSec = 0;
@@ -465,7 +673,7 @@ async function getNarrationTextForAsset(assetId: string): Promise<string | null>
             const sceneDur = scene.descriptor?.durationSeconds || 5;
             if (overlayStartSec >= cumulativeSec && overlayStartSec < cumulativeSec + sceneDur) {
               if (scene.descriptor?.narration) {
-                console.log(`[Transcription] Found narration via project→storyboard time match for ${assetId}`);
+                console.log(`[Transcription] Found narration via project->storyboard time match for ${assetId}`);
                 return scene.descriptor.narration;
               }
             }
@@ -543,7 +751,7 @@ function generateSyntheticTimings(
 
   // Calculate pause durations after each word based on trailing punctuation
   const pauses = words.map(word => {
-    if (word.includes('...') || word.includes('…')) return 400;
+    if (word.includes('...')) return 400;
     if (word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) return 300;
     if (word.endsWith(',') || word.endsWith(';') || word.endsWith(':')) return 150;
     if (word.endsWith('"') || word.endsWith('"')) return 100;
