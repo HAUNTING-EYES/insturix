@@ -105,7 +105,7 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}><Mono s={9} c={C.muted}>Audio</Mono><Seg opts={AUDIO_MODE_OPTIONS} val={s.audioMode} on={(v) => set('audioMode', v)} /></div>
             {showAudioUrl && <div style={{ marginBottom: 12 }}><Field label="Audio URL"><input value={s.audioSourceUrl} onChange={(e) => set('audioSourceUrl', e.target.value)} placeholder="https://" style={inp} /></Field></div>}
             <Field label="Voice to clone" hint="record or paste — we clone it, then speak your script">
-              <VoiceRecorder onUploaded={(url) => { set('voiceReferenceUrl', url); set('audioMode', 'tts_voiceover'); }} />
+              <VoiceRecorder subjectName={record.profile.displayName} onUploaded={(url) => { set('voiceReferenceUrl', url); set('audioMode', 'tts_voiceover'); }} />
               <input value={s.voiceReferenceUrl} onChange={(e) => set('voiceReferenceUrl', e.target.value)} placeholder="…or paste a voice-sample URL" style={{ ...inp, marginTop: 8 }} />
             </Field>
             {s.audioMode === 'copied_reference_audio' && (
