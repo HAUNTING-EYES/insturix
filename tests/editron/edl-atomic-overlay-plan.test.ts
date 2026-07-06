@@ -15,10 +15,6 @@ vi.mock('@/lib/editron/data/transition-templates', () => ({
     dissolve: 36,
     'soft-cut': 15,
   },
-  createTrueDissolve: vi.fn((outgoing: any, incoming: any) => ({
-    outgoing,
-    incoming,
-  })),
 }));
 
 import { executeEDL } from '../../lib/editron/services/edl-executor';

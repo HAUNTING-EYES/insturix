@@ -320,56 +320,6 @@ export const TRANSITION_INFO: Record<TransitionType, { name: string; category: s
   'slide-down': { name: 'Slide Down', category: 'Motion', description: 'Next scene pushes down' },
 };
 
-// ─── True Dissolve (Keyframe-Based) ─────────────────────────────
-// Uses the P7A keyframe system instead of HTML overlays.
-// Creates a crossfade by animating opacity on two overlapping clips.
-
-/**
- * Create a true dissolve transition between two overlays using keyframes.
- * Requires the keyframe system (P7A) to be active.
- *
- * @param outgoingOverlay - The clip that's fading out
- * @param incomingOverlay - The clip that's fading in
- * @param durationFrames - Duration of the crossfade (default 18 = 0.6s)
- * @returns Updated overlays with opacity keyframe tracks + adjusted timing
- */
-export function createTrueDissolve(
-  outgoingOverlay: any,
-  incomingOverlay: any,
-  durationFrames: number = 18,
-): { outgoing: any; incoming: any } {
-  // Extend outgoing clip to overlap with incoming by durationFrames
-  const outgoing = { ...outgoingOverlay };
-  const incoming = { ...incomingOverlay };
-
-  // Outgoing: fade out over the last durationFrames
-  const outDuration = outgoing.durationInFrames;
-  if (!outgoing.keyframeTracks) outgoing.keyframeTracks = [];
-  outgoing.keyframeTracks = outgoing.keyframeTracks.filter((t: any) => t.property !== 'opacity');
-  outgoing.keyframeTracks.push({
-    property: 'opacity',
-    keyframes: [
-      { frame: outDuration - durationFrames, value: 1, easing: 'ease-in-out' },
-      { frame: outDuration, value: 0, easing: 'linear' },
-    ],
-  });
-
-  // Incoming: shift start back by durationFrames (overlap), fade in
-  incoming.from = Math.max(0, incoming.from - durationFrames);
-  incoming.durationInFrames += durationFrames;
-  if (!incoming.keyframeTracks) incoming.keyframeTracks = [];
-  incoming.keyframeTracks = incoming.keyframeTracks.filter((t: any) => t.property !== 'opacity');
-  incoming.keyframeTracks.push({
-    property: 'opacity',
-    keyframes: [
-      { frame: 0, value: 0, easing: 'ease-in-out' },
-      { frame: durationFrames, value: 1, easing: 'linear' },
-    ],
-  });
-
-  return { outgoing, incoming };
-}
-
 /** Convert transition type from editDirections to TransitionType */
 export function normalizeTransitionType(type: string): TransitionType {
   const map: Record<string, TransitionType> = {
