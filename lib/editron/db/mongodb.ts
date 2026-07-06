@@ -67,6 +67,7 @@ export const COLLECTIONS = {
   CHAT_SESSIONS: 'chatSessions',
   MEDIA_ASSETS: 'mediaAssets',
   MEDIA_UPLOADS: 'mediaUploads',
+  MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
   PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
@@ -128,6 +129,13 @@ export async function initializeIndexes(): Promise<void> {
       name: 'ttl_lastActivity',
       expireAfterSeconds: 604800, // 7 days
     },
+  ]);
+
+  // Media upload batch manifests (one row per user-visible multi-select upload batch)
+  await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).createIndexes([
+    { key: { uploadBatchId: 1, userId: 1 }, name: 'uploadBatchId_userId_unique', unique: true },
+    { key: { userId: 1, updatedAt: -1 }, name: 'userId_updatedAt' },
+    { key: { assetIds: 1 }, name: 'assetIds' },
   ]);
 
   // Per-project asset analysis documents (keeps large multi-upload analyses off project docs)
