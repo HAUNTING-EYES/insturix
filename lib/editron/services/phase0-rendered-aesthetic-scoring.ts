@@ -655,6 +655,8 @@ function applyScoringEasing(rawProgress: number, easing: string): number {
       return progress < 0.5
         ? 2 * progress * progress
         : 1 - (((-2 * progress) + 2) ** 2) / 2;
+    case 'snap-out':
+      return 1 - ((1 - progress) ** 4);
     default:
       return progress;
   }
