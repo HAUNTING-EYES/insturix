@@ -16,9 +16,21 @@ export interface UploadedMedia {
   type: 'video' | 'audio' | 'image';
   filename: string;
   size: number;
+  uploadBatchId?: string;
   duration?: number;
   thumbnail?: string;
   dimensions?: { width: number; height: number };
+}
+
+export interface UploadMediaFileOptions {
+  projectId?: string;
+  uploadBatchId?: string;
+}
+
+export interface UploadMediaBatchResult {
+  uploadBatchId: string;
+  uploaded: UploadedMedia[];
+  failed: Array<{ filename: string; error: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,8 +70,12 @@ async function extractResponseError(response: Response, fallback: string): Promi
  */
 export const uploadMediaFile = async (
   file: File,
-  projectId?: string
+  optionsOrProjectId?: string | UploadMediaFileOptions
 ): Promise<UploadedMedia> => {
+  const options =
+    typeof optionsOrProjectId === 'string'
+      ? { projectId: optionsOrProjectId }
+      : (optionsOrProjectId ?? {});
   const fileType = resolveFileType(file.type);
 
   // Gather local metadata in parallel with the signed URL request
@@ -91,7 +107,8 @@ export const uploadMediaFile = async (
     contentType: file.type,
     size: file.size,
     type: fileType,
-    projectId,
+    projectId: options.projectId,
+    uploadBatchId: options.uploadBatchId,
     thumbnail: thumbnail || undefined,
     duration,
     dimensions,
@@ -103,11 +120,43 @@ export const uploadMediaFile = async (
     type: registered.type,
     filename: registered.filename,
     size: registered.size,
+    uploadBatchId: registered.uploadBatchId,
     duration,
     thumbnail: thumbnail || undefined,
     dimensions,
   };
 };
+
+export async function uploadMediaFiles(
+  files: File[],
+  options: UploadMediaFileOptions = {}
+): Promise<UploadMediaBatchResult> {
+  const uploadBatchId = options.uploadBatchId ?? createUploadBatchId();
+  const uploaded: UploadedMedia[] = [];
+  const failed: UploadMediaBatchResult['failed'] = [];
+
+  for (const file of files) {
+    try {
+      const media = await uploadMediaFile(file, { ...options, uploadBatchId });
+      uploaded.push(media);
+    } catch (error) {
+      failed.push({
+        filename: file.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { uploadBatchId, uploaded, failed };
+}
+
+function createUploadBatchId(): string {
+  const random =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `upload_batch_${random}`;
+}
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -150,10 +199,11 @@ async function registerAssetMetadata(meta: {
   size: number;
   type: 'video' | 'audio' | 'image';
   projectId?: string;
+  uploadBatchId?: string;
   thumbnail?: string;
   duration?: number;
   dimensions?: { width: number; height: number };
-}): Promise<{ assetId: string; url: string; type: 'video' | 'audio' | 'image'; filename: string; size: number }> {
+}): Promise<{ assetId: string; url: string; type: 'video' | 'audio' | 'image'; filename: string; size: number; uploadBatchId?: string }> {
   const response = await fetch('/api/services/editron/media/upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

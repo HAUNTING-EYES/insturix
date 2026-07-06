@@ -33,7 +33,7 @@ export function LocalMediaGallery({
 }: {
   onSelectMedia?: (mediaFile: any) => void;
 }) {
-  const { localMediaFiles, addMediaFile, removeMediaFile, togglePinMediaFile, isLoading } =
+  const { localMediaFiles, addMediaFiles, removeMediaFile, togglePinMediaFile, isLoading } =
     useLocalMedia();
   const [activeTab, setActiveTab] = useState("all");
   const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -85,18 +85,22 @@ export function LocalMediaGallery({
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const files = event.target.files;
-    if (files && files.length > 0) {
-      try {
-        setUploadError(null);
-        await addMediaFile(files[0]);
-        // Reset the input value to allow uploading the same file again
-        event.target.value = "";
-      } catch (error) {
-        console.error("Error uploading file:", error);
-        setUploadError("Failed to upload file. Please try again.");
-        event.target.value = "";
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0) return;
+
+    try {
+      setUploadError(null);
+      const result = await addMediaFiles(selectedFiles);
+      if (result.failed.length > 0) {
+        const firstFailure = result.failed[0];
+        const suffix = result.failed.length > 1 ? ` and ${result.failed.length - 1} more` : "";
+        setUploadError(`Uploaded ${result.uploaded.length}/${selectedFiles.length}. Failed: ${firstFailure.filename}${suffix}. ${firstFailure.error}`);
       }
+      event.target.value = "";
+    } catch (error) {
+      console.error("Error uploading files:", error);
+      setUploadError(error instanceof Error ? error.message : "Failed to upload files. Please try again.");
+      event.target.value = "";
     }
   };
 
@@ -323,6 +327,7 @@ export function LocalMediaGallery({
             className="hidden"
             onChange={handleFileUpload}
             accept="image/*,video/*,audio/*"
+            multiple
             disabled={isLoading}
           />
         </div>

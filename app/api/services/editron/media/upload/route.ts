@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
       duration,
       dimensions,
       isProxy,
+      uploadBatchId,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -208,6 +209,11 @@ export async function POST(request: NextRequest) {
           }
         : undefined;
 
+    const cleanUploadBatchId =
+      typeof uploadBatchId === 'string' && uploadBatchId.trim()
+        ? uploadBatchId.trim().slice(0, 128)
+        : undefined;
+
     const now = new Date();
     const mediaAsset: MediaAsset = {
       assetId,
@@ -226,6 +232,7 @@ export async function POST(request: NextRequest) {
       dimensions: parsedDimensions,
       uploadedAt: now,
       lastUsedAt: now, // seed the LRU signal at upload time
+      ...(cleanUploadBatchId && { uploadBatchId: cleanUploadBatchId }),
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
     };
@@ -273,6 +280,7 @@ export async function POST(request: NextRequest) {
               size: size || 0,
               analysisQueued: false,
               analysisSkippedReason: 'insufficient_credits',
+              uploadBatchId: cleanUploadBatchId,
             });
           }
 
@@ -306,6 +314,7 @@ export async function POST(request: NextRequest) {
             size: size || 0,
             analysisQueued: false,
             analysisSkippedReason: 'credit_deduction_failed',
+            uploadBatchId: cleanUploadBatchId,
           });
         }
 
@@ -391,6 +400,7 @@ export async function POST(request: NextRequest) {
       filename,
       size: size || 0,
       analysisQueued,
+      uploadBatchId: cleanUploadBatchId,
     });
   } catch (error: any) {
     console.error('Error registering media asset:', error);
