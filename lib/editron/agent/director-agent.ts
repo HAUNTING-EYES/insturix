@@ -1682,6 +1682,18 @@ export async function executeDirectorPlan(
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
           edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
           edlSummary.skipped = unifiedExecutionResult.decisionsSkipped;
+
+          try {
+            const { applyColorNormalization } = await import('@/lib/editron/services/auto-post-processing');
+            const colorResult = applyColorNormalization(overlays, analysesMap, pathDGenreParams ?? pathEGenreParams);
+            result.overlaysModified += colorResult.modified;
+            if (colorResult.modified > 0) {
+              console.log(`[Director] Post-process: ${colorResult.modified} color normalizations applied (C-030)`);
+            }
+          } catch (colorErr: any) {
+            console.warn(`[Director] Color normalization failed (non-fatal): ${colorErr?.message ?? colorErr}`);
+          }
+
           for (const d of unifiedDecisionBundle.edl.decisions) {
             edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
           }
@@ -2021,7 +2033,7 @@ export async function executeDirectorPlan(
               ...edlResult.budgetRejectedZoomAssetIds,
               ...edlResult.zoomedAssetIds,
             ]);
-            const ppResult = runPostProcessing(overlays, canvas, analysisMap, allSkipZoomIds);
+            const ppResult = runPostProcessing(overlays, canvas, analysisMap, allSkipZoomIds, undefined, pathDGenreParams ?? pathEGenreParams);
             result.overlaysModified += ppResult.totalModified;
             if (ppResult.driftZoomApplied > 0) {
               console.log(`[Director] Post-process: ${ppResult.driftZoomApplied} drift-zooms applied (Z-030)`);

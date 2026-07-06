@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyFreezeFrameUnderGraphics } from '@/lib/editron/services/auto-post-processing';
+import { applyColorNormalization, applyFreezeFrameUnderGraphics } from '@/lib/editron/services/auto-post-processing';
 
 describe('auto post-processing', () => {
   it('does not freeze-ramp video under graphics when native speech would be slowed', () => {
@@ -32,6 +32,54 @@ describe('auto post-processing', () => {
     expect(overlays[0].speedCurve).toBeUndefined();
   });
 
+
+  it('applies conservative signal-derived color normalization without selecting a filter preset', () => {
+    const overlays: any[] = [videoOverlay({ assetId: 'clip-1' })];
+    const analyses = new Map<string, any>([[
+      'clip-1',
+      {
+        assetId: 'clip-1',
+        keyframeAnalyses: [{ colorTemperatureK: 7200, dominantColors: ['#4A90E2'] }],
+        subjectTracks: [{ category: 'person' }],
+      },
+    ]]);
+
+    const result = applyColorNormalization(overlays, analyses, {
+      color_temperature: 5200,
+      formality: 0.4,
+      energy_baseline: 0.55,
+    });
+
+    expect(result.modified).toBe(1);
+    expect(overlays[0].styles.filter).toContain('sepia(');
+    expect(overlays[0].styles.filter).not.toContain('warm-neutral');
+    expect(overlays[0].metadata.autoColorNormalization).toMatchObject({
+      version: 'auto-color-normalization-v1',
+      source: 'auto-post-processing',
+      currentColorTemperature: 7200,
+      targetColorTemperature: 5200,
+      deltaK: -500,
+      skinToneProtected: true,
+    });
+  });
+
+  it('does not overwrite manual filters during automatic color normalization', () => {
+    const overlays: any[] = [videoOverlay({
+      assetId: 'clip-1',
+      styles: { volume: 1, filter: 'contrast(1.2)' },
+    })];
+    const analyses = new Map<string, any>([[
+      'clip-1',
+      { assetId: 'clip-1', keyframeAnalyses: [{ colorTemperatureK: 7000 }], subjectTracks: [] },
+    ]]);
+
+    const result = applyColorNormalization(overlays, analyses, { color_temperature: 5200 });
+
+    expect(result.modified).toBe(0);
+    expect(result.skippedExistingFilter).toBe(1);
+    expect(overlays[0].styles.filter).toBe('contrast(1.2)');
+    expect(overlays[0].metadata?.autoColorNormalization).toBeUndefined();
+  });
   it('still freezes silent visual footage under a large readable graphic', () => {
     const overlays: any[] = [
       videoOverlay({
