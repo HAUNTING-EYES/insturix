@@ -612,12 +612,17 @@ function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
       inputDecisionCount: 0,
       outputDecisionCount: 0,
       suppressedDecisionCount: 0,
+      shapedDecisionCount: 0,
       suppressionRate: null,
+      shapeRate: null,
       syncGroupCount: 0,
       laneLoad: {} as Record<string, number>,
       suppressedByReason: {} as Record<string, number>,
+      shapedByReason: {} as Record<string, number>,
       suppressedByFamily: {} as Record<string, number>,
+      shapedByFamily: {} as Record<string, number>,
       topSuppressions: [] as Array<Record<string, unknown>>,
+      topShapes: [] as Array<Record<string, unknown>>,
       syncGroups: [] as Array<Record<string, unknown>>,
       calibrationStatus: null,
     };
@@ -625,6 +630,7 @@ function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
 
   const inputDecisionCount = readPositiveNumber(report.inputDecisionCount, 0);
   const suppressedDecisionCount = readPositiveNumber(report.suppressedDecisionCount, 0);
+  const shapedDecisionCount = readPositiveNumber(report.shapedDecisionCount, 0);
   const syncGroups = Array.isArray(report.syncGroups)
     ? report.syncGroups.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySyncGroup)
     : [];
@@ -635,13 +641,20 @@ function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
     inputDecisionCount,
     outputDecisionCount: readPositiveNumber(report.outputDecisionCount, 0),
     suppressedDecisionCount,
+    shapedDecisionCount,
     suppressionRate: inputDecisionCount > 0 ? round(suppressedDecisionCount / inputDecisionCount) : null,
+    shapeRate: inputDecisionCount > 0 ? round(shapedDecisionCount / inputDecisionCount) : null,
     syncGroupCount: syncGroups.length,
     laneLoad: normalizeNumberRecord(report.laneLoad),
     suppressedByReason: normalizeNumberRecord(report.suppressedByReason),
+    shapedByReason: normalizeNumberRecord(report.shapedByReason),
     suppressedByFamily: normalizeNumberRecord(report.suppressedByFamily),
+    shapedByFamily: normalizeNumberRecord(report.shapedByFamily),
     topSuppressions: Array.isArray(report.suppressed)
       ? report.suppressed.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySuppression)
+      : [],
+    topShapes: Array.isArray(report.shaped)
+      ? report.shaped.filter(isRecord).slice(0, 20).map(summarizeCrossOverlayShape)
       : [],
     syncGroups,
     calibrationStatus: readString(report.calibrationStatus) || null,
@@ -654,6 +667,24 @@ function summarizeCrossOverlaySuppression(item: JsonRecord) {
     reason: readString(item.reason) || 'unknown',
     family: readString(item.family) || 'unknown',
     frame: readNullableNumber(item.frame),
+    conflictingWith: {
+      type: readString(conflictingWith.type) || null,
+      frame: readNullableNumber(conflictingWith.frame),
+      family: readString(conflictingWith.family) || null,
+      source: preview(conflictingWith.source, 80) || null,
+    },
+    calibrationStatus: readString(item.calibrationStatus) || null,
+  };
+}
+
+function summarizeCrossOverlayShape(item: JsonRecord) {
+  const conflictingWith = isRecord(item.conflictingWith) ? item.conflictingWith : {};
+  return {
+    reason: readString(item.reason) || 'unknown',
+    family: readString(item.family) || 'unknown',
+    originalFrame: readNullableNumber(item.originalFrame),
+    frame: readNullableNumber(item.frame),
+    shiftFrames: readNullableNumber(item.shiftFrames),
     conflictingWith: {
       type: readString(conflictingWith.type) || null,
       frame: readNullableNumber(conflictingWith.frame),

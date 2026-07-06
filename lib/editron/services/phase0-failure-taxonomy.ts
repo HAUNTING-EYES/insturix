@@ -367,15 +367,27 @@ function addCrossOverlayChoreographyClasses(classes: Phase0FailureClass[], manif
   if (status !== 'present') return;
 
   const suppressedDecisionCount = readNumber(choreography.suppressedDecisionCount) ?? 0;
-  if (suppressedDecisionCount <= 0) return;
+  const shapedDecisionCount = readNumber(choreography.shapedDecisionCount) ?? 0;
 
-  classes.push({
-    id: 'decision.cross_overlay_choreography_suppression',
-    severity: 'info',
-    source: 'decision',
-    message: 'Cross-overlay choreography suppressed one or more candidate decisions to avoid unsynchronized overlay stacking.',
-    evidence: compactCrossOverlayChoreographyEvidence(choreography),
-  });
+  if (suppressedDecisionCount > 0) {
+    classes.push({
+      id: 'decision.cross_overlay_choreography_suppression',
+      severity: 'info',
+      source: 'decision',
+      message: 'Cross-overlay choreography suppressed one or more candidate decisions to avoid unsynchronized overlay stacking.',
+      evidence: compactCrossOverlayChoreographyEvidence(choreography),
+    });
+  }
+
+  if (shapedDecisionCount > 0) {
+    classes.push({
+      id: 'decision.cross_overlay_choreography_shaped',
+      severity: 'info',
+      source: 'decision',
+      message: 'Cross-overlay choreography moved one or more candidate decisions to seat coordinated overlays instead of suppressing them.',
+      evidence: compactCrossOverlayChoreographyEvidence(choreography),
+    });
+  }
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -1357,12 +1369,17 @@ function compactCrossOverlayChoreographyEvidence(choreography: JsonRecord): Reco
     inputDecisionCount: readNumber(choreography.inputDecisionCount),
     outputDecisionCount: readNumber(choreography.outputDecisionCount),
     suppressedDecisionCount: readNumber(choreography.suppressedDecisionCount),
+    shapedDecisionCount: readNumber(choreography.shapedDecisionCount),
     suppressionRate: readNumber(choreography.suppressionRate),
+    shapeRate: readNumber(choreography.shapeRate),
     syncGroupCount: readNumber(choreography.syncGroupCount),
     laneLoad: asRecord(choreography.laneLoad),
     suppressedByReason: asRecord(choreography.suppressedByReason),
+    shapedByReason: asRecord(choreography.shapedByReason),
     suppressedByFamily: asRecord(choreography.suppressedByFamily),
+    shapedByFamily: asRecord(choreography.shapedByFamily),
     topSuppressions: Array.isArray(choreography.topSuppressions) ? choreography.topSuppressions.slice(0, 5) : [],
+    topShapes: Array.isArray(choreography.topShapes) ? choreography.topShapes.slice(0, 5) : [],
     syncGroups: Array.isArray(choreography.syncGroups) ? choreography.syncGroups.slice(0, 5) : [],
     calibrationStatus: readString(choreography.calibrationStatus),
   };
