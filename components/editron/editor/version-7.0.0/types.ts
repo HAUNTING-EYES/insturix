@@ -47,6 +47,13 @@ export interface KeyframeTrack {
   keyframes: Keyframe[];
 }
 
+/** A user-authored named marker on the timeline (frame + label). D4. */
+export interface NamedMarker {
+  id: string;
+  frame: number;
+  label: string;
+}
+
 // Base overlay properties
 type BaseOverlay = {
   id: number;

@@ -21,7 +21,7 @@ import { useCompositionDuration } from "./hooks/use-composition-duration";
 import { useHistory } from "./hooks/use-history";
 
 // Types
-import { Overlay } from "./types";
+import { Overlay, NamedMarker } from "./types";
 import { useRendering } from "./hooks/use-rendering";
 import {
   AUTO_SAVE_INTERVAL,
@@ -52,6 +52,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
+  const [markers, setMarkers] = useState<NamedMarker[]>([]);
 
   // Overlay management hooks
   const {
@@ -124,6 +125,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     playerDimensions: getAspectRatioDimensions(),
     fps: FPS,
     durationInFrames,
+    markers,
   };
 
   // Implment load state
@@ -145,6 +147,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
             loadedState.playerDimensions.width,
             loadedState.playerDimensions.height
           );
+        if (Array.isArray(loadedState.markers)) setMarkers(loadedState.markers);
       }
     },
     onAutosaveDetected: (timestamp) => {
@@ -272,12 +275,18 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
       playerDimensions,
       durationInFrames,
       fps: FPS,
+      markers,
     }),
 
     // AI Processing State
     isAIProcessing,
     setIsAIProcessing,
     aiActions: [],
+
+    // Named timeline markers (D4) + autosave load for the v2 recovery modal.
+    markers,
+    setMarkers,
+    loadState,
   };
 
   return (

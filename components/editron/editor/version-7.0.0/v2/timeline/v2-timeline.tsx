@@ -24,6 +24,7 @@ import { useTimelineEventHandlers } from '../../hooks/use-timeline-event-handler
 import { useTimelineState } from '../../hooks/use-timeline-state';
 import { useTimelineSnapping } from '../../hooks/use-timeline-snapping';
 import { useAssetLoading } from '../../contexts/asset-loading-context';
+import { useEditorContext } from '../../contexts/editor-context';
 import { Overlay, OverlayType } from '../../types';
 import GhostMarker from '../../components/timeline/ghost-marker';
 import TimelineGrid from '../../components/timeline/timeline-grid';
@@ -56,12 +57,6 @@ interface V2TimelineProps {
   playerRef: React.RefObject<any>;
 }
 
-interface NamedMarker {
-  id: string;
-  frame: number;
-  label: string;
-}
-
 export function V2Timeline({
   overlays,
   durationInFrames,
@@ -92,11 +87,15 @@ export function V2Timeline({
 
   // v2 additions: real snap toggle + named markers (local, see header TODO).
   const [snapOn, setSnapOn] = useState(true);
-  const [markers, setMarkers] = useState<NamedMarker[]>([]);
+  // Named markers live on the editor context (persisted via autosave, D4).
+  const { markers = [], setMarkers } = useEditorContext();
   const addMarkerAtPlayhead = useCallback(() => {
-    setMarkers((prev) => [...prev, { id: crypto.randomUUID(), frame: currentFrame, label: `Marker ${prev.length + 1}` }]);
-  }, [currentFrame]);
-  const deleteMarker = useCallback((id: string) => setMarkers((prev) => prev.filter((m) => m.id !== id)), []);
+    setMarkers?.([...markers, { id: crypto.randomUUID(), frame: currentFrame, label: `Marker ${markers.length + 1}` }]);
+  }, [markers, setMarkers, currentFrame]);
+  const deleteMarker = useCallback(
+    (id: string) => setMarkers?.(markers.filter((m) => m.id !== id)),
+    [markers, setMarkers],
+  );
 
   // Ensure minimum rows when there are no overlays.
   useEffect(() => {

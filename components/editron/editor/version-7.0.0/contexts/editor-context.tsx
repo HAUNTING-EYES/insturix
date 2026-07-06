@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode } from "react";
-import { Overlay, AspectRatio, CaptionStyles } from "../types";
+import { Overlay, AspectRatio, CaptionStyles, NamedMarker } from "../types";
 
 // Define the shape of the context
 interface EditorContextProps {
@@ -82,6 +82,13 @@ interface EditorContextProps {
   isAIProcessing: boolean;
   setIsAIProcessing: (isProcessing: boolean) => void;
   aiActions: Array<{ id: string; toolName: string; status: 'running' | 'done' }>;
+
+  // Named timeline markers (D4) — optional; provided by react-video-editor.
+  markers?: NamedMarker[];
+  setMarkers?: (markers: NamedMarker[]) => void;
+
+  // Autosave load (used by the v2 recovery modal) — optional.
+  loadState?: () => Promise<any>;
 }
 
 // Create the context with undefined as default value
