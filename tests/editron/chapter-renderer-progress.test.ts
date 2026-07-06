@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   collection: vi.fn(),
   isChapterConcatConfigured: vi.fn(() => false),
   enqueueChapterConcat: vi.fn(async () => {}),
+  assertRemotionSiteFresh: vi.fn(),
 }));
 
 vi.mock("@remotion/lambda/client", () => ({
@@ -31,6 +32,9 @@ vi.mock("@/lib/editron/services/chapter-concat-client", () => ({
   enqueueChapterConcat: mocks.enqueueChapterConcat,
 }));
 
+vi.mock("@/lib/editron/services/remotion-site-version", () => ({
+  assertRemotionSiteFresh: mocks.assertRemotionSiteFresh,
+}));
 vi.mock("@/lib/services/planService", () => ({
   getUserPlanWithServiceLimits: vi.fn(async () => ({ type: "base" })),
 }));
@@ -59,6 +63,7 @@ describe("chapter renderer progress", () => {
     // Tests that exercise the concat path override these.
     mocks.isChapterConcatConfigured.mockReturnValue(false);
     mocks.enqueueChapterConcat.mockResolvedValue(undefined);
+    mocks.assertRemotionSiteFresh.mockReturnValue({ reason: "verified_env_commit" });
     mocks.updateOne.mockResolvedValue({});
   });
 
@@ -71,6 +76,7 @@ describe("chapter renderer progress", () => {
     });
     mocks.updateOne.mockResolvedValue({ modifiedCount: 1 });
     mocks.renderMediaOnLambda.mockResolvedValue({ renderId: "render_chapter", bucketName: "remotion-bucket" });
+    mocks.assertRemotionSiteFresh.mockReturnValue({ reason: "verified_env_commit" });
 
     const overlays: any[] = [
       { id: "clip-a", type: "video", row: 2, from: 0, durationInFrames: 15_000, videoStartTime: 300 },
@@ -134,6 +140,10 @@ describe("chapter renderer progress", () => {
       expect.objectContaining({ index: 1, startFrame: 15_000, endFrame: 30_000, durationFrames: 15_000 }),
     ]);
     expect(insertedJob.chapters[0]).not.toHaveProperty("overlays");
+    expect(mocks.assertRemotionSiteFresh).toHaveBeenCalledWith({
+      serveUrl: "https://remotion.example/site",
+      env: process.env,
+    });
     expect(mocks.renderMediaOnLambda).toHaveBeenCalledTimes(2);
     expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
       1,

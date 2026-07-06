@@ -23,6 +23,7 @@ import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { isChapterConcatConfigured, enqueueChapterConcat } from './chapter-concat-client';
 import { buildLambdaRenderInputProps } from '@/lib/editron/shared/render-request-payload';
+import { assertRemotionSiteFresh } from './remotion-site-version';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -288,6 +289,10 @@ export async function startPendingChapters(
   if (!serveUrl || !functionName) {
     console.warn('[ChapterRenderer] cannot start pending chapters: REMOTION_LAMBDA_SERVE_URL / FUNCTION_NAME unset');
     return;
+  }
+  const freshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
+  if (freshness.reason === 'unverified_no_app_commit') {
+    console.warn('[ChapterRenderer] Remotion site version could not be verified because app commit metadata is missing');
   }
 
   const ctx = {
