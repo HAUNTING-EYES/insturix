@@ -1072,12 +1072,18 @@ async function handler(request: NextRequest) {
     const totalMs = Date.now() - startMs;
     const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
-      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
     );
+    const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
     const learningDecision = resolveEditronLearningOutcome({
       hasQualityReview: !!projectAfterDirector?.qualityReview,
       qualityScore: projectAfterDirector?.qualityReview?.overallScore,
       criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
+      qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+      renderedQualityStatus: renderedQualityEvidence?.renderedQualityStatus,
+      renderedAestheticStatus: renderedQualityEvidence?.renderedAestheticStatus,
+      artifactStatus: renderedQualityEvidence?.artifactStatus,
+      renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount,
     });
     const completionSet: Record<string, unknown> = {
       autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review',
@@ -1105,7 +1111,16 @@ async function handler(request: NextRequest) {
     try {
       if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false);
+        const outcome = await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
+          evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+          renderedAestheticStatus:
+            renderedQualityEvidence?.renderedAestheticStatus ??
+            renderedQualityEvidence?.renderedQualityStatus ??
+            renderedQualityEvidence?.artifactStatus,
+        });
+        if (!outcome.recorded) {
+          console.log('[VideoAnalysisWorker] Bandit: skipped inline Director outcome (' + (outcome.reason ?? 'not_recorded') + ')');
+        }
       } else {
         console.log(`[VideoAnalysisWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
       }
