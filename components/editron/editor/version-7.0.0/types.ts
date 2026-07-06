@@ -564,6 +564,7 @@ export type MotionGraphicOverlay = BaseOverlay & {
   structureType: string;
   content: Record<string, string>;
   resolvedTokens: Record<string, any>;
+  signalCurves?: Record<string, number[]>;
   contentSignals?: {
     formality: number;
     enthusiasm: number;

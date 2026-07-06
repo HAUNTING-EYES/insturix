@@ -47,11 +47,10 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
   if (preComputedRecipe && preComputedRecipe.elements?.length > 0) {
     const atomicPlan = (overlay as any).metadata?.atomicOverlayPlan as AtomicOverlayPlan | undefined;
     const atomicDecision = (overlay as any).metadata?.atomicOverlayDecision as AtomicOverlayDecision | undefined;
-    // Synthesize per-frame SignalCurves from scalar contentSignals snapshot.
-    // This enables audio-reactive modulation (beat pulse, energy, emotion) at render time.
-    // Scalar→constant array: each signal value is replicated for every frame of the composition.
-    // Beat pulsation requires BPM-derived per-frame curves (future work — needs BPM on overlay).
-    const signalCurves = synthesizeSignalCurves(signals, overlay.durationInFrames);
+    // Production path: EDL stamps real per-frame curves from timeline/audio analysis.
+    // Fallback exists only for old overlays that predate serialized curves.
+    const signalCurves = sanitizeSignalCurves((overlay as Record<string, unknown>).signalCurves, overlay.durationInFrames)
+      ?? synthesizeSignalCurves(signals, overlay.durationInFrames);
 
     return (
       <MotionThemeProvider tokens={tokens}>
@@ -106,7 +105,7 @@ function synthesizeSignalCurves(
     }
   }
 
-  // Pass 2: BPM-derived beat grid (replaces constant music_beat with real rhythm)
+  // Legacy fallback: BPM-derived beat grid when old overlays have no serialized timeline curves.
   // D6 beat hierarchy: tatum=0.1, tactus=0.25, bar=0.4, downbeat=0.6
   const bpm = typeof signals.bpm === 'number' ? signals.bpm : 0;
   if (bpm > 0) {
@@ -131,11 +130,29 @@ function synthesizeSignalCurves(
     }
 
     curves['beat_level'] = beatLevel;
-    // Override constant music_beat with rhythmic version
+    // Override constant music_beat with deterministic legacy beat pulses.
     curves['music_beat'] = beatLevel.map(v => v >= 0.25 ? 1 : 0);
   }
 
   return curves;
+}
+
+function sanitizeSignalCurves(value: unknown, durationInFrames: number): SignalCurves | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || durationInFrames <= 0) return undefined;
+  const curves: SignalCurves = {};
+
+  for (const [key, curve] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(curve)) continue;
+    const sanitized = new Array(durationInFrames).fill(0);
+    const max = Math.min(durationInFrames, curve.length);
+    for (let i = 0; i < max; i++) {
+      const sample = curve[i];
+      sanitized[i] = typeof sample === 'number' && isFinite(sample) ? sample : 0;
+    }
+    curves[key] = sanitized;
+  }
+
+  return Object.keys(curves).length > 0 ? curves : undefined;
 }
 
 function sanitizeSignals(signals: unknown): Record<string, number | string> | undefined {

@@ -58,6 +58,7 @@ import {
   type AtomicOverlayReceipt,
 } from '@/lib/editron/engine/atomic-overlay-core';
 import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
+import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -409,6 +410,7 @@ export interface ExecutionResult {
 interface EDLSignalContext {
   vjepaSegments?: Array<Record<string, unknown>>;
   wav2vecSegments?: Array<Record<string, unknown>>;
+  musicAnalysis?: Record<string, unknown>;
   vjepaScreenContextPolicy?: VjepaScreenContextPolicy;
 }
 
@@ -768,6 +770,7 @@ export async function executeEDL(
     projectSignalContext = {
       vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
       wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
+      musicAnalysis: recordValue(projectDoc?.musicAnalysis) ?? recordValue(projectDoc?.essentiaAnalysis) ?? undefined,
       vjepaScreenContextPolicy: projectDoc?.intelligence?.vjepaCoverageAudit
         ? resolveVjepaScreenContextPolicy(projectDoc.intelligence.vjepaCoverageAudit)
         : undefined,
@@ -988,7 +991,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity, projectSignalContext);
       if (applied) {
         appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
           decision,
@@ -2225,6 +2228,171 @@ function buildMotionGraphicSignalSnapshot(decision: EditDecision): Record<string
   return normalizePlannerSignals(decisionSignals(decision));
 }
 
+function buildMotionGraphicSignalCurves(
+  decision: EditDecision,
+  overlays: Overlay[],
+  overlayFrom: number,
+  durationInFrames: number,
+  signals: Record<string, number | string>,
+  analyses?: Map<string, any>,
+  projectSignalContext: EDLSignalContext = {},
+): { curves: SignalCurves; summary: Record<string, unknown> } | undefined {
+  if (durationInFrames <= 0) return undefined;
+  const curves: SignalCurves = {};
+  const ensureCurve = (key: string): number[] => {
+    if (!curves[key]) curves[key] = new Array(durationInFrames).fill(0);
+    return curves[key];
+  };
+
+  for (const [key, value] of Object.entries(signals)) {
+    if (typeof value === 'number' && isFinite(value)) {
+      curves[key] = new Array(durationInFrames).fill(value);
+    }
+  }
+
+  let beatSamples = 0;
+  let onsetSamples = 0;
+  let musicEnergySamples = 0;
+  let wav2vecSamples = 0;
+  let vjepaSamples = 0;
+
+  for (let localFrame = 0; localFrame < durationInFrames; localFrame++) {
+    const timelineFrame = overlayFrom + localFrame;
+    const frameRef = resolveSourceFrame(timelineFrame, overlays);
+    const sourceMs = (frameRef.sourceFrame / DEFAULT_CONFIG.timing.fps) * 1000;
+    const analysis = analysisForAsset(analyses, frameRef.assetId);
+
+    const wav2vecSegments = arrayOrUndefined(analysis?.wav2vecAnalysis?.segments)
+      ?? arrayOrUndefined(analysis?.wav2vec?.segments)
+      ?? projectSignalContext.wav2vecSegments;
+    const wav2vec = findTimeSegment(wav2vecSegments, sourceMs);
+    if (wav2vec) {
+      const energy = readNumber(wav2vec, 'energy', 'speech_energy');
+      const emotion = readNumber(wav2vec, 'emotionIntensity', 'emotion_intensity');
+      if (energy != null) {
+        ensureCurve('energy')[localFrame] = clamp01(energy);
+        ensureCurve('speech_energy')[localFrame] = clamp01(energy);
+      }
+      if (emotion != null) ensureCurve('emotion_intensity')[localFrame] = clamp01(emotion);
+      wav2vecSamples++;
+    }
+
+    const vjepaSegments = arrayOrUndefined(analysis?.vjepaAnalysis?.segments)
+      ?? arrayOrUndefined(analysis?.vjepa?.segments)
+      ?? projectSignalContext.vjepaSegments;
+    const vjepa = findTimeSegment(vjepaSegments, sourceMs);
+    if (vjepa) {
+      const motion = readNumber(vjepa, 'motionIntensity', 'motion_intensity');
+      const significance = readNumber(vjepa, 'visualSignificance', 'visual_significance');
+      if (motion != null) ensureCurve('motion_intensity')[localFrame] = clamp01(motion);
+      if (significance != null) ensureCurve('visual_significance')[localFrame] = clamp01(significance);
+      vjepaSamples++;
+    }
+
+    const music = resolveMotionGraphicMusicAnalysis(analysis, projectSignalContext);
+    if (music) {
+      const energy = sampleMotionGraphicEnergyCurve(music['energyCurve'], sourceMs, readNumber(music, 'durationMs', 'duration_ms'));
+      if (energy != null) {
+        ensureCurve('music_energy')[localFrame] = clamp01(energy);
+        musicEnergySamples++;
+      }
+
+      const beat = nearestMotionGraphicBeat(music['beats'], sourceMs);
+      if (beat) {
+        ensureCurve('beat_level')[localFrame] = beat.level;
+        ensureCurve('music_beat')[localFrame] = beat.level >= 0.25 ? 1 : 0;
+        ensureCurve('onset')[localFrame] = beat.strength;
+        beatSamples++;
+        if (beat.strength > 0.5) onsetSamples++;
+      }
+    }
+  }
+
+  const curveKeys = Object.keys(curves).sort();
+  if (curveKeys.length === 0) return undefined;
+  return {
+    curves,
+    summary: {
+      version: 'mg-signal-curves-v1',
+      source: beatSamples || musicEnergySamples || wav2vecSamples || vjepaSamples
+        ? 'edl-timeline-analysis'
+        : 'edl-signal-snapshot',
+      durationInFrames,
+      curveKeys,
+      beatSamples,
+      onsetSamples,
+      musicEnergySamples,
+      wav2vecSamples,
+      vjepaSamples,
+      varyingCurves: curveKeys.filter((key) => curveHasVariation(curves[key])).slice(0, 20),
+      decisionFrame: decision.frame,
+      overlayFrom,
+    },
+  };
+}
+
+function resolveMotionGraphicMusicAnalysis(
+  analysis: any,
+  projectSignalContext: EDLSignalContext,
+): Record<string, unknown> | undefined {
+  return recordValue(analysis?.musicAnalysis)
+    ?? recordValue(analysis?.essentiaAnalysis)
+    ?? recordValue(analysis?.beatAnalysis)
+    ?? projectSignalContext.musicAnalysis;
+}
+
+function nearestMotionGraphicBeat(
+  beats: unknown,
+  sourceMs: number,
+): { level: number; strength: number } | undefined {
+  if (!Array.isArray(beats) || beats.length === 0) return undefined;
+  let best: { index: number; beat: Record<string, unknown>; distance: number } | undefined;
+  beats.forEach((entry, index) => {
+    const beat = recordValue(entry);
+    if (!beat) return;
+    const timestampMs = readNumber(beat, 'timestampMs', 'timeMs', 'timestamp_ms', 'time_ms');
+    if (timestampMs == null) return;
+    const distance = Math.abs(timestampMs - sourceMs);
+    if (!best || distance < best.distance) best = { index, beat, distance };
+  });
+  if (!best || best.distance > 50) return undefined;
+  const strength = clamp01(readNumber(best.beat, 'strength', 'magnitude') ?? 0.5);
+  const metricLevel = best.index % 4 === 0 ? 0.6 : 0.25;
+  return { level: clamp01(metricLevel * Math.max(0.35, strength)), strength };
+}
+
+function sampleMotionGraphicEnergyCurve(
+  energyCurve: unknown,
+  sourceMs: number,
+  durationMs: number | undefined,
+): number | undefined {
+  if (!Array.isArray(energyCurve) || energyCurve.length === 0) return undefined;
+  if (typeof energyCurve[0] === 'number') {
+    if (!durationMs || durationMs <= 0) return undefined;
+    const index = Math.max(0, Math.min(energyCurve.length - 1, Math.round((sourceMs / durationMs) * (energyCurve.length - 1))));
+    const value = energyCurve[index];
+    return typeof value === 'number' && isFinite(value) ? value : undefined;
+  }
+
+  let best: { value: number; distance: number } | undefined;
+  for (const entry of energyCurve) {
+    const point = recordValue(entry);
+    if (!point) continue;
+    const timestampMs = readNumber(point, 'timestampMs', 'timeMs', 'timestamp_ms', 'time_ms');
+    const energy = readNumber(point, 'energy', 'value');
+    if (timestampMs == null || energy == null) continue;
+    const distance = Math.abs(timestampMs - sourceMs);
+    if (!best || distance < best.distance) best = { value: energy, distance };
+  }
+  return best && best.distance <= 500 ? best.value : undefined;
+}
+
+function curveHasVariation(values: number[] | undefined): boolean {
+  if (!values || values.length < 2) return false;
+  const first = values[0];
+  return values.some((value) => Math.abs(value - first) > 0.0001);
+}
+
 function contentSalienceFromDecisionSignals(decision: EditDecision): number | undefined {
   const signals = buildMotionGraphicSignalSnapshot(decision);
   const candidates = [
@@ -2253,6 +2421,7 @@ async function applyDecision(
   sfxCache?: SfxAssetCache | null,
   graphicTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
+  projectSignalContext: EDLSignalContext = {},
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -2269,7 +2438,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds, graphicsDensity);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds, graphicsDensity, analyses, projectSignalContext);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -2298,7 +2467,7 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'atomic-graphic' },
         durationFrames: 60, // 2s pop
       };
-      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity);
+      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity, analyses, projectSignalContext);
     }
     case 'sfx':
     case 'sfx-trigger': {
@@ -3732,6 +3901,8 @@ async function applyGraphic(
   decisionIndex: number = 0,
   usedTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
+  analyses?: Map<string, any>,
+  projectSignalContext: EDLSignalContext = {},
 ): Promise<{ created: number; modified: number } | null> {
   const { position } = decision.params;
   const requestedPlacementAdjustment = readPlacementAdjustment(decision.params.placementAdjustment);
@@ -3972,6 +4143,16 @@ async function applyGraphic(
       ),
     );
 
+    const signalCurves = buildMotionGraphicSignalCurves(
+      decision,
+      overlays,
+      snappedFrame,
+      compositionDuration,
+      rawSignals,
+      analyses,
+      projectSignalContext,
+    );
+
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
       type: 'motion-graphic' as const,
@@ -3986,6 +4167,7 @@ async function applyGraphic(
       rotation: 0,
       recipe,
       resolvedTokens: tokens,
+      ...(signalCurves ? { signalCurves: signalCurves.curves } : {}),
       contentSignals: rawSignals,
       content: contentMap,
       styles: { opacity: 1, backgroundColor: 'transparent' },
@@ -4000,6 +4182,7 @@ async function applyGraphic(
         atomicOverlayDecision,
         atomicPlanObserveMode: true,
         mgExpressionAuthority,
+        ...(signalCurves ? { signalCurves: signalCurves.summary } : {}),
         visualExplanationContract: mgExpressionAuthority.visualExplanationContract,
         semanticMgCandidateLedger: normalizedGraphicContent.semanticMgCandidateLedger,
         semanticMgCandidateSelection,
