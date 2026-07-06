@@ -21,6 +21,7 @@ import {
 import { useToast } from '@/hooks/editron/use-toast';
 import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling';
 import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
+import { buildAutoEditFromAssetPayload } from '@/components/editron/project/auto-edit-request';
 import { UploadProgressBar } from '@/components/editron/project/upload-progress-bar';
 import { uploadReducer, INITIAL_UPLOAD_STATE } from '@/lib/editron/client/upload-types';
 import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron/client/video-compressor';
@@ -283,15 +284,12 @@ export default function ProjectDashboard() {
       const editRes = await fetch('/api/services/editron/auto-edit/from-asset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(buildAutoEditFromAssetPayload({
           assetId,
           title: file.name.replace(/\.[^.]+$/, ''),
           brandId: getActiveBrandIdFromStorage(),
-          ...(options.platform && { platform: options.platform }),
-          ...(options.aspectRatio && { aspectRatio: options.aspectRatio }),
-          ...(options.userIntent && { userIntent: options.userIntent }),
-          ...(options.script && { script: options.script }),
-        }),
+          options,
+        })),
       });
       if (!editRes.ok) {
         const err = await editRes.json();

@@ -10,10 +10,9 @@
  * options second, all optional, smart defaults, one-click quick path.
  *
  * Backend fields supported (from-asset/route.ts):
- *   script, referenceAssetId, imageAssetIds, userIntent, platform
- *
- * Phase 1 scope: userIntent, platform, script, aspectRatio.
- * Phase 2 (future): referenceAssetId picker, imageAssetIds picker.
+ *   script, userIntent, platform, aspectRatio, captionStyle,
+ *   transitionPreference, zoomBehavior, motionGraphics, pacingFeel,
+ *   musicPreference, referenceAssetId, imageAssetIds.
  */
 
 import { useState, useCallback } from 'react';
@@ -76,7 +75,7 @@ const ASPECT_RATIO_OPTIONS = [
 ] as const;
 
 export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProps) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true);
   const [platform, setPlatform] = useState('auto');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
@@ -89,7 +88,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
   const [musicPreference, setMusicPreference] = useState<AutoEditOptions['musicPreference']>(undefined);
 
   const resetState = useCallback(() => {
-    setShowAdvanced(false);
+    setShowAdvanced(true);
     setPlatform('auto');
     setAspectRatio('16:9');
     setUserIntent('');
@@ -104,7 +103,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   const handleQuickEdit = useCallback(() => {
     if (!file) return;
-    // Quick path — no options, just go
+    // Explicit opt-out path: skip preferences and let the planner decide.
     onConfirm(file, {});
     resetState();
   }, [file, onConfirm, resetState]);
@@ -184,14 +183,14 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
             </div>
           )}
 
-          {/* Quick Edit CTA — solid gold with shimmer */}
+          {/* Skip-preferences path. Settings are visible by default below. */}
           <button
             type="button"
             onClick={handleQuickEdit}
-            className="ae-cta flex w-full items-center justify-center gap-2.5 mt-3 px-4 py-3 rounded-md bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] text-[14px] font-bold transition-colors"
+            className="flex w-full items-center justify-center gap-2.5 mt-3 px-4 py-2.5 rounded-md border border-[#282724] bg-[#1B1A18] hover:border-[#D4A652]/45 text-[#B5B2A8] hover:text-[#D4A652] text-[13px] font-semibold transition-colors"
           >
-            <Sparkles className="h-[18px] w-[18px] relative z-[1]" />
-            <span className="relative z-[1]">Quick Edit — Let AI Decide Everything</span>
+            <Sparkles className="h-[16px] w-[16px]" />
+            <span>Skip Preferences - Let AI Decide Everything</span>
           </button>
 
           {/* "or" divider */}
@@ -219,7 +218,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
             ) : (
               <>
                 <ChevronDown className="h-3.5 w-3.5" />
-                Customize edit settings
+                Show edit settings
               </>
             )}
           </button>
