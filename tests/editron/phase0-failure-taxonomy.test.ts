@@ -563,6 +563,71 @@ describe('phase0 failure taxonomy', () => {
       },
     });
   });
+  it('surfaces final-overlay choreography bypasses as Phase 0 decision evidence', () => {
+    const project = cleanProject();
+    project.overlays = [
+      ...(project.overlays ?? []),
+      {
+        id: 'caption-track',
+        type: 'caption',
+        from: 0,
+        durationInFrames: 90,
+        metadata: { source: 'canonical-caption-track' },
+      },
+      {
+        id: 'bgm-async',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 90,
+        _workerAdded: true,
+        metadata: { role: 'bgm' },
+      } as any,
+      {
+        id: 'post-edl-drift-zoom-image',
+        type: 'image',
+        from: 24,
+        durationInFrames: 30,
+        metadata: { crossOverlayProducer: 'post-edl-drift-zoom' },
+      },
+    ];
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_final_choreography_bypass',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_final_choreography_bypass',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(manifest.finalOverlayChoreography).toMatchObject({
+      status: 'present',
+      bypassOverlayCount: 3,
+      countsByProducer: {
+        'async-worker-audio': 1,
+        'canonical-caption-track': 1,
+        'post-edl-drift-zoom': 1,
+      },
+      countsByFamily: { audio: 1, camera: 1, caption: 1 },
+      topBypasses: [
+        expect.objectContaining({ overlayId: 'caption-track', producer: 'canonical-caption-track', movable: false }),
+        expect.objectContaining({ overlayId: 'bgm-async', producer: 'async-worker-audio', lane: 'audio' }),
+        expect.objectContaining({ overlayId: 'post-edl-drift-zoom-image', producer: 'post-edl-drift-zoom', family: 'camera' }),
+      ],
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'decision.cross_overlay_final_bypasses')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        bypassOverlayCount: 3,
+        countsByProducer: {
+          'async-worker-audio': 1,
+          'canonical-caption-track': 1,
+          'post-edl-drift-zoom': 1,
+        },
+        topBypasses: expect.arrayContaining([expect.objectContaining({ producer: 'canonical-caption-track' })]),
+      },
+    });
+  });
+
   it('classifies rendered aesthetic failures with stable ids and grouped evidence', () => {
     const project = cleanProject();
     const manifest = buildPhase0FixtureManifest(project, {

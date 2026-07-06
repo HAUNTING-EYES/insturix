@@ -40,6 +40,14 @@ export interface CrossOverlayFinalOverlayReport {
   calibrationStatus: 'invented-needs-calibration';
 }
 
+export function summarizeFinalOverlayChoreographyBypasses(overlays: any[]): CrossOverlayFinalOverlayReport {
+  const bypasses = overlays
+    .map(finalOverlayBypass)
+    .filter((bypass): bypass is CrossOverlayFinalOverlayBypass => bypass !== null);
+
+  return buildFinalOverlayReport(overlays.length, bypasses);
+}
+
 export function annotateFinalOverlayChoreographyBypasses(overlays: any[]): CrossOverlayFinalOverlayReport {
   const bypasses: CrossOverlayFinalOverlayBypass[] = [];
 
@@ -61,9 +69,16 @@ export function annotateFinalOverlayChoreographyBypasses(overlays: any[]): Cross
     bypasses.push(bypass);
   }
 
+  return buildFinalOverlayReport(overlays.length, bypasses);
+}
+
+function buildFinalOverlayReport(
+  overlayCount: number,
+  bypasses: CrossOverlayFinalOverlayBypass[],
+): CrossOverlayFinalOverlayReport {
   return {
     version: 'cross-overlay-final-overlays-v1',
-    overlayCount: overlays.length,
+    overlayCount,
     bypassOverlayCount: bypasses.length,
     countsByProducer: countBy(bypasses, 'producer') as Partial<Record<CrossOverlayFinalOverlayProducer, number>>,
     countsByFamily: countBy(bypasses, 'family') as Partial<Record<CrossOverlayFinalOverlayFamily, number>>,

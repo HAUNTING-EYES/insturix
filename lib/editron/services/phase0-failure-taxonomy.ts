@@ -346,6 +346,7 @@ function addDecisionClasses(classes: Phase0FailureClass[], manifest: Phase0Fixtu
   }
 
   addCrossOverlayChoreographyClasses(classes, manifest);
+  addFinalOverlayChoreographyClasses(classes, manifest);
 }
 
 function addCrossOverlayChoreographyClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -388,6 +389,20 @@ function addCrossOverlayChoreographyClasses(classes: Phase0FailureClass[], manif
       evidence: compactCrossOverlayChoreographyEvidence(choreography),
     });
   }
+}
+
+function addFinalOverlayChoreographyClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
+  const finalChoreography = asRecord(manifest.finalOverlayChoreography);
+  const bypassOverlayCount = readNumber(finalChoreography.bypassOverlayCount) ?? 0;
+  if (readString(finalChoreography.status) !== 'present' || bypassOverlayCount <= 0) return;
+
+  classes.push({
+    id: 'decision.cross_overlay_final_bypasses',
+    severity: 'info',
+    source: 'decision',
+    message: 'Some final overlays were created outside decision-level choreography and are tracked as non-movable final overlay bypasses.',
+    evidence: compactFinalOverlayChoreographyEvidence(finalChoreography),
+  });
 }
 
 function addVjepaClasses(classes: Phase0FailureClass[], manifest: Phase0FixtureManifest): void {
@@ -1382,6 +1397,18 @@ function compactCrossOverlayChoreographyEvidence(choreography: JsonRecord): Reco
     topShapes: Array.isArray(choreography.topShapes) ? choreography.topShapes.slice(0, 5) : [],
     syncGroups: Array.isArray(choreography.syncGroups) ? choreography.syncGroups.slice(0, 5) : [],
     calibrationStatus: readString(choreography.calibrationStatus),
+  };
+}
+
+function compactFinalOverlayChoreographyEvidence(finalChoreography: JsonRecord): Record<string, unknown> {
+  return {
+    overlayCount: readNumber(finalChoreography.overlayCount),
+    bypassOverlayCount: readNumber(finalChoreography.bypassOverlayCount),
+    bypassRate: readNumber(finalChoreography.bypassRate),
+    countsByProducer: asRecord(finalChoreography.countsByProducer),
+    countsByFamily: asRecord(finalChoreography.countsByFamily),
+    topBypasses: Array.isArray(finalChoreography.topBypasses) ? finalChoreography.topBypasses.slice(0, 5) : [],
+    calibrationStatus: readString(finalChoreography.calibrationStatus),
   };
 }
 
