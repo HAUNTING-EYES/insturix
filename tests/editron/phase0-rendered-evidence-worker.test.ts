@@ -43,7 +43,7 @@ describe('phase0 rendered evidence worker service', () => {
     expect(set['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('missing_remotion_lambda_function_name');
     expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject({
       status: 'missing_rendered_evidence',
-      reason: 'missing_quality_review',
+      reason: 'missing_rendered_evidence',
       qualityEvidenceSource: 'metadata-only',
     });
     expect(set).not.toHaveProperty('autoEditStatus');
