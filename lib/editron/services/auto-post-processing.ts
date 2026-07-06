@@ -14,6 +14,7 @@
  */
 
 import type { AssetAnalysis } from './five-track-analysis';
+import { getNativeAudioDuckRegions } from './native-audio-evidence';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
@@ -377,6 +378,15 @@ export function applyFreezeFrameUnderGraphics(
     // Check if video already has a speed curve (don't override existing speed ramps)
     if (video.speedCurve && video.speedCurve.length > 0) continue;
 
+    if (overlapsNativeSpeech(video, graphic.from, graphic.durationInFrames || 1)) {
+      pipelineWarnings?.degraded(
+        'finalize',
+        `freeze-frame skipped for ${graphicType} at frame ${graphic.from}`,
+        'Graphic overlaps native speech audio; slowing the clip would distort spoken audio.',
+      );
+      continue;
+    }
+
     // Research-backed readTime: ~250ms/word (Murch/Dancyger), minimum 1s, maximum 4s.
     // OLD: Used graphic.durationInFrames (whatever EDL set, often too long).
     // NEW: Calculate freeze duration from text content length.
@@ -399,6 +409,14 @@ export function applyFreezeFrameUnderGraphics(
   }
 
   return { modified, skippedTiny };
+}
+
+function overlapsNativeSpeech(video: any, startFrame: number, durationFrames: number): boolean {
+  const endFrame = startFrame + Math.max(1, durationFrames);
+  return getNativeAudioDuckRegions(video).some((region) => {
+    const regionEnd = region.from + region.durationInFrames;
+    return region.from < endFrame && regionEnd > startFrame;
+  });
 }
 
 /**
