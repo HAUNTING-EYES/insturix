@@ -193,3 +193,29 @@ export function scenesFromSegments(
   }
   return out;
 }
+
+/** One asset's analysis, ready for the adapter - the multi-media upload entry shape. */
+export interface AssetAnalysisInput {
+  segments: readonly EditronSegment[];
+  asset: EditronAssetContext;
+  words?: readonly EditronWord[];
+}
+
+/**
+ * Map MANY assets' analyses into one combined Scene[] - the multi-media -> one-project input
+ * the composer orders into a single Storyline. Scenes from different assets are composable
+ * (each carries its own `source`), so this is a flat concat with per-asset window filtering,
+ * deduped by scene id (defensive against the same asset's analysis appearing twice). Pure.
+ */
+export function scenesFromAssets(inputs: readonly AssetAnalysisInput[]): Scene[] {
+  const out: Scene[] = [];
+  const seen = new Set<string>();
+  for (const { segments, asset, words } of inputs) {
+    for (const scene of scenesFromSegments(segments, asset, words)) {
+      if (seen.has(scene.id)) continue;
+      seen.add(scene.id);
+      out.push(scene);
+    }
+  }
+  return out;
+}

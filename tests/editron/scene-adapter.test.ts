@@ -5,6 +5,7 @@ import {
   type EditronSegment,
   type EditronWord,
   sceneFromSegment,
+  scenesFromAssets,
   scenesFromSegments,
 } from '@/lib/editron/storyline/scene-adapter';
 
@@ -139,5 +140,30 @@ describe('scenesFromSegments - batch', () => {
 
   it('empty input -> empty output (no crash)', () => {
     expect(scenesFromSegments([], asset())).toEqual([]);
+  });
+});
+
+describe('scenesFromAssets - multi-media -> one combined Scene[]', () => {
+  it('concatenates scenes from many assets, each keeping its own source', () => {
+    const scenes = scenesFromAssets([
+      { segments: [seg({ startMs: 0, endMs: 2000 })], asset: asset({ assetId: 'a', source: 'a.mp4' }) },
+      { segments: [seg({ startMs: 0, endMs: 3000 }), seg({ startMs: 3000, endMs: 6000 })], asset: asset({ assetId: 'b', source: 'b.mp4' }) },
+    ]);
+    expect(scenes).toHaveLength(3);
+    expect(scenes.map((s) => s.source)).toEqual(['a.mp4', 'b.mp4', 'b.mp4']);
+  });
+
+  it('dedupes identical scenes across assets (same source + window = same id)', () => {
+    const dup = { segments: [seg({ startMs: 0, endMs: 2000 })], asset: asset({ assetId: 'a', source: 'a.mp4' }) };
+    expect(scenesFromAssets([dup, dup])).toHaveLength(1);
+  });
+
+  it('drops per-asset invalid windows and handles empty input', () => {
+    expect(scenesFromAssets([])).toEqual([]);
+    const scenes = scenesFromAssets([
+      { segments: [seg({ startMs: 5, endMs: 5 })], asset: asset({ assetId: 'a', source: 'a.mp4' }) }, // zero window
+      { segments: [seg({ startMs: 0, endMs: 2000 })], asset: asset({ assetId: 'b', source: 'b.mp4' }) },
+    ]);
+    expect(scenes.map((s) => s.source)).toEqual(['b.mp4']);
   });
 });
