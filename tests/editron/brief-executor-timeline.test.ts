@@ -20,6 +20,12 @@ const transcription = [
   { word: 'fast', startMs: 600, endMs: 900 },
 ];
 
+const assetAddressedTranscription = [
+  { word: 'we', startMs: 0, endMs: 250, assetId: 'asset-a', originalWordIndex: 0 },
+  { word: 'grew', startMs: 300, endMs: 550, assetId: 'asset-a', originalWordIndex: 1 },
+  { word: 'fast', startMs: 600, endMs: 900, assetId: 'asset-a', originalWordIndex: 2 },
+];
+
 function briefWith(decisions: BriefDecision[]): CreativeBrief {
   return {
     videoUnderstanding: {
@@ -186,6 +192,36 @@ describe('brief decision conversion', () => {
           source: 'semantic-anchor',
           targetWordIdx: -1,
           resolvedWordIdx: 1,
+        }),
+      }),
+    }));
+  });
+
+  it('preserves asset and source-word provenance in semantic timing metadata', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: 1,
+        confidence: 0.91,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            claim: 'The growth happened quickly',
+            evidencePhrase: 'grew fast',
+          },
+        },
+      }]),
+      transcription: assetAddressedTranscription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions[0].params).toEqual(expect.objectContaining({
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        timing: expect.objectContaining({
+          resolvedWordIdx: 1,
+          resolvedAssetId: 'asset-a',
+          originalWordIndex: 1,
         }),
       }),
     }));

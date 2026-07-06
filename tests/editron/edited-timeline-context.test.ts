@@ -59,8 +59,8 @@ describe('edited timeline context', () => {
       fps,
       projectDurationFrames: 60,
       overlays: [
-        { type: 'video', from: 0, durationInFrames: 30, sourceStartFrame: 0 },
-        { type: 'video', from: 30, durationInFrames: 30, sourceStartFrame: 150 },
+        { type: 'video', from: 0, durationInFrames: 30, sourceStartFrame: 0, assetId: 'asset-a' },
+        { type: 'video', from: 30, durationInFrames: 30, sourceStartFrame: 150, assetId: 'asset-a' },
       ],
     });
 
@@ -82,12 +82,12 @@ describe('edited timeline context', () => {
       },
     });
     expect(context.transcription).toEqual([
-      expect.objectContaining({ word: 'first', startMs: 0, endMs: 300, originalStartMs: 0, originalEndMs: 300 }),
-      expect.objectContaining({ word: 'second', startMs: 1000, endMs: 1300, originalStartMs: 5000, originalEndMs: 5300, speaker: 1 }),
+      expect.objectContaining({ word: 'first', startMs: 0, endMs: 300, originalStartMs: 0, originalEndMs: 300, assetId: 'asset-a', originalWordIndex: 0 }),
+      expect.objectContaining({ word: 'second', startMs: 1000, endMs: 1300, originalStartMs: 5000, originalEndMs: 5300, speaker: 1, assetId: 'asset-a', originalWordIndex: 2 }),
     ]);
     expect(context.editedRawFootage.transcription?.words).toEqual([
-      { word: 'first', startMs: 0, endMs: 300, speaker: undefined },
-      { word: 'second', startMs: 1000, endMs: 1300, speaker: 1 },
+      { word: 'first', startMs: 0, endMs: 300, speaker: undefined, assetId: 'asset-a', originalWordIndex: 0 },
+      { word: 'second', startMs: 1000, endMs: 1300, speaker: 1, assetId: 'asset-a', originalWordIndex: 2 },
     ]);
     expect(context.editedRawFootage.originalDurationMs).toBe(2000);
     expect(context.editedRawFootage.silenceGaps).toEqual([]);

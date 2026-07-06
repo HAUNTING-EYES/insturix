@@ -19,9 +19,17 @@ import { normalizeMotionGraphicContent } from './mg-content-atoms';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+interface BriefExecutorWord {
+  word: string;
+  startMs: number;
+  endMs: number;
+  assetId?: string;
+  originalWordIndex?: number;
+}
+
 export interface BriefExecutorInput {
   brief: CreativeBrief;
-  transcription: { word: string; startMs: number; endMs: number }[];
+  transcription: BriefExecutorWord[];
   fps: number;
   audioEnergyCurve?: number[];
   totalDurationMs: number;
@@ -79,6 +87,8 @@ interface BriefDecisionParamContext {
   reason: string;
   coordinateSource: BriefCoordinateSource;
   targetWordIdx?: number;
+  resolvedAssetId?: string;
+  originalWordIndex?: number;
   targetTimestampMs?: number;
   targetBeatIdx?: number;
 }
@@ -94,6 +104,8 @@ interface BriefSemanticCandidate {
     source: BriefCoordinateSource;
     targetWordIdx?: number;
     resolvedWordIdx?: number;
+    resolvedAssetId?: string;
+    originalWordIndex?: number;
     targetTimestampMs?: number;
     targetBeatIdx?: number;
   };
@@ -201,7 +213,7 @@ interface ResolvedDecision {
 
 function resolveDecisionToFrame(
   decision: BriefDecision,
-  transcription: { word: string; startMs: number; endMs: number }[],
+  transcription: BriefExecutorWord[],
   fps: number,
   energyCurve: number[] | undefined,
   totalDurationMs: number,
@@ -318,6 +330,8 @@ function resolveDecisionToFrame(
       reason,
       coordinateSource,
       targetWordIdx: decision.targetWordIdx,
+      resolvedAssetId: targetWordIdxForContext !== null ? transcription[targetWordIdxForContext]?.assetId : undefined,
+      originalWordIndex: targetWordIdxForContext !== null ? transcription[targetWordIdxForContext]?.originalWordIndex : undefined,
       targetTimestampMs: decision.targetTimestampMs,
       targetBeatIdx: decision.targetBeatIdx,
     }) as EditDecision['params'],
@@ -392,7 +406,7 @@ function stripBriefRenderAuthorityParams(params: Record<string, unknown>): void 
 function normalizeBriefDecisionParams(
   type: BriefDecisionType,
   params: Record<string, unknown>,
-  transcription: { word: string; startMs: number; endMs: number }[] = [],
+  transcription: BriefExecutorWord[] = [],
   targetWordIdx: number | null = null,
   context?: BriefDecisionParamContext,
 ): Record<string, unknown> {
@@ -437,6 +451,12 @@ function buildBriefSemanticCandidate(
     timing.targetWordIdx = context.targetWordIdx;
   }
   if (resolvedWordIdx !== null) timing.resolvedWordIdx = resolvedWordIdx;
+  if (typeof context?.resolvedAssetId === 'string' && context.resolvedAssetId.trim().length > 0) {
+    timing.resolvedAssetId = context.resolvedAssetId;
+  }
+  if (typeof context?.originalWordIndex === 'number' && Number.isFinite(context.originalWordIndex)) {
+    timing.originalWordIndex = context.originalWordIndex;
+  }
   if (typeof context?.targetTimestampMs === 'number' && Number.isFinite(context.targetTimestampMs)) {
     timing.targetTimestampMs = context.targetTimestampMs;
   }

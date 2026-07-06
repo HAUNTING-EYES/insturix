@@ -10,6 +10,7 @@ export interface EditedTimelineClip {
   from: number;
   durationInFrames: number;
   sourceStartFrame: number;
+  assetId?: string;
 }
 
 export interface EditedTimelineWord {
@@ -19,6 +20,8 @@ export interface EditedTimelineWord {
   originalStartMs: number;
   originalEndMs: number;
   speaker?: number;
+  assetId?: string;
+  originalWordIndex?: number;
 }
 
 export interface EditedTimelineOverlayLike {
@@ -27,6 +30,7 @@ export interface EditedTimelineOverlayLike {
   durationInFrames?: number;
   sourceStartFrame?: number;
   videoStartTime?: number;
+  assetId?: string;
 }
 
 export interface EditedTimelineContext {
@@ -68,10 +72,12 @@ export function buildEditedTimelineContext(options: BuildEditedTimelineContextOp
   const isCanonicalDecisionTimeline = !requiresSourceMapping || hasSourceMapping;
   const durationFrames = resolveDurationFrames(options.projectDurationFrames, options.rawFootage, sourceClips, fps);
   const rawWords = extractRawWords(options.rawFootage);
+  const fallbackAssetId = resolveSingleSourceAssetId(options.rawFootage, options.overlays);
   const transcription = hasSourceMapping
     ? projectWordsToEditedTimeline(rawWords, sourceClips, fps)
     : rawWords.map((word) => ({
         ...word,
+        assetId: word.assetId ?? fallbackAssetId,
         originalStartMs: word.startMs,
         originalEndMs: word.endMs,
       }));
@@ -259,7 +265,8 @@ function extractSourceClips(overlays: EditedTimelineOverlayLike[]): {
       const from = readFiniteNumber(overlay.from);
       const durationInFrames = readFiniteNumber(overlay.durationInFrames);
       const sourceStartFrame = readFiniteNumber(overlay.sourceStartFrame ?? overlay.videoStartTime);
-      return { from, durationInFrames, sourceStartFrame };
+      const assetId = readNonEmptyString(overlay.assetId);
+      return { from, durationInFrames, sourceStartFrame, assetId };
     })
     .filter((clip) => clip.from != null && clip.durationInFrames != null && clip.durationInFrames > 0);
 
@@ -284,6 +291,7 @@ function extractSourceClips(overlays: EditedTimelineOverlayLike[]): {
         from: clip.from ?? 0,
         durationInFrames: clip.durationInFrames ?? 0,
         sourceStartFrame: clip.sourceStartFrame ?? 0,
+        ...(clip.assetId ? { assetId: clip.assetId } : {}),
       }))
       .sort((a, b) => a.from - b.from),
     inputClipCount: candidates.length,
@@ -297,17 +305,21 @@ function extractRawWords(rawFootage: RawFootageAnalysis): Array<{
   startMs: number;
   endMs: number;
   speaker?: number;
+  assetId?: string;
+  originalWordIndex: number;
 }> {
   const source = Array.isArray(rawFootage.transcription?.words)
     ? rawFootage.transcription.words
     : extractSegmentWords(rawFootage);
 
   return source
-    .map((word) => ({
+    .map((word, index) => ({
       word: String((word as any).word ?? (word as any).text ?? '').trim(),
       startMs: readFiniteNumber((word as any).startMs ?? (word as any).start) ?? 0,
       endMs: readFiniteNumber((word as any).endMs ?? (word as any).end) ?? 0,
       speaker: typeof (word as any).speaker === 'number' ? (word as any).speaker : undefined,
+      assetId: readNonEmptyString((word as any).assetId),
+      originalWordIndex: readFiniteNumber((word as any).originalWordIndex ?? (word as any).wordIndex) ?? index,
     }))
     .filter((word) => word.word.length > 0 && word.endMs >= word.startMs)
     .sort((a, b) => a.startMs - b.startMs);
@@ -323,7 +335,7 @@ function extractSegmentWords(rawFootage: RawFootageAnalysis): unknown[] {
 }
 
 function projectWordsToEditedTimeline(
-  rawWords: Array<{ word: string; startMs: number; endMs: number; speaker?: number }>,
+  rawWords: Array<{ word: string; startMs: number; endMs: number; speaker?: number; assetId?: string; originalWordIndex: number }>,
   sourceClips: EditedTimelineClip[],
   fps: number,
 ): EditedTimelineWord[] {
@@ -352,6 +364,8 @@ function projectWordsToEditedTimeline(
       originalStartMs: word.startMs,
       originalEndMs: word.endMs,
       speaker: word.speaker,
+      assetId: clip.assetId ?? word.assetId,
+      originalWordIndex: word.originalWordIndex,
     });
   }
   return projected.sort((a, b) => a.startMs - b.startMs);
@@ -362,7 +376,14 @@ function buildEditedRawFootage(
   words: EditedTimelineWord[],
   durationMs: number,
 ): RawFootageAnalysis {
-  const editedWords = words.map(({ word, startMs, endMs, speaker }) => ({ word, startMs, endMs, speaker }));
+  const editedWords = words.map(({ word, startMs, endMs, speaker, assetId, originalWordIndex }) => ({
+    word,
+    startMs,
+    endMs,
+    speaker,
+    ...(assetId ? { assetId } : {}),
+    ...(typeof originalWordIndex === 'number' ? { originalWordIndex } : {}),
+  }));
   const speechCoverage = computeSpeechCoverage(words, durationMs);
   return {
     ...source,
@@ -455,6 +476,26 @@ function normalizeFps(fps: number | undefined): number {
 
 function readFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveSingleSourceAssetId(
+  rawFootage: RawFootageAnalysis,
+  overlays: EditedTimelineOverlayLike[],
+): string | undefined {
+  const rawAssetId = readNonEmptyString((rawFootage as any).assetId ?? (rawFootage as any).sourceAssetId);
+  if (rawAssetId) return rawAssetId;
+
+  const overlayAssetIds = new Set(
+    overlays
+      .filter((overlay) => overlay.type === 'video' || !overlay.type)
+      .map((overlay) => readNonEmptyString(overlay.assetId))
+      .filter((assetId): assetId is string => Boolean(assetId)),
+  );
+  return overlayAssetIds.size === 1 ? Array.from(overlayAssetIds)[0] : undefined;
 }
 
 function msToFrame(ms: number, fps: number): number {
