@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import { buildProjectAnalysisAssetSet } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -726,6 +727,12 @@ async function handler(request: NextRequest) {
       persistedRawFootageAnalysis = compactRawFootageAnalysisForProject(rawFootageAnalysis);
     }
 
+    const phase1UpdatedAt = new Date();
+    const phase1PerAssetSet = buildProjectAnalysisAssetSet(assetId, {
+      rawFootageAnalysis: persistedRawFootageAnalysis,
+      vjepaAnalysis: precutVjepaAnalysis,
+    }, phase1UpdatedAt);
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -737,10 +744,11 @@ async function handler(request: NextRequest) {
           ...(referenceVideoAnalysis && { referenceVideoAnalysis }),
           ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
           ...(precutVjepaAnalysis && { vjepaAnalysis: precutVjepaAnalysis }),
+          ...phase1PerAssetSet,
           ...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence }),
           ...(genreParameters && { genreParameters }),
           ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
-          updatedAt: new Date(),
+          updatedAt: phase1UpdatedAt,
         },
       },
     );
@@ -825,7 +833,7 @@ async function handler(request: NextRequest) {
         const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
         const tribePayload = {
-          projectId, userId, orgId, videoUrl,
+          projectId, userId, orgId, assetId, videoUrl,
           segmentInputs,
           visualSegmentInputs,
           directorPayload,
@@ -1008,6 +1016,15 @@ async function handler(request: NextRequest) {
         } catch (err: unknown) { console.warn('[VideoAnalysisWorker] segment analysis build failed:', err instanceof Error ? err.message : err); }
 
         // Store Phase 2 data
+        const inlinePhase2UpdatedAt = new Date();
+        const inlinePhase2PerAssetSet = buildProjectAnalysisAssetSet(assetId, {
+          vjepaAnalysis,
+          wav2vecAnalysis,
+          musicAnalysis: musicResult.status === 'fulfilled' ? musicResult.value : null,
+          momentWeightMap,
+          segmentAnalysis,
+        }, inlinePhase2UpdatedAt);
+
         await db.collection('projects').updateOne(
           { projectId },
           {
@@ -1016,6 +1033,8 @@ async function handler(request: NextRequest) {
               ...(wav2vecAnalysis && { wav2vecAnalysis }),
               ...(momentWeightMap && { momentWeightMap }),
               ...(segmentAnalysis && { segmentAnalysis }),
+              ...inlinePhase2PerAssetSet,
+              updatedAt: inlinePhase2UpdatedAt,
             },
           },
         );

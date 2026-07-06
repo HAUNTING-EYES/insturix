@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -34,6 +35,7 @@ interface TribeAnalysisPayload {
   projectId: string;
   userId: string;
   orgId?: string;
+  assetId?: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
@@ -50,7 +52,8 @@ async function handler(request: NextRequest) {
 
   try {
     const payload: TribeAnalysisPayload = await request.json();
-    const { projectId, userId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
+    const { projectId, userId, assetId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
+    const sourceAssetId = typeof assetId === 'string' && assetId.trim().length > 0 ? assetId.trim() : null;
     trackedProjectId = projectId;
 
     if (!projectId || !userId || !videoUrl) {
@@ -281,9 +284,15 @@ async function handler(request: NextRequest) {
         // Store music analysis on project for Director to read
         if (musicAnalysis) {
           try {
+            const musicUpdatedAt = new Date();
             await db.collection('projects').updateOne(
               { projectId },
-              { $set: { musicAnalysis } },
+              {
+                $set: {
+                  musicAnalysis,
+                  ...(sourceAssetId ? buildProjectAnalysisAssetSet(sourceAssetId, { musicAnalysis }, musicUpdatedAt) : {}),
+                },
+              },
             );
           } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
         }
@@ -300,9 +309,12 @@ async function handler(request: NextRequest) {
     // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
     const projectDoc = await db.collection('projects').findOne(
       { projectId },
-      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
+      { projection: { rawFootageAnalysis: 1, rawFootageAnalysisByAsset: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
     );
-    const rawFootageAnalysis = projectDoc?.rawFootageAnalysis;
+    const keyedRawFootageAnalysis = sourceAssetId
+      ? projectDoc?.rawFootageAnalysisByAsset?.[encodeProjectAnalysisAssetKey(sourceAssetId)]
+      : null;
+    const rawFootageAnalysis = keyedRawFootageAnalysis ?? projectDoc?.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc?.syntheticStoryboard;
 
     let momentWeightMap: any = null;
@@ -356,6 +368,19 @@ async function handler(request: NextRequest) {
     }
 
     // ─── Step 4b: Store Phase 2 results on project doc ────────────
+    const phase2UpdatedAt = new Date();
+    const phase2PerAssetSet = sourceAssetId
+      ? buildProjectAnalysisAssetSet(sourceAssetId, {
+        vjepaAnalysis,
+        wav2vecAnalysis,
+        momentWeightMap,
+        segmentAnalysis,
+      }, phase2UpdatedAt)
+      : {};
+    if (!sourceAssetId) {
+      console.warn(`[TribeWorker] Missing assetId for per-asset analysis storage on ${projectId}; writing compatibility project fields only.`);
+    }
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -365,7 +390,8 @@ async function handler(request: NextRequest) {
           ...(wav2vecAnalysis && { wav2vecAnalysis }),
           ...(momentWeightMap && { momentWeightMap }),
           ...(segmentAnalysis && { segmentAnalysis }),
-          updatedAt: new Date(),
+          ...phase2PerAssetSet,
+          updatedAt: phase2UpdatedAt,
         },
       },
     );
