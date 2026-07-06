@@ -2633,6 +2633,19 @@ export async function executeDirectorPlan(
       console.log(`[Director] Stripped ${strippedCount} overlay(s) before save (${markers} dedup markers, ${zeroDur} zero-duration)`);
     }
 
+    try {
+      const { annotateFinalOverlayChoreographyBypasses } = await import('@/lib/editron/services/cross-overlay-final-overlays');
+      const finalOverlayChoreography = annotateFinalOverlayChoreographyBypasses(persistableOverlays);
+      (result as any).finalOverlayChoreography = finalOverlayChoreography;
+      if (finalOverlayChoreography.bypassOverlayCount > 0) {
+        console.log(
+          `[Director] Final overlay choreography: ${finalOverlayChoreography.bypassOverlayCount} bypass overlay(s) ` +
+          `(${JSON.stringify(finalOverlayChoreography.countsByProducer)})`,
+        );
+      }
+    } catch (choreographyErr: unknown) {
+      console.warn('[Director] non-fatal final overlay choreography audit:', choreographyErr instanceof Error ? choreographyErr.message : choreographyErr);
+    }
     await projectService.saveProject(userId, projectId, {
       overlays: persistableOverlays,
       aspectRatio: project.aspectRatio,

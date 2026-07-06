@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyColorNormalization, applyFreezeFrameUnderGraphics } from '@/lib/editron/services/auto-post-processing';
+import { applyColorNormalization, applyDriftZoom, applyFreezeFrameUnderGraphics } from '@/lib/editron/services/auto-post-processing';
 
 describe('auto post-processing', () => {
   it('does not freeze-ramp video under graphics when native speech would be slowed', () => {
@@ -33,6 +33,23 @@ describe('auto post-processing', () => {
   });
 
 
+  it('stamps post-EDL drift zoom provenance for final-overlay choreography', () => {
+    const overlays: any[] = [videoOverlay({ assetId: 'clip-1' })];
+
+    const result = applyDriftZoom(overlays);
+
+    expect(result.modified).toBe(1);
+    expect(overlays[0].metadata).toEqual(expect.objectContaining({
+      crossOverlayProducer: 'post-edl-drift-zoom',
+      postProcessing: expect.objectContaining({
+        driftZoom: expect.objectContaining({
+          version: 'post-edl-drift-zoom-v1',
+          source: 'auto-post-processing',
+          calibrationStatus: 'invented-needs-calibration',
+        }),
+      }),
+    }));
+  });
   it('applies conservative signal-derived color normalization without selecting a filter preset', () => {
     const overlays: any[] = [videoOverlay({ assetId: 'clip-1' })];
     const analyses = new Map<string, any>([[

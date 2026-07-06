@@ -221,6 +221,20 @@ export function applyDriftZoom(
         { frame: overlay.durationInFrames, value: actualEndScale, easing: 'ease-in-out' },
       ],
     });
+    overlay.metadata = {
+      ...(overlay.metadata ?? {}),
+      crossOverlayProducer: 'post-edl-drift-zoom',
+      postProcessing: {
+        ...(overlay.metadata?.postProcessing ?? {}),
+        driftZoom: {
+          version: 'post-edl-drift-zoom-v1',
+          source: 'auto-post-processing',
+          startScale: actualStartScale,
+          endScale: actualEndScale,
+          calibrationStatus: 'invented-needs-calibration',
+        },
+      },
+    };
 
     modified++;
   }
