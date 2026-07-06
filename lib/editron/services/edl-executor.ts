@@ -12,7 +12,7 @@
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
-import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
+import type { Overlay, Keyframe, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
@@ -3213,18 +3213,10 @@ function applyFade(
   const duration = decision.durationFrames || 20;
   const { fromOpacity = 1, toOpacity = 0 } = decision.params;
 
-  if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
-  overlay.keyframeTracks = overlay.keyframeTracks.filter(
-    (t: KeyframeTrack) => t.property !== 'opacity',
-  );
-
-  overlay.keyframeTracks.push({
-    property: 'opacity',
-    keyframes: [
-      { frame: localFrame, value: fromOpacity, easing: 'ease-in-out' },
-      { frame: localFrame + duration, value: toOpacity, easing: 'linear' },
-    ],
-  });
+  mergeOpacityKeyframes(overlay, [
+    { frame: localFrame, value: fromOpacity, easing: 'ease-in-out' },
+    { frame: localFrame + duration, value: toOpacity, easing: 'linear' },
+  ]);
   appendAtomicOverlayReceipt(overlay as any, buildOverlayAtomicReceipt({
     family: 'fade',
     intent: 'opacity-fade',
@@ -3245,6 +3237,53 @@ function applyFade(
   return { created: 0, modified: 1 };
 }
 
+function mergeOpacityKeyframes(overlay: Overlay, fadeKeyframes: Keyframe[]): void {
+  if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
+
+  const clipDuration = Math.max(1, Number(overlay.durationInFrames) || 1);
+  const sanitizedFadeKeyframes = sanitizeOpacityKeyframes(fadeKeyframes, clipDuration);
+  if (sanitizedFadeKeyframes.length < 2) return;
+
+  const fadeStart = sanitizedFadeKeyframes[0]!.frame;
+  const fadeEnd = sanitizedFadeKeyframes[sanitizedFadeKeyframes.length - 1]!.frame;
+  const preservedTracks: KeyframeTrack[] = [];
+  const preservedOpacityKeyframes: Keyframe[] = [];
+
+  for (const track of overlay.keyframeTracks) {
+    if (track.property !== 'opacity') {
+      preservedTracks.push(track);
+      continue;
+    }
+
+    for (const keyframe of track.keyframes ?? []) {
+      if (keyframe.frame < fadeStart || keyframe.frame > fadeEnd) {
+        preservedOpacityKeyframes.push(keyframe);
+      }
+    }
+  }
+
+  const byFrame = new Map<number, Keyframe>();
+  for (const keyframe of [...preservedOpacityKeyframes, ...sanitizedFadeKeyframes]) {
+    byFrame.set(keyframe.frame, keyframe);
+  }
+
+  overlay.keyframeTracks = [
+    ...preservedTracks,
+    {
+      property: 'opacity',
+      keyframes: Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame),
+    },
+  ];
+}
+
+function sanitizeOpacityKeyframes(keyframes: Keyframe[], clipDuration: number): Keyframe[] {
+  const byFrame = new Map<number, Keyframe>();
+  for (const keyframe of keyframes) {
+    const frame = Math.max(0, Math.min(clipDuration - 1, Math.round(Number(keyframe.frame) || 0)));
+    byFrame.set(frame, { ...keyframe, frame });
+  }
+  return Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame);
+}
 // ── Template-based graphic rendering helpers ──
 // Maps creative brief decision params to template slot values per graphic type.
 // Rule-based, deterministic, no AI. Each graphic type knows its slot schema.

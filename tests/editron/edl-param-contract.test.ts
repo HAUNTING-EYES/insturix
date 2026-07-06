@@ -533,6 +533,44 @@ describe('EDL param contract normalization', () => {
       toOpacity: 0.25,
     }));
   });
+
+  it('merges fade opacity into its own window without clobbering unrelated opacity keys', async () => {
+    const overlays = [videoOverlay({
+      durationInFrames: 160,
+      keyframeTracks: [{
+        property: 'opacity',
+        keyframes: [
+          { frame: 0, value: 0, easing: 'ease-out' },
+          { frame: 12, value: 1, easing: 'linear' },
+          { frame: 80, value: 0.7, easing: 'linear' },
+          { frame: 95, value: 0.9, easing: 'ease-in' },
+          { frame: 145, value: 1, easing: 'linear' },
+        ],
+      }],
+    } as any)];
+    const edl = decisionList([{
+      type: 'fade',
+      frame: 78,
+      durationFrames: 20,
+      confidence: 0.95,
+      params: { fromOpacity: 1, toOpacity: 0.2 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-fade-merge-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const opacityTrack = ((overlays[0] as any).keyframeTracks ?? [])
+      .find((track: any) => track.property === 'opacity');
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(opacityTrack?.keyframes).toEqual([
+      { frame: 0, value: 0, easing: 'ease-out' },
+      { frame: 12, value: 1, easing: 'linear' },
+      { frame: 78, value: 1, easing: 'ease-in-out' },
+      { frame: 98, value: 0.2, easing: 'linear' },
+      { frame: 145, value: 1, easing: 'linear' },
+    ]);
+  });
+
   it('applies audio-duck when a BGM overlay exists', async () => {
     const overlays = [
       videoOverlay(),
