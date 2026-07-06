@@ -22,6 +22,7 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { isChapterConcatConfigured, enqueueChapterConcat } from './chapter-concat-client';
+import { buildLambdaRenderInputProps } from '@/lib/editron/shared/render-request-payload';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -209,21 +210,22 @@ async function startSingleChapterRender(
 
   try {
     await setAWSCredentials();
+    const inputProps = buildLambdaRenderInputProps({
+      overlays: ctx.overlays,
+      durationInFrames: ctx.totalFrames,
+      fps: ctx.fps,
+      width: ctx.width,
+      height: ctx.height,
+      // Use OffthreadVideo (ffmpeg, robust) not Html5Video for server render -- without this flag the
+      // composition defaults isRendering=false and a large/slow-proxied clip hangs delayRender -> timeout.
+      isRendering: true,
+    });
     const { renderId, bucketName } = await renderMediaOnLambda({
       region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
       functionName: ctx.functionName,
       serveUrl: ctx.serveUrl,
       composition: REMOTION_COMPOSITION_ID,
-      inputProps: {
-        overlays: ctx.overlays,
-        durationInFrames: ctx.totalFrames,
-        fps: ctx.fps,
-        width: ctx.width,
-        height: ctx.height,
-        // Use OffthreadVideo (ffmpeg, robust) not Html5Video for server render — without this flag the
-        // composition defaults isRendering=false and a large/slow-proxied clip hangs delayRender → timeout.
-        isRendering: true,
-      },
+      inputProps,
       codec: 'h264',
       maxRetries: 1,
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
@@ -319,6 +321,17 @@ export async function startChapterRender(
   // Detect chapter boundaries
   const boundaries = detectChapterBoundaries(overlays, totalFrames, fps);
 
+  const compactRenderProps = buildLambdaRenderInputProps({
+    overlays,
+    durationInFrames: totalFrames,
+    fps,
+    width,
+    height,
+    isRendering: true,
+  });
+  const renderOverlays = Array.isArray(compactRenderProps.overlays)
+    ? compactRenderProps.overlays as Overlay[]
+    : [];
   // Create chapter records
   const chapters: Chapter[] = boundaries.map((b, i) => ({
     index: i,
@@ -348,7 +361,7 @@ export async function startChapterRender(
     chapters,
     status: 'rendering',
     totalFrames,
-    overlays,
+    overlays: renderOverlays,
     fps,
     width,
     height,

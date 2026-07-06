@@ -62,7 +62,7 @@ describe("chapter renderer progress", () => {
     mocks.updateOne.mockResolvedValue({});
   });
 
-  it("starts chapter renders from full absolute composition overlays using Lambda frameRange", async () => {
+  it("starts chapter renders from absolute composition overlays using slim Lambda props", async () => {
     let insertedJob: any = null;
     mocks.insertOne.mockImplementation(async (job: any) => {
       insertedJob = job;
@@ -82,6 +82,11 @@ describe("chapter renderer progress", () => {
         from: 0,
         durationInFrames: 30_000,
         captions: [{ text: "chapter two words", startMs: 16_000, endMs: 17_000 }],
+        metadata: {
+          atomicOverlayReceipt: { version: "overlay-atomic-form-v1" },
+          unifiedDecisionBundle: { candidates: ["x".repeat(20_000)] },
+          semanticMgCandidateLedger: { candidates: ["x".repeat(20_000)] },
+        },
       },
       {
         id: "bgm",
@@ -114,7 +119,16 @@ describe("chapter renderer progress", () => {
       "remotion-fn",
     );
 
-    expect(insertedJob.overlays).toBe(overlays);
+    expect(insertedJob.overlays).not.toBe(overlays);
+    expect(JSON.stringify(insertedJob.overlays)).not.toContain("x".repeat(1000));
+    expect(insertedJob.overlays.find((overlay: any) => overlay.id === "caption-track").captions[0]).toEqual({
+      text: "chapter two words",
+      startMs: 16_000,
+      endMs: 17_000,
+    });
+    expect(insertedJob.overlays.find((overlay: any) => overlay.id === "caption-track").metadata).toEqual({
+      atomicOverlayReceipt: { version: "overlay-atomic-form-v1" },
+    });
     expect(insertedJob.chapters).toEqual([
       expect.objectContaining({ index: 0, startFrame: 0, endFrame: 15_000, durationFrames: 15_000 }),
       expect.objectContaining({ index: 1, startFrame: 15_000, endFrame: 30_000, durationFrames: 15_000 }),
@@ -125,14 +139,14 @@ describe("chapter renderer progress", () => {
       1,
       expect.objectContaining({
         frameRange: [0, 14_999],
-        inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays }),
+        inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
       }),
     );
     expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         frameRange: [15_000, 29_999],
-        inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays }),
+        inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
       }),
     );
   });
