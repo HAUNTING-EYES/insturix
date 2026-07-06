@@ -2955,6 +2955,33 @@ function resolveZoomMemoryPolicy(
   return { allowed: true };
 }
 
+function decisionHasZoomEmphasisAnchor(decision: EditDecision): boolean {
+  const signals = decisionSignals(decision);
+  const params = decision.params ?? {};
+  const wordImportance = zoomEvidenceNumber(signals, 'word_importance', 'word.importance', 'speech.word_importance');
+  const emphasisStrength = zoomEvidenceNumber(signals, 'speech_emphasis', 'speech.emphasis_word', 'emphasis_strength', 'word_emphasis');
+  const speechEnergy = zoomEvidenceNumber(signals, 'speech_energy', 'speech.energy');
+  const anchorKind = String(params.anchorKind ?? params.anchorRole ?? params.syncSource ?? '').trim();
+  const targetWord = String(params.targetWord ?? params.emphasisWord ?? params.word ?? '').trim();
+  const targetWordHasSignalSupport = targetWord.length > 0
+    && Math.max(wordImportance, emphasisStrength, speechEnergy) >= 0.5;
+
+  return wordImportance >= 0.72
+    || emphasisStrength >= 0.72
+    || anchorKind === 'emphasis-word'
+    || anchorKind === 'speaker-emphasis'
+    || targetWordHasSignalSupport;
+}
+
+function zoomEvidenceNumber(source: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.min(1, value));
+    if (typeof value === 'boolean') return value ? 1 : 0;
+  }
+  return 0;
+}
+
 function applyZoom(
   decision: EditDecision,
   overlays: Overlay[],
@@ -3024,10 +3051,11 @@ function applyZoom(
         const nearSignificantFrame = allSignificantFrames.some(
           (f: number) => Math.abs(f - localDecisionFrame) <= 10,
         );
-        if (!nearSignificantFrame && allSignificantFrames.length > 0) {
+        const hasEmphasisAnchor = decisionHasZoomEmphasisAnchor(decision);
+        if (!nearSignificantFrame && !hasEmphasisAnchor && allSignificantFrames.length > 0) {
           decision.params.zoomType = 'slow-push';
           decision.params.scaleTo = Math.min(decision.params.scaleTo || 1.1, 1.05);
-          console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak — downgraded to slow-push (analysis quality: ${quality})`);
+          console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak or emphasis anchor — downgraded to slow-push (analysis quality: ${quality})`);
         }
       } else {
         // Low/fallback quality — trust Gemini's anchor-based placement, don't validate against fake peaks

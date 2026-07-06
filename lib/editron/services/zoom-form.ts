@@ -212,11 +212,17 @@ function resolveScaleDelta(input: {
   if (input.explicitScaleFrom != null && input.explicitScaleTo != null) {
     return Math.abs(input.explicitScaleTo - input.explicitScaleFrom);
   }
-  const energyDelta = 0.026 + input.intensity * 0.078;
+
   const pressurePenalty = input.visualPressure * 0.032 + input.shotScale * 0.012;
-  const expressiveBoost = input.intensity >= 0.82 && input.visualPressure < 0.52 ? 0.018 : 0;
-  const pullBackBoost = input.direction === 'pull-back' ? 0.012 : 0;
-  return clampRange(energyDelta - pressurePenalty + expressiveBoost + pullBackBoost, 0.022, 0.14);
+  if (input.direction === 'pull-back') {
+    return clampRange(0.06 + input.intensity * 0.09 - pressurePenalty, 0.06, 0.15);
+  }
+  if (input.intensity >= 0.72) {
+    const tierProgress = clamp01((input.intensity - 0.72) / 0.28);
+    return clampRange(0.1 + tierProgress * 0.12 - pressurePenalty, 0.1, 0.22);
+  }
+
+  return clampRange(0.03 + input.intensity * 0.05 - pressurePenalty, 0.03, 0.08);
 }
 
 function resolveDurationFrames(input: {

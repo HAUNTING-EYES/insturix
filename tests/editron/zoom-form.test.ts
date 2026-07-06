@@ -21,11 +21,39 @@ describe('resolveAtomicZoomForm', () => {
     expect(form.intent).toBe('emphasis-push');
     expect(form.compatibilityType).toBe('punch-in');
     expect(form.scaleFrom).toBeCloseTo(1);
-    expect(form.scaleTo).toBeGreaterThan(1.08);
+    expect(form.scaleTo).toBeGreaterThan(1.15);
     expect(form.durationFrames).toBeLessThanOrEqual(14);
     expect(form.startFrame).toBeLessThan(60);
     expect(form.holdFrames).toBeGreaterThan(0);
     expect(form.focal.transformOrigin).toBe('72% 38%');
+  });
+
+  it('uses intent-tiered scale ranges from signal strength', () => {
+    const emphasis = resolveAtomicZoomForm({
+      localFrame: 60,
+      sceneEnd: 180,
+      signals: { word_importance: 0.94, speech_energy: 0.9, visual_complexity: 0.05 },
+    });
+    const cinematic = resolveAtomicZoomForm({
+      localFrame: 60,
+      sceneEnd: 180,
+      signals: { speech_energy: 0.45, visual_significance: 0.36, visual_complexity: 0.05 },
+    });
+    const reveal = resolveAtomicZoomForm({
+      localFrame: 60,
+      sceneEnd: 180,
+      signals: { topic_shift: 0.88, visual_significance: 0.62, visual_complexity: 0.05 },
+    });
+
+    expect(emphasis.intent).toBe('emphasis-push');
+    expect(emphasis.scaleDelta).toBeGreaterThanOrEqual(0.1);
+    expect(emphasis.scaleDelta).toBeLessThanOrEqual(0.22);
+    expect(cinematic.intent).toBe('cinematic-push');
+    expect(cinematic.scaleDelta).toBeGreaterThanOrEqual(0.03);
+    expect(cinematic.scaleDelta).toBeLessThanOrEqual(0.08);
+    expect(reveal.intent).toBe('reveal-pull-back');
+    expect(Math.abs(reveal.scaleDelta)).toBeGreaterThanOrEqual(0.06);
+    expect(Math.abs(reveal.scaleDelta)).toBeLessThanOrEqual(0.15);
   });
 
   it('restrains scale amplitude on busy visual frames', () => {

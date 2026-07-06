@@ -386,6 +386,39 @@ describe('EDL param contract normalization', () => {
     }));
   });
 
+  it('keeps emphasis-word zoom punches even when visual motion peaks are elsewhere', async () => {
+    const overlays = [videoOverlay({ assetId: 'asset-zoom-emphasis' } as any)];
+    const edl = decisionList([{
+      type: 'zoom',
+      frame: 60,
+      durationFrames: 18,
+      confidence: 0.95,
+      params: {
+        targetWord: 'changed',
+        signals: {
+          word_importance: 0.93,
+          speech_energy: 0.82,
+          motion_intensity: 0.08,
+        },
+      },
+    }]);
+    const analyses = new Map<string, any>([[
+      'asset-zoom-emphasis',
+      { analysisQuality: 'high', motionPeaks: [10], naturalCutPoints: [20] },
+    ]]);
+
+    const result = await executeEDL(edl, 'edl-param-zoom-emphasis-test', 'user-1', overlays, { width: 1920, height: 1080 }, analyses);
+    const scaleTrack = ((overlays[0] as any).keyframeTracks ?? [])
+      .find((track: any) => track.property === 'scale');
+    const receipt = ((overlays[0] as any).metadata?.atomicOverlayReceipts ?? [])
+      .find((item: any) => item.family === 'zoom');
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(receipt?.payload.zoomType).toBe('punch-in');
+    expect(scaleTrack?.keyframes[1]?.value).toBeGreaterThan(1.1);
+  });
+
   it('maps sfx_whoosh type aliases into the SFX resolver cue contract', async () => {
     const overlays = [videoOverlay()];
     const edl = decisionList([{
