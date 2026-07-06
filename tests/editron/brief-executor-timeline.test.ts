@@ -227,6 +227,46 @@ describe('brief decision conversion', () => {
     }));
   });
 
+  it('uses source-word provenance before a stale edited word index', () => {
+    const output = executeBrief({
+      brief: briefWith([{
+        type: 'graphic_callout',
+        targetWordIdx: 0,
+        targetSourceAssetId: 'asset-a',
+        targetSourceWordIdx: 2,
+        confidence: 0.91,
+        reason: 'emphasis_word',
+        params: {
+          semanticAtoms: {
+            claim: 'The growth happened quickly',
+            evidencePhrase: 'grew fast',
+          },
+        },
+      }]),
+      transcription: assetAddressedTranscription,
+      fps: 30,
+      totalDurationMs: 3000,
+    });
+
+    expect(output.edl.decisions[0]).toEqual(expect.objectContaining({
+      frame: 18,
+      source: 'creative-brief:emphasis_word:source-word-address',
+    }));
+    expect(output.edl.decisions[0].params).toEqual(expect.objectContaining({
+      creativeBriefSemanticCandidate: expect.objectContaining({
+        timing: expect.objectContaining({
+          source: 'source-word-address',
+          targetWordIdx: 0,
+          targetSourceAssetId: 'asset-a',
+          targetSourceWordIdx: 2,
+          resolvedWordIdx: 2,
+          resolvedAssetId: 'asset-a',
+          originalWordIndex: 2,
+        }),
+      }),
+    }));
+  });
+
   it('recovers a stale raw-video word index from grounded edited-transcript evidence', () => {
     const output = executeBrief({
       brief: briefWith([{

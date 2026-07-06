@@ -167,6 +167,8 @@ export const CREATIVE_BRIEF_RESPONSE_SCHEMA: ResponseSchema = {
         properties: {
           type: STRING_SCHEMA,
           target_word_idx: NUMBER_SCHEMA,
+          target_source_asset_id: STRING_SCHEMA,
+          target_source_word_idx: NUMBER_SCHEMA,
           target_timestamp_ms: NUMBER_SCHEMA,
           target_beat_idx: NUMBER_SCHEMA,
           confidence: NUMBER_SCHEMA,
@@ -239,6 +241,8 @@ export type DecisionReason =
 export interface BriefDecision {
   type: BriefDecisionType;
   targetWordIdx: number;
+  targetSourceAssetId?: string;
+  targetSourceWordIdx?: number;
   targetTimestampMs?: number;
   targetBeatIdx?: number;
   confidence: number;
@@ -301,7 +305,7 @@ export interface UserEditPreferences {
 // ─── Video Context Input ────────────────────────────────────────────────────
 
 export interface VideoContext {
-  transcription: { word: string; startMs: number; endMs: number }[];
+  transcription: { word: string; startMs: number; endMs: number; assetId?: string; originalWordIndex?: number }[];
   totalDurationSec: number;
   segmentCount: number;
   audioFeatures?: {
@@ -470,7 +474,12 @@ function buildPrompt(
     .join('\n');
 
   const transcriptBlock = ctx.transcription
-    .map((w, i) => `[${i}] ${w.word} (${w.startMs}-${w.endMs}ms)`)
+    .map((w, i) => {
+      const sourceAddress = w.assetId && typeof w.originalWordIndex === 'number'
+        ? ` source=${w.assetId}:${w.originalWordIndex}`
+        : '';
+      return `[${i}${sourceAddress}] ${w.word} (${w.startMs}-${w.endMs}ms)`;
+    })
     .join('\n');
 
   const featuresBlock = buildFeaturesBlock(ctx);
@@ -571,6 +580,7 @@ Do NOT default to keyword-highlight for everything. If a number is spoken, use s
 
 <rules>
 - Word indices MUST be between 0 and ${ctx.transcription.length - 1}. There are exactly ${ctx.transcription.length} words.
+- If a transcript word includes a source=assetId:wordIndex address, copy it into target_source_asset_id and target_source_word_idx for that exact word. This is provenance for the native planner, not a visual instruction.
 - Confidence score 0.0-1.0 per decision. Below 0.5 = executor skips it.
 - narrative_arc sections must cover the ENTIRE transcription (no gaps).
 - Distribute decisions across the FULL video length, not clustered at start or end.
@@ -582,7 +592,7 @@ Do NOT default to keyword-highlight for everything. If a number is spoken, use s
 {
   "video_understanding": { "primary_content": string, "shot_scale": string, "lighting": string, "production_quality": 0-1, "environment": string, "speaker_count": number, "has_b_roll": boolean },
   "narrative_arc": [{ "section_id": number, "start_word_idx": number, "end_word_idx": number, "label": "setup"|"build"|"peak"|"resolve"|"transition"|"hook"|"closing", "energy_level": "low"|"building"|"high"|"declining"|"neutral", "mood": string, "pacing_feel": "calm"|"measured"|"balanced"|"energetic"|"fast" }],
-  "decisions": [{ "type": "<valid_type>", "target_word_idx": number, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { "...required_params_for_type": "...", "semanticAtoms": { "concept": string, "claim": string, "evidencePhrase": string, "text": { "primary": string, "secondary": string, "keyword": string, "phrase": string }, "quantity": { "displayText": string, "label": string, "kind": string, "unit": string, "denominator": number, "bounded": boolean }, "series": { "values": number[], "labels": string[] }, "identity": { "name": string, "role": string, "avatar": string }, "media": { "role": "avatar|image|logo", "url": string }, "quote": { "text": string, "author": string }, "truth": { "polarity": string, "negated": boolean, "refuted": boolean, "warranted": boolean }, "relation": { "from": string, "to": string, "relation": "vs|arrow", "kind": string }, "items": string[], "annotation": string, "badge": string, "kicker": string } } }],
+  "decisions": [{ "type": "<valid_type>", "target_word_idx": number, "target_source_asset_id": string, "target_source_word_idx": number, "confidence": 0.55-0.95, "reason": "<valid_reason>", "params": { "...required_params_for_type": "...", "semanticAtoms": { "concept": string, "claim": string, "evidencePhrase": string, "text": { "primary": string, "secondary": string, "keyword": string, "phrase": string }, "quantity": { "displayText": string, "label": string, "kind": string, "unit": string, "denominator": number, "bounded": boolean }, "series": { "values": number[], "labels": string[] }, "identity": { "name": string, "role": string, "avatar": string }, "media": { "role": "avatar|image|logo", "url": string }, "quote": { "text": string, "author": string }, "truth": { "polarity": string, "negated": boolean, "refuted": boolean, "warranted": boolean }, "relation": { "from": string, "to": string, "relation": "vs|arrow", "kind": string }, "items": string[], "annotation": string, "badge": string, "kicker": string } } }],
   "audio_design": { "ambient_bed": string, "ducking_profile": "standard_speech"|"music_dominant"|"balanced" },
   "caption_style": "word_by_word"|"sentence"|"key_phrases"|"none",
   "overall_pacing": "calm"|"measured"|"balanced"|"energetic"|"fast"
@@ -1222,6 +1232,12 @@ export function validateAndGate(raw: any, startTime: number, budget?: BudgetMap 
     parsed.push({
       type: type as BriefDecisionType,
       targetWordIdx: d.target_word_idx ?? -1,
+      targetSourceAssetId: typeof d.target_source_asset_id === 'string' && d.target_source_asset_id.trim().length > 0
+        ? d.target_source_asset_id.trim()
+        : undefined,
+      targetSourceWordIdx: typeof d.target_source_word_idx === 'number' && Number.isFinite(d.target_source_word_idx)
+        ? d.target_source_word_idx
+        : undefined,
       targetTimestampMs: typeof d.target_timestamp_ms === 'number' ? d.target_timestamp_ms : undefined,
       targetBeatIdx: typeof d.target_beat_idx === 'number' ? d.target_beat_idx : undefined,
       confidence,
