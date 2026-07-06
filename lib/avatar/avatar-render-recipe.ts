@@ -3,6 +3,18 @@ import type { AvatarProfileRecord } from './avatar-lifecycle';
 
 export type AvatarRenderUseCase = AvatarUsagePreset | 'generic_clip';
 
+/** Provider-neutral motion-energy dial. Mapped per-provider by each adapter. */
+export type AvatarExpressiveness = 'calm' | 'natural' | 'animated';
+
+/**
+ * Talking-head face-generation provider. Kling AI Avatar holds identity far better
+ * than OmniHuman and is ~3x cheaper (bake-off 2026-07-06) → 'kling_standard' is the
+ * default; 'kling_pro' is the premium tier; 'omnihuman' stays available as a fallback.
+ */
+export type AvatarFaceProvider = 'kling_standard' | 'kling_pro' | 'omnihuman';
+
+export const DEFAULT_AVATAR_FACE_PROVIDER: AvatarFaceProvider = 'kling_standard';
+
 export type AvatarRenderAudioMode =
   | 'silent'
   | 'tts_voiceover'
@@ -65,9 +77,11 @@ export interface AvatarRenderTarget {
 export interface BuildAvatarRenderRecipeInput {
   profileRecord: AvatarProfileRecord;
   useCase: AvatarRenderUseCase;
+  faceProvider?: AvatarFaceProvider;
   prompt: string;
   script?: string;
   negativePrompt?: string;
+  expressiveness?: AvatarExpressiveness;
   audio?: AvatarRenderAudioInput;
   soundCues?: AvatarRenderSoundCueInput[];
   productImageUrls?: string[];
@@ -90,6 +104,7 @@ export interface AvatarRenderRecipe {
   orgId?: string | null;
   brandId?: string | null;
   useCase: AvatarRenderUseCase;
+  faceProvider: AvatarFaceProvider;
   readiness: AvatarRenderReadiness;
   visual: {
     displayName: string;
@@ -107,6 +122,7 @@ export interface AvatarRenderRecipe {
     gestureStyle?: string;
     cameraPresence?: string;
     productInteraction?: string;
+    expressiveness?: AvatarExpressiveness;
   };
   audio: {
     mode: AvatarRenderAudioMode;
@@ -170,6 +186,7 @@ export function buildAvatarRenderRecipe(input: BuildAvatarRenderRecipeInput): Av
     orgId: profile.orgId,
     brandId: profile.brandId,
     useCase: input.useCase,
+    faceProvider: input.faceProvider ?? DEFAULT_AVATAR_FACE_PROVIDER,
     readiness,
     visual: {
       displayName: profile.displayName,
@@ -187,6 +204,7 @@ export function buildAvatarRenderRecipe(input: BuildAvatarRenderRecipeInput): Av
       gestureStyle: profile.performancePack?.gestureStyle,
       cameraPresence: profile.performancePack?.cameraPresence,
       productInteraction: profile.performancePack?.productInteraction,
+      expressiveness: input.expressiveness,
     },
     audio: {
       mode: audioMode,
