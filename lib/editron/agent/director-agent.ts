@@ -1651,6 +1651,7 @@ export async function executeDirectorPlan(
             const captionTrackResult = installCanonicalCaptionTrack({
               overlays,
               editedTimelineContext,
+              segmentAnalysis: projectDoc?.segmentAnalysis ?? null,
               playerDimensions: canvas,
               presentation: captionPresentation,
             });
