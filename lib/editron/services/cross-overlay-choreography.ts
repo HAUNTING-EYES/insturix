@@ -34,6 +34,17 @@ export interface CrossOverlayChoreographySuppression {
   calibrationStatus: 'invented-needs-calibration';
 }
 
+export interface CrossOverlayChoreographyShape {
+  decision: EditDecision;
+  reason: string;
+  family: CrossOverlayChoreographyFamily;
+  originalFrame: number;
+  frame: number;
+  shiftFrames: number;
+  conflictingWith: CrossOverlayChoreographyDecisionSummary;
+  calibrationStatus: 'invented-needs-calibration';
+}
+
 export interface CrossOverlayChoreographyReport {
   version: 'cross-overlay-choreography-v1';
   inputDecisionCount: number;
@@ -43,9 +54,13 @@ export interface CrossOverlayChoreographyReport {
   calibrationStatus: 'invented-needs-calibration';
   laneLoad: Record<CrossOverlayChoreographyLane, number>;
   syncGroups: CrossOverlayChoreographySyncGroup[];
+  shapedDecisionCount: number;
   suppressed: Array<Omit<CrossOverlayChoreographySuppression, 'decision'>>;
+  shaped: Array<Omit<CrossOverlayChoreographyShape, 'decision'>>;
   suppressedByReason: Record<string, number>;
+  shapedByReason: Record<string, number>;
   suppressedByFamily: Partial<Record<CrossOverlayChoreographyFamily, number>>;
+  shapedByFamily: Partial<Record<CrossOverlayChoreographyFamily, number>>;
 }
 
 export interface CrossOverlayChoreographySyncGroup {
@@ -61,6 +76,7 @@ export interface CrossOverlayChoreographySyncGroup {
 export interface CrossOverlayChoreographyResult {
   decisions: EditDecision[];
   suppressed: CrossOverlayChoreographySuppression[];
+  shaped: CrossOverlayChoreographyShape[];
   report: CrossOverlayChoreographyReport;
 }
 
@@ -82,10 +98,17 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
   ));
   const kept: EditDecision[] = [];
   const suppressed: CrossOverlayChoreographySuppression[] = [];
+  const shaped: CrossOverlayChoreographyShape[] = [];
 
   for (const decision of ordered) {
     const conflict = findChoreographyConflict(decision, kept);
     if (conflict) {
+      const shapedDecision = shapeDecisionAwayFromConflict(decision, conflict, kept);
+      if (shapedDecision) {
+        kept.push(shapedDecision.decision);
+        shaped.push(shapedDecision);
+        continue;
+      }
       suppressed.push({
         decision,
         reason: conflict.reason,
@@ -103,7 +126,7 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
     .sort((a, b) => a.frame - b.frame || a.priority - b.priority)
     .map((decision) => annotateKeptDecision(decision, kept, suppressed));
 
-  return buildResult(annotated, suppressed);
+  return buildResult(annotated, suppressed, shaped);
 }
 
 function findChoreographyConflict(
@@ -149,6 +172,53 @@ function findChoreographyConflict(
   return null;
 }
 
+function shapeDecisionAwayFromConflict(
+  candidate: EditDecision,
+  conflict: { reason: string; conflictingWith: EditDecision },
+  kept: EditDecision[],
+): CrossOverlayChoreographyShape | null {
+  const family = familyForDecision(candidate);
+  const maxShiftFrames = maxChoreographyShapeShiftFrames(candidate, conflict.reason);
+  if (maxShiftFrames <= 0) return null;
+
+  for (const frame of choreographyShapeTargetFrames(candidate, conflict, maxShiftFrames)) {
+    if (frame === candidate.frame) continue;
+    const shiftFrames = frame - candidate.frame;
+    const shapeAudit = {
+      version: 'cross-overlay-choreography-shape-v1',
+      reason: conflict.reason,
+      family,
+      originalFrame: candidate.frame,
+      frame,
+      shiftFrames,
+      conflictingWith: summarizeDecision(conflict.conflictingWith),
+      calibrationStatus: 'invented-needs-calibration' as const,
+    };
+    const shapedDecision: EditDecision = {
+      ...candidate,
+      frame,
+      params: {
+        ...(candidate.params ?? {}),
+        crossOverlayChoreographyShape: shapeAudit,
+      },
+    };
+    if (!findChoreographyConflict(shapedDecision, kept)) {
+      return {
+        decision: shapedDecision,
+        reason: conflict.reason,
+        family,
+        originalFrame: candidate.frame,
+        frame,
+        shiftFrames,
+        conflictingWith: summarizeDecision(conflict.conflictingWith),
+        calibrationStatus: 'invented-needs-calibration',
+      };
+    }
+  }
+
+  return null;
+}
+
 function annotateKeptDecision(
   decision: EditDecision,
   kept: EditDecision[],
@@ -165,6 +235,7 @@ function annotateKeptDecision(
   const syncGroupId = syncFrame !== null ? `sync:${Math.round(syncFrame)}` : null;
   const params = { ...(decision.params ?? {}) };
   const merge = recordParam(params.unifiedDecisionMerge) ?? {};
+  const shape = choreographyShapeAudit(params.crossOverlayChoreographyShape);
   return {
     ...decision,
     params: {
@@ -181,18 +252,20 @@ function annotateKeptDecision(
         nearbyDecisionCount: nearbyKept.length,
         linkedDecisionCount: linkedDecisions.length,
         suppressedNearbyCount: nearbySuppressed.length,
+        shaped: shape,
         calibrationStatus: 'invented-needs-calibration',
       },
       unifiedDecisionMerge: {
         ...merge,
         crossOverlayChoreography: {
           version: 'cross-overlay-choreography-v1',
-          role: 'kept',
+          role: shape ? 'shaped' : 'kept',
           lane,
           syncGroupId,
           activeFamilies,
           linkedFamilies,
           suppressedNearbyCount: nearbySuppressed.length,
+          shaped: shape,
         },
       },
     },
@@ -202,22 +275,28 @@ function annotateKeptDecision(
 function buildResult(
   decisions: EditDecision[],
   suppressed: CrossOverlayChoreographySuppression[],
+  shaped: CrossOverlayChoreographyShape[] = [],
 ): CrossOverlayChoreographyResult {
   return {
     decisions,
     suppressed,
+    shaped,
     report: {
       version: 'cross-overlay-choreography-v1',
       inputDecisionCount: decisions.length + suppressed.length,
       outputDecisionCount: decisions.length,
       suppressedDecisionCount: suppressed.length,
+      shapedDecisionCount: shaped.length,
       annotatedDecisionCount: decisions.length,
       calibrationStatus: 'invented-needs-calibration',
       laneLoad: buildLaneLoad(decisions),
       syncGroups: buildSyncGroups(decisions),
       suppressed: suppressed.map(({ decision: _decision, ...rest }) => rest),
+      shaped: shaped.map(({ decision: _decision, ...rest }) => rest),
       suppressedByReason: countSuppressedByReason(suppressed),
+      shapedByReason: countShapedByReason(shaped),
       suppressedByFamily: countSuppressedByFamily(suppressed),
+      shapedByFamily: countShapedByFamily(shaped),
     },
   };
 }
@@ -427,6 +506,24 @@ function countSuppressedByReason(suppressed: CrossOverlayChoreographySuppression
   return counts;
 }
 
+function countShapedByReason(shaped: CrossOverlayChoreographyShape[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of shaped) {
+    counts[item.reason] = (counts[item.reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function countShapedByFamily(
+  shaped: CrossOverlayChoreographyShape[],
+): Partial<Record<CrossOverlayChoreographyFamily, number>> {
+  const counts: Partial<Record<CrossOverlayChoreographyFamily, number>> = {};
+  for (const item of shaped) {
+    counts[item.family] = (counts[item.family] ?? 0) + 1;
+  }
+  return counts;
+}
+
 function countSuppressedByFamily(
   suppressed: CrossOverlayChoreographySuppression[],
 ): Partial<Record<CrossOverlayChoreographyFamily, number>> {
@@ -444,6 +541,58 @@ function framesNear(a: EditDecision, b: EditDecision, windowFrames: number): boo
   const bEnd = b.frame + Math.max(1, b.durationFrames ?? 1);
   if (aStart < bEnd && bStart < aEnd) return true;
   return Math.min(Math.abs(aStart - bEnd), Math.abs(bStart - aEnd), Math.abs(aStart - bStart)) <= windowFrames;
+}
+
+function maxChoreographyShapeShiftFrames(decision: EditDecision, reason: string): number {
+  const explicit = numberParam(decision, ['maxChoreographyShiftFrames', 'choreographyShiftToleranceFrames']);
+  if (explicit !== undefined) return Math.max(0, Math.min(90, Math.round(explicit)));
+
+  const family = familyForDecision(decision);
+  if (!isTextLaneFamily(family)) return 0;
+  if (reason === 'text-lane-stack') return family === 'caption' ? 20 : 45;
+  if (reason === 'text-motion-stack') return family === 'caption' ? 12 : 24;
+  return 0;
+}
+
+function choreographyShapeTargetFrames(
+  candidate: EditDecision,
+  conflict: { reason: string; conflictingWith: EditDecision },
+  maxShiftFrames: number,
+): number[] {
+  const windowFrames = conflictWindowFrames(conflict.reason);
+  const anchorFrame = conflict.conflictingWith.frame;
+  const targets = [anchorFrame + windowFrames + 1, anchorFrame - windowFrames - 1]
+    .map((frame) => Math.round(frame))
+    .filter((frame) => Math.abs(frame - candidate.frame) <= maxShiftFrames);
+  return [...new Set(targets)].sort((a, b) => Math.abs(a - candidate.frame) - Math.abs(b - candidate.frame));
+}
+
+function conflictWindowFrames(reason: string): number {
+  switch (reason) {
+    case 'text-lane-stack':
+      return TEXT_LANE_WINDOW_FRAMES;
+    case 'motion-lane-stack':
+    case 'text-motion-stack':
+      return MOTION_SYNC_WINDOW_FRAMES;
+    case 'unlinked-audio-on-crowded-moment':
+      return AUDIO_SYNC_WINDOW_FRAMES;
+    default:
+      return ACTIVE_WINDOW_FRAMES;
+  }
+}
+
+function choreographyShapeAudit(value: unknown): Record<string, unknown> | null {
+  const record = recordParam(value);
+  if (!record) return null;
+  return {
+    version: 'cross-overlay-choreography-shape-v1',
+    reason: typeof record.reason === 'string' ? record.reason : 'unknown',
+    originalFrame: typeof record.originalFrame === 'number' ? record.originalFrame : null,
+    frame: typeof record.frame === 'number' ? record.frame : null,
+    shiftFrames: typeof record.shiftFrames === 'number' ? record.shiftFrames : null,
+    conflictingWith: recordParam(record.conflictingWith) ?? null,
+    calibrationStatus: 'invented-needs-calibration',
+  };
 }
 
 function summarizeDecision(decision: EditDecision): CrossOverlayChoreographyDecisionSummary {

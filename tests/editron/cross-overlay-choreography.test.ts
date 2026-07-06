@@ -52,6 +52,53 @@ describe('cross-overlay choreography scheduler', () => {
     }));
   });
 
+  it('shapes a text-lane decision when a small timing nudge seats both overlays', () => {
+    const result = applyCrossOverlayChoreography([
+      decision({
+        type: 'graphic',
+        frame: 180,
+        durationFrames: 12,
+        confidence: 0.94,
+        source: 'signal-executor:mg',
+      }),
+      decision({
+        type: 'caption-emphasis',
+        frame: 210,
+        durationFrames: 12,
+        confidence: 0.78,
+        source: 'signal-executor:caption',
+        params: { text: 'small nudge' },
+      }),
+    ]);
+
+    expect(result.suppressed).toEqual([]);
+    expect(result.shaped).toEqual([expect.objectContaining({
+      reason: 'text-lane-stack',
+      family: 'caption',
+      originalFrame: 210,
+      frame: 226,
+      shiftFrames: 16,
+    })]);
+    expect(result.report).toEqual(expect.objectContaining({
+      outputDecisionCount: 2,
+      suppressedDecisionCount: 0,
+      shapedDecisionCount: 1,
+      shapedByReason: { 'text-lane-stack': 1 },
+      shapedByFamily: { caption: 1 },
+    }));
+    expect(result.decisions.map((item) => [item.type, item.frame])).toEqual([
+      ['graphic', 180],
+      ['caption-emphasis', 226],
+    ]);
+    expect(result.decisions[1].params.crossOverlayChoreography).toEqual(expect.objectContaining({
+      shaped: expect.objectContaining({ originalFrame: 210, frame: 226, shiftFrames: 16 }),
+    }));
+    expect(result.decisions[1].params.unifiedDecisionMerge.crossOverlayChoreography).toEqual(expect.objectContaining({
+      role: 'shaped',
+      shaped: expect.objectContaining({ reason: 'text-lane-stack' }),
+    }));
+  });
+
   it('allows a transition and zoom to share a beat when the boundary planner licenses a zoom bridge', () => {
     const result = applyCrossOverlayChoreography([
       decision({
