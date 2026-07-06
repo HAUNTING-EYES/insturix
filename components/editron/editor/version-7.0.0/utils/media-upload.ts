@@ -33,6 +33,50 @@ export interface UploadMediaBatchResult {
   failed: Array<{ filename: string; error: string }>;
 }
 
+export type MediaUploadAssetReadiness =
+  | 'uploaded'
+  | 'queued'
+  | 'analyzing'
+  | 'ready'
+  | 'failed'
+  | 'skipped';
+
+export type MediaUploadBatchReadiness =
+  | 'empty'
+  | 'uploaded'
+  | 'analyzing'
+  | 'ready'
+  | 'needs_attention';
+
+export interface MediaUploadBatchAssetStatus {
+  assetId: string;
+  filename: string;
+  type: 'video' | 'audio' | 'image';
+  size: number;
+  duration?: number;
+  dimensions?: { width: number; height: number };
+  thumbnail?: string;
+  uploadedAt?: string | Date | null;
+  analysisStatus?: string | null;
+  analysisError?: string | null;
+  analysisSkipReason?: string | null;
+  readiness: MediaUploadAssetReadiness;
+  blockingReason: string | null;
+  needsAttention: boolean;
+}
+
+export interface MediaUploadBatchStatus {
+  uploadBatchId: string;
+  exists: boolean;
+  projectId?: string;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  status: MediaUploadBatchReadiness;
+  canCreateProject: boolean;
+  counts: Record<MediaUploadAssetReadiness, number> & { total: number };
+  assets: MediaUploadBatchAssetStatus[];
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -148,6 +192,29 @@ export async function uploadMediaFiles(
   }
 
   return { uploadBatchId, uploaded, failed };
+}
+
+export async function getMediaUploadBatchStatus(
+  uploadBatchId: string
+): Promise<MediaUploadBatchStatus> {
+  const trimmed = uploadBatchId.trim();
+  if (!trimmed) throw new Error('uploadBatchId is required');
+
+  const response = await fetch(
+    `/api/services/editron/media/batches/${encodeURIComponent(trimmed)}`
+  );
+
+  if (!response.ok) {
+    const msg = await extractResponseError(response, 'Failed to load upload batch');
+    throw new Error(msg);
+  }
+
+  const data = await response.json();
+  if (!data?.success || !data.batch) {
+    throw new Error(data?.error || 'Failed to load upload batch');
+  }
+
+  return data.batch;
 }
 
 function createUploadBatchId(): string {

@@ -1,10 +1,14 @@
 "use client";
 
-import React, { useState, useRef, useCallback, lazy } from "react";
+import React, { useState, useRef, useCallback, useEffect, lazy } from "react";
 
 const SegmentExtractorLazy = lazy(() => import("../asset-library/segment-extractor"));
 import { useLocalMedia } from "../../contexts/local-media-context";
 import { formatBytes, formatDuration } from "../../utils/format-utils";
+import {
+  getMediaUploadBatchStatus,
+  type MediaUploadBatchStatus,
+} from "../../utils/media-upload";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Upload, Trash2, Image, Video, Music, Search, Tag, ImageIcon, Plus, Pin } from "lucide-react";
@@ -39,6 +43,9 @@ export function LocalMediaGallery({
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadBatchStatus, setUploadBatchStatus] = useState<MediaUploadBatchStatus | null>(null);
+  const [uploadBatchStatusError, setUploadBatchStatusError] = useState<string | null>(null);
+  const [uploadBatchStatusLoading, setUploadBatchStatusLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -81,6 +88,37 @@ export function LocalMediaGallery({
     return file.type === activeTab;
   });
 
+  const refreshUploadBatchStatus = useCallback(
+    async (uploadBatchId: string, options: { silent?: boolean } = {}) => {
+      if (!uploadBatchId) return;
+      if (!options.silent) setUploadBatchStatusLoading(true);
+      setUploadBatchStatusError(null);
+
+      try {
+        const status = await getMediaUploadBatchStatus(uploadBatchId);
+        setUploadBatchStatus(status);
+      } catch (error) {
+        setUploadBatchStatusError(
+          error instanceof Error ? error.message : "Failed to load upload batch status"
+        );
+      } finally {
+        if (!options.silent) setUploadBatchStatusLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!uploadBatchStatus?.uploadBatchId) return;
+    if (uploadBatchStatus.status !== "uploaded" && uploadBatchStatus.status !== "analyzing") return;
+
+    const timeoutId = window.setTimeout(() => {
+      void refreshUploadBatchStatus(uploadBatchStatus.uploadBatchId, { silent: true });
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [refreshUploadBatchStatus, uploadBatchStatus?.status, uploadBatchStatus?.uploadBatchId]);
+
   // Handle file upload
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -90,7 +128,12 @@ export function LocalMediaGallery({
 
     try {
       setUploadError(null);
+      setUploadBatchStatus(null);
+      setUploadBatchStatusError(null);
       const result = await addMediaFiles(selectedFiles);
+      if (result.uploadBatchId) {
+        void refreshUploadBatchStatus(result.uploadBatchId);
+      }
       if (result.failed.length > 0) {
         const firstFailure = result.failed[0];
         const suffix = result.failed.length > 1 ? ` and ${result.failed.length - 1} more` : "";
@@ -349,6 +392,73 @@ export function LocalMediaGallery({
       {uploadError && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4">
           {uploadError}
+        </div>
+      )}
+
+      {uploadBatchStatus && (
+        <div className="mb-3 rounded-md border border-border bg-muted/30 p-3 text-[11px]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-foreground">Upload batch</p>
+              <p className="mt-0.5 text-muted-foreground">
+                {uploadBatchStatus.counts.total} file{uploadBatchStatus.counts.total === 1 ? "" : "s"} · {uploadBatchStatus.status.replace(/_/g, " ")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => refreshUploadBatchStatus(uploadBatchStatus.uploadBatchId)}
+              disabled={uploadBatchStatusLoading}
+            >
+              {uploadBatchStatusLoading && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              Refresh
+            </Button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-4 gap-1.5">
+            <div className="rounded-sm bg-background/70 px-2 py-1">
+              <p className="text-muted-foreground">Ready</p>
+              <p className="font-medium text-emerald-600 dark:text-emerald-400">{uploadBatchStatus.counts.ready}</p>
+            </div>
+            <div className="rounded-sm bg-background/70 px-2 py-1">
+              <p className="text-muted-foreground">Analyzing</p>
+              <p className="font-medium text-sky-600 dark:text-sky-400">{uploadBatchStatus.counts.analyzing}</p>
+            </div>
+            <div className="rounded-sm bg-background/70 px-2 py-1">
+              <p className="text-muted-foreground">Waiting</p>
+              <p className="font-medium text-amber-600 dark:text-amber-400">{uploadBatchStatus.counts.uploaded + uploadBatchStatus.counts.queued}</p>
+            </div>
+            <div className="rounded-sm bg-background/70 px-2 py-1">
+              <p className="text-muted-foreground">Attention</p>
+              <p className="font-medium text-red-600 dark:text-red-400">{uploadBatchStatus.counts.failed + uploadBatchStatus.counts.skipped}</p>
+            </div>
+          </div>
+
+          {uploadBatchStatusError && (
+            <p className="mt-2 text-red-600 dark:text-red-400">{uploadBatchStatusError}</p>
+          )}
+
+          {uploadBatchStatus.assets.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {uploadBatchStatus.assets.slice(0, 5).map((asset) => (
+                <div key={asset.assetId} className="flex items-center justify-between gap-2 text-muted-foreground">
+                  <span className="min-w-0 truncate">{asset.filename}</span>
+                  <span className="shrink-0 capitalize text-foreground">{asset.readiness.replace(/_/g, " ")}</span>
+                </div>
+              ))}
+              {uploadBatchStatus.assets.length > 5 && (
+                <p className="text-muted-foreground">+{uploadBatchStatus.assets.length - 5} more</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!uploadBatchStatus && uploadBatchStatusError && (
+        <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-[11px] text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+          {uploadBatchStatusError}
         </div>
       )}
 
