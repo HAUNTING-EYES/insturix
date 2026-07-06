@@ -90,6 +90,42 @@ describe('quality review signal-owned pacing', () => {
     expect(score).toBe(100);
   });
 
+  it('executes graph G9 tier A sync tolerance for numeric MG landings', () => {
+    const overlays = [
+      videoOverlay(1, 0, 180),
+      motionGraphicOverlay(2, 10, {
+        graphicType: 'stat-counter',
+        signalCurves: { decisionFrame: 0, overlayFrom: 10 },
+        semanticAtoms: { scalar: { displayText: '42%', kind: 'percentage' } },
+      }, { value: '42%', label: 'retention lift' }),
+    ];
+
+    const report = runQualityReview(overlays, fps, 180);
+    const issue = report.issues.find((candidate) => candidate.type === 'narration_sync_drift');
+
+    expect(issue).toMatchObject({
+      severity: 'warning',
+      overlayId: 2,
+    });
+    expect(issue?.description).toContain('tierA');
+    expect(issue?.description).toContain('+/-40ms');
+  });
+
+  it('allows graph G9 tier B word-anchored MGs inside the 120ms window', () => {
+    const overlays = [
+      videoOverlay(1, 0, 180),
+      motionGraphicOverlay(2, 3, {
+        graphicType: 'quote-card',
+        signalCurves: { decisionFrame: 0, overlayFrom: 3 },
+        semanticAtoms: { text: { role: 'quote' } },
+      }, { quote: 'This changes everything' }),
+    ];
+
+    const report = runQualityReview(overlays, fps, 180);
+
+    expect(report.issues.some((issue) => issue.type === 'narration_sync_drift')).toBe(false);
+  });
+
   it('keeps full-video caption transition speech checks advisory', () => {
     const overlays = [
       videoOverlay(1, 0, 300),
@@ -148,6 +184,19 @@ function videoOverlay(id: number, from: number, durationInFrames: number, metada
     assetId: `asset-${id}`,
     styles: {},
     metadata,
+  };
+}
+
+function motionGraphicOverlay(id: number, from: number, metadata: Record<string, unknown>, content: Record<string, unknown> = {}) {
+  return {
+    id,
+    type: 'motion-graphic',
+    from,
+    durationInFrames: 90,
+    row: 1,
+    styles: {},
+    metadata,
+    content,
   };
 }
 

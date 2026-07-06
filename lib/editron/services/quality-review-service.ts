@@ -60,6 +60,7 @@ export type IssueType =
   | 'orphan_sfx'
   | 'transition_during_speech'
   | 'missing_transition_sfx'
+  | 'narration_sync_drift'
   | 'graphic_occlusion'
   | 'abrupt_start'
   | 'abrupt_end'
@@ -99,6 +100,8 @@ export interface QualityReport {
 
 const QUALITY_WARNING_TYPE_CAP = 5; // INVENTED-needs-calibration: one warning type should not dominate long edits.
 const QUALITY_CRITICAL_TYPE_CAP = 15; // INVENTED-needs-calibration: one critical type remains visibly costly.
+const GRAPH_SYNC_TIER_A_TOLERANCE_MS = 40; // CRG audioRules.syncTiers.tierA_percussive.toleranceMs
+const GRAPH_SYNC_TIER_B_TOLERANCE_MS = 120; // CRG audioRules.syncTiers.tierB_word_anchored.toleranceMs
 // ─── Overlay Types for Analysis ──────────────────────────────────
 
 interface AnalyzableOverlay {
@@ -109,7 +112,7 @@ interface AnalyzableOverlay {
   row: number;
   assetId?: string;
   styles?: any;
-  content?: string;
+  content?: unknown;
   metadata?: any;
 }
 
@@ -885,7 +888,72 @@ function checkMissingTransitionSfx(overlays: AnalyzableOverlay[], fps: number): 
   return issues;
 }
 
-// ← constraint:overlay.graphic_in_caption_zone
+// <- qualityGate:G9_narration_desync
+// Rule: anchored events stay inside CRG audioRules.syncTiers final-timeline tolerances.
+// Threshold: tierA >40ms or tierB >120ms from the persisted narration/marker anchor.
+function checkGraphNarrationSync(overlays: AnalyzableOverlay[], fps: number): QualityIssue[] {
+  if (!Number.isFinite(fps) || fps <= 0) return [];
+  const issues: QualityIssue[] = [];
+
+  for (const overlay of overlays) {
+    const evidence = graphSyncEvidence(overlay);
+    if (!evidence) continue;
+    const driftFrames = evidence.actualFrame - evidence.anchorFrame;
+    const driftMs = (driftFrames / fps) * 1000;
+    const toleranceMs = evidence.tier === 'tierA'
+      ? GRAPH_SYNC_TIER_A_TOLERANCE_MS
+      : GRAPH_SYNC_TIER_B_TOLERANCE_MS;
+    if (Math.abs(driftMs) <= toleranceMs) continue;
+
+    issues.push({
+      type: 'narration_sync_drift',
+      severity: 'warning',
+      description: `Graph G9 narration_desync ${evidence.tier} violation: overlay ${overlay.id} actual frame ${evidence.actualFrame} is ${Math.round(driftMs)}ms from anchor frame ${evidence.anchorFrame} (tolerance +/-${toleranceMs}ms)`,
+      overlayId: overlay.id,
+      frameRange: { start: overlay.from, end: overlay.from + Math.max(1, overlay.durationInFrames) },
+      autoFixable: false,
+      suggestedFix: evidence.tier === 'tierA'
+        ? 'Align the percussive/name/number landing frame within +/-40ms of its narration or designed SFX anchor'
+        : 'Align the word-anchored reveal within +/-120ms of the syllable, preferably on or just after it',
+    });
+  }
+
+  return issues;
+}
+
+function graphSyncEvidence(overlay: AnalyzableOverlay): { tier: 'tierA' | 'tierB'; anchorFrame: number; actualFrame: number } | null {
+  if (overlay.type !== 'motion-graphic') return null;
+  const metadata = isPlainRecord(overlay.metadata) ? overlay.metadata : {};
+  const signalCurves = isPlainRecord(metadata.signalCurves) ? metadata.signalCurves : {};
+  const anchorFrame = finiteNumber(signalCurves.decisionFrame)
+    ?? readNestedNumber(metadata, 'atomicMomentBundle.timing.anchorFrame')
+    ?? readNestedNumber(metadata, 'momentBundle.timing.anchorFrame');
+  if (anchorFrame == null) return null;
+  const actualFrame = finiteNumber(signalCurves.overlayFrom) ?? overlay.from;
+  if (!Number.isFinite(actualFrame)) return null;
+  return {
+    tier: graphSyncTierForMotionGraphic(overlay),
+    anchorFrame,
+    actualFrame,
+  };
+}
+
+function graphSyncTierForMotionGraphic(overlay: AnalyzableOverlay): 'tierA' | 'tierB' {
+  const metadata = isPlainRecord(overlay.metadata) ? overlay.metadata : {};
+  const graphicType = typeof metadata.graphicType === 'string' ? metadata.graphicType.toLowerCase() : '';
+  const content: Record<string, any> = isPlainRecord(overlay.content) ? overlay.content : {};
+  const semanticAtoms: Record<string, any> = isPlainRecord(metadata.semanticAtoms) ? metadata.semanticAtoms : {};
+  const hasScalar = isPlainRecord(semanticAtoms.scalar)
+    || ['value', 'amount', 'metric', 'number'].some((key) => typeof content[key] === 'string' && /\d/.test(content[key]));
+  const hasIdentity = isPlainRecord(semanticAtoms.identity)
+    || ['name', 'speaker', 'logo', 'brand'].some((key) => typeof content[key] === 'string' && content[key].trim().length > 0);
+  if (hasScalar || hasIdentity || graphicType.includes('stat') || graphicType.includes('logo') || graphicType.includes('lower-third')) {
+    return 'tierA';
+  }
+  return 'tierB';
+}
+
+// <- constraint:overlay.graphic_in_caption_zone
 // Rule: graphic overlay position overlaps caption position (bottom 15-25% of safe zone)
 // Threshold: any spatial overlap between graphic and caption | severity: warning | deduction: -5
 function checkGraphicOcclusion(overlays: AnalyzableOverlay[]): QualityIssue[] {
@@ -1441,6 +1509,7 @@ export function runQualityReview(
     ...checkOrphanSfx(overlays, fps),
     ...checkTransitionDuringSpeech(overlays, fps, totalDuration),
     ...checkMissingTransitionSfx(overlays, fps),
+    ...checkGraphNarrationSync(overlays, fps),
     ...checkGraphicOcclusion(overlays),
     ...checkAbruptStart(overlays, fps),
     ...checkAbruptEnd(overlays, totalDuration, fps),

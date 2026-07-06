@@ -2043,7 +2043,9 @@
           "any_designed_sfx_hit",
           "lip_sync"
         ],
-        "toleranceMs": 40
+        "toleranceMs": 40,
+        "enforcement": "code",
+        "executor": "quality-review-service.checkGraphNarrationSync"
       },
       "tierB_word_anchored": {
         "appliesTo": [
@@ -2052,7 +2054,9 @@
           "IMPERATIVE"
         ],
         "toleranceMs": 120,
-        "bias": "prefer_on_or_after_syllable"
+        "bias": "prefer_on_or_after_syllable",
+        "enforcement": "code",
+        "executor": "quality-review-service.checkGraphNarrationSync"
       },
       "tierC_beat_locked": {
         "appliesTo": [
@@ -2120,6 +2124,8 @@
           "textDrivenHolds": "1_25x_multiplier"
         },
         "detect": "marker_beat_timestamp_diff_per_tier_final_timeline",
+        "enforcement": "code",
+        "executor": "quality-review-service.checkGraphNarrationSync",
         "aliases": [
           "G9_vo_desync"
         ]
