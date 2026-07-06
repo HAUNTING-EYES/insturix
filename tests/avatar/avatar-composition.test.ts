@@ -63,6 +63,45 @@ describe('avatar composition props', () => {
   });
 });
 
+describe('avatar camera moves', () => {
+  const base = { faceVideoUrl: FACE_URL, durationSeconds: 8, aspectRatio: '9:16', resolution: '720p' };
+
+  it('adds a center push-in scale track for push_in', () => {
+    const props = buildAvatarCompositionProps({ ...base, cameraMove: 'push_in' });
+    const face = props.inputProps.overlays[0];
+    if (face.type !== 'video') throw new Error('expected a video overlay');
+    const track = face.keyframeTracks?.find((t) => t.property === 'scale');
+    expect(track).toBeDefined();
+    expect(track!.keyframes[0].value).toBe(1);
+    expect(track!.keyframes[track!.keyframes.length - 1].value).toBeGreaterThan(1);
+  });
+
+  it('reverses the scale for pull_out', () => {
+    const props = buildAvatarCompositionProps({ ...base, cameraMove: 'pull_out' });
+    const face = props.inputProps.overlays[0];
+    if (face.type !== 'video') throw new Error('expected a video overlay');
+    const track = face.keyframeTracks?.find((t) => t.property === 'scale');
+    expect(track!.keyframes[0].value).toBeGreaterThan(1);
+    expect(track!.keyframes[track!.keyframes.length - 1].value).toBe(1);
+  });
+
+  it('adds no keyframe tracks for static or default', () => {
+    for (const props of [buildAvatarCompositionProps({ ...base, cameraMove: 'static' }), buildAvatarCompositionProps({ ...base })]) {
+      const face = props.inputProps.overlays[0];
+      if (face.type !== 'video') throw new Error('expected a video overlay');
+      expect(face.keyframeTracks).toBeUndefined();
+    }
+  });
+
+  it('keeps the last camera keyframe within the clip duration', () => {
+    const props = buildAvatarCompositionProps({ ...base, cameraMove: 'push_in' });
+    const face = props.inputProps.overlays[0];
+    if (face.type !== 'video') throw new Error('expected a video overlay');
+    const last = face.keyframeTracks![0].keyframes.at(-1)!;
+    expect(last.frame).toBeLessThanOrEqual(props.inputProps.durationInFrames);
+  });
+});
+
 describe('avatar composition pipeline stage', () => {
   it('dispatches composition after OmniHuman succeeds, then completes on poll', async () => {
     const store = createInMemoryAvatarPipelineJobStore([jobAwaitingComposition()]);

@@ -35,6 +35,7 @@ import {
 import {
   dispatchAvatarComposition,
   pollAvatarComposition,
+  type AvatarCameraMove,
   type AvatarCompositionDeps,
   type AvatarCompositionRenderRef,
 } from './avatar-composition';
@@ -364,6 +365,14 @@ export async function refreshAvatarPipelineJobFromRequest(
     },
   };
 }
+// Camera moves are applied deterministically in the composition (Remotion), not by the
+// face model — a subtle push-in for close-framed speech, static otherwise. Doing camera
+// in composition (vs prompting the model) avoids the identity drift a moving model camera
+// causes, and gives repeatable control.
+function resolveCameraMove(recipe: AvatarRenderRecipe): AvatarCameraMove {
+  return CLOSE_FRAME_USE_CASES.has(recipe.useCase) ? 'push_in' : 'static';
+}
+
 // After OmniHuman produces the raw face video, render it into a finished
 // Editron-owned MP4 via the existing Remotion Lambda path, then poll to completion.
 async function advanceCompositionStage(
@@ -389,6 +398,7 @@ async function advanceCompositionStage(
           resolution: job.recipe.target.resolution,
           displayName: job.recipe.visual.displayName,
           script: job.recipe.creative?.script,
+          cameraMove: resolveCameraMove(job.recipe),
         },
         compositionDeps,
       );
