@@ -64,6 +64,7 @@ export interface Phase0RenderedStillFrameEvidence {
 export interface Phase0RenderedStillEvidence {
   version: typeof PHASE0_RENDERED_STILL_EVIDENCE_VERSION;
   status: Phase0RenderedStillEvidenceStatus;
+  statusReason: string | null;
   source: 'phase0-rendered-evidence-worker';
   projectId: string;
   capturedAt: string;
@@ -265,6 +266,7 @@ export async function buildPhase0RenderedStillEvidence(
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status: 'skipped',
+      statusReason: config.reason ?? 'not_configured',
     });
   }
 
@@ -277,6 +279,7 @@ export async function buildPhase0RenderedStillEvidence(
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status: 'skipped',
+      statusReason: 'artifact_pack_not_renderable',
     });
   }
 
@@ -356,6 +359,11 @@ export async function buildPhase0RenderedStillEvidence(
     : renderedFrames.length > 0
       ? 'partial'
       : 'failed';
+  const statusReason = status === 'completed'
+    ? null
+    : status === 'partial'
+      ? 'rendered_still_partial'
+      : 'rendered_still_failed';
 
   let evidence: Phase0RenderedStillEvidence = {
     ...baseEvidence({
@@ -366,6 +374,7 @@ export async function buildPhase0RenderedStillEvidence(
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status,
+      statusReason,
     }),
     completedAt: new Date().toISOString(),
     renderedFrames,
@@ -445,6 +454,7 @@ export function buildPhase0RenderedStillEvidenceFailure(input: {
       artifactPackIssues: [`worker-error:${input.error}`],
       requestedSampleFrames: [],
       status: 'failed',
+      statusReason: 'worker_error',
     }),
     completedAt: new Date().toISOString(),
     failedFrames: [{ frame: -1, renderKind: 'worker', error: input.error }],
@@ -456,7 +466,7 @@ function buildMissingPhase0RenderedQualityEvidence(
 ): Phase0RenderedQualityEvidencePayload {
   const firstFailure = evidence.failedFrames[0]?.error;
   const firstIssue = evidence.artifactPackIssues[0];
-  const reason = firstFailure ?? firstIssue ?? `phase0-worker-status:${evidence.status}`;
+  const reason = evidence.statusReason ?? firstFailure ?? firstIssue ?? `phase0-worker-status:${evidence.status}`;
   return {
     qualityEvidenceSource: 'metadata-only',
     renderedAestheticStatus: 'missing',
@@ -486,6 +496,7 @@ export function buildPhase0RenderedStillEvidencePersistSet(
       ? 'lambda-stills-rendered'
       : 'lambda-stills-missing',
     'intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus': evidence.status,
+    'intelligence.phase0FixtureArtifact.renderedStillEvidenceReason': evidence.statusReason,
     'intelligence.phase0FixtureArtifact.renderedStillFrameCount': evidence.renderedFrames.length,
     'intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount': evidence.failedFrames.length,
     'intelligence.phase0FixtureArtifact.renderedStillCompletedAt': evidence.completedAt,
@@ -533,10 +544,12 @@ function baseEvidence(input: {
   artifactPackIssues: string[];
   requestedSampleFrames: number[];
   status: Phase0RenderedStillEvidenceStatus;
+  statusReason?: string | null;
 }): Phase0RenderedStillEvidence {
   return {
     version: PHASE0_RENDERED_STILL_EVIDENCE_VERSION,
     status: input.status,
+    statusReason: input.statusReason ?? null,
     source: 'phase0-rendered-evidence-worker',
     projectId: input.projectId,
     capturedAt: input.capturedAt,

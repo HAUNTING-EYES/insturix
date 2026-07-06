@@ -28,6 +28,7 @@ describe('phase0 rendered evidence worker service', () => {
     });
 
     expect(evidence.status).toBe('skipped');
+    expect(evidence.statusReason).toBe('missing_remotion_lambda_function_name');
     expect(evidence.functionName).toBeNull();
     expect(evidence.renderedFrames).toHaveLength(0);
     expect(evidence.requestedSampleFrames.length).toBeGreaterThan(0);
@@ -37,7 +38,9 @@ describe('phase0 rendered evidence worker service', () => {
       qualityEvidenceSource: 'metadata-only',
       renderedAestheticStatus: 'missing',
       renderedAestheticArtifactAccess: 'missing',
+      renderedAestheticArtifactNote: expect.stringContaining('missing_remotion_lambda_function_name'),
     });
+    expect(set['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('missing_remotion_lambda_function_name');
     expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject({
       status: 'missing_rendered_evidence',
       reason: 'missing_quality_review',
@@ -194,6 +197,7 @@ describe('phase0 rendered evidence worker service', () => {
     });
 
     expect(evidence.status).toBe('partial');
+    expect(evidence.statusReason).toBe('rendered_still_partial');
     expect(evidence.renderedFrames).toHaveLength(3);
     expect(evidence.renderedFrames[0]?.baselineUrl).toBeUndefined();
     expect(evidence.renderedFrames.slice(1).every((frame) => frame.baselineUrl)).toBe(true);
@@ -201,6 +205,7 @@ describe('phase0 rendered evidence worker service', () => {
       expect.objectContaining({ renderKind: 'baseline', error: 'lambda baseline still failed' }),
     ]);
     expect(evidence.renderedQualityEvidence?.qualityEvidenceSource).toBe('rendered-aesthetic');
+    expect(buildPhase0RenderedStillEvidencePersistSet(evidence)['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('rendered_still_partial');
   });
 
   it('resolves disabled and sample-limit configuration deterministically', () => {
@@ -223,9 +228,16 @@ describe('phase0 rendered evidence worker service', () => {
     });
 
     expect(evidence.status).toBe('failed');
+    expect(evidence.statusReason).toBe('worker_error');
     expect(evidence.artifactPackStatus).toBe('not-renderable');
     expect(evidence.failedFrames).toEqual([{ frame: -1, renderKind: 'worker', error: 'asset resolution failed' }]);
     expect(evidence.artifactPackIssues).toEqual(['worker-error:asset resolution failed']);
+
+    const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
+    expect(set['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('worker_error');
+    expect(set['intelligence.renderedQualityEvidence']).toMatchObject({
+      renderedAestheticArtifactNote: expect.stringContaining('worker_error'),
+    });
   });
 
   it('scores caption evidence from the visible phrase window instead of the full caption group', async () => {
