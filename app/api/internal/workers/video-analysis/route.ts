@@ -25,7 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
-import { buildProjectAnalysisAssetSet } from '@/lib/editron/services/project-analysis-storage';
+import { buildProjectAnalysisAssetSet, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -753,6 +753,16 @@ async function handler(request: NextRequest) {
       },
     );
 
+    try {
+      await persistProjectAssetAnalysis(db, projectId, assetId, {
+        rawFootageAnalysis: persistedRawFootageAnalysis,
+        vjepaAnalysis: precutVjepaAnalysis,
+      }, phase1UpdatedAt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[VideoAnalysisWorker] Per-asset analysis document write failed (non-fatal): ${msg}`);
+    }
+
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.7: Dispatch graph-sync with transcript data Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (rawFootageAnalysis) {
       try {
@@ -1038,6 +1048,19 @@ async function handler(request: NextRequest) {
             },
           },
         );
+
+        try {
+          await persistProjectAssetAnalysis(db, projectId, assetId, {
+            vjepaAnalysis,
+            wav2vecAnalysis,
+            musicAnalysis: musicResult.status === 'fulfilled' ? musicResult.value : null,
+            momentWeightMap,
+            segmentAnalysis,
+          }, inlinePhase2UpdatedAt);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[VideoAnalysisWorker] Inline per-asset analysis document write failed (non-fatal): ${msg}`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[VideoAnalysisWorker] TRIBE inline failed (non-fatal): ${msg}`);

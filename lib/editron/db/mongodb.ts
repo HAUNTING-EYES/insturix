@@ -67,6 +67,7 @@ export const COLLECTIONS = {
   CHAT_SESSIONS: 'chatSessions',
   MEDIA_ASSETS: 'mediaAssets',
   MEDIA_UPLOADS: 'mediaUploads',
+  PROJECT_ASSET_ANALYSES: 'editron_asset_analyses',
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
@@ -127,6 +128,12 @@ export async function initializeIndexes(): Promise<void> {
       name: 'ttl_lastActivity',
       expireAfterSeconds: 604800, // 7 days
     },
+  ]);
+
+  // Per-project asset analysis documents (keeps large multi-upload analyses off project docs)
+  await db.collection(COLLECTIONS.PROJECT_ASSET_ANALYSES).createIndexes([
+    { key: { projectId: 1, assetId: 1 }, name: 'projectId_assetId_unique', unique: true },
+    { key: { projectId: 1, updatedAt: -1 }, name: 'projectId_updatedAt' },
   ]);
 
   // Project links indexes (cross-service content lineage)

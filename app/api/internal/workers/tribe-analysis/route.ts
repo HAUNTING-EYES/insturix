@@ -21,7 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
-import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey } from '@/lib/editron/services/project-analysis-storage';
+import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -294,6 +294,15 @@ async function handler(request: NextRequest) {
                 },
               },
             );
+
+            if (sourceAssetId) {
+              try {
+                await persistProjectAssetAnalysis(db, projectId, sourceAssetId, { musicAnalysis }, musicUpdatedAt);
+              } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[TribeWorker] Music per-asset analysis document write failed (non-fatal): ${msg}`);
+              }
+            }
           } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
         }
       } catch (err: unknown) {
@@ -395,6 +404,20 @@ async function handler(request: NextRequest) {
         },
       },
     );
+
+    if (sourceAssetId) {
+      try {
+        await persistProjectAssetAnalysis(db, projectId, sourceAssetId, {
+          vjepaAnalysis,
+          wav2vecAnalysis,
+          momentWeightMap,
+          segmentAnalysis,
+        }, phase2UpdatedAt);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[TribeWorker] Phase 2 per-asset analysis document write failed (non-fatal): ${msg}`);
+      }
+    }
 
     // ─── Step 5: Dispatch Director to separate worker ─────────────
     if (process.env.QSTASH_TOKEN) {
