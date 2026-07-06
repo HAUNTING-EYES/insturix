@@ -93,9 +93,15 @@ async function handler(request: NextRequest) {
     } finally {
       await releasePhase0RenderedEvidenceClaim(db, projectId);
     }
-    console.error(`[Phase0RenderedEvidence] ${projectId}: failed: ${evidence.failedFrames[0]?.error}`);
+    console.error(`[Phase0RenderedEvidence] ${projectId}: failed reason=${evidence.statusReason ?? 'unknown'}: ${evidence.failedFrames[0]?.error}`);
     return NextResponse.json(
-      { success: false, projectId, status: evidence.status, error: evidence.failedFrames[0]?.error },
+      {
+        success: false,
+        projectId,
+        status: evidence.status,
+        statusReason: evidence.statusReason,
+        error: evidence.failedFrames[0]?.error,
+      },
       { status: 500 },
     );
   }
@@ -107,7 +113,7 @@ async function handler(request: NextRequest) {
   }
 
   console.log(
-    `[Phase0RenderedEvidence] ${projectId}: status=${evidence.status}, ` +
+    `[Phase0RenderedEvidence] ${projectId}: status=${evidence.status}, reason=${evidence.statusReason ?? 'none'}, ` +
     `rendered=${evidence.renderedFrames.length}/${evidence.requestedSampleFrames.length}, ` +
     `renderQuality=${evidence.renderedQualityEvidence?.renderedAestheticStatus ?? 'missing'}, ` +
     `ms=${Date.now() - startedAt}`,
@@ -117,6 +123,7 @@ async function handler(request: NextRequest) {
     success: true,
     projectId,
     status: evidence.status,
+    statusReason: evidence.statusReason,
     renderedFrames: evidence.renderedFrames.length,
     failedFrames: evidence.failedFrames.length,
     qualityEvidenceSource: evidence.renderedQualityEvidence?.qualityEvidenceSource ?? 'metadata-only',

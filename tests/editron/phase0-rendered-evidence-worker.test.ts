@@ -326,6 +326,13 @@ describe('phase0 rendered evidence worker service', () => {
     expect(source).toContain('evaluateScoringKeyframeTracks');
   });
 
+  it('surfaces worker status reasons in the Phase 0 rendered evidence route boundary', () => {
+    const source = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+
+    expect(source).toContain('reason=${evidence.statusReason ??');
+    expect(source).toContain('statusReason: evidence.statusReason');
+  });
+
   it('builds durable dispatch breadcrumbs for Phase 0 rendered evidence requests', () => {
     expect(buildPhase0RenderedEvidenceDispatchPersistSet(
       { dispatched: true, messageId: 'msg_123' },
