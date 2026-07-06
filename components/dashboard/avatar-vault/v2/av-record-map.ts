@@ -15,6 +15,7 @@ export function recordToForm(record: AvatarProfileRecord): AvatarVaultDraftFormS
   const wardrobe = p.stylePack?.wardrobePresets?.[0]?.description;
   const body = p.identityPack?.bodyProfile;
   const perf = p.performancePack;
+  const voiceEvidenceUrl = p.evidence.find((item) => item.sourceType === 'uploaded_voice_sample' && item.sourceUrl)?.sourceUrl ?? '';
 
   return {
     ...DEFAULT_AVATAR_DRAFT_FORM,
@@ -41,6 +42,7 @@ export function recordToForm(record: AvatarProfileRecord): AvatarVaultDraftFormS
     movementConstraints: (perf?.movementConstraints ?? []).join('\n'),
     voiceMode: p.voice?.sourceType ?? 'uploaded_voice_sample',
     voiceSampleAssetId: p.voice?.sampleAssetId ?? '',
+    voiceSampleUrl: voiceEvidenceUrl,
     ttsVoiceId: p.voice?.ttsVoiceId ?? '',
     voiceProfileId: p.voice?.voiceProfileId ?? '',
     language: p.voice?.language ?? 'en',

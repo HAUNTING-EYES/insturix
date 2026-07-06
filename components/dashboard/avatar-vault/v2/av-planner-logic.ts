@@ -110,8 +110,8 @@ export function speechInputProblem(record: AvatarProfileRecord, state: PlannerSt
   }
   if (state.voiceReferenceUrl.trim() && state.audioMode !== 'copied_reference_audio') return null;
   const hasAudioUrl = Boolean(state.audioSourceUrl.trim());
-  if (state.audioMode === 'tts_voiceover' && !hasTtsVoice(record)) {
-    return 'This avatar has no TTS voice ID. Paste a voiceover URL, or add a TTS voice to the avatar profile.';
+  if (state.audioMode === 'tts_voiceover' && !hasSavedSpeechVoice(record)) {
+    return 'This avatar has no saved voice. Record or paste a voice sample on the avatar profile, or paste a voice sample URL here.';
   }
   if (state.audioMode === 'uploaded_voiceover' && !hasAudioUrl && !hasSavedSpeechVoice(record)) {
     return 'Speech needs a voice. Paste an Audio URL, or add a voice sample / imported voice / TTS voice to the avatar.';
@@ -161,10 +161,13 @@ function defaultPrompt(record: AvatarProfileRecord): string {
   return `${record.profile.displayName} appears as a ${role} in a clean room background.`;
 }
 function defaultAudioMode(record: AvatarProfileRecord): AvatarRenderAudioMode {
-  return hasTtsVoice(record) ? 'tts_voiceover' : 'uploaded_voiceover';
+  return hasTtsVoice(record) || hasVoiceEvidenceUrl(record) ? 'tts_voiceover' : 'uploaded_voiceover';
 }
 export function hasSavedSpeechVoice(record: AvatarProfileRecord): boolean {
-  return hasTtsVoice(record) || Boolean(record.profile.voice.sampleAssetId?.trim() || record.profile.voice.voiceProfileId?.trim());
+  return hasTtsVoice(record) || Boolean(record.profile.voice.sampleAssetId?.trim() || record.profile.voice.voiceProfileId?.trim() || hasVoiceEvidenceUrl(record));
+}
+function hasVoiceEvidenceUrl(record: AvatarProfileRecord): boolean {
+  return Boolean(record.profile.evidence.find((item) => item.sourceType === 'uploaded_voice_sample' && item.sourceUrl?.trim()));
 }
 export function hasTtsVoice(record: AvatarProfileRecord): boolean {
   return Boolean(record.profile.voice.ttsVoiceId?.trim());
