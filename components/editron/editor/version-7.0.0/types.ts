@@ -31,7 +31,7 @@ export interface Keyframe {
   /** Value at this frame */
   value: number;
   /** Interpolation easing to the NEXT keyframe */
-  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap-out';
 }
 
 export interface KeyframeTrack {

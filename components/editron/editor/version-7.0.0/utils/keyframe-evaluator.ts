@@ -21,6 +21,7 @@ const EASING_MAP: Record<string, EasingFunction> = {
   'ease-in': Easing.in(Easing.ease),
   'ease-out': Easing.out(Easing.ease),
   'ease-in-out': Easing.inOut(Easing.ease),
+  'snap-out': (t: number) => 1 - ((1 - t) ** 4),
 };
 
 function getEasing(name: string): EasingFunction {

@@ -195,7 +195,7 @@ function buildAtomicZoomKeyframes(input: {
   }
 
   return [
-    { frame: input.startFrame, value: input.scaleFrom, easing: 'ease-in' },
+    { frame: input.startFrame, value: input.scaleFrom, easing: 'snap-out' },
     { frame: input.endFrame, value: input.scaleTo, easing: 'ease-out' },
     { frame: input.sceneEnd, value: input.scaleTo, easing: 'linear' },
   ];

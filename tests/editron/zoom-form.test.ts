@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveAtomicZoomForm } from '@/lib/editron/services/zoom-form';
+import { evaluateKeyframeTrack } from '@/components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
 
 describe('resolveAtomicZoomForm', () => {
   it('generates an emphasis push from atoms without requiring a zoom preset', () => {
@@ -26,6 +27,12 @@ describe('resolveAtomicZoomForm', () => {
     expect(form.startFrame).toBeLessThan(60);
     expect(form.holdFrames).toBeGreaterThan(0);
     expect(form.focal.transformOrigin).toBe('72% 38%');
+    expect(form.keyframes[0].easing).toBe('snap-out');
+
+    const midpointFrame = Math.round((form.keyframes[0].frame + form.keyframes[1].frame) / 2);
+    const easedMidpoint = evaluateKeyframeTrack({ property: 'scale', keyframes: form.keyframes }, midpointFrame);
+    const linearMidpoint = form.scaleFrom + ((form.scaleTo - form.scaleFrom) * 0.5);
+    expect(easedMidpoint).toBeGreaterThan(linearMidpoint);
   });
 
   it('uses intent-tiered scale ranges from signal strength', () => {
